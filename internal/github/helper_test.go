@@ -1,6 +1,7 @@
 package github_test
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -10,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -56,6 +58,7 @@ type env struct {
 	mu          sync.Mutex
 	lookups     int
 	tokenBodies []map[string]any
+	sleeps      []time.Duration
 	apiAuth     []string // Authorization headers of non-App calls
 }
 
@@ -96,6 +99,12 @@ func newEnv(t *testing.T) *env {
 	c, err := github.New(github.Config{
 		AppID: 123456, PrivateKey: pkcs1PEM(privateKey(t)), BaseURL: srv.URL,
 		Now: e.clock.Now,
+		Sleep: func(_ context.Context, d time.Duration) error {
+			e.mu.Lock()
+			defer e.mu.Unlock()
+			e.sleeps = append(e.sleeps, d)
+			return nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -126,6 +135,19 @@ func (e *env) serve(pattern string, status int, name string) {
 
 // handle registers a custom handler.
 func (e *env) handle(pattern string, h http.HandlerFunc) { e.mux.HandleFunc(pattern, h) }
+
+func readJSON(t *testing.T, r *http.Request) map[string]any {
+	t.Helper()
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("body %q: %v", b, err)
+	}
+	return m
+}
 
 func wantErr(t *testing.T, err, target error) {
 	t.Helper()

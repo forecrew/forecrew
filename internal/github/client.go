@@ -33,15 +33,19 @@ type Config struct {
 	HTTPClient *http.Client
 	// Now returns the current time; nil means time.Now().UTC().
 	Now func() time.Time
+	// Sleep waits for d or until ctx ends; nil means a real timer. Rate-limit
+	// retries wait through it.
+	Sleep func(ctx context.Context, d time.Duration) error
 }
 
 // Client implements Tracker over a GitHub App. Safe for concurrent use.
 type Client struct {
-	appID int64
-	key   *rsa.PrivateKey
-	base  *url.URL
-	http  *http.Client
-	now   func() time.Time
+	appID   int64
+	key     *rsa.PrivateKey
+	base    *url.URL
+	http    *http.Client
+	now     func() time.Time
+	retrier *retryTransport
 
 	mu            sync.Mutex
 	installations map[string]int64 // lowercase repo -> installation ID
@@ -79,9 +83,29 @@ func New(cfg Config) (*Client, error) {
 	if hc == nil {
 		hc = &http.Client{Timeout: 30 * time.Second}
 	}
+	rt := hc.Transport
+	if rt == nil {
+		rt = http.DefaultTransport
+	}
+	c.retrier = &retryTransport{base: rt, now: c.now, sleep: cfg.Sleep}
+	if c.retrier.sleep == nil {
+		c.retrier.sleep = sleep
+	}
 	copied := *hc
+	copied.Transport = c.retrier
 	c.http = &copied
 	return c, nil
+}
+
+func sleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }
 
 // api returns a go-github client authenticated with token.
