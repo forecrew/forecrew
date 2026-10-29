@@ -31,7 +31,7 @@ var excludedDirs = map[string]bool{
 }
 
 // composePatterns match docker-compose files by base name.
-var composePatterns = []string{"docker-compose*.yml", "docker-compose*.yaml"}
+var composePatterns = []string{"docker-compose*.yml", "docker-compose*.yaml", "compose.yml", "compose.yaml"}
 
 // languageByExt maps lower-case file extensions to language names.
 var languageByExt = map[string]string{
@@ -73,6 +73,14 @@ func (Local) Analyze(ctx context.Context, dir string) (Facts, error) {
 	if err != nil {
 		return Facts{}, fmt.Errorf("analyze %s: %w", dir, err)
 	}
+	runners, err := ciRunners(root, files)
+	if err != nil {
+		return Facts{}, fmt.Errorf("analyze %s: %w", dir, err)
+	}
+	services, err := composeServices(root, files)
+	if err != nil {
+		return Facts{}, fmt.Errorf("analyze %s: %w", dir, err)
+	}
 	return Facts{
 		Name:       filepath.Base(root),
 		Languages:  nonNil(langs),
@@ -81,6 +89,9 @@ func (Local) Analyze(ctx context.Context, dir string) (Facts, error) {
 		DocFiles:   filter(files, isDoc),
 		TopLevel:   nonNil(top),
 		Components: comps,
+		CIRunners:  runners,
+		AgentFiles: filter(files, isAgentFile),
+		Services:   services,
 	}, nil
 }
 
@@ -197,6 +208,13 @@ func isManifest(rel string) bool {
 func isWorkflow(rel string) bool {
 	return strings.HasPrefix(rel, ".github/workflows/") &&
 		(strings.HasSuffix(rel, ".yml") || strings.HasSuffix(rel, ".yaml"))
+}
+
+// isAgentFile reports whether rel is an agent instruction file.
+func isAgentFile(rel string) bool {
+	return matchAny([]string{"CLAUDE.md", "AGENTS.md"}, path.Base(rel)) ||
+		rel == ".cursor/rules" || strings.HasPrefix(rel, ".cursor/rules/") ||
+		rel == ".github/copilot-instructions.md"
 }
 
 // isDoc reports whether rel is a README, contributing guide, AGENTS.md or

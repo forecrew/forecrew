@@ -25,6 +25,21 @@ type Facts struct {
 	TopLevel  []string   `json:"top_level"` // entries of the repo root, directories end in "/"
 	// Components are the directories with their own build file, sorted by path.
 	Components []Component `json:"components"`
+	// CIRunners are the runner values workflows declare in runs-on and matrix
+	// os entries, e.g. ubuntu-latest. Unique and sorted.
+	CIRunners []string `json:"ci_runners"`
+	// AgentFiles are the agent instruction files: CLAUDE.md, AGENTS.md,
+	// .cursor/rules and .github/copilot-instructions.md.
+	AgentFiles []string `json:"agent_files"`
+	// Services are the services of the docker-compose files.
+	Services []Service `json:"services"`
+}
+
+// Service is a service declared in a docker-compose file.
+type Service struct {
+	File  string `json:"file"`  // compose file, relative to the repo root
+	Name  string `json:"name"`  // service name
+	Image string `json:"image"` // "" when the service is built from a Dockerfile
 }
 
 // Component is a directory with its own build file.
