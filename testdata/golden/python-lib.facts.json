@@ -35,5 +35,10 @@
       "build": "python -m build",
       "test": "python -m pytest"
     }
-  ]
+  ],
+  "ci_runners": [],
+  "agent_files": [
+    ".github/copilot-instructions.md"
+  ],
+  "services": []
 }

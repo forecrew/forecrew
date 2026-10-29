@@ -46,5 +46,13 @@
       "build": "make build",
       "test": "make test"
     }
-  ]
+  ],
+  "ci_runners": [
+    "macos-latest",
+    "ubuntu-latest"
+  ],
+  "agent_files": [
+    "AGENTS.md"
+  ],
+  "services": []
 }

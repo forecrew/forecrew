@@ -79,5 +79,29 @@
       "build": "cargo build",
       "test": "cargo test"
     }
+  ],
+  "ci_runners": [
+    "macos-latest",
+    "ubuntu-latest"
+  ],
+  "agent_files": [
+    "AGENTS.md"
+  ],
+  "services": [
+    {
+      "file": "docker-compose.yml",
+      "name": "api",
+      "image": ""
+    },
+    {
+      "file": "docker-compose.yml",
+      "name": "cache",
+      "image": "redis:8"
+    },
+    {
+      "file": "docker-compose.yml",
+      "name": "db",
+      "image": "postgres:18"
+    }
   ]
 }

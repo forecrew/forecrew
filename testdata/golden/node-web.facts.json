@@ -44,5 +44,13 @@
       "build": "pnpm run build",
       "test": "pnpm test"
     }
-  ]
+  ],
+  "ci_runners": [
+    "windows-latest"
+  ],
+  "agent_files": [
+    ".cursor/rules/style.mdc",
+    "CLAUDE.md"
+  ],
+  "services": []
 }
