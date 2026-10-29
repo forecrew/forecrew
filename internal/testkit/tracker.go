@@ -76,6 +76,18 @@ func (t *Tracker) SetHeadSHA(repo string, number int, sha string) error {
 	})
 }
 
+// ClosePR simulates closing a PR without merging it.
+func (t *Tracker) ClosePR(repo string, number int) error {
+	return t.with(repo, func(r *fakeRepo) error {
+		pr, err := r.pr(number)
+		if err == nil {
+			pr.State = "closed"
+			r.issues[number].issue.State = "closed"
+		}
+		return err
+	})
+}
+
 // AddComment simulates a comment by a GitHub user.
 func (t *Tracker) AddComment(repo string, number int, author, body string) (github.Comment, error) {
 	var c github.Comment
