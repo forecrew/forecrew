@@ -19,5 +19,8 @@ test-integration:
 lint:
 	golangci-lint run ./...
 
+# The Postgres store counts towards coverage only through its integration
+# tests, so cover needs the same database as test-integration.
 cover:
+	@test -n "$$FORECREW_TEST_DATABASE_URL" || { echo "set FORECREW_TEST_DATABASE_URL; see make test-integration"; exit 1; }
 	./scripts/cover.sh
