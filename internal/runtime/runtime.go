@@ -1,6 +1,7 @@
 // Package runtime defines the adapter between the worker and an agent
-// runtime CLI (Claude Code headless, Codex CLI). internal/testkit has a
-// scripted fake.
+// runtime CLI (Claude Code headless, Codex CLI), plus a scripted adapter that
+// replays a script file for end-to-end tests. internal/testkit has an
+// in-memory fake for unit tests.
 package runtime
 
 import (
