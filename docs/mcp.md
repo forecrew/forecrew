@@ -1,0 +1,93 @@
+# MCP server
+
+forecrewd serves Forecrew over MCP (streamable HTTP) at `/mcp` on its public
+URL (`server.public_base_url`). Every request needs an MCP token in the
+`Authorization` header:
+
+```
+Authorization: Bearer fcm_...
+```
+
+Tokens start with `fcm_`, belong to one account and are shown once when
+created. Only their SHA-256 is stored, so a lost token is revoked and
+replaced. A missing, unknown or revoked token gets `401`. The token's name is
+recorded as the actor (`mcp:<name>`) on everything it does.
+
+## Connect from Claude Code
+
+```sh
+claude mcp add --transport http forecrew https://forecrew.example.com/mcp \
+  --header "Authorization: Bearer $FORECREW_TOKEN"
+```
+
+Check with `claude mcp list`, or `/mcp` inside Claude Code.
+
+## Connect from Claude apps
+
+Custom connectors in the Claude apps (web, desktop and mobile) cannot send a
+static `Authorization` header, so a bearer-token server like this one cannot
+be added there directly. Use Claude Desktop with the `mcp-remote` bridge, which
+adds the header. In `claude_desktop_config.json` (macOS:
+`~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
+
+```json
+{
+  "mcpServers": {
+    "forecrew": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "https://forecrew.example.com/mcp",
+        "--header",
+        "Authorization:${FORECREW_AUTH}"
+      ],
+      "env": {
+        "FORECREW_AUTH": "Bearer fcm_..."
+      }
+    }
+  }
+}
+```
+
+The space of `Bearer ` sits in `env` because Claude Desktop on Windows does
+not escape spaces in `args`. Restart Claude Desktop after editing the file. It
+needs Node.js for `npx`.
+
+## Project config for Claude Code
+
+To share the server with a team, put it in the project's `.mcp.json`; each
+person sets `FORECREW_TOKEN` in their environment:
+
+```json
+{
+  "mcpServers": {
+    "forecrew": {
+      "type": "http",
+      "url": "https://forecrew.example.com/mcp",
+      "headers": { "Authorization": "Bearer ${FORECREW_TOKEN}" }
+    }
+  }
+}
+```
+
+## Tools
+
+Tools take refs (`GOAL-3`, `JOB-41`, `GATE-7`) or UUIDs, and projects by name
+or `owner/name`. Results are JSON text.
+
+| Tool | Purpose |
+|------|---------|
+| `onboard_project` | Register a repo and start onboarding |
+| `create_goal` | Create a goal and start its playbook |
+| `job_status`, `job_logs` | Inspect a job and read its events |
+| `list_workers` | Workers and whether they are online |
+| `list_pending_gates` | Decisions waiting for a human |
+| `approve`, `request_changes`, `reject` | Resolve a gate. `request_changes` needs `feedback` and is not valid on `needs_you` gates (use `approve` to retry, `reject` to stop) |
+| `dispatch_job` | Queue an ad-hoc job of a role |
+| `list_projects`, `get_project` | Projects |
+| `list_goals`, `get_goal` | Goals; `get_goal` includes spec, tasks, changes and pending gates |
+| `list_jobs` | Recent jobs |
+
+Invalid input and unknown refs come back as a tool error with a short message.
+Unexpected failures return a generic "internal error"; the cause is in the
+server log only.
