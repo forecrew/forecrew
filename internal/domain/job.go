@@ -158,7 +158,7 @@ type JobSpec struct {
 	AccountID uuid.UUID `json:"account_id"`
 	Repo      string    `json:"repo"`     // "owner/name"
 	BaseRef   string    `json:"base_ref"` // branch or SHA to start from
-	Branch    string    `json:"branch"`   // agent/<...> branch to push to; empty for read-only roles
+	Branch    string    `json:"branch"`   // agent/<...> branch to check out; writing roles push it, read-only roles may leave it empty or name one to inspect (never pushed)
 	Role      string    `json:"role"`
 	// WritePaths are doublestar globs relative to the repo root; a pattern
 	// starting with "!" excludes. Empty means read-only.
