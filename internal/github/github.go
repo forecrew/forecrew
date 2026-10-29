@@ -17,6 +17,12 @@ var (
 	// ErrNotMergeable means GitHub refused the merge (conflicts, failing
 	// required checks, head moved past MergeInput.SHA).
 	ErrNotMergeable = errors.New("github: not mergeable")
+	// ErrInvalid means GitHub rejected the request as invalid (HTTP 422) or
+	// the repo name is not "owner/name".
+	ErrInvalid = errors.New("github: invalid request")
+	// ErrRateLimited means GitHub rate-limited the request and the wait was
+	// too long, or retries ran out.
+	ErrRateLimited = errors.New("github: rate limited")
 )
 
 // Issue is a GitHub issue.
@@ -70,6 +76,8 @@ type PullRequest struct {
 	Merged  bool   `json:"merged"`
 	Draft   bool   `json:"draft"`
 	URL     string `json:"url"`
+	// Mergeable is nil while GitHub has not computed it yet.
+	Mergeable *bool `json:"mergeable"`
 }
 
 // PRInput opens a pull request.
@@ -110,15 +118,27 @@ type Review struct {
 type ReviewInput struct {
 	Event ReviewEvent
 	Body  string
+	// Comments are inline comments on the new side of the diff. Comments on
+	// lines outside the diff are appended to Body instead.
+	Comments []InlineComment
+}
+
+// InlineComment is an inline review comment.
+type InlineComment struct {
+	Path string
+	Line int
+	Body string
 }
 
 // CheckState is the aggregate state of the check runs and commit statuses
 // of a commit.
 type CheckState string
 
-// Check states. Pending means at least one check has not finished; Failure
-// means at least one finished unsuccessfully (failure, cancelled, timed_out,
-// action_required, error); None means the commit has no checks.
+// Check states. Failure means at least one check run or status finished
+// unsuccessfully (failure, cancelled, timed_out, action_required, error),
+// even while others are still running. Success means every check finished
+// successfully (success, neutral, skipped). Pending means no check failed and
+// at least one has not finished. None means the commit has no checks.
 const (
 	ChecksPending CheckState = "pending"
 	ChecksSuccess CheckState = "success"
@@ -194,6 +214,8 @@ type Tracker interface {
 	UpdatePR(ctx context.Context, repo string, number int, in PRUpdate) (PullRequest, error)
 	CreateReview(ctx context.Context, repo string, number int, in ReviewInput) (Review, error)
 	ListReviews(ctx context.Context, repo string, number int) ([]Review, error)
+	// BranchExists reports whether branch exists in repo.
+	BranchExists(ctx context.Context, repo, branch string) (bool, error)
 	// CheckStatus aggregates the check runs and commit statuses of sha.
 	CheckStatus(ctx context.Context, repo, sha string) (CheckStatus, error)
 	// MergePR merges and returns the merge commit SHA; ErrNotMergeable when
