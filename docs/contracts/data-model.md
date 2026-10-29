@@ -94,6 +94,7 @@ CREATE TABLE jobs (
   spec             jsonb NOT NULL,         -- domain.JobSpec without env and repo_token
   attempts         integer NOT NULL DEFAULT 0,
   max_attempts     integer NOT NULL DEFAULT 3 CHECK (max_attempts >= 1),
+  run_after        timestamptz,            -- retry backoff: not leased before this (NULL = now)
   worker_id        uuid,                   -- FK added after workers; set while running
   lease_expires_at timestamptz,            -- set while running
   started_at       timestamptz,
@@ -332,6 +333,7 @@ UPDATE jobs SET status = 'running', worker_id = $2, started_at = now(),
 WHERE id = (
   SELECT id FROM jobs
   WHERE account_id = $1 AND status = 'queued'
+    AND (run_after IS NULL OR run_after <= now())
     AND (needs || ARRAY[lower('runtime:' || runtime)]) <@ $3::text[]
     AND EXISTS (SELECT 1 FROM workers w WHERE w.id = $2 AND w.account_id = $1)
   ORDER BY created_at, id
@@ -340,6 +342,10 @@ WHERE id = (
 )
 RETURNING *;
 ```
+
+`Jobs.Release` (Nack) requeues with `domain.Job.Release`: `Requeue` plus
+`run_after = now() + domain.RetryBackoff(attempts)` (30 s base, doubling, 10 min
+cap). `RequeueExpired` does not delay the job.
 
 `Jobs.RequeueExpired(account)` applies `domain.Job.Requeue` in SQL to every
 `running` job with `lease_expires_at <= now()`: `attempts + 1`, clear

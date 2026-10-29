@@ -60,7 +60,7 @@ func (r jobRepo) LeaseNext(_ context.Context, accountID, workerID uuid.UUID, lab
 	var out domain.Job
 	err := r.s.do(func(d *storeData, now time.Time) error {
 		j, err := d.jobs.find(func(j domain.Job) bool {
-			return j.AccountID == accountID && j.Status == domain.JobQueued && domain.MatchLabels(j.RequiredLabels(), labels)
+			return j.AccountID == accountID && j.Status == domain.JobQueued && !j.RunAfter.After(now) && domain.MatchLabels(j.RequiredLabels(), labels)
 		})
 		if err != nil {
 			return store.ErrNoJob
@@ -134,7 +134,7 @@ func (r jobRepo) Complete(_ context.Context, accountID, jobID, workerID uuid.UUI
 
 func (r jobRepo) Release(_ context.Context, accountID, jobID, workerID uuid.UUID, reason string) (domain.Job, error) {
 	return r.leased(accountID, jobID, workerID, func(j *domain.Job, now time.Time) error {
-		return j.Requeue(reason, now)
+		return j.Release(reason, now)
 	})
 }
 

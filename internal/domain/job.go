@@ -47,6 +47,26 @@ func (s JobStatus) Terminal() bool {
 // LeaseDuration is how long a lease lasts without a heartbeat.
 const LeaseDuration = 5 * time.Minute
 
+// Retry backoff after a worker gives up an attempt (Job.Release): the job
+// waits RetryBackoffBase * 2^(attempts-1), at most RetryBackoffMax.
+const (
+	RetryBackoffBase = 30 * time.Second
+	RetryBackoffMax  = 10 * time.Minute
+)
+
+// RetryBackoff returns how long a job is held back after its attempts-th
+// failed attempt.
+func RetryBackoff(attempts int) time.Duration {
+	d := RetryBackoffBase
+	for range max(attempts-1, 0) {
+		d *= 2
+		if d >= RetryBackoffMax {
+			return RetryBackoffMax
+		}
+	}
+	return min(d, RetryBackoffMax)
+}
+
 // DefaultMaxAttempts is the MaxAttempts of a job when none is given.
 const DefaultMaxAttempts = 3
 
@@ -75,6 +95,8 @@ type Job struct {
 	Attempts    int       `json:"attempts"`
 	MaxAttempts int       `json:"max_attempts"`
 	WorkerID    uuid.UUID `json:"worker_id,omitzero"` // set while running
+	// RunAfter holds a released job back until then; zero means no delay.
+	RunAfter time.Time `json:"run_after,omitzero"`
 	// LeaseExpiresAt is zero unless the job is running.
 	LeaseExpiresAt time.Time       `json:"lease_expires_at,omitzero"`
 	StartedAt      time.Time       `json:"started_at,omitzero"`  // last lease
@@ -121,6 +143,7 @@ func (j *Job) Requeue(reason string, now time.Time) error {
 	j.Attempts++
 	j.WorkerID = uuid.Nil()
 	j.LeaseExpiresAt = time.Time{}
+	j.RunAfter = time.Time{}
 	j.UpdatedAt = now
 	if j.Attempts >= j.MaxAttempts {
 		j.Status = JobFailed
@@ -129,6 +152,18 @@ func (j *Job) Requeue(reason string, now time.Time) error {
 		return nil
 	}
 	j.Status = JobQueued
+	return nil
+}
+
+// Release gives up the attempt like Requeue and, when the job is queued
+// again, holds it back for RetryBackoff.
+func (j *Job) Release(reason string, now time.Time) error {
+	if err := j.Requeue(reason, now); err != nil {
+		return err
+	}
+	if j.Status == JobQueued {
+		j.RunAfter = now.Add(RetryBackoff(j.Attempts))
+	}
 	return nil
 }
 

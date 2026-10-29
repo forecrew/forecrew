@@ -1,6 +1,7 @@
 package queue_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -41,6 +42,10 @@ func TestQueueLifecycle(t *testing.T) {
 	if _, err := q.Extend(ctx, acc, j.ID, worker); err == nil {
 		t.Fatal("extend after nack succeeded")
 	}
+	if _, err := q.Lease(ctx, acc, worker, labels); !errors.Is(err, store.ErrNoJob) {
+		t.Fatalf("lease during backoff = %v", err)
+	}
+	clock.Advance(domain.RetryBackoff(1))
 	if _, err := q.Lease(ctx, acc, worker, labels); err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +54,7 @@ func TestQueueLifecycle(t *testing.T) {
 	if err != nil || len(expired) != 1 || expired[0].Status != domain.JobFailed {
 		t.Fatalf("requeue expired = %+v, %v", expired, err)
 	}
-	if _, err := q.Lease(ctx, acc, worker, labels); err != store.ErrNoJob {
+	if _, err := q.Lease(ctx, acc, worker, labels); !errors.Is(err, store.ErrNoJob) {
 		t.Fatalf("lease on empty queue = %v", err)
 	}
 

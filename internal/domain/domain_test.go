@@ -258,3 +258,37 @@ func TestJobEventTypes(t *testing.T) {
 		t.Fatalf("JobEventTypes = %v", JobEventTypes())
 	}
 }
+
+func TestRetryBackoff(t *testing.T) {
+	for attempts, want := range map[int]time.Duration{
+		0: RetryBackoffBase, 1: RetryBackoffBase, 2: 2 * RetryBackoffBase, 3: 4 * RetryBackoffBase,
+		5: 8 * time.Minute, 6: RetryBackoffMax, 50: RetryBackoffMax,
+	} {
+		if got := RetryBackoff(attempts); got != want {
+			t.Errorf("RetryBackoff(%d) = %v, want %v", attempts, got, want)
+		}
+	}
+}
+
+func TestJobRelease(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	j := Job{Status: JobRunning, MaxAttempts: 2}
+	if err := j.Release("boom", now); err != nil || j.Status != JobQueued || !j.RunAfter.Equal(now.Add(RetryBackoff(1))) {
+		t.Fatalf("first release = %+v, %v", j, err)
+	}
+	j.Status = JobRunning
+	if err := j.Release("boom", now); err != nil || j.Status != JobFailed || !j.RunAfter.IsZero() {
+		t.Fatalf("exhausted release = %+v, %v", j, err)
+	}
+	if err := j.Release("again", now); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("release of failed job = %v", err)
+	}
+}
+
+func TestRequeueClearsRunAfter(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	j := Job{Status: JobRunning, MaxAttempts: 3, RunAfter: now.Add(time.Hour)}
+	if err := j.Requeue("lease expired", now); err != nil || j.Status != JobQueued || !j.RunAfter.IsZero() {
+		t.Fatalf("requeue = %+v, %v", j, err)
+	}
+}
