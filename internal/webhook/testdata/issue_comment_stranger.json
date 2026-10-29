@@ -1,0 +1,18 @@
+{
+  "action": "created",
+  "issue": {
+    "number": 1,
+    "pull_request": {
+      "url": "x"
+    }
+  },
+  "comment": {
+    "body": "@forecrew approve"
+  },
+  "repository": {
+    "full_name": "Acme/App"
+  },
+  "sender": {
+    "login": "mallory"
+  }
+}

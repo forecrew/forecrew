@@ -44,6 +44,8 @@ func (e *engine) handle(ctx context.Context, ev github.Event) error {
 	switch ev.Kind {
 	case "pull_request":
 		return e.pullRequest(ctx, ev)
+	case "issue_comment":
+		return e.comment(ctx, ev)
 	case "check_suite", "check_run", "status":
 		return e.checkEvent(ctx, ev)
 	}

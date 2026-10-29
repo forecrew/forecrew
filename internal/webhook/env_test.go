@@ -15,6 +15,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/testkit"
@@ -39,7 +40,7 @@ type env struct {
 	project domain.Project
 	h       *Handler
 	eng     *engine
-	allowed map[string]bool
+	allowed []string
 }
 
 func newEnv(t *testing.T) *env {
@@ -51,7 +52,7 @@ func newEnv(t *testing.T) *env {
 		t: t, clock: clock, st: st, bus: bus,
 		gates:   testkit.NewGates(st, bus, clock.Now),
 		tracker: testkit.NewTracker(clock.Now),
-		allowed: map[string]bool{"octocat": true},
+		allowed: []string{"octocat"},
 	}
 	e.tracker.Install(repo)
 	acc := domain.Account{Name: "default"}
@@ -67,7 +68,7 @@ func newEnv(t *testing.T) *env {
 func (e *env) deps() Deps {
 	return Deps{
 		Store: e.st, Signals: e.bus, Gates: e.gates, Tracker: e.tracker,
-		Allowed: func(l string) bool { return e.allowed[l] },
+		Allowed: func(l string) bool { return config.GitHub{Allowlist: e.allowed}.Allowed(l) },
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)), Now: e.clock.Now,
 	}
 }
