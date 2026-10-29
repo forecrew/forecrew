@@ -90,7 +90,7 @@ has the coding conventions they refer to.
   with `domain.NormalizeLabels` (trim, lowercase, sort, dedupe) before storing
   or matching, and match with `domain.MatchLabels`.
 - Runtime labels are `runtime:<adapter>` (`domain.RuntimeLabel`), OS labels
-  are Go `GOOS` values (`linux`, `darwin`, `windows`).
+  are Go `GOOS` values (`linux`, `darwin`, `windows`); a macOS worker advertises both `darwin` and `macos`.
 - Repos are `owner/name`, compared case-insensitively; signal keys use the
   lowercased repo.
 - GitHub logins (allowlist, comment authors) are compared case-insensitively.
