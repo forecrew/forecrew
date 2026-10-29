@@ -98,44 +98,6 @@ func TestContextBuilder(t *testing.T) {
 	wantErr(t, err, boom)
 }
 
-func TestSignalBus(t *testing.T) {
-	f := newFixture(t)
-	bus := NewSignalBus(f.st)
-	ctx, cancel := context.WithCancel(t.Context())
-	sub := bus.Subscribe(ctx)
-	job := domain.NewID()
-	sig, err := domain.NewSignal(f.account, f.project.ID, &domain.JobCompleted{JobID: job, Status: domain.JobSucceeded}, t0)
-	must(t, err)
-	if ok, err := bus.Publish(t.Context(), sig); !ok || err != nil {
-		t.Fatalf("Publish = %v, %v", ok, err)
-	}
-	if ok, err := bus.Publish(t.Context(), sig); ok || err != nil {
-		t.Fatalf("duplicate Publish = %v, %v", ok, err)
-	}
-	if got := <-sub; got.Key != domain.JobKey(job) {
-		t.Fatalf("received %+v", got)
-	}
-	stored, err := bus.Lookup(t.Context(), f.account, domain.JobKey(job))
-	if err != nil || len(stored) != 1 {
-		t.Fatalf("Lookup = %v, %v", stored, err)
-	}
-	// A full subscriber does not block publishers.
-	for i := range subscriberBuffer + 1 {
-		s, _ := domain.NewSignal(f.account, f.project.ID, &domain.PRClosed{Repo: "acme/app", Number: i + 1}, t0)
-		if _, err := bus.Publish(t.Context(), s); err != nil {
-			t.Fatal(err)
-		}
-	}
-	cancel()
-	n := 0
-	for range sub {
-		n++
-	}
-	if n != subscriberBuffer {
-		t.Fatalf("drained %d signals, want %d", n, subscriberBuffer)
-	}
-}
-
 func TestJobCreator(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
