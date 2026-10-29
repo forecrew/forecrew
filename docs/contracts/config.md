@@ -110,7 +110,7 @@ max_jobs: 2
 
 On top of `labels` the worker adds, when polling:
 
-- its OS label: `linux`, `darwin` or `windows` (Go's `GOOS`);
+- its OS label: `linux`, `darwin` or `windows` (Go's `GOOS`; macOS also gets `macos`);
 - `runtime:<adapter>` for each runtime CLI it finds (`runtime:claude-code`,
   `runtime:codex`).
 
@@ -118,4 +118,4 @@ On top of `labels` the worker adds, when polling:
 |----------|----------|---------|
 | `FORECREW_WORKER_TOKEN` | yes | Worker token printed once by `forecrew worker add`. |
 
-forecrew-worker takes the config path from `--config` (default `worker.yaml`).
+forecrew-worker takes the config path from `run --config` (default `worker.yaml`).
