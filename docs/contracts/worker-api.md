@@ -118,9 +118,11 @@ Response `200`:
 | `action` | Meaning |
 |----------|---------|
 | `continue` | Keep working; the lease now ends at `lease_expires_at`. |
-| `cancel` | Stop now and discard the workspace without pushing. Sent when the job was canceled, or when the lease is no longer this worker's (expired and requeued, or finished). Do not call `complete`. |
+| `cancel` | Stop now and discard the workspace without pushing. Sent when the job was canceled or finished, or when its lease expired and it is queued again. Do not call `complete`. |
 
-`404` if the job is not in the worker's account.
+`404` if the job is not in the worker's account. `409 lease_lost` if the job
+now runs under another worker's lease (it expired and was leased again); the
+worker stops as for `cancel`.
 
 ## POST /worker/v1/jobs/{job_id}/events
 
@@ -212,7 +214,8 @@ The lease reaper in forecrewd runs every 30 s and calls
 back to `queued` with `attempts + 1`, or to `failed` (error
 `attempts exhausted: lease expired`) when `attempts` reaches `max_attempts`;
 the latter publishes `job.completed`. A worker that comes back after its lease
-expired gets `cancel` on its next heartbeat.
+expired gets `cancel` on its next heartbeat, or `409 lease_lost` if another
+worker has leased the job since.
 
 ## Sequence
 
