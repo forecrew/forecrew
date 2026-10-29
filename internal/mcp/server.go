@@ -37,7 +37,7 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 	register(r, ToolOnboardProject, "Register a GitHub repo as a project if needed and start onboarding: an analyst job reads the repo and proposes a profile for approval. Returns the project and the onboarding job.",
 		fieldDocs{"repo": "Repository as owner/name.", "name": "Project name; defaults to the repo name."}, svc.OnboardProject)
 	register(r, ToolCreateGoal, "Create a goal for a project and start the goal playbook (spec, plan, implementation). Returns the new draft goal.",
-		fieldDocs{"project": project, "title": "Short goal title.", "body": "Goal description in markdown: what to build and why."}, svc.CreateGoal)
+		fieldDocs{"project": project, "title": "Short goal title.", "body": "Goal description in markdown: what to build and why.", "platforms": "Platforms the goal targets, for example web or ios. Optional."}, svc.CreateGoal)
 	register(r, ToolJobStatus, "Show a job: role, status, attempts, branch, result and failure reason.",
 		fieldDocs{"job": job}, svc.JobStatus)
 	register(r, ToolJobLogs, "Read a job's event log (output, tool calls, status changes), oldest first. Pass next_seq of the previous call as after_seq to continue.",
@@ -63,7 +63,7 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 			"project": project, "role": "Role name, for example implementer or reviewer.",
 			"base_ref": "Git ref to start from; defaults to the project's default branch.", "branch": "Branch the job works on.",
 			"needs": "Worker labels the job needs, for example runtime:claude-code or linux.", "include_repo_facts": "Include the analyzer's repo facts in the context.",
-			"goal": goal, "task": "Task ref (TASK-12) or UUID.", "feedback": "Instructions or review feedback for the job.",
+			"goal": goal, "task": "Task ref (TASK-12) or UUID.", "feedback": "Review feedback for the job.", "prompt": "Instructions for the job: what it should do.",
 		}, svc.DispatchJob)
 	register(r, ToolListProjects, "List the account's projects.",
 		nil, func(ctx context.Context, by domain.Actor, _ struct{}) ([]domain.Project, error) {

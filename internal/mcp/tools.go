@@ -95,6 +95,8 @@ type CreateGoalInput struct {
 	Project string `json:"project"` // name or repo, required
 	Title   string `json:"title"`   // required
 	Body    string `json:"body"`    // markdown
+	// Platforms the goal targets, for example "web" or "ios"; optional.
+	Platforms []string `json:"platforms,omitempty"`
 }
 
 // JobRefInput is the input of job_status.
@@ -144,6 +146,7 @@ type DispatchJobInput struct {
 	Goal             string   `json:"goal,omitempty"` // GOAL-3 or UUID
 	Task             string   `json:"task,omitempty"` // TASK-12 or UUID
 	Feedback         string   `json:"feedback,omitempty"`
+	Prompt           string   `json:"prompt,omitempty"` // instructions for the job
 }
 
 // ProjectInput is the input of get_project.
