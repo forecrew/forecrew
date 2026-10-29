@@ -141,6 +141,11 @@ func (r stepRepo) Create(_ context.Context, st *domain.StepRun) error {
 		if err := firstErr(foreign(&d.runs, st.AccountID, st.RunID), foreign(&d.jobs, st.AccountID, st.JobID), foreign(&d.gates, st.AccountID, st.GateID), foreign(&d.signals, st.AccountID, st.SignalID)); err != nil {
 			return err
 		}
+		if d.steps.exists(func(x domain.StepRun) bool {
+			return x.RunID == st.RunID && x.StepID == st.StepID && x.Attempt == st.Attempt
+		}) {
+			return fmt.Errorf("step run %s#%d: %w", st.StepID, st.Attempt, store.ErrConflict)
+		}
 		st.ID = newID(st.ID)
 		st.CreatedAt = now
 		d.steps.insert(*st)

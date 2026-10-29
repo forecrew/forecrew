@@ -58,6 +58,10 @@ type Playbook struct {
 // is exactly one reference takes the referenced value as is (list, object,
 // number); otherwise references are interpolated as text. A reference to a
 // step that has not run yet is empty.
+//
+// A gate step outputs decision and feedback. Rejected cancels the run.
+// Changes requested continues inside a loop (the next round reads the
+// feedback) and fails the step outside one, so on_failure applies.
 type Step struct {
 	ID   string         `yaml:"id"` // unique in the playbook
 	Type StepType       `yaml:"type"`
@@ -69,7 +73,7 @@ type Step struct {
 	MaxIterations int             `yaml:"max_iterations"` // loop: rounds before on_failure applies
 	Until         string          `yaml:"until"`          // loop: <ref> [== | != <value>], checked after each round
 	Timeout       domain.Duration `yaml:"timeout"`        // wait: fail after this long; zero waits forever
-	OnFailure     FailurePolicy   `yaml:"on_failure"`     // job, action, wait and loop
+	OnFailure     FailurePolicy   `yaml:"on_failure"`     // job, action, gate, wait and loop
 }
 
 // LoadPlaybooks parses and validates every dir/*.yaml file of fsys, keyed
@@ -216,7 +220,7 @@ func (s Step) checkFields() error {
 		{"max_iterations", s.MaxIterations != 0, s.Type == StepLoop},
 		{"until", s.Until != "", s.Type == StepLoop},
 		{"timeout", s.Timeout != 0, s.Type == StepWait},
-		{"on_failure", s.OnFailure != "", s.Type != StepGate && s.Type != StepForeach},
+		{"on_failure", s.OnFailure != "", s.Type != StepForeach},
 	}
 	for _, f := range fields {
 		if f.set && !f.ok {

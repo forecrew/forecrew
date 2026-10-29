@@ -107,11 +107,15 @@ func TestJobCreator(t *testing.T) {
 	if id, err := plain.Create(ctx, req); err != nil || id == uuid.Nil() {
 		t.Fatalf("Create = %v, %v", id, err)
 	}
+	req.ID = domain.NewID()
+	if id, err := plain.Create(ctx, req); err != nil || id != req.ID {
+		t.Fatalf("Create with ID = %v, %v", id, err)
+	}
 	stored := &JobCreator{Store: f.st}
 	id, err := stored.Create(ctx, req)
 	must(t, err)
 	j, err := f.st.Jobs().Get(ctx, f.account, id)
-	if err != nil || j.Role != "architect" || j.Spec.Repo != "acme/app" || j.Status != domain.JobQueued {
+	if err != nil || id != req.ID || j.Role != "architect" || j.Spec.Repo != "acme/app" || j.Status != domain.JobQueued {
 		t.Fatalf("job = %+v, %v", j, err)
 	}
 	boom := errors.New("boom")
