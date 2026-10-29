@@ -1,6 +1,9 @@
-// Package workflow defines the contracts of the workflow engine that runs
-// playbooks: the signal bus that wakes waiting steps and the job creator
-// that job steps call. internal/testkit has fakes.
+// Package workflow runs playbooks (packs/playbooks): the engine, the signal
+// bus that wakes waiting steps and the contract of the job creator that job
+// steps call. internal/testkit has a JobCreator fake.
+// forecrewd runs as a single replica in the MVP: one Engine per database.
+// Signals published by another process reach the engine through its
+// periodic sweep (DefaultSweep, 30 s); in-process ones wake runs at once.
 package workflow
 
 import (
@@ -13,6 +16,9 @@ import (
 // JobRequest asks for a job. Its yaml keys are the `with:` keys of a
 // playbook job step.
 type JobRequest struct {
+	// ID, when set, is the new job's ID. The engine sets it to the step
+	// run's ID so that a step resumed after a crash finds its job.
+	ID               uuid.UUID `json:"-" yaml:"-"`
 	AccountID        uuid.UUID `json:"account_id" yaml:"account_id"`
 	ProjectID        uuid.UUID `json:"project_id" yaml:"project_id"`
 	Repo             string    `json:"repo" yaml:"repo"`         // "owner/name"
@@ -30,7 +36,8 @@ type JobRequest struct {
 }
 
 // JobCreator creates jobs. The implementation resolves the role, builds the
-// prompt with the context pack, stores the job (queued) and returns its ID.
+// prompt with the context pack, stores the job (queued) with req.ID when it
+// is set, and returns its ID.
 type JobCreator interface {
 	Create(ctx context.Context, req JobRequest) (uuid.UUID, error)
 }

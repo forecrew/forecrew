@@ -15,7 +15,7 @@ var _ workflow.JobCreator = (*JobCreator)(nil)
 
 // JobCreator is a workflow.JobCreator that records requests. With a store
 // it also creates a queued job from each request; without one it returns
-// new IDs. Err, when set, is returned instead.
+// req.ID or a new ID. Err, when set, is returned instead.
 type JobCreator struct {
 	Store store.Store
 	Err   error
@@ -33,10 +33,10 @@ func (c *JobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 		return uuid.Nil(), c.Err
 	}
 	if c.Store == nil {
-		return domain.NewID(), nil
+		return newID(req.ID), nil
 	}
 	j := domain.Job{
-		AccountID: req.AccountID, ProjectID: req.ProjectID, Role: req.Role, Needs: req.Needs,
+		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Role: req.Role, Needs: req.Needs,
 		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID,
 		Spec: domain.JobSpec{
 			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, Role: req.Role, IncludeRepoFacts: req.IncludeRepoFacts,

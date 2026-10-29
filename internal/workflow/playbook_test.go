@@ -60,7 +60,7 @@ func TestParsePlaybookInvalid(t *testing.T) {
 		{"job account", "steps:\n- {id: a, type: job, with: {role: dev, account_id: x}}", `unknown key "account_id"`},
 		{"gate kind", "steps:\n- {id: g, type: gate, with: {kind: vibe_check, title: t, subject_repo: r}}", `step "g": invalid playbook: with: unknown gate kind`},
 		{"gate title", "steps:\n- {id: g, type: gate, with: {kind: spec_approval, subject_repo: r}}", `step "g": invalid playbook: with: title is required`},
-		{"gate on_failure", "steps:\n- {id: g, type: gate, on_failure: escalate, with: {kind: spec_approval, title: t, subject_repo: r}}", "on_failure is not allowed on a gate step"},
+		{"foreach on_failure", "inputs: [xs]\nsteps:\n- {id: f, type: foreach, on_failure: escalate, items: '${inputs.xs}', steps: [{id: a, type: action, action: x}]}", "on_failure is not allowed on a foreach step"},
 		{"wait signal", "steps:\n- {id: w, type: wait, with: {signal: pr.opened}}", `step "w": invalid playbook: with: signal "pr.opened"`},
 		{"wait key field", "steps:\n- {id: w, type: wait, with: {signal: checks.completed, repo: r}}", "with: sha is required"},
 		{"wait extra key", "steps:\n- {id: w, type: wait, with: {signal: job.completed, job_id: x, repo: r}}", `unknown key "repo"`},

@@ -410,6 +410,7 @@ func TestStoreWorkflowRuns(t *testing.T) {
 	must(t, f.st.WorkflowRuns().Create(ctx, &run))
 	step := domain.StepRun{AccountID: f.account, RunID: run.ID, StepID: "spec", Attempt: 1, Status: domain.StepRunning}
 	must(t, f.st.StepRuns().Create(ctx, &step))
+	wantErr(t, f.st.StepRuns().Create(ctx, &domain.StepRun{AccountID: f.account, RunID: run.ID, StepID: "spec", Attempt: 1}), store.ErrConflict)
 	step.Status, step.WaitKey, step.StepID = domain.StepWaiting, "job:1", "ignored"
 	must(t, f.st.StepRuns().Update(ctx, &step))
 	if step.StepID != "spec" {
