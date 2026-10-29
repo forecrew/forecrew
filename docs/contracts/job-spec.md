@@ -44,7 +44,7 @@ to disk (`JobSpec.LogValue` omits them).
 | `account_id` | string (UUID) | Account the job belongs to. |
 | `repo` | string | GitHub repo `owner/name`. Clone URL: `https://github.com/<repo>.git`. |
 | `base_ref` | string | Branch or commit SHA to check out and start from. |
-| `branch` | string | Branch to commit to and push. Always starts with `agent/` (e.g. `agent/task-12`). Empty for read-only roles. The worker creates it from `base_ref` if it does not exist on the remote, otherwise checks it out (rework). It force-pushes nothing: pushes are fast-forward only. |
+| `branch` | string | Branch to check out, and for writing roles to commit to and push. Always starts with `agent/` (e.g. `agent/task-12`). Writing roles: the worker creates it from `base_ref` if it does not exist on the remote, otherwise checks it out (rework); it force-pushes nothing: pushes are fast-forward only. Read-only roles: may be empty (the worker checks out `base_ref`) or set to an existing branch to inspect, e.g. the branch a reviewer reviews; the worker checks it out but never commits or pushes it. |
 | `role` | string | Role name, e.g. `developer`. Informational for the worker. |
 | `write_paths` | string[] | Paths the job may change, as [doublestar](https://github.com/bmatcuk/doublestar) globs relative to the repo root with `/` separators. A pattern starting with `!` excludes. A file is writable if it matches at least one include pattern and no exclude pattern. Empty means read-only: nothing is committed or pushed. |
 | `runtime` | string | Runtime adapter to run: `claude-code` or `codex`. The worker has the label `runtime:<runtime>`. |
@@ -63,13 +63,19 @@ to disk (`JobSpec.LogValue` omits them).
 1. Create a fresh workspace under `work_dir` per job and delete it afterwards,
    whatever the outcome.
 2. Clone `repo` at `base_ref` (shallow is fine), check out `branch` if set.
+   When `branch` is set, fetch enough history that
+   `git diff origin/<base_ref>...HEAD` (or `<base_ref>...HEAD` when
+   `base_ref` is a SHA) shows the branch's changes; prompts rely on it.
 3. Run the runtime adapter with `model`, `prompt` (plus repo facts),
    `output_schema`, `allowed_tools`, `max_turns`, `timeout`, `env`.
 4. For writing roles, commit any uncommitted changes on `branch` (the agent
    may have committed already). Every path changed, added or deleted between
    the starting commit and the new head must be writable per `write_paths`;
    otherwise complete as `failed` with the offending paths in `error` and push
-   nothing. Read-only roles never commit or push.
+   nothing. Read-only roles never commit or push, whether or not `branch` is
+   set; since their tools may include a shell, the worker also checks after
+   the run that the working tree is unchanged and otherwise completes the job
+   as `failed` with the changed paths in `error`.
 5. Push `branch` only if it starts with `agent/`, and report the pushed SHA
    as `head_sha`. If nothing changed, push nothing and leave `head_sha` empty.
 6. Complete the job (worker-api.md). forecrewd opens or updates the PR.
