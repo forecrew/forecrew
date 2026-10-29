@@ -1,0 +1,7 @@
+{
+  "action": "opened",
+  "number": 7,
+  "pull_request": {"number": 7, "state": "open", "merged": false, "body": "Adds the thing", "head": {"sha": "ABC123"}},
+  "repository": {"full_name": "Acme/App"},
+  "sender": {"login": "octocat"}
+}
