@@ -1,0 +1,2 @@
+[{"id": 1, "state": "APPROVED", "body": "ok", "commit_id": "aaa", "user": {"login": "octocat"}},
+ {"id": 2, "state": "CHANGES_REQUESTED", "body": "fix", "commit_id": "aaa", "user": {"login": "hubot"}}]
