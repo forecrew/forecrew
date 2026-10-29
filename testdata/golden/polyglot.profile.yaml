@@ -1,0 +1,64 @@
+version: 1
+name: polyglot
+summary: 'polyglot has 3 component(s). Languages: Rust, Go, TypeScript.'
+languages:
+  - Rust
+  - Go
+  - TypeScript
+components:
+  - path: services/api
+    stack: go
+    manifests:
+      - services/api/Dockerfile
+      - services/api/go.mod
+    build: go build ./...
+    test: go test ./...
+    platforms:
+      - linux
+      - macos
+    needs:
+      - docker
+      - go
+  - path: web
+    stack: node
+    manifests:
+      - web/package.json
+    build: npm run build
+    test: npm test
+    platforms:
+      - linux
+      - macos
+    needs:
+      - node
+  - path: worker
+    stack: rust
+    manifests:
+      - worker/Cargo.toml
+    build: cargo build
+    test: cargo test
+    platforms:
+      - linux
+      - macos
+    needs:
+      - rust
+platforms:
+  - linux
+  - macos
+services:
+  - name: api
+    file: docker-compose.yml
+  - name: cache
+    image: redis:8
+    file: docker-compose.yml
+  - name: db
+    image: postgres:18
+    file: docker-compose.yml
+ci:
+  workflows:
+    - .github/workflows/ci.yml
+  runners:
+    - macos-latest
+    - ubuntu-latest
+agent_instructions: Follow the instructions in AGENTS.md.
+open_questions:
+  - Which CI checks must pass before a merge?

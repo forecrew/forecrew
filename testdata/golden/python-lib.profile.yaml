@@ -1,0 +1,19 @@
+version: 1
+name: python-lib
+summary: 'python-lib has 1 component(s). Languages: Python.'
+languages:
+  - Python
+components:
+  - path: .
+    stack: python
+    manifests:
+      - pyproject.toml
+      - requirements-dev.txt
+    build: python -m build
+    test: python -m pytest
+    needs:
+      - python
+agent_instructions: Follow the instructions in .github/copilot-instructions.md.
+open_questions:
+  - Which checks must pass before a merge? The repo has no CI workflow.
+  - Which operating systems do jobs need?

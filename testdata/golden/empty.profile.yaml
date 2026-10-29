@@ -1,0 +1,8 @@
+version: 1
+name: empty
+summary: 'empty has 0 component(s). Languages: none detected.'
+open_questions:
+  - Which commands build and test this project? No build file was found.
+  - Which checks must pass before a merge? The repo has no CI workflow.
+  - Which operating systems do jobs need?
+  - Do agents need repo-specific instructions?

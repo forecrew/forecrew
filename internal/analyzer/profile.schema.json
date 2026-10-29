@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/forecrew/forecrew/docs/contracts/profile.schema.json",
+  "title": "Forecrew project profile",
+  "description": "Schema of .forecrew/profile.yaml, written by the onboarding analyst and approved by a human through a profile_approval gate. The analyzer drafts it from repo facts (internal/analyzer).",
+  "type": "object",
+  "required": ["version", "name", "summary"],
+  "additionalProperties": false,
+  "$defs": {
+    "osLabel": {
+      "description": "Worker OS label.",
+      "type": "string",
+      "enum": ["linux", "macos", "windows"]
+    },
+    "needLabel": {
+      "description": "Worker label a job needs: an OS or a toolchain.",
+      "type": "string",
+      "enum": ["linux", "macos", "windows", "go", "node", "python", "rust", "java", "docker"]
+    },
+    "stringList": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "properties": {
+    "version": {
+      "description": "Profile format version.",
+      "const": 1
+    },
+    "name": {
+      "description": "Project name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "description": "What the project is and does, in a few sentences.",
+      "type": "string"
+    },
+    "languages": {
+      "description": "Languages used, most important first.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "components": {
+      "description": "Main parts of the codebase: a directory with its own build file, with how to build and test it.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "stack"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "description": "Directory of the component, relative to the repo root, forward slashes. \".\" is the root.",
+            "type": "string",
+            "minLength": 1
+          },
+          "stack": {
+            "description": "Main build stack of the component: go, node, rust, python, java, cmake, make or docker.",
+            "type": "string",
+            "minLength": 1
+          },
+          "manifests": {
+            "description": "Build files found in the component, relative to the repo root.",
+            "$ref": "#/$defs/stringList"
+          },
+          "build": {
+            "description": "Command that builds the component. Empty when unknown.",
+            "type": "string"
+          },
+          "test": {
+            "description": "Command that runs the component's tests. Empty when unknown.",
+            "type": "string"
+          },
+          "platforms": {
+            "description": "OS labels the component builds or tests on.",
+            "type": "array",
+            "items": {"$ref": "#/$defs/osLabel"},
+            "uniqueItems": true
+          },
+          "needs": {
+            "description": "Worker labels a job needs to build or test the component.",
+            "type": "array",
+            "items": {"$ref": "#/$defs/needLabel"},
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "platforms": {
+      "description": "Operating systems and targets the project builds or runs on; become worker labels jobs need.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/osLabel"},
+      "uniqueItems": true
+    },
+    "services": {
+      "description": "External services needed to build or test (databases, queues, ...), including docker-compose services.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"description": "Service name.", "type": "string", "minLength": 1},
+          "image": {"description": "Container image, when known.", "type": "string"},
+          "file": {"description": "File that declares the service, relative to the repo root.", "type": "string"}
+        }
+      }
+    },
+    "ci": {
+      "description": "How CI runs and which checks gate a merge.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workflows": {
+          "description": "Workflow files, relative to the repo root.",
+          "$ref": "#/$defs/stringList"
+        },
+        "runners": {
+          "description": "Raw runner values from runs-on and matrix OS entries, e.g. ubuntu-latest.",
+          "$ref": "#/$defs/stringList"
+        },
+        "gating_checks": {
+          "description": "Checks that must pass before a merge. Unknown from the repo alone; the onboarding analyst asks the human.",
+          "$ref": "#/$defs/stringList"
+        }
+      }
+    },
+    "agent_instructions": {
+      "description": "Instructions every agent working on the repo must follow.",
+      "type": "string"
+    },
+    "suggested_roles": {
+      "description": "Role adjustments for this project (write paths, tools, tiers).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role"],
+        "additionalProperties": false,
+        "properties": {
+          "role": {"description": "Role name.", "type": "string", "minLength": 1},
+          "write_paths": {
+            "description": "Paths the role may write, relative to the repo root.",
+            "$ref": "#/$defs/stringList"
+          },
+          "tools": {
+            "description": "Tools the role needs.",
+            "$ref": "#/$defs/stringList"
+          },
+          "tier": {
+            "description": "Model tier for the role: fast, strong or best.",
+            "type": "string",
+            "enum": ["fast", "strong", "best"]
+          }
+        }
+      }
+    },
+    "open_questions": {
+      "description": "Questions the analyst could not answer from the repo, for the human to resolve.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}
