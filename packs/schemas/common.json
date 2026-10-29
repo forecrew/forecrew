@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Shared definitions of the role output schemas",
+  "description": "Not an output schema itself: the others refer to its $defs. Every object lists all its properties as required and forbids others, so the schemas also work with runtimes that enforce strict structured output.",
+  "$defs": {
+    "text": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "level": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
+    },
+    "criterion_id": {
+      "description": "Acceptance criterion ID from the spec, e.g. AC-3.",
+      "type": "string",
+      "pattern": "^AC-[1-9][0-9]*$"
+    },
+    "assumption": {
+      "description": "Something taken as true without confirmation.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "confidence", "impact"],
+      "properties": {
+        "text": {"$ref": "#/$defs/text"},
+        "confidence": {"$ref": "#/$defs/level", "description": "How sure you are the assumption holds."},
+        "impact": {"$ref": "#/$defs/level", "description": "How much the result changes if the assumption is wrong."}
+      }
+    },
+    "assumptions": {
+      "description": "Every assumption you made; an empty list only if you made none.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/assumption"}
+    },
+    "escalation": {
+      "description": "Set when you stopped because of an escalation condition: what a human must decide or provide. null otherwise.",
+      "type": ["string", "null"]
+    }
+  }
+}

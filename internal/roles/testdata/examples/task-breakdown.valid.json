@@ -1,0 +1,9 @@
+{
+  "summary": "Add the token store first, then the request flow, then the reset page.",
+  "tasks": [
+    {"title": "Add reset token store", "description": "Add a `reset_tokens` table and repo in internal/store with expiry.", "criteria": ["AC-1"], "needs": ["go", "postgres"], "size": "s", "depends_on": []},
+    {"title": "Add reset page", "description": "Handle opening a link: valid, expired, used.", "criteria": ["AC-2"], "needs": ["go"], "size": "m", "depends_on": [1]}
+  ],
+  "assumptions": [],
+  "escalation": null
+}

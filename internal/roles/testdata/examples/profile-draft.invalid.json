@@ -1,0 +1,5 @@
+{
+  "summary": "Go service.",
+  "profile": {"version": 2, "summary": "Order management service.", "owner": "acme"},
+  "assumptions": []
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Profile draft",
+  "description": "Output of the onboarding-analyst role: the proposed project profile, also written to .forecrew/profile.yaml.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "profile", "assumptions"],
+  "properties": {
+    "summary": {"$ref": "common.json#/$defs/text", "description": "What you found and what the human should check first."},
+    "profile": {"$ref": "../../docs/contracts/profile.schema.json", "description": "The same content as .forecrew/profile.yaml, as JSON."},
+    "assumptions": {"$ref": "common.json#/$defs/assumptions"}
+  }
+}

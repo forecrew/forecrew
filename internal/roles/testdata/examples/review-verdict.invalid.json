@@ -1,0 +1,7 @@
+{
+  "verdict": "merge",
+  "summary": "Looks good.",
+  "comments": [{"path": "a.go", "line": 0, "severity": "critical", "body": "x"}],
+  "criteria_check": [],
+  "assumptions": []
+}

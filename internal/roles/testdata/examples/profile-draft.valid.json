@@ -1,0 +1,12 @@
+{
+  "summary": "Go service with a React UI; integration tests need Postgres.",
+  "profile": {
+    "version": 1,
+    "name": "acme-app",
+    "summary": "Order management service.",
+    "languages": ["Go", "TypeScript"],
+    "platforms": ["linux"],
+    "open_questions": ["Which Postgres version do the integration tests need?"]
+  },
+  "assumptions": [{"text": "CI on main is the source of truth for checks.", "confidence": "high", "impact": "low"}]
+}

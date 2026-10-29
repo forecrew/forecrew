@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Spec",
+  "description": "Output of the product-owner role: the specification of a goal.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "acceptance_criteria", "scope", "assumptions", "open_questions"],
+  "properties": {
+    "summary": {"$ref": "common.json#/$defs/text", "description": "What will be built and why, in a few sentences."},
+    "acceptance_criteria": {
+      "description": "Testable criteria, numbered AC-1, AC-2, ... in order.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text"],
+        "properties": {
+          "id": {"$ref": "common.json#/$defs/criterion_id"},
+          "text": {"$ref": "common.json#/$defs/text", "description": "One observable behavior a test can check."}
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["in", "out"],
+      "properties": {
+        "in": {"description": "What is part of the goal.", "type": "array", "items": {"$ref": "common.json#/$defs/text"}},
+        "out": {"description": "What is explicitly not part of it.", "type": "array", "items": {"$ref": "common.json#/$defs/text"}}
+      }
+    },
+    "assumptions": {"$ref": "common.json#/$defs/assumptions"},
+    "open_questions": {
+      "description": "Questions only a human can answer; the spec gate shows them.",
+      "type": "array",
+      "items": {"$ref": "common.json#/$defs/text"}
+    }
+  }
+}

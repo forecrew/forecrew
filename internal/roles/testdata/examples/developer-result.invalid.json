@@ -1,0 +1,9 @@
+{
+  "summary": "Done.",
+  "files": ["internal/store/reset.go"],
+  "tests_added": [],
+  "commands_run": [{"command": "make test", "exit_code": "0"}],
+  "assumptions": [],
+  "escalation": null,
+  "pushed": true
+}

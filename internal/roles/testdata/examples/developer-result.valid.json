@@ -1,0 +1,11 @@
+{
+  "summary": "Added the reset token store with expiry and single use.",
+  "files": [
+    {"path": "internal/store/reset.go", "change": "added"},
+    {"path": "internal/store/reset_test.go", "change": "added"}
+  ],
+  "tests_added": [{"path": "internal/store/reset_test.go", "name": "TestResetTokenExpires", "criteria": ["AC-1"]}],
+  "commands_run": [{"command": "make test", "exit_code": 0}],
+  "assumptions": [{"text": "Tokens are stored hashed like other tokens.", "confidence": "medium", "impact": "low"}],
+  "escalation": null
+}

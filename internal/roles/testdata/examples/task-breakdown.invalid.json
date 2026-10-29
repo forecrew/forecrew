@@ -1,0 +1,7 @@
+{
+  "summary": "Do it all at once.",
+  "tasks": [
+    {"title": "Everything", "description": "All of it.", "criteria": [], "needs": ["Go"], "size": "xl", "depends_on": [0]}
+  ],
+  "assumptions": []
+}
