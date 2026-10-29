@@ -3,56 +3,21 @@
 package postgres
 
 import (
-	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
-	"os"
 	"testing"
 	"uuid"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/testkit"
 )
 
 // newPool migrates a fresh database and returns a pool on it.
 func newPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
-	url := os.Getenv("FORECREW_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("FORECREW_TEST_DATABASE_URL is not set")
-	}
-	ctx := context.Background()
-	admin, err := pgx.Connect(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b := make([]byte, 6)
-	if _, err := rand.Read(b); err != nil {
-		t.Fatal(err)
-	}
-	name := "fc_" + hex.EncodeToString(b)
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := pgxpool.ParseConfig(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.ConnConfig.Database = name
-	cfg.MaxConns = 16
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		pool.Close()
-		_, _ = admin.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
-		_ = admin.Close(ctx)
-	})
-	if err := Migrate(ctx, pool); err != nil {
+	pool := testkit.NewDatabase(t)
+	if err := Migrate(t.Context(), pool); err != nil {
 		t.Fatal(err)
 	}
 	return pool
