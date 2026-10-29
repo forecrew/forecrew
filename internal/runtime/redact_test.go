@@ -10,6 +10,7 @@ func TestRedactor(t *testing.T) {
 		"API_KEY": "super-secret-value",
 		"SHORT":   "abc",
 		"LONGER":  "super-secret-value-extended",
+		"QUOTED":  `pa"ss\word`,
 	})
 	tests := []struct {
 		name, in, want string
@@ -23,6 +24,8 @@ func TestRedactor(t *testing.T) {
 		{"forecrew token", "fcw_" + strings.Repeat("z", 43), "[REDACTED]"},
 		{"bearer", "Authorization: Bearer abcdefghijklmnop1234", "Authorization: [REDACTED]"},
 		{"private key", "a -----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY----- b", "a [REDACTED] b"},
+		{"json escaped", `{"k":"pa\"ss\\word"}`, `{"k":"[REDACTED]"}`},
+		{"raw quoted", `pa"ss\word`, "[REDACTED]"},
 		{"clean", "nothing to hide", "nothing to hide"},
 	}
 	for _, tt := range tests {

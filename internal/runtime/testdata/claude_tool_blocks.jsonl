@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init"}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"a.go"}}]}}
+{"type":"user","message":{"content":[{"tool_use_id":"t1","type":"tool_result","content":[{"type":"text","text":"line one"},{"type":"text","text":"line two"}],"is_error":true}]}}
+{"type":"user","message":{"content":[{"tool_use_id":"t2","type":"tool_result","content":{"odd":true}}]}}
+{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"```json\n{\"summary\":\"x\"}\n```","total_cost_usd":0,"usage":{}}
