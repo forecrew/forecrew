@@ -32,6 +32,7 @@ type fakeRepo struct {
 	checks    map[string]github.CheckStatus
 	reviews   map[int][]github.Review
 	commentID int64
+	branches  map[string]bool
 }
 
 type fakeIssue struct {
@@ -52,6 +53,7 @@ func (t *Tracker) Install(repo string) {
 	t.repos[strings.ToLower(repo)] = &fakeRepo{
 		issues: map[int]*fakeIssue{}, prs: map[int]*github.PullRequest{}, labels: map[string]github.Label{},
 		checks: map[string]github.CheckStatus{}, reviews: map[int][]github.Review{},
+		branches: map[string]bool{},
 	}
 }
 
@@ -375,6 +377,28 @@ func (t *Tracker) ListReviews(_ context.Context, repo string, number int) ([]git
 		return nil
 	})
 	return out, err
+}
+
+// BranchExists implements github.Tracker. A branch exists when it is the head
+// of a PR created through the fake or was added with AddBranch.
+func (t *Tracker) BranchExists(_ context.Context, repo, branch string) (bool, error) {
+	var ok bool
+	err := t.with(repo, func(r *fakeRepo) error {
+		ok = r.branches[branch]
+		for _, pr := range r.prs {
+			ok = ok || pr.Head == branch
+		}
+		return nil
+	})
+	return ok, err
+}
+
+// AddBranch simulates a pushed branch.
+func (t *Tracker) AddBranch(repo, branch string) error {
+	return t.with(repo, func(r *fakeRepo) error {
+		r.branches[branch] = true
+		return nil
+	})
 }
 
 // CheckStatus implements github.Tracker. Commits without SetCheckStatus have

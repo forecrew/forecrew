@@ -163,3 +163,25 @@ func TestTrackerPullRequests(t *testing.T) {
 	_, err = tr.GetPR(ctx, "acme/app", 9)
 	wantErr(t, err, github.ErrNotFound)
 }
+
+func TestTrackerBranchExists(t *testing.T) {
+	tr, _ := newTracker(t)
+	ctx := t.Context()
+	if ok, err := tr.BranchExists(ctx, "acme/app", "agent/task-1"); err != nil || ok {
+		t.Fatalf("before = %v, %v", ok, err)
+	}
+	if err := tr.AddBranch("acme/app", "agent/task-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Head: "agent/task-2", Base: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range []string{"agent/task-1", "agent/task-2"} {
+		if ok, err := tr.BranchExists(ctx, "acme/app", b); err != nil || !ok {
+			t.Fatalf("%s = %v, %v", b, ok, err)
+		}
+	}
+	_, err := tr.BranchExists(ctx, "acme/other", "x")
+	wantErr(t, err, github.ErrNotInstalled)
+	wantErr(t, tr.AddBranch("acme/other", "x"), github.ErrNotInstalled)
+}
