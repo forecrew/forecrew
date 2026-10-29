@@ -94,10 +94,6 @@ func (a *fakeAPI) poll(w http.ResponseWriter, r *http.Request) {
 	a.polls = append(a.polls, req.FreeSlots)
 	n := len(a.polls)
 	answer := a.pollAnswer
-	var job *domain.JobSpec
-	if req.FreeSlots > 0 && len(a.queue) > 0 {
-		job, a.queue = &a.queue[0], a.queue[1:]
-	}
 	wait := a.longPoll
 	a.mu.Unlock()
 	if answer != nil {
@@ -106,6 +102,12 @@ func (a *fakeAPI) poll(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	var job *domain.JobSpec
+	a.mu.Lock()
+	if req.FreeSlots > 0 && len(a.queue) > 0 {
+		job, a.queue = &a.queue[0], a.queue[1:]
+	}
+	a.mu.Unlock()
 	if job == nil {
 		select {
 		case <-time.After(wait):
