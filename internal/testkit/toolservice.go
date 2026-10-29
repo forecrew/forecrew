@@ -100,15 +100,7 @@ func (s *ToolService) decide(tool string, fn func(context.Context, domain.Actor,
 		return fn
 	}
 	return func(ctx context.Context, by domain.Actor, in mcp.GateDecisionInput) (domain.Gate, error) {
-		g, err := s.Gates.Find(ctx, by.AccountID, in.Gate)
-		if err != nil {
-			return domain.Gate{}, err
-		}
-		decision, err := mcp.GateDecision(tool, g.Kind, in)
-		if err != nil {
-			return domain.Gate{}, err
-		}
-		return s.Gates.Resolve(ctx, by, g.ID, decision, in.Feedback)
+		return s.Gates.Decide(ctx, by, tool, in)
 	}
 }
 
