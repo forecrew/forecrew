@@ -1,0 +1,27 @@
+version: 1
+name: node-web
+summary: 'node-web has 1 component(s). Languages: TypeScript, CSS.'
+languages:
+  - TypeScript
+  - CSS
+components:
+  - path: .
+    stack: node
+    manifests:
+      - package.json
+    build: pnpm run build
+    test: pnpm test
+    platforms:
+      - windows
+    needs:
+      - node
+platforms:
+  - windows
+ci:
+  workflows:
+    - .github/workflows/web.yml
+  runners:
+    - windows-latest
+agent_instructions: Follow the instructions in .cursor/rules/style.mdc, CLAUDE.md.
+open_questions:
+  - Which CI checks must pass before a merge?

@@ -30,20 +30,25 @@ func TestLocalAnalyzeGolden(t *testing.T) {
 				t.Fatalf("marshal: %v", err)
 			}
 			got = append(got, '\n')
-			golden := filepath.Join("..", "..", "testdata", "golden", name+".facts.json")
-			if *update {
-				if err := os.WriteFile(golden, got, 0o644); err != nil {
-					t.Fatalf("write golden: %v", err)
-				}
-			}
-			want, err := os.ReadFile(golden)
-			if err != nil {
-				t.Fatalf("read golden: %v", err)
-			}
-			if !bytes.Equal(got, want) {
-				t.Errorf("facts differ from %s; run go test -update\n%s", golden, got)
-			}
+			checkGolden(t, filepath.Join("..", "..", "testdata", "golden", name+".facts.json"), got)
 		})
+	}
+}
+
+// checkGolden compares got with the golden file, rewriting it under -update.
+func checkGolden(t *testing.T, golden string, got []byte) {
+	t.Helper()
+	if *update {
+		if err := os.WriteFile(golden, got, 0o644); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("output differs from %s; run go test -update\n%s", golden, got)
 	}
 }
 

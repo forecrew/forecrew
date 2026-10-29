@@ -1,0 +1,32 @@
+version: 1
+name: go-service
+summary: 'go-service has 1 component(s). Languages: Go.'
+languages:
+  - Go
+components:
+  - path: .
+    stack: go
+    manifests:
+      - Dockerfile
+      - Makefile
+      - go.mod
+    build: make build
+    test: make test
+    platforms:
+      - linux
+      - macos
+    needs:
+      - docker
+      - go
+platforms:
+  - linux
+  - macos
+ci:
+  workflows:
+    - .github/workflows/ci.yml
+  runners:
+    - macos-latest
+    - ubuntu-latest
+agent_instructions: Follow the instructions in AGENTS.md.
+open_questions:
+  - Which CI checks must pass before a merge?
