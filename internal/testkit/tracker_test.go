@@ -158,10 +158,26 @@ func TestTrackerPullRequests(t *testing.T) {
 	}
 	_, err = tr.MergePR(ctx, "acme/app", 1, github.MergeInput{})
 	wantErr(t, err, github.ErrNotMergeable)
+	wantErr(t, tr.ClosePR("acme/app", 9), github.ErrNotFound)
 	_, err = tr.MergePR(ctx, "acme/app", 9, github.MergeInput{})
 	wantErr(t, err, github.ErrNotFound)
 	_, err = tr.GetPR(ctx, "acme/app", 9)
 	wantErr(t, err, github.ErrNotFound)
+}
+
+func TestTrackerClosePR(t *testing.T) {
+	tr, _ := newTracker(t)
+	ctx := t.Context()
+	pr, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "x", Head: "agent/task-1", Base: "main"})
+	must(t, err)
+	must(t, tr.ClosePR("acme/app", pr.Number))
+	got, err := tr.GetPR(ctx, "acme/app", pr.Number)
+	if err != nil || got.State != "closed" || got.Merged {
+		t.Fatalf("closed pr = %+v, %v", got, err)
+	}
+	if i, err := tr.GetIssue(ctx, "acme/app", pr.Number); err != nil || i.State != "closed" {
+		t.Fatalf("issue = %+v, %v", i, err)
+	}
 }
 
 func TestTrackerBranchExists(t *testing.T) {

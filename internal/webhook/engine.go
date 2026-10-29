@@ -69,7 +69,7 @@ func (e *engine) pullRequest(ctx context.Context, ev github.Event) error {
 	switch ev.Action {
 	case "closed":
 		return e.eachProject(ctx, ev.Repo, func(p domain.Project) error {
-			return e.prClosed(ctx, p, ev.Repo, ev.Number, ev.Merged, ev.SHA)
+			return e.prClosed(ctx, p.AccountID, p.ID, ev.Repo, ev.Number, ev.Merged, ev.SHA)
 		})
 	case "reopened", "synchronize":
 		return e.eachProject(ctx, ev.Repo, func(p domain.Project) error {
@@ -100,20 +100,20 @@ func (e *engine) refreshChange(ctx context.Context, accountID uuid.UUID, repo st
 // subject of and records the new state of the change. The change is updated
 // last, so a failure leaves it open for the poller to retry. sha is the head
 // of the PR: GitHub's merge commit is not part of the parsed event.
-func (e *engine) prClosed(ctx context.Context, p domain.Project, repo string, number int, merged bool, sha string) error {
+func (e *engine) prClosed(ctx context.Context, accountID, projectID uuid.UUID, repo string, number int, merged bool, sha string) error {
 	var payload domain.SignalPayload = domain.PRClosed{Repo: repo, Number: number}
 	state := domain.ChangeClosed
 	if merged {
 		payload = domain.PRMerged{Repo: repo, Number: number, SHA: sha}
 		state = domain.ChangeMerged
 	}
-	if _, err := e.publish(ctx, p.AccountID, p.ID, payload); err != nil {
+	if _, err := e.publish(ctx, accountID, projectID, payload); err != nil {
 		return err
 	}
-	if err := e.resolvePRGates(ctx, p.AccountID, repo, number, merged); err != nil {
+	if err := e.resolvePRGates(ctx, accountID, repo, number, merged); err != nil {
 		return err
 	}
-	return e.setChangeState(ctx, p.AccountID, repo, number, state)
+	return e.setChangeState(ctx, accountID, repo, number, state)
 }
 
 // publish stores the signal; it reports whether it was new.
