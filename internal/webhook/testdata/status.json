@@ -1,0 +1,6 @@
+{
+  "sha": "abc123",
+  "state": "success",
+  "repository": {"full_name": "Acme/App"},
+  "sender": {"login": "ci"}
+}

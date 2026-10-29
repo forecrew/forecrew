@@ -1,0 +1,7 @@
+{
+  "action": "synchronize",
+  "number": 7,
+  "pull_request": {"number": 7, "state": "open", "merged": false, "head": {"sha": "def456"}},
+  "repository": {"full_name": "Acme/App"},
+  "sender": {"login": "octocat"}
+}
