@@ -27,10 +27,11 @@ type Queue interface {
 	Extend(ctx context.Context, accountID, jobID, workerID uuid.UUID) (domain.Job, error)
 	// Ack finishes the job with the worker's result (succeeded or failed).
 	Ack(ctx context.Context, accountID, jobID, workerID uuid.UUID, r store.JobResult) (domain.Job, error)
-	// Nack gives up the attempt: queued again with Attempts+1, or failed when
-	// attempts are exhausted.
+	// Nack gives up the attempt: queued again with Attempts+1, held back by
+	// domain.RetryBackoff, or failed when attempts are exhausted.
 	Nack(ctx context.Context, accountID, jobID, workerID uuid.UUID, reason string) (domain.Job, error)
-	// RequeueExpired handles every expired lease of the account like Nack.
+	// RequeueExpired handles every expired lease of the account like Nack,
+	// but without the backoff.
 	RequeueExpired(ctx context.Context, accountID uuid.UUID) ([]domain.Job, error)
 }
 

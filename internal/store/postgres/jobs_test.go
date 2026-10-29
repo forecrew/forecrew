@@ -219,6 +219,8 @@ func TestJobReleaseAndCancel(t *testing.T) {
 		if err != nil || rel.Status != want || rel.Attempts != attempt+1 || rel.WorkerID != uuid.Nil() {
 			t.Fatalf("release %d = %+v, %v", attempt, rel, err)
 		}
+		_, err = f.pool.Exec(ctx, `UPDATE jobs SET run_after = NULL`) // skip the backoff
+		must(t, err)
 	}
 	got, _ := repo.Get(ctx, f.account, j.ID)
 	if got.Error != "attempts exhausted: disk full" || got.FinishedAt.IsZero() {
@@ -264,11 +266,11 @@ func TestRequeueExpired(t *testing.T) {
 		t.Fatalf("requeue = %+v, %v", got, err)
 	}
 
-	// First expiry: back to queued with attempts+1.
-	_, err = f.pool.Exec(ctx, `UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1`, j.ID)
+	// First expiry: back to queued with attempts+1 and no backoff.
+	_, err = f.pool.Exec(ctx, `UPDATE jobs SET run_after = now() + interval '1 hour', lease_expires_at = now() - interval '1 second' WHERE id = $1`, j.ID)
 	must(t, err)
 	got, err := repo.RequeueExpired(ctx, f.account)
-	if err != nil || len(got) != 1 || got[0].ID != j.ID || got[0].Status != domain.JobQueued || got[0].Attempts != 1 || got[0].WorkerID != uuid.Nil() {
+	if err != nil || len(got) != 1 || got[0].ID != j.ID || got[0].Status != domain.JobQueued || got[0].Attempts != 1 || got[0].WorkerID != uuid.Nil() || !got[0].RunAfter.IsZero() {
 		t.Fatalf("first requeue = %+v, %v", got, err)
 	}
 
@@ -348,5 +350,31 @@ func TestLeaseNextRuntimeCase(t *testing.T) {
 	got, err := f.st.Jobs().LeaseNext(t.Context(), f.account, w.ID, []string{"Runtime:claude-code"}, time.Minute)
 	if err != nil || got.ID != j.ID {
 		t.Fatalf("lease = %+v, %v", got, err)
+	}
+}
+
+func TestReleaseBacksOff(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Jobs()
+	worker := f.newWorker(t, "w1").ID
+	labels := []string{"runtime:claude-code"}
+	j := f.newJob(t)
+	_, err := repo.LeaseNext(ctx, f.account, worker, labels, time.Minute)
+	must(t, err)
+
+	rel, err := repo.Release(ctx, f.account, j.ID, worker, "flaky")
+	if d := time.Until(rel.RunAfter); err != nil || d < domain.RetryBackoff(1)-5*time.Second || d > domain.RetryBackoff(1) {
+		t.Fatalf("run after in %v, %v", d, err)
+	}
+	_, err = repo.LeaseNext(ctx, f.account, worker, labels, time.Minute)
+	wantErr(t, err, store.ErrNoJob)
+
+	// Once run_after has passed, the job is leased again.
+	_, err = f.pool.Exec(ctx, `UPDATE jobs SET run_after = now() - interval '1 second' WHERE id = $1`, j.ID)
+	must(t, err)
+	got, err := repo.LeaseNext(ctx, f.account, worker, labels, time.Minute)
+	if err != nil || got.ID != j.ID || got.Attempts != 1 {
+		t.Fatalf("lease after backoff = %+v, %v", got, err)
 	}
 }

@@ -187,7 +187,9 @@ Server behavior:
   `output` against the spec's `output_schema`; if it does not match, the job
   is stored as `failed` with error `output does not match schema`.
 - `retry`: `Jobs.Release` with `error` as reason: back to `queued` with
-  `attempts + 1`, or `failed` when attempts are exhausted.
+  `attempts + 1` and held back by a backoff (`run_after`: 30 s doubling per
+  attempt, at most 10 min, see `domain.RetryBackoff`), or `failed` when
+  attempts are exhausted.
 - When the job reaches a terminal state forecrewd publishes a
   `job.completed` signal (see conventions.md and `domain.JobCompleted`).
   forecrewd, not the worker, opens and updates pull requests.

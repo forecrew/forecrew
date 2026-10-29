@@ -255,6 +255,13 @@ func TestStoreJobLeasing(t *testing.T) {
 	_, err = jobs.Release(ctx, f.account, leased.ID, worker, "again")
 	wantErr(t, err, store.ErrLeaseLost)
 
+	// Released jobs wait for their backoff.
+	if want := f.clock.Now().Add(domain.RetryBackoff(2)); !released.RunAfter.Equal(want) {
+		t.Fatalf("run after = %v, want %v", released.RunAfter, want)
+	}
+	_, err = jobs.LeaseNext(ctx, f.account, worker, []string{"go", "runtime:claude-code"}, time.Minute)
+	wantErr(t, err, store.ErrNoJob)
+	f.clock.Advance(domain.RetryBackoff(2))
 	leased, err = jobs.LeaseNext(ctx, f.account, worker, []string{"go", "runtime:claude-code"}, time.Minute)
 	must(t, err)
 	_, err = jobs.Complete(ctx, f.account, leased.ID, worker, store.JobResult{Status: domain.JobQueued})

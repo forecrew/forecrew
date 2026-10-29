@@ -18,19 +18,19 @@ type jobRepo struct{ db dbtx }
 
 var jobCols = `id, account_id, project_id, number, status, role, runtime, needs, ` +
 	cuuid("goal_id") + `, ` + cuuid("spec_id") + `, ` + cuuid("task_id") + `, spec, attempts, max_attempts, ` +
-	cuuid("worker_id") + `, ` + ctime("lease_expires_at") + `, ` + ctime("started_at") + `, ` + ctime("finished_at") + `, output, ` +
+	cuuid("worker_id") + `, ` + ctime("run_after") + `, ` + ctime("lease_expires_at") + `, ` + ctime("started_at") + `, ` + ctime("finished_at") + `, output, ` +
 	ctext("head_sha") + `, ` + ctext("error") + `, usage, cost_usd, created_at, updated_at`
 
 func scanJob(row pgx.Row) (j domain.Job, err error) {
 	var spec, usage, output []byte
 	err = row.Scan(&j.ID, &j.AccountID, &j.ProjectID, &j.Number, &j.Status, &j.Role, &j.Runtime, &j.Needs,
 		&j.GoalID, &j.SpecID, &j.TaskID, &spec, &j.Attempts, &j.MaxAttempts,
-		&j.WorkerID, &j.LeaseExpiresAt, &j.StartedAt, &j.FinishedAt, &output,
+		&j.WorkerID, &j.RunAfter, &j.LeaseExpiresAt, &j.StartedAt, &j.FinishedAt, &output,
 		&j.HeadSHA, &j.Error, &usage, &j.CostUSD, &j.CreatedAt, &j.UpdatedAt)
 	if err != nil {
 		return j, err
 	}
-	utc(&j.LeaseExpiresAt, &j.StartedAt, &j.FinishedAt, &j.CreatedAt, &j.UpdatedAt)
+	utc(&j.RunAfter, &j.LeaseExpiresAt, &j.StartedAt, &j.FinishedAt, &j.CreatedAt, &j.UpdatedAt)
 	j.Output = output
 	if err := json.Unmarshal(spec, &j.Spec); err != nil {
 		return j, fmt.Errorf("decode job spec: %w", err)
@@ -98,7 +98,7 @@ func (r jobRepo) LeaseNext(ctx context.Context, accountID, workerID uuid.UUID, l
 			lease_expires_at = now() + $4::interval, updated_at = now()
 		WHERE id = (
 			SELECT id FROM jobs
-			WHERE account_id = $1 AND status = 'queued'
+			WHERE account_id = $1 AND status = 'queued' AND (run_after IS NULL OR run_after <= now())
 			  AND (needs || ARRAY[lower('runtime:' || runtime)]) <@ $3::text[]
 			  AND EXISTS (SELECT 1 FROM workers w WHERE w.id = $2 AND w.account_id = $1)
 			ORDER BY created_at, id
@@ -162,10 +162,10 @@ func writeJob(ctx context.Context, db dbtx, j *domain.Job) error {
 		return fmt.Errorf("encode job usage: %w", err)
 	}
 	return mapErr(db.QueryRow(ctx, `UPDATE jobs SET status = $3, attempts = $4, worker_id = $5, lease_expires_at = $6, started_at = $7,
-			finished_at = $8, output = $9, head_sha = $10, error = $11, usage = $12, cost_usd = $13, updated_at = $14
+			finished_at = $8, output = $9, head_sha = $10, error = $11, usage = $12, cost_usd = $13, updated_at = $14, run_after = $15
 		WHERE account_id = $1 AND id = $2 RETURNING updated_at`,
 		j.AccountID, j.ID, string(j.Status), j.Attempts, opt(j.WorkerID), optTime(j.LeaseExpiresAt), optTime(j.StartedAt),
-		optTime(j.FinishedAt), optJSON(j.Output), opt(j.HeadSHA), opt(j.Error), usage, j.CostUSD, j.UpdatedAt.UTC()).Scan(&j.UpdatedAt))
+		optTime(j.FinishedAt), optJSON(j.Output), opt(j.HeadSHA), opt(j.Error), usage, j.CostUSD, j.UpdatedAt.UTC(), optTime(j.RunAfter)).Scan(&j.UpdatedAt))
 }
 
 // leaseHeldBy checks that j is running under workerID.
@@ -197,7 +197,7 @@ func (r jobRepo) Release(ctx context.Context, accountID, jobID, workerID uuid.UU
 		if err := leaseHeldBy(j, workerID); err != nil {
 			return err
 		}
-		return j.Requeue(reason, now)
+		return j.Release(reason, now)
 	})
 }
 

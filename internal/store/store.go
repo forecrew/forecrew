@@ -201,9 +201,10 @@ type JobRepo interface {
 	// Complete finishes a running job with a worker's result. ErrLeaseLost
 	// unless the job is running under workerID.
 	Complete(ctx context.Context, accountID, jobID, workerID uuid.UUID, r JobResult) (domain.Job, error)
-	// Release gives up the attempt (domain.Job.Requeue): the job is queued
-	// again, or failed when attempts are exhausted. ErrLeaseLost unless the
-	// job is running under workerID.
+	// Release gives up the attempt (domain.Job.Release): the job is queued
+	// again but not leased before domain.RetryBackoff has passed, or failed
+	// when attempts are exhausted. ErrLeaseLost unless the job is running
+	// under workerID.
 	Release(ctx context.Context, accountID, jobID, workerID uuid.UUID, reason string) (domain.Job, error)
 	// Cancel moves a queued or running job to canceled.
 	Cancel(ctx context.Context, accountID, jobID uuid.UUID) (domain.Job, error)
