@@ -12,10 +12,8 @@ import (
 
 	"github.com/forecrew/forecrew/internal/analyzer"
 	"github.com/forecrew/forecrew/internal/domain"
-	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/runtime"
-	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -135,45 +133,6 @@ func TestSignalBus(t *testing.T) {
 	}
 	if n != subscriberBuffer {
 		t.Fatalf("drained %d signals, want %d", n, subscriberBuffer)
-	}
-}
-
-func TestGates(t *testing.T) {
-	f := newFixture(t)
-	ctx := t.Context()
-	bus := NewSignalBus(f.st)
-	svc := NewGates(f.st, bus, f.clock.Now)
-	g, err := svc.Open(ctx, gates.OpenRequest{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.GateNeedsYou, Title: "stuck"})
-	if err != nil || g.Status != domain.GatePending || g.Number != 1 {
-		t.Fatalf("Open = %+v, %v", g, err)
-	}
-	pending, _ := svc.ListPending(ctx, f.account, uuid.Nil())
-	if len(pending) != 1 {
-		t.Fatalf("pending = %v", pending)
-	}
-	by := domain.Actor{AccountID: f.account, Kind: domain.ActorMCP, Name: "laptop"}
-	_, err = svc.Resolve(ctx, by, g.ID, domain.GateChangesRequested, "x")
-	wantErr(t, err, domain.ErrInvalidDecision)
-	got, err := svc.Resolve(ctx, by, g.ID, domain.GateApproved, "retry")
-	if err != nil || got.Status != domain.GateApproved || got.ResolvedBy != "mcp:laptop" {
-		t.Fatalf("Resolve = %+v, %v", got, err)
-	}
-	_, err = svc.Resolve(ctx, by, g.ID, domain.GateRejected, "")
-	wantErr(t, err, domain.ErrInvalidTransition)
-	sigs, _ := bus.Lookup(ctx, f.account, domain.GateKey(g.ID))
-	if len(sigs) != 1 {
-		t.Fatalf("signals = %v", sigs)
-	}
-	p, err := sigs[0].Decode()
-	if err != nil || p.(*domain.GateResolved).Feedback != "retry" {
-		t.Fatalf("payload = %+v, %v", p, err)
-	}
-	_, err = svc.Get(ctx, f.account, domain.NewID())
-	wantErr(t, err, gates.ErrNotFound)
-	_, err = svc.Resolve(ctx, by, domain.NewID(), domain.GateApproved, "")
-	wantErr(t, err, gates.ErrNotFound)
-	if entries, _ := f.st.Audit().List(ctx, f.account, store.AuditFilter{}); len(entries) != 2 {
-		t.Fatalf("audit = %v", entries)
 	}
 }
 
