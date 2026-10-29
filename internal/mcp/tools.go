@@ -33,6 +33,7 @@ const (
 	ToolListPendingGates = "list_pending_gates"
 	ToolApprove          = "approve"
 	ToolRequestChanges   = "request_changes"
+	ToolReject           = "reject"
 	ToolDispatchJob      = "dispatch_job"
 	ToolListProjects     = "list_projects"
 	ToolGetProject       = "get_project"
@@ -40,6 +41,15 @@ const (
 	ToolGetGoal          = "get_goal"
 	ToolListJobs         = "list_jobs"
 )
+
+// Tools returns every MCP tool name.
+func Tools() []string {
+	return []string{
+		ToolOnboardProject, ToolCreateGoal, ToolJobStatus, ToolJobLogs, ToolListWorkers, ToolListPendingGates,
+		ToolApprove, ToolRequestChanges, ToolReject, ToolDispatchJob, ToolListProjects, ToolGetProject,
+		ToolListGoals, ToolGetGoal, ToolListJobs,
+	}
+}
 
 // ToolService implements one method per MCP tool.
 type ToolService interface {
@@ -52,11 +62,13 @@ type ToolService interface {
 	JobLogs(ctx context.Context, by domain.Actor, in JobLogsInput) (JobLogsOutput, error)
 	ListWorkers(ctx context.Context, by domain.Actor) ([]WorkerInfo, error)
 	ListPendingGates(ctx context.Context, by domain.Actor, in ProjectFilterInput) ([]domain.Gate, error)
-	// Approve resolves a gate as approved.
+	// Approve resolves a gate of any kind as approved (retry for needs_you).
 	Approve(ctx context.Context, by domain.Actor, in GateDecisionInput) (domain.Gate, error)
-	// RequestChanges resolves a gate as changes_requested (rejected for a
-	// needs_you gate, which means stop).
+	// RequestChanges resolves a gate as changes_requested. It fails with
+	// ErrInvalidInput on a needs_you gate and without feedback.
 	RequestChanges(ctx context.Context, by domain.Actor, in GateDecisionInput) (domain.Gate, error)
+	// Reject resolves a gate of any kind as rejected (stop for needs_you).
+	Reject(ctx context.Context, by domain.Actor, in GateDecisionInput) (domain.Gate, error)
 	// DispatchJob queues an ad-hoc job of a role on a project.
 	DispatchJob(ctx context.Context, by domain.Actor, in DispatchJobInput) (domain.Job, error)
 	ListProjects(ctx context.Context, by domain.Actor) ([]domain.Project, error)
@@ -115,7 +127,7 @@ type ProjectFilterInput struct {
 	Project string `json:"project,omitempty"` // name or repo
 }
 
-// GateDecisionInput is the input of approve and request_changes.
+// GateDecisionInput is the input of approve, request_changes and reject.
 type GateDecisionInput struct {
 	Gate     string `json:"gate"`               // GATE-7 or UUID
 	Feedback string `json:"feedback,omitempty"` // required for request_changes

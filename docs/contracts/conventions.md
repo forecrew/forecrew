@@ -118,6 +118,28 @@ The first `checks.completed` for a SHA is final for that SHA; a new push is a
 new SHA. Build signals with `domain.NewSignal`, which validates the payload
 and computes both keys.
 
+## Gate decisions
+
+Humans resolve a pending gate with one of three decisions, through the web
+UI, `/api/v1`, MCP or `@forecrew` on GitHub. The MCP tools (`mcp.ToolService`)
+are:
+
+| Tool | Decision | Gate kinds | Notes |
+|------|----------|------------|-------|
+| `approve` | `approved` | all | On `needs_you`: retry. |
+| `request_changes` | `changes_requested` | `profile_approval`, `spec_approval`, `merge_approval` | `feedback` required. On `needs_you` it fails with `mcp.ErrInvalidInput`. |
+| `reject` | `rejected` | all | On `needs_you`: stop. |
+
+`mcp.GateDecision` implements these rules (on top of
+`domain.GateKind.AllowsDecision`); every entry point uses it. A resolved gate
+is final and publishes `gate.resolved`; a new review round opens a new gate.
+
+The 15 MCP tools are listed by `mcp.Tools()`: `onboard_project`,
+`create_goal`, `job_status`, `job_logs`, `list_workers`,
+`list_pending_gates`, `approve`, `request_changes`, `reject`,
+`dispatch_job`, `list_projects`, `get_project`, `list_goals`, `get_goal`,
+`list_jobs`.
+
 ## Tests
 
 - Table-driven tests; `httptest` for HTTP; fakes from `internal/testkit`
