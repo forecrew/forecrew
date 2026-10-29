@@ -1,0 +1,48 @@
+version: "2"
+
+run:
+  build-tags:
+    - integration
+
+linters:
+  default: standard
+  enable:
+    - dupl
+    - gocognit
+    - gosec
+    - revive
+  settings:
+    errcheck:
+      # Writes to stdout/stderr have no useful error handling.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    dupl:
+      threshold: 120
+    gocognit:
+      min-complexity: 20
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: error-naming
+        - name: error-strings
+        - name: error-return
+        - name: receiver-naming
+        - name: indent-error-flow
+        - name: unused-parameter
+        - name: context-as-argument
+  exclusions:
+    generated: lax
+    rules:
+      - path: _test\.go
+        linters:
+          - dupl
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
