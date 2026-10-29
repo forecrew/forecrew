@@ -28,6 +28,10 @@ type Role struct {
 	AllowedTools []string
 	MaxTurns     int
 	Timeout      time.Duration
+	// DefinitionOfDone lists what must be true when the job finishes.
+	DefinitionOfDone []string
+	// EscalateWhen lists when the agent must stop and ask a human.
+	EscalateWhen []string
 }
 
 // ReadOnly reports whether the role may not write any path.

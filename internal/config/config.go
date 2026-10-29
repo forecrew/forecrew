@@ -273,11 +273,21 @@ func (c *Config) validateRoles(p *problems) {
 			p.addf("roles.%s: model_tiers.%s.%s is not set", name, r.Tier, rt.Vendor)
 		}
 	}
+	if v, ok := c.SameVendorReview(); ok {
+		p.addf("roles: reviewer and developer both use vendor %q; set policy.allow_same_vendor_review to allow it", v)
+	}
+}
+
+// SameVendorReview reports whether the reviewer and developer roles use
+// runtimes of the same vendor without policy.allow_same_vendor_review, which
+// separation of duties forbids, and returns that vendor.
+func (c *Config) SameVendorReview() (string, bool) {
 	dev, okDev := c.vendor("developer")
 	rev, okRev := c.vendor("reviewer")
 	if okDev && okRev && dev == rev && !c.Policy.AllowSameVendorReview {
-		p.addf("roles: reviewer and developer both use vendor %q; set policy.allow_same_vendor_review to allow it", dev)
+		return dev, true
 	}
+	return "", false
 }
 
 func (c *Config) vendor(role string) (string, bool) {

@@ -157,3 +157,26 @@ func TestLoad(t *testing.T) {
 		t.Fatalf("missing file err = %v", err)
 	}
 }
+
+func TestSameVendorReview(t *testing.T) {
+	c := &Config{
+		Runtimes: map[string]Runtime{"a": {Vendor: "anthropic"}, "a2": {Vendor: "anthropic"}, "o": {Vendor: "openai"}},
+		Roles:    map[string]Role{"developer": {Runtime: "a"}, "reviewer": {Runtime: "o"}},
+	}
+	if v, ok := c.SameVendorReview(); ok {
+		t.Errorf("different vendors: SameVendorReview = %q, true", v)
+	}
+	c.Roles["reviewer"] = Role{Runtime: "a2"}
+	if v, ok := c.SameVendorReview(); !ok || v != "anthropic" {
+		t.Errorf("same vendor: SameVendorReview = %q, %v; want anthropic, true", v, ok)
+	}
+	c.Policy.AllowSameVendorReview = true
+	if _, ok := c.SameVendorReview(); ok {
+		t.Error("allowed same vendor reported")
+	}
+	c.Policy.AllowSameVendorReview = false
+	delete(c.Roles, "reviewer")
+	if _, ok := c.SameVendorReview(); ok {
+		t.Error("missing reviewer reported")
+	}
+}
