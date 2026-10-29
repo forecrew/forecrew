@@ -136,6 +136,24 @@ func (e *env) serve(pattern string, status int, name string) {
 // handle registers a custom handler.
 func (e *env) handle(pattern string, h http.HandlerFunc) { e.mux.HandleFunc(pattern, h) }
 
+// servePages answers pattern with the fixtures in order, one per page, and
+// sets the Link header so that the client follows them.
+func (e *env) servePages(pattern string, names ...string) {
+	e.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+		page := 1
+		_, _ = fmt.Sscan(r.URL.Query().Get("page"), &page)
+		if page < len(names) {
+			next := *r.URL
+			q := next.Query()
+			q.Set("page", fmt.Sprint(page+1))
+			next.RawQuery = q.Encode()
+			w.Header().Set("Link", fmt.Sprintf(`<http://%s%s>; rel="next"`, r.Host, next.RequestURI()))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(fixture(e.t, "api", names[page-1]))
+	})
+}
+
 func readJSON(t *testing.T, r *http.Request) map[string]any {
 	t.Helper()
 	b, err := io.ReadAll(r.Body)
@@ -171,3 +189,5 @@ func ecKey(t *testing.T) *ecdsa.PrivateKey {
 	}
 	return k
 }
+
+func readAll(r *http.Request) ([]byte, error) { return io.ReadAll(r.Body) }

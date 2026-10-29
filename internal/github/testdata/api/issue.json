@@ -1,0 +1,13 @@
+{
+  "id": 1000007,
+  "number": 7,
+  "title": "Add login page",
+  "body": "As a user I want to log in.",
+  "state": "open",
+  "html_url": "https://github.com/acme/app/issues/7",
+  "labels": [
+    {"id": 1, "name": "forecrew", "color": "0e8a16"},
+    {"id": 2, "name": "needs you", "color": "d93f0b"}
+  ],
+  "user": {"login": "forecrew[bot]"}
+}

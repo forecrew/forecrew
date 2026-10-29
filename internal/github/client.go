@@ -127,6 +127,20 @@ func (c *Client) appAPI() (*gh.Client, error) {
 	return c.api(jwt)
 }
 
+// repoClient returns a client with a cached installation token for repo.
+func (c *Client) repoClient(ctx context.Context, repo string) (cl *gh.Client, owner, name string, err error) {
+	owner, name, err = splitRepo(repo)
+	if err != nil {
+		return nil, "", "", err
+	}
+	tok, err := c.token(ctx, repo, "")
+	if err != nil {
+		return nil, "", "", err
+	}
+	cl, err = c.api(tok.Value)
+	return cl, owner, name, err
+}
+
 func splitRepo(repo string) (owner, name string, err error) {
 	owner, name, ok := strings.Cut(repo, "/")
 	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
