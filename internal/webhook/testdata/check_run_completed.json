@@ -1,0 +1,6 @@
+{
+  "action": "completed",
+  "check_run": {"head_sha": "abc123", "status": "completed", "conclusion": "failure", "pull_requests": [{"number": 7}]},
+  "repository": {"full_name": "Acme/App"},
+  "sender": {"login": "github-actions[bot]"}
+}

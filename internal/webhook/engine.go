@@ -44,6 +44,8 @@ func (e *engine) handle(ctx context.Context, ev github.Event) error {
 	switch ev.Kind {
 	case "pull_request":
 		return e.pullRequest(ctx, ev)
+	case "check_suite", "check_run", "status":
+		return e.checkEvent(ctx, ev)
 	}
 	return nil
 }
@@ -62,12 +64,34 @@ func (e *engine) eachProject(ctx context.Context, repo string, fn func(domain.Pr
 }
 
 func (e *engine) pullRequest(ctx context.Context, ev github.Event) error {
-	if ev.Action != "closed" {
+	switch ev.Action {
+	case "closed":
+		return e.eachProject(ctx, ev.Repo, func(p domain.Project) error {
+			return e.prClosed(ctx, p, ev.Repo, ev.Number, ev.Merged, ev.SHA)
+		})
+	case "reopened", "synchronize":
+		return e.eachProject(ctx, ev.Repo, func(p domain.Project) error {
+			return e.refreshChange(ctx, p.AccountID, ev.Repo, ev.Number, ev.SHA)
+		})
+	}
+	return nil
+}
+
+// refreshChange records that a known PR is open with head sha. Upserting
+// moves its updated_at, which starts the wait for the checks of a new head.
+func (e *engine) refreshChange(ctx context.Context, accountID uuid.UUID, repo string, number int, sha string) error {
+	c, err := e.Store.Changes().GetByPR(ctx, accountID, repo, number)
+	if errors.Is(err, store.ErrNotFound) {
 		return nil
 	}
-	return e.eachProject(ctx, ev.Repo, func(p domain.Project) error {
-		return e.prClosed(ctx, p, ev.Repo, ev.Number, ev.Merged, ev.SHA)
-	})
+	if err != nil {
+		return fmt.Errorf("get change %s#%d: %w", repo, number, err)
+	}
+	c.State, c.HeadSHA = domain.ChangeOpen, sha
+	if err := e.Store.Changes().Upsert(ctx, &c); err != nil {
+		return fmt.Errorf("update change %s#%d: %w", repo, number, err)
+	}
+	return nil
 }
 
 // prClosed publishes pr.merged or pr.closed, decides the gates the PR is the
@@ -81,7 +105,7 @@ func (e *engine) prClosed(ctx context.Context, p domain.Project, repo string, nu
 		payload = domain.PRMerged{Repo: repo, Number: number, SHA: sha}
 		state = domain.ChangeMerged
 	}
-	if _, err := e.publish(ctx, p, payload); err != nil {
+	if _, err := e.publish(ctx, p.AccountID, p.ID, payload); err != nil {
 		return err
 	}
 	if err := e.resolvePRGates(ctx, p.AccountID, repo, number, merged); err != nil {
@@ -91,8 +115,8 @@ func (e *engine) prClosed(ctx context.Context, p domain.Project, repo string, nu
 }
 
 // publish stores the signal; it reports whether it was new.
-func (e *engine) publish(ctx context.Context, p domain.Project, payload domain.SignalPayload) (bool, error) {
-	s, err := domain.NewSignal(p.AccountID, p.ID, payload, e.Now())
+func (e *engine) publish(ctx context.Context, accountID, projectID uuid.UUID, payload domain.SignalPayload) (bool, error) {
+	s, err := domain.NewSignal(accountID, projectID, payload, e.Now())
 	if err != nil {
 		return false, err
 	}
@@ -101,7 +125,7 @@ func (e *engine) publish(ctx context.Context, p domain.Project, payload domain.S
 		return false, fmt.Errorf("publish %s: %w", s.DedupeKey, err)
 	}
 	if isNew {
-		e.Log.Info("signal published", "account_id", p.AccountID, "project_id", p.ID, "kind", s.Kind, "key", s.Key)
+		e.Log.Info("signal published", "account_id", accountID, "project_id", projectID, "kind", s.Kind, "key", s.Key)
 	}
 	return isNew, nil
 }
