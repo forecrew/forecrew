@@ -22,6 +22,9 @@ type jobRepo struct{ s *Store }
 
 func (r jobRepo) Create(_ context.Context, j *domain.Job) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
+		if err := firstErr(foreign(&d.projects, j.AccountID, j.ProjectID), foreign(&d.goals, j.AccountID, j.GoalID), foreign(&d.specs, j.AccountID, j.SpecID), foreign(&d.tasks, j.AccountID, j.TaskID)); err != nil {
+			return err
+		}
 		j.ID = newID(j.ID)
 		j.Number = d.nextNumber(j.AccountID, domain.RefJob)
 		j.Status = domain.JobQueued

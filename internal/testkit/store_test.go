@@ -476,3 +476,39 @@ func TestStoreWithTx(t *testing.T) {
 		t.Fatalf("committed goals = %+v", list)
 	}
 }
+
+func TestStoreRejectsForeignRows(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	other := domain.Account{Name: "other"}
+	must(t, f.st.Accounts().Create(ctx, &other))
+	o := other.ID
+	g := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Title: "g"}
+	must(t, f.st.Goals().Create(ctx, &g))
+	sp := domain.Spec{AccountID: f.account, ProjectID: f.project.ID, GoalID: g.ID, Revision: 1}
+	must(t, f.st.Specs().Create(ctx, &sp))
+	tk := domain.Task{AccountID: f.account, ProjectID: f.project.ID, GoalID: g.ID, SpecID: sp.ID}
+	must(t, f.st.Tasks().Create(ctx, &tk))
+	job := newJob(f)
+	must(t, f.st.Jobs().Create(ctx, &job))
+	run := domain.WorkflowRun{AccountID: f.account, ProjectID: f.project.ID}
+	must(t, f.st.WorkflowRuns().Create(ctx, &run))
+
+	for name, err := range map[string]error{
+		"goal":   f.st.Goals().Create(ctx, &domain.Goal{AccountID: o, ProjectID: f.project.ID}),
+		"spec":   f.st.Specs().Create(ctx, &domain.Spec{AccountID: o, GoalID: g.ID, Revision: 1}),
+		"task":   f.st.Tasks().Create(ctx, &domain.Task{AccountID: o, SpecID: sp.ID}),
+		"job":    f.st.Jobs().Create(ctx, &domain.Job{AccountID: o, TaskID: tk.ID}),
+		"gate":   f.st.Gates().Create(ctx, &domain.Gate{AccountID: o, JobID: job.ID}),
+		"run":    f.st.WorkflowRuns().Create(ctx, &domain.WorkflowRun{AccountID: o, GoalID: g.ID}),
+		"step":   f.st.StepRuns().Create(ctx, &domain.StepRun{AccountID: o, RunID: run.ID}),
+		"audit":  f.st.Audit().Append(ctx, &domain.AuditEntry{AccountID: o, ProjectID: f.project.ID}),
+		"change": f.st.Changes().Upsert(ctx, &domain.Change{AccountID: o, ProjectID: f.project.ID, Repo: "a/b", Number: 1}),
+	} {
+		if !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("%s: err = %v, want not found", name, err)
+		}
+	}
+	_, err := f.st.Signals().Insert(ctx, &domain.Signal{AccountID: o, ProjectID: f.project.ID, DedupeKey: "k"})
+	wantErr(t, err, store.ErrNotFound)
+}

@@ -25,6 +25,9 @@ type goalRepo struct{ s *Store }
 
 func (r goalRepo) Create(_ context.Context, g *domain.Goal) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
+		if err := foreign(&d.projects, g.AccountID, g.ProjectID); err != nil {
+			return err
+		}
 		g.ID = newID(g.ID)
 		g.Number = d.nextNumber(g.AccountID, domain.RefGoal)
 		g.CreatedAt, g.UpdatedAt = now, now
@@ -69,6 +72,9 @@ type specRepo struct{ s *Store }
 
 func (r specRepo) Create(_ context.Context, sp *domain.Spec) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
+		if err := firstErr(foreign(&d.projects, sp.AccountID, sp.ProjectID), foreign(&d.goals, sp.AccountID, sp.GoalID), foreign(&d.jobs, sp.AccountID, sp.JobID)); err != nil {
+			return err
+		}
 		if d.specs.exists(func(x domain.Spec) bool { return x.GoalID == sp.GoalID && x.Revision == sp.Revision }) {
 			return fmt.Errorf("spec revision %d: %w", sp.Revision, store.ErrConflict)
 		}
@@ -105,6 +111,9 @@ type taskRepo struct{ s *Store }
 
 func (r taskRepo) Create(_ context.Context, t *domain.Task) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
+		if err := firstErr(foreign(&d.projects, t.AccountID, t.ProjectID), foreign(&d.goals, t.AccountID, t.GoalID), foreign(&d.specs, t.AccountID, t.SpecID)); err != nil {
+			return err
+		}
 		t.ID = newID(t.ID)
 		t.Number = d.nextNumber(t.AccountID, domain.RefTask)
 		t.CreatedAt, t.UpdatedAt = now, now
@@ -168,6 +177,9 @@ func samePR(c domain.Change, account uuid.UUID, repo string, number int) bool {
 
 func (r changeRepo) Upsert(_ context.Context, c *domain.Change) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
+		if err := firstErr(foreign(&d.projects, c.AccountID, c.ProjectID), foreign(&d.tasks, c.AccountID, c.TaskID)); err != nil {
+			return err
+		}
 		cur, err := d.changes.find(func(x domain.Change) bool { return samePR(x, c.AccountID, c.Repo, c.Number) })
 		if err != nil {
 			c.ID = newID(c.ID)
