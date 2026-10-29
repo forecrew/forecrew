@@ -1,0 +1,37 @@
+{
+  "name": "go-service",
+  "languages": [
+    {
+      "name": "Go",
+      "files": 3,
+      "lines": 26,
+      "bytes": 312
+    }
+  ],
+  "manifests": [
+    "Dockerfile",
+    "Makefile",
+    "go.mod"
+  ],
+  "ci_files": [
+    ".github/workflows/ci.yml"
+  ],
+  "doc_files": [
+    "AGENTS.md",
+    "README.md",
+    "docs/design.md"
+  ],
+  "top_level": [
+    ".github/",
+    "AGENTS.md",
+    "Dockerfile",
+    "Makefile",
+    "README.md",
+    "cmd/",
+    "docs/",
+    "gen/",
+    "go.mod",
+    "internal/",
+    "vendor/"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "shop-web",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "node --test"
+  }
+}

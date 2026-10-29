@@ -1,0 +1,37 @@
+{
+  "name": "node-web",
+  "languages": [
+    {
+      "name": "TypeScript",
+      "files": 3,
+      "lines": 13,
+      "bytes": 221
+    },
+    {
+      "name": "CSS",
+      "files": 1,
+      "lines": 3,
+      "bytes": 22
+    }
+  ],
+  "manifests": [
+    "package.json"
+  ],
+  "ci_files": [
+    ".github/workflows/web.yml"
+  ],
+  "doc_files": [
+    "README.md"
+  ],
+  "top_level": [
+    ".cursor/",
+    ".github/",
+    "CLAUDE.md",
+    "README.md",
+    "dist/",
+    "node_modules/",
+    "package.json",
+    "pnpm-lock.yaml",
+    "src/"
+  ]
+}

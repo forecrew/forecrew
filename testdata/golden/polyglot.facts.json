@@ -1,0 +1,53 @@
+{
+  "name": "polyglot",
+  "languages": [
+    {
+      "name": "Rust",
+      "files": 1,
+      "lines": 3,
+      "bytes": 38
+    },
+    {
+      "name": "Go",
+      "files": 1,
+      "lines": 3,
+      "bytes": 29
+    },
+    {
+      "name": "TypeScript",
+      "files": 1,
+      "lines": 1,
+      "bytes": 26
+    }
+  ],
+  "manifests": [
+    ".devcontainer/devcontainer.json",
+    "docker-compose.yml",
+    "services/api/Dockerfile",
+    "services/api/go.mod",
+    "web/package.json",
+    "worker/Cargo.toml"
+  ],
+  "ci_files": [
+    ".github/workflows/ci.yml"
+  ],
+  "doc_files": [
+    "AGENTS.md",
+    "README.md",
+    "docs/architecture.md"
+  ],
+  "top_level": [
+    ".devcontainer/",
+    ".github/",
+    "AGENTS.md",
+    "README.md",
+    "build/",
+    "dist/",
+    "docker-compose.yml",
+    "docs/",
+    "node_modules/",
+    "services/",
+    "web/",
+    "worker/"
+  ]
+}

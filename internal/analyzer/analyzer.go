@@ -10,12 +10,14 @@ import "context"
 type Language struct {
 	Name  string `json:"name"` // e.g. Go, TypeScript
 	Files int    `json:"files"`
+	Lines int    `json:"lines"`
 	Bytes int64  `json:"bytes"`
 }
 
 // Facts describes a repo checkout. Paths are relative to the repo root,
 // with forward slashes, sorted.
 type Facts struct {
+	Name      string     `json:"name"`      // checkout directory name
 	Languages []Language `json:"languages"` // most bytes first
 	Manifests []string   `json:"manifests"` // go.mod, package.json, Cargo.toml, ...
 	CIFiles   []string   `json:"ci_files"`  // .github/workflows/*.yml, ...
