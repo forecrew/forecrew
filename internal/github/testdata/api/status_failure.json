@@ -1,0 +1,1 @@
+{"state": "failure", "sha": "4f1c2b9e", "total_count": 2, "statuses": [{"id": 1, "state": "success", "context": "a"}, {"id": 2, "state": "error", "context": "b"}]}

@@ -1,0 +1,4 @@
+{"total_count": 3, "check_runs": [
+  {"id": 1, "name": "build", "status": "completed", "conclusion": "success", "head_sha": "4f1c2b9e"},
+  {"id": 2, "name": "lint", "status": "completed", "conclusion": "skipped", "head_sha": "4f1c2b9e"}
+]}
