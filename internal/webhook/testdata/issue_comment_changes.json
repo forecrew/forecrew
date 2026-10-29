@@ -1,0 +1,18 @@
+{
+  "action": "created",
+  "issue": {
+    "number": 1,
+    "pull_request": {
+      "url": "x"
+    }
+  },
+  "comment": {
+    "body": "@Forecrew changes rename the flag\nand add a test"
+  },
+  "repository": {
+    "full_name": "Acme/App"
+  },
+  "sender": {
+    "login": "OctoCat"
+  }
+}
