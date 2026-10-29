@@ -1,0 +1,53 @@
+description: Spec a goal, build each task and merge it.
+inputs: [repo, goal_id]
+steps:
+  - id: spec
+    type: job
+    with:
+      role: product-owner
+      repo: ${inputs.repo}
+      goal_id: ${inputs.goal_id}
+    on_failure: escalate
+  - id: approve-spec
+    type: gate
+    with:
+      kind: spec_approval
+      title: Approve the spec of ${inputs.repo}
+      summary: ${steps.spec.output.summary}
+      subject_repo: ${inputs.repo}
+      subject_number: 7
+  - id: tasks
+    type: foreach
+    items: ${steps.spec.output.tasks}
+    steps:
+      - id: build
+        type: loop
+        max_iterations: 3
+        until: steps.review.output.decision == approved
+        on_failure: escalate
+        steps:
+          - id: develop
+            type: job
+            with:
+              role: developer
+              repo: ${inputs.repo}
+              branch: agent/task-${index}-${iteration}
+              feedback: ${steps.review.output.feedback}
+          - id: review
+            type: gate
+            with:
+              kind: merge_approval
+              title: ${item.title}
+              subject_repo: ${inputs.repo}
+      - id: checks
+        type: wait
+        with:
+          signal: checks.completed
+          repo: ${inputs.repo}
+          sha: ${steps.develop.head_sha}
+        timeout: 30m
+  - id: notify
+    type: action
+    action: notify
+    with:
+      message: done ${inputs.repo}
