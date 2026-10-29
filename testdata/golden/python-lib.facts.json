@@ -1,0 +1,27 @@
+{
+  "name": "python-lib",
+  "languages": [
+    {
+      "name": "Python",
+      "files": 3,
+      "lines": 11,
+      "bytes": 201
+    }
+  ],
+  "manifests": [
+    "pyproject.toml",
+    "requirements-dev.txt"
+  ],
+  "ci_files": [],
+  "doc_files": [
+    "README.md"
+  ],
+  "top_level": [
+    ".github/",
+    "README.md",
+    "pyproject.toml",
+    "requirements-dev.txt",
+    "src/",
+    "tests/"
+  ]
+}

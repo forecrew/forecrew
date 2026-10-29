@@ -1,0 +1,10 @@
+{
+  "name": "empty",
+  "languages": [],
+  "manifests": [],
+  "ci_files": [],
+  "doc_files": [],
+  "top_level": [
+    ".gitkeep"
+  ]
+}

@@ -1,0 +1,7 @@
+name: web
+on: pull_request
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - run: pnpm test
