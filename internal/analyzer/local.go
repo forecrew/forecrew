@@ -30,13 +30,8 @@ var excludedDirs = map[string]bool{
 	".git":         true,
 }
 
-// manifestPatterns match the base name of build, package and deployment
-// files. .devcontainer/ is matched by prefix in isManifest.
-var manifestPatterns = []string{
-	"go.mod", "package.json", "Cargo.toml", "pyproject.toml", "pom.xml",
-	"build.gradle*", "CMakeLists.txt", "Makefile", "Dockerfile",
-	"requirements*.txt", "docker-compose*.yml", "docker-compose*.yaml",
-}
+// composePatterns match docker-compose files by base name.
+var composePatterns = []string{"docker-compose*.yml", "docker-compose*.yaml"}
 
 // languageByExt maps lower-case file extensions to language names.
 var languageByExt = map[string]string{
@@ -74,13 +69,18 @@ func (Local) Analyze(ctx context.Context, dir string) (Facts, error) {
 	if err != nil {
 		return Facts{}, fmt.Errorf("analyze %s: %w", dir, err)
 	}
+	comps, err := components(root, files)
+	if err != nil {
+		return Facts{}, fmt.Errorf("analyze %s: %w", dir, err)
+	}
 	return Facts{
-		Name:      filepath.Base(root),
-		Languages: nonNil(langs),
-		Manifests: filter(files, isManifest),
-		CIFiles:   filter(files, isWorkflow),
-		DocFiles:  filter(files, isDoc),
-		TopLevel:  nonNil(top),
+		Name:       filepath.Base(root),
+		Languages:  nonNil(langs),
+		Manifests:  filter(files, isManifest),
+		CIFiles:    filter(files, isWorkflow),
+		DocFiles:   filter(files, isDoc),
+		TopLevel:   nonNil(top),
+		Components: comps,
 	}, nil
 }
 
@@ -188,10 +188,9 @@ func countLines(data []byte) int {
 
 // isManifest reports whether rel is a build, package or deployment file.
 func isManifest(rel string) bool {
-	if strings.HasPrefix(rel, ".devcontainer/") {
-		return true
-	}
-	return matchAny(manifestPatterns, path.Base(rel))
+	base := path.Base(rel)
+	return buildFileIndex(base) >= 0 || matchAny(composePatterns, base) ||
+		strings.HasPrefix(rel, ".devcontainer/")
 }
 
 // isWorkflow reports whether rel is a GitHub Actions workflow.
@@ -208,14 +207,15 @@ func isDoc(rel string) bool {
 		strings.HasPrefix(rel, "docs/")
 }
 
+// matchGlob reports whether name matches the glob pattern.
+func matchGlob(pattern, name string) bool {
+	ok, _ := path.Match(pattern, name)
+	return ok
+}
+
 // matchAny reports whether name matches one of the glob patterns.
 func matchAny(patterns []string, name string) bool {
-	for _, p := range patterns {
-		if ok, _ := path.Match(p, name); ok {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(patterns, func(p string) bool { return matchGlob(p, name) })
 }
 
 // filter returns the items for which keep is true.

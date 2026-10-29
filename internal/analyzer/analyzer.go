@@ -23,6 +23,17 @@ type Facts struct {
 	CIFiles   []string   `json:"ci_files"`  // .github/workflows/*.yml, ...
 	DocFiles  []string   `json:"doc_files"` // README*, AGENTS.md, CONTRIBUTING*, docs/**
 	TopLevel  []string   `json:"top_level"` // entries of the repo root, directories end in "/"
+	// Components are the directories with their own build file, sorted by path.
+	Components []Component `json:"components"`
+}
+
+// Component is a directory with its own build file.
+type Component struct {
+	Path      string   `json:"path"`      // "." for the repo root
+	Stack     string   `json:"stack"`     // go, node, rust, python, java, cmake, make or docker
+	Manifests []string `json:"manifests"` // build files in the directory
+	Build     string   `json:"build"`     // likely build command, run in Path; "" when unknown
+	Test      string   `json:"test"`      // likely test command, run in Path; "" when unknown
 }
 
 // Analyzer computes repo facts.

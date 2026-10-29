@@ -23,5 +23,17 @@
     "requirements-dev.txt",
     "src/",
     "tests/"
+  ],
+  "components": [
+    {
+      "path": ".",
+      "stack": "python",
+      "manifests": [
+        "pyproject.toml",
+        "requirements-dev.txt"
+      ],
+      "build": "python -m build",
+      "test": "python -m pytest"
+    }
   ]
 }
