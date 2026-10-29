@@ -19,8 +19,12 @@ type ToolCall struct {
 }
 
 // ToolService is an mcp.ToolService that records calls and delegates each
-// tool to its optional func field; a nil func returns the zero output.
+// tool to its optional func field; a nil func returns the zero output. The
+// gate tools (approve, request_changes, reject) without a func resolve the
+// gate through Gates when it is set, applying mcp.GateDecision.
 type ToolService struct {
+	Gates *Gates
+
 	OnboardProjectFunc   func(context.Context, domain.Actor, mcp.OnboardProjectInput) (mcp.OnboardProjectOutput, error)
 	CreateGoalFunc       func(context.Context, domain.Actor, mcp.CreateGoalInput) (domain.Goal, error)
 	JobStatusFunc        func(context.Context, domain.Actor, mcp.JobRefInput) (domain.Job, error)
@@ -29,6 +33,7 @@ type ToolService struct {
 	ListPendingGatesFunc func(context.Context, domain.Actor, mcp.ProjectFilterInput) ([]domain.Gate, error)
 	ApproveFunc          func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
 	RequestChangesFunc   func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
+	RejectFunc           func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
 	DispatchJobFunc      func(context.Context, domain.Actor, mcp.DispatchJobInput) (domain.Job, error)
 	ListProjectsFunc     func(context.Context, domain.Actor, any) ([]domain.Project, error)
 	GetProjectFunc       func(context.Context, domain.Actor, mcp.ProjectInput) (domain.Project, error)
@@ -89,14 +94,37 @@ func (s *ToolService) ListPendingGates(ctx context.Context, by domain.Actor, in 
 	return invoke(ctx, s, mcp.ToolListPendingGates, by, in, s.ListPendingGatesFunc)
 }
 
+// decide returns fn, or when it is nil the default gate tool behavior.
+func (s *ToolService) decide(tool string, fn func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)) func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error) {
+	if fn != nil || s.Gates == nil {
+		return fn
+	}
+	return func(ctx context.Context, by domain.Actor, in mcp.GateDecisionInput) (domain.Gate, error) {
+		g, err := s.Gates.Find(ctx, by.AccountID, in.Gate)
+		if err != nil {
+			return domain.Gate{}, err
+		}
+		decision, err := mcp.GateDecision(tool, g.Kind, in)
+		if err != nil {
+			return domain.Gate{}, err
+		}
+		return s.Gates.Resolve(ctx, by, g.ID, decision, in.Feedback)
+	}
+}
+
 // Approve implements mcp.ToolService.
 func (s *ToolService) Approve(ctx context.Context, by domain.Actor, in mcp.GateDecisionInput) (domain.Gate, error) {
-	return invoke(ctx, s, mcp.ToolApprove, by, in, s.ApproveFunc)
+	return invoke(ctx, s, mcp.ToolApprove, by, in, s.decide(mcp.ToolApprove, s.ApproveFunc))
 }
 
 // RequestChanges implements mcp.ToolService.
 func (s *ToolService) RequestChanges(ctx context.Context, by domain.Actor, in mcp.GateDecisionInput) (domain.Gate, error) {
-	return invoke(ctx, s, mcp.ToolRequestChanges, by, in, s.RequestChangesFunc)
+	return invoke(ctx, s, mcp.ToolRequestChanges, by, in, s.decide(mcp.ToolRequestChanges, s.RequestChangesFunc))
+}
+
+// Reject implements mcp.ToolService.
+func (s *ToolService) Reject(ctx context.Context, by domain.Actor, in mcp.GateDecisionInput) (domain.Gate, error) {
+	return invoke(ctx, s, mcp.ToolReject, by, in, s.decide(mcp.ToolReject, s.RejectFunc))
 }
 
 // DispatchJob implements mcp.ToolService.

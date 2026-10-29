@@ -9,6 +9,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
+	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -79,6 +80,24 @@ func (s *Gates) Get(ctx context.Context, accountID, gateID uuid.UUID) (domain.Ga
 		return domain.Gate{}, fmt.Errorf("gate %s: %w", gateID, gates.ErrNotFound)
 	}
 	return g, err
+}
+
+// Find returns a gate of the account by human ref (GATE-7) or UUID. An empty
+// or malformed ref wraps mcp.ErrInvalidInput; an unknown gate wraps
+// gates.ErrNotFound.
+func (s *Gates) Find(ctx context.Context, accountID uuid.UUID, ref string) (domain.Gate, error) {
+	if kind, n, err := domain.ParseRef(ref); err == nil && kind == domain.RefGate {
+		g, err := s.st.Gates().GetByNumber(ctx, accountID, n)
+		if errors.Is(err, store.ErrNotFound) {
+			return domain.Gate{}, fmt.Errorf("gate %s: %w", ref, gates.ErrNotFound)
+		}
+		return g, err
+	}
+	id, err := uuid.Parse(ref)
+	if err != nil {
+		return domain.Gate{}, fmt.Errorf("gate %q is not a GATE ref or UUID: %w", ref, mcp.ErrInvalidInput)
+	}
+	return s.Get(ctx, accountID, id)
 }
 
 // ListPending implements gates.Service.

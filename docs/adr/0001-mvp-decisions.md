@@ -56,7 +56,12 @@ not paint us into a corner for the hosted product.
    Let's Encrypt certificates (`server.tls_domain`) or plain HTTP behind the
    operator's load balancer that terminates TLS.
 
-10. **Humans merge.** Agents never merge on their own. A change is merged by
+10. **Humans decide at gates.** Profile, spec and merge approvals and the
+    "needs you" escalation are gates. A human approves, requests changes
+    (with feedback) or rejects, from the web UI, MCP or GitHub. A needs_you
+    gate is only approved (retry) or rejected (stop).
+
+11. **Humans merge.** Agents never merge on their own. A change is merged by
     a human on GitHub, or by forecrewd when a human approves the
     merge_approval gate (web UI, MCP or `@forecrew` from an allowlisted
     login).
