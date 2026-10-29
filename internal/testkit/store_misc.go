@@ -25,6 +25,9 @@ type gateRepo struct{ s *Store }
 
 func (r gateRepo) Create(_ context.Context, g *domain.Gate) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
+		if err := firstErr(foreign(&d.projects, g.AccountID, g.ProjectID), foreign(&d.goals, g.AccountID, g.GoalID), foreign(&d.specs, g.AccountID, g.SpecID), foreign(&d.tasks, g.AccountID, g.TaskID), foreign(&d.jobs, g.AccountID, g.JobID)); err != nil {
+			return err
+		}
 		g.ID = newID(g.ID)
 		g.Number = d.nextNumber(g.AccountID, domain.RefGate)
 		g.Status = domain.GatePending
@@ -72,6 +75,9 @@ type signalRepo struct{ s *Store }
 func (r signalRepo) Insert(_ context.Context, sig *domain.Signal) (bool, error) {
 	inserted := false
 	err := r.s.do(func(d *storeData, now time.Time) error {
+		if err := foreign(&d.projects, sig.AccountID, sig.ProjectID); err != nil {
+			return err
+		}
 		if d.signals.exists(func(x domain.Signal) bool { return x.AccountID == sig.AccountID && x.DedupeKey == sig.DedupeKey }) {
 			return nil
 		}
@@ -97,6 +103,9 @@ type runRepo struct{ s *Store }
 
 func (r runRepo) Create(_ context.Context, run *domain.WorkflowRun) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
+		if err := firstErr(foreign(&d.projects, run.AccountID, run.ProjectID), foreign(&d.goals, run.AccountID, run.GoalID), foreign(&d.tasks, run.AccountID, run.TaskID)); err != nil {
+			return err
+		}
 		run.ID = newID(run.ID)
 		run.CreatedAt, run.UpdatedAt = now, now
 		d.runs.insert(*run)
@@ -129,6 +138,9 @@ type stepRepo struct{ s *Store }
 
 func (r stepRepo) Create(_ context.Context, st *domain.StepRun) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
+		if err := firstErr(foreign(&d.runs, st.AccountID, st.RunID), foreign(&d.jobs, st.AccountID, st.JobID), foreign(&d.gates, st.AccountID, st.GateID), foreign(&d.signals, st.AccountID, st.SignalID)); err != nil {
+			return err
+		}
 		st.ID = newID(st.ID)
 		st.CreatedAt = now
 		d.steps.insert(*st)
@@ -229,6 +241,9 @@ type auditRepo struct{ s *Store }
 
 func (r auditRepo) Append(_ context.Context, e *domain.AuditEntry) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
+		if err := foreign(&d.projects, e.AccountID, e.ProjectID); err != nil {
+			return err
+		}
 		e.ID = newID(e.ID)
 		e.CreatedAt = now
 		d.audit.insert(*e)

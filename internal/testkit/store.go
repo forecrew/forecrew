@@ -284,3 +284,30 @@ func update[T any](s *Store, t func(*storeData) *table[T], account, id uuid.UUID
 		return fn(r, now)
 	})
 }
+
+// foreign reports ErrNotFound when id names a row of another account, like
+// the Postgres store, which checks every reference against the account.
+// Unknown IDs pass: tests build rows with made-up parents.
+func foreign[T any](t *table[T], account, id uuid.UUID) error {
+	if id == uuid.Nil() {
+		return nil
+	}
+	r, err := t.find(func(r T) bool { _, i := t.key(r); return i == id })
+	if err != nil {
+		return nil
+	}
+	if a, _ := t.key(*r); a != account {
+		return fmt.Errorf("%T %s: %w", *new(T), id, store.ErrNotFound)
+	}
+	return nil
+}
+
+// firstErr returns the first non-nil error.
+func firstErr(errs ...error) error {
+	for _, err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}

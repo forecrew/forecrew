@@ -25,7 +25,7 @@ change.
   transaction as the insert, per account and kind, starting at 1.
 - Foreign keys use the default `ON DELETE NO ACTION`; nothing is deleted in
   the MVP except expired `webhook_deliveries`.
-- `audit_log` is append-only: a trigger rejects `UPDATE` and `DELETE`.
+- `audit_log` is append-only: triggers reject `UPDATE`, `DELETE` and `TRUNCATE`.
 
 ## Tables
 
@@ -318,6 +318,8 @@ BEGIN
 END $$;
 CREATE TRIGGER audit_log_append_only BEFORE UPDATE OR DELETE ON audit_log
   FOR EACH STATEMENT EXECUTE FUNCTION audit_log_append_only();
+CREATE TRIGGER audit_log_no_truncate BEFORE TRUNCATE ON audit_log
+  FOR EACH STATEMENT EXECUTE FUNCTION audit_log_append_only();
 ```
 
 ## Leasing query
@@ -330,7 +332,8 @@ UPDATE jobs SET status = 'running', worker_id = $2, started_at = now(),
 WHERE id = (
   SELECT id FROM jobs
   WHERE account_id = $1 AND status = 'queued'
-    AND (needs || ARRAY['runtime:' || runtime]) <@ $3::text[]
+    AND (needs || ARRAY[lower('runtime:' || runtime)]) <@ $3::text[]
+    AND EXISTS (SELECT 1 FROM workers w WHERE w.id = $2 AND w.account_id = $1)
   ORDER BY created_at, id
   LIMIT 1
   FOR UPDATE SKIP LOCKED
