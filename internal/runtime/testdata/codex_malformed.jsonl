@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"th1"}
+garbage line
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"i1","type":"agent_message","text":"```json\n{\"summary\":\"ok\"}\n```"}}
+{"type":"turn.completed","usage":{"input_tokens":5,"cached_input_tokens":0,"output_tokens":5}}

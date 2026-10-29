@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"th1"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"e1","type":"error","message":"item error"}}
+{"type":"error","message":"stream disconnected, key hunter2-token-value"}
+{"type":"turn.failed","error":{"message":"model overloaded"}}
