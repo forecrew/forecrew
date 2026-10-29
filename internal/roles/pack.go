@@ -50,7 +50,8 @@ var roleName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 // output schema bundled.
 type Definition struct {
 	Name string
-	// Tier is the default model tier; forecrew.yaml roles may override it.
+	// Tier is the tier the role is written for. forecrew.yaml roles decide
+	// the tier jobs run with.
 	Tier         config.Tier
 	Instructions string
 	Tools        []string // as named in the role file
