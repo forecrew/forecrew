@@ -3,6 +3,7 @@ module github.com/forecrew/forecrew
 go 1.27.0
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/google/go-github/v93 v93.0.0
 	github.com/google/jsonschema-go v0.4.3
 	github.com/jackc/pgx/v5 v5.11.0
