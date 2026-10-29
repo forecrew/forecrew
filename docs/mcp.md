@@ -78,12 +78,12 @@ or `owner/name`. Results are JSON text.
 | Tool | Purpose |
 |------|---------|
 | `onboard_project` | Register a repo and start onboarding |
-| `create_goal` | Create a goal and start its playbook |
+| `create_goal` | Create a goal (`project`, `title`, `body`, optional `platforms` such as `web`, `ios`) and start its playbook |
 | `job_status`, `job_logs` | Inspect a job and read its events |
 | `list_workers` | Workers and whether they are online |
 | `list_pending_gates` | Decisions waiting for a human |
 | `approve`, `request_changes`, `reject` | Resolve a gate. `request_changes` needs `feedback` and is not valid on `needs_you` gates (use `approve` to retry, `reject` to stop) |
-| `dispatch_job` | Queue an ad-hoc job of a role |
+| `dispatch_job` | Queue an ad-hoc job of a role (`project`, `role`, optional `prompt` with the instructions, `needs`, `goal`, `task`) |
 | `list_projects`, `get_project` | Projects |
 | `list_goals`, `get_goal` | Goals; `get_goal` includes spec, tasks, changes and pending gates |
 | `list_jobs` | Recent jobs |

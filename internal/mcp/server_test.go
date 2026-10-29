@@ -134,12 +134,20 @@ func TestToolSchemaDescribesFields(t *testing.T) {
 		if !slices.Equal(slices.Sorted(slices.Values(s.Required)), []string{"body", "project", "title"}) {
 			t.Errorf("required = %v", s.Required)
 		}
-		if s.Properties["title"].Description == "" {
-			t.Errorf("title has no description: %s", raw)
+		if s.Properties["title"].Description == "" || s.Properties["platforms"].Description == "" {
+			t.Errorf("title or platforms has no description: %s", raw)
 		}
-		return
+		continue
 	}
-	t.Fatal("create_goal not listed")
+	for _, tool := range res.Tools {
+		if tool.Name != mcp.ToolDispatchJob {
+			continue
+		}
+		raw, _ := json.Marshal(tool.InputSchema)
+		if !strings.Contains(string(raw), `"prompt":{"description":"Instructions for the job`) || strings.Contains(string(raw), `"required":["prompt"`) {
+			t.Errorf("dispatch_job schema: %s", raw)
+		}
+	}
 }
 
 func TestRequestChangesRequiresFeedback(t *testing.T) {
@@ -170,7 +178,7 @@ func TestCallEachTool(t *testing.T) {
 		input any // expected ToolService input
 	}{
 		{mcp.ToolOnboardProject, map[string]any{"repo": "acme/app", "name": "App"}, mcp.OnboardProjectInput{Repo: "acme/app", Name: "App"}},
-		{mcp.ToolCreateGoal, map[string]any{"project": "app", "title": "Login", "body": "Add login"}, mcp.CreateGoalInput{Project: "app", Title: "Login", Body: "Add login"}},
+		{mcp.ToolCreateGoal, map[string]any{"project": "app", "title": "Login", "body": "Add login", "platforms": []string{"web", "ios"}}, mcp.CreateGoalInput{Project: "app", Title: "Login", Body: "Add login", Platforms: []string{"web", "ios"}}},
 		{mcp.ToolJobStatus, map[string]any{"job": "JOB-1"}, mcp.JobRefInput{Job: "JOB-1"}},
 		{mcp.ToolJobLogs, map[string]any{"job": "JOB-1", "after_seq": 5, "limit": 10}, mcp.JobLogsInput{Job: "JOB-1", AfterSeq: 5, Limit: 10}},
 		{mcp.ToolListWorkers, nil, nil},
@@ -178,7 +186,7 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolApprove, map[string]any{"gate": "GATE-1", "feedback": "ok"}, mcp.GateDecisionInput{Gate: "GATE-1", Feedback: "ok"}},
 		{mcp.ToolRequestChanges, map[string]any{"gate": "GATE-1", "feedback": "more tests"}, mcp.GateDecisionInput{Gate: "GATE-1", Feedback: "more tests"}},
 		{mcp.ToolReject, map[string]any{"gate": "GATE-1"}, mcp.GateDecisionInput{Gate: "GATE-1"}},
-		{mcp.ToolDispatchJob, map[string]any{"project": "app", "role": "reviewer", "needs": []string{"linux"}}, mcp.DispatchJobInput{Project: "app", Role: "reviewer", Needs: []string{"linux"}}},
+		{mcp.ToolDispatchJob, map[string]any{"project": "app", "role": "reviewer", "needs": []string{"linux"}, "prompt": "review the diff"}, mcp.DispatchJobInput{Project: "app", Role: "reviewer", Needs: []string{"linux"}, Prompt: "review the diff"}},
 		{mcp.ToolListProjects, nil, nil},
 		{mcp.ToolGetProject, map[string]any{"project": "app"}, mcp.ProjectInput{Project: "app"}},
 		{mcp.ToolListGoals, map[string]any{"project": "app", "status": "draft"}, mcp.ListGoalsInput{Project: "app", Status: "draft"}},
