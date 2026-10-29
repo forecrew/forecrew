@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init"}
+{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"```json\n{\"summary\":42}\n```","total_cost_usd":0.002,"usage":{"input_tokens":10,"output_tokens":5}}

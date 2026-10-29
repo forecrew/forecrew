@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"regexp"
 	"slices"
 	"strings"
@@ -43,6 +44,10 @@ func NewRedactor(env map[string]string) *Redactor {
 	pairs := make([]string, 0, 2*len(secrets))
 	for _, s := range secrets {
 		pairs = append(pairs, s, redacted)
+		// The same secret as it appears inside a JSON string.
+		if b, err := json.Marshal(s); err == nil && len(b) > 2 && string(b[1:len(b)-1]) != s {
+			pairs = append(pairs, string(b[1:len(b)-1]), redacted)
+		}
 	}
 	return &Redactor{replacer: strings.NewReplacer(pairs...)}
 }
