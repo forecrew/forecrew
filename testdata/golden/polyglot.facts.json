@@ -49,5 +49,35 @@
     "services/",
     "web/",
     "worker/"
+  ],
+  "components": [
+    {
+      "path": "services/api",
+      "stack": "go",
+      "manifests": [
+        "services/api/Dockerfile",
+        "services/api/go.mod"
+      ],
+      "build": "go build ./...",
+      "test": "go test ./..."
+    },
+    {
+      "path": "web",
+      "stack": "node",
+      "manifests": [
+        "web/package.json"
+      ],
+      "build": "npm run build",
+      "test": "npm test"
+    },
+    {
+      "path": "worker",
+      "stack": "rust",
+      "manifests": [
+        "worker/Cargo.toml"
+      ],
+      "build": "cargo build",
+      "test": "cargo test"
+    }
   ]
 }

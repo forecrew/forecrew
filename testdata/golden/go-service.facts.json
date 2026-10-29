@@ -33,5 +33,18 @@
     "go.mod",
     "internal/",
     "vendor/"
+  ],
+  "components": [
+    {
+      "path": ".",
+      "stack": "go",
+      "manifests": [
+        "Dockerfile",
+        "Makefile",
+        "go.mod"
+      ],
+      "build": "make build",
+      "test": "make test"
+    }
   ]
 }

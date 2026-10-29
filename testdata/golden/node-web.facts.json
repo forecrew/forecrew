@@ -33,5 +33,16 @@
     "package.json",
     "pnpm-lock.yaml",
     "src/"
+  ],
+  "components": [
+    {
+      "path": ".",
+      "stack": "node",
+      "manifests": [
+        "package.json"
+      ],
+      "build": "pnpm run build",
+      "test": "pnpm test"
+    }
   ]
 }
