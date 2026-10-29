@@ -68,14 +68,16 @@ to disk (`JobSpec.LogValue` omits them).
    `base_ref` is a SHA) shows the branch's changes; prompts rely on it.
 3. Run the runtime adapter with `model`, `prompt` (plus repo facts),
    `output_schema`, `allowed_tools`, `max_turns`, `timeout`, `env`.
-4. For writing roles, commit any uncommitted changes on `branch` (the agent
-   may have committed already). Every path changed, added or deleted between
-   the starting commit and the new head must be writable per `write_paths`;
-   otherwise complete as `failed` with the offending paths in `error` and push
-   nothing. Read-only roles never commit or push, whether or not `branch` is
+4. For writing roles, the worker builds the commit itself from the files in
+   the work tree after the run: one commit by `forecrew-bot` whose parent is
+   the starting commit. The agent's own commits and history are never
+   pushed. Every path changed, added or deleted between the starting commit
+   and that commit must be writable per `write_paths`, and none may be a
+   symlink or a submodule; otherwise complete as `failed` with the offending
+   paths in `error` and push nothing. Read-only roles never commit or push, whether or not `branch` is
    set; since their tools may include a shell, the worker also checks after
    the run that the working tree is unchanged and otherwise completes the job
    as `failed` with the changed paths in `error`.
 5. Push `branch` only if it starts with `agent/`, and report the pushed SHA
-   as `head_sha`. If nothing changed, push nothing and leave `head_sha` empty.
+   as `head_sha`. If nothing changed, push nothing; `head_sha` is then the head of `branch` on the remote when the branch exists there (a retry whose earlier attempt already pushed), and empty only when there is no branch.
 6. Complete the job (worker-api.md). forecrewd opens or updates the PR.
