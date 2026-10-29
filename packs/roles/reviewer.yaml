@@ -1,0 +1,13 @@
+role: reviewer
+model: strong
+prompt: roles/reviewer.md
+tools: [repo.read, git.read, run.tests]
+write_paths: []
+produces: [review]
+output_schema: schemas/review-verdict.json
+definition_of_done:
+  - every acceptance criterion of the task has a criteria_check entry
+  - every blocker and major comment points to a file and says what to do
+  - the verdict is approve only if every criterion is met and there is no blocker or major comment
+max_turns: 60
+timeout: 30m

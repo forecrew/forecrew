@@ -1,0 +1,18 @@
+role: developer
+model: strong
+prompt: roles/developer.md
+tools: [repo.read, repo.write, git.read, git.commit, run.tests]
+write_paths: ["**", "!.github/workflows/**", "!.forecrew/**"]
+produces: [code, tests]
+output_schema: schemas/developer-result.json
+definition_of_done:
+  - every acceptance criterion of the task has at least one test
+  - the project's test command from the profile passes
+  - the change is committed on the job branch
+  - nothing outside the task was changed
+escalate_when:
+  - a criterion is ambiguous
+  - the environment is missing a tool, service or credential the task needs
+  - the task needs a change to a path you may not write
+max_turns: 120
+timeout: 60m

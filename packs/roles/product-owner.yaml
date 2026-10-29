@@ -1,0 +1,17 @@
+role: product-owner
+model: best
+prompt: roles/product-owner.md
+tools: [repo.read, git.read]
+write_paths: []
+produces: [spec]
+output_schema: schemas/spec.json
+definition_of_done:
+  - every acceptance criterion is observable and testable, and has an AC-n id
+  - scope says what is in and what is out
+  - every assumption is listed with its confidence and impact
+  - every question only a human can answer is an open question
+escalate_when:
+  - the goal contradicts the code or the project profile
+  - the goal is too vague to write a single testable criterion
+max_turns: 40
+timeout: 20m
