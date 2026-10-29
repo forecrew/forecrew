@@ -1,0 +1,17 @@
+role: architect
+model: best
+prompt: roles/architect.md
+tools: [repo.read, git.read]
+write_paths: []
+produces: [tasks]
+output_schema: schemas/task-breakdown.json
+definition_of_done:
+  - every acceptance criterion of the spec is covered by at least one task
+  - every task fits in one reviewable pull request and can be merged on its own
+  - tasks are ordered so that each depends only on earlier ones
+  - every task lists the worker labels it needs
+escalate_when:
+  - the spec cannot be delivered without changing something it puts out of scope
+  - a criterion is ambiguous
+max_turns: 40
+timeout: 20m

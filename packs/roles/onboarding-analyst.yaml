@@ -1,0 +1,17 @@
+role: onboarding-analyst
+model: strong
+prompt: roles/onboarding-analyst.md
+tools: [repo.read, repo.write, git.read, git.commit, run.tests]
+write_paths: [".forecrew/**"]
+produces: [profile]
+output_schema: schemas/profile-draft.json
+definition_of_done:
+  - .forecrew/profile.yaml exists and matches the project profile schema
+  - .forecrew/README.md explains the profile in under 40 lines
+  - every build and test command in the profile was run, or is listed as an open question
+  - everything you could not confirm from the repo is an open question, not a guess
+escalate_when:
+  - the repo cannot be built or tested with what is in it
+  - the repo holds several unrelated projects and it is unclear which one is meant
+max_turns: 60
+timeout: 30m
