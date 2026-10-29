@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Developer result",
+  "description": "Output of the developer role: what was changed and how it was verified.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "files", "tests_added", "commands_run", "assumptions", "escalation"],
+  "properties": {
+    "summary": {"$ref": "common.json#/$defs/text", "description": "What you changed and why, in a few sentences; it becomes the pull request description."},
+    "files": {
+      "description": "Every file you added, modified or deleted.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "change"],
+        "properties": {
+          "path": {"$ref": "common.json#/$defs/text", "description": "Relative to the repo root, with / separators."},
+          "change": {"type": "string", "enum": ["added", "modified", "deleted"]}
+        }
+      }
+    },
+    "tests_added": {
+      "description": "Tests you added or changed, with the acceptance criteria each one checks.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "name", "criteria"],
+        "properties": {
+          "path": {"$ref": "common.json#/$defs/text"},
+          "name": {"$ref": "common.json#/$defs/text", "description": "Test name, e.g. TestLeaseExpiry."},
+          "criteria": {"type": "array", "items": {"$ref": "common.json#/$defs/criterion_id"}}
+        }
+      }
+    },
+    "commands_run": {
+      "description": "Build, lint and test commands you ran, last run of each.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "exit_code"],
+        "properties": {
+          "command": {"$ref": "common.json#/$defs/text"},
+          "exit_code": {"type": "integer"}
+        }
+      }
+    },
+    "assumptions": {"$ref": "common.json#/$defs/assumptions"},
+    "escalation": {"$ref": "common.json#/$defs/escalation"}
+  }
+}

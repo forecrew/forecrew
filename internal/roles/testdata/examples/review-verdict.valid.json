@@ -1,0 +1,14 @@
+{
+  "verdict": "request_changes",
+  "summary": "AC-1 is met; AC-2 has no test for used links.",
+  "comments": [
+    {"path": "internal/web/reset.go", "line": 42, "severity": "major", "body": "A used token is accepted again; mark it used in the same transaction."},
+    {"path": "internal/web/reset_test.go", "line": null, "severity": "nit", "body": "Name the table cases after the behavior."},
+    {"path": null, "line": null, "severity": "minor", "body": "The PR description does not say how expiry was tested."}
+  ],
+  "criteria_check": [
+    {"criterion": "AC-1", "status": "met", "evidence": "TestRequestReset checks the email and expiry."},
+    {"criterion": "AC-2", "status": "not_met", "evidence": "No test opens a used link."}
+  ],
+  "assumptions": []
+}

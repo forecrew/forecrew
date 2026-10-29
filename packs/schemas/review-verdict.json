@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Review verdict",
+  "description": "Output of the reviewer role. The verdict is a recommendation to the human who merges; the reviewer never approves or merges on GitHub.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "summary", "comments", "criteria_check", "assumptions"],
+  "properties": {
+    "verdict": {
+      "description": "approve only if every criterion is met and no comment is a blocker or major.",
+      "type": "string",
+      "enum": ["approve", "request_changes"]
+    },
+    "summary": {"$ref": "common.json#/$defs/text", "description": "The review in a few sentences."},
+    "comments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "line", "severity", "body"],
+        "properties": {
+          "path": {"description": "File the comment is about, relative to the repo root, or null for a general comment.", "type": ["string", "null"], "pattern": "\\S"},
+          "line": {"description": "Line in the new version of the file, or null for the whole file or a general comment.", "type": ["integer", "null"], "minimum": 1},
+          "severity": {
+            "description": "blocker: must not merge (bug, security, data loss); major: must fix; minor: should fix; nit: optional.",
+            "type": "string",
+            "enum": ["blocker", "major", "minor", "nit"]
+          },
+          "body": {"$ref": "common.json#/$defs/text", "description": "What is wrong and what to do instead."}
+        }
+      }
+    },
+    "criteria_check": {
+      "description": "One entry per acceptance criterion of the task.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion", "status", "evidence"],
+        "properties": {
+          "criterion": {"$ref": "common.json#/$defs/criterion_id"},
+          "status": {"type": "string", "enum": ["met", "not_met", "unclear"]},
+          "evidence": {"$ref": "common.json#/$defs/text", "description": "The code and test that show it, or what is missing."}
+        }
+      }
+    },
+    "assumptions": {"$ref": "common.json#/$defs/assumptions"}
+  }
+}

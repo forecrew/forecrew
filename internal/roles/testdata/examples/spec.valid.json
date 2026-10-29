@@ -1,0 +1,10 @@
+{
+  "summary": "Let users reset a forgotten password by email so they no longer need to contact support.",
+  "acceptance_criteria": [
+    {"id": "AC-1", "text": "Given a registered email, when a reset is requested, then a single-use link valid for 1 hour is emailed."},
+    {"id": "AC-2", "text": "Given an expired or used link, when it is opened, then the page says so and offers a new link."}
+  ],
+  "scope": {"in": ["Reset request form", "Reset email"], "out": ["Password strength rules"]},
+  "assumptions": [{"text": "The existing mailer can send transactional email.", "confidence": "high", "impact": "medium"}],
+  "open_questions": ["Should a reset log the user out of other sessions?"]
+}
