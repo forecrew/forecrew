@@ -1,0 +1,91 @@
+package config
+
+import (
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+)
+
+// EnvWorkerToken holds the worker token printed by `forecrew worker add`.
+const EnvWorkerToken = "FORECREW_WORKER_TOKEN"
+
+// DefaultMaxJobs is the number of jobs a worker runs at once by default.
+const DefaultMaxJobs = 1
+
+// Worker is forecrew-worker's configuration (worker.yaml).
+type Worker struct {
+	ServerURL string `yaml:"server_url"` // forecrewd public_base_url
+	Name      string `yaml:"name"`       // defaults to the host name
+	// Labels are toolchains and anything else jobs may need. The worker adds
+	// its os label (linux, darwin, windows) and runtime:<name> for each
+	// runtime CLI it finds.
+	Labels  []string `yaml:"labels"`
+	WorkDir string   `yaml:"work_dir"` // defaults to <user cache dir>/forecrew-worker
+	MaxJobs int      `yaml:"max_jobs"`
+	// Token comes from FORECREW_WORKER_TOKEN.
+	Token string `yaml:"-"`
+}
+
+// LoadWorker reads worker.yaml from path.
+func LoadWorker(path string, getenv func(string) string) (*Worker, error) {
+	data, err := os.ReadFile(path) // #nosec G304 -- the path is the operator's config file
+	if err != nil {
+		return nil, fmt.Errorf("read worker config: %w", err)
+	}
+	return ParseWorker(data, getenv)
+}
+
+// ParseWorker decodes and validates worker.yaml, applies defaults and reads
+// the token with getenv.
+func ParseWorker(data []byte, getenv func(string) string) (*Worker, error) {
+	var w Worker
+	if err := decodeStrict(data, &w); err != nil {
+		return nil, err
+	}
+	w.Token = getenv(EnvWorkerToken)
+	if err := w.applyDefaults(); err != nil {
+		return nil, err
+	}
+	if err := w.Validate(); err != nil {
+		return nil, err
+	}
+	return &w, nil
+}
+
+func (w *Worker) applyDefaults() error {
+	if w.MaxJobs == 0 {
+		w.MaxJobs = DefaultMaxJobs
+	}
+	if w.Name == "" {
+		host, err := os.Hostname()
+		if err != nil {
+			return fmt.Errorf("default worker name: %w", err)
+		}
+		w.Name = host
+	}
+	if w.WorkDir == "" {
+		cache, err := os.UserCacheDir()
+		if err != nil {
+			return fmt.Errorf("default work_dir: %w", err)
+		}
+		w.WorkDir = filepath.Join(cache, "forecrew-worker")
+	}
+	return nil
+}
+
+// Validate checks the worker configuration and reports every problem at once.
+func (w *Worker) Validate() error {
+	var p problems
+	u, err := url.Parse(w.ServerURL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		p.addf("server_url must be an absolute http(s) URL, got %q", w.ServerURL)
+	}
+	if w.MaxJobs < 1 {
+		p.addf("max_jobs must be at least 1, got %d", w.MaxJobs)
+	}
+	if w.Token == "" {
+		p.addf("%s is not set", EnvWorkerToken)
+	}
+	return p.err()
+}
