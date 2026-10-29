@@ -178,7 +178,7 @@ Request:
 |-------|------|---------|
 | `status` | `succeeded` \| `failed` \| `retry` | `succeeded`: the agent finished. `failed`: the agent or a check of the worker failed (bad output, write outside `write_paths`, timeout); not retried. `retry`: the worker could not run the job for an infrastructure reason (clone failed, disk full, shutting down); the attempt does not count as a result. |
 | `output` | object | Structured output; required for `succeeded` when the spec has an `output_schema`. |
-| `head_sha` | string | Commit pushed to the spec `branch`; empty if nothing was pushed. |
+| `head_sha` | string | Head of the spec `branch` on the remote after the run (the commit pushed, or the existing head when nothing new was pushed); empty if there is no branch. |
 | `error` | string | Required for `failed` and `retry`. |
 | `usage` | object | Total `domain.Usage`. |
 | `cost_usd` | number | Total cost reported by the runtime. |
