@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/forecrew/forecrew/docs/contracts/profile.schema.json",
+  "title": "Forecrew project profile",
+  "description": "Schema of .forecrew/profile.yaml, written by the onboarding analyst and approved by a human through a profile_approval gate. Stub: T05 completes the item schemas.",
+  "type": "object",
+  "required": ["version", "name", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "Profile format version.",
+      "const": 1
+    },
+    "name": {
+      "description": "Project name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "summary": {
+      "description": "What the project is and does, in a few sentences.",
+      "type": "string"
+    },
+    "languages": {
+      "description": "Languages used, most important first.",
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "components": {
+      "description": "Main parts of the codebase (paths, purpose, how to build and test them).",
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "platforms": {
+      "description": "Operating systems and targets the project builds or runs on; become worker labels jobs need.",
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "services": {
+      "description": "External services needed to build or test (databases, queues, ...).",
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "ci": {
+      "description": "How CI runs and which checks gate a merge.",
+      "type": "object"
+    },
+    "agent_instructions": {
+      "description": "Instructions every agent working on the repo must follow.",
+      "type": "string"
+    },
+    "suggested_roles": {
+      "description": "Role adjustments for this project (write paths, tools, tiers).",
+      "type": "array",
+      "items": {"type": "object"}
+    },
+    "open_questions": {
+      "description": "Questions the analyst could not answer from the repo, for the human to resolve.",
+      "type": "array",
+      "items": {"type": "string"}
+    }
+  }
+}
