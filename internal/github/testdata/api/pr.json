@@ -1,0 +1,12 @@
+{
+  "number": 12,
+  "title": "Implement login",
+  "body": "Closes #7",
+  "state": "open",
+  "draft": false,
+  "merged": false,
+  "mergeable": true,
+  "html_url": "https://github.com/acme/app/pull/12",
+  "head": {"ref": "agent/task-3", "sha": "4f1c2b9e0000000000000000000000000000abcd"},
+  "base": {"ref": "main", "sha": "aaaa"}
+}
