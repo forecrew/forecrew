@@ -1,6 +1,6 @@
 import type {
   CreateGoalInput, DispatchJobInput, ErrorBody, Gate, GateInfo, Goal, GoalDetail, GoalStatus, Job, JobInfo,
-  JobLogs, JobStatus, OnboardInput, OnboardResult, Project, Session, Worker,
+  JobLogs, JobStatus, OnboardInput, OnboardResult, Project, RevokeResult, Session, Token, Worker,
 } from "./types"
 
 /** An error answer of the API. */
@@ -86,6 +86,9 @@ export const api = {
   cancelJob: (ref: string) => request<JobInfo>("POST", `/api/v1/jobs/${seg(ref)}/cancel`),
 
   listWorkers: () => request<Worker[]>("GET", "/api/v1/workers"),
+
+  listTokens: () => request<Token[]>("GET", "/api/v1/tokens"),
+  revokeToken: (id: string) => request<RevokeResult>("POST", `/api/v1/tokens/${seg(id)}/revoke`),
 
   listGates: (f: { project?: string } = {}) => request<GateInfo[]>("GET", `/api/v1/gates${query(f)}`),
   approve: (ref: string, feedback?: string) =>

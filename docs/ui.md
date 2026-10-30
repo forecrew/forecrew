@@ -7,9 +7,10 @@ review code; the UI links to it.
 
 Screens: Home (what needs me, is everything healthy), Inbox (decide gates,
 filtered by project; a goal page decides its own pending gates with the same
-cards), Goals, Projects, Jobs and Workers (dig into detail; a queued or running
-job can be canceled from the job page and from the job tables), and a command
-menu (Ctrl+K or Cmd+K) to jump anywhere or start a goal or an onboarding.
+cards), Goals, Projects, Jobs, Workers and Tokens (dig into detail; a queued or
+running job can be canceled from the job page and from the job tables), and a
+command menu (Ctrl+K or Cmd+K) to jump anywhere or start a goal or an
+onboarding.
 
 ## Run it locally
 
@@ -64,6 +65,13 @@ web/src
   page or in browser storage. Every `401` goes back to the login page, which
   returns to where you were. State-changing calls are sent as
   `application/json`, which the API requires for cookie sessions.
+- **Cancel and revoke.** "Cancel job" (job page, jobs page, goal jobs table) and
+  "Revoke" (Tokens page) always ask in a dialog first. A running job stops on
+  its worker within about 30 s and its playbook takes its failure path; the
+  job, job lists and gates refresh after it. The Tokens page lists the account's
+  tokens (the one you are using is badged "this session"); revoking that one
+  logs you out and goes to the login page. Tokens are only created on the server
+  (`forecrew token create`), never in the UI.
 - **Live data.** Lists poll every 5 s with TanStack Query; a running job's log
   polls every 2 s and asks only for events after the last one it has
   (`after_seq`). Polling pauses while the tab is hidden.

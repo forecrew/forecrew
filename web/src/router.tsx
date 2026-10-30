@@ -15,6 +15,7 @@ import { JobsPage } from "@/routes/jobs"
 import { LoginPage } from "@/routes/login"
 import { ProjectPage } from "@/routes/project"
 import { OnboardPage, ProjectsPage } from "@/routes/projects"
+import { TokensPage } from "@/routes/tokens"
 import { WorkersPage } from "@/routes/workers"
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({ component: Outlet })
@@ -74,6 +75,7 @@ const routeTree = root.addChildren([
     createRoute({ getParentRoute: () => app, path: "/jobs", validateSearch: search, component: JobsPage }),
     child("/jobs/$ref", JobPage),
     child("/workers", WorkersPage),
+    child("/tokens", TokensPage),
   ]),
 ])
 

@@ -15,6 +15,7 @@ const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: bo
   { name: "jobs", path: "/jobs", ready: "Jobs" },
   { name: "job", path: "/jobs/JOB-41", ready: /JOB-41/ },
   { name: "workers", path: "/workers", ready: "Workers" },
+  { name: "tokens", path: "/tokens", ready: "Tokens" },
 ]
 
 const sizes = [

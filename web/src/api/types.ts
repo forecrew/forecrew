@@ -214,6 +214,25 @@ export interface JobLogs {
   next_seq: number
 }
 
+/** An API and MCP token, without any secret. */
+export interface Token {
+  id: string
+  name: string
+  created_at: string
+  last_used_at?: string
+  revoked_at?: string
+  /** The token of this request. */
+  current?: boolean
+}
+
+/** The answer of revoke_token. */
+export interface RevokeResult {
+  token: Token
+  /** The caller revoked the token it used: the next request gets 401. */
+  self: boolean
+  message: string
+}
+
 export interface Worker {
   id: string
   name: string

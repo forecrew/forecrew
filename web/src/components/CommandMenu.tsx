@@ -27,6 +27,7 @@ const PAGES = [
   { label: "Projects", to: "/projects" },
   { label: "Jobs", to: "/jobs" },
   { label: "Workers", to: "/workers" },
+  { label: "Tokens", to: "/tokens" },
 ] as const
 
 function Results({ go }: { go: (to: string, params?: Record<string, string>) => void }) {
