@@ -89,7 +89,7 @@ GitHub links of issues, pull requests and gates.
 | `list_projects`, `get_project` | Projects |
 | `list_goals`, `get_goal` | Goals; `get_goal` includes the latest spec, tasks (state, issue and PR links, check status, iterations, cost), the goal's gates with their decisions and the total cost |
 | `list_jobs` | Recent jobs, filtered by `project`, `goal` and `status` |
-| `cancel_job` | Cancel a queued or running job (`job`). A worker running it stops within one heartbeat (30 s) without pushing, and the playbook step waiting for it fails through its normal failure path (escalation, `finally`). A finished job is a conflict |
+| `cancel_job` | Cancel a queued or running job (`job`). A worker running it stops within one heartbeat (30 s) without pushing (if the heartbeat just before the push fails, the worker relies on the time-based lease check alone), and the playbook step waiting for it fails through its normal failure path (escalation, `finally`). A finished job is a conflict |
 | `list_tokens` | The account's API and MCP tokens: `id`, `name`, `created_at`, `last_used_at`, `revoked_at`, and `current` on the one you are using. Never the secret |
 | `revoke_token` | Revoke a token by `token` (name or ID); it stops working at once, as do the web sessions it backs. Revoking the token you are using is allowed: the answer has `self: true` and your next request gets `401`. Tokens are created only with `forecrew token create` on the server |
 
