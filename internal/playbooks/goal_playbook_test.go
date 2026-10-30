@@ -769,3 +769,32 @@ func TestGoalSettleAfterAHumanMerge(t *testing.T) {
 		t.Errorf("task %s, goal %s", r.taskStatus(t, 0), r.goalNow(t).Status)
 	}
 }
+
+// The checks are those of the commit the developer pushed, even when the PR
+// reports another head: a rework push the API does not show yet must not be
+// judged by the checks of the commit before, which are stored already.
+func TestGoalChecksAreOfTheDevelopersCommit(t *testing.T) {
+	r := startGoal(t)
+	r.oneTask(t)
+	r.develop(t, 0, 1, 1)
+	stale := r.pr(t, 0, 1, 1).HeadSHA
+	r.checks(t, 0, 1, 1, domain.ChecksFailure)
+	r.review(t, 0, 1, 1, approveReview())
+
+	// Round 2: the job pushed "job-2", the PR still shows the old head.
+	r.answer(t, build(0, 1, 2, "dev/1/develop"), developerOutput("Round 2."), 1, "job-2")
+	s := r.waitStep(t, build(0, 1, 2, "gated/0/checks"), domain.StepWaiting)
+	if want := domain.ChecksKey("acme/app", "job-2"); s.WaitKey != want {
+		t.Fatalf("the checks wait is on %s, want %s", s.WaitKey, want)
+	}
+	pr := r.pr(t, 0, 1, 2)
+	if pr.HeadSHA != stale {
+		t.Fatalf("PR head = %s, want the stale %s", pr.HeadSHA, stale)
+	}
+	r.publish(t, &domain.ChecksCompleted{Repo: "acme/app", Number: pr.Number, SHA: "job-2", Conclusion: domain.ChecksSuccess})
+	r.review(t, 0, 1, 2, approveReview())
+	g := r.pendingGate(t, domain.GateMergeApproval)
+	if !strings.Contains(g.Summary, "Checks: success.") || !strings.Contains(g.Summary, " at job-2.") || strings.Contains(g.Summary, stale) {
+		t.Errorf("gate summary:\n%s", g.Summary)
+	}
+}
