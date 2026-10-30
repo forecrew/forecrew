@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
 
-.PHONY: build test test-integration lint cover web web-dev web-lint web-test web-cover e2e test-e2e
+.PHONY: build test test-integration lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
@@ -62,3 +62,14 @@ e2e: web
 test-e2e:
 	@test -n "$$FORECREW_TEST_DATABASE_URL" || { echo "FORECREW_TEST_DATABASE_URL is not set"; exit 1; }
 	go test -race -count=1 -tags 'integration e2e' ./internal/e2e/...
+
+# The live smoke test against a real instance and a sandbox repo. It spends
+# real model money and is never run in CI; see docs/runbooks/smoke-live.md.
+# Needs FORECREW_SMOKE_URL, FORECREW_SMOKE_TOKEN, FORECREW_SMOKE_GITHUB_TOKEN
+# and FORECREW_SMOKE_REPO; the report goes to FORECREW_SMOKE_REPORT (relative
+# to the repo root), default ./smoke-report.md.
+FORECREW_SMOKE_REPORT ?= smoke-report.md
+
+smoke-live:
+	@test -n "$$FORECREW_SMOKE_URL" -a -n "$$FORECREW_SMOKE_TOKEN" -a -n "$$FORECREW_SMOKE_GITHUB_TOKEN" -a -n "$$FORECREW_SMOKE_REPO" || { echo "set FORECREW_SMOKE_URL, FORECREW_SMOKE_TOKEN, FORECREW_SMOKE_GITHUB_TOKEN and FORECREW_SMOKE_REPO; see docs/runbooks/smoke-live.md"; exit 1; }
+	FORECREW_SMOKE_REPORT="$(abspath $(FORECREW_SMOKE_REPORT))" go test -tags smoke -count=1 -timeout 60m -run TestLive -v ./internal/smoke/

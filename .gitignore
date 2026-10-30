@@ -7,3 +7,4 @@ node_modules/
 /web/coverage/
 /web/playwright-report/
 /web/test-results/
+/smoke-report.md
