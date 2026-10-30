@@ -1,15 +1,16 @@
 import { Link, useParams } from "@tanstack/react-router"
-import { useGoal } from "@/api/queries"
-import type { Task } from "@/api/types"
+import { useGoal, useGoalJobs, useWorkers } from "@/api/queries"
+import type { GoalDetail } from "@/api/types"
 import { Age } from "@/components/Age"
 import { Async } from "@/components/Async"
 import { ExternalLink } from "@/components/ExternalLink"
 import { Markdown } from "@/components/Markdown"
+import { GateList } from "@/components/GateList"
 import { PageHeader } from "@/components/PageHeader"
 import { StatusBadge } from "@/components/StatusBadge"
 import { TableWrap } from "@/components/TableWrap"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { cost, gateKindLabel, goalTone, stageOf, taskTone, words, type Tone } from "@/lib/format"
+import { cost, gateKindLabel, goalTone, jobRef, jobTone, stageOf, taskTone, words, type Tone } from "@/lib/format"
 
 const CHECKS: Record<string, { label: string; tone: Tone }> = {
   success: { label: "checks passing", tone: "good" },
@@ -19,7 +20,7 @@ const CHECKS: Record<string, { label: string; tone: Tone }> = {
   unknown: { label: "checks unknown", tone: "neutral" },
 }
 
-function TaskRow({ task }: { task: Task }) {
+function TaskRow({ task }: { task: GoalDetail["tasks"][number] }) {
   return (
     <TableRow>
       <TableCell>
@@ -54,6 +55,52 @@ function TaskRow({ task }: { task: Task }) {
       <TableCell className="text-right">{task.iterations}</TableCell>
       <TableCell className="text-right">{cost(task.cost_usd)}</TableCell>
     </TableRow>
+  )
+}
+
+const pendingGates = (d: GoalDetail) => d.gates.filter((g) => g.status === "pending")
+const hasPending = (d: GoalDetail) => pendingGates(d).length > 0
+
+function GoalJobs({ goal, tasks }: { goal: string; tasks: GoalDetail["tasks"] }) {
+  const jobs = useGoalJobs(goal)
+  const workers = useWorkers()
+  const taskRefs = new Map(tasks.map((t) => [t.id, t.ref]))
+  const workerNames = new Map(workers.data?.map((w) => [w.id, w.name]))
+  return (
+    <Async query={jobs} isEmpty={(d) => d.length === 0} empty="No jobs yet.">
+      {(items) => (
+        <TableWrap label="Jobs">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Job</TableHead>
+                <TableHead>State</TableHead>
+                <TableHead>Task</TableHead>
+                <TableHead>Worker</TableHead>
+                <TableHead className="text-right">Cost</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((j) => (
+                <TableRow key={j.id}>
+                  <TableCell>
+                    <Link to="/jobs/$ref" params={{ ref: jobRef(j.number) }} className="inline-flex min-h-11 items-center gap-2 underline-offset-2 hover:underline">
+                      <span className="font-mono">{jobRef(j.number)}</span> {j.role}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge tone={jobTone(j.status)}>{j.status}</StatusBadge>
+                  </TableCell>
+                  <TableCell className="font-mono">{(j.task_id && taskRefs.get(j.task_id)) || <span className="font-sans text-muted-foreground">none</span>}</TableCell>
+                  <TableCell className="font-mono">{(j.worker_id && workerNames.get(j.worker_id)) || <span className="font-sans text-muted-foreground">none</span>}</TableCell>
+                  <TableCell className="text-right">{cost(j.cost_usd)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableWrap>
+      )}
+    </Async>
   )
 }
 
@@ -129,6 +176,22 @@ export function GoalPage() {
               <p className="text-muted-foreground">No tasks yet.</p>
             )}
           </section>
+
+          <section aria-labelledby="goal-jobs" className="mb-8">
+            <h2 id="goal-jobs" className="mb-2 text-lg font-semibold">
+              Jobs
+            </h2>
+            <GoalJobs goal={d.ref} tasks={d.tasks} />
+          </section>
+
+          {hasPending(d) ? (
+            <section aria-labelledby="waiting" className="mb-8">
+              <h2 id="waiting" className="mb-2 text-lg font-semibold">
+                Waiting for you
+              </h2>
+              <GateList gates={pendingGates(d)} />
+            </section>
+          ) : null}
 
           <section aria-labelledby="gates">
             <h2 id="gates" className="mb-2 text-lg font-semibold">

@@ -128,6 +128,63 @@ describe("goal page", () => {
     expect(within(gates).getByText("Say what happens to expired links.")).toBeInTheDocument()
   })
 
+  test("lists the jobs of the goal with their task, worker and cost", async () => {
+    const seen: string[] = []
+    const [first, ...others] = fx.jobs
+    server.use(
+      http.get("/api/v1/jobs", ({ request }) => {
+        seen.push(new URL(request.url).search)
+        return HttpResponse.json([{ ...first, task_id: fx.goal.tasks[0]!.id }, ...others])
+      }),
+    )
+    await renderApp("/goals/GOAL-3")
+    const jobs = (await screen.findByRole("heading", { name: "Jobs" })).closest("section")!
+    const row = (await within(jobs).findByRole("link", { name: /JOB-41 developer/ })).closest("tr")!
+    expect(within(row).getByRole("link", { name: /JOB-41/ })).toHaveAttribute("href", "/jobs/JOB-41")
+    expect(within(row).getByText("running")).toBeInTheDocument()
+    expect(within(row).getByText("TASK-12")).toBeInTheDocument()
+    await waitFor(() => expect(within(row).getByText("build-box-1")).toBeInTheDocument())
+    expect(within(row).getByText("$0.12")).toBeInTheDocument()
+    const queued = within(jobs).getByRole("link", { name: /JOB-42/ }).closest("tr")!
+    expect(within(queued).getAllByText("none")).toHaveLength(2) // no task, no worker
+    expect(seen[0]).toBe("?goal=GOAL-3&limit=500")
+  })
+
+  test("shows when the goal has no jobs, and an error", async () => {
+    server.use(http.get("/api/v1/jobs", () => HttpResponse.json(fx.jobsEmpty)))
+    const { unmount } = await renderApp("/goals/GOAL-3")
+    expect(await screen.findByText("No jobs yet.")).toBeInTheDocument()
+    unmount()
+    server.use(http.get("/api/v1/jobs", errors.invalidInput))
+    await renderApp("/goals/GOAL-3")
+    expect(await screen.findByText("Could not load this")).toBeInTheDocument()
+  })
+
+  test("decides the pending gates of the goal like the inbox does", async () => {
+    const calls: { ref: string; decision: string; body: unknown }[] = []
+    server.use(
+      http.post("/api/v1/gates/:ref/:decision", async ({ params, request }) => {
+        calls.push({ ref: String(params.ref), decision: String(params.decision), body: await request.json() })
+        return HttpResponse.json(fx.gateApprove)
+      }),
+    )
+    const { user } = await renderApp("/goals/GOAL-3")
+    const waiting = (await screen.findByRole("heading", { name: "Waiting for you" })).closest("section")!
+    const card = within(waiting).getByRole("article", { name: /GATE-9/ })
+    expect(within(card).getByRole("button", { name: "Request changes" })).toBeInTheDocument()
+    expect(within(card).getByRole("button", { name: "Reject" })).toBeInTheDocument()
+    await user.type(within(card).getByLabelText("Note (optional)"), "Ship it")
+    await user.click(within(card).getByRole("button", { name: "Approve" }))
+    await waitFor(() => expect(calls).toEqual([{ ref: "GATE-9", decision: "approve", body: { feedback: "Ship it" } }]))
+  })
+
+  test("has no waiting section when no gate is pending", async () => {
+    server.use(http.get("/api/v1/goals/:ref", () => HttpResponse.json({ ...fx.goal, gates: fx.goal.gates.filter((g) => g.status !== "pending") })))
+    await renderApp("/goals/GOAL-3")
+    await screen.findByRole("heading", { name: "Gates" })
+    expect(screen.queryByRole("heading", { name: "Waiting for you" })).not.toBeInTheDocument()
+  })
+
   test("copes with a goal without spec, tasks or gates", async () => {
     const { spec: _spec, ...rest } = fx.goal
     server.use(http.get("/api/v1/goals/:ref", () => HttpResponse.json({ ...rest, tasks: [], gates: [], url: undefined })))

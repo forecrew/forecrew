@@ -107,3 +107,14 @@ test("dialogs lock the page's scroll with the policy's only known violation", as
   await expect(page.getByRole("dialog")).toHaveCount(0)
   expect(violations.filter((v) => !v.startsWith("Applying inline style violates"))).toEqual([])
 })
+
+test("the goal page lists its jobs and approves a waiting gate", async ({ page }) => {
+  const calls = await mockApi(page)
+  await page.goto("/goals/GOAL-3")
+  const jobs = page.getByRole("region", { name: "Jobs table" })
+  await expect(jobs.getByRole("link", { name: /JOB-41/ })).toBeVisible()
+  expect(calls.log.some((c) => c.call === "GET /jobs?goal=GOAL-3&limit=500")).toBe(true)
+  const gate = page.getByRole("article", { name: /GATE-9/ })
+  await gate.getByRole("button", { name: "Approve" }).click()
+  await expect.poll(() => calls.log.some((c) => c.call === "POST /gates/GATE-9/approve")).toBe(true)
+})
