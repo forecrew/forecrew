@@ -7,7 +7,7 @@ import { Tile } from "@/components/Tile"
 import { goalRef, jobRef, stageOf } from "@/lib/format"
 
 function LoadError({ message }: { message: string }) {
-  return <p className="text-sm text-danger">Could not load: {message}</p>
+  return <p className="text-sm text-destructive">Could not load: {message}</p>
 }
 
 function Decisions() {

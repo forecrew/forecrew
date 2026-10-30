@@ -63,7 +63,7 @@ export function JobsPage() {
                 {items.map((j) => (
                   <TableRow key={j.id}>
                     <TableCell>
-                      <Link to="/jobs/$ref" params={{ ref: jobRef(j.number) }} className="inline-flex min-h-11 items-center gap-2 underline-offset-2 hover:underline">
+                      <Link to="/jobs/$ref" params={{ ref: jobRef(j.number) }} className="inline-flex items-center gap-2 underline-offset-2 hover:underline">
                         <span className="font-mono">{jobRef(j.number)}</span> {j.role}
                       </Link>
                     </TableCell>

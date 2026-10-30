@@ -25,13 +25,13 @@ function ProfileView({ profile }: { profile: Profile }) {
       <dl className="grid gap-2 text-sm sm:grid-cols-[10rem_1fr]">
         {profile.languages?.length ? (
           <>
-            <dt className="text-label">Languages</dt>
+            <dt className="text-muted-foreground">Languages</dt>
             <dd>{profile.languages.join(", ")}</dd>
           </>
         ) : null}
         {profile.platforms?.length ? (
           <>
-            <dt className="text-label">Platforms</dt>
+            <dt className="text-muted-foreground">Platforms</dt>
             <dd>{profile.platforms.join(", ")}</dd>
           </>
         ) : null}
@@ -143,7 +143,7 @@ function DispatchForm({ project }: { project: string }) {
         {(p) => <Input {...p} className="font-mono" value={needs} onChange={(e) => setNeeds(e.target.value)} />}
       </Field>
       <details open={advanced} onToggle={(e) => setAdvanced(e.currentTarget.open)} className="rounded-xl border bg-card p-3">
-        <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">Advanced</summary>
+        <summary className="cursor-pointer py-2 text-sm font-medium">Advanced</summary>
         <div className="mt-2 space-y-4">
           <Field label="Goal" hint="Optional: ties the job to a goal, for example GOAL-3." error={errors.goal}>
             {(p) => <Input {...p} className="font-mono" autoComplete="off" value={goal} onChange={(e) => setGoal(e.target.value)} />}
@@ -160,14 +160,14 @@ function DispatchForm({ project }: { project: string }) {
           <Field label="Feedback" hint="Optional notes for the job, for example what to look at.">
             {(p) => <Textarea {...p} rows={3} value={feedback} onChange={(e) => setFeedback(e.target.value)} />}
           </Field>
-          <div className="flex min-h-11 items-center gap-2">
+          <div className="flex items-center gap-2">
             <input id="dispatch-facts" type="checkbox" className="size-4" checked={facts} onChange={(e) => setFacts(e.target.checked)} />
             <Label htmlFor="dispatch-facts">Include repository facts</Label>
           </div>
         </div>
       </details>
       {errors.form ? (
-        <p role="alert" className="text-sm text-danger">
+        <p role="alert" className="text-sm text-destructive">
           {errors.form}
         </p>
       ) : null}
@@ -217,7 +217,7 @@ export function ProjectPage() {
                 <ul className="divide-y rounded-xl border bg-card">
                   {items.map((g) => (
                     <li key={g.id} className="flex flex-wrap items-center gap-3 p-3 text-sm">
-                      <Link to="/goals/$ref" params={{ ref: goalRef(g.number) }} className="inline-flex min-h-11 flex-1 items-center gap-2 underline-offset-2 hover:underline">
+                      <Link to="/goals/$ref" params={{ ref: goalRef(g.number) }} className="inline-flex flex-1 items-center gap-2 underline-offset-2 hover:underline">
                         <span className="font-mono">{goalRef(g.number)}</span> {g.title}
                       </Link>
                       <StatusBadge tone={goalTone(g.status)}>{words(g.status)}</StatusBadge>

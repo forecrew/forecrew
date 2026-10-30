@@ -30,7 +30,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
           to={to}
           activeOptions={{ exact: to === "/" }}
           onClick={onNavigate}
-          className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground [&.active]:bg-accent [&.active]:text-foreground"
+          className="flex h-8 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground [&.active]:bg-accent [&.active]:text-foreground"
         >
           <Icon className="size-4" aria-hidden="true" />
           <span className="flex-1">{label}</span>
@@ -67,7 +67,7 @@ export function AppShell() {
 
   const account = (
     <div className="mt-auto space-y-2 border-t pt-4">
-      <p className="px-3 text-xs text-label">
+      <p className="px-3 text-xs text-muted-foreground">
         Signed in as <span className="font-mono">{me.data?.token}</span>
         {me.data ? <> on {me.data.account.name}</> : null}
       </p>
@@ -94,10 +94,8 @@ export function AppShell() {
       <div className="min-w-0">
         <header className="flex items-center justify-between border-b bg-card px-4 py-2 md:hidden">
           <Sheet open={menu} onOpenChange={setMenu}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" aria-label="Open menu">
-                <MenuIcon aria-hidden="true" />
-              </Button>
+            <SheetTrigger render={<Button variant="ghost" aria-label="Open menu" />}>
+              <MenuIcon aria-hidden="true" />
             </SheetTrigger>
             <SheetContent side="left" className="flex flex-col gap-6 p-4">
               <SheetTitle>Forecrew</SheetTitle>

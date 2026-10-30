@@ -126,11 +126,9 @@ test("the command menu opens with Ctrl+K and jumps to a goal", async ({ page }) 
   await expect(page).toHaveURL(/\/goals\/GOAL-3$/)
 })
 
-// react-remove-scroll (inside Radix dialogs) always tries to add an inline <style>
-// for its scroll lock, which the policy blocks. That one known violation is
-// allowed; index.css has a static rule that does the locking instead, which the
-// test checks. Any other violation fails.
-test("dialogs lock the page's scroll with the policy's only known violation", async ({ page }) => {
+// Base UI locks the page's scroll by setting styles on the body from script,
+// which the Content-Security-Policy allows; no policy violation may appear.
+test("dialogs lock the page's scroll without a policy violation", async ({ page }) => {
   await mockApi(page)
   const violations: string[] = []
   page.on("console", (m) => {
@@ -154,7 +152,7 @@ test("dialogs lock the page's scroll with the policy's only known violation", as
   expect(await overflow()).toBe("hidden")
   await page.keyboard.press("Escape")
   await expect(page.getByRole("dialog")).toHaveCount(0)
-  expect(violations.filter((v) => !v.startsWith("Applying inline style violates"))).toEqual([])
+  expect(violations).toEqual([])
 })
 
 test("the goal page lists its jobs and approves a waiting gate", async ({ page }) => {

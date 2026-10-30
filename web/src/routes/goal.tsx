@@ -86,7 +86,7 @@ function GoalJobs({ goal, tasks }: { goal: string; tasks: GoalDetail["tasks"] })
               {items.map((j) => (
                 <TableRow key={j.id}>
                   <TableCell>
-                    <Link to="/jobs/$ref" params={{ ref: jobRef(j.number) }} className="inline-flex min-h-11 items-center gap-2 underline-offset-2 hover:underline">
+                    <Link to="/jobs/$ref" params={{ ref: jobRef(j.number) }} className="inline-flex items-center gap-2 underline-offset-2 hover:underline">
                       <span className="font-mono">{jobRef(j.number)}</span> {j.role}
                     </Link>
                   </TableCell>
@@ -118,7 +118,7 @@ export function GoalPage() {
           <div className="mb-6 flex flex-wrap items-center gap-3 text-sm">
             <StatusBadge tone={goalTone(d.goal.status)}>{words(d.goal.status)}</StatusBadge>
             <span>Stage: {stageOf(d.goal.status)}</span>
-            <Link to="/projects/$name" params={{ name: d.project }} className="inline-flex min-h-11 items-center font-mono underline underline-offset-2">
+            <Link to="/projects/$name" params={{ name: d.project }} className="inline-flex items-center font-mono underline underline-offset-2">
               {d.project}
             </Link>
             {d.goal.platforms?.length ? <span>Platforms: {d.goal.platforms.join(", ")}</span> : null}

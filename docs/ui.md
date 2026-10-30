@@ -12,6 +12,25 @@ running job can be canceled from the job page and from the job tables), and a
 command menu (Ctrl+K or Cmd+K) to jump anywhere or start a goal or an
 onboarding.
 
+## Look
+
+The UI is stock shadcn/ui, as on ui.shadcn.com: style `base-nova` (Base UI
+primitives), base color neutral, the stock light and dark theme variables,
+radius `0.625rem` and the Geist font. This is the owner's decision and replaces
+the visual language of the original T18 brief (its palette, Inter and JetBrains
+Mono, radius scale and 44 px touch targets). Controls use stock heights.
+`font-mono` is Tailwind's system monospace stack, used for logs, refs and code.
+
+- `web/src/index.css` holds the theme exactly as `shadcn init` writes it, with
+  one change: dark mode follows `prefers-color-scheme` instead of a `.dark`
+  class. It adds two things stock lacks: `--success` and `--warning` for
+  `StatusBadge` (errors use `--destructive`). They always sit next to words,
+  and pass WCAG AA contrast in light and dark.
+- `web/components.json` is the stock `init` output. Do not edit
+  `src/components/ui` by hand; regenerate it with the CLI.
+- `body[data-scroll-locked]` stays as a static rule for the
+  Content-Security-Policy (no inline styles).
+
 ## Run it locally
 
 You need Node 24 or newer and pnpm 11.
@@ -53,7 +72,7 @@ To run the end-to-end tests with a Chromium you already have, set
 ```
 web/src
   api/          types.ts (written from docs/api.md), client.ts (the only place that calls fetch), queries.ts (TanStack Query hooks)
-  components/   shared components; components/ui is shadcn's (added with its CLI, not edited)
+  components/   shared components; components/ui is shadcn's (added with its CLI, not edited; see Look)
   routes/       one file per page (goals.tsx has the list and the New goal form)
   lib/          formatting and small helpers
   router.tsx    TanStack Router tree; the login redirect and the 401 handling

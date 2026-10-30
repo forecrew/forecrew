@@ -10,7 +10,8 @@ import { PageHeader } from "@/components/PageHeader"
 import { ProjectSelect } from "@/components/ProjectSelect"
 import { StatusBadge } from "@/components/StatusBadge"
 import { TableWrap } from "@/components/TableWrap"
-import { Button } from "@/components/ui/button"
+import { cn } from "cn"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
@@ -32,9 +33,9 @@ export function GoalsPage() {
   return (
     <>
       <PageHeader title="Goals">
-        <Button asChild>
-          <Link to="/goals/new">New goal</Link>
-        </Button>
+        <Link to="/goals/new" className={cn(buttonVariants())}>
+          New goal
+        </Link>
       </PageHeader>
       <div className="mb-4 flex flex-wrap gap-4">
         <div className="space-y-1.5">
@@ -70,7 +71,7 @@ export function GoalsPage() {
                 {items.map((g) => (
                   <TableRow key={g.id}>
                     <TableCell>
-                      <Link to="/goals/$ref" params={{ ref: goalRef(g.number) }} className="inline-flex min-h-11 items-center gap-2 underline-offset-2 hover:underline">
+                      <Link to="/goals/$ref" params={{ ref: goalRef(g.number) }} className="inline-flex items-center gap-2 underline-offset-2 hover:underline">
                         <span className="font-mono">{goalRef(g.number)}</span> {g.title}
                       </Link>
                     </TableCell>
@@ -137,7 +138,7 @@ export function NewGoalPage() {
           {(p) => <Input {...p} value={platforms} onChange={(e) => setPlatforms(e.target.value)} />}
         </Field>
         {errors.form ? (
-          <p role="alert" className="text-sm text-danger">
+          <p role="alert" className="text-sm text-destructive">
             {errors.form}
           </p>
         ) : null}

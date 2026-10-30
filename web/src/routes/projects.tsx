@@ -8,7 +8,8 @@ import { Field } from "@/components/Field"
 import { PageHeader } from "@/components/PageHeader"
 import { StatusBadge } from "@/components/StatusBadge"
 import { TableWrap } from "@/components/TableWrap"
-import { Button } from "@/components/ui/button"
+import { cn } from "cn"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { projectTone } from "@/lib/format"
@@ -18,9 +19,9 @@ export function ProjectsPage() {
   return (
     <>
       <PageHeader title="Projects">
-        <Button asChild>
-          <Link to="/projects/new">Onboard repository</Link>
-        </Button>
+        <Link to="/projects/new" className={cn(buttonVariants())}>
+          Onboard repository
+        </Link>
       </PageHeader>
       <Async query={projects} isEmpty={(d) => d.length === 0} empty="No projects yet. Onboard a repository to get started.">
         {(items) => (
@@ -37,7 +38,7 @@ export function ProjectsPage() {
                 {items.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell>
-                      <Link to="/projects/$name" params={{ name: p.name }} className="inline-flex min-h-11 items-center underline-offset-2 hover:underline">
+                      <Link to="/projects/$name" params={{ name: p.name }} className="inline-flex items-center underline-offset-2 hover:underline">
                         {p.name}
                       </Link>
                     </TableCell>
