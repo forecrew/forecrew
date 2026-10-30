@@ -67,3 +67,44 @@ jobs:
         run: shellcheck deploy/backup/*.sh deploy/tests/*.sh
       - name: backup script
         run: deploy/tests/backup_test.sh
+
+  compose:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: deploy/compose
+    env:
+      COMPOSE_FILE: docker-compose.yml:docker-compose.build.yml
+    steps:
+      - uses: actions/checkout@v7
+      - name: Write .env and forecrew.yaml
+        run: |
+          key="$(openssl genrsa -traditional 2048 | awk 'NF{printf "%s\\n", $0}')"
+          {
+            echo "POSTGRES_PASSWORD=ci-password"
+            echo "FORECREW_GITHUB_PRIVATE_KEY=\"$key\""
+            echo "FORECREW_GITHUB_WEBHOOK_SECRET=ci-secret"
+            echo "ANTHROPIC_API_KEY=ci-anthropic"
+            echo "CODEX_API_KEY=ci-codex"
+            echo "FORECREW_HTTP_PORT=8080"
+            echo "FORECREW_HTTPS_PORT=8443"
+          } > .env
+          cp forecrew.example.yaml forecrew.yaml
+      - run: docker compose build
+      - run: docker compose up -d --wait --wait-timeout 120 postgres
+      - name: Start forecrewd and wait for its health check
+        run: docker compose up -d --wait --wait-timeout 120 forecrewd
+      - name: healthz
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8080/healthz && exit 0
+            sleep 2
+          done
+          docker compose logs
+          exit 1
+      - name: forecrew CLI in the image
+        run: |
+          docker compose exec -T forecrewd forecrew config validate --config /etc/forecrew/forecrew.yaml
+          docker compose exec -T forecrewd forecrew token create ci
+      - if: always()
+        run: docker compose down -v

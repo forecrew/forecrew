@@ -1,0 +1,9 @@
+# Builds the image from this checkout instead of pulling it:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+services:
+  migrate:
+    build: &build
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile
+  forecrewd:
+    build: *build
