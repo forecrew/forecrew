@@ -6,6 +6,8 @@ project_name: forecrew
 before:
   hooks:
     - go mod download
+    # Builds the web UI into internal/webui/dist, which forecrewd embeds.
+    - make web
 
 builds:
   - id: forecrewd
