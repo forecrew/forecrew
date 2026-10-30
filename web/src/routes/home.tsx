@@ -1,26 +1,77 @@
 import { Link } from "@tanstack/react-router"
+import { cn } from "cn"
+import { SearchIcon } from "lucide-react"
 import { useGates, useGoals, useJobs, useWorkers } from "@/api/queries"
+import type { GoalStatus } from "@/api/types"
 import { Age } from "@/components/Age"
-import { PageHeader } from "@/components/PageHeader"
+import { useOpenCommandMenu } from "@/components/CommandMenu"
 import { StatusBadge } from "@/components/StatusBadge"
-import { Tile } from "@/components/Tile"
-import { goalRef, jobRef, stageOf } from "@/lib/format"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { gateKindLabel, goalRef, jobRef, stageOf } from "@/lib/format"
 
 function LoadError({ message }: { message: string }) {
   return <p className="text-sm text-destructive">Could not load: {message}</p>
 }
 
-function Decisions() {
+const Loading = () => <p className="text-sm text-muted-foreground">Loading…</p>
+
+function Panel({ title, to, search, linkLabel, children, className }: {
+  title: string
+  to: string
+  search?: Record<string, string>
+  linkLabel: string
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <Card className={className}>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 border-b">
+        <h2 className="font-medium">{title}</h2>
+        <Link to={to} search={search as never} className="text-sm text-primary underline underline-offset-2">
+          {linkLabel}
+        </Link>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  )
+}
+
+function Stat({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Card>
+      <CardHeader>
+        <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>
+      </CardHeader>
+      <CardContent className="space-y-1">{children}</CardContent>
+    </Card>
+  )
+}
+
+const plural = (n: number) => (n === 1 ? "1 decision needs you" : `${n} decisions need you`)
+
+/** The date, and in one line how many decisions wait. */
+function Headline() {
+  const gates = useGates()
+  const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })
+  const n = gates.data?.length
+  return (
+    <div className="mb-6">
+      <p className="text-3xl font-semibold tracking-tight">{today}</p>
+      <p className="text-muted-foreground">{n === undefined ? " " : n === 0 ? "Nothing needs you" : plural(n)}</p>
+    </div>
+  )
+}
+
+function NeedsYouStat() {
   const gates = useGates()
   if (gates.isError) return <LoadError message={gates.error.message} />
-  if (!gates.data) return <p className="text-sm text-muted-foreground">Loading…</p>
+  if (!gates.data) return <Loading />
   const n = gates.data.length
   const oldest = n ? gates.data.reduce((a, b) => (Date.parse(a.created_at) <= Date.parse(b.created_at) ? a : b)) : undefined
   return (
     <>
-      <p className="text-3xl font-semibold">
-        {n === 0 ? "Nothing needs you" : n === 1 ? "1 decision needs you" : `${n} decisions need you`}
-      </p>
+      <p className="text-3xl font-semibold">{n}</p>
       {oldest ? (
         <p className="text-sm text-muted-foreground">
           Oldest waiting <Age iso={oldest.created_at} />
@@ -32,91 +83,212 @@ function Decisions() {
   )
 }
 
-function ActiveGoals() {
-  const goals = useGoals()
-  if (goals.isError) return <LoadError message={goals.error.message} />
-  if (!goals.data) return <p className="text-sm text-muted-foreground">Loading…</p>
-  const active = goals.data.filter((g) => g.status !== "done" && g.status !== "canceled")
-  if (!active.length) return <p className="text-muted-foreground">No active goals</p>
-  return (
-    <>
-      <p className="text-3xl font-semibold">{active.length} active</p>
-      <ul className="space-y-2">
-        {active.slice(0, 5).map((g) => (
-          <li key={g.id} className="flex items-center justify-between gap-2 text-sm">
-            <Link to="/goals/$ref" params={{ ref: goalRef(g.number) }} className="min-w-0 truncate underline-offset-2 hover:underline">
-              <span className="font-mono">{goalRef(g.number)}</span> {g.title}
-            </Link>
-            <StatusBadge>{stageOf(g.status)}</StatusBadge>
-          </li>
-        ))}
-      </ul>
-    </>
-  )
-}
-
-function RunningJobs() {
+function AgentsStat() {
   const jobs = useJobs(undefined, "running")
   if (jobs.isError) return <LoadError message={jobs.error.message} />
-  if (!jobs.data) return <p className="text-sm text-muted-foreground">Loading…</p>
-  if (!jobs.data.length) return <p className="text-muted-foreground">No jobs running</p>
+  if (!jobs.data) return <Loading />
   return (
     <>
-      <p className="text-3xl font-semibold">{jobs.data.length} running</p>
-      <ul className="space-y-1 text-sm">
-        {jobs.data.slice(0, 5).map((j) => (
-          <li key={j.id}>
-            <Link to="/jobs/$ref" params={{ ref: jobRef(j.number) }} className="underline-offset-2 hover:underline">
-              <span className="font-mono">{jobRef(j.number)}</span> {j.role}
-            </Link>
-          </li>
-        ))}
-      </ul>
+      <p className="text-3xl font-semibold">{jobs.data.length}</p>
+      <p className="text-sm text-muted-foreground">{jobs.data.length === 0 ? "No jobs running" : "jobs running"}</p>
     </>
   )
 }
 
-function WorkersOnline() {
+function WorkersStat() {
   const workers = useWorkers()
   if (workers.isError) return <LoadError message={workers.error.message} />
-  if (!workers.data) return <p className="text-sm text-muted-foreground">Loading…</p>
+  if (!workers.data) return <Loading />
   const online = workers.data.filter((w) => w.online).length
   const total = workers.data.length
+  const offline = workers.data.filter((w) => !w.online)
   return (
     <>
       <p className="text-3xl font-semibold">
-        {online} of {total} online
+        {online} of {total}
       </p>
       {total === 0 ? (
         <StatusBadge tone="attention">No workers</StatusBadge>
-      ) : online === total ? (
+      ) : offline.length === 0 ? (
         <StatusBadge tone="good">Healthy</StatusBadge>
-      ) : online === 0 ? (
-        <StatusBadge tone="bad">All offline</StatusBadge>
       ) : (
-        <StatusBadge tone="attention">Some offline</StatusBadge>
+        <StatusBadge tone={online === 0 ? "bad" : "attention"}>{online === 0 ? "All offline" : "Some offline"}</StatusBadge>
       )}
     </>
   )
 }
 
+function NeedsYou() {
+  const gates = useGates()
+  return (
+    <Panel title="Needs you" to="/inbox" linkLabel="Open inbox">
+      {gates.isError ? (
+        <LoadError message={gates.error.message} />
+      ) : !gates.data ? (
+        <Loading />
+      ) : gates.data.length === 0 ? (
+        <p className="text-muted-foreground">Nothing needs you</p>
+      ) : (
+        <ul className="divide-y">
+          {gates.data.slice(0, 5).map((g) => (
+            <li key={g.ref} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+              <StatusBadge tone={g.kind === "needs_you" ? "attention" : "neutral"} className="shrink-0">
+                {gateKindLabel(g.kind)}
+              </StatusBadge>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">{g.title}</p>
+                <p className="truncate text-sm text-muted-foreground">
+                  <span className="font-mono">{g.project}</span>
+                  {g.goal_ref ? <> · {g.goal_ref}</> : null} · waiting <Age iso={g.created_at} />
+                </p>
+              </div>
+              <Link to="/inbox" search={{ gate: g.ref }} aria-label={`${g.kind === "needs_you" ? "Decide" : "Review"} ${g.ref}`} className={cn(buttonVariants({ variant: "outline" }))}>
+                {g.kind === "needs_you" ? "Decide" : "Review"}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  )
+}
+
+const STAGES = ["Spec", "Plan", "Build", "Done"] as const
+const STAGE_INDEX: Record<GoalStatus, number> = { draft: 0, spec_review: 0, planned: 1, in_progress: 2, done: 3, canceled: 0 }
+
+/** Four segments, filled up to the goal's stage. The word next to it says the same. */
+export function StageBar({ status }: { status: GoalStatus }) {
+  const at = STAGE_INDEX[status]
+  return (
+    <span aria-hidden="true" className="order-last flex w-32 basis-full gap-1 sm:order-none sm:basis-auto">
+      {STAGES.map((s, i) => (
+        <span key={s} className={`h-1.5 flex-1 rounded-full ${i <= at ? "bg-primary" : "bg-muted"}`} />
+      ))}
+    </span>
+  )
+}
+
+function ActiveGoals() {
+  const goals = useGoals()
+  const active = goals.data?.filter((g) => g.status !== "done" && g.status !== "canceled")
+  return (
+    <Panel title="Active goals" to="/goals" linkLabel="See all goals">
+      {goals.isError ? (
+        <LoadError message={goals.error.message} />
+      ) : !active ? (
+        <Loading />
+      ) : active.length === 0 ? (
+        <p className="text-muted-foreground">No active goals</p>
+      ) : (
+        <ul className="divide-y">
+          {active.slice(0, 5).map((g) => (
+            <li key={g.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3 first:pt-0 last:pb-0">
+              <Link to="/goals/$ref" params={{ ref: goalRef(g.number) }} className="min-w-0 flex-1 truncate underline-offset-2 hover:underline">
+                <span className="font-mono">{goalRef(g.number)}</span> {g.title}
+              </Link>
+              <StageBar status={g.status} />
+              <StatusBadge>{stageOf(g.status)}</StatusBadge>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  )
+}
+
+function LiveActivity() {
+  const jobs = useJobs(undefined, "running")
+  return (
+    <Panel title="Live activity" to="/jobs" search={{ status: "running" }} linkLabel="Watch">
+      {jobs.isError ? (
+        <LoadError message={jobs.error.message} />
+      ) : !jobs.data ? (
+        <Loading />
+      ) : jobs.data.length === 0 ? (
+        <p className="text-muted-foreground">No jobs running</p>
+      ) : (
+        <ul className="divide-y">
+          {jobs.data.slice(0, 5).map((j) => (
+            <li key={j.id} className="py-3 first:pt-0 last:pb-0">
+              <Link to="/jobs/$ref" params={{ ref: jobRef(j.number) }} className="underline-offset-2 hover:underline">
+                <span className="font-mono">{jobRef(j.number)}</span> {j.role}
+              </Link>
+              <p className="text-sm text-muted-foreground">
+                started <Age iso={j.started_at ?? j.created_at} ago />
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  )
+}
+
+function Fleet() {
+  const workers = useWorkers()
+  return (
+    <Panel title="Fleet" to="/workers" linkLabel="See workers">
+      {workers.isError ? (
+        <LoadError message={workers.error.message} />
+      ) : !workers.data ? (
+        <Loading />
+      ) : workers.data.length === 0 ? (
+        <p className="text-muted-foreground">No workers</p>
+      ) : (
+        <ul className="divide-y">
+          {workers.data.map((w) => (
+            <li key={w.id} className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0 text-sm">
+              <span className="font-mono">{w.name}</span>
+              {w.online ? (
+                <span className="text-muted-foreground">
+                  {w.running_jobs.length} of {w.max_jobs} jobs
+                </span>
+              ) : (
+                <StatusBadge tone="bad">offline</StatusBadge>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  )
+}
+
 export function HomePage() {
+  const openCommands = useOpenCommandMenu()
   return (
     <>
-      <PageHeader title="Home" />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Tile title="Decisions" to="/inbox" linkLabel="Open the inbox">
-          <Decisions />
-        </Tile>
-        <Tile title="Goals" to="/goals" linkLabel="See all goals">
+      <h1 className="sr-only">Home</h1>
+      <div className="mb-6 flex items-center gap-2">
+        <Button variant="outline" className="h-10 flex-1 justify-start px-3 font-normal text-muted-foreground" onClick={openCommands}>
+          <SearchIcon aria-hidden="true" /> Search or run a command
+        </Button>
+        <kbd className="hidden rounded-md border px-1.5 py-1 font-mono text-xs text-muted-foreground sm:block">Ctrl K</kbd>
+        <Link to="/goals/new" className={cn(buttonVariants({ size: "lg" }))}>
+          New goal
+        </Link>
+      </div>
+      <Headline />
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <Stat title="Decisions waiting">
+          <NeedsYouStat />
+        </Stat>
+        <Stat title="Agents working">
+          <AgentsStat />
+        </Stat>
+        <Stat title="Workers online">
+          <WorkersStat />
+        </Stat>
+      </div>
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[2fr_1fr]">
+        <div className="space-y-4">
+          <NeedsYou />
           <ActiveGoals />
-        </Tile>
-        <Tile title="Jobs" to="/jobs" search={{ status: "running" }} linkLabel="See running jobs">
-          <RunningJobs />
-        </Tile>
-        <Tile title="Workers" to="/workers" linkLabel="See workers">
-          <WorkersOnline />
-        </Tile>
+        </div>
+        <div className="space-y-4">
+          <LiveActivity />
+          <Fleet />
+        </div>
       </div>
     </>
   )

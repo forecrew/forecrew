@@ -1,10 +1,14 @@
 import { useNavigate } from "@tanstack/react-router"
-import { useEffect } from "react"
+import { createContext, useContext, useEffect } from "react"
 import { useGoals, useJobs, useProjects } from "@/api/queries"
 import {
   Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command"
 import { goalRef, jobRef } from "@/lib/format"
+
+/** Lets a page open the command menu that the app shell owns. */
+export const CommandMenuContext = createContext<() => void>(() => {})
+export const useOpenCommandMenu = () => useContext(CommandMenuContext)
 
 /** Opens the command menu from anywhere with Ctrl+K or Cmd+K. */
 export function useCommandMenuShortcut(toggle: () => void) {

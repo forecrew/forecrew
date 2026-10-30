@@ -6,7 +6,7 @@ import {
 import { useCallback, useState } from "react"
 import { api } from "@/api/client"
 import { useGates, useMe } from "@/api/queries"
-import { CommandMenu, useCommandMenuShortcut } from "@/components/CommandMenu"
+import { CommandMenu, CommandMenuContext, useCommandMenuShortcut } from "@/components/CommandMenu"
 import { ProjectSelect } from "@/components/ProjectSelect"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -145,7 +145,9 @@ export function AppShell() {
           </Button>
         </header>
         <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl p-4 pb-24 outline-none md:p-8">
-          <Outlet />
+          <CommandMenuContext value={toggleCommands}>
+            <Outlet />
+          </CommandMenuContext>
         </main>
         <nav aria-label="Quick" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t bg-card md:hidden">
           {(["/", "/inbox", "/jobs"] as const).map((to) => (
