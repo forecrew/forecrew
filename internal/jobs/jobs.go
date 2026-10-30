@@ -66,14 +66,17 @@ func (s *Service) notify() {
 }
 
 // Create stores j as a queued job and audits it. AccountID, ProjectID,
-// Role, Runtime and Spec.Repo are required; Needs, GoalID, SpecID, TaskID
+// Role, Runtime and Spec.Repo are required; ID is kept when set (the
+// workflow engine relies on it), otherwise a new one is made; Needs, GoalID, SpecID, TaskID
 // and the rest of Spec are kept as given. The spec gets the job's ID,
 // account, role and runtime and is stored without secrets.
 func (s *Service) Create(ctx context.Context, by domain.Actor, j domain.Job) (domain.Job, error) {
 	if j.AccountID == uuid.Nil() || j.ProjectID == uuid.Nil() || j.Role == "" || j.Runtime == "" || j.Spec.Repo == "" {
 		return domain.Job{}, fmt.Errorf("create job: %w: account, project, role, runtime and repo are required", ErrInvalid)
 	}
-	j.ID = domain.NewID()
+	if j.ID == uuid.Nil() {
+		j.ID = domain.NewID()
+	}
 	j.Spec.JobID, j.Spec.AccountID, j.Spec.Role, j.Spec.Runtime = j.ID, j.AccountID, j.Role, j.Runtime
 	j.Spec = j.Spec.Redacted()
 	j.Needs = domain.NormalizeLabels(j.Needs)
