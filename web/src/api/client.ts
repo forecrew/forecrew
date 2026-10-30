@@ -83,6 +83,7 @@ export const api = {
   jobLogs: (ref: string, afterSeq = 0, limit = 500) =>
     request<JobLogs>("GET", `/api/v1/jobs/${seg(ref)}/logs${query({ after_seq: afterSeq, limit })}`),
   dispatchJob: (input: DispatchJobInput) => request<Job>("POST", "/api/v1/jobs", input),
+  cancelJob: (ref: string) => request<JobInfo>("POST", `/api/v1/jobs/${seg(ref)}/cancel`),
 
   listWorkers: () => request<Worker[]>("GET", "/api/v1/workers"),
 

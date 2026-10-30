@@ -8,6 +8,8 @@ import goal from "./fixtures/goal.json"
 import goalCreate from "./fixtures/goal-create.json"
 import goals from "./fixtures/goals.json"
 import job from "./fixtures/job.json"
+import jobCancel from "./fixtures/job-cancel.json"
+import jobCancelConflict from "./fixtures/job-cancel-conflict.json"
 import jobDispatch from "./fixtures/job-dispatch.json"
 import jobLogs from "./fixtures/job-logs.json"
 import jobLogsAllKinds from "./fixtures/job-logs-all-kinds.json"
@@ -48,6 +50,7 @@ export const handlers = [
   http.get("/api/v1/goals/:ref", () => HttpResponse.json(goal)),
   http.get("/api/v1/jobs", () => HttpResponse.json(jobs)),
   http.post("/api/v1/jobs", () => HttpResponse.json(jobDispatch, { status: 201 })),
+  http.post("/api/v1/jobs/:ref/cancel", () => HttpResponse.json(jobCancel)),
   http.get("/api/v1/jobs/:ref/logs", ({ request }) =>
     HttpResponse.json(new URL(request.url).searchParams.get("after_seq") === String(jobLogs.next_seq) ? jobLogsCaughtUp : jobLogs),
   ),
@@ -64,7 +67,7 @@ export const server = setupServer(...handlers)
 /** The recorded payloads, for tests that change what the API answers. */
 export const fx = {
   me, session, projects, projectsEmpty, project, projectOnboard, goals, goalsEmpty, goal, goalCreate, jobs, jobsEmpty, job,
-  jobQueued, jobFailed, jobDispatch, jobLogs, jobLogsCaughtUp, jobLogsEmpty, jobLogsAllKinds, projectMinimalProfile, projectUnknownCommands, workers, workersEmpty, gates, gatesEmpty, gateApprove,
+  jobQueued, jobFailed, jobDispatch, jobCancel, jobLogs, jobLogsCaughtUp, jobLogsEmpty, jobLogsAllKinds, projectMinimalProfile, projectUnknownCommands, workers, workersEmpty, gates, gatesEmpty, gateApprove,
   gateRequestChanges, gateReject,
 }
 
@@ -74,6 +77,7 @@ export const errors = {
   notFound: () => HttpResponse.json(errorNotFound, { status: 404 }),
   invalidInput: () => HttpResponse.json(errorInvalidInput, { status: 400 }),
   conflict: () => HttpResponse.json(errorConflict, { status: 409 }),
+  cancelConflict: () => HttpResponse.json(jobCancelConflict, { status: 409 }),
 }
 
 /** Answers every call to a path with the recorded 401. */

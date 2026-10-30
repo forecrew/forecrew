@@ -7,8 +7,9 @@ review code; the UI links to it.
 
 Screens: Home (what needs me, is everything healthy), Inbox (decide gates,
 filtered by project; a goal page decides its own pending gates with the same
-cards), Goals, Projects, Jobs and Workers (dig into detail), and a command menu
-(Ctrl+K or Cmd+K) to jump anywhere or start a goal or an onboarding.
+cards), Goals, Projects, Jobs and Workers (dig into detail; a queued or running
+job can be canceled from the job page and from the job tables), and a command
+menu (Ctrl+K or Cmd+K) to jump anywhere or start a goal or an onboarding.
 
 ## Run it locally
 

@@ -55,6 +55,31 @@ test("open a job and see its log", async ({ page }) => {
   await expect(log).toContainText("Bash returned: ok")
 })
 
+test("cancel a running job from its page", async ({ page }) => {
+  const calls = await mockApi(page)
+  await page.goto("/jobs/JOB-41")
+  await page.getByRole("button", { name: "Cancel job" }).click()
+  const dialog = page.getByRole("dialog", { name: "Cancel JOB-41?" })
+  await expect(dialog).toContainText("within about 30 seconds")
+  await dialog.getByRole("button", { name: "Cancel JOB-41" }).click()
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+  await expect(page.getByText("canceled", { exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Cancel job" })).toHaveCount(0)
+  expect(calls.log.find((c) => c.call === "POST /jobs/JOB-41/cancel")).toBeDefined()
+})
+
+test("cancel a job from the jobs list with the keyboard", async ({ page }) => {
+  const calls = await mockApi(page)
+  await page.goto("/jobs")
+  await page.getByRole("button", { name: "Cancel JOB-42" }).focus()
+  await page.keyboard.press("Enter")
+  await expect(page.getByRole("dialog", { name: "Cancel JOB-42?" })).toBeVisible()
+  await page.getByRole("button", { name: "Cancel JOB-42" }).last().focus()
+  await page.keyboard.press("Enter")
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+  expect(calls.log.find((c) => c.call === "POST /jobs/JOB-42/cancel")).toBeDefined()
+})
+
 test("agent text with HTML is shown as text and the page's policy blocks scripts", async ({ page }) => {
   await mockApi(page)
   const violations: string[] = []

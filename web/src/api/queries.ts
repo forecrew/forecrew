@@ -93,6 +93,16 @@ export function useJobLog(ref: string, running: boolean) {
   })
 }
 
+/** Cancels a job; after it the job, the job lists and the gates (a needs_you gate may appear) refresh. */
+export function useCancelJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ref: string) => api.cancelJob(ref),
+    onSettled: () =>
+      Promise.all(["job", "jobs", "goal-jobs", "goal", "gates"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
+  })
+}
+
 /** Gate decisions: after one, the inbox and the goals refresh. */
 export function useDecide() {
   const qc = useQueryClient()
