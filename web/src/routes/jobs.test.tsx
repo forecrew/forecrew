@@ -61,6 +61,25 @@ describe("job page", () => {
     expect(log).toHaveTextContent("Bash returned: ok")
   })
 
+  test("links back to the jobs list and puts the log beside the state and cost", async () => {
+    await renderApp("/jobs/JOB-41")
+    const main = await screen.findByRole("main")
+    expect(within(main).getByRole("link", { name: "Jobs" })).toHaveAttribute("href", "/jobs")
+    const log = await screen.findByRole("log", { name: "Job log" })
+    const cost = screen.getByText("Cost")
+    expect(log.compareDocumentPosition(cost) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  test("shows the state next to the title and goal, worker and model under it", async () => {
+    await renderApp("/jobs/JOB-41")
+    const title = await screen.findByRole("heading", { level: 1, name: "JOB-41 · developer" })
+    expect(within(title.parentElement as HTMLElement).getByText("running")).toBeInTheDocument()
+    const meta = (title.parentElement?.nextElementSibling ?? document.body) as HTMLElement
+    expect(await within(meta).findByRole("link", { name: /GOAL-3/ })).toBeInTheDocument()
+    expect(meta).toHaveTextContent(/worker .* · model /)
+    expect(screen.queryByText("State", { selector: "dt" })).not.toBeInTheDocument()
+  })
+
   test("shows why a queued job waits", async () => {
     server.use(http.get("/api/v1/jobs/:ref", () => HttpResponse.json(fx.jobQueued)), http.get("/api/v1/jobs/:ref/logs", () => HttpResponse.json(fx.jobLogsEmpty)))
     await renderApp("/jobs/JOB-42")

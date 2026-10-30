@@ -81,32 +81,36 @@ function EventLog({ events, running }: { events: JobEvent[]; running: boolean })
   )
 }
 
-/** The goal and task a job works on, as links: the job only holds their IDs. */
-function GoalTask({ job }: { job: JobInfo }) {
+/** The goal, worker and model of a job under its title. The goal is a link: the job only holds its ID. */
+function JobMeta({ job }: { job: JobInfo }) {
   const goal = useGoal(job.goal_id ?? "", Boolean(job.goal_id))
-  if (!job.goal_id) return null
-  const ref = goal.data?.ref
-  const task = job.task_id ? goal.data?.tasks.find((t) => t.id === job.task_id) : undefined
   return (
     <>
-      <dt className="text-muted-foreground">Goal</dt>
-      <dd>
-        <Link to="/goals/$ref" params={{ ref: ref ?? job.goal_id }} className="inline-flex items-center font-mono underline underline-offset-2">
-          {ref ?? "Goal"}
-        </Link>
-      </dd>
-      {job.task_id ? (
+      {job.goal_id ? (
         <>
-          <dt className="text-muted-foreground">Task</dt>
-          <dd>
-            {task?.url ? (
-              <ExternalLink href={task.url}>{task.ref}</ExternalLink>
-            ) : (
-              <span className="font-mono">{task?.ref ?? "unknown"}</span>
-            )}
-          </dd>
+          goal{" "}
+          <Link to="/goals/$ref" params={{ ref: goal.data?.ref ?? job.goal_id }} className="font-mono underline underline-offset-2">
+            {goal.data?.ref ?? "Goal"}
+          </Link>{" "}
+          ·{" "}
         </>
       ) : null}
+      worker <span className="font-mono">{job.worker_name ?? "none"}</span> · model <span className="font-mono">{job.spec.model}</span>
+    </>
+  )
+}
+
+/** The task a job works on, as a link: the job only holds its ID. */
+function TaskRow({ job }: { job: JobInfo }) {
+  const goal = useGoal(job.goal_id ?? "", Boolean(job.goal_id))
+  if (!job.goal_id || !job.task_id) return null
+  const task = goal.data?.tasks.find((t) => t.id === job.task_id)
+  return (
+    <>
+      <dt className="text-muted-foreground">Task</dt>
+      <dd>
+        {task?.url ? <ExternalLink href={task.url}>{task.ref}</ExternalLink> : <span className="font-mono">{task?.ref ?? "unknown"}</span>}
+      </dd>
     </>
   )
 }
@@ -140,109 +144,116 @@ export function JobPage() {
     <Async query={job}>
       {(j) => (
         <>
-          <PageHeader title={`${j.ref} · ${j.role}`}>{cancelable(j.status) ? <CancelJob jobRef={j.ref} /> : null}</PageHeader>
-          <dl className="mb-6 grid gap-x-6 gap-y-2 rounded-xl border bg-card p-4 text-sm sm:grid-cols-[10rem_1fr]">
-            <dt className="text-muted-foreground">State</dt>
-            <dd>
-              <StatusBadge tone={jobTone(j.status)}>{j.status}</StatusBadge>
-            </dd>
-            {j.reason ? (
-              <>
-                <dt className="text-muted-foreground">Reason</dt>
-                <dd>{j.reason}</dd>
-              </>
-            ) : null}
-            {j.needs.length ? (
-              <>
-                <dt className="text-muted-foreground">Needs</dt>
-                <dd className="flex flex-wrap gap-1">
-                  {j.needs.map((n) => (
-                    <StatusBadge key={n}>{n}</StatusBadge>
-                  ))}
-                </dd>
-              </>
-            ) : null}
-            <dt className="text-muted-foreground">Attempts</dt>
-            <dd>
-              {j.attempts} of {j.max_attempts}
-            </dd>
-            {j.status === "running" && j.lease_expires_at ? (
-              <>
-                <dt className="text-muted-foreground">Lease expires</dt>
-                <dd>
-                  <Age iso={j.lease_expires_at} future />
-                </dd>
-              </>
-            ) : null}
-            {j.status === "queued" && j.run_after ? (
-              <>
-                <dt className="text-muted-foreground">Retry</dt>
-                <dd>
-                  Waiting to retry <Age iso={j.run_after} future />
-                </dd>
-              </>
-            ) : null}
-            <dt className="text-muted-foreground">Worker</dt>
-            <dd className="font-mono">{j.worker_name ?? "none"}</dd>
-            <dt className="text-muted-foreground">Role</dt>
-            <dd className="font-mono">{j.role}</dd>
-            <dt className="text-muted-foreground">Runtime</dt>
-            <dd className="font-mono">{j.runtime}</dd>
-            <dt className="text-muted-foreground">Model</dt>
-            <dd className="font-mono">{j.spec.model}</dd>
-            <dt className="text-muted-foreground">Repository</dt>
-            <dd className="font-mono">
-              {j.spec.repo}
-              {j.spec.branch ? ` @ ${j.spec.branch}` : ""}
-            </dd>
-            {j.head_sha ? (
-              <>
-                <dt className="text-muted-foreground">Commit</dt>
-                <dd>
-                  {j.spec.repo ? (
-                    <ExternalLink href={`https://github.com/${j.spec.repo}/commit/${j.head_sha}`}>
-                      <span className="font-mono">{j.head_sha.slice(0, 7)}</span>
-                    </ExternalLink>
-                  ) : (
-                    <span className="font-mono">{j.head_sha.slice(0, 7)}</span>
-                  )}
-                </dd>
-              </>
-            ) : null}
-            <GoalTask job={j} />
-            <dt className="text-muted-foreground">Cost</dt>
-            <dd>{cost(j.cost_usd)}</dd>
-            <dt className="text-muted-foreground">Tokens</dt>
-            <dd>
-              {count(j.usage.input_tokens)} input, {count(j.usage.output_tokens)} output, {count(j.usage.cache_read_tokens)} cache read,{" "}
-              {count(j.usage.cache_write_tokens)} cache write
-            </dd>
-            <dt className="text-muted-foreground">Created</dt>
-            <dd>
-              <Age iso={j.created_at} ago />
-            </dd>
-            {j.finished_at ? (
-              <>
-                <dt className="text-muted-foreground">Finished</dt>
-                <dd>
-                  <Age iso={j.finished_at} ago />
-                </dd>
-              </>
-            ) : null}
-          </dl>
-          {j.output === undefined || j.output === null ? null : (
-            <div className="mb-6">
-              <Output output={j.output} />
+          <Link to="/jobs" className="text-sm text-primary underline underline-offset-2">
+            Jobs
+          </Link>
+          <PageHeader
+            title={`${j.ref} · ${j.role}`}
+            badge={<StatusBadge tone={jobTone(j.status)}>{j.status}</StatusBadge>}
+            meta={<JobMeta job={j} />}
+          >
+            {cancelable(j.status) ? <CancelJob jobRef={j.ref} /> : null}
+          </PageHeader>
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1fr_22rem]">
+            <div className="min-w-0 space-y-6">
+              {j.output === undefined || j.output === null ? null : <Output output={j.output} />}
+              <section aria-labelledby="job-log">
+                <h2 id="job-log" className="mb-2 text-lg font-semibold">
+                  Log
+                </h2>
+                {log.isError ? (
+                  <p role="alert" className="text-sm text-destructive">
+                    Could not load the log: {log.error.message}
+                  </p>
+                ) : (
+                  <EventLog events={log.data?.events ?? []} running={running} />
+                )}
+              </section>
             </div>
-          )}
-          <h2 className="mb-2 text-lg font-semibold">Log</h2>
-          {log.isError ? (
-            <p role="alert" className="text-sm text-destructive">
-              Could not load the log: {log.error.message}
-            </p>
-          ) : (
-            <EventLog events={log.data?.events ?? []} running={running} />
-          )}
+            <div className="space-y-6">
+              <dl className="grid gap-x-4 gap-y-2 rounded-xl border bg-card p-4 text-sm sm:grid-cols-[7rem_1fr] lg:grid-cols-[6rem_1fr]">
+                {j.reason ? (
+                  <>
+                    <dt className="text-muted-foreground">Reason</dt>
+                    <dd>{j.reason}</dd>
+                  </>
+                ) : null}
+                {j.needs.length ? (
+                  <>
+                    <dt className="text-muted-foreground">Needs</dt>
+                    <dd className="flex flex-wrap gap-1">
+                      {j.needs.map((n) => (
+                        <StatusBadge key={n}>{n}</StatusBadge>
+                      ))}
+                    </dd>
+                  </>
+                ) : null}
+                <dt className="text-muted-foreground">Attempts</dt>
+                <dd>
+                  {j.attempts} of {j.max_attempts}
+                </dd>
+                {j.status === "running" && j.lease_expires_at ? (
+                  <>
+                    <dt className="text-muted-foreground">Lease expires</dt>
+                    <dd>
+                      <Age iso={j.lease_expires_at} future />
+                    </dd>
+                  </>
+                ) : null}
+                {j.status === "queued" && j.run_after ? (
+                  <>
+                    <dt className="text-muted-foreground">Retry</dt>
+                    <dd>
+                      Waiting to retry <Age iso={j.run_after} future />
+                    </dd>
+                  </>
+                ) : null}
+                <dt className="text-muted-foreground">Runtime</dt>
+                <dd className="font-mono">{j.runtime}</dd>
+                <dt className="text-muted-foreground">Repository</dt>
+                <dd className="font-mono">
+                  {j.spec.repo}
+                  {j.spec.branch ? ` @ ${j.spec.branch}` : ""}
+                </dd>
+                {j.head_sha ? (
+                  <>
+                    <dt className="text-muted-foreground">Commit</dt>
+                    <dd>
+                      {j.spec.repo ? (
+                        <ExternalLink href={`https://github.com/${j.spec.repo}/commit/${j.head_sha}`}>
+                          <span className="font-mono">{j.head_sha.slice(0, 7)}</span>
+                        </ExternalLink>
+                      ) : (
+                        <span className="font-mono">{j.head_sha.slice(0, 7)}</span>
+                      )}
+                    </dd>
+                  </>
+                ) : null}
+                <TaskRow job={j} />
+                <dt className="text-muted-foreground">Created</dt>
+                <dd>
+                  <Age iso={j.created_at} ago />
+                </dd>
+                {j.finished_at ? (
+                  <>
+                    <dt className="text-muted-foreground">Finished</dt>
+                    <dd>
+                      <Age iso={j.finished_at} ago />
+                    </dd>
+                  </>
+                ) : null}
+              </dl>
+              <dl className="grid gap-x-4 gap-y-2 rounded-xl border bg-card p-4 text-sm sm:grid-cols-[7rem_1fr] lg:grid-cols-[6rem_1fr]">
+                <dt className="text-muted-foreground">Cost</dt>
+                <dd>{cost(j.cost_usd)}</dd>
+                <dt className="text-muted-foreground">Tokens</dt>
+                <dd>
+                  {count(j.usage.input_tokens)} input, {count(j.usage.output_tokens)} output, {count(j.usage.cache_read_tokens)} cache read,{" "}
+                  {count(j.usage.cache_write_tokens)} cache write
+                </dd>
+              </dl>
+            </div>
+          </div>
         </>
       )}
     </Async>
