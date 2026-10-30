@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -193,6 +194,8 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolGetGoal, map[string]any{"goal": "GOAL-2"}, mcp.GoalRefInput{Goal: "GOAL-2"}},
 		{mcp.ToolListJobs, map[string]any{"project": "app", "status": "queued", "limit": 5}, mcp.ListJobsInput{Project: "app", Status: "queued", Limit: 5}},
 		{mcp.ToolCancelJob, map[string]any{"job": "JOB-1"}, mcp.JobRefInput{Job: "JOB-1"}},
+		{mcp.ToolListTokens, nil, nil},
+		{mcp.ToolRevokeToken, map[string]any{"token": "old-laptop"}, mcp.RevokeTokenInput{Token: "old-laptop"}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))
@@ -266,7 +269,7 @@ func TestStructuredResult(t *testing.T) {
 	}
 }
 
-func TestCancelResult(t *testing.T) {
+func TestManagementResults(t *testing.T) {
 	e := newEnv(t)
 	cs := e.connect(t, testToken)
 	e.svc.CancelJobFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
@@ -274,6 +277,34 @@ func TestCancelResult(t *testing.T) {
 	}
 	if _, text := call(t, cs, mcp.ToolCancelJob, map[string]any{"job": "JOB-4"}); text != "JOB-4 is canceled." {
 		t.Errorf("cancel text = %q", text)
+	}
+	if res, text := call(t, cs, mcp.ToolListTokens, map[string]any{}); text != "0 tokens, 0 active." {
+		t.Errorf("empty tokens text = %q", text)
+	} else if raw, _ := json.Marshal(res.StructuredContent); string(raw) != `{"tokens":[]}` {
+		t.Errorf("empty tokens = %s", raw)
+	}
+	e.svc.ListTokensFunc = func(context.Context, domain.Actor, any) ([]mcp.TokenInfo, error) {
+		return []mcp.TokenInfo{{Name: "laptop"}, {Name: "old", RevokedAt: time.Now()}}, nil
+	}
+	if res, text := call(t, cs, mcp.ToolListTokens, map[string]any{}); text != "2 tokens, 1 active." {
+		t.Errorf("tokens text = %q", text)
+	} else if raw, _ := json.Marshal(res.StructuredContent); strings.Contains(string(raw), "hash") {
+		t.Errorf("tokens = %s", raw)
+	}
+	e.svc.RevokeTokenFunc = func(context.Context, domain.Actor, mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error) {
+		return mcp.NewRevokeTokenOutput(mcp.TokenInfo{Name: "old"}, false), nil
+	}
+	if _, text := call(t, cs, mcp.ToolRevokeToken, map[string]any{"token": "old"}); text != "Token old revoked." {
+		t.Errorf("revoke text = %q", text)
+	}
+	e.svc.RevokeTokenFunc = func(context.Context, domain.Actor, mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error) {
+		return mcp.NewRevokeTokenOutput(mcp.TokenInfo{Name: "laptop"}, true), nil
+	}
+	if _, text := call(t, cs, mcp.ToolRevokeToken, map[string]any{"token": "laptop"}); !strings.Contains(text, "token you are using") {
+		t.Errorf("self revoke text = %q", text)
+	}
+	if res, _ := call(t, cs, mcp.ToolRevokeToken, map[string]any{}); !res.IsError {
+		t.Error("revoke_token without a token should fail")
 	}
 }
 

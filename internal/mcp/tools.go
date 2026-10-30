@@ -10,6 +10,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -59,6 +60,8 @@ const (
 	ToolGetGoal          = "get_goal"
 	ToolListJobs         = "list_jobs"
 	ToolCancelJob        = "cancel_job"
+	ToolListTokens       = "list_tokens"
+	ToolRevokeToken      = "revoke_token"
 )
 
 // Tools returns every MCP tool name.
@@ -66,7 +69,7 @@ func Tools() []string {
 	return []string{
 		ToolOnboardProject, ToolCreateGoal, ToolJobStatus, ToolJobLogs, ToolListWorkers, ToolListPendingGates,
 		ToolApprove, ToolRequestChanges, ToolReject, ToolDispatchJob, ToolListProjects, ToolGetProject,
-		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob,
+		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob, ToolListTokens, ToolRevokeToken,
 	}
 }
 
@@ -99,6 +102,11 @@ type ToolService interface {
 	// its next heartbeat, and a playbook step waiting for it fails. A job
 	// that is finished already fails with domain.ErrInvalidTransition.
 	CancelJob(ctx context.Context, by domain.Actor, in JobRefInput) (JobInfo, error)
+	// ListTokens lists the account's API and MCP tokens, revoked ones too.
+	ListTokens(ctx context.Context, by domain.Actor) ([]TokenInfo, error)
+	// RevokeToken revokes an active token by name or ID, the caller's own
+	// included; a token that is unknown or revoked already is ErrNotFound.
+	RevokeToken(ctx context.Context, by domain.Actor, in RevokeTokenInput) (RevokeTokenOutput, error)
 }
 
 // OnboardProjectInput is the input of onboard_project.
@@ -139,6 +147,50 @@ type JobInfo struct {
 	Reason string `json:"reason,omitempty"`
 	// WorkerName is the worker running the job.
 	WorkerName string `json:"worker_name,omitempty"`
+}
+
+// TokenInfo is an API and MCP token without its hash or any secret.
+type TokenInfo struct {
+	ID         uuid.UUID `json:"id"`
+	Name       string    `json:"name"`
+	CreatedAt  time.Time `json:"created_at"`
+	LastUsedAt time.Time `json:"last_used_at,omitzero"`
+	RevokedAt  time.Time `json:"revoked_at,omitzero"`
+	// Current is set on the token that made the call.
+	Current bool `json:"current,omitempty"`
+}
+
+// NewTokenInfo returns the view of t; current says it is the caller's token.
+func NewTokenInfo(t domain.MCPToken, current bool) TokenInfo {
+	return TokenInfo{ID: t.ID, Name: t.Name, CreatedAt: t.CreatedAt, LastUsedAt: t.LastUsedAt, RevokedAt: t.RevokedAt, Current: current}
+}
+
+// RevokeTokenInput is the input of revoke_token.
+type RevokeTokenInput struct {
+	Token string `json:"token"` // name or UUID
+}
+
+// RevokeTokenOutput is the output of revoke_token.
+type RevokeTokenOutput struct {
+	Token TokenInfo `json:"token"`
+	// Self is set when the caller revoked the token it is using: from now on
+	// its requests and web sessions fail with 401.
+	Self bool `json:"self"`
+	// Message says what happened in a sentence.
+	Message string `json:"message"`
+}
+
+// NewRevokeTokenOutput returns the answer for the revoked token t; self says
+// the caller was using it.
+func NewRevokeTokenOutput(t TokenInfo, self bool) RevokeTokenOutput {
+	return RevokeTokenOutput{Token: t, Self: self, Message: revokeMessage(t.Name, self)}
+}
+
+func revokeMessage(name string, self bool) string {
+	if self {
+		return "Token " + name + " revoked. It is the token you are using: it and the web sessions it backs stop working now."
+	}
+	return "Token " + name + " revoked."
 }
 
 // JobLogsInput is the input of job_logs.

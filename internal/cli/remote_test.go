@@ -194,6 +194,44 @@ func TestJobsCancel(t *testing.T) {
 	}
 }
 
+func TestTokensCommand(t *testing.T) {
+	e := newRemoteEnv(t)
+	used := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	id := domain.NewID()
+	e.svc.ListTokensFunc = func(context.Context, domain.Actor, any) ([]mcp.TokenInfo, error) {
+		return []mcp.TokenInfo{
+			{ID: id, Name: "laptop", Current: true, LastUsedAt: used},
+			{Name: "ci"},
+			{Name: "old", RevokedAt: used},
+		}, nil
+	}
+	out, errOut, code := e.run(t, "tokens")
+	if code != 0 || errOut != "" {
+		t.Fatalf("code %d, stderr %q", code, errOut)
+	}
+	for _, want := range []string{"NAME", "laptop  " + id.String() + "  active (this one)  2026-03-01T12:00:00Z", "ci      ", "active             -", "old     ", "revoked            -"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+
+	e.svc.RevokeTokenFunc = func(_ context.Context, _ domain.Actor, in mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error) {
+		return mcp.NewRevokeTokenOutput(mcp.TokenInfo{Name: in.Token}, in.Token == "laptop"), nil
+	}
+	if out, _, code := e.run(t, "tokens", "revoke", "ci"); code != 0 || out != "Token ci revoked.\n" {
+		t.Errorf("code %d, stdout %q", code, out)
+	}
+	if out, _, code := e.run(t, "tokens", "revoke", "laptop"); code != 0 || !strings.Contains(out, "token you are using") {
+		t.Errorf("code %d, stdout %q", code, out)
+	}
+	e.svc.RevokeTokenFunc = func(context.Context, domain.Actor, mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error) {
+		return mcp.RevokeTokenOutput{}, fmt.Errorf("token ghost does not exist: %w", mcp.ErrNotFound)
+	}
+	if _, errOut, code := e.run(t, "tokens", "revoke", "ghost"); code != 1 || !strings.Contains(errOut, "does not exist") {
+		t.Errorf("code %d, stderr %q", code, errOut)
+	}
+}
+
 func TestRemoteErrors(t *testing.T) {
 	e := newRemoteEnv(t)
 	e.svc.JobStatusFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {

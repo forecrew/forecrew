@@ -53,10 +53,10 @@ func TestGateDecisionInvalidInput(t *testing.T) {
 
 func TestTools(t *testing.T) {
 	tools := Tools()
-	if len(tools) != 16 || !slices.Contains(tools, ToolReject) {
+	if len(tools) != 18 || !slices.Contains(tools, ToolReject) {
 		t.Fatalf("Tools = %v", tools)
 	}
-	if len(slices.Compact(slices.Sorted(slices.Values(tools)))) != 16 {
+	if len(slices.Compact(slices.Sorted(slices.Values(tools)))) != 18 {
 		t.Fatalf("duplicate tool names: %v", tools)
 	}
 }

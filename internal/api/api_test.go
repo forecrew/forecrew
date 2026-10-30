@@ -142,6 +142,8 @@ func TestEndpoints(t *testing.T) {
 		{"POST", "/api/v1/gates/GATE-7/request-changes", `{"feedback":"more tests"}`, 200, mcp.ToolRequestChanges, mcp.GateDecisionInput{Gate: "GATE-7", Feedback: "more tests"}},
 		{"POST", "/api/v1/gates/GATE-7/reject", `{}`, 200, mcp.ToolReject, mcp.GateDecisionInput{Gate: "GATE-7"}},
 		{"POST", "/api/v1/jobs/JOB-41/cancel", "", 200, mcp.ToolCancelJob, mcp.JobRefInput{Job: "JOB-41"}},
+		{"GET", "/api/v1/tokens", "", 200, mcp.ToolListTokens, nil},
+		{"POST", "/api/v1/tokens/old-laptop/revoke", "", 200, mcp.ToolRevokeToken, mcp.RevokeTokenInput{Token: "old-laptop"}},
 	}
 	seen := map[string]bool{}
 	for i, tt := range tests {
@@ -168,7 +170,7 @@ func TestEndpoints(t *testing.T) {
 
 func TestListsAreArrays(t *testing.T) {
 	e := newEnv(t)
-	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs"} {
+	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens"} {
 		if r := e.do(t, "GET", path, "", "bearer"); strings.TrimSpace(r.body) != "[]" {
 			t.Errorf("GET %s = %q, want []", path, r.body)
 		}

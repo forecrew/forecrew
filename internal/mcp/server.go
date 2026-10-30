@@ -122,6 +122,23 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 			j, err := svc.CancelJob(ctx, by, in)
 			return result(j, "%s is %s.", j.Ref, j.Status), err
 		})
+	register(r, ToolListTokens, "List the account's API and MCP tokens with creation, last use and revocation times, and which one you are using. Secrets are never shown.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			t, err := svc.ListTokens(ctx, by)
+			active := 0
+			for _, x := range t {
+				if x.RevokedAt.IsZero() {
+					active++
+				}
+			}
+			return list("tokens", t, "%d tokens, %d active.", len(t), active), err
+		})
+	register(r, ToolRevokeToken, "Revoke an API and MCP token by name or ID; it stops working at once, as do the web sessions it backs. Revoking the token you are using is allowed and ends your own access.",
+		fieldDocs{"token": "Token name or UUID."}, //nolint:gosec // a field description, not a credential
+		func(ctx context.Context, by domain.Actor, in RevokeTokenInput) (toolResult, error) {
+			out, err := svc.RevokeToken(ctx, by, in)
+			return result(out, "%s", revokeMessage(out.Token.Name, out.Self)), err
+		})
 }
 
 // toolResult is what a tool returns to the client: a short text and the
