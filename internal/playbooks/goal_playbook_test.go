@@ -652,6 +652,17 @@ func TestGoalPlanStaysUncovered(t *testing.T) {
 		if !strings.Contains(g.Summary, "not met after 2 iterations") || len(r.tasks(t)) != 0 {
 			t.Errorf("gate = %+v, %d tasks", g, len(r.tasks(t)))
 		}
+		// The approver can read why on the goal issue.
+		comments, _ := r.tracker.ListComments(t.Context(), "acme/app", r.goalNow(t).IssueNumber, t0.Add(-1))
+		var problems int
+		for _, c := range comments {
+			if strings.Contains(c.Body, "forecrew:plan-problem:") && strings.Contains(c.Body, "does not cover these acceptance criteria: AC-2") {
+				problems++
+			}
+		}
+		if problems != 2 {
+			t.Errorf("%d plan problems commented, want 2", problems)
+		}
 		return r
 	}
 
