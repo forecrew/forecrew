@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
 
-.PHONY: build test test-integration lint cover web web-dev web-lint web-test web-cover e2e
+.PHONY: build test test-integration lint cover web web-dev web-lint web-test web-cover e2e test-e2e
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
@@ -55,3 +55,10 @@ web-cover: $(WEB_DEPS)
 # PLAYWRIGHT_CHROMIUM_PATH to use a Chromium you already have.
 e2e: web
 	cd web && $(if $(PLAYWRIGHT_CHROMIUM_PATH),,pnpm exec playwright install chromium &&) pnpm e2e
+
+# The in-process end-to-end suite (internal/e2e): forecrewd, real workers and
+# the embedded playbooks against Postgres, with a fake GitHub and a scripted
+# runtime. Needs FORECREW_TEST_DATABASE_URL and git.
+test-e2e:
+	@test -n "$$FORECREW_TEST_DATABASE_URL" || { echo "FORECREW_TEST_DATABASE_URL is not set"; exit 1; }
+	go test -race -count=1 -tags 'integration e2e' ./internal/e2e/...
