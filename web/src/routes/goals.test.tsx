@@ -96,6 +96,7 @@ describe("goal page", () => {
     expect(screen.getByText("Stage: building")).toBeInTheDocument()
     expect(screen.getByText("Total cost $1.75")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: /Goal issue/ })).toHaveAttribute("href", "https://github.com/acme/app/issues/5")
+    expect(screen.getByRole("link", { name: "app" })).toHaveAttribute("href", "/projects/app")
     expect(screen.getByText("Platforms: web")).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "Description" })).toBeInTheDocument()
     expect(screen.getByText("Let users sign in without a password.")).toBeInTheDocument()

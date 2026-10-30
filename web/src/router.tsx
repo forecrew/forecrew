@@ -12,6 +12,8 @@ import { InboxPage } from "@/routes/inbox"
 import { JobPage } from "@/routes/job"
 import { JobsPage } from "@/routes/jobs"
 import { LoginPage } from "@/routes/login"
+import { ProjectPage } from "@/routes/project"
+import { OnboardPage, ProjectsPage } from "@/routes/projects"
 import { WorkersPage } from "@/routes/workers"
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({ component: Outlet })
@@ -65,6 +67,9 @@ const routeTree = root.addChildren([
     createRoute({ getParentRoute: () => app, path: "/goals", validateSearch: search, component: GoalsPage }),
     child("/goals/new", NewGoalPage),
     child("/goals/$ref", GoalPage),
+    child("/projects", ProjectsPage),
+    child("/projects/new", OnboardPage),
+    child("/projects/$name", ProjectPage),
     createRoute({ getParentRoute: () => app, path: "/jobs", validateSearch: search, component: JobsPage }),
     child("/jobs/$ref", JobPage),
     child("/workers", WorkersPage),

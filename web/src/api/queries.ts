@@ -26,6 +26,8 @@ export const meOptions = queryOptions({ queryKey: keys.me, queryFn: api.me, retr
 export const useMe = () => useQuery(meOptions)
 export const useGates = () => useQuery({ queryKey: keys.gates, queryFn: api.listGates, ...poll })
 export const useProjects = () => useQuery({ queryKey: keys.projects, queryFn: api.listProjects, ...poll })
+export const useProject = (name: string) =>
+  useQuery({ queryKey: keys.project(name), queryFn: () => api.getProject(name), ...poll })
 export const useGoals = (project?: string, status?: GoalStatus | "") =>
   useQuery({
     queryKey: keys.goals(project, status),
