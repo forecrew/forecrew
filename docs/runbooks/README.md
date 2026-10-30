@@ -11,3 +11,4 @@ files are in [`deploy/`](../../deploy).
 | [rotate-github-key.md](rotate-github-key.md) | Replace the GitHub App private key or webhook secret |
 | [mcp-token.md](mcp-token.md) | Create an MCP/API token and connect a client |
 | [troubleshooting.md](troubleshooting.md) | Job stuck queued, no matching worker, lease expiries, offline worker, webhook failures |
+| [smoke-live.md](smoke-live.md) | Run the live smoke test against a real instance and a sandbox repo (`make smoke-live`) |

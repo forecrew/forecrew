@@ -4,6 +4,7 @@ run:
   build-tags:
     - integration
     - e2e
+    - smoke
 
 linters:
   default: standard
