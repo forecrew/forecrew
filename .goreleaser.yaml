@@ -1,0 +1,68 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: forecrew
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: forecrewd
+    main: ./cmd/forecrewd
+    binary: forecrewd
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+  - id: forecrew
+    main: ./cmd/forecrew
+    binary: forecrew
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+  - id: forecrew-worker
+    main: ./cmd/forecrew-worker
+    binary: forecrew-worker
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+
+# One archive per binary and platform. The names have no version so that
+# .../releases/latest/download/forecrew-worker_linux_amd64.tar.gz is stable;
+# deploy/worker/install.sh relies on it.
+archives:
+  - id: forecrewd
+    ids: [forecrewd]
+    name_template: "{{ .Binary }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - {goos: windows, formats: [zip]}
+  - id: forecrew
+    ids: [forecrew]
+    name_template: "{{ .Binary }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - {goos: windows, formats: [zip]}
+  - id: forecrew-worker
+    ids: [forecrew-worker]
+    name_template: "{{ .Binary }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - {goos: windows, formats: [zip]}
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  disable: true
+
+release:
+  github:
+    owner: forecrew
+    name: forecrew
