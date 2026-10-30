@@ -27,10 +27,10 @@ type ToolService struct {
 
 	OnboardProjectFunc   func(context.Context, domain.Actor, mcp.OnboardProjectInput) (mcp.OnboardProjectOutput, error)
 	CreateGoalFunc       func(context.Context, domain.Actor, mcp.CreateGoalInput) (domain.Goal, error)
-	JobStatusFunc        func(context.Context, domain.Actor, mcp.JobRefInput) (domain.Job, error)
+	JobStatusFunc        func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error)
 	JobLogsFunc          func(context.Context, domain.Actor, mcp.JobLogsInput) (mcp.JobLogsOutput, error)
 	ListWorkersFunc      func(context.Context, domain.Actor, any) ([]mcp.WorkerInfo, error)
-	ListPendingGatesFunc func(context.Context, domain.Actor, mcp.ProjectFilterInput) ([]domain.Gate, error)
+	ListPendingGatesFunc func(context.Context, domain.Actor, mcp.ProjectFilterInput) ([]mcp.GateInfo, error)
 	ApproveFunc          func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
 	RequestChangesFunc   func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
 	RejectFunc           func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
@@ -75,7 +75,7 @@ func (s *ToolService) CreateGoal(ctx context.Context, by domain.Actor, in mcp.Cr
 }
 
 // JobStatus implements mcp.ToolService.
-func (s *ToolService) JobStatus(ctx context.Context, by domain.Actor, in mcp.JobRefInput) (domain.Job, error) {
+func (s *ToolService) JobStatus(ctx context.Context, by domain.Actor, in mcp.JobRefInput) (mcp.JobInfo, error) {
 	return invoke(ctx, s, mcp.ToolJobStatus, by, in, s.JobStatusFunc)
 }
 
@@ -90,7 +90,7 @@ func (s *ToolService) ListWorkers(ctx context.Context, by domain.Actor) ([]mcp.W
 }
 
 // ListPendingGates implements mcp.ToolService.
-func (s *ToolService) ListPendingGates(ctx context.Context, by domain.Actor, in mcp.ProjectFilterInput) ([]domain.Gate, error) {
+func (s *ToolService) ListPendingGates(ctx context.Context, by domain.Actor, in mcp.ProjectFilterInput) ([]mcp.GateInfo, error) {
 	return invoke(ctx, s, mcp.ToolListPendingGates, by, in, s.ListPendingGatesFunc)
 }
 

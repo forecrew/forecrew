@@ -2,8 +2,8 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -34,56 +34,120 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 	job := "Job ref (JOB-41) or UUID."
 	goal := "Goal ref (GOAL-3) or UUID."
 
-	register(r, ToolOnboardProject, "Register a GitHub repo as a project if needed and start onboarding: an analyst job reads the repo and proposes a profile for approval. Returns the project and the onboarding job.",
-		fieldDocs{"repo": "Repository as owner/name.", "name": "Project name; defaults to the repo name."}, svc.OnboardProject)
-	register(r, ToolCreateGoal, "Create a goal for a project and start the goal playbook (spec, plan, implementation). Returns the new draft goal.",
-		fieldDocs{"project": project, "title": "Short goal title.", "body": "Goal description in markdown: what to build and why.", "platforms": "Platforms the goal targets, for example web or ios. Optional."}, svc.CreateGoal)
-	register(r, ToolJobStatus, "Show a job: role, status, attempts, branch, result and failure reason.",
-		fieldDocs{"job": job}, svc.JobStatus)
-	register(r, ToolJobLogs, "Read a job's event log (output, tool calls, status changes), oldest first. Pass next_seq of the previous call as after_seq to continue.",
-		fieldDocs{"job": job, "after_seq": "Only events with a greater sequence number.", "limit": "Maximum events to return; default 200, maximum 1000."}, svc.JobLogs)
-	register(r, ToolListWorkers, "List the account's workers with labels, last seen time and whether each is online.",
-		nil, func(ctx context.Context, by domain.Actor, _ struct{}) ([]WorkerInfo, error) {
-			w, err := svc.ListWorkers(ctx, by)
-			return nonNil(w), err
+	register(r, ToolOnboardProject, "Register a GitHub repo as a project if needed and start onboarding: an analyst job reads the repo and proposes a profile for approval. Returns the project and the onboarding run.",
+		fieldDocs{"repo": "Repository as owner/name.", "name": "Project name; defaults to the repo name.", "default_branch": "Default branch of the repo, used when the project is registered by this call; defaults to main."},
+		func(ctx context.Context, by domain.Actor, in OnboardProjectInput) (toolResult, error) {
+			out, err := svc.OnboardProject(ctx, by, in)
+			return result(out, "Onboarding of %s started.", out.Project.Repo), err
 		})
-	register(r, ToolListPendingGates, "List gates waiting for a human decision (profile, spec and merge approvals, and jobs that need you), optionally for one project.",
-		fieldDocs{"project": project}, func(ctx context.Context, by domain.Actor, in ProjectFilterInput) ([]domain.Gate, error) {
+	register(r, ToolCreateGoal, "Create a goal for a project and start the goal playbook (spec, plan, implementation). Returns the new draft goal.",
+		fieldDocs{"project": project, "title": "Short goal title.", "body": "Goal description in markdown: what to build and why.", "platforms": "Platforms the goal targets, for example web or ios. Optional."},
+		func(ctx context.Context, by domain.Actor, in CreateGoalInput) (toolResult, error) {
+			g, err := svc.CreateGoal(ctx, by, in)
+			return result(g, "%s created: %s (%s).", g.Ref(), g.Title, g.Status), err
+		})
+	register(r, ToolJobStatus, "Show a job: role, status, attempts, branch, result and failure reason.",
+		fieldDocs{"job": job}, func(ctx context.Context, by domain.Actor, in JobRefInput) (toolResult, error) {
+			j, err := svc.JobStatus(ctx, by, in)
+			return result(j, "%s (%s) is %s%s.", j.Ref, j.Role, j.Status, because(j.Reason)), err
+		})
+	register(r, ToolJobLogs, "Read a job's event log (output, tool calls, status changes), oldest first. Pass next_seq of the previous call as after_seq to continue.",
+		fieldDocs{"job": job, "after_seq": "Only events with a greater sequence number.", "limit": "Maximum events to return; default 200, maximum 1000."},
+		func(ctx context.Context, by domain.Actor, in JobLogsInput) (toolResult, error) {
+			l, err := svc.JobLogs(ctx, by, in)
+			l.Events = NonNil(l.Events)
+			return result(l, "%d events, next_seq %d.", len(l.Events), l.NextSeq), err
+		})
+	register(r, ToolListWorkers, "List the account's workers with labels, last seen time, whether each is online and the jobs it runs.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			w, err := svc.ListWorkers(ctx, by)
+			online := 0
+			for _, x := range w {
+				if x.Online {
+					online++
+				}
+			}
+			return list("workers", w, "%d workers, %d online.", len(w), online), err
+		})
+	register(r, ToolListPendingGates, "List gates waiting for a human decision (profile, spec and merge approvals, and jobs that need you) with the GitHub link of what each is about, optionally for one project.",
+		fieldDocs{"project": project}, func(ctx context.Context, by domain.Actor, in ProjectFilterInput) (toolResult, error) {
 			g, err := svc.ListPendingGates(ctx, by, in)
-			return nonNil(g), err
+			return list("gates", g, "%d pending gates.", len(g)), err
 		})
 	register(r, ToolApprove, "Approve a pending gate. On a needs_you gate this retries the stuck work.",
-		fieldDocs{"gate": gate, "feedback": "Optional note recorded with the decision."}, svc.Approve)
+		fieldDocs{"gate": gate, "feedback": "Optional note recorded with the decision."}, gateTool(svc.Approve))
 	register(r, ToolRequestChanges, "Ask for changes on a pending profile, spec or merge gate; feedback is required and goes to the next revision. Not valid on needs_you gates: use approve to retry or reject to stop.",
-		fieldDocs{"gate": gate, "feedback": "What to change. Required."}, svc.RequestChanges, "feedback")
+		fieldDocs{"gate": gate, "feedback": "What to change. Required."}, gateTool(svc.RequestChanges), "feedback")
 	register(r, ToolReject, "Reject a pending gate. On a needs_you gate this stops the work.",
-		fieldDocs{"gate": gate, "feedback": "Optional reason recorded with the decision."}, svc.Reject)
-	register(r, ToolDispatchJob, "Queue an ad-hoc job of a role on a project, optionally tied to a goal or task and limited to workers with the needed labels.",
+		fieldDocs{"gate": gate, "feedback": "Optional reason recorded with the decision."}, gateTool(svc.Reject))
+	register(r, ToolDispatchJob, "Queue an ad-hoc job of a read-only role on a project, optionally tied to a goal or task and limited to workers with the needed labels.",
 		fieldDocs{
-			"project": project, "role": "Role name, for example implementer or reviewer.",
-			"base_ref": "Git ref to start from; defaults to the project's default branch.", "branch": "Branch the job works on.",
+			"project": project, "role": "Name of a read-only role, for example reviewer.",
+			"base_ref": "Git ref to start from; defaults to the project's default branch.", "branch": "Branch to check out and inspect; it is never pushed.",
 			"needs": "Worker labels the job needs, for example runtime:claude-code or linux.", "include_repo_facts": "Include the analyzer's repo facts in the context.",
 			"goal": goal, "task": "Task ref (TASK-12) or UUID.", "feedback": "Review feedback for the job.", "prompt": "Instructions for the job: what it should do.",
-		}, svc.DispatchJob)
+		}, func(ctx context.Context, by domain.Actor, in DispatchJobInput) (toolResult, error) {
+			j, err := svc.DispatchJob(ctx, by, in)
+			return result(j, "%s queued (%s).", j.Ref(), j.Role), err
+		})
 	register(r, ToolListProjects, "List the account's projects.",
-		nil, func(ctx context.Context, by domain.Actor, _ struct{}) ([]domain.Project, error) {
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
 			p, err := svc.ListProjects(ctx, by)
-			return nonNil(p), err
+			return list("projects", p, "%d projects.", len(p)), err
 		})
-	register(r, ToolGetProject, "Show a project: repo, status and profile.",
-		fieldDocs{"project": project}, svc.GetProject)
+	register(r, ToolGetProject, "Show a project: repo, status and approved profile.",
+		fieldDocs{"project": project}, func(ctx context.Context, by domain.Actor, in ProjectInput) (toolResult, error) {
+			p, err := svc.GetProject(ctx, by, in)
+			return result(p, "%s (%s) is %s.", p.Name, p.Repo, p.Status), err
+		})
 	register(r, ToolListGoals, "List goals, optionally for one project and status.",
-		fieldDocs{"project": project, "status": "Goal status to filter on."}, func(ctx context.Context, by domain.Actor, in ListGoalsInput) ([]domain.Goal, error) {
+		fieldDocs{"project": project, "status": "Goal status to filter on."}, func(ctx context.Context, by domain.Actor, in ListGoalsInput) (toolResult, error) {
 			g, err := svc.ListGoals(ctx, by, in)
-			return nonNil(g), err
+			return list("goals", g, "%d goals.", len(g)), err
 		})
-	register(r, ToolGetGoal, "Show a goal with its latest spec, tasks, changes and pending gates.",
-		fieldDocs{"goal": goal}, svc.GetGoal)
-	register(r, ToolListJobs, "List recent jobs, newest first, optionally for one project and status.",
-		fieldDocs{"project": project, "status": "Job status to filter on.", "limit": "Maximum jobs to return; default 50."}, func(ctx context.Context, by domain.Actor, in ListJobsInput) ([]domain.Job, error) {
+	register(r, ToolGetGoal, "Show a goal with its latest spec, tasks (state, issue and PR links, check status, iterations, cost), gates with their decisions and total cost.",
+		fieldDocs{"goal": goal}, func(ctx context.Context, by domain.Actor, in GoalRefInput) (toolResult, error) {
+			d, err := svc.GetGoal(ctx, by, in)
+			d.Tasks, d.Gates = NonNil(d.Tasks), NonNil(d.Gates)
+			return result(d, "%s %s is %s: %d tasks, $%.2f.", d.Ref, d.Goal.Title, d.Goal.Status, len(d.Tasks), d.CostUSD), err
+		})
+	register(r, ToolListJobs, "List recent jobs, newest first, optionally for one project, goal and status.",
+		fieldDocs{"project": project, "goal": goal, "status": "Job status to filter on.", "limit": "Maximum jobs to return; default 50."},
+		func(ctx context.Context, by domain.Actor, in ListJobsInput) (toolResult, error) {
 			j, err := svc.ListJobs(ctx, by, in)
-			return nonNil(j), err
+			return list("jobs", j, "%d jobs.", len(j)), err
 		})
+}
+
+// toolResult is what a tool returns to the client: a short text and the
+// structured content, which must be a JSON object.
+type toolResult struct {
+	text string
+	data any
+}
+
+func result(data any, format string, args ...any) toolResult {
+	return toolResult{text: fmt.Sprintf(format, args...), data: data}
+}
+
+// list returns items under key, as [] when empty.
+func list[T any](key string, items []T, format string, args ...any) toolResult {
+	return result(map[string]any{key: NonNil(items)}, format, args...)
+}
+
+func because(reason string) string {
+	if reason == "" {
+		return ""
+	}
+	return ": " + reason
+}
+
+// gateTool adapts a gate decision method to a tool.
+func gateTool(decide func(context.Context, domain.Actor, GateDecisionInput) (domain.Gate, error)) func(context.Context, domain.Actor, GateDecisionInput) (toolResult, error) {
+	return func(ctx context.Context, by domain.Actor, in GateDecisionInput) (toolResult, error) {
+		g, err := decide(ctx, by, in)
+		return result(g, "%s is %s.", g.Ref(), g.Status), err
+	}
 }
 
 type registrar struct {
@@ -96,8 +160,9 @@ type fieldDocs map[string]string
 
 // register adds one tool whose input type is In; its JSON schema comes from
 // In and the field descriptions from docs; the fields named in required are
-// marked required on top of those In requires. call receives the token's actor.
-func register[In, Out any](r registrar, name, description string, docs fieldDocs, call func(context.Context, domain.Actor, In) (Out, error), required ...string) {
+// marked required on top of those In requires. call receives the token's actor
+// and returns the short text and the structured content.
+func register[In any](r registrar, name, description string, docs fieldDocs, call func(context.Context, domain.Actor, In) (toolResult, error), required ...string) {
 	schema, err := jsonschema.For[In](nil)
 	if err != nil {
 		panic("mcp: schema for " + name + ": " + err.Error()) // programmer error, at startup
@@ -120,16 +185,11 @@ func register[In, Out any](r registrar, name, description string, docs fieldDocs
 		if !ok {
 			return nil, nil, errors.New("not authenticated")
 		}
-		out, err := call(ctx, actor, in)
+		res, err := call(ctx, actor, in)
 		if err != nil {
 			return nil, nil, errors.New(toolErrorMessage(ctx, r.logger, name, actor, err))
 		}
-		data, err := json.Marshal(out)
-		if err != nil {
-			r.logger.ErrorContext(ctx, "encode tool result", "tool", name, "account_id", actor.AccountID, "error", err)
-			return nil, nil, errors.New("internal error")
-		}
-		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: string(data)}}}, nil, nil
+		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: res.text}}}, res.data, nil
 	})
 }
 
@@ -137,17 +197,15 @@ func register[In, Out any](r registrar, name, description string, docs fieldDocs
 // the message of known conditions, and a generic one (with the cause logged)
 // for anything else, so internals and secrets never reach the client.
 func toolErrorMessage(ctx context.Context, logger *slog.Logger, tool string, actor domain.Actor, err error) string {
-	for _, known := range []error{ErrNotFound, ErrInvalidInput, domain.ErrInvalidRef, domain.ErrInvalidTransition, domain.ErrInvalidDecision} {
-		if errors.Is(err, known) {
-			return err.Error()
-		}
+	if _, ok := ErrorCode(err); ok {
+		return err.Error()
 	}
 	logger.ErrorContext(ctx, "tool failed", "tool", tool, "account_id", actor.AccountID, "actor", actor.String(), "error", err)
 	return "internal error, try again later"
 }
 
-// nonNil makes an empty list encode as [] rather than null.
-func nonNil[T any](s []T) []T {
+// NonNil makes an empty list encode as [] rather than null.
+func NonNil[T any](s []T) []T {
 	if s == nil {
 		return []T{}
 	}

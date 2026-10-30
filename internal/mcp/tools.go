@@ -10,6 +10,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 )
@@ -22,6 +23,23 @@ var (
 	// ErrInvalidInput means a required field is missing or malformed.
 	ErrInvalidInput = errors.New("invalid input")
 )
+
+// ErrorCode classifies the errors callers act on: "not_found" for
+// ErrNotFound, "invalid_input" for ErrInvalidInput, domain.ErrInvalidRef and
+// domain.ErrInvalidDecision, and "conflict" for domain.ErrInvalidTransition.
+// ok is false for any other error, which is an internal one. The MCP server
+// and /api/v1 use it to decide what a client may see.
+func ErrorCode(err error) (code string, ok bool) {
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return "not_found", true
+	case errors.Is(err, ErrInvalidInput), errors.Is(err, domain.ErrInvalidRef), errors.Is(err, domain.ErrInvalidDecision):
+		return "invalid_input", true
+	case errors.Is(err, domain.ErrInvalidTransition):
+		return "conflict", true
+	}
+	return "", false
+}
 
 // Tool names as exposed over MCP.
 const (
@@ -54,14 +72,14 @@ func Tools() []string {
 // ToolService implements one method per MCP tool.
 type ToolService interface {
 	// OnboardProject registers the repo as a project if needed and starts
-	// onboarding (project onboarding, onboarding-analyst job).
+	// the onboarding playbook.
 	OnboardProject(ctx context.Context, by domain.Actor, in OnboardProjectInput) (OnboardProjectOutput, error)
 	// CreateGoal creates a draft goal and starts the goal playbook.
 	CreateGoal(ctx context.Context, by domain.Actor, in CreateGoalInput) (domain.Goal, error)
-	JobStatus(ctx context.Context, by domain.Actor, in JobRefInput) (domain.Job, error)
+	JobStatus(ctx context.Context, by domain.Actor, in JobRefInput) (JobInfo, error)
 	JobLogs(ctx context.Context, by domain.Actor, in JobLogsInput) (JobLogsOutput, error)
 	ListWorkers(ctx context.Context, by domain.Actor) ([]WorkerInfo, error)
-	ListPendingGates(ctx context.Context, by domain.Actor, in ProjectFilterInput) ([]domain.Gate, error)
+	ListPendingGates(ctx context.Context, by domain.Actor, in ProjectFilterInput) ([]GateInfo, error)
 	// Approve resolves a gate of any kind as approved (retry for needs_you).
 	Approve(ctx context.Context, by domain.Actor, in GateDecisionInput) (domain.Gate, error)
 	// RequestChanges resolves a gate as changes_requested. It fails with
@@ -82,12 +100,15 @@ type ToolService interface {
 type OnboardProjectInput struct {
 	Repo string `json:"repo"`           // "owner/name", required
 	Name string `json:"name,omitempty"` // defaults to the repo name
+	// DefaultBranch of a repo that is registered by this call; defaults to main.
+	DefaultBranch string `json:"default_branch,omitempty"`
 }
 
 // OnboardProjectOutput is the output of onboard_project.
 type OnboardProjectOutput struct {
 	Project domain.Project `json:"project"`
-	Job     domain.Job     `json:"job"` // the onboarding-analyst job
+	// RunID is the workflow run of the onboarding playbook.
+	RunID uuid.UUID `json:"run_id"`
 }
 
 // CreateGoalInput is the input of create_goal.
@@ -104,6 +125,17 @@ type JobRefInput struct {
 	Job string `json:"job"` // JOB-41 or UUID
 }
 
+// JobInfo is a job with what a human needs to know about its state.
+type JobInfo struct {
+	domain.Job
+	Ref string `json:"ref"` // JOB-41
+	// Reason explains the state: why a queued job waits (no matching
+	// worker), the error of a failed job.
+	Reason string `json:"reason,omitempty"`
+	// WorkerName is the worker running the job.
+	WorkerName string `json:"worker_name,omitempty"`
+}
+
 // JobLogsInput is the input of job_logs.
 type JobLogsInput struct {
 	Job      string `json:"job"`                 // JOB-41 or UUID
@@ -118,10 +150,23 @@ type JobLogsOutput struct {
 	NextSeq int64 `json:"next_seq"`
 }
 
-// WorkerInfo is a worker with its online state.
+// WorkerInfo is a worker with its online state and running jobs.
 type WorkerInfo struct {
 	domain.Worker
 	Online bool `json:"online"`
+	// RunningJobs holds the refs of the jobs it runs.
+	RunningJobs []string `json:"running_jobs"`
+}
+
+// GateInfo is a gate with where to find what it is about.
+type GateInfo struct {
+	domain.Gate
+	Ref     string `json:"ref"`     // GATE-7
+	Project string `json:"project"` // project name
+	GoalRef string `json:"goal_ref,omitempty"`
+	TaskRef string `json:"task_ref,omitempty"`
+	// URL is the GitHub issue or PR the gate is about.
+	URL string `json:"url,omitempty"`
 }
 
 // ProjectFilterInput optionally narrows a list to one project.
@@ -165,18 +210,54 @@ type GoalRefInput struct {
 	Goal string `json:"goal"` // GOAL-3 or UUID
 }
 
-// GoalDetail is a goal with its latest spec, tasks, changes and pending gates.
+// GoalDetail is a goal with its latest spec, tasks and gates.
 type GoalDetail struct {
-	Goal    domain.Goal     `json:"goal"`
-	Spec    *domain.Spec    `json:"spec,omitempty"` // latest revision
-	Tasks   []domain.Task   `json:"tasks"`
-	Changes []domain.Change `json:"changes"`
-	Gates   []domain.Gate   `json:"gates"` // pending
+	Goal    domain.Goal `json:"goal"`
+	Ref     string      `json:"ref"`     // GOAL-3
+	Project string      `json:"project"` // project name
+	// URL is the GitHub issue mirroring the goal, if any.
+	URL   string       `json:"url,omitempty"`
+	Spec  *domain.Spec `json:"spec,omitempty"` // latest revision
+	Tasks []TaskDetail `json:"tasks"`
+	// Gates holds every gate of the goal, pending and decided.
+	Gates []GateInfo `json:"gates"`
+	// CostUSD is the cost of every job of the goal.
+	CostUSD float64 `json:"cost_usd"`
+}
+
+// TaskDetail is a task with its links, pull requests and cost.
+type TaskDetail struct {
+	domain.Task
+	Ref string `json:"ref"` // TASK-12
+	// URL is the task's GitHub issue, if any.
+	URL string `json:"url,omitempty"`
+	// Needs holds the refs of the pending gates waiting for a human decision
+	// on this task.
+	Needs   []string     `json:"needs"`
+	Changes []ChangeInfo `json:"changes"`
+	// Iterations is the number of jobs run for the task.
+	Iterations int `json:"iterations"`
+	// CostUSD is the cost of those jobs.
+	CostUSD float64 `json:"cost_usd"`
+}
+
+// ChecksUnknown is the ChangeInfo.Checks of a change whose checks could not
+// be read.
+const ChecksUnknown = "unknown"
+
+// ChangeInfo is a pull request with the state of its checks.
+type ChangeInfo struct {
+	domain.Change
+	// Checks is the aggregate check status of an open PR's head commit:
+	// failure, pending, success, none, or ChecksUnknown. Empty for a PR that
+	// is not open.
+	Checks string `json:"checks,omitempty"`
 }
 
 // ListJobsInput is the input of list_jobs.
 type ListJobsInput struct {
 	Project string           `json:"project,omitempty"`
+	Goal    string           `json:"goal,omitempty"` // GOAL-3 or UUID
 	Status  domain.JobStatus `json:"status,omitempty"`
 	Limit   int              `json:"limit,omitempty"` // default 50
 }
