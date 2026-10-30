@@ -109,6 +109,12 @@
     outline: 2px solid var(--ring);
     outline-offset: 2px;
   }
+  /* react-remove-scroll marks the body while a dialog is open. Its own inline
+     <style> is blocked by the Content-Security-Policy, so the lock is static. */
+  body[data-scroll-locked] {
+    overflow: hidden;
+    overscroll-behavior: contain;
+  }
   /* 44 px minimum touch targets */
   button,
   [role="button"],
