@@ -19,8 +19,9 @@ function inboxApi() {
 }
 
 const card = (ref: string) => screen.getByRole("article", { name: new RegExp(ref) })
+const item = (title: string) => within(screen.getByRole("list", { name: "Pending decisions" })).getByRole("button", { name: new RegExp(title) })
 
-test("shows the pending gates as decision cards", async () => {
+test("lists the pending gates and shows the first as a decision", async () => {
   await renderApp("/inbox")
   const first = await screen.findByRole("article", { name: /GATE-9/ })
   expect(within(first).getByText("Merge approval")).toBeInTheDocument()
@@ -30,7 +31,34 @@ test("shows the pending gates as decision cards", async () => {
   expect(within(first).getByText("Adds email sign-in. Tests pass.")).toBeInTheDocument()
   expect(within(first).getByText(/45 min/)).toBeInTheDocument()
   expect(within(first).getByRole("link", { name: /Open on GitHub/ })).toHaveAttribute("href", "https://github.com/acme/app/pull/9")
-  expect(screen.getAllByRole("article")).toHaveLength(3)
+  expect(screen.getAllByRole("article")).toHaveLength(1)
+  const list = screen.getByRole("list", { name: "Pending decisions" })
+  expect(within(list).getAllByRole("button")).toHaveLength(3)
+  expect(item("Merge PR #9")).toHaveAttribute("aria-current", "true")
+  expect(screen.getByText(/Keyboard:/)).toBeInTheDocument()
+})
+
+test("has filter chips by kind that narrow the list", async () => {
+  const { user } = await renderApp("/inbox")
+  await screen.findByRole("article", { name: /GATE-9/ })
+  const chips = screen.getByRole("group", { name: "Filter decisions" })
+  expect(within(chips).getByRole("button", { name: "All 3" })).toHaveAttribute("aria-pressed", "true")
+  await user.click(within(chips).getByRole("button", { name: "Specs" }))
+  expect(within(chips).getByRole("button", { name: "Specs" })).toHaveAttribute("aria-pressed", "true")
+  expect(within(screen.getByRole("list", { name: "Pending decisions" })).getAllByRole("button")).toHaveLength(1)
+  expect(card("GATE-10")).toBeInTheDocument()
+  await user.click(within(chips).getByRole("button", { name: "All 3" }))
+  expect(within(screen.getByRole("list", { name: "Pending decisions" })).getAllByRole("button")).toHaveLength(3)
+})
+
+test("puts the actions before the summary and the feedback box last", async () => {
+  await renderApp("/inbox")
+  const first = await screen.findByRole("article", { name: /GATE-9/ })
+  const approve = within(first).getByRole("button", { name: "Approve" })
+  const summary = within(first).getByText("Adds email sign-in. Tests pass.")
+  const note = within(first).getByLabelText("Note (optional)")
+  expect(approve.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(summary.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
 
 test("shows the pending count in the sidebar", async () => {
@@ -62,7 +90,8 @@ test("approves with an optional note and the list updates", async () => {
   await user.click(within(first).getByRole("button", { name: "Approve" }))
   await waitFor(() => expect(screen.queryByRole("article", { name: /GATE-9/ })).not.toBeInTheDocument())
   expect(calls).toEqual([{ ref: "GATE-9", decision: "approve", body: { feedback: "Looks good" } }])
-  expect(screen.getAllByRole("article")).toHaveLength(2)
+  expect(screen.getByRole("article", { name: /GATE-10/ })).toBeInTheDocument()
+  expect(within(screen.getByRole("list", { name: "Pending decisions" })).getAllByRole("button")).toHaveLength(2)
 })
 
 test("approves without a note", async () => {
@@ -112,11 +141,12 @@ test("reject asks for confirmation and takes an optional reason", async () => {
 
 test("a needs-you gate offers retry and reject, not request changes", async () => {
   const { user } = await renderApp("/inbox")
-  const gate = await screen.findByRole("article", { name: /GATE-11/ })
+  await screen.findByRole("article", { name: /GATE-9/ })
+  await user.click(item("Developer job failed"))
+  const gate = screen.getByRole("article", { name: /GATE-11/ })
   expect(within(gate).getByText("Needs you")).toBeInTheDocument()
   expect(within(gate).getByRole("button", { name: "Approve and retry" })).toBeInTheDocument()
   expect(within(gate).queryByRole("button", { name: "Request changes" })).not.toBeInTheDocument()
-  await user.click(gate)
   await user.keyboard("r")
   expect(within(gate).queryByLabelText("What should change?")).not.toBeInTheDocument()
 })
@@ -134,14 +164,15 @@ describe("keyboard", () => {
   test("J and K move between cards", async () => {
     const { user } = await renderApp("/inbox")
     await screen.findByRole("article", { name: /GATE-9/ })
-    expect(card("GATE-9")).toHaveAttribute("aria-current", "true")
+    expect(item("Merge PR #9")).toHaveAttribute("aria-current", "true")
     await user.keyboard("j")
-    expect(card("GATE-10")).toHaveAttribute("aria-current", "true")
-    expect(card("GATE-9")).not.toHaveAttribute("aria-current")
-    await user.keyboard("jj") // stops at the last card
-    expect(card("GATE-11")).toHaveAttribute("aria-current", "true")
+    expect(item("Approve the spec")).toHaveAttribute("aria-current", "true")
+    expect(item("Merge PR #9")).not.toHaveAttribute("aria-current")
+    expect(card("GATE-10")).toBeInTheDocument()
+    await user.keyboard("jj") // stops at the last one
+    expect(item("Developer job failed")).toHaveAttribute("aria-current", "true")
     await user.keyboard("kkk") // and at the first
-    expect(card("GATE-9")).toHaveAttribute("aria-current", "true")
+    expect(item("Merge PR #9")).toHaveAttribute("aria-current", "true")
   })
 
   test("A approves the selected card with its note", async () => {
@@ -174,28 +205,31 @@ describe("keyboard", () => {
     expect(calls).toEqual([])
   })
 
-  test("clicking a card selects it", async () => {
+  test("clicking a list item selects it", async () => {
     const { user } = await renderApp("/inbox")
     await screen.findByRole("article", { name: /GATE-9/ })
-    await user.click(within(card("GATE-10")).getByText("Spec approval"))
-    expect(card("GATE-10")).toHaveAttribute("aria-current", "true")
+    await user.click(item("Approve the spec"))
+    expect(card("GATE-10")).toBeInTheDocument()
+    expect(item("Approve the spec")).toHaveAttribute("aria-current", "true")
   })
 })
 
 test("untrusted summary text is shown as text", async () => {
-  const { container } = await renderApp("/inbox")
-  const gate = await screen.findByRole("article", { name: /GATE-11/ })
+  const { container, user } = await renderApp("/inbox")
+  await screen.findByRole("article", { name: /GATE-9/ })
+  await user.click(item("Developer job failed"))
+  const gate = screen.getByRole("article", { name: /GATE-11/ })
   expect(within(gate).getByText(/<script>alert\(1\)<\/script>/)).toBeInTheDocument()
   expect(container.querySelector("script")).toBeNull()
 })
 
-test("only the selected card has the primary Approve button", async () => {
+test("the shown decision has the primary Approve button, and it follows the selection", async () => {
   const { user } = await renderApp("/inbox")
   await screen.findByRole("article", { name: /GATE-9/ })
-  const variant = (ref: string) => within(card(ref)).getByRole("button", { name: /^Approve/ }).classList.contains("bg-primary") ? "default" : "outline"
-  expect([variant("GATE-9"), variant("GATE-10")]).toEqual(["default", "outline"])
+  const approve = (ref: string) => within(card(ref)).getByRole("button", { name: /^Approve/ })
+  expect(approve("GATE-9").classList.contains("bg-primary")).toBe(true)
   await user.keyboard("j")
-  expect([variant("GATE-9"), variant("GATE-10")]).toEqual(["outline", "default"])
+  expect(approve("GATE-10").classList.contains("bg-primary")).toBe(true)
 })
 
 test("J and K on an empty list do nothing", async () => {
@@ -206,26 +240,30 @@ test("J and K on an empty list do nothing", async () => {
   expect(screen.queryByRole("article")).not.toBeInTheDocument()
 })
 
-test("filters the inbox by project through the query string", async () => {
+test("asks for the project of the address and words the empty state", async () => {
   const seen: string[] = []
   server.use(
     http.get("/api/v1/gates", ({ request }) => {
       seen.push(new URL(request.url).search)
-      return HttpResponse.json(fx.gates)
+      return HttpResponse.json(fx.gatesEmpty)
     }),
   )
-  const { user, router } = await renderApp("/inbox")
-  await screen.findByRole("article", { name: /GATE-9/ })
-  await user.selectOptions(await screen.findByLabelText("Project"), "app")
-  await waitFor(() => expect(seen).toContain("?project=app"))
-  expect(router.state.location.search).toEqual({ project: "app" })
-  await user.selectOptions(screen.getByLabelText("Project"), "")
-  await waitFor(() => expect(router.state.location.search).toEqual({}))
+  await renderApp("/inbox?project=app")
+  expect(await screen.findByText("Nothing needs you in this project.")).toBeInTheDocument()
+  expect(seen).toContain("?project=app")
 })
 
-test("reads the project filter from the address and words the empty state", async () => {
-  server.use(http.get("/api/v1/gates", () => HttpResponse.json(fx.gatesEmpty)))
-  await renderApp("/inbox?project=app")
-  expect(await screen.findByLabelText("Project")).toHaveValue("app")
-  expect(await screen.findByText("Nothing needs you in this project.")).toBeInTheDocument()
+test("opens with the decision named in the address selected", async () => {
+  await renderApp("/inbox?gate=GATE-10")
+  expect(await screen.findByRole("article", { name: /GATE-10/ })).toBeInTheDocument()
+  expect(item("Approve the spec")).toHaveAttribute("aria-current", "true")
+})
+
+test("puts Open on GitHub at the right end of the action row", async () => {
+  await renderApp("/inbox")
+  const first = await screen.findByRole("article", { name: /GATE-9/ })
+  const link = within(first).getByRole("link", { name: /Open on GitHub/ })
+  const approve = within(first).getByRole("button", { name: "Approve" })
+  expect(link.parentElement).toBe(approve.parentElement)
+  expect(link.className).toContain("ml-auto")
 })
