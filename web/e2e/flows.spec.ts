@@ -80,6 +80,30 @@ test("cancel a job from the jobs list with the keyboard", async ({ page }) => {
   expect(calls.log.find((c) => c.call === "POST /jobs/JOB-42/cancel")).toBeDefined()
 })
 
+test("revoke another token on the tokens page", async ({ page }) => {
+  const calls = await mockApi(page)
+  await page.goto("/tokens")
+  const row = page.getByRole("row", { name: /old-laptop/ })
+  await row.getByRole("button", { name: "Revoke old-laptop" }).click()
+  await page.getByRole("dialog", { name: "Revoke old-laptop?" }).getByRole("button", { name: "Revoke old-laptop" }).click()
+  await expect(page.getByRole("dialog")).toHaveCount(0)
+  await expect(row).toContainText("revoked")
+  await expect(row.getByRole("button")).toHaveCount(0)
+  expect(calls.log.some((c) => c.call.startsWith("POST /tokens/") && c.call.endsWith("/revoke"))).toBe(true)
+})
+
+test("revoking the token in use warns and goes to the login page", async ({ page }) => {
+  await mockApi(page)
+  await page.goto("/tokens")
+  await expect(page.getByRole("row", { name: /laptop/ }).first()).toContainText("this session")
+  await page.getByRole("button", { name: "Revoke laptop", exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Revoke laptop?" })
+  await expect(dialog).toContainText("You will be logged out")
+  await dialog.getByRole("button", { name: "Revoke laptop" }).click()
+  await expect(page).toHaveURL(/\/login/)
+  await expect(page.getByLabel("API token")).toBeVisible()
+})
+
 test("agent text with HTML is shown as text and the page's policy blocks scripts", async ({ page }) => {
   await mockApi(page)
   const violations: string[] = []

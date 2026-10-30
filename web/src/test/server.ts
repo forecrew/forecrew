@@ -23,6 +23,10 @@ import projectOnboard from "./fixtures/project-onboard.json"
 import projectUnknownCommands from "./fixtures/project-unknown-commands.json"
 import projects from "./fixtures/projects.json"
 import session from "./fixtures/session.json"
+import tokens from "./fixtures/tokens.json"
+import tokensEmpty from "./fixtures/tokens-empty.json"
+import tokenRevoke from "./fixtures/token-revoke.json"
+import tokenRevokeSelf from "./fixtures/token-revoke-self.json"
 import workers from "./fixtures/workers.json"
 import errorConflict from "./fixtures/error-conflict.json"
 import errorInvalidInput from "./fixtures/error-invalid-input.json"
@@ -56,6 +60,10 @@ export const handlers = [
   ),
   http.get("/api/v1/jobs/:ref", () => HttpResponse.json(job)),
   http.get("/api/v1/workers", () => HttpResponse.json(workers)),
+  http.get("/api/v1/tokens", () => HttpResponse.json(tokens)),
+  http.post("/api/v1/tokens/:id/revoke", ({ params }) =>
+    HttpResponse.json(params.id === tokens.find((t) => t.current)?.id ? tokenRevokeSelf : tokenRevoke),
+  ),
   http.get("/api/v1/gates", () => HttpResponse.json(gates)),
   http.post("/api/v1/gates/:ref/approve", () => HttpResponse.json(gateApprove)),
   http.post("/api/v1/gates/:ref/request-changes", () => HttpResponse.json(gateRequestChanges)),
@@ -68,7 +76,7 @@ export const server = setupServer(...handlers)
 export const fx = {
   me, session, projects, projectsEmpty, project, projectOnboard, goals, goalsEmpty, goal, goalCreate, jobs, jobsEmpty, job,
   jobQueued, jobFailed, jobDispatch, jobCancel, jobLogs, jobLogsCaughtUp, jobLogsEmpty, jobLogsAllKinds, projectMinimalProfile, projectUnknownCommands, workers, workersEmpty, gates, gatesEmpty, gateApprove,
-  gateRequestChanges, gateReject,
+  gateRequestChanges, gateReject, tokens, tokensEmpty, tokenRevoke, tokenRevokeSelf,
 }
 
 /** The recorded error answers. */

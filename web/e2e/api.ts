@@ -24,6 +24,7 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean } = {}): Pr
   let loggedIn = opts.loggedIn ?? true
   let gates = fixture("gates") as { ref: string }[]
   let canceled = false
+  let revoked = false
   const calls: Calls = { log: [] }
 
   await page.route("**/api/v1/**", async (route) => {
@@ -52,6 +53,17 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean } = {}): Pr
     if (req.method() === "POST" && /^\/jobs\/[^/]+\/cancel$/.test(path)) {
       canceled = true
       return json(route, fixture("job-cancel"))
+    }
+    if (req.method() === "GET" && path === "/tokens") {
+      const tokens = fixture("tokens") as { name: string; revoked_at?: string }[]
+      return json(route, tokens.map((t) => (revoked && t.name === "old-laptop" ? { ...t, revoked_at: "2026-03-01T12:00:00Z" } : t)))
+    }
+    const revokeMatch = /^\/tokens\/([^/]+)\/revoke$/.exec(path)
+    if (req.method() === "POST" && revokeMatch) {
+      const self = (fixture("tokens") as { id: string; current?: boolean }[]).some((t) => t.id === revokeMatch[1] && t.current)
+      if (self) loggedIn = false
+      else revoked = true
+      return json(route, fixture(self ? "token-revoke-self" : "token-revoke"))
     }
     const routes: Record<string, string> = {
       "GET /me": "me",

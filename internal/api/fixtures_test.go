@@ -154,6 +154,20 @@ func fixtureEnv(t *testing.T) *env {
 		g.Status = domain.GateRejected
 		return g, nil
 	}
+	tokens := []mcp.TokenInfo{
+		{ID: fid(90), Name: "laptop", CreatedAt: at(-2000), LastUsedAt: at(-1), Current: true},
+		{ID: fid(91), Name: "old-laptop", CreatedAt: at(-3000), LastUsedAt: at(-1500)},
+		{ID: fid(92), Name: "ci-box", CreatedAt: at(-2500), RevokedAt: at(-700)},
+	}
+	s.ListTokensFunc = func(context.Context, domain.Actor, any) ([]mcp.TokenInfo, error) { return tokens, nil }
+	s.RevokeTokenFunc = func(_ context.Context, _ domain.Actor, in mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error) {
+		tok := tokens[1]
+		if in.Token == tokens[0].ID.String() {
+			tok = tokens[0]
+		}
+		tok.RevokedAt = t0
+		return mcp.NewRevokeTokenOutput(tok, tok.Current), nil
+	}
 	s.CancelJobFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
 		j := jobs[0]
 		j.Status, j.FinishedAt, j.Error = domain.JobCanceled, t0, "canceled"
@@ -270,6 +284,12 @@ func fixtureCases() []fixtureCase {
 		{"gate-approve", "POST", "/api/v1/gates/GATE-9/approve", `{"feedback":"Looks good."}`, 200, "bearer", nil},
 		{"gate-request-changes", "POST", "/api/v1/gates/GATE-9/request-changes", `{"feedback":"Add a test for the expired link."}`, 200, "bearer", nil},
 		{"gate-reject", "POST", "/api/v1/gates/GATE-11/reject", "", 200, "bearer", nil},
+		{"tokens", "GET", "/api/v1/tokens", "", 200, "bearer", nil},
+		{"tokens-empty", "GET", "/api/v1/tokens", "", 200, "bearer", func(e *env) {
+			e.svc.ListTokensFunc = func(context.Context, domain.Actor, any) ([]mcp.TokenInfo, error) { return []mcp.TokenInfo{}, nil }
+		}},
+		{"token-revoke", "POST", "/api/v1/tokens/" + fid(91).String() + "/revoke", "", 200, "bearer", nil},
+		{"token-revoke-self", "POST", "/api/v1/tokens/" + fid(90).String() + "/revoke", "", 200, "bearer", nil},
 		{"error-unauthorized", "GET", "/api/v1/me", "", 401, "", nil},
 		{"error-not-found", "GET", "/api/v1/goals/GOAL-99", "", 404, "bearer", func(e *env) {
 			e.svc.GetGoalFunc = func(context.Context, domain.Actor, mcp.GoalRefInput) (mcp.GoalDetail, error) {

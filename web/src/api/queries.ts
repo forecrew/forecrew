@@ -19,6 +19,7 @@ export const keys = {
   job: (ref: string) => ["job", ref] as const,
   logs: (ref: string) => ["job-logs", ref] as const,
   workers: ["workers"] as const,
+  tokens: ["tokens"] as const,
 }
 
 const poll = { refetchInterval: POLL_MS, refetchIntervalInBackground: false }
@@ -60,6 +61,7 @@ export const useJob = (ref: string) =>
     refetchInterval: (q) => (q.state.data && ["succeeded", "failed", "canceled"].includes(q.state.data.status) ? false : POLL_MS),
     refetchIntervalInBackground: false,
   })
+export const useTokens = () => useQuery({ queryKey: keys.tokens, queryFn: api.listTokens, ...poll })
 export const useWorkers = () => useQuery({ queryKey: keys.workers, queryFn: api.listWorkers, ...poll })
 
 export interface LogState {
@@ -100,6 +102,15 @@ export function useCancelJob() {
     mutationFn: (ref: string) => api.cancelJob(ref),
     onSettled: () =>
       Promise.all(["job", "jobs", "goal-jobs", "goal", "gates"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
+  })
+}
+
+/** Revokes a token by ID; the token list refreshes, unless it was the token in use (the next call would be a 401). */
+export function useRevokeToken() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.revokeToken(id),
+    onSettled: (res) => (res?.self ? undefined : qc.invalidateQueries({ queryKey: keys.tokens })),
   })
 }
 
