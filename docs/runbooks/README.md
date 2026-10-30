@@ -5,7 +5,7 @@ files are in [`deploy/`](../../deploy).
 
 | Runbook | When |
 |---------|------|
-| [install.md](install.md) | First deployment of forecrewd (Compose or systemd), security notes, first checks |
+| [install.md](install.md) | First deployment of forecrewd (Compose or systemd), logging in to the web UI, security notes, first checks |
 | [upgrade.md](upgrade.md) | New release of forecrewd or the worker, backups and restore |
 | [add-worker.md](add-worker.md) | Add, upgrade, remove a worker machine |
 | [rotate-github-key.md](rotate-github-key.md) | Replace the GitHub App private key or webhook secret |
