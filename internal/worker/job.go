@@ -42,10 +42,11 @@ var errLeaseExpired = errors.New("lease ended without a heartbeat, or too close 
 var errJobCanceled = errors.New("canceled by forecrewd")
 
 // stopsJob reports whether err means the job must stop at once and its
-// result be dropped: the lease is gone or the token was revoked.
+// result be dropped: the lease is gone, the job was canceled or the token was
+// revoked.
 func stopsJob(err error) bool {
 	return errors.Is(err, ErrLeaseLost) || errors.Is(err, ErrJobNotFound) || errors.Is(err, ErrUnauthorized) ||
-		errors.Is(err, errLeaseExpired)
+		errors.Is(err, errLeaseExpired) || errors.Is(err, errJobCanceled)
 }
 
 // leaseClock tracks when the job's lease ends, from the poll and heartbeat
@@ -208,6 +209,25 @@ func (r *jobRun) heartbeats(ctx context.Context, interval time.Duration, stop co
 			return
 		}
 	}
+}
+
+// beat sends one heartbeat and returns why the job must stop (it was
+// canceled or its lease is gone), or nil to go on. A failed heartbeat is
+// tolerated: the lease clock still guards the push.
+func (r *jobRun) beat(ctx context.Context) error {
+	sent := r.w.cfg.Now()
+	action, expires, err := r.w.cfg.Client.Heartbeat(ctx, r.spec.JobID)
+	switch {
+	case stopsJob(err):
+		return err
+	case err != nil:
+		r.log.Warn("heartbeat before push failed", "error", err)
+	case action == ActionCancel:
+		return errJobCanceled
+	default:
+		r.lease.set(leaseEnd(sent, expires))
+	}
+	return nil
 }
 
 // watchLease stops the job when its lease ends without a successful
@@ -411,6 +431,12 @@ func (r *jobRun) publish(ctx context.Context, start, tree string, changes []chan
 	r.ev.text(domain.EventStatus, "pushing")
 	if !r.lease.pushable() {
 		r.stop(errLeaseExpired) // another worker may own the job now: push nothing
+		return "", &Completion{}
+	}
+	// The cancel is otherwise learned at the next heartbeat, up to a
+	// heartbeat interval away: ask once more before anything leaves the machine.
+	if cause := r.beat(ctx); cause != nil {
+		r.stop(cause)
 		return "", &Completion{}
 	}
 	if err := g.push(ctx, r.cache, r.w.cfg.CloneURL(r.spec.Repo), r.spec.RepoToken, head, r.spec.Branch); err != nil {

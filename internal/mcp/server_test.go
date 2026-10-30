@@ -192,6 +192,7 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolListGoals, map[string]any{"project": "app", "status": "draft"}, mcp.ListGoalsInput{Project: "app", Status: "draft"}},
 		{mcp.ToolGetGoal, map[string]any{"goal": "GOAL-2"}, mcp.GoalRefInput{Goal: "GOAL-2"}},
 		{mcp.ToolListJobs, map[string]any{"project": "app", "status": "queued", "limit": 5}, mcp.ListJobsInput{Project: "app", Status: "queued", Limit: 5}},
+		{mcp.ToolCancelJob, map[string]any{"job": "JOB-1"}, mcp.JobRefInput{Job: "JOB-1"}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))
@@ -262,6 +263,17 @@ func TestStructuredResult(t *testing.T) {
 	}
 	if _, text := call(t, cs, mcp.ToolJobStatus, map[string]any{"job": "JOB-4"}); text != "JOB-4 (developer) is queued: no matching worker." {
 		t.Errorf("job text = %q", text)
+	}
+}
+
+func TestCancelResult(t *testing.T) {
+	e := newEnv(t)
+	cs := e.connect(t, testToken)
+	e.svc.CancelJobFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
+		return mcp.JobInfo{Ref: "JOB-4", Status: domain.JobCanceled}, nil
+	}
+	if _, text := call(t, cs, mcp.ToolCancelJob, map[string]any{"job": "JOB-4"}); text != "JOB-4 is canceled." {
+		t.Errorf("cancel text = %q", text)
 	}
 }
 

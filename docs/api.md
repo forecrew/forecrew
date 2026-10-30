@@ -42,7 +42,7 @@ Non-2xx responses have this body:
 | 400 | `invalid_input` | The tool refused the input: a field is missing or malformed, a bad ref, a decision the gate does not allow (`request-changes` on a `needs_you` gate, or without `feedback`). |
 | 401 | `unauthorized` | Missing, unknown or revoked token. |
 | 404 | `not_found` | Unknown project, goal, job or gate, or one of another account; unknown endpoint. |
-| 409 | `conflict` | The state does not allow it, for example a gate that is already decided. |
+| 409 | `conflict` | The state does not allow it, for example a gate that is already decided or a job that is not queued or running (`cancel`). |
 | 413 | `too_large` | Body over 1 MiB. |
 | 415 | `unsupported_media_type` | A cookie session sent a state-changing request that is not `application/json`. |
 | 500 | `internal` | Server error; the cause is only in the server log. |
@@ -64,6 +64,7 @@ structs in `internal/domain` and `internal/mcp`.
 | `GET /api/v1/jobs?project=&goal=&status=&limit=` | `list_jobs` | all optional; `limit` defaults to 50, at most 500 | `200` jobs, newest first |
 | `GET /api/v1/jobs/{job}` | `job_status` | | `200` job with `ref`, `reason` (why a queued job waits, why a failed job failed) and `worker_name` |
 | `GET /api/v1/jobs/{job}/logs?after_seq=&limit=` | `job_logs` | `limit` defaults to 200, at most 1000 | `200` `{"events": [...], "next_seq": 12}`; pass `next_seq` as `after_seq` to continue |
+| `POST /api/v1/jobs/{job}/cancel` | `cancel_job` | body optional | `200` job (now `canceled`) with `ref`; `409` when the job is not queued or running |
 | `GET /api/v1/workers` | `list_workers` | | `200` workers with `labels`, `version`, `last_seen_at`, `online` and `running_jobs` (refs) |
 | `GET /api/v1/gates?project=` | `list_pending_gates` | `project` optional | `200` pending gates with `ref`, `kind`, `project`, `goal_ref`, `task_ref`, `summary`, `url` (GitHub issue or PR) and `created_at` |
 | `POST /api/v1/gates/{gate}/approve` | `approve` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `approved` |

@@ -42,8 +42,10 @@ type Starter interface {
 	Start(ctx context.Context, playbook string, req workflow.StartRequest) (domain.WorkflowRun, error)
 }
 
-// JobReader serves the job and worker read models; *jobs.Service implements it.
-type JobReader interface {
+// JobService serves the job and worker read models and cancels jobs;
+// *jobs.Service implements it.
+type JobService interface {
+	Cancel(ctx context.Context, by domain.Actor, accountID, jobID uuid.UUID) (domain.Job, error)
 	Status(ctx context.Context, accountID, jobID uuid.UUID) (jobs.JobView, error)
 	Logs(ctx context.Context, accountID, jobID uuid.UUID, afterSeq int64, limit int) (jobs.Logs, error)
 	Workers(ctx context.Context, accountID uuid.UUID) ([]jobs.WorkerView, error)
@@ -59,7 +61,7 @@ type Checker interface {
 type Config struct {
 	Store     store.Store
 	Gates     gates.Service
-	Jobs      JobReader
+	Jobs      JobService
 	Creator   workflow.JobCreator
 	Playbooks Starter
 	Roles     roles.Resolver

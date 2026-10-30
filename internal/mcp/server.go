@@ -117,6 +117,11 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 			j, err := svc.ListJobs(ctx, by, in)
 			return list("jobs", j, "%d jobs.", len(j)), err
 		})
+	register(r, ToolCancelJob, "Cancel a queued or running job. A worker running it stops, and the playbook step waiting for it fails through its normal failure path. Finished jobs cannot be canceled.",
+		fieldDocs{"job": job}, func(ctx context.Context, by domain.Actor, in JobRefInput) (toolResult, error) {
+			j, err := svc.CancelJob(ctx, by, in)
+			return result(j, "%s is %s.", j.Ref, j.Status), err
+		})
 }
 
 // toolResult is what a tool returns to the client: a short text and the

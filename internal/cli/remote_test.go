@@ -174,6 +174,26 @@ func TestJobsShow(t *testing.T) {
 	}
 }
 
+func TestJobsCancel(t *testing.T) {
+	e := newRemoteEnv(t)
+	e.svc.CancelJobFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
+		return mcp.JobInfo{Ref: "JOB-41", Status: domain.JobCanceled}, nil
+	}
+	out, errOut, code := e.run(t, "jobs", "cancel", "JOB-41")
+	if code != 0 || out != "JOB-41 is canceled\n" || errOut != "" {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
+	}
+	if calls := e.svc.Calls(); len(calls) != 1 || calls[0].Tool != mcp.ToolCancelJob || calls[0].Input != (mcp.JobRefInput{Job: "JOB-41"}) {
+		t.Errorf("calls = %+v", calls)
+	}
+	e.svc.CancelJobFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
+		return mcp.JobInfo{}, fmt.Errorf("job: %w", domain.ErrInvalidTransition)
+	}
+	if _, errOut, code := e.run(t, "jobs", "cancel", "JOB-41"); code != 1 || !strings.Contains(errOut, "invalid state transition") {
+		t.Errorf("code %d, stderr %q", code, errOut)
+	}
+}
+
 func TestRemoteErrors(t *testing.T) {
 	e := newRemoteEnv(t)
 	e.svc.JobStatusFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {

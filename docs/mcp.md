@@ -89,6 +89,7 @@ GitHub links of issues, pull requests and gates.
 | `list_projects`, `get_project` | Projects |
 | `list_goals`, `get_goal` | Goals; `get_goal` includes the latest spec, tasks (state, issue and PR links, check status, iterations, cost), the goal's gates with their decisions and the total cost |
 | `list_jobs` | Recent jobs, filtered by `project`, `goal` and `status` |
+| `cancel_job` | Cancel a queued or running job (`job`). A worker running it stops within one heartbeat (30 s) without pushing, and the playbook step waiting for it fails through its normal failure path (escalation, `finally`). A finished job is a conflict |
 
 Invalid input and unknown refs come back as a tool error with a short message.
 Unexpected failures return a generic "internal error"; the cause is in the

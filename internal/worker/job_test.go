@@ -691,3 +691,67 @@ func TestJobInvalidWritePaths(t *testing.T) {
 		}
 	}
 }
+
+// The cancel arrives after the agent is done and before the next periodic
+// heartbeat: the heartbeat right before the push must still stop the job.
+func TestCancelBeforePushStopsThePush(t *testing.T) {
+	e := newEnv(t, editAndWait(t, 0))
+	e.w.cfg.HeartbeatInterval = time.Hour // only the heartbeat before the push can see the cancel
+	e.api.heartbeat = func(uuid.UUID, int) (int, string) { return 200, "cancel" }
+	s := e.spec()
+	e.do(s)
+	if got := remoteSHA(t, e.remote, "agent/task-1"); got != "" {
+		t.Errorf("a canceled job pushed %s", got)
+	}
+	if n := e.api.completionCount(s.JobID); n != 0 {
+		t.Errorf("completed %d times, want not at all", n)
+	}
+	if !strings.Contains(e.logs.String(), "canceled by forecrewd") {
+		t.Errorf("the cancellation was not logged:\n%s", e.logs)
+	}
+}
+
+// A heartbeat that fails before the push does not stop a job whose lease is
+// still good; one that answers lease lost does.
+func TestHeartbeatBeforePushErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status int
+		pushed bool
+	}{{"server error", 500, true}, {"lease lost", 409, false}} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t, editAndWait(t, 0))
+			e.w.cfg.HeartbeatInterval = time.Hour
+			e.api.heartbeat = func(uuid.UUID, int) (int, string) { return tt.status, "" }
+			e.do(e.spec())
+			if got := remoteSHA(t, e.remote, "agent/task-1"); (got != "") != tt.pushed {
+				t.Errorf("pushed = %q, want pushed %v", got, tt.pushed)
+			}
+		})
+	}
+}
+
+// A canceled job is gone for the server: its events would be refused, so the
+// worker does not flush them.
+func TestCanceledJobDoesNotFlushEvents(t *testing.T) {
+	started := make(chan struct{}, 1)
+	e := newEnv(t, funcAdapter{fn: func(ctx context.Context, _ runtime.RunSpec, emit func(domain.JobEvent)) (runtime.Result, error) {
+		emit(domain.JobEvent{Type: domain.EventLog, Text: "working", Time: time.Now()})
+		started <- struct{}{}
+		<-ctx.Done()
+		return runtime.Result{}, ctx.Err()
+	}})
+	e.w.cfg.FlushInterval = time.Hour // only a final flush would send the event
+	e.api.heartbeat = answerOnceRunning(started, func() (int, string) { return 200, "cancel" })
+	s := e.spec()
+	e.do(s)
+	e.api.mu.Lock()
+	n := len(e.api.events[s.JobID])
+	e.api.mu.Unlock()
+	if n != 0 {
+		t.Errorf("%d events sent for a canceled job", n)
+	}
+	if !stopsJob(errJobCanceled) {
+		t.Error("errJobCanceled does not stop the job")
+	}
+}

@@ -40,6 +40,7 @@ type ToolService struct {
 	ListGoalsFunc        func(context.Context, domain.Actor, mcp.ListGoalsInput) ([]domain.Goal, error)
 	GetGoalFunc          func(context.Context, domain.Actor, mcp.GoalRefInput) (mcp.GoalDetail, error)
 	ListJobsFunc         func(context.Context, domain.Actor, mcp.ListJobsInput) ([]domain.Job, error)
+	CancelJobFunc        func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error)
 
 	mu    sync.Mutex
 	calls []ToolCall
@@ -147,4 +148,9 @@ func (s *ToolService) GetGoal(ctx context.Context, by domain.Actor, in mcp.GoalR
 // ListJobs implements mcp.ToolService.
 func (s *ToolService) ListJobs(ctx context.Context, by domain.Actor, in mcp.ListJobsInput) ([]domain.Job, error) {
 	return invoke(ctx, s, mcp.ToolListJobs, by, in, s.ListJobsFunc)
+}
+
+// CancelJob implements mcp.ToolService.
+func (s *ToolService) CancelJob(ctx context.Context, by domain.Actor, in mcp.JobRefInput) (mcp.JobInfo, error) {
+	return invoke(ctx, s, mcp.ToolCancelJob, by, in, s.CancelJobFunc)
 }

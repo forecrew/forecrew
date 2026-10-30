@@ -63,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/jobs", serve(s, http.StatusOK, listJobsInput, list(t.ListJobs)))
 	route("GET /api/v1/jobs/{job}", serve(s, http.StatusOK, jobInput, t.JobStatus))
 	route("GET /api/v1/jobs/{job}/logs", serve(s, http.StatusOK, jobLogsInput, t.JobLogs))
+	route("POST /api/v1/jobs/{job}/cancel", serve(s, http.StatusOK, jobInput, t.CancelJob))
 
 	route("GET /api/v1/workers", serve(s, http.StatusOK, noInput, list(noArg(t.ListWorkers))))
 

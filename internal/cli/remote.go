@@ -201,6 +201,19 @@ func jobsCommand(r *remote) *cobra.Command {
 			return nil
 		},
 	})
+	jobs.AddCommand(&cobra.Command{
+		Use:   "cancel <job>",
+		Short: "Cancel a queued or running job (JOB-41 or UUID)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var j mcp.JobInfo
+			if err := r.call(cmd.Context(), http.MethodPost, "/jobs/"+url.PathEscape(args[0])+"/cancel", nil, &j); err != nil {
+				return err
+			}
+			cmd.Printf("%s is %s\n", j.Ref, j.Status)
+			return nil
+		},
+	})
 	return jobs
 }
 
