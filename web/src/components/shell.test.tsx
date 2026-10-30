@@ -5,12 +5,13 @@ import { renderApp } from "@/test/render"
 
 describe("navigation", () => {
   test("has a sidebar with every section and marks the current page", async () => {
-    await renderApp("/inbox")
+    await renderApp("/goals")
     const nav = await screen.findByRole("navigation", { name: "Main" })
-    for (const name of ["Inbox", "Goals", "Projects", "Jobs", "Workers"]) {
+    for (const name of ["Home", "Inbox", "Goals", "Projects", "Jobs", "Workers"]) {
       expect(within(nav).getByRole("link", { name: new RegExp(`^${name}`) })).toBeInTheDocument()
     }
-    expect(within(nav).getByRole("link", { name: /^Inbox/ })).toHaveAttribute("aria-current", "page")
+    expect(within(nav).getByRole("link", { name: "Goals" })).toHaveAttribute("aria-current", "page")
+    expect(within(nav).getByRole("link", { name: /^Home/ })).not.toHaveAttribute("aria-current")
   })
 
   test("has a skip link and a main landmark", async () => {
@@ -23,7 +24,7 @@ describe("navigation", () => {
     server.use(http.get("/api/v1/gates", () => HttpResponse.json(fx.gatesEmpty)))
     await renderApp("/")
     const nav = await screen.findByRole("navigation", { name: "Main" })
-    await screen.findByText(/Nothing needs you/)
+    await screen.findByText("Nothing needs you")
     expect(within(nav).getByRole("link", { name: /^Inbox/ })).not.toHaveTextContent("pending")
   })
 
