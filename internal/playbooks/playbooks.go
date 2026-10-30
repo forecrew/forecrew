@@ -34,6 +34,7 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["onboarding.proposal"] = d.onboardingProposal
 	registry["onboarding.settle"] = d.settleOnboarding
 	registry["onboarding.complete"] = d.completeOnboarding
+	registry["goal.intake"] = d.goalIntake
 }
 
 // actions implements the actions on top of Deps.
