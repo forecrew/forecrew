@@ -1,0 +1,7 @@
+.git
+web/node_modules
+web/coverage
+web/playwright-report
+web/test-results
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep
