@@ -26,11 +26,13 @@ interface Search {
   project?: string
   status?: string
   redirect?: string
+  /** The decision the inbox opens with (a Home link). */
+  gate?: string
 }
 
 const search = (s: Record<string, unknown>): Search => {
   const out: Search = {}
-  for (const k of ["project", "status", "redirect"] as const) {
+  for (const k of ["project", "status", "redirect", "gate"] as const) {
     const v = s[k]
     if (typeof v === "string" && v) out[k] = v
   }
@@ -59,7 +61,9 @@ const app = createRoute({
   component: AppShell,
 })
 
-const child = <P extends string>(path: P, component: () => React.ReactNode) => createRoute({ getParentRoute: () => app, path, component })
+// Every page accepts the project filter, so the sidebar switcher can set it where the user is.
+const child = <P extends string>(path: P, component: () => React.ReactNode) =>
+  createRoute({ getParentRoute: () => app, path, validateSearch: search, component })
 
 const routeTree = root.addChildren([
   login,

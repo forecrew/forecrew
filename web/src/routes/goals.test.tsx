@@ -24,7 +24,7 @@ describe("goal list", () => {
     )
     const { user, router } = await renderApp("/goals")
     await screen.findByRole("link", { name: /GOAL-3/ })
-    await user.selectOptions(await screen.findByLabelText("Project"), "app")
+    await user.selectOptions(await screen.findByLabelText("Switch project"), "app")
     await user.selectOptions(screen.getByLabelText("Status"), "draft")
     await waitFor(() => expect(seen).toContain("?project=app&status=draft"))
     expect(router.state.location.search).toEqual({ project: "app", status: "draft" })

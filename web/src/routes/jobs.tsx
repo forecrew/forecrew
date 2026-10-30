@@ -5,7 +5,6 @@ import { Age } from "@/components/Age"
 import { CancelJob, cancelable } from "@/components/CancelJob"
 import { Async } from "@/components/Async"
 import { PageHeader } from "@/components/PageHeader"
-import { ProjectSelect } from "@/components/ProjectSelect"
 import { StatusBadge } from "@/components/StatusBadge"
 import { TableWrap } from "@/components/TableWrap"
 import { Label } from "@/components/ui/label"
@@ -19,7 +18,7 @@ export function JobsPage() {
   const jobs = useJobs(project, status as JobStatus | "")
   const projects = useProjects()
   const names = new Map(projects.data?.map((p) => [p.id, p.name]))
-  const setFilter = (next: { project?: string; status?: string }) =>
+  const setFilter = (next: { status?: string }) =>
     void navigate({
       search: (prev) => ({ ...prev, ...Object.fromEntries(Object.entries(next).map(([k, v]) => [k, v || undefined])) }),
     })
@@ -28,10 +27,6 @@ export function JobsPage() {
     <>
       <PageHeader title="Jobs" />
       <div className="mb-4 flex flex-wrap gap-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="job-project">Project</Label>
-          <ProjectSelect id="job-project" allLabel="All projects" value={project} onChange={(v) => setFilter({ project: v })} />
-        </div>
         <div className="space-y-1.5">
           <Label htmlFor="job-status">State</Label>
           <NativeSelect id="job-status" className="w-full sm:w-48" value={status} onChange={(e) => setFilter({ status: e.target.value })}>

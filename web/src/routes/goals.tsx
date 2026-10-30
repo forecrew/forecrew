@@ -25,7 +25,7 @@ export function GoalsPage() {
   const goals = useGoals(project, status as GoalStatus | "")
   const projects = useProjects()
   const names = new Map(projects.data?.map((p) => [p.id, p.name]))
-  const setFilter = (next: { project?: string; status?: string }) =>
+  const setFilter = (next: { status?: string }) =>
     void navigate({
       search: (prev) => ({ ...prev, ...Object.fromEntries(Object.entries(next).map(([k, v]) => [k, v || undefined])) }),
     })
@@ -38,10 +38,6 @@ export function GoalsPage() {
         </Link>
       </PageHeader>
       <div className="mb-4 flex flex-wrap gap-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="goal-project">Project</Label>
-          <ProjectSelect id="goal-project" allLabel="All projects" value={project} onChange={(v) => setFilter({ project: v })} />
-        </div>
         <div className="space-y-1.5">
           <Label htmlFor="goal-status">Status</Label>
           <NativeSelect id="goal-status" className="w-full sm:w-48" value={status} onChange={(e) => setFilter({ status: e.target.value })}>

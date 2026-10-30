@@ -25,10 +25,11 @@ describe("job list", () => {
     )
     const { user } = await renderApp("/jobs?status=queued")
     expect(await screen.findByLabelText("State")).toHaveValue("queued")
-    await user.selectOptions(screen.getByLabelText("Project"), "app")
+    await user.selectOptions(await screen.findByLabelText("Switch project"), "app")
     await waitFor(() => expect(seen).toContain("?project=app&status=queued"))
     await user.selectOptions(screen.getByLabelText("State"), "")
     await waitFor(() => expect(seen.at(-1)).toBe("?project=app"))
+    expect(screen.queryByLabelText("Project")).not.toBeInTheDocument() // the sidebar switcher is the only project filter
   })
 
   test("shows empty and error states", async () => {
