@@ -34,7 +34,7 @@ test("keyboard shortcuts in the inbox", async ({ page }) => {
 test("create a new goal", async ({ page }) => {
   const calls = await mockApi(page)
   await page.goto("/goals/new")
-  await page.getByLabel("Project").selectOption("app")
+  await page.getByLabel("Project", { exact: true }).selectOption("app")
   await page.getByLabel("Title").fill("Dark mode")
   await page.getByLabel("Description").fill("Follow the system setting.")
   await page.getByLabel("Platforms").fill("web")
@@ -147,7 +147,7 @@ test("dialogs lock the page's scroll without a policy violation", async ({ page 
   expect(await overflow()).toBe("visible")
 
   await page.setViewportSize({ width: 375, height: 812 })
-  await page.getByRole("button", { name: "Open menu" }).click()
+  await page.getByRole("button", { name: "Menu", exact: true }).click()
   await expect(page.getByRole("dialog")).toBeVisible()
   expect(await overflow()).toBe("hidden")
   await page.keyboard.press("Escape")

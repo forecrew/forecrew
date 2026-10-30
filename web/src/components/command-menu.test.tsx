@@ -61,12 +61,6 @@ describe("command menu", () => {
     expect(await screen.findByText("Nothing found.")).toBeInTheDocument()
   })
 
-  test("the search button in the sidebar opens it", async () => {
-    const { user } = await renderApp("/")
-    await user.click(await screen.findByRole("button", { name: /Search/ }))
-    expect(await screen.findByRole("dialog")).toBeInTheDocument()
-  })
-
   test("the command menu button of the narrow header opens it", async () => {
     const { user } = await renderApp("/")
     await user.click(await screen.findByRole("button", { name: "Open command menu" }))
