@@ -4,3 +4,6 @@
 /internal/webui/dist/*
 !/internal/webui/dist/.gitkeep
 node_modules/
+/web/coverage/
+/web/playwright-report/
+/web/test-results/
