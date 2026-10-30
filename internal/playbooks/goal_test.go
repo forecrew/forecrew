@@ -145,3 +145,17 @@ func (f failing) CreateComment(ctx context.Context, repo string, number int, bod
 	}
 	return f.Tracker.CreateComment(ctx, repo, number, body)
 }
+
+func (f failing) UpdateIssue(ctx context.Context, repo string, number int, in github.IssueUpdate) (github.Issue, error) {
+	if err := f.errs["UpdateIssue"]; err != nil {
+		return github.Issue{}, err
+	}
+	return f.Tracker.UpdateIssue(ctx, repo, number, in)
+}
+
+func (f failing) GetIssue(ctx context.Context, repo string, number int) (github.Issue, error) {
+	if err := f.errs["GetIssue"]; err != nil {
+		return github.Issue{}, err
+	}
+	return f.Tracker.GetIssue(ctx, repo, number)
+}

@@ -44,6 +44,8 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["goal.assess"] = d.assess
 	registry["goal.if_approved"] = d.ifApproved
 	registry["goal.task_done"] = d.taskDone
+	registry["goal.close"] = d.closeGoal
+	registry["goal.settle"] = d.settleGoal
 }
 
 // actions implements the actions on top of Deps.
