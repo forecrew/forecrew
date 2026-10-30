@@ -6,6 +6,8 @@ import { ApiError, setUnauthorizedHandler } from "@/api/client"
 import { meOptions } from "@/api/queries"
 import { AppShell } from "@/components/AppShell"
 import { NotFound, RouteError } from "@/components/RouteError"
+import { GoalPage } from "@/routes/goal"
+import { GoalsPage, NewGoalPage } from "@/routes/goals"
 import { InboxPage } from "@/routes/inbox"
 import { JobPage } from "@/routes/job"
 import { JobsPage } from "@/routes/jobs"
@@ -60,6 +62,9 @@ const routeTree = root.addChildren([
   app.addChildren([
     child("/", () => <Navigate to="/inbox" replace />),
     child("/inbox", InboxPage),
+    createRoute({ getParentRoute: () => app, path: "/goals", validateSearch: search, component: GoalsPage }),
+    child("/goals/new", NewGoalPage),
+    child("/goals/$ref", GoalPage),
     createRoute({ getParentRoute: () => app, path: "/jobs", validateSearch: search, component: JobsPage }),
     child("/jobs/$ref", JobPage),
     child("/workers", WorkersPage),

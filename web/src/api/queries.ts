@@ -1,6 +1,6 @@
 import { keepPreviousData, queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "./client"
-import type { GateInfo, JobEvent, JobStatus } from "./types"
+import type { GateInfo, GoalStatus, JobEvent, JobStatus } from "./types"
 
 /** Lists refresh every 5 s. TanStack Query pauses polling while the tab is hidden. */
 export const POLL_MS = 5000
@@ -26,6 +26,14 @@ export const meOptions = queryOptions({ queryKey: keys.me, queryFn: api.me, retr
 export const useMe = () => useQuery(meOptions)
 export const useGates = () => useQuery({ queryKey: keys.gates, queryFn: api.listGates, ...poll })
 export const useProjects = () => useQuery({ queryKey: keys.projects, queryFn: api.listProjects, ...poll })
+export const useGoals = (project?: string, status?: GoalStatus | "") =>
+  useQuery({
+    queryKey: keys.goals(project, status),
+    queryFn: () => api.listGoals({ project, status }),
+    placeholderData: keepPreviousData,
+    ...poll,
+  })
+export const useGoal = (ref: string) => useQuery({ queryKey: keys.goal(ref), queryFn: () => api.getGoal(ref), ...poll })
 export const useJobs = (project?: string, status?: JobStatus | "") =>
   useQuery({
     queryKey: keys.jobs(project, status),
