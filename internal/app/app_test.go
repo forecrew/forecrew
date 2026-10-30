@@ -116,12 +116,18 @@ func TestRoutes(t *testing.T) {
 		{http.MethodPost, "/mcp", http.StatusUnauthorized},
 		{http.MethodPost, "/webhooks/github", http.StatusUnauthorized},
 		{http.MethodGet, "/webhooks/github", http.StatusMethodNotAllowed},
-		{http.MethodGet, "/", http.StatusNotFound},
 	}
 	for _, tt := range tests {
 		if rec := get(t, h, tt.method, tt.path); rec.Code != tt.want {
 			t.Errorf("%s %s: status %d, want %d", tt.method, tt.path, rec.Code, tt.want)
 		}
+	}
+	// "/" is the web UI: the page itself when built, else the "not built" notice.
+	if rec := get(t, h, http.MethodGet, "/inbox"); rec.Code != http.StatusOK && rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("GET /inbox: status %d", rec.Code)
+	}
+	if rec := get(t, h, http.MethodGet, "/api/v1/nope"); rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "html") {
+		t.Errorf("GET /api/v1/nope: status %d", rec.Code)
 	}
 	pingErr = down
 	if rec := get(t, h, http.MethodGet, "/healthz"); rec.Code != http.StatusServiceUnavailable {
