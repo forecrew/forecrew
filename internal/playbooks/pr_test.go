@@ -125,3 +125,16 @@ func TestOpenOrUpdatePRAfterAnEarlierRound(t *testing.T) {
 	_, err := v.call(t, "github.open_or_update_pr", prWith(map[string]any{"previous": 99}))
 	wantErr(t, err, "get pull request acme/app#99")
 }
+
+// A PR opened for a task of the goal playbook is recorded with that task.
+func TestOpenOrUpdatePRForATask(t *testing.T) {
+	p := newPlanned(t)
+	task := p.plan(t, "One")[0]
+	out, err := p.call(t, "github.open_or_update_pr", prWith(map[string]any{"task_id": task.ID.String()}))
+	must(t, err)
+	c, err := p.st.Changes().GetByPR(t.Context(), p.account, "acme/app", int(toMap(t, out)["number"].(float64)))
+	must(t, err)
+	if c.TaskID != task.ID {
+		t.Errorf("change task = %s, want %s", c.TaskID, task.ID)
+	}
+}
