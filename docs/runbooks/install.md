@@ -82,7 +82,24 @@ works on. Put its ID in `github.app_id` and the logins that may command
 docker compose ps                                    # forecrewd "healthy", postgres running, migrate exited 0
 docker compose exec forecrewd forecrew config validate --config /etc/forecrew/forecrew.yaml
 curl -fsS https://forecrew.example.com/healthz       # ok
+curl -fsS https://forecrew.example.com/ | grep -c 'id="root"'   # 1: the web UI is served
 ```
+
+### Log in to the web UI
+
+forecrewd serves the web UI at its public URL. Create an API token and paste it
+on the login page (the same kind of token as for MCP, see
+[mcp-token.md](mcp-token.md)):
+
+```sh
+docker compose exec forecrewd forecrew token create my-browser   # shown once
+```
+
+Open `https://forecrew.example.com/`, paste the token and log in. The server
+keeps it in a `Secure`, `HttpOnly` cookie for 30 days; the page never stores it.
+Use **Log out** in the sidebar, or revoke the token, to end the session. The
+cookie needs HTTPS (or `http://localhost`), so behind a load balancer the
+public URL must be `https://`. See [ui.md](../ui.md).
 
 ## With systemd
 
