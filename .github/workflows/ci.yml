@@ -154,3 +154,30 @@ jobs:
           $findings = Invoke-ScriptAnalyzer -Path deploy/worker/install.ps1 -Severity Warning, Error
           $findings | Format-List
           if ($findings) { exit 1 }
+
+  e2e-go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: forecrew_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      FORECREW_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/forecrew_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+      - run: make test-e2e
