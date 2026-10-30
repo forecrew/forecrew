@@ -77,7 +77,10 @@ type App struct {
 	runEngine func(context.Context) error
 	webhooks  *webhook.Handler
 	poller    *webhook.Poller
+	certs     *certManager
 	closers   []func()
+	// httpAddr is where the ACME challenge and redirect listen when TLS is on.
+	httpAddr string
 }
 
 // Open connects to Postgres, migrates the schema and builds the App from
@@ -162,9 +165,12 @@ func New(d Deps) (*App, error) {
 	workers := workerapi.New(workerapi.Config{Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Logger: log})
 
 	a := &App{
-		d: d, jobs: jobSvc, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run,
+		d: d, jobs: jobSvc, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80",
 		webhooks: webhook.NewHandler([]byte(cfg.GitHub.WebhookSecret), hooks),
 		poller:   webhook.NewPoller(hooks),
+	}
+	if cfg.Server.TLSDomain != "" {
+		a.certs = newCertManager(cfg.Server.TLSDomain, cfg.Server.CertCacheDir)
 	}
 	a.handler = a.routes(workers.Handler(),
 		mcp.NewHandler(toolSvc, st.MCPTokens(), d.Version, log),
