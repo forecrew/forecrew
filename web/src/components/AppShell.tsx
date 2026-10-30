@@ -1,11 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, Outlet, useNavigate } from "@tanstack/react-router"
 import {
-  BriefcaseIcon, FolderGitIcon, InboxIcon, LayoutDashboardIcon, LogOutIcon, MenuIcon, ServerIcon, TargetIcon,
+  BriefcaseIcon, CommandIcon, FolderGitIcon, InboxIcon, LayoutDashboardIcon, LogOutIcon, MenuIcon, ServerIcon, TargetIcon,
 } from "lucide-react"
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import { api } from "@/api/client"
 import { useGates, useMe } from "@/api/queries"
+import { CommandMenu, useCommandMenuShortcut } from "@/components/CommandMenu"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 
@@ -50,6 +51,9 @@ export function AppShell() {
   const navigate = useNavigate()
   const me = useMe()
   const [menu, setMenu] = useState(false)
+  const [commands, setCommands] = useState(false)
+  const toggleCommands = useCallback(() => setCommands((o) => !o), [])
+  useCommandMenuShortcut(toggleCommands)
 
   const logout = async () => {
     try {
@@ -80,6 +84,10 @@ export function AppShell() {
       <aside className="hidden flex-col gap-6 border-r bg-card p-4 md:sticky md:top-0 md:flex md:h-screen">
         <p className="px-3 text-lg font-semibold">Forecrew</p>
         <NavLinks />
+        <Button variant="outline" className="justify-between" onClick={toggleCommands}>
+          <span>Search…</span>
+          <kbd className="font-mono text-xs text-muted-foreground">Ctrl K</kbd>
+        </Button>
         {account}
       </aside>
       <div className="min-w-0">
@@ -98,11 +106,15 @@ export function AppShell() {
             </SheetContent>
           </Sheet>
           <p className="font-semibold">Forecrew</p>
+          <Button variant="ghost" aria-label="Open command menu" onClick={toggleCommands}>
+            <CommandIcon aria-hidden="true" />
+          </Button>
         </header>
         <main id="main" tabIndex={-1} className="mx-auto w-full max-w-5xl p-4 outline-none md:p-8">
           <Outlet />
         </main>
       </div>
+      <CommandMenu open={commands} onOpenChange={setCommands} />
     </div>
   )
 }
