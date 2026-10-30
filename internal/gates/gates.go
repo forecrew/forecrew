@@ -181,18 +181,18 @@ func get(ctx context.Context, st store.Store, accountID, gateID uuid.UUID) (doma
 
 // Find implements Service.
 func (k *Keeper) Find(ctx context.Context, accountID uuid.UUID, ref string) (domain.Gate, error) {
-	if kind, n, err := domain.ParseRef(ref); err == nil && kind == domain.RefGate {
-		g, err := k.st.Gates().GetByNumber(ctx, accountID, n)
-		if errors.Is(err, store.ErrNotFound) {
-			return domain.Gate{}, fmt.Errorf("gate %s: %w", ref, ErrNotFound)
-		}
-		return g, err
-	}
-	id, err := uuid.Parse(ref)
+	number, id, err := domain.ParseRefOrID(domain.RefGate, ref)
 	if err != nil {
 		return domain.Gate{}, fmt.Errorf("gate %q is not a GATE ref or UUID: %w", ref, mcp.ErrInvalidInput)
 	}
-	return k.Get(ctx, accountID, id)
+	if number == 0 {
+		return k.Get(ctx, accountID, id)
+	}
+	g, err := k.st.Gates().GetByNumber(ctx, accountID, number)
+	if errors.Is(err, store.ErrNotFound) {
+		return domain.Gate{}, fmt.Errorf("gate %s: %w", ref, ErrNotFound)
+	}
+	return g, err
 }
 
 // ListPending implements Service.
