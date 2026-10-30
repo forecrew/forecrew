@@ -31,6 +31,9 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["github.merge_pr"] = d.mergePR
 	registry["profile.validate"] = d.validateProfile
 	registry["profile.feedback"] = d.profileFeedback
+	registry["onboarding.proposal"] = d.onboardingProposal
+	registry["onboarding.settle"] = d.settleOnboarding
+	registry["onboarding.complete"] = d.completeOnboarding
 }
 
 // actions implements the actions on top of Deps.
