@@ -93,3 +93,12 @@ GitHub links of issues, pull requests and gates.
 Invalid input and unknown refs come back as a tool error with a short message.
 Unexpected failures return a generic "internal error"; the cause is in the
 server log only.
+
+## Security note
+
+The `prompt` of `dispatch_job` is trusted: it goes into the job's prompt as
+instructions, unlike text from GitHub users outside the allowlist, which is
+marked untrusted. A manipulated MCP client (for example one that reads
+untrusted content and follows it) therefore passes a trusted prompt on. Give
+MCP tokens only to clients you trust, and revoke a token that may be
+compromised.
