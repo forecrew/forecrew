@@ -102,6 +102,25 @@ a `needs_you` gate on the project's repo:
 
 `foreach` has no `on_failure`; a failing body step decides with its own.
 
+### `finally`
+
+A playbook may end with a top-level `finally:` list of `action` steps (no
+`on_failure`; they can reference `${inputs.*}` only, since step values are
+not kept for them):
+
+```yaml
+finally:
+  - {id: cleanup, type: action, action: onboarding.settle}
+```
+
+The engine runs them once, in order, when the run ends `failed` or
+`canceled`, before the run gets that status; a run that succeeds skips them.
+They are recorded as step runs `finally/<id>` like any step, so after a crash
+the recorded ones are not repeated and the rest continue (an action in
+flight at the crash is called again with the same `Key`, like any action). A
+failing one is logged and the next still runs. Use them to undo state the run
+changed, since a failed or canceled run stops where it is.
+
 ## Durability and idempotency
 
 Each step run is recorded before its side effect and marked done after it,

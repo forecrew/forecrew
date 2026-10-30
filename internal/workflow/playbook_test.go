@@ -87,6 +87,10 @@ func TestParsePlaybookInvalid(t *testing.T) {
 		{"short step ref", "steps:\n- {id: a, type: action, action: x, with: {m: {n: '${steps.a}'}}}", `names an unknown step`},
 		{"undeclared input", "steps:\n- {id: a, type: action, action: x, with: {m: '${inputs.repo}'}}", "undeclared input"},
 		{"item outside foreach", "steps:\n- {id: a, type: action, action: x, with: {m: '${item.title}'}}", `reference "item.title" is not in scope`},
+		{"finally job", "steps:\n- {id: a, type: action, action: x}\nfinally:\n- {id: b, type: job, with: {role: dev}}", `finally step "b": invalid playbook: must be an action`},
+		{"finally on_failure", "steps:\n- {id: a, type: action, action: x}\nfinally:\n- {id: b, type: action, action: x, on_failure: escalate}", "must be an action without on_failure"},
+		{"finally step ref", "steps:\n- {id: a, type: action, action: x}\nfinally:\n- {id: b, type: action, action: x, with: {m: '${steps.a.output}'}}", "names an unknown step"},
+		{"finally duplicate id", "steps:\n- {id: a, type: action, action: x}\nfinally:\n- {id: a, type: action, action: x}", `step "a": duplicate id`},
 		{"iteration in foreach", "inputs: [xs]\nsteps:\n- {id: f, type: foreach, items: '${inputs.xs}', steps: [{id: a, type: action, action: x, with: {m: '${iteration}'}}]}", "not in scope"},
 	}
 	for _, tt := range tests {
@@ -120,7 +124,7 @@ steps:
         steps:
           - {id: a, type: action, action: x, with: {m: '${item} ${index} ${iteration}'}}
 `))
-	if err != nil || p.Name != "x" || len(p.Steps) != 3 {
+	if err != nil || p.Name != "x" || len(p.Steps) != 3 || len(p.Finally) != 0 {
 		t.Fatalf("ParsePlaybook = %+v, %v", p, err)
 	}
 }

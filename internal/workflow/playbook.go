@@ -48,6 +48,10 @@ type Playbook struct {
 	Description string   `yaml:"description"`
 	Inputs      []string `yaml:"inputs"` // required input names, referenced as ${inputs.<name>}
 	Steps       []Step   `yaml:"steps"`
+	// Finally holds action steps that run once, in order, when the run ends
+	// failed or canceled (not when it succeeds). They can reference only
+	// the inputs. A failing one is logged and the next still runs.
+	Finally []Step `yaml:"finally"`
 }
 
 // Step is one step of a playbook. String values in With, Items and Until
@@ -130,7 +134,19 @@ func (p *Playbook) validate() error {
 	if err := v.collect(p.Steps); err != nil {
 		return err
 	}
-	return v.steps(p.Steps, nil)
+	if err := v.collect(p.Finally); err != nil {
+		return err
+	}
+	if err := v.steps(p.Steps, nil); err != nil {
+		return err
+	}
+	for _, s := range p.Finally {
+		if s.Type != StepAction || s.OnFailure != "" {
+			return fmt.Errorf("finally step %q: %w: must be an action without on_failure", s.ID, ErrInvalidPlaybook)
+		}
+	}
+	// Only the inputs exist when finally runs: no step may be referenced.
+	return validator{p: p, ids: map[string]bool{}}.steps(p.Finally, nil)
 }
 
 // collect checks that step IDs are well-formed and unique.

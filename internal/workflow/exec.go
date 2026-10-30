@@ -50,13 +50,48 @@ func (x *exec) replay(ctx context.Context) error {
 	if x.p == nil {
 		return &runEnd{domain.RunFailed, fmt.Sprintf("playbook %q is not loaded", x.run.Playbook)}
 	}
+	sc, err := x.scope()
+	if err != nil {
+		return &runEnd{domain.RunFailed, err.Error()}
+	}
+	return x.seq(ctx, x.p.Steps, "", sc)
+}
+
+// scope returns the scope of a run that has not run any step.
+func (x *exec) scope() (*scope, error) {
 	sc := &scope{inputs: map[string]any{}, steps: map[string]any{}, vars: map[string]any{}}
 	if len(x.run.Inputs) > 0 {
 		if err := json.Unmarshal(x.run.Inputs, &sc.inputs); err != nil {
-			return &runEnd{domain.RunFailed, fmt.Sprintf("inputs: %v", err)}
+			return nil, fmt.Errorf("inputs: %v", err)
 		}
 	}
-	return x.seq(ctx, x.p.Steps, "", sc)
+	return sc, nil
+}
+
+// finally runs the finally steps of a run that is ending failed or
+// canceled. Each is recorded like any step (as finally/<id>), so after a
+// restart the recorded ones are not called again and the others continue. A
+// failed one is logged. It returns an error only when the engine should try
+// again later.
+func (x *exec) finally(ctx context.Context) error {
+	if x.p == nil {
+		return nil
+	}
+	sc, err := x.scope()
+	if err != nil {
+		return nil // the run ended on its inputs; the finally steps need them
+	}
+	for _, s := range x.p.Finally {
+		_, err := x.leaf(ctx, s, stepKey{"finally/" + s.ID, 1}, sc, "")
+		var failed *stepFailed
+		switch {
+		case errors.As(err, &failed):
+			x.e.cfg.Logger.Error("workflow finally step failed", "account_id", x.run.AccountID, "run_id", x.run.ID, "step", s.ID, "reason", failed.reason)
+		case err != nil:
+			return err
+		}
+	}
+	return nil
 }
 
 // seq runs steps in order, recording each value in sc.
@@ -272,7 +307,7 @@ func (x *exec) start(ctx context.Context, s Step, sr *domain.StepRun, sc *scope,
 
 func (x *exec) startJob(ctx context.Context, sr *domain.StepRun, with map[string]any, feedback string) error {
 	var req JobRequest
-	if err := decodeWith(with, &req); err != nil {
+	if err := DecodeWith(with, &req); err != nil {
 		return err
 	}
 	req.ID, req.AccountID, req.ProjectID = sr.ID, x.run.AccountID, x.run.ProjectID
@@ -298,7 +333,7 @@ func (x *exec) startJob(ctx context.Context, sr *domain.StepRun, with map[string
 
 func (x *exec) startGate(ctx context.Context, sr *domain.StepRun, with map[string]any) error {
 	var req gates.OpenRequest
-	if err := decodeWith(with, &req); err != nil {
+	if err := DecodeWith(with, &req); err != nil {
 		return err
 	}
 	req.ID, req.AccountID, req.ProjectID = sr.ID, x.run.AccountID, x.run.ProjectID
@@ -324,7 +359,7 @@ type waitWith struct {
 
 func startWait(sr *domain.StepRun, with map[string]any) error {
 	var w waitWith
-	if err := decodeWith(with, &w); err != nil {
+	if err := DecodeWith(with, &w); err != nil {
 		return err
 	}
 	var key, missing string
@@ -469,9 +504,9 @@ func (x *exec) resume(ctx context.Context) error {
 	return nil
 }
 
-// decodeWith decodes a resolved with into the request struct v, rejecting
-// unknown keys.
-func decodeWith(with map[string]any, v any) error {
+// DecodeWith decodes a resolved with (a step's or an ActionCall's) into the
+// struct v by its json keys, rejecting unknown keys.
+func DecodeWith(with map[string]any, v any) error {
 	b, err := json.Marshal(with)
 	if err != nil {
 		return fmt.Errorf("with: %w", err)
