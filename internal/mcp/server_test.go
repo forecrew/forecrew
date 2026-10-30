@@ -177,7 +177,7 @@ func TestCallEachTool(t *testing.T) {
 		args  map[string]any
 		input any // expected ToolService input
 	}{
-		{mcp.ToolOnboardProject, map[string]any{"repo": "acme/app", "name": "App"}, mcp.OnboardProjectInput{Repo: "acme/app", Name: "App"}},
+		{mcp.ToolOnboardProject, map[string]any{"repo": "acme/app", "name": "App", "default_branch": "trunk"}, mcp.OnboardProjectInput{Repo: "acme/app", Name: "App", DefaultBranch: "trunk"}},
 		{mcp.ToolCreateGoal, map[string]any{"project": "app", "title": "Login", "body": "Add login", "platforms": []string{"web", "ios"}}, mcp.CreateGoalInput{Project: "app", Title: "Login", Body: "Add login", Platforms: []string{"web", "ios"}}},
 		{mcp.ToolJobStatus, map[string]any{"job": "JOB-1"}, mcp.JobRefInput{Job: "JOB-1"}},
 		{mcp.ToolJobLogs, map[string]any{"job": "JOB-1", "after_seq": 5, "limit": 10}, mcp.JobLogsInput{Job: "JOB-1", AfterSeq: 5, Limit: 10}},
@@ -214,25 +214,54 @@ func TestCallEachTool(t *testing.T) {
 		if got.Tool != tt.tool || got.Actor != e.actor || fmt.Sprint(got.Input) != fmt.Sprint(tt.input) {
 			t.Errorf("%s: recorded %+v, want input %+v by %v", tt.tool, got, tt.input, e.actor)
 		}
-		if !json.Valid([]byte(text)) {
-			t.Errorf("%s: result %q is not JSON", tt.tool, text)
+		if text == "" || json.Valid([]byte(text)) {
+			t.Errorf("%s: text %q is not a short summary", tt.tool, text)
+		}
+		if _, ok := res.StructuredContent.(map[string]any); !ok {
+			t.Errorf("%s: structured content %#v is not an object", tt.tool, res.StructuredContent)
 		}
 	}
 }
 
-func TestResultIsJSON(t *testing.T) {
+func TestStructuredResult(t *testing.T) {
 	e := newEnv(t)
 	cs := e.connect(t, testToken)
 	e.svc.GetProjectFunc = func(context.Context, domain.Actor, mcp.ProjectInput) (domain.Project, error) {
-		return domain.Project{Name: "app", Repo: "acme/app"}, nil
+		return domain.Project{Name: "app", Repo: "acme/app", Status: domain.ProjectOnboarded}, nil
 	}
-	_, text := call(t, cs, mcp.ToolGetProject, map[string]any{"project": "app"})
+	res, text := call(t, cs, mcp.ToolGetProject, map[string]any{"project": "app"})
+	if text != "app (acme/app) is onboarded." {
+		t.Errorf("text = %q", text)
+	}
+	raw, _ := json.Marshal(res.StructuredContent)
 	var p domain.Project
-	if err := json.Unmarshal([]byte(text), &p); err != nil || p.Repo != "acme/app" {
-		t.Errorf("result %q: %+v, %v", text, p, err)
+	if err := json.Unmarshal(raw, &p); err != nil || p.Repo != "acme/app" {
+		t.Errorf("structured content %s: %+v, %v", raw, p, err)
 	}
-	if _, text := call(t, cs, mcp.ToolListProjects, map[string]any{}); text != "[]" {
-		t.Errorf("empty list = %q, want []", text)
+
+	res, text = call(t, cs, mcp.ToolListProjects, map[string]any{})
+	if raw, _ := json.Marshal(res.StructuredContent); string(raw) != `{"projects":[]}` || text != "0 projects." {
+		t.Errorf("empty list = %s, %q", raw, text)
+	}
+
+	e.svc.ListWorkersFunc = func(context.Context, domain.Actor, any) ([]mcp.WorkerInfo, error) {
+		return []mcp.WorkerInfo{{Online: true}, {}}, nil
+	}
+	if _, text := call(t, cs, mcp.ToolListWorkers, map[string]any{}); text != "2 workers, 1 online." {
+		t.Errorf("workers text = %q", text)
+	}
+	e.svc.GetGoalFunc = func(context.Context, domain.Actor, mcp.GoalRefInput) (mcp.GoalDetail, error) {
+		return mcp.GoalDetail{Ref: "GOAL-2", Goal: domain.Goal{Title: "Login", Status: domain.GoalInProgress}, CostUSD: 1.5}, nil
+	}
+	res, text = call(t, cs, mcp.ToolGetGoal, map[string]any{"goal": "GOAL-2"})
+	if raw, _ := json.Marshal(res.StructuredContent); !strings.Contains(string(raw), `"tasks":[]`) || !strings.Contains(string(raw), `"gates":[]`) || text != "GOAL-2 Login is in_progress: 0 tasks, $1.50." {
+		t.Errorf("goal = %s, %q", raw, text)
+	}
+	e.svc.JobStatusFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
+		return mcp.JobInfo{Role: "developer", Status: domain.JobQueued, Ref: "JOB-4", Reason: "no matching worker"}, nil
+	}
+	if _, text := call(t, cs, mcp.ToolJobStatus, map[string]any{"job": "JOB-4"}); text != "JOB-4 (developer) is queued: no matching worker." {
+		t.Errorf("job text = %q", text)
 	}
 }
 
@@ -276,8 +305,8 @@ func TestServiceErrors(t *testing.T) {
 	for _, tt := range tests {
 		e := newEnv(t)
 		cs := e.connect(t, testToken)
-		e.svc.JobStatusFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (domain.Job, error) {
-			return domain.Job{}, tt.err
+		e.svc.JobStatusFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
+			return mcp.JobInfo{}, tt.err
 		}
 		res, text := call(t, cs, mcp.ToolJobStatus, map[string]any{"job": "JOB-9"})
 		if !res.IsError || !strings.Contains(text, tt.want) {
@@ -304,5 +333,24 @@ func TestGateRulesThroughTools(t *testing.T) {
 	res, text := call(t, cs, mcp.ToolRequestChanges, map[string]any{"gate": "GATE-1", "feedback": "x"})
 	if !res.IsError || !strings.Contains(text, "not allowed on needs_you gates") {
 		t.Errorf("IsError=%v text=%q", res.IsError, text)
+	}
+}
+
+func TestErrorCode(t *testing.T) {
+	tests := []struct {
+		err  error
+		want string
+	}{
+		{fmt.Errorf("job: %w", mcp.ErrNotFound), "not_found"},
+		{fmt.Errorf("x: %w", mcp.ErrInvalidInput), "invalid_input"},
+		{fmt.Errorf("x: %w", domain.ErrInvalidRef), "invalid_input"},
+		{fmt.Errorf("x: %w", domain.ErrInvalidDecision), "invalid_input"},
+		{fmt.Errorf("x: %w", domain.ErrInvalidTransition), "conflict"},
+		{errors.New("boom"), ""},
+	}
+	for _, tt := range tests {
+		if got, ok := mcp.ErrorCode(tt.err); got != tt.want || ok != (tt.want != "") {
+			t.Errorf("ErrorCode(%v) = %q, %v; want %q", tt.err, got, ok, tt.want)
+		}
 	}
 }

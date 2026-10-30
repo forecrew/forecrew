@@ -73,20 +73,22 @@ person sets `FORECREW_TOKEN` in their environment:
 ## Tools
 
 Tools take refs (`GOAL-3`, `JOB-41`, `GATE-7`) or UUIDs, and projects by name
-or `owner/name`. Results are JSON text.
+or `owner/name`. Every result is a short text line plus structured content
+(a JSON object; lists are wrapped, for example `{"workers": [...]}`) with the
+GitHub links of issues, pull requests and gates.
 
 | Tool | Purpose |
 |------|---------|
-| `onboard_project` | Register a repo and start onboarding |
+| `onboard_project` | Register a repo (`repo`, optional `name`, optional `default_branch`, default `main`) and start onboarding; returns the project and the onboarding run |
 | `create_goal` | Create a goal (`project`, `title`, `body`, optional `platforms` such as `web`, `ios`) and start its playbook |
-| `job_status`, `job_logs` | Inspect a job and read its events |
-| `list_workers` | Workers and whether they are online |
-| `list_pending_gates` | Decisions waiting for a human |
+| `job_status`, `job_logs` | Inspect a job (with why a queued job waits) and read its events |
+| `list_workers` | Workers, labels, version, whether they are online and the jobs they run |
+| `list_pending_gates` | Decisions waiting for a human: kind, project, goal or task, summary, GitHub link, created time |
 | `approve`, `request_changes`, `reject` | Resolve a gate. `request_changes` needs `feedback` and is not valid on `needs_you` gates (use `approve` to retry, `reject` to stop) |
-| `dispatch_job` | Queue an ad-hoc job of a role (`project`, `role`, optional `prompt` with the instructions, `needs`, `goal`, `task`) |
+| `dispatch_job` | Queue an ad-hoc job of a read-only role (`project`, `role`, optional `prompt` with the instructions, `needs`, `goal`, `task`) |
 | `list_projects`, `get_project` | Projects |
-| `list_goals`, `get_goal` | Goals; `get_goal` includes spec, tasks, changes and pending gates |
-| `list_jobs` | Recent jobs |
+| `list_goals`, `get_goal` | Goals; `get_goal` includes the latest spec, tasks (state, issue and PR links, check status, iterations, cost), the goal's gates with their decisions and the total cost |
+| `list_jobs` | Recent jobs, filtered by `project`, `goal` and `status` |
 
 Invalid input and unknown refs come back as a tool error with a short message.
 Unexpected failures return a generic "internal error"; the cause is in the
