@@ -134,13 +134,13 @@ are:
 `domain.GateKind.AllowsDecision`); every entry point uses it. A resolved gate
 is final and publishes `gate.resolved`; a new review round opens a new gate.
 
-The 16 MCP tools are listed by `mcp.Tools()`: `onboard_project`,
+The 18 MCP tools are listed by `mcp.Tools()`: `onboard_project`,
 `create_goal`, `job_status`, `job_logs`, `list_workers`,
 `list_pending_gates`, `approve`, `request_changes`, `reject`,
 `dispatch_job`, `list_projects`, `get_project`, `list_goals`, `get_goal`,
-`list_jobs`, `cancel_job`.
+`list_jobs`, `cancel_job`, `list_tokens`, `revoke_token`.
 
-## Canceling jobs
+## Canceling jobs and revoking tokens
 
 `cancel_job` takes a job ref or UUID and calls `jobs.Service.Cancel` as the
 caller: only a queued or running job can be canceled, any other state fails
@@ -152,6 +152,16 @@ later), kills the agent, removes the checkout and reports nothing; a late
 for the job fails with `JOB-n canceled`, which follows the step's `on_failure`
 (a `needs_you` gate when it escalates, otherwise the run fails), and the
 `finally` steps run when the run ends.
+
+`list_tokens` returns the account's API and MCP tokens (`id`, `name`,
+`created_at`, `last_used_at`, `revoked_at`, and `current` on the token that
+made the call), never a hash. `revoke_token` takes a name or ID of an active
+token; an unknown or already revoked one is `ErrNotFound`. The token the caller
+uses may be revoked: the answer has `self: true`, and the token, its web
+sessions (the session cookie holds the token itself) and its MCP clients get
+`401` from the next request on. Both are audited (`token.revoked`). Tokens are
+created only with `forecrew token create` on the server; there is no tool for
+that.
 
 ## Tests
 

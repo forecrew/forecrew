@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
 	"uuid"
 
 	"github.com/spf13/cobra"
@@ -132,7 +131,11 @@ func newTokenCommand(env Env) *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("list tokens: %w", err)
 				}
-				printTokens(cmd.OutOrStdout(), tokens)
+				infos := make([]mcp.TokenInfo, len(tokens))
+				for i, t := range tokens {
+					infos[i] = mcp.NewTokenInfo(t, false)
+				}
+				printTokens(cmd.OutOrStdout(), infos)
 				return nil
 			})
 		},
@@ -174,32 +177,15 @@ func revokeToken(ctx context.Context, st store.Store, accountID uuid.UUID, nameO
 // revokeByNameOrID revokes the first item that is not revoked yet and whose
 // name or ID is key; what names the kind of item in errors.
 func revokeByNameOrID[T any](what, key string, items []T, info func(T) (id uuid.UUID, name string, revoked bool), revoke func(uuid.UUID) error) error {
-	for _, it := range items {
-		id, name, revoked := info(it)
-		if revoked || (name != key && id.String() != key) {
-			continue
-		}
-		if err := revoke(id); err != nil {
-			return fmt.Errorf("revoke %s %s: %w", what, key, err)
-		}
-		return nil
+	it, err := store.FindActive(key, items, info)
+	if err != nil {
+		return fmt.Errorf("%s %q does not exist or is already revoked", what, key)
 	}
-	return fmt.Errorf("%s %q does not exist or is already revoked", what, key)
-}
-
-func printTokens(w io.Writer, tokens []domain.MCPToken) {
-	rows := [][]string{{"NAME", "ID", "STATUS", "LAST USED"}}
-	for _, t := range tokens {
-		status, lastUsed := "active", "-"
-		if !t.RevokedAt.IsZero() {
-			status = "revoked"
-		}
-		if !t.LastUsedAt.IsZero() {
-			lastUsed = t.LastUsedAt.UTC().Format(time.RFC3339)
-		}
-		rows = append(rows, []string{t.Name, t.ID.String(), status, lastUsed})
+	id, _, _ := info(it)
+	if err := revoke(id); err != nil {
+		return fmt.Errorf("revoke %s %s: %w", what, key, err)
 	}
-	table(w, rows)
+	return nil
 }
 
 func newWorkerAdminCommand(env Env) *cobra.Command {

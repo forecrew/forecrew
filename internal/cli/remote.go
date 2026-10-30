@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -124,6 +125,7 @@ func (r *remote) commands() []*cobra.Command {
 	return []*cobra.Command{
 		listCommand(r, "workers", "List workers", "/workers", printWorkers),
 		listCommand(r, "projects", "List projects", "/projects", printProjects),
+		tokensCommand(r),
 		listCommand(r, "gates", "List the gates waiting for a decision", "/gates", printGates),
 		decideCommand(r, "approve", "approve", "Approve a gate (GATE-7 or UUID); on a needs_you gate this retries"),
 		decideCommand(r, "reject", "reject", "Reject a gate (GATE-7 or UUID); on a needs_you gate this stops the work"),
@@ -217,6 +219,25 @@ func jobsCommand(r *remote) *cobra.Command {
 	return jobs
 }
 
+// tokensCommand lists the tokens of the account; its subcommand revokes one.
+func tokensCommand(r *remote) *cobra.Command {
+	tokens := listCommand(r, "tokens", "List the API and MCP tokens", "/tokens", printTokens)
+	tokens.AddCommand(&cobra.Command{
+		Use:   "revoke <name|id>",
+		Short: "Revoke a token; it stops working at once",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var out mcp.RevokeTokenOutput
+			if err := r.call(cmd.Context(), http.MethodPost, "/tokens/"+url.PathEscape(args[0])+"/revoke", nil, &out); err != nil {
+				return err
+			}
+			cmd.Println(out.Message)
+			return nil
+		},
+	})
+	return tokens
+}
+
 func table(w io.Writer, rows [][]string) {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for _, row := range rows {
@@ -282,6 +303,24 @@ func printJob(w io.Writer, j mcp.JobInfo) {
 	}
 	if !j.FinishedAt.IsZero() {
 		rows = append(rows, []string{"Finished:", j.FinishedAt.Format("2006-01-02 15:04:05 MST")})
+	}
+	table(w, rows)
+}
+
+func printTokens(w io.Writer, items []mcp.TokenInfo) {
+	rows := [][]string{{"NAME", "ID", "STATUS", "LAST USED"}}
+	for _, t := range items {
+		status, lastUsed := "active", "-"
+		switch {
+		case !t.RevokedAt.IsZero():
+			status = "revoked"
+		case t.Current:
+			status = "active (this one)"
+		}
+		if !t.LastUsedAt.IsZero() {
+			lastUsed = t.LastUsedAt.UTC().Format(time.RFC3339)
+		}
+		rows = append(rows, []string{t.Name, t.ID.String(), status, lastUsed})
 	}
 	table(w, rows)
 }

@@ -72,6 +72,9 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/gates/{gate}/request-changes", serve(s, http.StatusOK, gateDecisionInput, t.RequestChanges))
 	route("POST /api/v1/gates/{gate}/reject", serve(s, http.StatusOK, gateDecisionInput, t.Reject))
 
+	route("GET /api/v1/tokens", serve(s, http.StatusOK, noInput, list(noArg(t.ListTokens))))
+	route("POST /api/v1/tokens/{token}/revoke", serve(s, http.StatusOK, tokenInput, t.RevokeToken))
+
 	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errors.New("no such endpoint"), http.StatusNotFound, "not_found")
 	})
@@ -145,6 +148,10 @@ func goalInput(r *http.Request) (mcp.GoalRefInput, error) {
 
 func jobInput(r *http.Request) (mcp.JobRefInput, error) {
 	return mcp.JobRefInput{Job: r.PathValue("job")}, nil
+}
+
+func tokenInput(r *http.Request) (mcp.RevokeTokenInput, error) {
+	return mcp.RevokeTokenInput{Token: r.PathValue("token")}, nil
 }
 
 func gateFilterInput(r *http.Request) (mcp.ProjectFilterInput, error) {

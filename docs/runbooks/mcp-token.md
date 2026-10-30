@@ -42,11 +42,24 @@ curl -fsS -H "Authorization: Bearer $FORECREW_TOKEN" https://forecrew.example.co
 
 ## List and revoke
 
+With any valid token, from anywhere (the `list_tokens` and `revoke_token` MCP
+tools do the same):
+
 ```sh
-docker compose exec forecrewd forecrew token list
-docker compose exec forecrewd forecrew token revoke alice-laptop   # a name or an ID
+forecrew tokens                       # name, ID, status, last used; marks the token you use
+forecrew tokens revoke alice-laptop   # a name or an ID
 ```
 
-`list` shows each token's name, ID, status and when it was last used; the
-secrets are not stored and cannot be shown. A revoked token gets `401` at once.
-To replace a leaked token, revoke it and create a new one.
+On the server, with shell access and no token:
+
+```sh
+docker compose exec forecrewd forecrew token list
+docker compose exec forecrewd forecrew token revoke alice-laptop
+```
+
+The list shows each token's name, ID, status and when it was last used; the
+secrets are not stored and cannot be shown. A revoked token gets `401` at once,
+and so do the web sessions it backs. You may revoke the token you are using; it
+is the last request that token makes. To replace a leaked token, revoke it and
+create a new one: creating tokens needs a shell on the server
+(`forecrew token create`).

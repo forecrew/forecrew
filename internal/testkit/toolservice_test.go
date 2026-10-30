@@ -34,6 +34,8 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.GetGoal(ctx, by, mcp.GoalRefInput{}); return err },
 		func() error { _, err := s.ListJobs(ctx, by, mcp.ListJobsInput{}); return err },
 		func() error { _, err := s.CancelJob(ctx, by, mcp.JobRefInput{}); return err },
+		func() error { _, err := s.ListTokens(ctx, by); return err },
+		func() error { _, err := s.RevokeToken(ctx, by, mcp.RevokeTokenInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

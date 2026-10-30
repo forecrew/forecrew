@@ -1,7 +1,11 @@
 package tools_test
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/cookiejar"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -46,5 +50,98 @@ func TestCancelJob(t *testing.T) {
 	want := []string{"mcp:laptop job.canceled", "mcp:laptop job.canceled"}
 	if got := f.auditActions(t); !slices.Equal(got, want) {
 		t.Errorf("audit = %v, want %v", got, want)
+	}
+}
+
+func TestTokens(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	other, _, _ := f.otherAccount(t)
+	for _, tok := range []domain.MCPToken{
+		{AccountID: f.account.ID, Name: "laptop", TokenHash: mcp.HashToken("fcm_a")},
+		{AccountID: f.account.ID, Name: "ci", TokenHash: mcp.HashToken("fcm_b")},
+		{AccountID: other.AccountID, Name: "ci", TokenHash: mcp.HashToken("fcm_c")},
+	} {
+		must(t, f.st.MCPTokens().Create(ctx, &tok))
+	}
+	list, err := f.svc.ListTokens(ctx, f.by)
+	must(t, err)
+	if len(list) != 2 || list[0].Name != "laptop" || !list[0].Current || list[1].Current || !list[1].RevokedAt.IsZero() {
+		t.Fatalf("tokens = %+v", list)
+	}
+	if raw, _ := json.Marshal(list); strings.Contains(string(raw), "hash") || strings.Contains(string(raw), "account") {
+		t.Errorf("tokens leak internals: %s", raw)
+	}
+
+	// By name, then the second one is revoked already, then by ID.
+	out, err := f.svc.RevokeToken(ctx, f.by, mcp.RevokeTokenInput{Token: "ci"})
+	must(t, err)
+	if out.Self || out.Token.Name != "ci" || out.Token.RevokedAt.IsZero() || out.Token.Current {
+		t.Errorf("revoke ci = %+v", out)
+	}
+	_, err = f.svc.RevokeToken(ctx, f.by, mcp.RevokeTokenInput{Token: "ci"})
+	wantErr(t, err, mcp.ErrNotFound)
+	_, err = f.svc.RevokeToken(ctx, f.by, mcp.RevokeTokenInput{Token: ""})
+	wantErr(t, err, mcp.ErrInvalidInput)
+	_, err = f.svc.RevokeToken(ctx, f.by, mcp.RevokeTokenInput{Token: "ghost"})
+	wantErr(t, err, mcp.ErrNotFound)
+	// The other account's token with the same name is untouched.
+	if others, _ := f.st.MCPTokens().List(ctx, other.AccountID); len(others) != 1 || !others[0].RevokedAt.IsZero() {
+		t.Errorf("other account tokens = %+v", others)
+	}
+
+	out, err = f.svc.RevokeToken(ctx, f.by, mcp.RevokeTokenInput{Token: list[0].ID.String()})
+	must(t, err)
+	if !out.Self || !strings.Contains(out.Message, "token you are using") || out.Token.Current {
+		t.Errorf("revoke own token = %+v", out)
+	}
+	list, err = f.svc.ListTokens(ctx, f.by)
+	must(t, err)
+	if list[0].RevokedAt.IsZero() || list[0].Current {
+		t.Errorf("own token after revoke = %+v", list[0])
+	}
+	want := []string{"mcp:laptop token.revoked", "mcp:laptop token.revoked"}
+	if got := f.auditActions(t); !slices.Equal(got, want) {
+		t.Errorf("audit = %v, want %v", got, want)
+	}
+}
+
+// TestRevokedTokenEndsSessions revokes the token behind a browser session
+// through the session itself: the very next request, with the cookie or
+// the bearer header, is refused and the cookie is dropped.
+func TestRevokedTokenEndsSessions(t *testing.T) {
+	e := newE2E(t)
+	jar, err := cookiejar.New(nil)
+	must(t, err)
+	client := &http.Client{Jar: jar}
+	client.Jar = jar
+	do := func(method, path, body string, bearer bool) *http.Response {
+		t.Helper()
+		req, err := http.NewRequestWithContext(t.Context(), method, e.apiURL+path, strings.NewReader(body))
+		must(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		if bearer {
+			req.Header.Set("Authorization", "Bearer "+e2eToken)
+		}
+		resp, err := client.Do(req)
+		must(t, err)
+		must(t, resp.Body.Close())
+		return resp
+	}
+	if r := do("POST", "/api/v1/session", `{"token":"`+e2eToken+`"}`, false); r.StatusCode != http.StatusOK {
+		t.Fatalf("login = %d", r.StatusCode)
+	}
+	if r := do("GET", "/api/v1/me", "", false); r.StatusCode != http.StatusOK {
+		t.Fatalf("me = %d", r.StatusCode)
+	}
+	var out mcp.RevokeTokenOutput
+	if code := e.apiCall(t, "POST", "/api/v1/tokens/e2e/revoke", "", &out); code != http.StatusOK || !out.Self {
+		t.Fatalf("revoke own token = %d %+v", code, out)
+	}
+	if r := do("GET", "/api/v1/me", "", false); r.StatusCode != http.StatusUnauthorized {
+		t.Errorf("session after revoke = %d, want 401", r.StatusCode)
+	}
+	if r := do("GET", "/api/v1/tokens", "", true); r.StatusCode != http.StatusUnauthorized {
+		t.Errorf("bearer after revoke = %d, want 401", r.StatusCode)
 	}
 }

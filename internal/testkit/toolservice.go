@@ -41,6 +41,8 @@ type ToolService struct {
 	GetGoalFunc          func(context.Context, domain.Actor, mcp.GoalRefInput) (mcp.GoalDetail, error)
 	ListJobsFunc         func(context.Context, domain.Actor, mcp.ListJobsInput) ([]domain.Job, error)
 	CancelJobFunc        func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error)
+	ListTokensFunc       func(context.Context, domain.Actor, any) ([]mcp.TokenInfo, error)
+	RevokeTokenFunc      func(context.Context, domain.Actor, mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error)
 
 	mu    sync.Mutex
 	calls []ToolCall
@@ -153,4 +155,14 @@ func (s *ToolService) ListJobs(ctx context.Context, by domain.Actor, in mcp.List
 // CancelJob implements mcp.ToolService.
 func (s *ToolService) CancelJob(ctx context.Context, by domain.Actor, in mcp.JobRefInput) (mcp.JobInfo, error) {
 	return invoke(ctx, s, mcp.ToolCancelJob, by, in, s.CancelJobFunc)
+}
+
+// ListTokens implements mcp.ToolService.
+func (s *ToolService) ListTokens(ctx context.Context, by domain.Actor) ([]mcp.TokenInfo, error) {
+	return invoke[any](ctx, s, mcp.ToolListTokens, by, nil, s.ListTokensFunc)
+}
+
+// RevokeToken implements mcp.ToolService.
+func (s *ToolService) RevokeToken(ctx context.Context, by domain.Actor, in mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error) {
+	return invoke(ctx, s, mcp.ToolRevokeToken, by, in, s.RevokeTokenFunc)
 }

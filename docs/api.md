@@ -41,7 +41,7 @@ Non-2xx responses have this body:
 | 400 | `bad_request` | Malformed JSON, unknown or mistyped fields, bad query parameter, missing `token` on login. |
 | 400 | `invalid_input` | The tool refused the input: a field is missing or malformed, a bad ref, a decision the gate does not allow (`request-changes` on a `needs_you` gate, or without `feedback`). |
 | 401 | `unauthorized` | Missing, unknown or revoked token. |
-| 404 | `not_found` | Unknown project, goal, job or gate, or one of another account; unknown endpoint. |
+| 404 | `not_found` | Unknown project, goal, job, gate or active token, or one of another account; unknown endpoint. |
 | 409 | `conflict` | The state does not allow it, for example a gate that is already decided or a job that is not queued or running (`cancel`). |
 | 413 | `too_large` | Body over 1 MiB. |
 | 415 | `unsupported_media_type` | A cookie session sent a state-changing request that is not `application/json`. |
@@ -70,6 +70,8 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/gates/{gate}/approve` | `approve` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `approved` |
 | `POST /api/v1/gates/{gate}/request-changes` | `request_changes` | `{"feedback": "required"}` | `200` the gate, now `changes_requested` |
 | `POST /api/v1/gates/{gate}/reject` | `reject` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `rejected` |
+| `GET /api/v1/tokens` | `list_tokens` | | `200` tokens with `id`, `name`, `created_at`, `last_used_at`, `revoked_at` and `current` (the token of this request); no hash or secret |
+| `POST /api/v1/tokens/{token}/revoke` | `revoke_token` | `{token}` is a name or ID; body optional | `200` `{"token": {...}, "self": false, "message": "..."}`; `404` when no active token has that name or ID. `self` is true when the caller revoked the token it used: the next request, with the header or the session cookie, gets `401` |
 | `POST /api/v1/session` | | `{"token": "fcm_..."}` | `200` session, sets the cookie |
 | `DELETE /api/v1/session` | | | `204`, clears the cookie |
 | `GET /api/v1/me` | | | `200` session |
