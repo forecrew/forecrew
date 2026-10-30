@@ -133,3 +133,14 @@ test("run an ad-hoc job with the advanced fields", async ({ page }) => {
     project: "app", role: "reviewer", goal: "GOAL-3", branch: "agent/task-12", include_repo_facts: true,
   })
 })
+
+test("onboard a repository with a name and default branch", async ({ page }) => {
+  const calls = await mockApi(page)
+  await page.goto("/projects/new")
+  await page.getByLabel("Repository").fill("acme/docs")
+  await page.getByLabel("Name").fill("handbook")
+  await page.getByLabel("Default branch").fill("trunk")
+  await page.getByRole("button", { name: "Onboard repository" }).click()
+  await expect(page).toHaveURL(/\/projects\//)
+  expect(calls.log.find((c) => c.call === "POST /projects")?.body).toEqual({ repo: "acme/docs", name: "handbook", default_branch: "trunk" })
+})

@@ -63,6 +63,8 @@ const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 export function OnboardPage() {
   const navigate = useNavigate()
   const [repo, setRepo] = useState("")
+  const [name, setName] = useState("")
+  const [branch, setBranch] = useState("")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
 
@@ -76,7 +78,7 @@ export function OnboardPage() {
     setError("")
     setBusy(true)
     try {
-      const { project } = await api.onboardProject({ repo: value })
+      const { project } = await api.onboardProject({ repo: value, name: name.trim() || undefined, default_branch: branch.trim() || undefined })
       await navigate({ to: "/projects/$name", params: { name: project.name } })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Could not onboard the repository.")
@@ -91,6 +93,12 @@ export function OnboardPage() {
       <form onSubmit={(e) => void submit(e)} className="max-w-xl space-y-4" noValidate>
         <Field label="Repository" hint="The GitHub repository where the Forecrew app is installed, as owner/name." error={error}>
           {(p) => <Input {...p} className="font-mono" autoComplete="off" spellCheck={false} value={repo} onChange={(e) => setRepo(e.target.value)} />}
+        </Field>
+        <Field label="Name" hint="Optional. Defaults to the repository name.">
+          {(p) => <Input {...p} className="font-mono" autoComplete="off" spellCheck={false} value={name} onChange={(e) => setName(e.target.value)} />}
+        </Field>
+        <Field label="Default branch" hint="Optional, for a repository that is new to Forecrew. Defaults to main.">
+          {(p) => <Input {...p} className="font-mono" autoComplete="off" spellCheck={false} value={branch} onChange={(e) => setBranch(e.target.value)} />}
         </Field>
         <Button type="submit" disabled={busy}>
           {busy ? "Onboarding…" : "Onboard repository"}

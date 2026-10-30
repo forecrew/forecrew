@@ -46,6 +46,23 @@ describe("onboard repository form", () => {
     expect(body).toEqual({ repo: "acme/docs" })
   })
 
+  test("sends the optional name and default branch", async () => {
+    let body: unknown
+    server.use(
+      http.post("/api/v1/projects", async ({ request }) => {
+        body = await request.json()
+        return HttpResponse.json(fx.projectOnboard, { status: 202 })
+      }),
+    )
+    const { user, router } = await renderApp("/projects/new")
+    await user.type(await screen.findByLabelText("Repository"), "acme/docs")
+    await user.type(screen.getByLabelText("Name"), " handbook ")
+    await user.type(screen.getByLabelText("Default branch"), " trunk ")
+    await user.click(screen.getByRole("button", { name: "Onboard repository" }))
+    await waitFor(() => expect(router.state.location.pathname).toBe("/projects/docs"))
+    expect(body).toEqual({ repo: "acme/docs", name: "handbook", default_branch: "trunk" })
+  })
+
   test.each(["", "acme", "acme/", "a b/c", "https://github.com/acme/app", "acme/app/extra"])("refuses %j", async (value) => {
     let called = false
     server.use(http.post("/api/v1/projects", () => ((called = true), HttpResponse.json(fx.projectOnboard))))
