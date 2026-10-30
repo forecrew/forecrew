@@ -21,6 +21,29 @@ the visual language of the original T18 brief (its palette, Inter and JetBrains
 Mono, radius scale and 44 px touch targets). Controls use stock heights.
 `font-mono` is Tailwind's system monospace stack, used for logs, refs and code.
 
+Layout follows the design screens in `2 - UI design/Screens` (structure and
+placement only; colors and fonts are stock). What the MVP has no data for is
+left out, not faked:
+
+- **Shell.** A left sidebar with the app name, a project switcher, the nav, and
+  Tokens, who is signed in and Log out at the bottom (there is no Settings page
+  yet). The switcher stays on the current page and sets the `project` filter in
+  the address; Inbox, Goals and Jobs filter by it and their sidebar links keep
+  it. It is the only project filter (the lists have no project select of their
+  own). On a phone the sidebar becomes a bottom bar (Home, Inbox, Jobs, Menu).
+- **Home.** Command bar (opens the command menu) with a New goal button, the
+  date and how many decisions wait, three tiles (decisions waiting, agents
+  working, workers online), Needs you with Review or Decide (they open the
+  Inbox on that decision), Active goals with a stage bar, and Live activity
+  and Fleet in a right column.
+- **Inbox.** A list with filter chips and the keyboard hint on the left, the
+  selected decision on the right: its actions first (Open on GitHub at the
+  right end), then the summary, then the feedback box. Verification, reviews
+  and assumptions are not shown (no data).
+- **Job.** A back link, the title with the state badge and a line with goal,
+  worker and model, the log beside the details, the cost and the tokens; Cancel
+  stays at the top right.
+
 - `web/src/index.css` holds the theme exactly as `shadcn init` writes it, with
   one change: dark mode follows `prefers-color-scheme` instead of a `.dark`
   class. It adds two things stock lacks: `--success` and `--warning` for
@@ -28,8 +51,8 @@ Mono, radius scale and 44 px touch targets). Controls use stock heights.
   and pass WCAG AA contrast in light and dark.
 - `web/components.json` is the stock `init` output. Do not edit
   `src/components/ui` by hand; regenerate it with the CLI.
-- `body[data-scroll-locked]` stays as a static rule for the
-  Content-Security-Policy (no inline styles).
+- Dialogs lock the page's scroll through Base UI, which sets styles from
+  script; the Content-Security-Policy needs no inline `<style>` for it.
 
 ## Run it locally
 
