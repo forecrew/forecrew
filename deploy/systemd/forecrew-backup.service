@@ -1,0 +1,16 @@
+[Unit]
+Description=Forecrew database backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=forecrew
+Group=forecrew
+# PGHOST, PGUSER, PGDATABASE and PGPASSFILE=/etc/forecrew/pgpass (owned by
+# forecrew, mode 0600). The password stays out of the pg_dump command line.
+EnvironmentFile=/etc/forecrew/backup.env
+Environment=BACKUP_DIR=/var/backups/forecrew
+Environment=BACKUP_RETAIN_DAYS=14
+# Copy deploy/backup/backup.sh to this path.
+ExecStart=/usr/local/bin/forecrew-backup
+ReadWritePaths=/var/backups/forecrew

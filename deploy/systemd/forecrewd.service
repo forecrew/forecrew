@@ -1,0 +1,36 @@
+# forecrewd without Docker. See docs/runbooks/install.md.
+#
+# Files it expects:
+#   /usr/local/bin/forecrewd and /usr/local/bin/forecrew   from a release archive
+#   /etc/forecrew/forecrew.yaml                            the configuration
+#   /etc/forecrew/forecrewd.env                            the secrets, mode 0600, owner root
+#   a Postgres database named in FORECREW_DATABASE_URL
+[Unit]
+Description=Forecrew orchestrator
+Documentation=https://github.com/forecrew/forecrew
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=forecrew
+Group=forecrew
+EnvironmentFile=/etc/forecrew/forecrewd.env
+# Apply schema migrations before every start.
+ExecStartPre=/usr/local/bin/forecrew migrate up
+ExecStart=/usr/local/bin/forecrewd --config /etc/forecrew/forecrew.yaml
+Restart=on-failure
+RestartSec=5
+# Certificate cache of server.tls_domain: /var/lib/forecrew/certs.
+StateDirectory=forecrew
+# Lets the unprivileged user listen on 80 and 443.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+
+[Install]
+WantedBy=multi-user.target
