@@ -72,6 +72,14 @@ func TestEntityRefs(t *testing.T) {
 	}
 }
 
+func TestSystemActor(t *testing.T) {
+	id := NewID()
+	got := SystemActor(id, ForecrewdName)
+	if got.AccountID != id || got.Kind != ActorSystem || got.String() != "system:forecrewd" {
+		t.Errorf("SystemActor = %+v", got)
+	}
+}
+
 func TestActorString(t *testing.T) {
 	if got := (Actor{Kind: ActorGitHub, Name: "octocat"}).String(); got != "github:octocat" {
 		t.Fatalf("String = %q", got)
