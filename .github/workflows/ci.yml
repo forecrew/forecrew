@@ -64,9 +64,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: shellcheck
-        run: shellcheck deploy/backup/*.sh deploy/tests/*.sh
+        run: shellcheck deploy/backup/*.sh deploy/tests/*.sh deploy/worker/*.sh
       - name: backup script
         run: deploy/tests/backup_test.sh
+      - name: worker install script
+        run: deploy/tests/install_test.sh
 
   compose:
     runs-on: ubuntu-latest
