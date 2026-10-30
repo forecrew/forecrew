@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 	"uuid"
 
 	"github.com/spf13/cobra"
@@ -117,9 +118,88 @@ func newTokenCommand(env Env) *cobra.Command {
 		func(ctx context.Context, st store.Store, accountID uuid.UUID, name string, hash []byte) error {
 			return st.MCPTokens().Create(ctx, &domain.MCPToken{AccountID: accountID, Name: name, TokenHash: hash})
 		})
-	create.Flags().StringVar(&accountFlag, "account", "", "account ID; defaults to the only account")
-	token.AddCommand(create)
+	list := &cobra.Command{
+		Use:   "list",
+		Short: "List the tokens; the secrets are not stored",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return withDatabase(env, cmd, func(ctx context.Context, db Database) error {
+				accountID, err := account(ctx, db.Store(), accountFlag)
+				if err != nil {
+					return err
+				}
+				tokens, err := db.Store().MCPTokens().List(ctx, accountID)
+				if err != nil {
+					return fmt.Errorf("list tokens: %w", err)
+				}
+				printTokens(cmd.OutOrStdout(), tokens)
+				return nil
+			})
+		},
+	}
+	revoke := &cobra.Command{
+		Use:   "revoke <name|id>",
+		Short: "Revoke a token; it stops working at once",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withDatabase(env, cmd, func(ctx context.Context, db Database) error {
+				accountID, err := account(ctx, db.Store(), accountFlag)
+				if err != nil {
+					return err
+				}
+				if err := revokeToken(ctx, db.Store(), accountID, args[0]); err != nil {
+					return err
+				}
+				cmd.Printf("token %s revoked\n", args[0])
+				return nil
+			})
+		},
+	}
+	token.PersistentFlags().StringVar(&accountFlag, "account", "", "account ID; defaults to the only account")
+	token.AddCommand(create, list, revoke)
 	return token
+}
+
+// revokeToken revokes the active token with the given name or ID.
+func revokeToken(ctx context.Context, st store.Store, accountID uuid.UUID, nameOrID string) error {
+	tokens, err := st.MCPTokens().List(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("list tokens: %w", err)
+	}
+	return revokeByNameOrID("token", nameOrID, tokens,
+		func(t domain.MCPToken) (uuid.UUID, string, bool) { return t.ID, t.Name, !t.RevokedAt.IsZero() },
+		func(id uuid.UUID) error { return st.MCPTokens().Revoke(ctx, accountID, id) })
+}
+
+// revokeByNameOrID revokes the first item that is not revoked yet and whose
+// name or ID is key; what names the kind of item in errors.
+func revokeByNameOrID[T any](what, key string, items []T, info func(T) (id uuid.UUID, name string, revoked bool), revoke func(uuid.UUID) error) error {
+	for _, it := range items {
+		id, name, revoked := info(it)
+		if revoked || (name != key && id.String() != key) {
+			continue
+		}
+		if err := revoke(id); err != nil {
+			return fmt.Errorf("revoke %s %s: %w", what, key, err)
+		}
+		return nil
+	}
+	return fmt.Errorf("%s %q does not exist or is already revoked", what, key)
+}
+
+func printTokens(w io.Writer, tokens []domain.MCPToken) {
+	rows := [][]string{{"NAME", "ID", "STATUS", "LAST USED"}}
+	for _, t := range tokens {
+		status, lastUsed := "active", "-"
+		if !t.RevokedAt.IsZero() {
+			status = "revoked"
+		}
+		if !t.LastUsedAt.IsZero() {
+			lastUsed = t.LastUsedAt.UTC().Format(time.RFC3339)
+		}
+		rows = append(rows, []string{t.Name, t.ID.String(), status, lastUsed})
+	}
+	table(w, rows)
 }
 
 func newWorkerAdminCommand(env Env) *cobra.Command {
@@ -130,7 +210,7 @@ func newWorkerAdminCommand(env Env) *cobra.Command {
 			return st.Workers().Create(ctx, &domain.Worker{AccountID: accountID, Name: name, TokenHash: hash})
 		})
 	revoke := &cobra.Command{
-		Use:   "revoke <name>",
+		Use:   "revoke <name|id>",
 		Short: "Revoke a worker's token",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -152,20 +232,15 @@ func newWorkerAdminCommand(env Env) *cobra.Command {
 	return worker
 }
 
-func revokeWorker(ctx context.Context, st store.Store, accountID uuid.UUID, name string) error {
+// revokeWorker revokes the active worker with the given name or ID.
+func revokeWorker(ctx context.Context, st store.Store, accountID uuid.UUID, nameOrID string) error {
 	workers, err := st.Workers().List(ctx, accountID)
 	if err != nil {
 		return fmt.Errorf("list workers: %w", err)
 	}
-	for _, w := range workers {
-		if w.Name == name {
-			if err := st.Workers().Revoke(ctx, accountID, w.ID); err != nil {
-				return fmt.Errorf("revoke worker %s: %w", name, err)
-			}
-			return nil
-		}
-	}
-	return fmt.Errorf("worker %q does not exist", name)
+	return revokeByNameOrID("worker", nameOrID, workers,
+		func(w domain.Worker) (uuid.UUID, string, bool) { return w.ID, w.Name, w.Revoked() },
+		func(id uuid.UUID) error { return st.Workers().Revoke(ctx, accountID, id) })
 }
 
 // createError explains why a token or worker could not be created.
