@@ -105,6 +105,22 @@ func wantErr(t *testing.T, err, target error) {
 	}
 }
 
+func TestCreateKeepsID(t *testing.T) {
+	f := newFixture(t)
+	id := domain.NewID()
+	j, err := f.svc.Create(t.Context(), system, domain.Job{
+		ID: id, AccountID: f.account, ProjectID: f.project.ID, Role: "developer", Runtime: "claude-code",
+		Spec: domain.JobSpec{Repo: "acme/app"},
+	})
+	must(t, err)
+	if j.ID != id || j.Spec.JobID != id {
+		t.Fatalf("id = %s, spec job id = %s, want %s", j.ID, j.Spec.JobID, id)
+	}
+	if _, err := f.st.Jobs().Get(t.Context(), f.account, id); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCreate(t *testing.T) {
 	f := newFixture(t)
 	wake := f.svc.Wait()
