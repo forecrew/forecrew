@@ -119,3 +119,14 @@ jobs:
         with:
           version: "~> v2"
           args: check
+
+  powershell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $findings = Invoke-ScriptAnalyzer -Path deploy/worker/install.ps1 -Severity Warning, Error
+          $findings | Format-List
+          if ($findings) { exit 1 }
