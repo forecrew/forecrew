@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 	"uuid"
@@ -87,7 +88,7 @@ func New(cfg Config) (*Engine, error) {
 		cfg.Sweep = DefaultSweep
 	}
 	for _, p := range cfg.Playbooks {
-		if err := checkActions(p.Steps, cfg.Actions); err != nil {
+		if err := checkActions(append(slices.Clone(p.Steps), p.Finally...), cfg.Actions); err != nil {
 			return nil, fmt.Errorf("playbook %q: %w", p.Name, err)
 		}
 	}
@@ -231,8 +232,13 @@ func (e *Engine) advance(ctx context.Context, k runKey) error {
 		return err
 	}
 	err = x.replay(ctx)
-	run = x.run // resume may have changed its status
 	var end *runEnd
+	if errors.As(err, &end) && end.status != domain.RunSucceeded {
+		if err := x.finally(ctx); err != nil {
+			return err
+		}
+	}
+	run = x.run // resume may have changed its status
 	switch {
 	case err == nil:
 		end = &runEnd{status: domain.RunSucceeded}
