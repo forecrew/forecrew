@@ -9,7 +9,7 @@ export const LOG_POLL_MS = 2000
 
 export const keys = {
   me: ["me"] as const,
-  gates: ["gates"] as const,
+  gates: (project?: string) => ["gates", project ?? ""] as const,
   projects: ["projects"] as const,
   project: (name: string) => ["project", name] as const,
   goals: (project?: string, status?: string) => ["goals", project ?? "", status ?? ""] as const,
@@ -24,7 +24,13 @@ const poll = { refetchInterval: POLL_MS, refetchIntervalInBackground: false }
 
 export const meOptions = queryOptions({ queryKey: keys.me, queryFn: api.me, retry: false, staleTime: 60_000 })
 export const useMe = () => useQuery(meOptions)
-export const useGates = () => useQuery({ queryKey: keys.gates, queryFn: api.listGates, ...poll })
+export const useGates = (project?: string) =>
+  useQuery({
+    queryKey: keys.gates(project),
+    queryFn: () => api.listGates({ project }),
+    placeholderData: keepPreviousData,
+    ...poll,
+  })
 export const useProjects = () => useQuery({ queryKey: keys.projects, queryFn: api.listProjects, ...poll })
 export const useProject = (name: string) =>
   useQuery({ queryKey: keys.project(name), queryFn: () => api.getProject(name), ...poll })
@@ -98,8 +104,8 @@ export function useDecide() {
       }
     },
     onSuccess: (_, v) => {
-      qc.setQueryData<GateInfo[]>(keys.gates, (old) => old?.filter((g) => g.ref !== v.ref))
+      qc.setQueriesData<GateInfo[]>({ queryKey: ["gates"] }, (old) => old?.filter((g) => g.ref !== v.ref))
     },
-    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: keys.gates }), qc.invalidateQueries({ queryKey: ["goal"] })]),
+    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: ["gates"] }), qc.invalidateQueries({ queryKey: ["goal"] })]),
   })
 }

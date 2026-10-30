@@ -205,3 +205,27 @@ test("J and K on an empty list do nothing", async () => {
   await user.keyboard("jkjak")
   expect(screen.queryByRole("article")).not.toBeInTheDocument()
 })
+
+test("filters the inbox by project through the query string", async () => {
+  const seen: string[] = []
+  server.use(
+    http.get("/api/v1/gates", ({ request }) => {
+      seen.push(new URL(request.url).search)
+      return HttpResponse.json(fx.gates)
+    }),
+  )
+  const { user, router } = await renderApp("/inbox")
+  await screen.findByRole("article", { name: /GATE-9/ })
+  await user.selectOptions(await screen.findByLabelText("Project"), "app")
+  await waitFor(() => expect(seen).toContain("?project=app"))
+  expect(router.state.location.search).toEqual({ project: "app" })
+  await user.selectOptions(screen.getByLabelText("Project"), "")
+  await waitFor(() => expect(router.state.location.search).toEqual({}))
+})
+
+test("reads the project filter from the address and words the empty state", async () => {
+  server.use(http.get("/api/v1/gates", () => HttpResponse.json(fx.gatesEmpty)))
+  await renderApp("/inbox?project=app")
+  expect(await screen.findByLabelText("Project")).toHaveValue("app")
+  expect(await screen.findByText("Nothing needs you in this project.")).toBeInTheDocument()
+})
