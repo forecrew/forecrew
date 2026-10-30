@@ -1,9 +1,11 @@
 package playbooks
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
@@ -27,8 +29,9 @@ type prOutput struct {
 // openOrUpdatePR is the action github.open_or_update_pr. It opens a pull
 // request from with.head to with.base in with.repo, or updates the title and
 // body of the open one from that head, and upserts the change (the run's
-// project and task, the PR number and its head SHA). It outputs the PR's
-// number, URL and head SHA. See with.previous for a PR merged meanwhile.
+// project and with.task_id or else the run's task, the PR number and its
+// head SHA). It outputs the PR's number, URL and head SHA. See with.previous
+// for a PR merged meanwhile.
 func (a *actions) openOrUpdatePR(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		Repo  string `json:"repo"`
@@ -41,6 +44,8 @@ func (a *actions) openOrUpdatePR(ctx context.Context, call workflow.ActionCall) 
 		// another PR; when a human merged it the action outputs it as
 		// merged and changes nothing, so the human's decision stands.
 		Previous int `json:"previous"`
+		// TaskID is the task the PR delivers; it defaults to the run's.
+		TaskID uuid.UUID `json:"task_id"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -78,7 +83,7 @@ func (a *actions) openOrUpdatePR(ctx context.Context, call workflow.ActionCall) 
 		return nil, fmt.Errorf("find pull request of %s in %s: %w", with.Head, with.Repo, err)
 	}
 	c := domain.Change{
-		AccountID: call.Run.AccountID, ProjectID: call.Run.ProjectID, TaskID: call.Run.TaskID,
+		AccountID: call.Run.AccountID, ProjectID: call.Run.ProjectID, TaskID: cmp.Or(with.TaskID, call.Run.TaskID),
 		Repo: with.Repo, Number: pr.Number, Branch: with.Head, BaseRef: with.Base, HeadSHA: pr.HeadSHA,
 		State: domain.ChangeOpen, URL: pr.URL,
 	}
