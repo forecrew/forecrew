@@ -38,8 +38,14 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	st := testkit.NewStore(nil)
-	e := &env{svc: &testkit.ToolService{}, store: st, logs: &bytes.Buffer{}, account: domain.Account{Name: "acme"}}
+	return newEnvFor(t, nil, domain.Account{Name: "acme"})
+}
+
+// newEnvFor is newEnv with the store clock and the account given.
+func newEnvFor(t *testing.T, now func() time.Time, account domain.Account) *env {
+	t.Helper()
+	st := testkit.NewStore(now)
+	e := &env{svc: &testkit.ToolService{}, store: st, logs: &bytes.Buffer{}, account: account}
 	must(t, st.Accounts().Create(t.Context(), &e.account))
 	must(t, st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: e.account.ID, Name: "laptop", TokenHash: mcp.HashToken(token)}))
 	must(t, st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: e.account.ID, Name: "old", TokenHash: mcp.HashToken("fcm_old"), RevokedAt: testkit.NewClock(t0).Now()}))

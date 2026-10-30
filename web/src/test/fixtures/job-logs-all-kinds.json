@@ -1,0 +1,42 @@
+{
+  "events": [
+    {
+      "seq": 1,
+      "time": "2026-03-01T11:55:00Z",
+      "type": "usage",
+      "data": {
+        "input_tokens": 5,
+        "output_tokens": 2,
+        "cost_usd": 0.01
+      }
+    },
+    {
+      "seq": 2,
+      "time": "2026-03-01T11:56:00Z",
+      "type": "tool_result",
+      "data": {
+        "name": "Bash",
+        "output": "boom",
+        "is_error": true
+      }
+    },
+    {
+      "seq": 3,
+      "time": "2026-03-01T11:57:00Z",
+      "type": "error",
+      "text": "it broke"
+    },
+    {
+      "seq": 4,
+      "time": "2026-03-01T11:58:00Z",
+      "type": "tool_call"
+    },
+    {
+      "seq": 5,
+      "time": "2026-03-01T11:59:00Z",
+      "type": "tool_result"
+    }
+  ],
+  "next_seq": 5
+}
+

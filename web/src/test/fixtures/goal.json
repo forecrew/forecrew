@@ -1,0 +1,136 @@
+{
+  "goal": {
+    "id": "018f0000-0000-7000-8000-000000000020",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 3,
+    "title": "Sign in with an email link",
+    "body": "Let users sign in without a password.",
+    "platforms": [
+      "web"
+    ],
+    "status": "in_progress",
+    "issue_number": 5,
+    "created_by": "mcp:laptop",
+    "created_at": "2026-03-01T07:00:00Z",
+    "updated_at": "2026-03-01T11:50:00Z"
+  },
+  "ref": "GOAL-3",
+  "project": "app",
+  "url": "https://github.com/acme/app/issues/5",
+  "spec": {
+    "id": "018f0000-0000-7000-8000-000000000050",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "goal_id": "018f0000-0000-7000-8000-000000000020",
+    "number": 2,
+    "revision": 2,
+    "body": "## Scope\n\nUsers can sign in with an email link.\n\n## Acceptance criteria\n\n- AC-1: A user receives a sign-in link within a minute.\n- AC-2: The link works once and expires after 15 minutes.\n\n## Assumptions\n\n- Email delivery is handled by the existing mailer (impact: low).\n\n## Open questions\n\n- Should admins be allowed to sign in with a password?\n",
+    "created_at": "2026-03-01T07:50:00Z"
+  },
+  "tasks": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000040",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "project_id": "018f0000-0000-7000-8000-000000000010",
+      "goal_id": "018f0000-0000-7000-8000-000000000020",
+      "spec_id": "018f0000-0000-7000-8000-000000000050",
+      "number": 12,
+      "seq": 1,
+      "title": "Send the sign-in link",
+      "body": "",
+      "status": "in_review",
+      "issue_number": 6,
+      "branch": "agent/task-12",
+      "created_at": "2026-03-01T08:40:00Z",
+      "updated_at": "2026-03-01T11:10:00Z",
+      "ref": "TASK-12",
+      "url": "https://github.com/acme/app/issues/6",
+      "needs": [
+        "GATE-9"
+      ],
+      "changes": [
+        {
+          "id": "018f0000-0000-7000-8000-000000000080",
+          "account_id": "018f0000-0000-7000-8000-000000000001",
+          "project_id": "018f0000-0000-7000-8000-000000000010",
+          "task_id": "018f0000-0000-7000-8000-000000000040",
+          "repo": "acme/app",
+          "number": 9,
+          "branch": "agent/task-12",
+          "base_ref": "main",
+          "head_sha": "abc123",
+          "state": "open",
+          "url": "https://github.com/acme/app/pull/9",
+          "created_at": "2026-03-01T10:20:00Z",
+          "updated_at": "2026-03-01T11:10:00Z",
+          "checks": "failure"
+        }
+      ],
+      "iterations": 2,
+      "cost_usd": 0.75
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000041",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "project_id": "018f0000-0000-7000-8000-000000000010",
+      "goal_id": "018f0000-0000-7000-8000-000000000020",
+      "spec_id": "018f0000-0000-7000-8000-000000000050",
+      "number": 13,
+      "seq": 2,
+      "title": "Verify the link",
+      "body": "",
+      "status": "open",
+      "created_at": "2026-03-01T08:40:00Z",
+      "updated_at": "2026-03-01T11:10:00Z",
+      "ref": "TASK-13",
+      "needs": [],
+      "changes": [],
+      "iterations": 0,
+      "cost_usd": 0
+    }
+  ],
+  "gates": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000030",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "project_id": "018f0000-0000-7000-8000-000000000010",
+      "number": 9,
+      "kind": "merge_approval",
+      "status": "pending",
+      "title": "Merge PR #9",
+      "summary": "Adds email sign-in. Tests pass.\n\n- 12 files changed\n- Coverage 91%",
+      "subject_repo": "acme/app",
+      "subject_number": 9,
+      "created_at": "2026-03-01T11:15:00Z",
+      "ref": "GATE-9",
+      "project": "app",
+      "goal_ref": "GOAL-3",
+      "task_ref": "TASK-12",
+      "url": "https://github.com/acme/app/pull/9"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000033",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "project_id": "018f0000-0000-7000-8000-000000000010",
+      "number": 8,
+      "kind": "spec_approval",
+      "status": "changes_requested",
+      "title": "Approve the spec",
+      "summary": "Spec revision 1.",
+      "subject_repo": "acme/app",
+      "subject_number": 5,
+      "goal_id": "018f0000-0000-7000-8000-000000000020",
+      "resolved_by": "mcp:laptop",
+      "feedback": "Say what happens to expired links.",
+      "resolved_at": "2026-03-01T07:40:00Z",
+      "created_at": "2026-03-01T07:20:00Z",
+      "ref": "GATE-8",
+      "project": "app",
+      "goal_ref": "GOAL-3",
+      "url": "https://github.com/acme/app/issues/5"
+    }
+  ],
+  "cost_usd": 1.75
+}
+

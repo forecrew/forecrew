@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "conflict",
+    "message": "gate GATE-9 is already approved: invalid state transition"
+  }
+}
+

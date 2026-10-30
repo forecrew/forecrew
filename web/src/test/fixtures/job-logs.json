@@ -1,0 +1,45 @@
+{
+  "events": [
+    {
+      "seq": 1,
+      "time": "2026-03-01T11:55:00Z",
+      "type": "status",
+      "text": "cloning"
+    },
+    {
+      "seq": 2,
+      "time": "2026-03-01T11:56:00Z",
+      "type": "message",
+      "text": "I will start with the mailer."
+    },
+    {
+      "seq": 3,
+      "time": "2026-03-01T11:57:00Z",
+      "type": "tool_call",
+      "data": {
+        "name": "Bash",
+        "input": {
+          "command": "go test ./..."
+        }
+      }
+    },
+    {
+      "seq": 4,
+      "time": "2026-03-01T11:58:00Z",
+      "type": "tool_result",
+      "data": {
+        "name": "Bash",
+        "output": "ok",
+        "is_error": false
+      }
+    },
+    {
+      "seq": 5,
+      "time": "2026-03-01T11:59:00Z",
+      "type": "log",
+      "text": "\u003cimg src=x onerror=alert(1)\u003e done"
+    }
+  ],
+  "next_seq": 5
+}
+
