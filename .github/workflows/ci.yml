@@ -58,3 +58,12 @@ jobs:
           check-latest: true
       - run: make test-integration
       - run: make cover
+
+  deploy-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: shellcheck
+        run: shellcheck deploy/backup/*.sh deploy/tests/*.sh
+      - name: backup script
+        run: deploy/tests/backup_test.sh
