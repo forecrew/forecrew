@@ -1,9 +1,12 @@
-import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "./client"
-import type { GateInfo } from "./types"
+import type { GateInfo, JobEvent, JobStatus } from "./types"
 
 /** Lists refresh every 5 s. TanStack Query pauses polling while the tab is hidden. */
 export const POLL_MS = 5000
+/** A running job's log refreshes every 2 s. */
+export const LOG_POLL_MS = 2000
+
 export const keys = {
   me: ["me"] as const,
   gates: ["gates"] as const,
@@ -22,6 +25,52 @@ const poll = { refetchInterval: POLL_MS, refetchIntervalInBackground: false }
 export const meOptions = queryOptions({ queryKey: keys.me, queryFn: api.me, retry: false, staleTime: 60_000 })
 export const useMe = () => useQuery(meOptions)
 export const useGates = () => useQuery({ queryKey: keys.gates, queryFn: api.listGates, ...poll })
+export const useProjects = () => useQuery({ queryKey: keys.projects, queryFn: api.listProjects, ...poll })
+export const useJobs = (project?: string, status?: JobStatus | "") =>
+  useQuery({
+    queryKey: keys.jobs(project, status),
+    queryFn: () => api.listJobs({ project, status }),
+    placeholderData: keepPreviousData,
+    ...poll,
+  })
+export const useJob = (ref: string) =>
+  useQuery({
+    queryKey: keys.job(ref),
+    queryFn: () => api.getJob(ref),
+    refetchInterval: (q) => (q.state.data && ["succeeded", "failed", "canceled"].includes(q.state.data.status) ? false : POLL_MS),
+    refetchIntervalInBackground: false,
+  })
+export interface LogState {
+  events: JobEvent[]
+  nextSeq: number
+}
+
+/**
+ * The event log of a job. Each fetch asks only for the events after the last
+ * one it holds (the cursor) and appends them; while the job runs it repeats
+ * every 2 s.
+ */
+export function useJobLog(ref: string, running: boolean) {
+  const qc = useQueryClient()
+  return useQuery({
+    queryKey: keys.logs(ref),
+    queryFn: async (): Promise<LogState> => {
+      const prev = qc.getQueryData<LogState>(keys.logs(ref)) ?? { events: [], nextSeq: 0 }
+      const events = [...prev.events]
+      let cursor = prev.nextSeq
+      for (;;) {
+        const page = await api.jobLogs(ref, cursor)
+        events.push(...page.events)
+        cursor = page.next_seq
+        if (page.events.length < 500) break
+      }
+      return { events, nextSeq: cursor }
+    },
+    refetchInterval: running ? LOG_POLL_MS : false,
+    refetchIntervalInBackground: false,
+  })
+}
+
 /** Gate decisions: after one, the inbox and the goals refresh. */
 export function useDecide() {
   const qc = useQueryClient()

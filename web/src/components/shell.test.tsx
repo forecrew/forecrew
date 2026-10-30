@@ -7,7 +7,7 @@ describe("navigation", () => {
   test("has a sidebar with every section and marks the current page", async () => {
     await renderApp("/inbox")
     const nav = await screen.findByRole("navigation", { name: "Main" })
-    for (const name of ["Inbox"]) {
+    for (const name of ["Inbox", "Jobs"]) {
       expect(within(nav).getByRole("link", { name: new RegExp(`^${name}`) })).toBeInTheDocument()
     }
     expect(within(nav).getByRole("link", { name: /^Inbox/ })).toHaveAttribute("aria-current", "page")
@@ -31,8 +31,8 @@ describe("navigation", () => {
     const { user, router } = await renderApp("/")
     await user.click(await screen.findByRole("button", { name: "Open menu" }))
     const dialog = await screen.findByRole("dialog")
-    await user.click(within(dialog).getByRole("link", { name: /Inbox/ }))
+    await user.click(within(dialog).getByRole("link", { name: /Jobs/ }))
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
-    expect(router.state.location.pathname).toBe("/inbox")
+    expect(router.state.location.pathname).toBe("/jobs")
   })
 })
