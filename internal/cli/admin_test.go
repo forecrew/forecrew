@@ -176,7 +176,10 @@ func TestWorkerAddAndRevoke(t *testing.T) {
 	if w, _ := e.db.st.Workers().Get(ctx, e.account.ID, w.ID); !w.Revoked() {
 		t.Error("worker is not revoked")
 	}
-	if _, errOut, code := e.run(t, "worker", "revoke", "ghost"); code != 1 || !strings.Contains(errOut, `worker "ghost" does not exist`) {
+	if _, errOut, code := e.run(t, "worker", "revoke", "build-1"); code != 1 || !strings.Contains(errOut, "already revoked") {
+		t.Errorf("revoking twice: code %d, %q", code, errOut)
+	}
+	if _, errOut, code := e.run(t, "worker", "revoke", "ghost"); code != 1 || !strings.Contains(errOut, `worker "ghost" does not exist or is already revoked`) {
 		t.Errorf("unknown worker: code %d, %q", code, errOut)
 	}
 }
@@ -210,4 +213,57 @@ func TestAccountSelection(t *testing.T) {
 	if _, errOut, code := empty.run(t, "token", "create", "a"); code != 1 || !strings.Contains(errOut, "no account yet") {
 		t.Errorf("no account: code %d, %q", code, errOut)
 	}
+}
+
+func TestTokenListAndRevoke(t *testing.T) {
+	e := newAdminEnv(t)
+	ctx := t.Context()
+	secret, _, _ := e.run(t, "token", "create", "laptop")
+	e.run(t, "token", "create", "phone")
+	tok, err := e.db.st.MCPTokens().GetByTokenHash(ctx, mcp.HashToken(strings.TrimSpace(secret)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.db.st.MCPTokens().Touch(ctx, e.account.ID, tok.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, code := e.run(t, "token", "list")
+	if code != 0 || !strings.Contains(out, "laptop") || !strings.Contains(out, "phone") || strings.Contains(out, "revoked") {
+		t.Fatalf("list: code %d, %q", code, out)
+	}
+	if strings.Contains(out, strings.TrimSpace(secret)) {
+		t.Error("list shows a secret")
+	}
+
+	// By name, then the ID of the other one.
+	if out, _, code = e.run(t, "token", "revoke", "laptop"); code != 0 || !strings.Contains(out, "token laptop revoked") {
+		t.Fatalf("revoke by name: code %d, %q", code, out)
+	}
+	if got, _ := e.db.st.MCPTokens().GetByTokenHash(ctx, mcp.HashToken(strings.TrimSpace(secret))); got.RevokedAt.IsZero() {
+		t.Error("token is not revoked")
+	}
+	toks, _ := e.db.st.MCPTokens().List(ctx, e.account.ID)
+	var phone domain.MCPToken
+	for _, x := range toks {
+		if x.Name == "phone" {
+			phone = x
+		}
+	}
+	if _, _, code = e.run(t, "token", "revoke", phone.ID.String()); code != 0 {
+		t.Error("revoke by ID failed")
+	}
+	if out, _, _ = e.run(t, "token", "list"); strings.Count(out, "revoked") != 2 {
+		t.Errorf("list after revoke: %q", out)
+	}
+
+	for _, arg := range []string{"laptop", "ghost"} {
+		if _, errOut, code := e.run(t, "token", "revoke", arg); code != 1 || !strings.Contains(errOut, "does not exist or is already revoked") {
+			t.Errorf("revoke %s: code %d, %q", arg, code, errOut)
+		}
+	}
+	if _, _, code := e.run(t, "token", "revoke"); code != 1 {
+		t.Error("a name is required")
+	}
+
 }
