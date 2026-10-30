@@ -1,0 +1,114 @@
+description: Onboard a repo. An analyst proposes .forecrew/profile.yaml in a PR; a human approves it (the PR is merged), asks for changes (a new round) or rejects it.
+inputs: [repo, project]
+steps:
+  # Checks the GitHub App and puts the project in onboarding.
+  - id: register
+    type: action
+    action: project.register
+    with: {repo: '${inputs.repo}'}
+
+  # One round per review: draft the profile, open or update the PR, ask for
+  # approval. The third requested change opens a needs_you gate, as every
+  # round after it.
+  - id: review
+    type: loop
+    max_iterations: 3
+    until: steps.approval.output.0.decision.output.decision != changes_requested
+    on_failure: escalate
+    steps:
+      # The analyst gets a second try, with the validator's errors, when its
+      # profile or the profile file it committed does not match the schema;
+      # profile.validate fails the run with the errors when the last try is
+      # invalid too.
+      - id: draft
+        type: loop
+        max_iterations: 2
+        until: steps.validate.output.valid
+        steps:
+          - id: feedback
+            type: action
+            action: profile.feedback
+            with: {human: '${steps.approval.output.0.decision.output.feedback}', errors: '${steps.validate.output.errors}'}
+          - id: analyze
+            type: job
+            with:
+              role: onboarding-analyst
+              repo: '${inputs.repo}'
+              branch: agent/onboarding
+              needs: [linux]
+              include_repo_facts: true
+              feedback: '${steps.feedback.output}'
+            on_failure: escalate
+          - id: validate
+            type: action
+            action: profile.validate
+            with: {profile: '${steps.analyze.output.profile}', repo: '${inputs.repo}', ref: '${steps.analyze.head_sha}', attempt: '${iteration}', attempts: 2}
+      - id: proposal
+        type: action
+        action: onboarding.proposal
+        with:
+          profile: '${steps.analyze.output.profile}'
+          summary: '${steps.analyze.output.summary}'
+          assumptions: '${steps.analyze.output.assumptions}'
+      - id: pr
+        type: action
+        action: github.open_or_update_pr
+        with:
+          repo: '${inputs.repo}'
+          title: '${steps.proposal.output.title}'
+          body: '${steps.proposal.output.body}'
+          head: agent/onboarding
+          base: '${steps.register.output.default_branch}'
+          # The number of the previous round's PR. If a human closed it
+          # meanwhile the run fails instead of opening another; if a human
+          # merged it, that is an approval and the approval step is skipped.
+          previous: '${steps.pr.output.number}'
+      # The approval, skipped (the list is empty) when a human merged the PR
+      # on GitHub meanwhile: the playbook then goes on to onboarding.complete
+      # as if it had been approved.
+      - id: approval
+        type: foreach
+        items: '${steps.pr.output.if_open}'
+        steps:
+          # Waits for the checks of the analyst's commit (the poller and the
+          # webhook report "none" for a commit without checks), so the human
+          # approves a PR whose checks are final. A timeout opens a needs_you
+          # gate.
+          - id: checks
+            type: wait
+            timeout: 1h
+            on_failure: escalate
+            with: {signal: checks.completed, repo: '${inputs.repo}', sha: '${steps.analyze.head_sha}'}
+          - id: decision
+            type: gate
+            with:
+              kind: profile_approval
+              title: 'Approve the profile of ${inputs.project} (round ${iteration})'
+              summary: 'Review ${steps.pr.output.url}. Approving merges it; merging it on GitHub approves, closing it rejects.'
+              subject_repo: '${inputs.repo}'
+              subject_number: '${steps.pr.output.number}'
+
+  # Squash-merges the PR unless GitHub merged it already, if its checks
+  # finished without failing and its profile file (which a human may have
+  # edited) is valid. Otherwise a needs_you gate opens; approving it merges
+  # again.
+  - id: merge
+    type: action
+    action: github.merge_pr
+    with: {repo: '${inputs.repo}', number: '${steps.pr.output.number}', check_profile: true}
+    on_failure: escalate
+  # Stores the file as merged, so edits made in the PR count, read at the
+  # merge commit (the default branch if GitHub does not report it). The PR
+  # is merged by now and a human approved it, so a failure here opens a
+  # needs_you gate to fix or retry, and never undoes the onboarding.
+  - id: complete
+    type: action
+    action: onboarding.complete
+    with: {repo: '${inputs.repo}', sha: '${steps.merge.output.sha}', ref: '${steps.register.output.default_branch}'}
+    on_failure: escalate
+
+# A rejected or failed onboarding puts the project back to registered.
+finally:
+  - id: revert
+    type: action
+    action: onboarding.settle

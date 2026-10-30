@@ -97,7 +97,9 @@ A resolved gate is final; each round or retry opens a new gate.
 a `needs_you` gate on the project's repo:
 
 - approve retries the step as a new attempt (for a loop: one more round);
-  the approval's feedback is added to the `feedback` of a retried job;
+  the approval's feedback is added to the `feedback` of a retried job (for a
+  loop that ran out of rounds it is not passed on: the extra round only sees
+  the values of the previous round, such as the last gate's feedback);
 - reject cancels the run.
 
 `foreach` has no `on_failure`; a failing body step decides with its own.
@@ -140,3 +142,42 @@ If a job or gate step's job or gate finishes but its signal is lost, the
 engine reads the job or gate state when it next looks at the run. Wait steps
 have no such fallback: they finish only on a stored signal (or time out). Runs are woken at once by signals
 published in the same process and otherwise by the periodic sweep (30 s).
+
+## Actions (`internal/playbooks`)
+
+`playbooks.Register(registry, deps)` adds these to the action registry:
+
+| Action | `with` | Output |
+|--------|--------|--------|
+| `project.register` | `repo` | `{project_id, repo, default_branch}`. Fails unless the GitHub App is installed on the repo; moves the run's project registered → onboarding (already onboarding is fine). |
+| `github.open_or_update_pr` | `repo`, `title`, `body`, `head`, `base`, optional `previous` | `{number, url, head_sha}`. Updates the open PR from `head` or opens one, and upserts its `changes` row. With `previous`, the number of an earlier round's PR, it fails when a human closed that PR instead of opening another, and when a human merged it outputs `merged: true` with `merge_sha` and changes nothing. `if_open` is `[number]`, or `[]` for a merged PR, for a `foreach` that skips steps. |
+| `github.merge_pr` | `repo`, `number`, optional `check_profile` | `{merged, already_merged, sha}` (the merge commit). Squash-merges unless already merged. Only a head whose checks succeeded (or has none) is merged; it fails on failed or running checks, and with `check_profile` when the profile file at the head is invalid. Use `on_failure: escalate`. |
+| `profile.validate` | `profile` and/or `repo` and `ref`, `attempt`, `attempts` | `{valid, errors}`: checks the profile value and/or the profile file of `repo` at `ref`. Fails on the last attempt. |
+| `profile.feedback` | `human`, `errors` | The feedback text of an analyst job. |
+| `onboarding.proposal` | `profile`, `summary`, `assumptions` | `{title, body}`: the profile PR text. |
+| `onboarding.settle` | none | Puts a project still onboarding back to registered. |
+| `onboarding.complete` | `repo`, `sha`, `ref` | Reads `.forecrew/profile.yaml` at the merge commit `sha`, or at `ref` when `sha` is empty (GitHub merged the PR), validates and stores it, and moves the project to onboarded. |
+
+## The onboarding playbook
+
+`packs/playbooks/onboarding.yaml` takes `repo` and `project`. An
+`onboarding-analyst` job writes `.forecrew/profile.yaml` on
+`agent/onboarding`; its profile is validated (one rerun with the errors, then
+the run fails; the profile file the analyst committed is validated too), a PR
+is opened or updated (a PR closed or merged on GitHub in between fails the
+run), and the playbook waits up to an hour for `checks.completed` on the
+analyst's commit (the webhook and poller report `none` for a commit without
+checks; a timeout opens a `needs_you` gate). Then a `profile_approval` gate is
+opened on the PR. Approval squash-merges the PR unless GitHub merged it
+already; failing or running checks, or an invalid profile file (a human may
+have edited it), open a `needs_you` gate instead, and approving that retries.
+The profile file as merged is then stored, read at the merge commit, so edits
+made in the PR count. A PR a human merges on GitHub counts as the approval,
+also between two rounds (the approval step is skipped and the run goes on to
+store the merged file); a PR a human closes fails the run. A failure while
+storing the profile opens a `needs_you` gate and never undoes the onboarding
+by itself. Rejecting that gate is an explicit human stop: the project goes
+back to registered, and the merged profile file stays on the default branch. Changes
+requested start a new round with the feedback, at most three before a
+`needs_you` gate. A rejection, a closed PR or any failure ends the run, and
+its `finally` step puts the project back to registered.
