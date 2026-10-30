@@ -60,7 +60,7 @@ describe("navigation", () => {
     server.use(http.get("/api/v1/gates", () => HttpResponse.json(fx.gatesEmpty)))
     await renderApp("/")
     const nav = await screen.findByRole("navigation", { name: "Main" })
-    await screen.findByText("Nothing needs you")
+    await screen.findAllByText("Nothing needs you")
     expect(within(nav).getByRole("link", { name: /^Inbox/ })).not.toHaveTextContent("pending")
   })
 
