@@ -64,7 +64,7 @@ const routeTree = root.addChildren([
   login,
   app.addChildren([
     child("/", HomePage),
-    child("/inbox", InboxPage),
+    createRoute({ getParentRoute: () => app, path: "/inbox", validateSearch: search, component: InboxPage }),
     createRoute({ getParentRoute: () => app, path: "/goals", validateSearch: search, component: GoalsPage }),
     child("/goals/new", NewGoalPage),
     child("/goals/$ref", GoalPage),

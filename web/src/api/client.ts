@@ -86,7 +86,7 @@ export const api = {
 
   listWorkers: () => request<Worker[]>("GET", "/api/v1/workers"),
 
-  listGates: () => request<GateInfo[]>("GET", "/api/v1/gates"),
+  listGates: (f: { project?: string } = {}) => request<GateInfo[]>("GET", `/api/v1/gates${query(f)}`),
   approve: (ref: string, feedback?: string) =>
     request<Gate>("POST", `/api/v1/gates/${seg(ref)}/approve`, feedback ? { feedback } : {}),
   requestChanges: (ref: string, feedback: string) =>
