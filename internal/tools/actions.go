@@ -1,0 +1,221 @@
+package tools
+
+import (
+	"cmp"
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"uuid"
+
+	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/gates"
+	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/roles"
+	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/workflow"
+)
+
+// defaultBranch is the branch of a newly registered project unless the
+// caller names one.
+const defaultBranch = "main"
+
+// OnboardProject implements mcp.ToolService.
+func (s *Service) OnboardProject(ctx context.Context, by domain.Actor, in mcp.OnboardProjectInput) (mcp.OnboardProjectOutput, error) {
+	repo := strings.TrimSpace(in.Repo)
+	owner, name, ok := strings.Cut(repo, "/")
+	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("repo %q is not owner/name: %w", in.Repo, mcp.ErrInvalidInput)
+	}
+	installed, err := s.cfg.GitHub.IsInstalled(ctx, repo)
+	if err != nil {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("check GitHub App on %s: %w", repo, err)
+	}
+	if !installed {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("the GitHub App is not installed on %s: %w", repo, mcp.ErrInvalidInput)
+	}
+	p, err := s.registerProject(ctx, by, repo, cmp.Or(strings.TrimSpace(in.Name), name), cmp.Or(strings.TrimSpace(in.DefaultBranch), defaultBranch))
+	if err != nil {
+		return mcp.OnboardProjectOutput{}, err
+	}
+	if p.Status != domain.ProjectRegistered {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("project %s is %s, only a registered project can be onboarded: %w", p.Name, p.Status, mcp.ErrInvalidInput)
+	}
+	projects := s.cfg.Store.Projects()
+	err = projects.UpdateStatus(ctx, by.AccountID, p.ID, domain.ProjectRegistered, domain.ProjectOnboarding)
+	if errors.Is(err, store.ErrConflict) {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("project %s is already being onboarded: %w", p.Name, mcp.ErrInvalidInput)
+	}
+	if err != nil {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("start onboarding of %s: %w", p.Name, err)
+	}
+	p.Status = domain.ProjectOnboarding
+	// The audit entry comes first: once the playbook runs there is no way back.
+	if err := s.audit(ctx, s.cfg.Store, by, p.ID, "project.onboarding", "project", p.ID, nil); err != nil {
+		s.revertOnboarding(ctx, by, p)
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("audit onboarding of %s: %w", p.Name, err)
+	}
+	run, err := s.cfg.Playbooks.Start(ctx, PlaybookOnboarding, workflow.StartRequest{
+		AccountID: by.AccountID, ProjectID: p.ID, Inputs: map[string]any{"repo": p.Repo, "project": p.Name},
+	})
+	if err != nil {
+		s.revertOnboarding(ctx, by, p)
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("start onboarding of %s: %w", p.Name, err)
+	}
+	return mcp.OnboardProjectOutput{Project: p, RunID: run.ID}, nil
+}
+
+// revertOnboarding puts a project back to registered after onboarding could
+// not start.
+func (s *Service) revertOnboarding(ctx context.Context, by domain.Actor, p domain.Project) {
+	ctx = context.WithoutCancel(ctx)
+	err := s.cfg.Store.Projects().UpdateStatus(ctx, by.AccountID, p.ID, domain.ProjectOnboarding, domain.ProjectRegistered)
+	if err == nil {
+		err = s.audit(ctx, s.cfg.Store, by, p.ID, "project.onboarding_reverted", "project", p.ID, nil)
+	}
+	if err != nil {
+		s.cfg.Logger.ErrorContext(ctx, "revert project status", "account_id", by.AccountID, "project_id", p.ID, "error", err)
+	}
+}
+
+// registerProject returns the project of repo, creating it when needed.
+func (s *Service) registerProject(ctx context.Context, by domain.Actor, repo, name, branch string) (domain.Project, error) {
+	p, err := s.cfg.Store.Projects().GetByName(ctx, by.AccountID, repo)
+	if err == nil || !errors.Is(err, store.ErrNotFound) {
+		return p, err
+	}
+	p = domain.Project{AccountID: by.AccountID, Name: name, Repo: repo, DefaultBranch: branch, Status: domain.ProjectRegistered}
+	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		if err := tx.Projects().Create(ctx, &p); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, by, p.ID, "project.registered", "project", p.ID, map[string]any{"repo": repo})
+	})
+	if errors.Is(err, store.ErrConflict) {
+		return domain.Project{}, fmt.Errorf("a project named %q already exists: %w", name, mcp.ErrInvalidInput)
+	}
+	return p, err
+}
+
+// CreateGoal implements mcp.ToolService.
+func (s *Service) CreateGoal(ctx context.Context, by domain.Actor, in mcp.CreateGoalInput) (domain.Goal, error) {
+	if strings.TrimSpace(in.Title) == "" {
+		return domain.Goal{}, fmt.Errorf("title is required: %w", mcp.ErrInvalidInput)
+	}
+	p, err := s.project(ctx, by.AccountID, in.Project)
+	if err != nil {
+		return domain.Goal{}, err
+	}
+	if p.Status != domain.ProjectOnboarded {
+		return domain.Goal{}, fmt.Errorf("project %s is %s, onboard it first: %w", p.Name, p.Status, mcp.ErrInvalidInput)
+	}
+	g := domain.Goal{
+		AccountID: by.AccountID, ProjectID: p.ID, Title: strings.TrimSpace(in.Title), Body: in.Body,
+		Platforms: domain.NormalizeLabels(in.Platforms), Status: domain.GoalDraft, CreatedBy: by.String(),
+	}
+	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		if err := tx.Goals().Create(ctx, &g); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, by, p.ID, "goal.created", "goal", g.ID, map[string]any{"title": g.Title})
+	})
+	if err != nil {
+		return domain.Goal{}, fmt.Errorf("create goal: %w", err)
+	}
+	_, err = s.cfg.Playbooks.Start(ctx, PlaybookGoal, workflow.StartRequest{
+		AccountID: by.AccountID, ProjectID: p.ID, GoalID: g.ID,
+		Inputs: map[string]any{"repo": p.Repo, "goal_id": g.ID.String(), "platforms": g.Platforms},
+	})
+	if err != nil {
+		if cerr := s.cfg.Store.Goals().UpdateStatus(context.WithoutCancel(ctx), by.AccountID, g.ID, domain.GoalDraft, domain.GoalCanceled); cerr != nil {
+			s.cfg.Logger.ErrorContext(ctx, "cancel goal", "account_id", by.AccountID, "goal_id", g.ID, "error", cerr)
+		}
+		return domain.Goal{}, fmt.Errorf("start the plan of %s: %w", g.Ref(), err)
+	}
+	return g, nil
+}
+
+// DispatchJob implements mcp.ToolService. Only read-only roles can be
+// dispatched: writing roles run inside playbooks, on their own branches.
+func (s *Service) DispatchJob(ctx context.Context, by domain.Actor, in mcp.DispatchJobInput) (domain.Job, error) {
+	if in.Role == "" {
+		return domain.Job{}, fmt.Errorf("role is required: %w", mcp.ErrInvalidInput)
+	}
+	p, err := s.project(ctx, by.AccountID, in.Project)
+	if err != nil {
+		return domain.Job{}, err
+	}
+	role, err := s.cfg.Roles.Resolve(ctx, by.AccountID, p.ID, in.Role)
+	if errors.Is(err, roles.ErrUnknownRole) {
+		return domain.Job{}, fmt.Errorf("role %q: %w", in.Role, mcp.ErrInvalidInput)
+	}
+	if err != nil {
+		return domain.Job{}, fmt.Errorf("resolve role %s: %w", in.Role, err)
+	}
+	if !role.ReadOnly() {
+		return domain.Job{}, fmt.Errorf("role %s writes to the repo and runs only inside playbooks, dispatch a read-only role: %w", in.Role, mcp.ErrInvalidInput)
+	}
+	req := workflow.JobRequest{
+		AccountID: by.AccountID, ProjectID: p.ID, Repo: p.Repo, BaseRef: in.BaseRef, Branch: in.Branch, Role: in.Role,
+		Needs: in.Needs, IncludeRepoFacts: in.IncludeRepoFacts, Feedback: in.Feedback, Prompt: in.Prompt,
+	}
+	if in.Goal != "" {
+		g, err := s.goal(ctx, by.AccountID, in.Goal)
+		if err != nil {
+			return domain.Job{}, err
+		}
+		if g.ProjectID != p.ID {
+			return domain.Job{}, fmt.Errorf("%s belongs to another project: %w", g.Ref(), mcp.ErrInvalidInput)
+		}
+		req.GoalID = g.ID
+	}
+	if in.Task != "" {
+		t, err := s.task(ctx, by.AccountID, in.Task)
+		if err != nil {
+			return domain.Job{}, err
+		}
+		if t.ProjectID != p.ID {
+			return domain.Job{}, fmt.Errorf("%s belongs to another project: %w", t.Ref(), mcp.ErrInvalidInput)
+		}
+		req.TaskID, req.SpecID = t.ID, t.SpecID
+		if req.GoalID == uuid.Nil() {
+			req.GoalID = t.GoalID
+		}
+	}
+	id, err := s.cfg.Creator.Create(ctx, req)
+	if err != nil {
+		return domain.Job{}, fmt.Errorf("dispatch %s job: %w", in.Role, err)
+	}
+	j, err := s.cfg.Store.Jobs().Get(ctx, by.AccountID, id)
+	if err != nil {
+		return domain.Job{}, fmt.Errorf("dispatch %s job: %w", in.Role, err)
+	}
+	if err := s.audit(ctx, s.cfg.Store, by, p.ID, "job.dispatched", "job", j.ID, map[string]any{"role": j.Role}); err != nil {
+		return domain.Job{}, fmt.Errorf("audit dispatch of %s: %w", j.Ref(), err)
+	}
+	return j, nil
+}
+
+// Approve implements mcp.ToolService.
+func (s *Service) Approve(ctx context.Context, by domain.Actor, in mcp.GateDecisionInput) (domain.Gate, error) {
+	return s.decide(ctx, by, mcp.ToolApprove, in)
+}
+
+// RequestChanges implements mcp.ToolService.
+func (s *Service) RequestChanges(ctx context.Context, by domain.Actor, in mcp.GateDecisionInput) (domain.Gate, error) {
+	return s.decide(ctx, by, mcp.ToolRequestChanges, in)
+}
+
+// Reject implements mcp.ToolService.
+func (s *Service) Reject(ctx context.Context, by domain.Actor, in mcp.GateDecisionInput) (domain.Gate, error) {
+	return s.decide(ctx, by, mcp.ToolReject, in)
+}
+
+// decide lets the gate service apply the decision rules.
+func (s *Service) decide(ctx context.Context, by domain.Actor, tool string, in mcp.GateDecisionInput) (domain.Gate, error) {
+	g, err := s.cfg.Gates.Decide(ctx, by, tool, in)
+	if errors.Is(err, gates.ErrNotFound) {
+		return domain.Gate{}, fmt.Errorf("gate %s: %w", in.Gate, mcp.ErrNotFound)
+	}
+	return g, err
+}
