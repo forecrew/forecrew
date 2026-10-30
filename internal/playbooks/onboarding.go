@@ -21,6 +21,15 @@ type assumption struct {
 	Impact     string `json:"impact"`
 }
 
+// assumptionLines describes the assumptions in one markdown line each.
+func assumptionLines(as []assumption) []string {
+	var out []string
+	for _, a := range as {
+		out = append(out, fmt.Sprintf("%s (confidence %s, impact %s)", a.Text, a.Confidence, a.Impact))
+	}
+	return out
+}
+
 // proposalOutput is the output of onboarding.proposal.
 type proposalOutput struct {
 	Title string `json:"title"`
@@ -55,11 +64,7 @@ func (a *actions) onboardingProposal(_ context.Context, call workflow.ActionCall
 	}
 	section(&b, "Components", components, "- ")
 	section(&b, "Platforms", []string{strings.Join(p.Platforms, ", ")}, "")
-	var assumptions []string
-	for _, as := range with.Assumptions {
-		assumptions = append(assumptions, fmt.Sprintf("%s (confidence %s, impact %s)", as.Text, as.Confidence, as.Impact))
-	}
-	section(&b, "Assumptions", assumptions, "- ")
+	section(&b, "Assumptions", assumptionLines(with.Assumptions), "- ")
 	section(&b, "Open questions", p.OpenQuestions, "- ")
 	return proposalOutput{Title: "Add the Forecrew project profile", Body: b.String()}, nil
 }
