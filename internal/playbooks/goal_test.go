@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -122,4 +123,25 @@ func (f failing) CreateIssue(ctx context.Context, repo string, in github.IssueIn
 		return github.Issue{}, err
 	}
 	return f.Tracker.CreateIssue(ctx, repo, in)
+}
+
+func (f failing) AddSubIssue(ctx context.Context, repo string, parent, child int) error {
+	if err := f.errs["AddSubIssue"]; err != nil {
+		return err
+	}
+	return f.Tracker.AddSubIssue(ctx, repo, parent, child)
+}
+
+func (f failing) ListComments(ctx context.Context, repo string, number int, since time.Time) ([]github.Comment, error) {
+	if err := f.errs["ListComments"]; err != nil {
+		return nil, err
+	}
+	return f.Tracker.ListComments(ctx, repo, number, since)
+}
+
+func (f failing) CreateComment(ctx context.Context, repo string, number int, body string) (github.Comment, error) {
+	if err := f.errs["CreateComment"]; err != nil {
+		return github.Comment{}, err
+	}
+	return f.Tracker.CreateComment(ctx, repo, number, body)
 }
