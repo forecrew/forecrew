@@ -153,7 +153,7 @@ func TestTrackerPullRequests(t *testing.T) {
 		t.Fatalf("merge = %s, %v", sha, err)
 	}
 	got, err := tr.GetPR(ctx, "acme/app", 1)
-	if err != nil || !got.Merged || got.State != "closed" {
+	if err != nil || !got.Merged || got.State != "closed" || got.MergeSHA != "merge-1" {
 		t.Fatalf("merged pr = %+v, %v", got, err)
 	}
 	_, err = tr.MergePR(ctx, "acme/app", 1, github.MergeInput{})
@@ -163,6 +163,32 @@ func TestTrackerPullRequests(t *testing.T) {
 	wantErr(t, err, github.ErrNotFound)
 	_, err = tr.GetPR(ctx, "acme/app", 9)
 	wantErr(t, err, github.ErrNotFound)
+}
+
+func TestTrackerFiles(t *testing.T) {
+	tr, _ := newTracker(t)
+	ctx := t.Context()
+	pr, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "x", Head: "agent/task-1", Base: "main"})
+	must(t, err)
+	must(t, tr.SetFile("acme/app", "agent/task-1", "a/b.txt", []byte("one")))
+	wantErr(t, tr.SetFile("acme/other", "main", "x", nil), github.ErrNotInstalled)
+	got, err := tr.GetFile(ctx, "acme/app", "agent/task-1", "a/b.txt")
+	if err != nil || string(got) != "one" {
+		t.Fatalf("file = %q, %v", got, err)
+	}
+	_, err = tr.GetFile(ctx, "acme/app", "main", "a/b.txt")
+	wantErr(t, err, github.ErrNotFound)
+	_, err = tr.GetFile(ctx, "acme/other", "main", "a/b.txt")
+	wantErr(t, err, github.ErrNotInstalled)
+
+	// Merging brings the head branch's files to the base.
+	_, err = tr.MergePR(ctx, "acme/app", pr.Number, github.MergeInput{})
+	must(t, err)
+	for _, ref := range []string{"main", "merge-1"} {
+		if got, err = tr.GetFile(ctx, "acme/app", ref, "a/b.txt"); err != nil || string(got) != "one" {
+			t.Fatalf("file at %s = %q, %v", ref, got, err)
+		}
+	}
 }
 
 func TestTrackerClosePR(t *testing.T) {

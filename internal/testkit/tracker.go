@@ -3,6 +3,7 @@ package testkit
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -33,6 +34,7 @@ type fakeRepo struct {
 	reviews   map[int][]github.Review
 	commentID int64
 	branches  map[string]bool
+	files     map[string][]byte // by ref and path, see fileKey
 }
 
 type fakeIssue struct {
@@ -53,7 +55,7 @@ func (t *Tracker) Install(repo string) {
 	t.repos[strings.ToLower(repo)] = &fakeRepo{
 		issues: map[int]*fakeIssue{}, prs: map[int]*github.PullRequest{}, labels: map[string]github.Label{},
 		checks: map[string]github.CheckStatus{}, reviews: map[int][]github.Review{},
-		branches: map[string]bool{},
+		branches: map[string]bool{}, files: map[string][]byte{},
 	}
 }
 
@@ -405,6 +407,32 @@ func (t *Tracker) BranchExists(_ context.Context, repo, branch string) (bool, er
 	return ok, err
 }
 
+func fileKey(ref, path string) string { return ref + "\x00" + path }
+
+// SetFile simulates a commit of the file at path to the branch ref. Merging
+// a PR copies the files of its head branch to its base and to the merge
+// commit.
+func (t *Tracker) SetFile(repo, ref, path string, content []byte) error {
+	return t.with(repo, func(r *fakeRepo) error {
+		r.files[fileKey(ref, path)] = slices.Clone(content)
+		return nil
+	})
+}
+
+// GetFile implements github.Tracker.
+func (t *Tracker) GetFile(_ context.Context, repo, ref, path string) ([]byte, error) {
+	var out []byte
+	err := t.with(repo, func(r *fakeRepo) error {
+		b, ok := r.files[fileKey(ref, path)]
+		if !ok {
+			return fmt.Errorf("%s at %s: %w", path, ref, github.ErrNotFound)
+		}
+		out = slices.Clone(b)
+		return nil
+	})
+	return out, err
+}
+
 // AddBranch simulates a pushed branch.
 func (t *Tracker) AddBranch(repo, branch string) error {
 	return t.with(repo, func(r *fakeRepo) error {
@@ -440,8 +468,15 @@ func (t *Tracker) MergePR(_ context.Context, repo string, number int, in github.
 			return fmt.Errorf("pull request %d: %w", number, github.ErrNotMergeable)
 		}
 		pr.State, pr.Merged = "closed", true
+		pr.MergeSHA = fmt.Sprintf("merge-%d", number)
 		r.issues[number].issue.State = "closed"
 		sha = fmt.Sprintf("merge-%d", number)
+		for k, b := range maps.Clone(r.files) {
+			if ref, path, _ := strings.Cut(k, "\x00"); ref == pr.Head {
+				r.files[fileKey(pr.Base, path)] = b
+				r.files[fileKey(sha, path)] = b
+			}
+		}
 		return nil
 	})
 	return sha, err

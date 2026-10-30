@@ -14,7 +14,7 @@ func toPR(p *gh.PullRequest) PullRequest {
 	return PullRequest{
 		Number: p.GetNumber(), Title: p.GetTitle(), Body: p.GetBody(),
 		Head: p.GetHead().GetRef(), Base: p.GetBase().GetRef(), HeadSHA: p.GetHead().GetSHA(),
-		State: p.GetState(), Merged: p.GetMerged(), Draft: p.GetDraft(), URL: p.GetHTMLURL(),
+		State: p.GetState(), Merged: p.GetMerged(), MergeSHA: p.GetMergeCommitSHA(), Draft: p.GetDraft(), URL: p.GetHTMLURL(),
 		Mergeable: p.Mergeable,
 	}
 }
@@ -231,4 +231,25 @@ func (c *Client) BranchExists(ctx context.Context, repo, branch string) (bool, e
 		return false, nil
 	}
 	return false, wrap(fmt.Sprintf("check branch %q of %s", branch, repo), err)
+}
+
+// GetFile implements Tracker.
+func (c *Client) GetFile(ctx context.Context, repo, ref, path string) ([]byte, error) {
+	g, owner, name, err := c.repoClient(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+	op := fmt.Sprintf("get %s at %s of %s", path, ref, repo)
+	file, _, _, err := g.Repositories.GetContents(ctx, owner, name, path, &gh.RepositoryContentGetOptions{Ref: ref})
+	if err != nil {
+		return nil, wrap(op, err)
+	}
+	if file == nil {
+		return nil, fmt.Errorf("%s: %w: it is a directory", op, ErrNotFound)
+	}
+	content, err := file.GetContent()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	return []byte(content), nil
 }
