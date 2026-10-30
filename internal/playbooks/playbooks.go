@@ -28,6 +28,7 @@ func Register(registry workflow.Actions, deps Deps) {
 	d := &actions{deps}
 	registry["project.register"] = d.registerProject
 	registry["github.open_or_update_pr"] = d.openOrUpdatePR
+	registry["github.merge_pr"] = d.mergePR
 }
 
 // actions implements the actions on top of Deps.
