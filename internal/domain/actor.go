@@ -25,3 +25,12 @@ type Actor struct {
 func (a Actor) String() string {
 	return string(a.Kind) + ":" + a.Name
 }
+
+// ForecrewdName is the name of the system actor of forecrewd itself.
+const ForecrewdName = "forecrewd"
+
+// SystemActor returns the system actor called name in an account, for
+// changes forecrewd makes itself.
+func SystemActor(accountID uuid.UUID, name string) Actor {
+	return Actor{AccountID: accountID, Kind: ActorSystem, Name: name}
+}

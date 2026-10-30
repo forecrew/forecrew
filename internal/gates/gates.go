@@ -81,11 +81,6 @@ func New(st store.Store, pub Publisher, now func() time.Time) *Keeper {
 	return &Keeper{st: st, pub: pub, now: now}
 }
 
-// systemActor is who opens gates.
-func systemActor(accountID uuid.UUID) domain.Actor {
-	return domain.Actor{AccountID: accountID, Kind: domain.ActorSystem, Name: "forecrewd"}
-}
-
 // Open implements Service.
 func (k *Keeper) Open(ctx context.Context, req OpenRequest) (domain.Gate, error) {
 	if !slices.Contains(domain.GateKinds(), req.Kind) {
@@ -110,7 +105,7 @@ func (k *Keeper) Open(ctx context.Context, req OpenRequest) (domain.Gate, error)
 		if err := tx.Gates().Create(ctx, &g); err != nil {
 			return err
 		}
-		return audit(ctx, tx, systemActor(g.AccountID), "gate.opened", g, nil)
+		return audit(ctx, tx, domain.SystemActor(g.AccountID, domain.ForecrewdName), "gate.opened", g, nil)
 	})
 	if err != nil {
 		return domain.Gate{}, fmt.Errorf("open %s gate: %w", req.Kind, err)
