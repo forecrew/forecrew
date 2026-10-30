@@ -1,3 +1,6 @@
 /bin/
 *.out
 *.test
+/internal/webui/dist/*
+!/internal/webui/dist/.gitkeep
+node_modules/

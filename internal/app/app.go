@@ -34,6 +34,7 @@ import (
 	"github.com/forecrew/forecrew/internal/store/postgres"
 	"github.com/forecrew/forecrew/internal/tools"
 	"github.com/forecrew/forecrew/internal/webhook"
+	"github.com/forecrew/forecrew/internal/webui"
 	"github.com/forecrew/forecrew/internal/workerapi"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -207,7 +208,7 @@ func checkRoles(books map[string]*workflow.Playbook, c *roles.Catalog) error {
 // Handler returns the HTTP handler of forecrewd.
 func (a *App) Handler() http.Handler { return a.handler }
 
-// routes mounts everything on one mux. "/" is left for the web UI.
+// routes mounts everything on one mux; "/" is the web UI.
 func (a *App) routes(workers, mcpHandler, apiHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -224,6 +225,7 @@ func (a *App) routes(workers, mcpHandler, apiHandler http.Handler) http.Handler 
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
 	mux.Handle("/webhooks/github", a.webhooks)
+	mux.Handle("/", webui.Handler())
 	return mux
 }
 
