@@ -228,6 +228,7 @@ export interface Worker {
 export interface OnboardInput {
   repo: string
   name?: string
+  default_branch?: string
 }
 
 export interface CreateGoalInput {
@@ -242,6 +243,12 @@ export interface DispatchJobInput {
   role: string
   prompt: string
   needs?: string[]
+  goal?: string
+  task?: string
+  base_ref?: string
+  branch?: string
+  feedback?: string
+  include_repo_facts?: boolean
 }
 
 export interface ErrorBody {

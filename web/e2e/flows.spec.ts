@@ -118,3 +118,18 @@ test("the goal page lists its jobs and approves a waiting gate", async ({ page }
   await gate.getByRole("button", { name: "Approve" }).click()
   await expect.poll(() => calls.log.some((c) => c.call === "POST /gates/GATE-9/approve")).toBe(true)
 })
+
+test("run an ad-hoc job with the advanced fields", async ({ page }) => {
+  const calls = await mockApi(page)
+  await page.goto("/projects/app")
+  await page.getByLabel("Prompt").fill("Review the sign-in change.")
+  await page.getByText("Advanced").click()
+  await page.getByLabel("Goal", { exact: true }).fill("GOAL-3")
+  await page.getByLabel("Branch").fill("agent/task-12")
+  await page.getByLabel("Include repository facts").check()
+  await page.getByRole("button", { name: "Run job" }).click()
+  await expect(page).toHaveURL(/\/jobs\/JOB-42$/)
+  expect(calls.log.find((c) => c.call === "POST /jobs")?.body).toMatchObject({
+    project: "app", role: "reviewer", goal: "GOAL-3", branch: "agent/task-12", include_repo_facts: true,
+  })
+})

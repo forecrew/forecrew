@@ -3,6 +3,12 @@ import { http, HttpResponse } from "msw"
 import { errors, fx, server } from "@/test/server"
 import { renderApp } from "@/test/render"
 
+/** Pastes text into a field: much faster than typing it key by key. */
+async function fill(user: ReturnType<typeof import("@testing-library/user-event").default.setup>, el: HTMLElement, text: string) {
+  await user.click(el)
+  await user.paste(text)
+}
+
 describe("project list", () => {
   test("lists projects with repository and status", async () => {
     await renderApp("/projects")
@@ -148,6 +154,58 @@ describe("project page", () => {
       await user.click(screen.getByRole("button", { name: "Run job" }))
       await waitFor(() => expect(router.state.location.pathname).toBe("/jobs/JOB-42"))
       expect(body).toEqual({ project: "app", role: "reviewer", prompt: "Look at the login flow.", needs: ["linux", "docker"] })
+    })
+
+    test("keeps the extras under Advanced, closed by default", async () => {
+      const { user } = await renderApp("/projects/app")
+      await screen.findByRole("heading", { name: "app", level: 1 })
+      const advanced = screen.getByText("Advanced").closest("details")!
+      expect(advanced).not.toHaveAttribute("open")
+      await user.click(screen.getByText("Advanced"))
+      expect(advanced).toHaveAttribute("open")
+      for (const label of ["Goal", "Task", "Base ref", "Branch", "Feedback", "Include repository facts"]) {
+        expect(within(advanced).getByLabelText(label)).toBeInTheDocument()
+      }
+    })
+
+    test("sends the advanced fields", async () => {
+      let body: unknown
+      server.use(
+        http.post("/api/v1/jobs", async ({ request }) => {
+          body = await request.json()
+          return HttpResponse.json(fx.jobDispatch, { status: 201 })
+        }),
+      )
+      const { user, router } = await renderApp("/projects/app")
+      await screen.findByRole("heading", { name: "app", level: 1 })
+      await fill(user, screen.getByLabelText("Prompt"), "Review it.")
+      await fill(user, screen.getByLabelText("Goal"), " goal-3 ")
+      await fill(user, screen.getByLabelText("Task"), fx.goal.tasks[0]!.id)
+      await fill(user, screen.getByLabelText("Base ref"), "main")
+      await fill(user, screen.getByLabelText("Branch"), "agent/task-12")
+      await fill(user, screen.getByLabelText("Feedback"), "Check the tests.")
+      await user.click(screen.getByLabelText("Include repository facts"))
+      await user.click(screen.getByRole("button", { name: "Run job" }))
+      await waitFor(() => expect(router.state.location.pathname).toBe("/jobs/JOB-42"))
+      expect(body).toEqual({
+        project: "app", role: "reviewer", prompt: "Review it.", needs: [], goal: "goal-3", task: fx.goal.tasks[0]!.id,
+        base_ref: "main", branch: "agent/task-12", feedback: "Check the tests.", include_repo_facts: true,
+      })
+    })
+
+    test("checks the goal and task refs as the API does, and opens Advanced", async () => {
+      let called = false
+      server.use(http.post("/api/v1/jobs", () => ((called = true), HttpResponse.json(fx.jobDispatch))))
+      const { user } = await renderApp("/projects/app")
+      await screen.findByRole("heading", { name: "app", level: 1 })
+      await user.type(screen.getByLabelText("Prompt"), "x")
+      await user.type(screen.getByLabelText("Goal"), "GOAL-0")
+      await user.type(screen.getByLabelText("Task"), "GOAL-3")
+      await user.click(screen.getByRole("button", { name: "Run job" }))
+      expect(screen.getByText("Enter a goal ref like GOAL-3, or its ID.")).toBeInTheDocument()
+      expect(screen.getByText("Enter a task ref like TASK-12, or its ID.")).toBeInTheDocument()
+      expect(screen.getByText("Advanced").closest("details")).toHaveAttribute("open")
+      expect(called).toBe(false)
     })
 
     test("needs a role and a prompt", async () => {
