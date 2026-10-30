@@ -1,0 +1,245 @@
+description: Take a goal from idea to merged pull requests. A product owner specs it, a human approves the spec, an architect splits it into tasks, and for each task in order a developer opens a PR that a reviewer of another vendor checks and a human approves to merge.
+inputs: [repo, goal_id, platforms]
+steps:
+  # The goal's GitHub issue, with the labels of the playbook.
+  - id: intake
+    type: action
+    action: goal.intake
+    with: {repo: '${inputs.repo}', goal_id: '${inputs.goal_id}'}
+    on_failure: escalate
+
+  # One round per review: write the spec, put it in the goal issue, ask for
+  # approval. Changes requested start a new round with the feedback; the
+  # fourth round needs a needs_you gate, as every one after it.
+  - id: spec
+    type: loop
+    max_iterations: 3
+    until: steps.spec_gate.output.decision == approved
+    on_failure: escalate
+    steps:
+      - id: write
+        type: job
+        with:
+          role: product-owner
+          repo: '${inputs.repo}'
+          goal_id: '${inputs.goal_id}'
+          feedback: '${steps.spec_gate.output.feedback}'
+        on_failure: escalate
+      - id: render
+        type: action
+        action: goal.spec
+        with: {goal_id: '${inputs.goal_id}', job_id: '${steps.write.job_id}', spec: '${steps.write.output}'}
+        on_failure: escalate
+      - id: spec_gate
+        type: gate
+        with:
+          kind: spec_approval
+          title: 'Approve the spec (revision ${steps.render.output.revision})'
+          summary: '${steps.render.output.summary}'
+          subject_repo: '${inputs.repo}'
+          subject_number: '${steps.intake.output.issue_number}'
+          spec_id: '${steps.render.output.spec_id}'
+
+  # The tasks of the approved spec, each with an issue under the goal's. The
+  # architect gets a second try, with what is wrong with its plan (such as
+  # the criteria no task covers); after that a needs_you gate asks a human and
+  # approving it reruns the architect once more.
+  - id: architecture
+    type: loop
+    max_iterations: 2
+    until: steps.plan.output.valid
+    on_failure: escalate
+    steps:
+      - id: design
+        type: job
+        with:
+          role: architect
+          repo: '${inputs.repo}'
+          goal_id: '${inputs.goal_id}'
+          spec_id: '${steps.render.output.spec_id}'
+          feedback: '${steps.plan.output.errors}'
+        on_failure: escalate
+      - id: plan
+        type: action
+        action: goal.plan
+        with:
+          goal_id: '${inputs.goal_id}'
+          spec_id: '${steps.render.output.spec_id}'
+          platforms: '${inputs.platforms}'
+          plan: '${steps.design.output}'
+          spec: '${steps.write.output}'
+        on_failure: escalate
+
+  # The tasks one after the other. Inside a foreach over a list, ${item} is
+  # that list's element, so the steps of the inner foreaches read the task
+  # from the outputs of "round".
+  - id: tasks
+    type: foreach
+    items: '${steps.plan.output.tasks}'
+    steps:
+      # One delivery per merge decision: build a PR that passes its checks
+      # and its review, then ask a human to merge it. Changes requested at
+      # the gate start a new delivery with the feedback; the sixth needs a
+      # needs_you gate.
+      - id: delivery
+        type: loop
+        max_iterations: 5
+        until: steps.done.output.done
+        on_failure: escalate
+        steps:
+          # One round per developer job. A round whose checks failed or whose
+          # review asks for changes is followed by a rework round with their
+          # feedback; the fourth round needs a needs_you gate.
+          - id: build
+            type: loop
+            max_iterations: 3
+            until: steps.assess.output.done
+            on_failure: escalate
+            steps:
+              - id: round
+                type: action
+                action: goal.round
+                with:
+                  task_id: '${item.id}'
+                  iteration: '${iteration}'
+                  human: '${steps.done.output.feedback}'
+                  review: '${steps.assess.output.feedback}'
+              # A developer that stops with an escalation leaves no PR text
+              # (pr_text comments the reason on the task's issue): the loop
+              # runs out of its round and a needs_you gate asks a human;
+              # approving it reruns the developer.
+              - id: dev
+                type: loop
+                max_iterations: 1
+                until: steps.pr_text.output.ready
+                on_failure: escalate
+                steps:
+                  - id: develop
+                    type: job
+                    with:
+                      role: developer
+                      repo: '${inputs.repo}'
+                      branch: '${steps.round.output.branch}'
+                      needs: '${item.needs}'
+                      task_id: '${item.id}'
+                      spec_id: '${steps.render.output.spec_id}'
+                      feedback: '${steps.round.output.feedback}'
+                    on_failure: escalate
+                  - id: pr_text
+                    type: action
+                    action: goal.pr_text
+                    with: {task_id: '${item.id}', result: '${steps.develop.output}'}
+              - id: pr
+                type: action
+                action: github.open_or_update_pr
+                with:
+                  repo: '${inputs.repo}'
+                  title: '${steps.pr_text.output.title}'
+                  body: '${steps.pr_text.output.body}'
+                  head: '${steps.round.output.branch}'
+                  base: '${steps.intake.output.default_branch}'
+                  # The earlier round's PR: closed on GitHub fails the run;
+                  # merged there skips the steps below (the list is empty).
+                  previous: '${steps.pr.output.number}'
+                  task_id: '${item.id}'
+              - id: gated
+                type: foreach
+                items: '${steps.pr.output.if_open}'
+                steps:
+                  - id: in_review
+                    type: action
+                    action: goal.task_move
+                    with: {task_id: '${steps.round.output.task_id}', to: in_review}
+                  # The checks of the PR head; "none" means the repo has no
+                  # checks. A timeout opens a needs_you gate.
+                  - id: checks
+                    type: wait
+                    timeout: 1h
+                    on_failure: escalate
+                    with: {signal: checks.completed, repo: '${inputs.repo}', sha: '${steps.develop.head_sha}'}
+                  # The reviewer only reads the branch and only comments.
+                  - id: review
+                    type: job
+                    with:
+                      role: reviewer
+                      repo: '${inputs.repo}'
+                      branch: '${steps.round.output.branch}'
+                      task_id: '${steps.round.output.task_id}'
+                      spec_id: '${steps.render.output.spec_id}'
+                    on_failure: escalate
+                  - id: post
+                    type: action
+                    action: goal.review_post
+                    with: {repo: '${inputs.repo}', number: '${steps.pr.output.number}', review: '${steps.review.output}'}
+              # Done when the PR is ready for the merge gate or merged on
+              # GitHub; otherwise it outputs the feedback of the rework.
+              - id: assess
+                type: action
+                action: goal.assess
+                with:
+                  repo: '${inputs.repo}'
+                  number: '${steps.pr.output.number}'
+                  checks: '${steps.gated.output.0.checks.output.conclusion}'
+                  review: '${steps.gated.output.0.review.output}'
+                  result: '${steps.develop.output}'
+                  sha: '${steps.develop.head_sha}'
+
+          # The merge gate, skipped when the PR was merged on GitHub meanwhile.
+          # Merging it there approves; closing it rejects. Approving here
+          # merges it, unless GitHub merged it already.
+          - id: approval
+            type: foreach
+            items: '${steps.assess.output.if_ready}'
+            steps:
+              - id: ready
+                type: action
+                action: goal.task_move
+                with: {task_id: '${steps.round.output.task_id}', to: merge_ready}
+              - id: merge_gate
+                type: gate
+                with:
+                  kind: merge_approval
+                  title: 'Merge ${steps.round.output.ref}: ${steps.round.output.title}'
+                  summary: '${steps.assess.output.gate_summary}'
+                  subject_repo: '${inputs.repo}'
+                  subject_number: '${item}'
+                  task_id: '${steps.round.output.task_id}'
+              - id: verdict
+                type: action
+                action: goal.if_approved
+                with: {decision: '${steps.merge_gate.output.decision}', number: '${item}'}
+              # The human approved, so a failure here asks for help and never
+              # undoes the approval.
+              - id: merge_if
+                type: foreach
+                items: '${steps.verdict.output.if_approved}'
+                steps:
+                  - id: merge
+                    type: action
+                    action: github.merge_pr
+                    with: {repo: '${inputs.repo}', number: '${item}'}
+                    on_failure: escalate
+          - id: done
+            type: action
+            action: goal.task_done
+            with:
+              task_id: '${item.id}'
+              repo: '${inputs.repo}'
+              number: '${steps.pr.output.number}'
+              feedback: '${steps.approval.output.0.merge_gate.output.feedback}'
+            on_failure: escalate
+
+  # The summary on the goal issue, with the cost of all jobs.
+  - id: close
+    type: action
+    action: goal.close
+    with: {goal_id: '${inputs.goal_id}'}
+    on_failure: escalate
+
+# A rejected or failed run cancels the goal, closes its unmerged tasks and
+# closes their issues. Merged pull requests stay merged.
+finally:
+  - id: settle
+    type: action
+    action: goal.settle
+    with: {goal_id: '${inputs.goal_id}'}
