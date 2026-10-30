@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 	"uuid"
@@ -19,7 +20,7 @@ func TestMigrate(t *testing.T) {
 	var versions, accounts int
 	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM goose_db_version WHERE version_id > 0`).Scan(&versions))
 	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM accounts`).Scan(&accounts))
-	if versions != 1 || accounts != 1 {
+	if versions != 2 || accounts != 1 {
 		t.Fatalf("versions = %d, accounts = %d", versions, accounts)
 	}
 }
@@ -102,13 +103,13 @@ func TestGoals(t *testing.T) {
 	ctx := t.Context()
 	repo := f.st.Goals()
 	g := f.newGoal(t)
-	g2 := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Title: "Two", IssueNumber: 7, CreatedBy: "user:me", Status: domain.GoalPlanned}
+	g2 := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Title: "Two", IssueNumber: 7, CreatedBy: "user:me", Status: domain.GoalPlanned, Platforms: []string{"Web", "ios", "web"}}
 	must(t, repo.Create(ctx, &g2))
 	if g.Number != 1 || g2.Number != 2 || g.Status != domain.GoalDraft || g.Ref() != "GOAL-1" {
 		t.Fatalf("goals = %+v %+v", g, g2)
 	}
 	got, err := repo.GetByNumber(ctx, f.account, 2)
-	if err != nil || got.ID != g2.ID || got.IssueNumber != 7 || got.Status != domain.GoalPlanned {
+	if err != nil || got.ID != g2.ID || got.IssueNumber != 7 || got.Status != domain.GoalPlanned || !slices.Equal(got.Platforms, []string{"ios", "web"}) {
 		t.Fatalf("by number = %+v, %v", got, err)
 	}
 	if _, err := repo.Get(ctx, f.account, g.ID); err != nil {

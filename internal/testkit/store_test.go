@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 	"uuid"
@@ -106,8 +107,11 @@ func TestStoreGoalsAndSpecs(t *testing.T) {
 	ctx := t.Context()
 	g := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Title: "Login", Status: domain.GoalDraft}
 	must(t, f.st.Goals().Create(ctx, &g))
-	g2 := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Title: "Logout", Status: domain.GoalDraft}
+	g2 := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Title: "Logout", Status: domain.GoalDraft, Platforms: []string{"Web", "ios", "web"}}
 	must(t, f.st.Goals().Create(ctx, &g2))
+	if !slices.Equal(g2.Platforms, []string{"ios", "web"}) {
+		t.Fatalf("platforms = %v", g2.Platforms)
+	}
 	if g.Number != 1 || g2.Number != 2 || g.Ref() != "GOAL-1" {
 		t.Fatalf("numbers = %d, %d", g.Number, g2.Number)
 	}

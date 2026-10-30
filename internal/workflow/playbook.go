@@ -165,6 +165,11 @@ func (v validator) step(s Step, vars []string) error {
 	if err := s.checkFields(); err != nil {
 		return err
 	}
+	if s.Type == StepJob {
+		if err := checkPrompt(s.With["prompt"]); err != nil {
+			return err
+		}
+	}
 	if err := v.refs(s.With, vars); err != nil {
 		return err
 	}
@@ -253,6 +258,22 @@ func checkWith(with map[string]any, known []string, required ...string) error {
 		}
 	}
 	return nil
+}
+
+// checkPrompt requires a job's prompt to be literal text from the playbook
+// author. The prompt is rendered as trusted instructions, so it must not
+// carry values that come from job outputs, signals or inputs.
+func checkPrompt(prompt any) error {
+	switch p := prompt.(type) {
+	case nil:
+		return nil
+	case string:
+		if strings.Contains(p, "${") {
+			return errors.New("with: prompt must be literal text, not a ${...} reference")
+		}
+		return nil
+	}
+	return errors.New("with: prompt must be literal text")
 }
 
 func checkGate(with map[string]any) error {
