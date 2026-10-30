@@ -96,3 +96,20 @@ What the worker does on Linux to narrow the exposure of the repo token:
 
 On other systems there is no such protection: the worker's environment may be
 readable by agents and leftover agent processes are not killed.
+
+## Running as a service
+
+`deploy/worker/install.sh` (Linux with systemd, macOS with launchd) and
+`install.ps1` (Windows) install the worker as a service under a dedicated
+unprivileged user; see `docs/runbooks/add-worker.md`.
+
+Known limit on Windows: the worker runs from a scheduled task started at boot
+under that user, not as a Windows service, because `forecrew-worker` does not
+implement the service control protocol. Stopping the task ends the worker
+without the 10-minute grace period, and `install.ps1` runs `check` as the
+administrator rather than as the service user.
+
+The install script keeps the worker token in `/etc/forecrew-worker/token.env`.
+On Linux that file is `root:root` 0600, so agents (which run as the service
+user) cannot read it. On macOS and Windows the service user must read it, so
+agents can read the worker token there.

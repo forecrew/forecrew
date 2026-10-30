@@ -1,0 +1,55 @@
+# Upgrade
+
+## forecrewd (Compose)
+
+1. Read the release notes for configuration changes.
+2. Take a backup now (the daily one may be a day old):
+
+   ```sh
+   docker compose exec backup /backup.sh
+   ```
+
+3. Set `FORECREW_VERSION` in `.env` to the new tag, then:
+
+   ```sh
+   docker compose pull
+   docker compose up -d
+   ```
+
+   The `migrate` service applies schema changes first; forecrewd starts only if
+   it succeeds. If it fails, `docker compose logs migrate` shows why and the
+   old forecrewd keeps running.
+4. Check `curl -fsS https://<host>/healthz` and `docker compose logs --tail 50 forecrewd`.
+
+Roll back by setting the previous tag and running `docker compose up -d`. Schema
+migrations are not reversed: if a release changed the schema, restore the
+backup from step 2 (see [install.md](install.md#backups)) before starting the
+older version.
+
+Restarting forecrewd does not lose jobs: running jobs keep their leases on
+the workers, and workers retry while forecrewd is down.
+
+## forecrewd (systemd)
+
+Replace `/usr/local/bin/forecrewd` and `/usr/local/bin/forecrew` with the new
+release's binaries and run `sudo systemctl restart forecrewd`; the unit
+applies migrations before it starts.
+
+## Workers
+
+Run the install script again on each worker; it downloads the new release,
+runs `forecrew-worker check` with it, replaces the binary and restarts the
+service, keeping the configuration and the token:
+
+```sh
+sudo sh install.sh --version v0.3.0      # omit --version for the latest
+```
+
+The restart sends the worker `SIGTERM`: it stops polling and lets running jobs
+finish for up to 10 minutes. On Windows the task is stopped, so running jobs
+are cut off and requeued when their leases expire. Upgrade workers when no job
+you care about is running if that matters.
+
+You can upgrade forecrewd and the workers in either order: the worker API is
+versioned by its path (`/worker/v1/`), and a release that breaks it says so in
+its release notes. Upgrade forecrewd first when in doubt.
