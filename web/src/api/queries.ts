@@ -42,7 +42,8 @@ export const useGoals = (project?: string, status?: GoalStatus | "") =>
     placeholderData: keepPreviousData,
     ...poll,
   })
-export const useGoal = (ref: string) => useQuery({ queryKey: keys.goal(ref), queryFn: () => api.getGoal(ref), ...poll })
+export const useGoal = (ref: string, enabled = true) =>
+  useQuery({ queryKey: keys.goal(ref), queryFn: () => api.getGoal(ref), enabled, ...poll })
 export const useJobs = (project?: string, status?: JobStatus | "") =>
   useQuery({
     queryKey: keys.jobs(project, status),

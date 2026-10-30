@@ -1,4 +1,4 @@
-import { cost, goalRef, goalTone, jobRef, jobTone, projectTone, splitList, stageOf, taskTone, words } from "./format"
+import { cost, count, until, goalRef, goalTone, jobRef, jobTone, projectTone, splitList, stageOf, taskTone, words } from "./format"
 import { safeRedirect } from "./redirect"
 
 test("refs", () => {
@@ -56,4 +56,13 @@ test.each([
   ["goals", "/"],
 ])("safeRedirect(%j) = %s", (input, want) => {
   expect(safeRedirect(input)).toBe(want)
+})
+
+test("count and until", () => {
+  expect(count(12345)).toBe("12,345")
+  expect(count(undefined)).toBe("0")
+  const now = Date.parse("2026-03-01T12:00:00Z")
+  expect(until("2026-03-01T12:05:00Z", now)).toBe("in 5 min")
+  expect(until("2026-03-01T11:00:00Z", now)).toBe("now")
+  expect(until(undefined, now)).toBe("never")
 })
