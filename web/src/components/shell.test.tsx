@@ -7,7 +7,7 @@ describe("navigation", () => {
   test("has a sidebar with every section and marks the current page", async () => {
     await renderApp("/inbox")
     const nav = await screen.findByRole("navigation", { name: "Main" })
-    for (const name of ["Inbox", "Goals", "Jobs", "Workers"]) {
+    for (const name of ["Inbox", "Goals", "Projects", "Jobs", "Workers"]) {
       expect(within(nav).getByRole("link", { name: new RegExp(`^${name}`) })).toBeInTheDocument()
     }
     expect(within(nav).getByRole("link", { name: /^Inbox/ })).toHaveAttribute("aria-current", "page")

@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, Outlet, useNavigate } from "@tanstack/react-router"
 import {
-  BriefcaseIcon, InboxIcon, LogOutIcon, MenuIcon, ServerIcon, TargetIcon,
+  BriefcaseIcon, FolderGitIcon, InboxIcon, LogOutIcon, MenuIcon, ServerIcon, TargetIcon,
 } from "lucide-react"
 import { useState } from "react"
 import { api } from "@/api/client"
@@ -12,6 +12,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from 
 const NAV = [
   { to: "/inbox", label: "Inbox", icon: InboxIcon },
   { to: "/goals", label: "Goals", icon: TargetIcon },
+  { to: "/projects", label: "Projects", icon: FolderGitIcon },
   { to: "/jobs", label: "Jobs", icon: BriefcaseIcon },
   { to: "/workers", label: "Workers", icon: ServerIcon },
 ] as const

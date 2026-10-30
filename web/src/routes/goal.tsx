@@ -1,4 +1,4 @@
-import { useParams } from "@tanstack/react-router"
+import { Link, useParams } from "@tanstack/react-router"
 import { useGoal } from "@/api/queries"
 import type { Task } from "@/api/types"
 import { Age } from "@/components/Age"
@@ -68,7 +68,9 @@ export function GoalPage() {
           <div className="mb-6 flex flex-wrap items-center gap-3 text-sm">
             <StatusBadge tone={goalTone(d.goal.status)}>{words(d.goal.status)}</StatusBadge>
             <span>Stage: {stageOf(d.goal.status)}</span>
-            <span className="font-mono">{d.project}</span>
+            <Link to="/projects/$name" params={{ name: d.project }} className="inline-flex min-h-11 items-center font-mono underline underline-offset-2">
+              {d.project}
+            </Link>
             {d.goal.platforms?.length ? <span>Platforms: {d.goal.platforms.join(", ")}</span> : null}
             {d.url ? <ExternalLink href={d.url}>Goal issue</ExternalLink> : null}
             <span className="ml-auto font-medium">Total cost {cost(d.cost_usd)}</span>
