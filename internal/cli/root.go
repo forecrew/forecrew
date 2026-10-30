@@ -1,5 +1,7 @@
-// Package cli implements the forecrew admin CLI commands. The command tree
-// was scaffolded with cobra-cli and reshaped to avoid package globals.
+// Package cli implements the forecrew CLI. The admin commands (migrate,
+// config, token, worker) use the database directly; the others call /api/v1.
+// The command tree was scaffolded with cobra-cli and reshaped to avoid
+// package globals.
 package cli
 
 import (
@@ -10,7 +12,7 @@ import (
 )
 
 // NewRootCommand returns the forecrew command tree.
-func NewRootCommand(version string) *cobra.Command {
+func NewRootCommand(version string, env Env) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "forecrew",
 		Short:         "Administer a Forecrew installation",
@@ -20,12 +22,22 @@ func NewRootCommand(version string) *cobra.Command {
 	}
 	root.SetVersionTemplate("forecrew {{.Version}}\n")
 	root.AddCommand(newVersionCommand(version))
+	root.AddCommand(newMigrateCommand(env), newConfigCommand(env), newTokenCommand(env), newWorkerAdminCommand(env))
+	r := newRemote(env)
+	r.bind(root)
+	root.AddCommand(r.commands()...)
 	return root
 }
 
-// Run executes the CLI with args and returns the process exit code.
+// Run executes the CLI with args in the environment of the process and
+// returns the exit code.
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer, version string) int {
-	root := NewRootCommand(version)
+	return RunWith(ctx, args, stdout, stderr, version, OSEnv())
+}
+
+// RunWith executes the CLI in env and returns the process exit code.
+func RunWith(ctx context.Context, args []string, stdout, stderr io.Writer, version string, env Env) int {
+	root := NewRootCommand(version, env)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
