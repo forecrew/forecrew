@@ -184,6 +184,25 @@ func TestGoalPlanUncoveredCriteria(t *testing.T) {
 	}
 }
 
+// What is wrong with a plan is commented on the goal issue, once per call.
+func TestGoalPlanCommentsWhatIsWrong(t *testing.T) {
+	p := newPlanned(t)
+	with := p.with(planOutput(planTask("One", []string{"AC-1"}, nil)))
+	for _, key := range []string{"k1", "k1", "k2"} {
+		_, err := p.callKey(t, "goal.plan", key, with)
+		must(t, err)
+	}
+	comments := p.goalComments(t)
+	if len(comments) != 2 || !strings.Contains(comments[0].Body, "<!-- forecrew:plan-problem:k1 -->") ||
+		!strings.Contains(comments[0].Body, "The architect's plan cannot be used: the plan does not cover these acceptance criteria: AC-2.") {
+		t.Errorf("comments = %+v", comments)
+	}
+	p.wrapped = failing{Tracker: p.tracker, errs: map[string]error{"CreateComment": errors.New("boom")}}
+	p.register()
+	_, err := p.call(t, "goal.plan", with)
+	wantErr(t, err, "boom")
+}
+
 func TestGoalPlanErrors(t *testing.T) {
 	p := newPlanned(t)
 	escalated := planOutput(planTask("One", []string{"AC-1", "AC-2"}, nil))

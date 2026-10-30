@@ -116,7 +116,8 @@ func taskBranch(t domain.Task) string { return "agent/" + t.Ref() }
 // output the criteria are taken from. A task or issue that exists already is
 // kept, so a repeated call completes the plan. A plan that cannot be used
 // (see planDoc.check) stores nothing: the output is not valid and its errors
-// are the feedback of the architect's rerun. It outputs the tasks in order.
+// are the feedback of the architect's rerun, and are commented on the goal
+// issue once per call. It outputs the tasks in order.
 // The goal's with.platforms are added to the needs of every task.
 func (a *actions) goalPlan(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
@@ -139,21 +140,27 @@ func (a *actions) goalPlan(ctx context.Context, call workflow.ActionCall) (any, 
 	if err := parseOutput(with.Spec, &spec); err != nil {
 		return nil, fmt.Errorf("with: spec: %w", err)
 	}
-	if err := plan.check(spec); err != nil {
-		return planOutput{Errors: err.Error() + ". Fix the plan.", Tasks: []taskRef{}}, nil
-	}
 	g, err := a.loadGoal(ctx, call.Run, with.GoalID)
 	if err != nil {
 		return nil, err
+	}
+	p, err := a.Store.Projects().Get(ctx, g.AccountID, g.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("get project: %w", err)
+	}
+	if err := plan.check(spec); err != nil {
+		// The human who is asked after two bad plans sees why on the issue.
+		marker := fmt.Sprintf("<!-- forecrew:plan-problem:%s -->", call.Key)
+		note := marker + "\nThe architect's plan cannot be used: " + err.Error() + "."
+		if err := a.commentOnce(ctx, p.Repo, g.IssueNumber, marker, note); err != nil {
+			return nil, err
+		}
+		return planOutput{Errors: err.Error() + ". Fix the plan.", Tasks: []taskRef{}}, nil
 	}
 	switch g.Status {
 	case domain.GoalSpecReview, domain.GoalPlanned:
 	default:
 		return nil, fmt.Errorf("%s is %s, not in spec review", g.Ref(), g.Status)
-	}
-	p, err := a.Store.Projects().Get(ctx, g.AccountID, g.ProjectID)
-	if err != nil {
-		return nil, fmt.Errorf("get project: %w", err)
 	}
 	existing, err := a.Store.Tasks().List(ctx, g.AccountID, store.TaskFilter{GoalID: g.ID, SpecID: with.SpecID})
 	if err != nil {
