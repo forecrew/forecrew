@@ -1,0 +1,83 @@
+# Forecrew: forecrewd, its Postgres and a daily database backup.
+#
+#   cp .env.example .env                    # fill in the secrets
+#   cp forecrew.example.yaml forecrew.yaml  # edit
+#   docker compose up -d
+#
+# See docs/runbooks/install.md.
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: forecrew
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: forecrew
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forecrew -d forecrew"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    image: ghcr.io/forecrew/forecrewd:${FORECREW_VERSION:-latest}
+    entrypoint: ["/usr/local/bin/forecrew"]
+    command: ["migrate", "up"]
+    environment:
+      FORECREW_DATABASE_URL: &database_url postgres://forecrew:${POSTGRES_PASSWORD}@postgres:5432/forecrew?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  forecrewd:
+    image: ghcr.io/forecrew/forecrewd:${FORECREW_VERSION:-latest}
+    restart: unless-stopped
+    # One replica only: forecrewd is not built to run twice against a database.
+    env_file: .env
+    environment:
+      FORECREW_DATABASE_URL: *database_url
+    volumes:
+      - ./forecrew.yaml:/etc/forecrew/forecrew.yaml:ro
+      - certs:/var/lib/forecrew/certs
+    ports:
+      - "${FORECREW_HTTP_PORT:-80}:80"
+      - "${FORECREW_HTTPS_PORT:-443}:443"
+    # Lets the unprivileged process listen on 80 and 443.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/forecrewd", "healthcheck", "--config", "/etc/forecrew/forecrew.yaml"]
+      interval: 10s
+      timeout: 6s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  backup:
+    image: postgres:18
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c", "while true; do /backup.sh; sleep 86400; done"]
+    environment:
+      PGHOST: postgres
+      PGUSER: forecrew
+      PGDATABASE: forecrew
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      BACKUP_DIR: /backups
+      BACKUP_RETAIN_DAYS: ${BACKUP_RETAIN_DAYS:-14}
+    volumes:
+      - ../backup/backup.sh:/backup.sh:ro
+      - backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  certs:
+  backups:

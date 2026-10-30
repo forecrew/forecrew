@@ -1,0 +1,48 @@
+# forecrewd configuration; see docs/contracts/config.md. Copy to forecrew.yaml.
+# Secrets are not here: they come from .env.
+
+server:
+  public_base_url: https://forecrew.example.com
+
+  # Mode 1: forecrewd gets its own certificates (Let's Encrypt). The domain
+  # must point at this host and ports 80 and 443 must be reachable from the
+  # internet. Uncomment the next two lines and delete the listen line below
+  # (it then defaults to :443).
+  # tls_domain: forecrew.example.com
+  # cert_cache_dir: /var/lib/forecrew/certs
+
+  # Mode 2: plain HTTP behind a load balancer that terminates TLS. Keep
+  # tls_domain unset, point the balancer at port 80 of this host, and keep
+  # public_base_url as the https URL users and workers reach. The container
+  # publishes port 80, so listen must be :80.
+  listen: ":80"
+
+github:
+  app_id: 123456
+  allowlist: [octocat]
+
+runtimes:
+  claude:
+    adapter: claude-code
+    vendor: anthropic
+    credential_env: [ANTHROPIC_API_KEY]
+  codex:
+    adapter: codex
+    vendor: openai
+    credential_env: [CODEX_API_KEY]
+
+# Use the model names your vendors offer.
+model_tiers:
+  fast:   {anthropic: claude-haiku-4-5, openai: gpt-5-mini}
+  strong: {anthropic: claude-sonnet-4-5, openai: gpt-5}
+  best:   {anthropic: claude-opus-4-1, openai: gpt-5-pro}
+
+roles:
+  onboarding-analyst: {runtime: claude, tier: strong}
+  product-owner:      {runtime: claude, tier: strong}
+  architect:          {runtime: claude, tier: best}
+  developer:          {runtime: claude, tier: strong}
+  reviewer:           {runtime: codex,  tier: best}
+
+policy:
+  allow_same_vendor_review: false
