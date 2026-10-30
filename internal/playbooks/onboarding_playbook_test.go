@@ -6,12 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 	"uuid"
 
-	"github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/mcp"
@@ -26,13 +24,9 @@ func analyzePath(round, try int) string {
 	return fmt.Sprintf("review/%d/draft/%d/analyze", round, try)
 }
 
-// onboarding is an env with a running engine and the onboarding playbook.
+// onboarding is a run of the onboarding playbook.
 type onboarding struct {
-	*env
-	jobs    *testkit.JobCreator
-	worker  domain.Worker
-	human   domain.Actor
-	run     domain.WorkflowRun
+	*runner
 	pushes  int
 	lastSHA string // head of the last analyst job
 	file    []byte // the profile file as last committed
@@ -42,66 +36,9 @@ type onboarding struct {
 // engine stops when the test ends.
 func startOnboarding(t *testing.T, v *env) *onboarding {
 	t.Helper()
-	books, err := workflow.LoadPlaybooks(forecrew.Files, "packs/playbooks")
-	must(t, err)
-	o := &onboarding{env: v, jobs: &testkit.JobCreator{Store: v.st}, human: domain.Actor{AccountID: v.account, Kind: domain.ActorUser, Name: "ana"}}
-	o.worker = domain.Worker{AccountID: v.account, Name: "box", TokenHash: []byte(domain.NewID().String())}
-	must(t, v.st.Workers().Create(t.Context(), &o.worker))
-	e, err := workflow.New(workflow.Config{
-		Store: v.st, Bus: v.bus, Jobs: o.jobs, Gates: v.gates, Actions: v.actions, Playbooks: books,
-		Now: v.clock.Now, Workers: 2, Sweep: 5 * time.Millisecond,
-	})
-	must(t, err)
-	ctx, cancel := context.WithCancel(context.Background())
-	var wg sync.WaitGroup
-	wg.Go(func() { _ = e.Run(ctx) })
-	t.Cleanup(func() { cancel(); wg.Wait() })
-	o.run, err = e.Start(t.Context(), "onboarding", workflow.StartRequest{
+	return &onboarding{runner: startRun(t, v, "onboarding", workflow.StartRequest{
 		AccountID: v.account, ProjectID: v.project.ID, Inputs: map[string]any{"repo": "acme/app", "project": "app"},
-	})
-	must(t, err)
-	return o
-}
-
-func eventually(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-}
-
-// waitStep waits for the step run (path, attempt 1 unless given) to reach status.
-func (o *onboarding) waitStep(t *testing.T, path string, status domain.StepStatus) domain.StepRun {
-	t.Helper()
-	var found domain.StepRun
-	eventually(t, "step "+path+" "+string(status), func() bool {
-		steps, err := o.st.StepRuns().ListByRun(t.Context(), o.account, o.run.ID)
-		must(t, err)
-		for _, s := range steps {
-			if s.StepID == path && s.Attempt == 1 && s.Status == status {
-				found = s
-				return true
-			}
-		}
-		return false
-	})
-	return found
-}
-
-func (o *onboarding) waitRun(t *testing.T, status domain.RunStatus) domain.WorkflowRun {
-	t.Helper()
-	var r domain.WorkflowRun
-	eventually(t, "run "+string(status), func() bool {
-		var err error
-		r, err = o.st.WorkflowRuns().Get(t.Context(), o.account, o.run.ID)
-		must(t, err)
-		return r.Status == status
-	})
-	return r
+	})}
 }
 
 // analyst waits for the analyst job at path, completes it with output as the
@@ -137,13 +74,7 @@ func (o *onboarding) analystFile(t *testing.T, path string, output map[string]an
 	if pr, err := o.tracker.FindPR(ctx, "acme/app", "agent/onboarding"); err == nil {
 		must(t, o.tracker.SetHeadSHA("acme/app", pr.Number, o.lastSHA))
 	}
-	j, err := o.st.Jobs().Get(ctx, o.account, s.JobID)
-	must(t, err)
-	leased, err := o.st.Jobs().LeaseNext(ctx, o.account, o.worker.ID, j.RequiredLabels(), time.Hour)
-	must(t, err)
-	_, err = o.st.Jobs().Complete(ctx, o.account, leased.ID, o.worker.ID, store.JobResult{Status: domain.JobSucceeded, Output: raw, HeadSHA: o.lastSHA})
-	must(t, err)
-	o.publish(t, &domain.JobCompleted{JobID: leased.ID, Status: domain.JobSucceeded})
+	o.finishJob(t, s.JobID, raw, o.lastSHA, 0)
 	return req
 }
 
@@ -159,14 +90,6 @@ func (o *onboarding) commit(t *testing.T, content []byte) {
 	for _, ref := range refs {
 		must(t, o.tracker.SetFile("acme/app", ref, ".forecrew/profile.yaml", content))
 	}
-}
-
-func (o *onboarding) publish(t *testing.T, p domain.SignalPayload) {
-	t.Helper()
-	sig, err := domain.NewSignal(o.account, o.project.ID, p, o.clock.Now())
-	must(t, err)
-	_, err = o.bus.Publish(t.Context(), sig)
-	must(t, err)
 }
 
 // checks waits for the checks step of the round and reports the conclusion
@@ -189,33 +112,6 @@ func (o *onboarding) reach(t *testing.T, round int, profile map[string]any) doma
 	return o.pendingGate(t, domain.GateProfileApproval)
 }
 
-// pendingGate waits for the one pending gate of kind and returns it.
-func (o *onboarding) pendingGate(t *testing.T, kind domain.GateKind) domain.Gate {
-	t.Helper()
-	var g domain.Gate
-	eventually(t, string(kind)+" gate", func() bool {
-		gs, err := o.gates.ListPending(t.Context(), o.account, o.project.ID)
-		must(t, err)
-		for _, x := range gs {
-			if x.Kind == kind {
-				g = x
-				return true
-			}
-		}
-		return false
-	})
-	return g
-}
-
-// decide answers the pending gate of kind with a gate tool.
-func (o *onboarding) decide(t *testing.T, kind domain.GateKind, tool, feedback string) domain.Gate {
-	t.Helper()
-	g := o.pendingGate(t, kind)
-	out, err := o.gates.Decide(t.Context(), o.human, tool, mcp.GateDecisionInput{Gate: g.Ref(), Feedback: feedback})
-	must(t, err)
-	return out
-}
-
 func (o *onboarding) projectNow(t *testing.T) domain.Project {
 	t.Helper()
 	p, err := o.st.Projects().Get(t.Context(), o.account, o.project.ID)
@@ -231,12 +127,6 @@ func analystOutput(profile map[string]any) map[string]any {
 }
 
 var githubBot = domain.Actor{Kind: domain.ActorGitHub, Name: "github"}
-
-func (o *onboarding) github() domain.Actor {
-	a := githubBot
-	a.AccountID = o.account
-	return a
-}
 
 func TestOnboardingApprovedOverMCP(t *testing.T) {
 	o := startOnboarding(t, newEnv(t))
