@@ -15,6 +15,7 @@ export const keys = {
   goals: (project?: string, status?: string) => ["goals", project ?? "", status ?? ""] as const,
   goal: (ref: string) => ["goal", ref] as const,
   jobs: (project?: string, status?: string) => ["jobs", project ?? "", status ?? ""] as const,
+  goalJobs: (goal: string) => ["goal-jobs", goal] as const,
   job: (ref: string) => ["job", ref] as const,
   logs: (ref: string) => ["job-logs", ref] as const,
   workers: ["workers"] as const,
@@ -49,6 +50,8 @@ export const useJobs = (project?: string, status?: JobStatus | "") =>
     placeholderData: keepPreviousData,
     ...poll,
   })
+export const useGoalJobs = (goal: string) =>
+  useQuery({ queryKey: keys.goalJobs(goal), queryFn: () => api.listJobs({ goal, limit: 500 }), ...poll })
 export const useJob = (ref: string) =>
   useQuery({
     queryKey: keys.job(ref),

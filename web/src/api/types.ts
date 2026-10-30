@@ -56,6 +56,7 @@ export interface Change {
 }
 
 export interface Task {
+  id: string
   ref: string
   number: number
   seq: number
@@ -151,6 +152,13 @@ export interface JobSpec {
   timeout: string
 }
 
+export interface Usage {
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+}
+
 export interface Job {
   id: string
   project_id: string
@@ -160,13 +168,25 @@ export interface Job {
   role: string
   runtime: string
   needs: string[]
+  goal_id?: string
+  task_id?: string
   spec: JobSpec
   attempts: number
   max_attempts: number
+  /** Set while the job runs. */
+  worker_id?: string
+  /** A released job waits until then before it is leased again. */
+  run_after?: string
+  /** Set while the job runs. */
+  lease_expires_at?: string
   started_at?: string
   finished_at?: string
-  run_after?: string
+  /** Structured output of a finished job. */
+  output?: unknown
+  /** The commit pushed to the job's branch, if any. */
+  head_sha?: string
   error?: string
+  usage: Usage
   cost_usd: number
   created_at: string
   updated_at: string
