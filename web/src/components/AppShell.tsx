@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, Outlet, useNavigate } from "@tanstack/react-router"
 import {
-  InboxIcon, LogOutIcon, MenuIcon,
+  BriefcaseIcon, InboxIcon, LogOutIcon, MenuIcon,
 } from "lucide-react"
 import { useState } from "react"
 import { api } from "@/api/client"
@@ -11,6 +11,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from 
 
 const NAV = [
   { to: "/inbox", label: "Inbox", icon: InboxIcon },
+  { to: "/jobs", label: "Jobs", icon: BriefcaseIcon },
 ] as const
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {

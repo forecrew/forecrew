@@ -7,6 +7,8 @@ import { meOptions } from "@/api/queries"
 import { AppShell } from "@/components/AppShell"
 import { NotFound, RouteError } from "@/components/RouteError"
 import { InboxPage } from "@/routes/inbox"
+import { JobPage } from "@/routes/job"
+import { JobsPage } from "@/routes/jobs"
 import { LoginPage } from "@/routes/login"
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({ component: Outlet })
@@ -57,6 +59,8 @@ const routeTree = root.addChildren([
   app.addChildren([
     child("/", () => <Navigate to="/inbox" replace />),
     child("/inbox", InboxPage),
+    createRoute({ getParentRoute: () => app, path: "/jobs", validateSearch: search, component: JobsPage }),
+    child("/jobs/$ref", JobPage),
   ]),
 ])
 

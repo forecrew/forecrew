@@ -1,10 +1,12 @@
 import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { Age } from "./Age"
 import { ExternalLink } from "./ExternalLink"
 import { Field } from "./Field"
 import { Markdown } from "./Markdown"
 import { PageHeader } from "./PageHeader"
 import { StatusBadge } from "./StatusBadge"
+import { TableWrap } from "./TableWrap"
 
 describe("Markdown", () => {
   test("renders markdown", () => {
@@ -98,4 +100,15 @@ test("PageHeader has the page's only h1 and its actions", () => {
   expect(screen.getByRole("button", { name: "New" })).toBeInTheDocument()
   render(<PageHeader title="Alone" />)
   expect(screen.getByRole("heading", { name: "Alone" })).toBeInTheDocument()
+})
+
+test("TableWrap is a focusable, labelled region", async () => {
+  render(
+    <TableWrap label="Jobs">
+      <p>x</p>
+    </TableWrap>,
+  )
+  const region = screen.getByRole("region", { name: "Jobs table" })
+  await userEvent.tab()
+  expect(region).toHaveFocus()
 })
