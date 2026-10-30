@@ -29,6 +29,7 @@ jobs:
         with:
           go-version: "1.27.x"
           check-latest: true
+      - uses: ./.github/actions/web-setup
       - run: make build
       - run: make test
 
@@ -56,8 +57,17 @@ jobs:
         with:
           go-version: "1.27.x"
           check-latest: true
+      - uses: ./.github/actions/web-setup
       - run: make test-integration
       - run: make cover
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/web-setup
+      - run: make web-lint web-cover
+      - run: make web
 
   deploy-scripts:
     runs-on: ubuntu-latest
@@ -104,6 +114,10 @@ jobs:
           done
           docker compose logs
           exit 1
+      - name: web UI at /
+        run: |
+          curl -fsS http://localhost:8080/ | grep -q '<div id="root">'
+          curl -fsSI http://localhost:8080/some/page | grep -qi '^content-security-policy: default-src'
       - name: forecrew CLI in the image
         run: |
           docker compose exec -T forecrewd forecrew config validate --config /etc/forecrew/forecrew.yaml
