@@ -40,6 +40,8 @@ export const useJob = (ref: string) =>
     refetchInterval: (q) => (q.state.data && ["succeeded", "failed", "canceled"].includes(q.state.data.status) ? false : POLL_MS),
     refetchIntervalInBackground: false,
   })
+export const useWorkers = () => useQuery({ queryKey: keys.workers, queryFn: api.listWorkers, ...poll })
+
 export interface LogState {
   events: JobEvent[]
   nextSeq: number
