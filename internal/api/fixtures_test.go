@@ -154,6 +154,11 @@ func fixtureEnv(t *testing.T) *env {
 		g.Status = domain.GateRejected
 		return g, nil
 	}
+	s.CancelJobFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
+		j := jobs[0]
+		j.Status, j.FinishedAt, j.Error = domain.JobCanceled, t0, "canceled"
+		return mcp.JobInfo{Job: j, Ref: "JOB-41", WorkerName: "build-box-1"}, nil
+	}
 	return e
 }
 
@@ -250,6 +255,12 @@ func fixtureCases() []fixtureCase {
 					{Seq: 4, Time: at(-2), Type: domain.EventToolCall},
 					{Seq: 5, Time: at(-1), Type: domain.EventToolResult},
 				}}, nil
+			}
+		}},
+		{"job-cancel", "POST", "/api/v1/jobs/JOB-41/cancel", "", 200, "bearer", nil},
+		{"job-cancel-conflict", "POST", "/api/v1/jobs/JOB-41/cancel", "", 409, "bearer", func(e *env) {
+			e.svc.CancelJobFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
+				return mcp.JobInfo{}, fmt.Errorf("job JOB-41 is succeeded: %w", domain.ErrInvalidTransition)
 			}
 		}},
 		{"workers", "GET", "/api/v1/workers", "", 200, "bearer", nil},

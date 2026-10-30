@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "conflict",
+    "message": "job JOB-41 is succeeded: invalid state transition"
+  }
+}
+

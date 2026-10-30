@@ -9,6 +9,7 @@ import { ExternalLink } from "@/components/ExternalLink"
 import { PageHeader } from "@/components/PageHeader"
 import { StatusBadge } from "@/components/StatusBadge"
 import { Button } from "@/components/ui/button"
+import { CancelJob, cancelable } from "@/components/CancelJob"
 import { count, cost, jobTone } from "@/lib/format"
 
 const USAGE_PARTS: [string, string][] = [
@@ -139,7 +140,7 @@ export function JobPage() {
     <Async query={job}>
       {(j) => (
         <>
-          <PageHeader title={`${j.ref} · ${j.role}`} />
+          <PageHeader title={`${j.ref} · ${j.role}`}>{cancelable(j.status) ? <CancelJob jobRef={j.ref} /> : null}</PageHeader>
           <dl className="mb-6 grid gap-x-6 gap-y-2 rounded-xl border bg-card p-4 text-sm sm:grid-cols-[10rem_1fr]">
             <dt className="text-label">State</dt>
             <dd>

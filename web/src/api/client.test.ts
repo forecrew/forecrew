@@ -49,12 +49,14 @@ test("sends JSON on state changes, even without a body, and nothing on reads", a
   await api.approve("GATE-1")
   await api.reject("GATE-1")
   await api.requestChanges("GATE-1", "more")
+  await api.cancelJob("JOB-1")
   expect(seen).toEqual([
     { method: "GET", type: null, body: "" },
     { method: "DELETE", type: "application/json", body: "" },
     { method: "POST", type: "application/json", body: "{}" },
     { method: "POST", type: "application/json", body: "{}" },
     { method: "POST", type: "application/json", body: '{"feedback":"more"}' },
+    { method: "POST", type: "application/json", body: "" },
   ])
 })
 

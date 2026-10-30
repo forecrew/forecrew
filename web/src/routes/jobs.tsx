@@ -2,6 +2,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { useJobs, useProjects } from "@/api/queries"
 import { JOB_STATUSES, type JobStatus } from "@/api/types"
 import { Age } from "@/components/Age"
+import { CancelJob, cancelable } from "@/components/CancelJob"
 import { Async } from "@/components/Async"
 import { PageHeader } from "@/components/PageHeader"
 import { ProjectSelect } from "@/components/ProjectSelect"
@@ -55,6 +56,7 @@ export function JobsPage() {
                   <TableHead>Runtime</TableHead>
                   <TableHead className="text-right">Cost</TableHead>
                   <TableHead>Created</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -74,6 +76,7 @@ export function JobsPage() {
                     <TableCell>
                       <Age iso={j.created_at} ago />
                     </TableCell>
+                    <TableCell>{cancelable(j.status) ? <CancelJob jobRef={jobRef(j.number)} label="Cancel" ariaLabel={`Cancel ${jobRef(j.number)}`} /> : null}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

@@ -2,6 +2,7 @@ import { Link, useParams } from "@tanstack/react-router"
 import { useGoal, useGoalJobs, useWorkers } from "@/api/queries"
 import type { GoalDetail } from "@/api/types"
 import { Age } from "@/components/Age"
+import { CancelJob, cancelable } from "@/components/CancelJob"
 import { Async } from "@/components/Async"
 import { ExternalLink } from "@/components/ExternalLink"
 import { Markdown } from "@/components/Markdown"
@@ -78,6 +79,7 @@ function GoalJobs({ goal, tasks }: { goal: string; tasks: GoalDetail["tasks"] })
                 <TableHead>Task</TableHead>
                 <TableHead>Worker</TableHead>
                 <TableHead className="text-right">Cost</TableHead>
+                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -94,6 +96,7 @@ function GoalJobs({ goal, tasks }: { goal: string; tasks: GoalDetail["tasks"] })
                   <TableCell className="font-mono">{(j.task_id && taskRefs.get(j.task_id)) || <span className="font-sans text-muted-foreground">none</span>}</TableCell>
                   <TableCell className="font-mono">{(j.worker_id && workerNames.get(j.worker_id)) || <span className="font-sans text-muted-foreground">none</span>}</TableCell>
                   <TableCell className="text-right">{cost(j.cost_usd)}</TableCell>
+                  <TableCell>{cancelable(j.status) ? <CancelJob jobRef={jobRef(j.number)} label="Cancel" ariaLabel={`Cancel ${jobRef(j.number)}`} /> : null}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
