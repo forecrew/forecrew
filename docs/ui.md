@@ -5,8 +5,9 @@ client over [`/api/v1`](api.md): it shows what the API returns and sends the
 decisions you make, and holds no business logic. GitHub stays the place to
 review code; the UI links to it.
 
-Screens: Home (what needs me, is everything healthy), Inbox (decide gates),
-Goals, Projects, Jobs and Workers (dig into detail), and a command menu
+Screens: Home (what needs me, is everything healthy), Inbox (decide gates,
+filtered by project; a goal page decides its own pending gates with the same
+cards), Goals, Projects, Jobs and Workers (dig into detail), and a command menu
 (Ctrl+K or Cmd+K) to jump anywhere or start a goal or an onboarding.
 
 ## Run it locally
