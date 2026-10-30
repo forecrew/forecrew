@@ -1,4 +1,4 @@
-import { cost, count, until, goalRef, goalTone, jobRef, jobTone, projectTone, splitList, stageOf, taskTone, words } from "./format"
+import { cost, count, isRefOrId, until, goalRef, goalTone, jobRef, jobTone, projectTone, splitList, stageOf, taskTone, words } from "./format"
 import { safeRedirect } from "./redirect"
 
 test("refs", () => {
@@ -65,4 +65,19 @@ test("count and until", () => {
   expect(until("2026-03-01T12:05:00Z", now)).toBe("in 5 min")
   expect(until("2026-03-01T11:00:00Z", now)).toBe("now")
   expect(until(undefined, now)).toBe("never")
+})
+
+test.each([
+  ["GOAL", "GOAL-3", true],
+  ["GOAL", "goal-12", true],
+  ["GOAL", "GOAL-0", false],
+  ["GOAL", "GOAL-", false],
+  ["GOAL", "GOAL-3-4", false],
+  ["GOAL", "TASK-3", false],
+  ["TASK", "TASK-12", true],
+  ["TASK", "018f0000-0000-7000-8000-000000000040", true],
+  ["TASK", "018f0000-0000-7000-8000-00000000004", false],
+  ["TASK", "", false],
+] as const)("isRefOrId(%s, %s) is %s", (kind, s, ok) => {
+  expect(isRefOrId(kind, s)).toBe(ok)
 })

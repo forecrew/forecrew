@@ -79,3 +79,12 @@ export function projectTone(s: ProjectStatus): Tone {
 export function splitList(s: string): string[] {
   return s.split(/[\s,]+/).filter(Boolean)
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Whether s is a ref of the kind ("GOAL", "TASK": GOAL-3, any case, from 1) or a UUID, as the API takes them. */
+export function isRefOrId(kind: "GOAL" | "TASK", s: string): boolean {
+  const [prefix, num, ...rest] = s.split("-")
+  if (prefix?.toUpperCase() === kind && rest.length === 0 && /^\d+$/.test(num ?? "") && Number(num) >= 1) return true
+  return UUID.test(s)
+}
