@@ -6,15 +6,16 @@ import { renderApp } from "./render"
 describe("login and session", () => {
   test("a visit without a session goes to the login page and back after login", async () => {
     server.use(http.get("/api/v1/me", errors.unauthorized))
-    const { user, router } = await renderApp("/inbox")
+    const { user, router } = await renderApp("/goals?status=draft")
     expect(await screen.findByRole("heading", { name: "Log in to Forecrew" })).toBeInTheDocument()
-    expect(router.state.location.search).toEqual({ redirect: "/inbox" })
+    expect(router.state.location.search).toEqual({ redirect: "/goals?status=draft" })
 
     server.resetHandlers() // the session is valid from now on
     await user.type(screen.getByLabelText("API token"), "fcm_secret")
     await user.click(screen.getByRole("button", { name: "Log in" }))
-    expect(await screen.findByRole("heading", { name: "Inbox" })).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe("/inbox")
+    expect(await screen.findByRole("heading", { name: "Goals" })).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe("/goals")
+    expect(router.state.location.search).toEqual({ status: "draft" })
   })
 
   test("login sends the token as JSON and never stores it", async () => {
@@ -31,7 +32,7 @@ describe("login and session", () => {
     const { user } = await renderApp("/login")
     await user.type(await screen.findByLabelText("API token"), "  fcm_secret ")
     await user.click(screen.getByRole("button", { name: "Log in" }))
-    await screen.findByRole("heading", { name: "Inbox" })
+    await screen.findByRole("heading", { name: "Home" })
     expect(body).toEqual({ token: "fcm_secret" })
     expect(type).toBe("application/json")
     expect(JSON.stringify({ ...localStorage })).not.toContain("fcm_secret")
@@ -68,17 +69,17 @@ describe("login and session", () => {
     server.resetHandlers()
     await user.type(await screen.findByLabelText("API token"), "fcm_secret")
     await user.click(screen.getByRole("button", { name: "Log in" }))
-    await screen.findByRole("heading", { name: "Inbox" })
-    expect(router.state.location.pathname).toBe("/inbox")
+    await screen.findByRole("heading", { name: "Home" })
+    expect(router.state.location.pathname).toBe("/")
   })
 
   test("any 401 later goes back to the login page", async () => {
-    const { router, queryClient } = await renderApp("/inbox")
-    await screen.findByRole("heading", { name: "Inbox" })
-    server.use(http.get("/api/v1/gates", errors.unauthorized))
-    await queryClient.invalidateQueries({ queryKey: ["gates"] })
+    const { router, queryClient } = await renderApp("/workers")
+    await screen.findByRole("heading", { name: "Workers" })
+    server.use(http.get("/api/v1/workers", errors.unauthorized))
+    await queryClient.invalidateQueries({ queryKey: ["workers"] })
     await waitFor(() => expect(router.state.location.pathname).toBe("/login"))
-    expect(router.state.location.search).toEqual({ redirect: "/inbox" })
+    expect(router.state.location.search).toEqual({ redirect: "/workers" })
   })
 
   test("log out clears the session and shows the login page", async () => {
@@ -90,7 +91,7 @@ describe("login and session", () => {
       }),
     )
     const { user, router } = await renderApp("/")
-    await screen.findByRole("heading", { name: "Inbox" })
+    await screen.findByRole("heading", { name: "Home" })
     const aside = screen.getByText(/Signed in as/).closest("div")!
     expect(within(aside).getByText("laptop")).toBeInTheDocument()
     await user.click(within(aside).getByRole("button", { name: /Log out/ }))
@@ -112,7 +113,7 @@ describe("login and session", () => {
     await screen.findByText("Something went wrong")
     server.resetHandlers()
     await user.click(screen.getByRole("button", { name: "Try again" }))
-    expect(await screen.findByRole("heading", { name: "Inbox" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "Home" })).toBeInTheDocument()
   })
 })
 

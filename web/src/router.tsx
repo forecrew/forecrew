@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query"
 import {
-  createRootRouteWithContext, createRoute, createRouter, Navigate, Outlet, redirect, type RouterHistory,
+  createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, type RouterHistory,
 } from "@tanstack/react-router"
 import { ApiError, setUnauthorizedHandler } from "@/api/client"
 import { meOptions } from "@/api/queries"
@@ -8,6 +8,7 @@ import { AppShell } from "@/components/AppShell"
 import { NotFound, RouteError } from "@/components/RouteError"
 import { GoalPage } from "@/routes/goal"
 import { GoalsPage, NewGoalPage } from "@/routes/goals"
+import { HomePage } from "@/routes/home"
 import { InboxPage } from "@/routes/inbox"
 import { JobPage } from "@/routes/job"
 import { JobsPage } from "@/routes/jobs"
@@ -62,7 +63,7 @@ const child = <P extends string>(path: P, component: () => React.ReactNode) => c
 const routeTree = root.addChildren([
   login,
   app.addChildren([
-    child("/", () => <Navigate to="/inbox" replace />),
+    child("/", HomePage),
     child("/inbox", InboxPage),
     createRoute({ getParentRoute: () => app, path: "/goals", validateSearch: search, component: GoalsPage }),
     child("/goals/new", NewGoalPage),

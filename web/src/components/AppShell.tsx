@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, Outlet, useNavigate } from "@tanstack/react-router"
 import {
-  BriefcaseIcon, FolderGitIcon, InboxIcon, LogOutIcon, MenuIcon, ServerIcon, TargetIcon,
+  BriefcaseIcon, FolderGitIcon, InboxIcon, LayoutDashboardIcon, LogOutIcon, MenuIcon, ServerIcon, TargetIcon,
 } from "lucide-react"
 import { useState } from "react"
 import { api } from "@/api/client"
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 
 const NAV = [
+  { to: "/", label: "Home", icon: LayoutDashboardIcon },
   { to: "/inbox", label: "Inbox", icon: InboxIcon },
   { to: "/goals", label: "Goals", icon: TargetIcon },
   { to: "/projects", label: "Projects", icon: FolderGitIcon },
@@ -25,7 +26,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
         <Link
           key={to}
           to={to}
-          activeOptions={{ exact: false }}
+          activeOptions={{ exact: to === "/" }}
           onClick={onNavigate}
           className="flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground [&.active]:bg-accent [&.active]:text-foreground"
         >
