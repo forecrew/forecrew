@@ -1,0 +1,38 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000060",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "name": "build-box-1",
+    "labels": [
+      "docker",
+      "go",
+      "linux",
+      "node",
+      "runtime:claude-code"
+    ],
+    "version": "v0.3.1",
+    "max_jobs": 1,
+    "last_seen_at": "2026-03-01T12:00:00Z",
+    "created_at": "2026-02-28T19:20:00Z",
+    "online": true,
+    "running_jobs": [
+      "JOB-41"
+    ]
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000061",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "name": "mac-mini",
+    "labels": [
+      "macos",
+      "runtime:codex"
+    ],
+    "version": "v0.3.0",
+    "max_jobs": 1,
+    "last_seen_at": "2026-03-01T10:00:00Z",
+    "created_at": "2026-02-28T21:00:00Z",
+    "online": false,
+    "running_jobs": []
+  }
+]
+

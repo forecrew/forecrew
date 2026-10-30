@@ -1,0 +1,45 @@
+{
+  "id": "018f0000-0000-7000-8000-000000000142",
+  "account_id": "018f0000-0000-7000-8000-000000000001",
+  "project_id": "018f0000-0000-7000-8000-000000000010",
+  "number": 42,
+  "status": "queued",
+  "role": "reviewer",
+  "runtime": "claude-code",
+  "needs": [
+    "go",
+    "linux"
+  ],
+  "goal_id": "018f0000-0000-7000-8000-000000000020",
+  "spec": {
+    "job_id": "018f0000-0000-7000-8000-000000000142",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "repo": "acme/app",
+    "base_ref": "main",
+    "branch": "agent/task-12",
+    "role": "reviewer",
+    "write_paths": null,
+    "runtime": "claude-code",
+    "model": "claude-sonnet-5",
+    "prompt": "Implement TASK-12.",
+    "allowed_tools": [
+      "Read",
+      "Edit"
+    ],
+    "max_turns": 40,
+    "timeout": "30m0s",
+    "include_repo_facts": false
+  },
+  "attempts": 0,
+  "max_attempts": 3,
+  "usage": {
+    "input_tokens": 1200,
+    "output_tokens": 340,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0
+  },
+  "cost_usd": 0.12,
+  "created_at": "2026-03-01T10:00:00Z",
+  "updated_at": "2026-03-01T11:59:00Z"
+}
+

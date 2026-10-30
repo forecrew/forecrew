@@ -1,0 +1,53 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000030",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 9,
+    "kind": "merge_approval",
+    "status": "pending",
+    "title": "Merge PR #9",
+    "summary": "Adds email sign-in. Tests pass.\n\n- 12 files changed\n- Coverage 91%",
+    "subject_repo": "acme/app",
+    "subject_number": 9,
+    "created_at": "2026-03-01T11:15:00Z",
+    "ref": "GATE-9",
+    "project": "app",
+    "goal_ref": "GOAL-3",
+    "task_ref": "TASK-12",
+    "url": "https://github.com/acme/app/pull/9"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000031",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 10,
+    "kind": "spec_approval",
+    "status": "pending",
+    "title": "Approve the spec",
+    "summary": "Spec revision 2 for GOAL-4.",
+    "subject_repo": "acme/app",
+    "subject_number": 6,
+    "created_at": "2026-03-01T11:40:00Z",
+    "ref": "GATE-10",
+    "project": "app",
+    "goal_ref": "GOAL-4",
+    "url": "https://github.com/acme/app/issues/6"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000032",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000011",
+    "number": 11,
+    "kind": "needs_you",
+    "status": "pending",
+    "title": "Developer job failed",
+    "summary": "The developer job failed 3 times: \u003cscript\u003ealert(1)\u003c/script\u003e tests do not compile.",
+    "subject_repo": "acme/docs",
+    "created_at": "2026-03-01T11:55:00Z",
+    "ref": "GATE-11",
+    "project": "docs",
+    "task_ref": "TASK-14"
+  }
+]
+
