@@ -26,10 +26,47 @@ func leaver(t *testing.T, pids chan<- int, start func(spec runtime.RunSpec) []*e
 				t.Error(err)
 				continue
 			}
+			waitExec(t, cmd.Process.Pid, "")
 			pids <- cmd.Process.Pid
 		}
 		return runtime.Result{}, nil
 	}}
+}
+
+// waitExec waits until a started process has finished exec: Start returns once
+// the exec has begun, and until it completes /proc/<pid>/environ reads empty,
+// so a sweep would not see the mark. It also waits for mark, when given, in
+// the environment.
+func waitExec(t *testing.T, pid int, mark string) {
+	t.Helper()
+	dir := "/proc/" + strconv.Itoa(pid)
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		cmdline, _ := os.ReadFile(dir + "/cmdline") //nolint:gosec // /proc path
+		env, _ := os.ReadFile(dir + "/environ")     //nolint:gosec // /proc path
+		if len(cmdline) > 0 && (mark == "" || hasEnv(env, markEnv+"="+mark)) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("process %d did not finish exec with its mark", pid)
+}
+
+// startSleeper starts a sleep process, with the mark in its environment when
+// given, waits for it to be ready for a sweep, and kills it at the end of the
+// test.
+func startSleeper(t *testing.T, mark string) *exec.Cmd {
+	t.Helper()
+	cmd := exec.Command("sleep", "300")
+	if mark != "" {
+		cmd.Env = append(os.Environ(), markEnv+"="+mark)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	waitExec(t, cmd.Process.Pid, mark)
+	return cmd
 }
 
 func specEnv(spec runtime.RunSpec) []string {
@@ -100,21 +137,12 @@ func TestLeftoverAgentProcessesAreKilled(t *testing.T) {
 // Concurrent jobs share the user: the processes of another running agent are
 // left alone when they carry another job's mark.
 func TestSweepSparesOtherJobs(t *testing.T) {
-	other := exec.Command("sleep", "300")
-	other.Env = append(os.Environ(), markEnv+"=another-job-"+strconv.Itoa(os.Getpid()))
-	if err := other.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = other.Process.Kill(); _ = other.Wait() }()
+	other := startSleeper(t, "another-job-"+strconv.Itoa(os.Getpid()))
 	r := newReaper(func() map[int]struct{} { return nil }, &sync.RWMutex{})
 	r.agentStarted() // the other job's agent is running
 	r.agentStarted()
 	mark := "this-job-" + strconv.Itoa(os.Getpid())
-	mine := exec.Command("sleep", "300")
-	mine.Env = append(os.Environ(), markEnv+"="+mark)
-	if err := mine.Start(); err != nil {
-		t.Fatal(err)
-	}
+	mine := startSleeper(t, mark)
 	if n := r.agentDone(mark); n != 1 {
 		t.Errorf("killed %d processes, want only the one marked for this job", n)
 	}
@@ -125,11 +153,7 @@ func TestSweepSparesOtherJobs(t *testing.T) {
 }
 
 func TestSweepKeepsGitProcesses(t *testing.T) {
-	git := exec.Command("sleep", "300") // stands for a running git of another job
-	if err := git.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = git.Process.Kill(); _ = git.Wait() }()
+	git := startSleeper(t, "") // stands for a running git of another job
 	n := killLeftovers("none-"+strconv.Itoa(os.Getpid()), true, map[int]struct{}{git.Process.Pid: {}})
 	if n != 0 || !alive(git.Process.Pid) {
 		t.Errorf("killed %d processes, git process alive = %v", n, alive(git.Process.Pid))
