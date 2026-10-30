@@ -70,6 +70,7 @@ CREATE TABLE goals (
   number       bigint NOT NULL,
   title        text NOT NULL,
   body         text NOT NULL DEFAULT '',
+  platforms    text[] NOT NULL DEFAULT '{}',   -- target platforms (worker labels), normalized
   status       text NOT NULL CHECK (status IN ('draft','spec_review','planned','in_progress','done','canceled')),
   issue_number integer,
   created_by   text NOT NULL,              -- domain.Actor.String()

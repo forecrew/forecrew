@@ -114,10 +114,10 @@ func mustUpdate(ctx context.Context, db dbtx, q string, args ...any) error {
 
 type goalRepo struct{ db dbtx }
 
-var goalCols = `id, account_id, project_id, number, title, body, status, ` + cint("issue_number") + `, created_by, created_at, updated_at`
+var goalCols = `id, account_id, project_id, number, title, body, platforms, status, ` + cint("issue_number") + `, created_by, created_at, updated_at`
 
 func scanGoal(row pgx.Row) (g domain.Goal, err error) {
-	err = row.Scan(&g.ID, &g.AccountID, &g.ProjectID, &g.Number, &g.Title, &g.Body, &g.Status, &g.IssueNumber, &g.CreatedBy, &g.CreatedAt, &g.UpdatedAt)
+	err = row.Scan(&g.ID, &g.AccountID, &g.ProjectID, &g.Number, &g.Title, &g.Body, &g.Platforms, &g.Status, &g.IssueNumber, &g.CreatedBy, &g.CreatedAt, &g.UpdatedAt)
 	utc(&g.CreatedAt, &g.UpdatedAt)
 	return g, err
 }
@@ -136,9 +136,10 @@ func (r goalRepo) Create(ctx context.Context, g *domain.Goal) error {
 			return mapErr(err)
 		}
 		g.Number = n
-		return mapErr(tx.QueryRow(ctx, `INSERT INTO goals (id, account_id, project_id, number, title, body, status, issue_number, created_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING created_at, updated_at`,
-			g.ID, g.AccountID, g.ProjectID, g.Number, g.Title, g.Body, string(g.Status), opt(g.IssueNumber), g.CreatedBy).Scan(&g.CreatedAt, &g.UpdatedAt))
+		g.Platforms = domain.NormalizeLabels(g.Platforms)
+		return mapErr(tx.QueryRow(ctx, `INSERT INTO goals (id, account_id, project_id, number, title, body, platforms, status, issue_number, created_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING created_at, updated_at`,
+			g.ID, g.AccountID, g.ProjectID, g.Number, g.Title, g.Body, g.Platforms, string(g.Status), opt(g.IssueNumber), g.CreatedBy).Scan(&g.CreatedAt, &g.UpdatedAt))
 	})
 }
 

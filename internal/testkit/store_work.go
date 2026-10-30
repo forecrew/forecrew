@@ -30,6 +30,7 @@ func (r goalRepo) Create(_ context.Context, g *domain.Goal) error {
 		}
 		g.ID = newID(g.ID)
 		g.Number = d.nextNumber(g.AccountID, domain.RefGoal)
+		g.Platforms = domain.NormalizeLabels(g.Platforms)
 		g.CreatedAt, g.UpdatedAt = now, now
 		d.goals.insert(*g)
 		return nil

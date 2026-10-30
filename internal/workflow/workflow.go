@@ -33,6 +33,9 @@ type JobRequest struct {
 	TaskID uuid.UUID `json:"task_id,omitzero" yaml:"task_id,omitempty"`
 	// Feedback is added to the prompt of reruns and rework.
 	Feedback string `json:"feedback,omitempty" yaml:"feedback,omitempty"`
+	// Prompt is extra instructions for the job, added to its prompt (ad-hoc
+	// jobs from dispatch_job).
+	Prompt string `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 }
 
 // JobCreator creates jobs. The implementation resolves the role, builds the

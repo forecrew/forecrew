@@ -58,6 +58,9 @@ func TestParsePlaybookInvalid(t *testing.T) {
 		{"job without role", "steps:\n- {id: a, type: job, with: {repo: x}}", `step "a": invalid playbook: with: role is required`},
 		{"job unknown key", "steps:\n- {id: a, type: job, with: {role: dev, colour: red}}", `step "a": invalid playbook: with: unknown key "colour"`},
 		{"job account", "steps:\n- {id: a, type: job, with: {role: dev, account_id: x}}", `unknown key "account_id"`},
+		{"prompt reference", "inputs: [x]\nsteps:\n- {id: a, type: job, with: {role: dev, prompt: '${inputs.x}'}}", `step "a": invalid playbook: with: prompt must be literal text`},
+		{"prompt interpolated", "steps:\n- {id: a, type: job, with: {role: dev, prompt: 'Fix ${steps.b.output.text}'}}", "prompt must be literal text"},
+		{"prompt not text", "steps:\n- {id: a, type: job, with: {role: dev, prompt: [x]}}", "prompt must be literal text"},
 		{"gate kind", "steps:\n- {id: g, type: gate, with: {kind: vibe_check, title: t, subject_repo: r}}", `step "g": invalid playbook: with: unknown gate kind`},
 		{"gate title", "steps:\n- {id: g, type: gate, with: {kind: spec_approval, subject_repo: r}}", `step "g": invalid playbook: with: title is required`},
 		{"foreach on_failure", "inputs: [xs]\nsteps:\n- {id: f, type: foreach, on_failure: escalate, items: '${inputs.xs}', steps: [{id: a, type: action, action: x}]}", "on_failure is not allowed on a foreach step"},
@@ -119,5 +122,12 @@ steps:
 `))
 	if err != nil || p.Name != "x" || len(p.Steps) != 3 {
 		t.Fatalf("ParsePlaybook = %+v, %v", p, err)
+	}
+}
+
+func TestParsePlaybookLiteralPrompt(t *testing.T) {
+	p, err := workflow.ParsePlaybook("p", []byte("steps:\n- {id: a, type: job, with: {role: reviewer, prompt: 'Check the migrations.'}}"))
+	if err != nil || p.Steps[0].With["prompt"] != "Check the migrations." {
+		t.Fatalf("playbook = %+v, %v", p, err)
 	}
 }

@@ -47,12 +47,15 @@ func (s GoalStatus) Terminal() bool {
 
 // Goal is what a human wants; it is refined into a spec and then tasks.
 type Goal struct {
-	ID          uuid.UUID  `json:"id"`
-	AccountID   uuid.UUID  `json:"account_id"`
-	ProjectID   uuid.UUID  `json:"project_id"`
-	Number      int64      `json:"number"` // GOAL-<number>
-	Title       string     `json:"title"`
-	Body        string     `json:"body"` // markdown
+	ID        uuid.UUID `json:"id"`
+	AccountID uuid.UUID `json:"account_id"`
+	ProjectID uuid.UUID `json:"project_id"`
+	Number    int64     `json:"number"` // GOAL-<number>
+	Title     string    `json:"title"`
+	Body      string    `json:"body"` // markdown
+	// Platforms the goal targets (worker labels such as "web" or "ios"),
+	// normalized with NormalizeLabels; empty when not restricted.
+	Platforms   []string   `json:"platforms,omitempty"`
 	Status      GoalStatus `json:"status"`
 	IssueNumber int        `json:"issue_number,omitempty"` // GitHub issue mirroring the goal, 0 if none
 	CreatedBy   string     `json:"created_by"`             // Actor.String()
