@@ -108,10 +108,101 @@ describe("job page", () => {
     await renderApp("/jobs/JOB-41")
     const log = await screen.findByRole("log")
     await waitFor(() => expect(log).toHaveTextContent("it broke"))
-    expect(log).toHaveTextContent('usage {"input_tokens":5,"output_tokens":2,"cost_usd":0.01}')
+    expect(log).toHaveTextContent("usage tokens: 5 input, 2 output · $0.01")
     expect(log).toHaveTextContent("Bash failed: boom")
     expect(log).toHaveTextContent("tool {}")
     expect(log).toHaveTextContent("tool returned:")
+  })
+})
+
+describe("job page details", () => {
+  const jobWith = (extra: object) => server.use(http.get("/api/v1/jobs/:ref", () => HttpResponse.json({ ...fx.job, ...extra })))
+
+  test("shows the needs, the token totals and the goal link", async () => {
+    await renderApp("/jobs/JOB-41")
+    const needs = (await screen.findByText("Needs")).nextElementSibling as HTMLElement
+    expect(within(needs).getByText("go")).toBeInTheDocument()
+    expect(within(needs).getByText("linux")).toBeInTheDocument()
+    expect(screen.getByText("1,200 input, 340 output, 0 cache read, 0 cache write")).toBeInTheDocument()
+    expect(await screen.findByRole("link", { name: "GOAL-3" })).toHaveAttribute("href", "/goals/GOAL-3")
+    expect(screen.queryByText("Task")).not.toBeInTheDocument()
+  })
+
+  test("shows the needs next to the reason a queued job waits", async () => {
+    server.use(http.get("/api/v1/jobs/:ref", () => HttpResponse.json(fx.jobQueued)), http.get("/api/v1/jobs/:ref/logs", () => HttpResponse.json(fx.jobLogsEmpty)))
+    await renderApp("/jobs/JOB-42")
+    await screen.findByText(/no matching worker/)
+    const labels = Array.from(document.querySelectorAll("dt")).map((t) => t.textContent)
+    expect(labels.indexOf("Needs")).toBe(labels.indexOf("Reason") + 1)
+  })
+
+  test("shows when the lease of a running job expires", async () => {
+    jobWith({ lease_expires_at: "2026-03-01T12:05:00Z" })
+    await renderApp("/jobs/JOB-41")
+    expect((await screen.findByText("Lease expires")).nextElementSibling).toHaveTextContent("in 5 min")
+  })
+
+  test("shows when a queued job retries", async () => {
+    server.use(http.get("/api/v1/jobs/:ref/logs", () => HttpResponse.json(fx.jobLogsEmpty)))
+    jobWith({ status: "queued", worker_id: undefined, run_after: "2026-03-01T12:03:00Z" })
+    const { unmount } = await renderApp("/jobs/JOB-41")
+    expect((await screen.findByText("Retry")).nextElementSibling).toHaveTextContent("Waiting to retry in 3 min")
+    unmount()
+    jobWith({ status: "queued", worker_id: undefined, run_after: "2026-03-01T11:00:00Z" })
+    await renderApp("/jobs/JOB-41")
+    expect((await screen.findByText("Retry")).nextElementSibling).toHaveTextContent("Waiting to retry now")
+  })
+
+  test("shows the output as formatted JSON in a folded block", async () => {
+    jobWith({ status: "succeeded", output: { verdict: "approve", notes: ["ok"] } })
+    const { user } = await renderApp("/jobs/JOB-41")
+    const summary = await screen.findByText("Output")
+    const details = summary.closest("details")!
+    expect(details).not.toHaveAttribute("open")
+    await user.click(summary)
+    expect(details).toHaveAttribute("open")
+    expect(screen.getByLabelText("Output as JSON").textContent).toBe(JSON.stringify({ verdict: "approve", notes: ["ok"] }, null, 2))
+  })
+
+  test("has no output block without output", async () => {
+    await renderApp("/jobs/JOB-41")
+    await screen.findByText("claude-sonnet-5")
+    expect(screen.queryByText("Output")).not.toBeInTheDocument()
+  })
+
+  test("links the head commit on GitHub when the repo is known", async () => {
+    jobWith({ status: "succeeded", head_sha: "abc1234def5678" })
+    const { unmount } = await renderApp("/jobs/JOB-41")
+    expect(await screen.findByRole("link", { name: /abc1234/ })).toHaveAttribute("href", "https://github.com/acme/app/commit/abc1234def5678")
+    unmount()
+    jobWith({ status: "succeeded", head_sha: "abc1234def5678", spec: { ...fx.job.spec, repo: "" } })
+    await renderApp("/jobs/JOB-41")
+    expect(await screen.findByText("abc1234")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /abc1234/ })).not.toBeInTheDocument()
+  })
+
+  test("links the task of the job to its issue", async () => {
+    jobWith({ task_id: fx.goal.tasks[0]!.id })
+    await renderApp("/jobs/JOB-41")
+    expect(await screen.findByRole("link", { name: /TASK-12/ })).toHaveAttribute("href", "https://github.com/acme/app/issues/6")
+  })
+
+  test("copes with a job whose task is not in the goal", async () => {
+    jobWith({ task_id: "018f0000-0000-7000-8000-0000000009ff" })
+    await renderApp("/jobs/JOB-41")
+    expect(await screen.findByText("unknown")).toBeInTheDocument()
+  })
+
+  test("copes with a job without goal and a goal that cannot be read", async () => {
+    jobWith({ goal_id: undefined })
+    const { unmount } = await renderApp("/jobs/JOB-41")
+    await screen.findByText("claude-sonnet-5")
+    expect(screen.queryByText("Goal")).not.toBeInTheDocument()
+    unmount()
+    jobWith({})
+    server.use(http.get("/api/v1/goals/:ref", errors.notFound))
+    await renderApp("/jobs/JOB-41")
+    expect(await screen.findByRole("link", { name: "Goal" })).toHaveAttribute("href", `/goals/${fx.job.goal_id}`)
   })
 })
 

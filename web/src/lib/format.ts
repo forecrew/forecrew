@@ -3,7 +3,17 @@ import type { GateKind, GoalStatus, JobStatus, ProjectStatus, TaskStatus } from 
 /** "5 min", "2 h", "3 d": how long ago an RFC 3339 time was. */
 export function age(iso: string | undefined, now = Date.now()): string {
   if (!iso) return "never"
-  const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000))
+  return span(Math.max(0, Math.round((now - Date.parse(iso)) / 1000)))
+}
+
+/** "in 5 min": how long until an RFC 3339 time; "now" once it has passed. */
+export function until(iso: string | undefined, now = Date.now()): string {
+  if (!iso) return "never"
+  const text = span(Math.max(0, Math.round((Date.parse(iso) - now) / 1000)))
+  return text === "just now" ? "now" : `in ${text}`
+}
+
+function span(s: number): string {
   if (s < 60) return "just now"
   const m = Math.floor(s / 60)
   if (m < 60) return `${m} min`
@@ -11,6 +21,9 @@ export function age(iso: string | undefined, now = Date.now()): string {
   if (h < 48) return `${h} h`
   return `${Math.floor(h / 24)} d`
 }
+
+/** 12345 as "12,345". */
+export const count = (n: number | undefined) => (n ?? 0).toLocaleString("en-US")
 
 export function cost(usd: number | undefined): string {
   return `$${(usd ?? 0).toFixed(2)}`

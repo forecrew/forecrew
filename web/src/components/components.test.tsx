@@ -64,6 +64,15 @@ describe("Age", () => {
     rerender(<Age />)
     expect(screen.getByText("never")).toBeInTheDocument()
   })
+
+  test("can say how long until a time", () => {
+    const { rerender } = render(<Age iso="2026-03-01T12:05:00Z" future />)
+    expect(screen.getByText("in 5 min")).toBeInTheDocument()
+    rerender(<Age iso="2026-03-01T11:00:00Z" future />)
+    expect(screen.getByText("now")).toBeInTheDocument()
+    rerender(<Age future />)
+    expect(screen.getByText("never")).toBeInTheDocument()
+  })
 })
 
 describe("Field", () => {
