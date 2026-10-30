@@ -108,3 +108,12 @@ jobs:
           docker compose exec -T forecrewd forecrew token create ci
       - if: always()
         run: docker compose down -v
+
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: check
