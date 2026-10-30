@@ -1,2 +1,2 @@
-{"number": 13, "title": "t", "state": "closed", "merged": true, "draft": true, "html_url": "https://github.com/acme/app/pull/13",
+{"number": 13, "title": "t", "state": "closed", "merged": true, "merge_commit_sha": "cafe", "draft": true, "html_url": "https://github.com/acme/app/pull/13",
  "mergeable": null, "head": {"ref": "agent/task-4", "sha": "beef"}, "base": {"ref": "main"}}

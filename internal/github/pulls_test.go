@@ -48,7 +48,7 @@ func TestGetPR(t *testing.T) {
 	}
 	pr, err = e.client.GetPR(ctx, "acme/app", 13)
 	noErr(t, err)
-	if pr.Mergeable != nil || !pr.Merged || !pr.Draft || pr.State != "closed" {
+	if pr.Mergeable != nil || !pr.Merged || pr.MergeSHA != "cafe" || !pr.Draft || pr.State != "closed" {
 		t.Fatalf("pr = %+v", pr)
 	}
 	_, err = e.client.GetPR(ctx, "acme/app", 14)
@@ -348,5 +348,37 @@ func TestBranchExists(t *testing.T) {
 		t.Fatalf("err = %v, want a wrapped error naming the branch", err)
 	}
 	_, err = e.client.BranchExists(ctx, "bad", "x")
+	wantErr(t, err, github.ErrInvalid)
+}
+
+func TestGetFile(t *testing.T) {
+	e := newEnv(t)
+	e.handle("GET /repos/acme/app/contents/.forecrew/profile.yaml", func(w http.ResponseWriter, r *http.Request) {
+		switch ref := r.URL.Query().Get("ref"); ref {
+		case "main":
+			// "version: 1\nname: app\n"
+			_, _ = w.Write([]byte(`{"type":"file","encoding":"base64","name":"profile.yaml","path":".forecrew/profile.yaml","content":"dmVyc2lvbjogMQpuYW1lOiBhcHAK\n"}`))
+		case "dir":
+			_, _ = w.Write([]byte(`[{"type":"file","name":"profile.yaml","path":".forecrew/profile.yaml"}]`))
+		case "bad":
+			_, _ = w.Write([]byte(`{"type":"file","encoding":"base64","content":"!!"}`))
+		default:
+			http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+		}
+	})
+	ctx := t.Context()
+	got, err := e.client.GetFile(ctx, "acme/app", "main", ".forecrew/profile.yaml")
+	noErr(t, err)
+	if string(got) != "version: 1\nname: app\n" {
+		t.Errorf("content = %q", got)
+	}
+	_, err = e.client.GetFile(ctx, "acme/app", "gone", ".forecrew/profile.yaml")
+	wantErr(t, err, github.ErrNotFound)
+	_, err = e.client.GetFile(ctx, "acme/app", "dir", ".forecrew/profile.yaml")
+	wantErr(t, err, github.ErrNotFound)
+	if _, err = e.client.GetFile(ctx, "acme/app", "bad", ".forecrew/profile.yaml"); err == nil {
+		t.Error("undecodable content accepted")
+	}
+	_, err = e.client.GetFile(ctx, "bad", "main", "x")
 	wantErr(t, err, github.ErrInvalid)
 }

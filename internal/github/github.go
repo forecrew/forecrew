@@ -74,8 +74,10 @@ type PullRequest struct {
 	HeadSHA string `json:"head_sha"`
 	State   string `json:"state"` // open or closed
 	Merged  bool   `json:"merged"`
-	Draft   bool   `json:"draft"`
-	URL     string `json:"url"`
+	// MergeSHA is the merge commit of a merged PR.
+	MergeSHA string `json:"merge_sha,omitempty"`
+	Draft    bool   `json:"draft"`
+	URL      string `json:"url"`
 	// Mergeable is nil while GitHub has not computed it yet.
 	Mergeable *bool `json:"mergeable"`
 }
@@ -216,6 +218,10 @@ type Tracker interface {
 	ListReviews(ctx context.Context, repo string, number int) ([]Review, error)
 	// BranchExists reports whether branch exists in repo.
 	BranchExists(ctx context.Context, repo, branch string) (bool, error)
+	// GetFile returns the content of the file at path in repo at ref (a
+	// branch, tag or commit SHA). ErrNotFound when the file or ref does not
+	// exist or path is a directory.
+	GetFile(ctx context.Context, repo, ref, path string) ([]byte, error)
 	// CheckStatus aggregates the check runs and commit statuses of sha.
 	CheckStatus(ctx context.Context, repo, sha string) (CheckStatus, error)
 	// MergePR merges and returns the merge commit SHA; ErrNotMergeable when
