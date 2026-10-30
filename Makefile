@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
 
-.PHONY: build test test-integration lint cover web web-dev web-lint web-test web-cover
+.PHONY: build test test-integration lint cover web web-dev web-lint web-test web-cover e2e
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
@@ -50,3 +50,8 @@ web-test: $(WEB_DEPS)
 # Fails below 80% line coverage of web/src, without shadcn's components/ui.
 web-cover: $(WEB_DEPS)
 	cd web && pnpm cover
+
+# Playwright against the production build served by vite preview. Set
+# PLAYWRIGHT_CHROMIUM_PATH to use a Chromium you already have.
+e2e: web
+	cd web && $(if $(PLAYWRIGHT_CHROMIUM_PATH),,pnpm exec playwright install chromium &&) pnpm e2e
