@@ -292,3 +292,33 @@ func TestRequeueClearsRunAfter(t *testing.T) {
 		t.Fatalf("requeue = %+v, %v", j, err)
 	}
 }
+
+func TestParseRefOrID(t *testing.T) {
+	id := NewID()
+	tests := []struct {
+		in       string
+		kind     RefKind
+		wantNum  int64
+		wantID   bool
+		wantFail bool
+	}{
+		{"GATE-7", RefGate, 7, false, false},
+		{"gate-7", RefGate, 7, false, false},
+		{id.String(), RefGate, 0, true, false},
+		{"JOB-7", RefGate, 0, false, true},
+		{"GATE-0", RefGate, 0, false, true},
+		{"later", RefGate, 0, false, true},
+		{"", RefGate, 0, false, true},
+	}
+	for _, tt := range tests {
+		n, got, err := ParseRefOrID(tt.kind, tt.in)
+		switch {
+		case tt.wantFail:
+			if !errors.Is(err, ErrInvalidRef) {
+				t.Errorf("ParseRefOrID(%q) err = %v, want ErrInvalidRef", tt.in, err)
+			}
+		case err != nil || n != tt.wantNum || (got != uuid.Nil()) != tt.wantID || (tt.wantID && got.String() != tt.in):
+			t.Errorf("ParseRefOrID(%q) = %d, %v, %v", tt.in, n, got, err)
+		}
+	}
+}

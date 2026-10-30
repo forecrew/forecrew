@@ -55,3 +55,17 @@ func (k RefKind) valid() bool {
 	}
 	return false
 }
+
+// ParseRefOrID parses s as a human ref of the kind (GATE-7: number is set)
+// or as a UUID (id is set). Anything else fails with an error wrapping
+// ErrInvalidRef.
+func ParseRefOrID(kind RefKind, s string) (number int64, id uuid.UUID, err error) {
+	if k, n, perr := ParseRef(s); perr == nil && k == kind {
+		return n, uuid.Nil(), nil
+	}
+	id, perr := uuid.Parse(s)
+	if perr != nil {
+		return 0, uuid.Nil(), fmt.Errorf("%q is not a %s ref or UUID: %w", s, kind, ErrInvalidRef)
+	}
+	return 0, id, nil
+}
