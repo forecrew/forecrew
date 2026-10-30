@@ -66,7 +66,7 @@ func TestBuildFromTask(t *testing.T) {
 	f := newFixture(t, "github:stranger")
 	b := contextpack.New(f.st, allow("octocat"), 0)
 	req := workflow.JobRequest{AccountID: f.project.AccountID, ProjectID: f.project.ID, Branch: "agent/task-1",
-		Role: "developer", TaskID: f.task.ID, Feedback: "Handle expiry."}
+		Role: "developer", TaskID: f.task.ID, Feedback: "Handle expiry.", Prompt: "Check the token store."}
 	pack, err := b.Build(context.Background(), req, developer)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
@@ -79,11 +79,15 @@ func TestBuildFromTask(t *testing.T) {
 		`<untrusted-data source="github:stranger"`,
 		"# Spec " + f.spec.Ref() + ", revision 2\n\n- AC-1: emails a link\n",
 		"# Task " + f.task.Ref() + ": Add token store\n\nCriteria: AC-1.\n",
+		"# Instructions\n\nCheck the token store.\n",
 		"# Feedback to address\n\nHandle expiry.\n",
 	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, p)
 		}
+	}
+	if i, j := strings.Index(p, "# Task "), strings.Index(p, "# Instructions"); i < 0 || j < i || j > strings.Index(p, "# Feedback to address") {
+		t.Errorf("Instructions should sit between the task and the feedback:\n%s", p)
 	}
 	direct, err := contextpack.Render(developer, contextpack.Input{}, 0)
 	if err != nil || direct.Hash == pack.Hash {

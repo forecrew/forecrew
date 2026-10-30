@@ -50,7 +50,7 @@ func New(st store.Store, allowed func(login string) bool, budget int) *StoreBuil
 }
 
 // Build implements Builder. The spec and goal default to those of the task,
-// and the goal to that of the spec. req.Feedback is quoted as given: callers
+// and the goal to that of the spec. req.Prompt becomes the trusted Instructions section. req.Feedback is quoted as given: callers
 // wrap text from GitHub users outside the allowlist with WrapUntrusted.
 func (b *StoreBuilder) Build(ctx context.Context, req workflow.JobRequest, role roles.Role) (Pack, error) {
 	in, err := b.input(ctx, req)
@@ -98,6 +98,9 @@ func (b *StoreBuilder) input(ctx context.Context, req workflow.JobRequest) (Inpu
 		}
 		in.Goal = Text{Heading: fmt.Sprintf("Goal %s: %s", goal.Ref(), goal.Title), Body: goal.Body}
 		in.Goal.Untrusted, in.Goal.Source = b.untrusted(goal.CreatedBy), goal.CreatedBy
+	}
+	if req.Prompt != "" {
+		in.Instructions = Text{Heading: "Instructions", Body: req.Prompt}
 	}
 	if req.Feedback != "" {
 		in.Feedback = Text{Heading: "Feedback to address", Body: req.Feedback}
