@@ -37,6 +37,8 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["goal.intake"] = d.goalIntake
 	registry["goal.spec"] = d.goalSpec
 	registry["goal.plan"] = d.goalPlan
+	registry["goal.task_move"] = d.taskMove
+	registry["goal.round"] = d.taskRound
 }
 
 // actions implements the actions on top of Deps.
