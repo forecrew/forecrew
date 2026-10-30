@@ -42,6 +42,9 @@ func main() {
 
 // run parses args, serves until ctx ends and returns the process exit code.
 func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv func(string) string, version string) int {
+	if len(args) > 0 && args[0] == "healthcheck" {
+		return runHealthcheck(ctx, args[1:], stderr, getenv)
+	}
 	fs := flag.NewFlagSet("forecrewd", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "print the version and exit")
