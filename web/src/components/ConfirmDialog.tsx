@@ -44,23 +44,19 @@ export function ConfirmDialog<T, V>({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        <Button variant="outline" aria-label={triggerAriaLabel}>
-          {trigger}
-        </Button>
-      </DialogTrigger>
+      <DialogTrigger render={<Button variant="outline" aria-label={triggerAriaLabel} />}>{trigger}</DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         {warning ? (
-          <p role="alert" className="text-sm font-medium text-danger">
+          <p role="alert" className="text-sm font-medium text-destructive">
             {warning}
           </p>
         ) : null}
         {mutation.isError ? (
-          <p role="alert" className="text-sm text-danger">
+          <p role="alert" className="text-sm text-destructive">
             {mutation.error.message}
           </p>
         ) : null}

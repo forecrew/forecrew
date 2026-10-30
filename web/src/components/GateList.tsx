@@ -92,7 +92,7 @@ function GateCard({ gate, selected, mode, setMode, onSelect, note, setNote, onDe
           </Field>
         )}
         {failure ? (
-          <p role="alert" className="text-sm text-danger">
+          <p role="alert" className="text-sm text-destructive">
             {failure}
           </p>
         ) : null}

@@ -14,11 +14,11 @@ export function Tile({ title, to, search, linkLabel, children }: Props) {
   return (
     <Card>
       <CardHeader>
-        <h2 className="text-sm font-medium text-label">{title}</h2>
+        <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>
       </CardHeader>
       <CardContent className="space-y-3">
         {children}
-        <Link to={to} search={search as never} className="inline-flex min-h-11 items-center text-sm font-medium text-primary underline underline-offset-2">
+        <Link to={to} search={search as never} className="inline-flex items-center text-sm font-medium text-primary underline underline-offset-2">
           {linkLabel}
         </Link>
       </CardContent>

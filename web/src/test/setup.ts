@@ -22,7 +22,7 @@ beforeEach(() => {
 })
 afterEach(() => vi.useRealTimers())
 
-// jsdom lacks what the Radix and cmdk components use.
+// jsdom lacks what the Base UI and cmdk components use.
 globalThis.ResizeObserver = class {
   observe() {}
   unobserve() {}

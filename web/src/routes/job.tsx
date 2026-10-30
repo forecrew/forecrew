@@ -67,8 +67,8 @@ function EventLog({ events, running }: { events: JobEvent[]; running: boolean })
         {events.length === 0 ? <p className="text-muted-foreground">{running ? "Waiting for the first event…" : "No events."}</p> : null}
         {events.map((e) => (
           <div key={e.seq} className="whitespace-pre-wrap break-words">
-            <span className="text-label">{String(e.seq).padStart(3, "0")}</span>{" "}
-            <span className={e.type === "error" ? "font-semibold text-danger" : "font-semibold"}>{e.type}</span> {eventText(e)}
+            <span className="text-muted-foreground">{String(e.seq).padStart(3, "0")}</span>{" "}
+            <span className={e.type === "error" ? "font-semibold text-destructive" : "font-semibold"}>{e.type}</span> {eventText(e)}
           </div>
         ))}
       </div>
@@ -89,15 +89,15 @@ function GoalTask({ job }: { job: JobInfo }) {
   const task = job.task_id ? goal.data?.tasks.find((t) => t.id === job.task_id) : undefined
   return (
     <>
-      <dt className="text-label">Goal</dt>
+      <dt className="text-muted-foreground">Goal</dt>
       <dd>
-        <Link to="/goals/$ref" params={{ ref: ref ?? job.goal_id }} className="inline-flex min-h-11 items-center font-mono underline underline-offset-2">
+        <Link to="/goals/$ref" params={{ ref: ref ?? job.goal_id }} className="inline-flex items-center font-mono underline underline-offset-2">
           {ref ?? "Goal"}
         </Link>
       </dd>
       {job.task_id ? (
         <>
-          <dt className="text-label">Task</dt>
+          <dt className="text-muted-foreground">Task</dt>
           <dd>
             {task?.url ? (
               <ExternalLink href={task.url}>{task.ref}</ExternalLink>
@@ -115,7 +115,7 @@ function GoalTask({ job }: { job: JobInfo }) {
 function Output({ output }: { output: unknown }) {
   return (
     <details className="rounded-xl border bg-card p-3 text-sm">
-      <summary className="min-h-11 cursor-pointer py-2 font-medium">Output</summary>
+      <summary className="cursor-pointer py-2 font-medium">Output</summary>
       <pre tabIndex={0} aria-label="Output as JSON" className="max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap">
         {JSON.stringify(output, null, 2)}
       </pre>
@@ -142,19 +142,19 @@ export function JobPage() {
         <>
           <PageHeader title={`${j.ref} · ${j.role}`}>{cancelable(j.status) ? <CancelJob jobRef={j.ref} /> : null}</PageHeader>
           <dl className="mb-6 grid gap-x-6 gap-y-2 rounded-xl border bg-card p-4 text-sm sm:grid-cols-[10rem_1fr]">
-            <dt className="text-label">State</dt>
+            <dt className="text-muted-foreground">State</dt>
             <dd>
               <StatusBadge tone={jobTone(j.status)}>{j.status}</StatusBadge>
             </dd>
             {j.reason ? (
               <>
-                <dt className="text-label">Reason</dt>
+                <dt className="text-muted-foreground">Reason</dt>
                 <dd>{j.reason}</dd>
               </>
             ) : null}
             {j.needs.length ? (
               <>
-                <dt className="text-label">Needs</dt>
+                <dt className="text-muted-foreground">Needs</dt>
                 <dd className="flex flex-wrap gap-1">
                   {j.needs.map((n) => (
                     <StatusBadge key={n}>{n}</StatusBadge>
@@ -162,13 +162,13 @@ export function JobPage() {
                 </dd>
               </>
             ) : null}
-            <dt className="text-label">Attempts</dt>
+            <dt className="text-muted-foreground">Attempts</dt>
             <dd>
               {j.attempts} of {j.max_attempts}
             </dd>
             {j.status === "running" && j.lease_expires_at ? (
               <>
-                <dt className="text-label">Lease expires</dt>
+                <dt className="text-muted-foreground">Lease expires</dt>
                 <dd>
                   <Age iso={j.lease_expires_at} future />
                 </dd>
@@ -176,28 +176,28 @@ export function JobPage() {
             ) : null}
             {j.status === "queued" && j.run_after ? (
               <>
-                <dt className="text-label">Retry</dt>
+                <dt className="text-muted-foreground">Retry</dt>
                 <dd>
                   Waiting to retry <Age iso={j.run_after} future />
                 </dd>
               </>
             ) : null}
-            <dt className="text-label">Worker</dt>
+            <dt className="text-muted-foreground">Worker</dt>
             <dd className="font-mono">{j.worker_name ?? "none"}</dd>
-            <dt className="text-label">Role</dt>
+            <dt className="text-muted-foreground">Role</dt>
             <dd className="font-mono">{j.role}</dd>
-            <dt className="text-label">Runtime</dt>
+            <dt className="text-muted-foreground">Runtime</dt>
             <dd className="font-mono">{j.runtime}</dd>
-            <dt className="text-label">Model</dt>
+            <dt className="text-muted-foreground">Model</dt>
             <dd className="font-mono">{j.spec.model}</dd>
-            <dt className="text-label">Repository</dt>
+            <dt className="text-muted-foreground">Repository</dt>
             <dd className="font-mono">
               {j.spec.repo}
               {j.spec.branch ? ` @ ${j.spec.branch}` : ""}
             </dd>
             {j.head_sha ? (
               <>
-                <dt className="text-label">Commit</dt>
+                <dt className="text-muted-foreground">Commit</dt>
                 <dd>
                   {j.spec.repo ? (
                     <ExternalLink href={`https://github.com/${j.spec.repo}/commit/${j.head_sha}`}>
@@ -210,20 +210,20 @@ export function JobPage() {
               </>
             ) : null}
             <GoalTask job={j} />
-            <dt className="text-label">Cost</dt>
+            <dt className="text-muted-foreground">Cost</dt>
             <dd>{cost(j.cost_usd)}</dd>
-            <dt className="text-label">Tokens</dt>
+            <dt className="text-muted-foreground">Tokens</dt>
             <dd>
               {count(j.usage.input_tokens)} input, {count(j.usage.output_tokens)} output, {count(j.usage.cache_read_tokens)} cache read,{" "}
               {count(j.usage.cache_write_tokens)} cache write
             </dd>
-            <dt className="text-label">Created</dt>
+            <dt className="text-muted-foreground">Created</dt>
             <dd>
               <Age iso={j.created_at} ago />
             </dd>
             {j.finished_at ? (
               <>
-                <dt className="text-label">Finished</dt>
+                <dt className="text-muted-foreground">Finished</dt>
                 <dd>
                   <Age iso={j.finished_at} ago />
                 </dd>
@@ -237,7 +237,7 @@ export function JobPage() {
           )}
           <h2 className="mb-2 text-lg font-semibold">Log</h2>
           {log.isError ? (
-            <p role="alert" className="text-sm text-danger">
+            <p role="alert" className="text-sm text-destructive">
               Could not load the log: {log.error.message}
             </p>
           ) : (

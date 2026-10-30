@@ -17,12 +17,12 @@ export function Field({ label, hint, error, children }: Props) {
       <Label htmlFor={id}>{label}</Label>
       {children({ id, "aria-describedby": describedBy, "aria-invalid": Boolean(error) })}
       {hint ? (
-        <p id={`${id}-hint`} className="text-xs text-label">
+        <p id={`${id}-hint`} className="text-xs text-muted-foreground">
           {hint}
         </p>
       ) : null}
       {error ? (
-        <p id={`${id}-error`} className="text-sm text-danger">
+        <p id={`${id}-error`} className="text-sm text-destructive">
           {error}
         </p>
       ) : null}

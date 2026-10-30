@@ -75,7 +75,7 @@ export function WorkersPage() {
                         <ul className="space-y-1">
                           {w.running_jobs.map((r) => (
                             <li key={r}>
-                              <Link to="/jobs/$ref" params={{ ref: r }} className="inline-flex min-h-11 items-center font-mono underline underline-offset-2">
+                              <Link to="/jobs/$ref" params={{ ref: r }} className="inline-flex items-center font-mono underline underline-offset-2">
                                 {r}
                               </Link>
                             </li>

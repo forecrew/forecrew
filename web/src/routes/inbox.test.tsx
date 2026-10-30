@@ -192,7 +192,7 @@ test("untrusted summary text is shown as text", async () => {
 test("only the selected card has the primary Approve button", async () => {
   const { user } = await renderApp("/inbox")
   await screen.findByRole("article", { name: /GATE-9/ })
-  const variant = (ref: string) => within(card(ref)).getByRole("button", { name: /^Approve/ }).getAttribute("data-variant")
+  const variant = (ref: string) => within(card(ref)).getByRole("button", { name: /^Approve/ }).classList.contains("bg-primary") ? "default" : "outline"
   expect([variant("GATE-9"), variant("GATE-10")]).toEqual(["default", "outline"])
   await user.keyboard("j")
   expect([variant("GATE-9"), variant("GATE-10")]).toEqual(["outline", "default"])
