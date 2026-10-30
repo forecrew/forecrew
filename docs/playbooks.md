@@ -91,6 +91,29 @@ bare ref holds when it is set and not `false`, empty or zero.
 
 A resolved gate is final; each round or retry opens a new gate.
 
+## Skipping steps
+
+The engine has no `if`. To run steps only sometimes, put them in a `foreach`
+over a list that is empty when they must be skipped, and let an action output
+that list: `github.open_or_update_pr` outputs `if_open` (`[number]` while the
+PR is open, `[]` once it is merged), `goal.assess` outputs `if_ready` and
+`goal.if_approved` outputs `if_approved`.
+
+```yaml
+- id: gated
+  type: foreach
+  items: '${steps.pr.output.if_open}'   # skipped when the PR was merged
+  steps:
+    - {id: checks, type: wait, with: {signal: checks.completed, repo: '${inputs.repo}', sha: '${steps.pr.output.head_sha}'}}
+```
+
+A foreach outputs a list with one `{<body step id>: value}` per item, so the
+values of a skipped body are not there: a later step or a loop's `until`
+reads them as `steps.gated.output.0.checks.output.conclusion`, which is empty
+when nothing ran. Inside the foreach `${item}` is the list's element and hides
+an outer foreach's, so read what an outer item held from a step output
+instead.
+
 ## Failures and escalation
 
 `on_failure` is `fail` (default; the run fails) or `escalate`. Escalate opens
@@ -152,6 +175,18 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `project.register` | `repo` | `{project_id, repo, default_branch}`. Fails unless the GitHub App is installed on the repo; moves the run's project registered → onboarding (already onboarding is fine). |
 | `github.open_or_update_pr` | `repo`, `title`, `body`, `head`, `base`, optional `previous`, `task_id` (defaults to the run's task) | `{number, url, head_sha}`. Updates the open PR from `head` or opens one, and upserts its `changes` row. With `previous`, the number of an earlier round's PR, it fails when a human closed that PR instead of opening another, and when a human merged it outputs `merged: true` with `merge_sha` and changes nothing. `if_open` is `[number]`, or `[]` for a merged PR, for a `foreach` that skips steps. |
 | `github.merge_pr` | `repo`, `number`, optional `check_profile` | `{merged, already_merged, sha}` (the merge commit). Squash-merges unless already merged. Only a head whose checks succeeded (or has none) is merged; it fails on failed or running checks, and with `check_profile` when the profile file at the head is invalid. Use `on_failure: escalate`. |
+| `goal.intake` | `repo`, `goal_id` | `{issue_number, issue_url, default_branch}`. Creates the labels `forecrew:goal` and `forecrew:task` if missing and opens the goal's issue, labeled `forecrew:goal`, unless the goal has one. |
+| `goal.spec` | `goal_id`, `job_id`, `spec` | `{spec_id, revision, summary}`. Stores the product owner's output as the next spec revision (once per job), renders it under the goal's text in the goal issue, moves the goal to `spec_review`. `summary` is the text of the `spec_approval` gate. |
+| `goal.plan` | `goal_id`, `spec_id`, `platforms`, `plan`, `spec` | `{valid, errors, tasks: [{id, ref, number, seq, title, issue_number, branch, needs, criteria}]}`. Stores the architect's tasks in order, one issue per task (labels `forecrew:task` and `needs:<label>`, a sub-issue of the goal's), comments the plan on the goal issue and moves the goal to `planned`. `needs` are the task's labels plus `platforms`. A plan that cannot be used (the architect escalated, no task, an unknown criterion, a dependency that is not an earlier task, criteria of the spec that no task covers) stores nothing: the output is `valid: false` with `errors` as the architect's feedback. Kept tasks and issues are not created twice. |
+| `goal.round` | `task_id`, `iteration`, `human`, `review` | `{task_id, ref, title, branch, feedback}`. Before a developer job: the task goes (back) to `in_progress`, the goal to `in_progress`, the branch `agent/TASK-n` is recorded. `feedback` is `human` in the first round and `review` in the others. |
+| `goal.task_move` | `task_id`, `to` | `{status}`. Moves a task to a state, through the ones in between when going forward, or back to `in_progress`. |
+| `goal.pr_text` | `task_id`, `result` | `{ready, title, body}`: the PR text from the developer's output, the task with its criteria, the assumptions and `Closes #<task issue>`. When the developer reports an escalation it comments the reason on the task's issue and outputs `ready: false`. |
+| `goal.review_post` | `repo`, `number`, `review` | `{posted}`. Posts the reviewer's output as a `COMMENT` review (never an approval or a request for changes): comments on a line are inline, the rest goes into the body with the verdict and the criteria check. Posts once per call key. |
+| `goal.assess` | `repo`, `number`, `checks`, `review`, `result`, `sha` | `{done, merged, if_ready, feedback, gate_summary}`. Looks at the PR again: merged on GitHub is `done` and `merged`; closed there fails. Failing checks or a verdict other than `approve` give the rework `feedback`; otherwise `done`, `if_ready: [number]` and the `merge_approval` gate's `gate_summary` (checks, verdict, criteria, high-impact assumptions) for the commit `sha` the developer pushed. |
+| `goal.if_approved` | `decision`, `number` | `{if_approved}`: `[number]` for `approved`, else `[]`. |
+| `goal.task_done` | `task_id`, `repo`, `number`, `feedback` | `{done, merged, sha, feedback}`. A merged PR moves the task to `merged` (`done`); otherwise it outputs the human's `feedback` for the next delivery; closed without merging fails. |
+| `goal.close` | `goal_id` | `{tasks, cost_usd}`. Needs every task merged. Comments the summary (tasks, PRs, developer runs, cost of every job of the goal) on the goal issue, closes it and moves the goal to `done`. |
+| `goal.settle` | `goal_id` | `{status}`. Cancels a goal that is not done, closes its unmerged tasks and their issues and the goal's with a comment (once). A task whose PR is merged, as the change or GitHub say, becomes `merged`, not `closed`: merged PRs stay merged. |
 | `profile.validate` | `profile` and/or `repo` and `ref`, `attempt`, `attempts` | `{valid, errors}`: checks the profile value and/or the profile file of `repo` at `ref`. Fails on the last attempt. |
 | `profile.feedback` | `human`, `errors` | The feedback text of an analyst job. |
 | `onboarding.proposal` | `profile`, `summary`, `assumptions` | `{title, body}`: the profile PR text. |
@@ -181,3 +216,64 @@ back to registered, and the merged profile file stays on the default branch. Cha
 requested start a new round with the feedback, at most three before a
 `needs_you` gate. A rejection, a closed PR or any failure ends the run, and
 its `finally` step puts the project back to registered.
+
+## The goal playbook
+
+`packs/playbooks/goal.yaml` takes `repo`, `goal_id` and `platforms` (the
+goal's worker labels); `create_goal` starts it.
+
+1. **Intake.** `goal.intake` opens the goal's GitHub issue.
+2. **Spec.** A loop of at most three rounds (a needs_you gate for the next
+   ones): a read-only `product-owner` job, `goal.spec` (a new spec revision,
+   rendered into the issue: criteria `AC-n`, scope, assumptions with their
+   impact, open questions) and a `spec_approval` gate. Changes requested
+   start a new round with the feedback.
+3. **Plan.** An `architect` job and `goal.plan`: one task and one sub-issue
+   per task, in order. A plan that cannot be used, such as one that leaves
+   acceptance criteria uncovered, is sent back to the architect with what is
+   wrong; after a second bad plan a needs_you gate opens, and approving it
+   reruns the architect.
+4. **Tasks, one after the other.** A delivery loop holds a build loop and the
+   merge gate.
+   - Build, at most three rounds (a needs_you gate for the next ones):
+     `goal.round`, a `developer` job on branch `agent/TASK-n` on a worker with
+     the task's `needs` and the goal's platforms, `goal.pr_text`, the PR
+     (`github.open_or_update_pr`), then, while the PR is open, a wait for
+     `checks.completed` on the commit the developer pushed (`none` means the
+     repo has no checks),
+     a read-only `reviewer` job on the same branch (a different vendor
+     according to the config) and `goal.review_post`. `goal.assess` ends the
+     round when the PR is ready or merged; failing checks or a request for
+     changes start the next round with their feedback as the developer's.
+   - Merge gate: a `merge_approval` gate with the checks, the verdict, the
+     criteria check and the high-impact assumptions. Approving it squash-merges
+     (`github.merge_pr`, which needs checks that are not failing or running);
+     merging on GitHub approves, closing the PR rejects. Changes requested
+     start a new delivery, at most five (then a needs_you gate), with the
+     feedback.
+   - The reviewer only comments; nothing is merged without an approved gate
+     or a human merge. A PR merged on GitHub meanwhile ends the task and skips
+     the steps that follow. After an approval a failing merge opens a
+     needs_you gate.
+5. **Close.** `goal.close` comments the summary and the cost of all jobs on
+   the goal issue and closes it.
+
+A run that fails or is canceled runs `goal.settle`: the goal is canceled and
+its unmerged tasks and the issues are closed; a task whose PR is merged stays
+merged.
+
+### Limits
+
+- A developer that reports an escalation leaves no PR. `goal.pr_text`
+  comments the reason on the task's issue and a needs_you gate asks a human;
+  approving it reruns the developer. The gate text is the generic one of a
+  loop that ran out of rounds, the reason is on the task issue, and what the
+  human answers cannot reach the rerun (an escalation's feedback does not pass
+  to a loop's extra round).
+- The merge gate is approved against the PR as it stands. Commits that humans
+  push after the review are covered by the human's approval and by the
+  checks (`github.merge_pr` refuses failing or running ones), not by the
+  reviewer.
+- An issue is created, then its number is recorded. If forecrewd dies between
+  the two, the repeated action opens a second issue for the goal or the task;
+  the tracker offers no search to find the first.
