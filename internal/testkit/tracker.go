@@ -23,6 +23,7 @@ type Tracker struct {
 	repos map[string]*fakeRepo
 	// Tokens counts the installation tokens issued.
 	Tokens int
+	sinks  []func(Event)
 }
 
 type fakeRepo struct {
@@ -35,6 +36,7 @@ type fakeRepo struct {
 	commentID int64
 	branches  map[string]bool
 	files     map[string][]byte // by ref and path, see fileKey
+	remote    string            // bare git repository, see UseRemote
 }
 
 type fakeIssue struct {
@@ -59,12 +61,35 @@ func (t *Tracker) Install(repo string) {
 	}
 }
 
-// SetCheckStatus sets the aggregate check status of a commit.
+// SetCheckStatus sets the aggregate check status of a commit. A success or
+// a failure emits a check_suite completed event.
 func (t *Tracker) SetCheckStatus(repo, sha string, state github.CheckState, total int) error {
-	return t.with(repo, func(r *fakeRepo) error {
+	var ev Event
+	err := t.with(repo, func(r *fakeRepo) error {
 		r.checks[sha] = github.CheckStatus{SHA: sha, State: state, Total: total}
+		if state == github.ChecksSuccess || state == github.ChecksFailure {
+			ev = checkSuiteEvent(repo, "completed", sha, string(state), r.openPRsAt(sha))
+		}
 		return nil
 	})
+	if err == nil {
+		t.fire(ev)
+	}
+	return err
+}
+
+// RequestChecks emits the check_suite requested event GitHub sends for a
+// push, whether the repo has checks or not.
+func (t *Tracker) RequestChecks(repo, sha string) error {
+	var ev Event
+	err := t.with(repo, func(r *fakeRepo) error {
+		ev = checkSuiteEvent(repo, "requested", sha, "", r.openPRsAt(sha))
+		return nil
+	})
+	if err == nil {
+		t.fire(ev)
+	}
+	return err
 }
 
 // SetHeadSHA simulates a push to an open PR's branch.
@@ -78,20 +103,37 @@ func (t *Tracker) SetHeadSHA(repo string, number int, sha string) error {
 	})
 }
 
-// ClosePR simulates closing a PR without merging it.
+// ClosePR simulates closing a PR without merging it. It emits a
+// pull_request closed event.
 func (t *Tracker) ClosePR(repo string, number int) error {
-	return t.with(repo, func(r *fakeRepo) error {
+	var ev Event
+	err := t.with(repo, func(r *fakeRepo) error {
 		pr, err := r.pr(number)
 		if err == nil {
 			pr.State = "closed"
 			r.issues[number].issue.State = "closed"
+			ev = prClosedEvent(repo, *pr)
 		}
 		return err
 	})
+	if err == nil {
+		t.fire(ev)
+	}
+	return err
 }
 
-// AddComment simulates a comment by a GitHub user.
+// AddComment simulates a comment by a GitHub user. It emits an
+// issue_comment created event.
 func (t *Tracker) AddComment(repo string, number int, author, body string) (github.Comment, error) {
+	var ev Event
+	c, err := t.addComment(repo, number, author, body, &ev)
+	if err == nil {
+		t.fire(ev)
+	}
+	return c, err
+}
+
+func (t *Tracker) addComment(repo string, number int, author, body string, ev *Event) (github.Comment, error) {
 	var c github.Comment
 	err := t.with(repo, func(r *fakeRepo) error {
 		i, err := r.issue(number)
@@ -101,6 +143,8 @@ func (t *Tracker) AddComment(repo string, number int, author, body string) (gith
 		r.commentID++
 		c = github.Comment{ID: r.commentID, Author: author, Body: body, CreatedAt: t.now()}
 		i.comments = append(i.comments, c)
+		_, isPR := r.prs[number]
+		*ev = commentEvent(repo, number, isPR, c)
 		return nil
 	})
 	return c, err
@@ -129,7 +173,15 @@ func (r *fakeRepo) pr(number int) (*github.PullRequest, error) {
 	if !ok {
 		return nil, fmt.Errorf("pull request %d: %w", number, github.ErrNotFound)
 	}
+	r.syncHead(pr)
 	return pr, nil
+}
+
+// syncHead moves the head of an open PR to its branch in the remote.
+func (r *fakeRepo) syncHead(pr *github.PullRequest) {
+	if sha, ok := r.branchSHA(pr.Head); ok && pr.State == "open" {
+		pr.HeadSHA = sha
+	}
 }
 
 func (r *fakeRepo) newIssue(repo string, title, body string, labels []string) *fakeIssue {
@@ -229,9 +281,10 @@ func (t *Tracker) ListSubIssues(_ context.Context, repo string, parent int) ([]g
 	return out, err
 }
 
-// CreateComment implements github.Tracker. The author is "forecrew[bot]".
+// CreateComment implements github.Tracker. The author is "forecrew[bot]";
+// the bot's own comments emit no event.
 func (t *Tracker) CreateComment(_ context.Context, repo string, number int, body string) (github.Comment, error) {
-	return t.AddComment(repo, number, "forecrew[bot]", body)
+	return t.addComment(repo, number, "forecrew[bot]", body, new(Event))
 }
 
 // ListComments implements github.Tracker.
@@ -315,6 +368,7 @@ func (t *Tracker) CreatePR(_ context.Context, repo string, in github.PRInput) (g
 			Number: n, Title: in.Title, Body: in.Body, Head: in.Head, Base: in.Base, HeadSHA: in.Head + "-1",
 			State: "open", Draft: in.Draft, URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, n),
 		}
+		r.syncHead(r.prs[n])
 		out = *r.prs[n]
 		return nil
 	})
@@ -340,6 +394,7 @@ func (t *Tracker) FindPR(_ context.Context, repo, branch string) (github.PullReq
 	err := t.with(repo, func(r *fakeRepo) error {
 		for _, pr := range r.prs {
 			if pr.Head == branch && pr.State == "open" {
+				r.syncHead(pr)
 				out = *pr
 				return nil
 			}
@@ -398,7 +453,8 @@ func (t *Tracker) ListReviews(_ context.Context, repo string, number int) ([]git
 func (t *Tracker) BranchExists(_ context.Context, repo, branch string) (bool, error) {
 	var ok bool
 	err := t.with(repo, func(r *fakeRepo) error {
-		ok = r.branches[branch]
+		_, inRemote := r.branchSHA(branch)
+		ok = r.branches[branch] || inRemote
 		for _, pr := range r.prs {
 			ok = ok || pr.Head == branch
 		}
@@ -424,6 +480,11 @@ func (t *Tracker) GetFile(_ context.Context, repo, ref, path string) ([]byte, er
 	var out []byte
 	err := t.with(repo, func(r *fakeRepo) error {
 		b, ok := r.files[fileKey(ref, path)]
+		if r.remote != "" {
+			if content, err := gitRaw(r.remote, "cat-file", "blob", ref+":"+path); err == nil {
+				b, ok = content, true
+			}
+		}
 		if !ok {
 			return fmt.Errorf("%s at %s: %w", path, ref, github.ErrNotFound)
 		}
@@ -456,9 +517,12 @@ func (t *Tracker) CheckStatus(_ context.Context, repo, sha string) (github.Check
 	return out, err
 }
 
-// MergePR implements github.Tracker. The merge commit is "merge-<number>".
+// MergePR implements github.Tracker. The merge commit is "merge-<number>",
+// or, for a repo with a remote (UseRemote), the squash commit made there. It
+// emits a pull_request closed event.
 func (t *Tracker) MergePR(_ context.Context, repo string, number int, in github.MergeInput) (string, error) {
 	var sha string
+	var ev Event
 	err := t.with(repo, func(r *fakeRepo) error {
 		pr, err := r.pr(number)
 		if err != nil {
@@ -467,18 +531,26 @@ func (t *Tracker) MergePR(_ context.Context, repo string, number int, in github.
 		if pr.State != "open" || (in.SHA != "" && in.SHA != pr.HeadSHA) {
 			return fmt.Errorf("pull request %d: %w", number, github.ErrNotMergeable)
 		}
-		pr.State, pr.Merged = "closed", true
-		pr.MergeSHA = fmt.Sprintf("merge-%d", number)
-		r.issues[number].issue.State = "closed"
 		sha = fmt.Sprintf("merge-%d", number)
+		if r.remote != "" {
+			if sha, err = r.squashMerge(pr.Base, pr.HeadSHA, fmt.Sprintf("%s (#%d)", pr.Title, number)); err != nil {
+				return fmt.Errorf("pull request %d: %w: %w", number, github.ErrNotMergeable, err)
+			}
+		}
+		pr.State, pr.Merged, pr.MergeSHA = "closed", true, sha
+		r.issues[number].issue.State = "closed"
 		for k, b := range maps.Clone(r.files) {
 			if ref, path, _ := strings.Cut(k, "\x00"); ref == pr.Head {
 				r.files[fileKey(pr.Base, path)] = b
 				r.files[fileKey(sha, path)] = b
 			}
 		}
+		ev = prClosedEvent(repo, *pr)
 		return nil
 	})
+	if err == nil {
+		t.fire(ev)
+	}
 	return sha, err
 }
 
