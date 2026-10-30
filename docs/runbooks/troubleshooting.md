@@ -7,6 +7,7 @@ docker compose ps
 docker compose logs --tail 100 forecrewd       # systemd: journalctl -u forecrewd -n 100
 curl -fsS https://<host>/healthz               # 503 "database unavailable" means Postgres
 forecrew jobs show <job>                       # status, attempts, events
+forecrew jobs cancel <job>                     # stop a queued or running job
 ```
 
 forecrewd logs JSON. Look for `job lease expired`, `requeue expired jobs` and

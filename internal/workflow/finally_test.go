@@ -38,6 +38,30 @@ func TestFinallyRunsWhenTheRunFails(t *testing.T) {
 	}
 }
 
+// A canceled job fails its step like a failed one, whether or not its
+// job.completed signal arrives, and the finally steps run.
+func TestFinallyRunsWhenAJobIsCanceled(t *testing.T) {
+	for _, published := range []bool{true, false} {
+		t.Run(map[bool]string{true: "signal", false: "lost signal"}[published], func(t *testing.T) {
+			v := newEnv(t)
+			_, r := v.engine(t, withFinally, map[string]any{"repo": "acme/app"})
+			build, _ := v.waitJob(t, r.ID, "build", 1)
+			_, err := v.st.Jobs().Cancel(t.Context(), v.account, build.JobID)
+			must(t, err)
+			if published {
+				v.publish(t, &domain.JobCompleted{JobID: build.JobID, Status: domain.JobCanceled})
+			}
+			got := v.waitRun(t, r.ID, domain.RunFailed)
+			if got.Error != "step build failed: JOB-1 canceled" {
+				t.Errorf("run error = %q", got.Error)
+			}
+			if n := len(v.actionCalls()); n != 1 {
+				t.Errorf("finally calls = %d, want 1", n)
+			}
+		})
+	}
+}
+
 func TestFinallyRunsWhenTheRunIsCanceled(t *testing.T) {
 	v := newEnv(t)
 	_, r := v.engine(t, withFinally, map[string]any{"repo": "acme/app"})

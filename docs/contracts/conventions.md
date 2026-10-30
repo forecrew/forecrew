@@ -134,11 +134,24 @@ are:
 `domain.GateKind.AllowsDecision`); every entry point uses it. A resolved gate
 is final and publishes `gate.resolved`; a new review round opens a new gate.
 
-The 15 MCP tools are listed by `mcp.Tools()`: `onboard_project`,
+The 16 MCP tools are listed by `mcp.Tools()`: `onboard_project`,
 `create_goal`, `job_status`, `job_logs`, `list_workers`,
 `list_pending_gates`, `approve`, `request_changes`, `reject`,
 `dispatch_job`, `list_projects`, `get_project`, `list_goals`, `get_goal`,
-`list_jobs`.
+`list_jobs`, `cancel_job`.
+
+## Canceling jobs
+
+`cancel_job` takes a job ref or UUID and calls `jobs.Service.Cancel` as the
+caller: only a queued or running job can be canceled, any other state fails
+with `domain.ErrInvalidTransition` (`conflict`, 409). The job becomes
+`canceled`, `job.canceled` is audited and `job.completed` is published. The
+worker running it learns on its next heartbeat (`action: cancel`, at most 30 s
+later), kills the agent, removes the checkout and reports nothing; a late
+`complete` or `events` call gets `409 lease_lost`. The playbook step waiting
+for the job fails with `JOB-n canceled`, which follows the step's `on_failure`
+(a `needs_you` gate when it escalates, otherwise the run fails), and the
+`finally` steps run when the run ends.
 
 ## Tests
 

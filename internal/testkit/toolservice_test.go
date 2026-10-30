@@ -33,6 +33,7 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.ListGoals(ctx, by, mcp.ListGoalsInput{}); return err },
 		func() error { _, err := s.GetGoal(ctx, by, mcp.GoalRefInput{}); return err },
 		func() error { _, err := s.ListJobs(ctx, by, mcp.ListJobsInput{}); return err },
+		func() error { _, err := s.CancelJob(ctx, by, mcp.JobRefInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

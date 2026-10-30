@@ -450,7 +450,11 @@ func (x *exec) complete(ctx context.Context, sr *domain.StepRun, sig domain.Sign
 // jobDone records the outcome of a job step whose job reached status.
 func (x *exec) jobDone(ctx context.Context, sr *domain.StepRun, job domain.Job, status domain.JobStatus) error {
 	if status != domain.JobSucceeded {
-		return x.finish(ctx, sr, nil, fmt.Sprintf("%s %s: %s", job.Ref(), status, job.Error))
+		reason := fmt.Sprintf("%s %s", job.Ref(), status)
+		if job.Error != "" {
+			reason += ": " + job.Error
+		}
+		return x.finish(ctx, sr, nil, reason)
 	}
 	var out any
 	if len(job.Output) > 0 {

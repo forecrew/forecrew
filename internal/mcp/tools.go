@@ -58,6 +58,7 @@ const (
 	ToolListGoals        = "list_goals"
 	ToolGetGoal          = "get_goal"
 	ToolListJobs         = "list_jobs"
+	ToolCancelJob        = "cancel_job"
 )
 
 // Tools returns every MCP tool name.
@@ -65,7 +66,7 @@ func Tools() []string {
 	return []string{
 		ToolOnboardProject, ToolCreateGoal, ToolJobStatus, ToolJobLogs, ToolListWorkers, ToolListPendingGates,
 		ToolApprove, ToolRequestChanges, ToolReject, ToolDispatchJob, ToolListProjects, ToolGetProject,
-		ToolListGoals, ToolGetGoal, ToolListJobs,
+		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob,
 	}
 }
 
@@ -94,6 +95,10 @@ type ToolService interface {
 	ListGoals(ctx context.Context, by domain.Actor, in ListGoalsInput) ([]domain.Goal, error)
 	GetGoal(ctx context.Context, by domain.Actor, in GoalRefInput) (GoalDetail, error)
 	ListJobs(ctx context.Context, by domain.Actor, in ListJobsInput) ([]domain.Job, error)
+	// CancelJob cancels a queued or running job. A worker running it stops at
+	// its next heartbeat, and a playbook step waiting for it fails. A job
+	// that is finished already fails with domain.ErrInvalidTransition.
+	CancelJob(ctx context.Context, by domain.Actor, in JobRefInput) (JobInfo, error)
 }
 
 // OnboardProjectInput is the input of onboard_project.
