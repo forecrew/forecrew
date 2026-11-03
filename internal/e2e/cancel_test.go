@@ -145,7 +145,10 @@ func TestCancelRunningJob(t *testing.T) {
 		_, err := os.Stat(dir)
 		return os.IsNotExist(err)
 	})
-	eventually(t, "the worker to say why it stopped", func() bool { return strings.Contains(worker.logs.String(), "canceled by forecrewd") })
+	// The worker learns of the cancellation from a heartbeat ("cancel") or,
+	// when an events flush comes first, from 409 lease_lost; both stop the
+	// job and drop its result, so either reason is right.
+	eventually(t, "the worker to say it dropped the job", func() bool { return strings.Contains(worker.logs.String(), "job stopped, result dropped") })
 	if got, err := w.st.Jobs().Get(t.Context(), w.account.ID, job.ID); err != nil || got.Status != domain.JobCanceled || got.Error != "" {
 		t.Errorf("job = %+v, %v; the worker must not overwrite the cancellation", got, err)
 	}
