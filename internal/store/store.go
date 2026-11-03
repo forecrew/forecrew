@@ -58,6 +58,7 @@ type Store interface {
 	WebhookDeliveries() WebhookDeliveryRepo
 	MCPTokens() MCPTokenRepo
 	Audit() AuditRepo
+	Artifacts() ArtifactRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
 	// must use the ctx passed to fn.
@@ -321,26 +322,35 @@ type AuditRepo interface {
 	List(ctx context.Context, accountID uuid.UUID, f AuditFilter) ([]domain.AuditEntry, error)
 }
 
-// The repositories below belong to the testing system
-// (docs/contracts/data-model.md). They are contracts only: the tasks that
-// first use them add them to Store, with the Postgres implementation and the
-// testkit fake (ArtifactRepo with evidence storage, TestRunRepo with command
-// jobs, VerificationReportRepo with verification reports).
-
 // ArtifactRepo stores artifact metadata; the content lives in evidence
 // storage under Artifact.StorageKey.
 type ArtifactRepo interface {
 	// Put stores a, replacing the artifact of the same job and name if
 	// there is one (a re-upload), and writes ID and CreatedAt back.
 	Put(ctx context.Context, a *domain.Artifact) error
+	// PutLeased is Put for an upload by a worker: in one transaction that
+	// locks the job it checks that the job is running under workerID's lease
+	// (else ErrLeaseLost) and writes the row, so a lease that ends cannot
+	// slip between the check and the write. It returns the storage key of
+	// the artifact it replaced, or "" when the name was new.
+	PutLeased(ctx context.Context, a *domain.Artifact, workerID uuid.UUID) (replacedKey string, err error)
 	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Artifact, error)
 	// ListByJob returns a job's artifacts by name.
 	ListByJob(ctx context.Context, accountID, jobID uuid.UUID) ([]domain.Artifact, error)
 	// ListOlderThan returns up to limit artifacts created before t, oldest
 	// first, for retention.
 	ListOlderThan(ctx context.Context, accountID uuid.UUID, t time.Time, limit int) ([]domain.Artifact, error)
+	// Delete removes the row; a verification report that points at it keeps
+	// its data and loses the link (ArtifactID becomes zero). Unknown IDs are
+	// ErrNotFound.
 	Delete(ctx context.Context, accountID, id uuid.UUID) error
 }
+
+// The repositories below belong to the testing system
+// (docs/contracts/data-model.md). They are contracts only: the tasks that
+// first use them add them to Store, with the Postgres implementation and the
+// testkit fake (TestRunRepo with command jobs, VerificationReportRepo with
+// verification reports).
 
 // TestRunFilter selects test runs; zero fields match everything.
 type TestRunFilter struct {
