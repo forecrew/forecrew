@@ -80,22 +80,28 @@ func TestGoalSizeRule(t *testing.T) {
 			g := v.newGoal(t)
 			out, err := v.call(t, "goal.size", map[string]any{"goal_id": g.ID.String(), "triage": tt.triage})
 			must(t, err)
-			s := decodeSize(t, out)
-			if !slices.Equal(s.Councils, tt.councils) {
-				t.Errorf("councils = %v, want %v", s.Councils, tt.councils)
-			}
-			if (len(s.IfProduct) == 1) != tt.ifProduct || (len(s.IfTechnical) == 1) != tt.ifTech {
-				t.Errorf("if_product = %v, if_technical = %v", s.IfProduct, s.IfTechnical)
-			}
-			if tt.ifProduct && s.IfProduct[0] != g.ID.String() || tt.ifTech && s.IfTechnical[0] != g.ID.String() {
-				t.Errorf("if lists do not name the goal: %v %v", s.IfProduct, s.IfTechnical)
-			}
+			checkSize(t, g, decodeSize(t, out), tt.councils, tt.ifProduct, tt.ifTech)
 			stored := v.goalNow(t, g.ID).Size
 			if stored == nil || stored.Impact != domain.Level(tt.triage["impact"].(string)) || stored.Reason != "Checked by hand." ||
 				!slices.Equal(stored.Councils, toCouncils(tt.councils)) {
 				t.Errorf("stored size = %+v", stored)
 			}
 		})
+	}
+}
+
+// checkSize checks the output of goal.size for goal g: the councils and
+// which if_ lists name it.
+func checkSize(t *testing.T, g domain.Goal, s sizeOut, councils []string, ifProduct, ifTech bool) {
+	t.Helper()
+	if !slices.Equal(s.Councils, councils) {
+		t.Errorf("councils = %v, want %v", s.Councils, councils)
+	}
+	if (len(s.IfProduct) == 1) != ifProduct || (len(s.IfTechnical) == 1) != ifTech {
+		t.Errorf("if_product = %v, if_technical = %v", s.IfProduct, s.IfTechnical)
+	}
+	if ifProduct && s.IfProduct[0] != g.ID.String() || ifTech && s.IfTechnical[0] != g.ID.String() {
+		t.Errorf("if lists do not name the goal: %v %v", s.IfProduct, s.IfTechnical)
 	}
 }
 
