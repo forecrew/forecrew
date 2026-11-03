@@ -161,32 +161,33 @@ func (c *Config) validateEvidence(p *problems) {
 
 func (c *Config) validatePools(p *problems) {
 	for _, name := range sortedKeys(c.Pools) {
-		pool := c.Pools[name]
-		if !domain.ValidName(name) {
-			p.addf("pools.%s: name must be a lowercase name such as build", name)
+		c.validatePool(name, c.Pools[name], p)
+	}
+}
+
+func (c *Config) validatePool(name string, pool Pool, p *problems) {
+	if !domain.ValidName(name) {
+		p.addf("pools.%s: name must be a lowercase name such as build", name)
+	}
+	if len(pool.Kinds) == 0 {
+		p.addf("pools.%s.kinds must list agent, command or both", name)
+	}
+	for _, k := range pool.Kinds {
+		if !slices.Contains(domain.JobKinds(), k) {
+			p.addf("pools.%s.kinds: unknown kind %q", name, k)
 		}
-		if len(pool.Kinds) == 0 {
-			p.addf("pools.%s.kinds must list agent, command or both", name)
+	}
+	if slices.Contains(pool.Roles, "") {
+		p.addf("pools.%s.roles: empty role name", name)
+	}
+	for _, rt := range pool.Credentials.Runtimes {
+		if _, ok := c.Runtimes[rt]; !ok && rt != AnyRole {
+			p.addf("pools.%s.credentials.runtimes: %q is not a configured runtime", name, rt)
 		}
-		for _, k := range pool.Kinds {
-			if !slices.Contains(domain.JobKinds(), k) {
-				p.addf("pools.%s.kinds: unknown kind %q", name, k)
-			}
-		}
-		for _, r := range pool.Roles {
-			if r == "" {
-				p.addf("pools.%s.roles: empty role name", name)
-			}
-		}
-		for _, rt := range pool.Credentials.Runtimes {
-			if _, ok := c.Runtimes[rt]; !ok && rt != AnyRole {
-				p.addf("pools.%s.credentials.runtimes: %q is not a configured runtime", name, rt)
-			}
-		}
-		switch pool.Credentials.RepoToken {
-		case RepoTokenWrite, RepoTokenRead, RepoTokenNone:
-		default:
-			p.addf("pools.%s.credentials.repo_token must be write, read or none, got %q", name, pool.Credentials.RepoToken)
-		}
+	}
+	switch pool.Credentials.RepoToken {
+	case RepoTokenWrite, RepoTokenRead, RepoTokenNone:
+	default:
+		p.addf("pools.%s.credentials.repo_token must be write, read or none, got %q", name, pool.Credentials.RepoToken)
 	}
 }
