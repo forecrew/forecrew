@@ -64,7 +64,9 @@ func newEnv(t *testing.T, opts ...option) *env {
 	svc := jobs.New(b.st, bus, nil, logger, b.clock.Now)
 	cfg := Config{
 		Store: b.st, Jobs: svc, Tokens: tracker, Logger: logger,
-		Env:         func(domain.Job) map[string]string { return map[string]string{"ANTHROPIC_API_KEY": apiSecret} },
+		Env: func(domain.Job) (string, map[string]string) {
+			return "claude", map[string]string{"ANTHROPIC_API_KEY": apiSecret}
+		},
 		PollWait:    200 * time.Millisecond,
 		PollRecheck: time.Hour, // wake-ups must come from job creation
 	}
@@ -77,11 +79,17 @@ func newEnv(t *testing.T, opts ...option) *env {
 	return &env{backend: b, bus: bus, tracker: tracker, jobs: svc, server: srv, http: hs, logs: logs, project: p}
 }
 
-// addWorker registers a worker and returns it with its token.
+// addWorker registers a worker of pool build and returns it with its token.
 func (e *env) addWorker(t *testing.T, name string) (domain.Worker, string) {
 	t.Helper()
+	return e.addPoolWorker(t, name, domain.PoolBuild)
+}
+
+// addPoolWorker registers a worker of a pool and returns it with its token.
+func (e *env) addPoolWorker(t *testing.T, name, pool string) (domain.Worker, string) {
+	t.Helper()
 	token := "fcw_" + name + "_" + domain.NewID().String()
-	w := domain.Worker{AccountID: e.account, Name: name, TokenHash: mcp.HashToken(token), MaxJobs: 1}
+	w := domain.Worker{AccountID: e.account, Name: name, Pool: pool, TokenHash: mcp.HashToken(token), MaxJobs: 1}
 	if err := e.st.Workers().Create(t.Context(), &w); err != nil {
 		t.Fatal(err)
 	}

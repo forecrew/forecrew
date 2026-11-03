@@ -11,6 +11,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/queue"
@@ -137,22 +138,46 @@ func (s *Server) giveBack(ctx context.Context, w domain.Worker, j domain.Job, re
 	logger.WarnContext(ctx, "job released before hand-out", "reason", reason)
 }
 
-// withSecrets returns the job's spec with a fresh repo token (contents write
-// for writing roles, read otherwise) and the runtime secrets.
+// withSecrets returns the job's spec with the secrets its pool allows
+// (config.md, pools): a fresh repo token (contents write for writing agent
+// jobs, read otherwise, never wider than the pool's repo_token, none for
+// none) and the runtime secrets when the pool lists the runtime. Command
+// jobs get no runtime secrets.
 func (s *Server) withSecrets(ctx context.Context, j domain.Job) (domain.JobSpec, error) {
 	spec := j.Spec
 	spec.JobID, spec.AccountID = j.ID, j.AccountID
-	access := github.AccessRead
-	if len(spec.WritePaths) > 0 {
-		access = github.AccessWrite
+	pool, ok := s.cfg.Pools[j.Pool]
+	if !ok {
+		return spec, fmt.Errorf("pool %s is not configured", j.Pool)
 	}
-	tok, err := s.cfg.Tokens.InstallationToken(ctx, spec.Repo, access)
-	if err != nil {
-		return spec, fmt.Errorf("repo token for %s: %w", spec.Repo, err)
+	if access, ok := repoAccess(spec, pool.Credentials.RepoToken); ok {
+		tok, err := s.cfg.Tokens.InstallationToken(ctx, spec.Repo, access)
+		if err != nil {
+			return spec, fmt.Errorf("repo token for %s: %w", spec.Repo, err)
+		}
+		spec.RepoToken = tok.Value
 	}
-	spec.RepoToken = tok.Value
-	spec.Env = s.cfg.Env(j)
+	if !spec.IsCommand() {
+		if runtime, env := s.cfg.Env(j); pool.Credentials.AllowsRuntime(runtime) {
+			spec.Env = env
+		}
+	}
 	return spec, nil
+}
+
+// repoAccess returns the repo token access of a job in a pool whose widest
+// scope is scope; false means no token.
+func repoAccess(spec domain.JobSpec, scope string) (github.TokenAccess, bool) {
+	switch scope {
+	case config.RepoTokenWrite:
+		if len(spec.WritePaths) > 0 && !spec.IsCommand() {
+			return github.AccessWrite, true
+		}
+		return github.AccessRead, true
+	case config.RepoTokenRead:
+		return github.AccessRead, true
+	}
+	return "", false
 }
 
 // jobID parses the job_id path value; an invalid one answers 404.
