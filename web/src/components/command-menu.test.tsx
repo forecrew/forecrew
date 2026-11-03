@@ -1,16 +1,33 @@
 import { screen, waitFor } from "@testing-library/react"
 import { renderApp } from "@/test/render"
 
+type App = Awaited<ReturnType<typeof renderApp>>
+
+/** Opens the menu with Ctrl+K and waits until the goals, projects and jobs are listed. */
+async function openMenu({ user }: App) {
+  await screen.findByRole("heading", { name: "Home" })
+  await user.keyboard("{Control>}k{/Control}")
+  const input = await screen.findByPlaceholderText(/Search pages/)
+  await screen.findByRole("option", { name: /GOAL-3/ })
+  await screen.findByRole("option", { name: /JOB-41/ })
+  await screen.findByRole("option", { name: /docs/ })
+  return input
+}
+
+/** Types the whole query at once: no per-key delay to race against. */
+async function search({ user }: App, input: HTMLElement, query: string) {
+  await user.click(input)
+  await user.paste(query)
+}
+
 describe("command menu", () => {
   test("opens with Ctrl+K and jumps to a goal by ref", async () => {
-    const { user, router } = await renderApp("/")
-    await screen.findByRole("heading", { name: "Home" })
-    await user.keyboard("{Control>}k{/Control}")
-    const input = await screen.findByPlaceholderText(/Search pages/)
+    const app = await renderApp("/")
+    const input = await openMenu(app)
     expect(input).toHaveFocus()
-    await user.type(input, "goal-3")
-    await user.click(await screen.findByRole("option", { name: /GOAL-3/ }))
-    await waitFor(() => expect(router.state.location.pathname).toBe("/goals/GOAL-3"))
+    await search(app, input, "goal-3")
+    await app.user.click(await screen.findByRole("option", { name: /GOAL-3/ }))
+    await waitFor(() => expect(app.router.state.location.pathname).toBe("/goals/GOAL-3"))
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
@@ -23,41 +40,44 @@ describe("command menu", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
   })
 
-  test("jumps to a job, a project and a page", async () => {
-    const { user, router } = await renderApp("/")
-    await screen.findByRole("heading", { name: "Home" })
-    await user.keyboard("{Control>}k{/Control}")
-    await user.type(await screen.findByPlaceholderText(/Search pages/), "JOB-41")
-    await user.click(await screen.findByRole("option", { name: /JOB-41/ }))
-    await waitFor(() => expect(router.state.location.pathname).toBe("/jobs/JOB-41"))
-
-    await user.keyboard("{Control>}k{/Control}")
-    await user.type(await screen.findByPlaceholderText(/Search pages/), "acme/docs")
-    await user.click(await screen.findByRole("option", { name: /docs/ }))
-    await waitFor(() => expect(router.state.location.pathname).toBe("/projects/docs"))
-
-    await user.keyboard("{Control>}k{/Control}")
-    await user.type(await screen.findByPlaceholderText(/Search pages/), "workers")
-    await user.click(await screen.findByRole("option", { name: "Workers" }))
-    await waitFor(() => expect(router.state.location.pathname).toBe("/workers"))
+  test("jumps to a job", async () => {
+    const app = await renderApp("/")
+    await search(app, await openMenu(app), "JOB-41")
+    await app.user.click(await screen.findByRole("option", { name: /JOB-41/ }))
+    await waitFor(() => expect(app.router.state.location.pathname).toBe("/jobs/JOB-41"))
   })
 
-  test("starts New goal and Onboard repository", async () => {
-    const { user, router } = await renderApp("/")
-    await screen.findByRole("heading", { name: "Home" })
-    await user.keyboard("{Control>}k{/Control}")
-    await user.click(await screen.findByRole("option", { name: "New goal" }))
-    await waitFor(() => expect(router.state.location.pathname).toBe("/goals/new"))
-    await user.keyboard("{Control>}k{/Control}")
-    await user.click(await screen.findByRole("option", { name: "Onboard repository" }))
-    await waitFor(() => expect(router.state.location.pathname).toBe("/projects/new"))
+  test("jumps to a project", async () => {
+    const app = await renderApp("/")
+    await search(app, await openMenu(app), "acme/docs")
+    await app.user.click(await screen.findByRole("option", { name: /docs/ }))
+    await waitFor(() => expect(app.router.state.location.pathname).toBe("/projects/docs"))
+  })
+
+  test("jumps to a page", async () => {
+    const app = await renderApp("/")
+    await search(app, await openMenu(app), "workers")
+    await app.user.click(await screen.findByRole("option", { name: "Workers" }))
+    await waitFor(() => expect(app.router.state.location.pathname).toBe("/workers"))
+  })
+
+  test("starts New goal", async () => {
+    const app = await renderApp("/")
+    await openMenu(app)
+    await app.user.click(await screen.findByRole("option", { name: "New goal" }))
+    await waitFor(() => expect(app.router.state.location.pathname).toBe("/goals/new"))
+  })
+
+  test("starts Onboard repository", async () => {
+    const app = await renderApp("/")
+    await openMenu(app)
+    await app.user.click(await screen.findByRole("option", { name: "Onboard repository" }))
+    await waitFor(() => expect(app.router.state.location.pathname).toBe("/projects/new"))
   })
 
   test("says when nothing matches", async () => {
-    const { user } = await renderApp("/")
-    await screen.findByRole("heading", { name: "Home" })
-    await user.keyboard("{Control>}k{/Control}")
-    await user.type(await screen.findByPlaceholderText(/Search pages/), "zzzzzz")
+    const app = await renderApp("/")
+    await search(app, await openMenu(app), "zzzzzz")
     expect(await screen.findByText("Nothing found.")).toBeInTheDocument()
   })
 
