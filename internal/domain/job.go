@@ -130,10 +130,37 @@ type Job struct {
 	Output         json.RawMessage `json:"output,omitempty"`     // structured output, valid against Spec.OutputSchema
 	HeadSHA        string          `json:"head_sha,omitempty"`   // commit pushed to Spec.Branch, if any
 	Error          string          `json:"error,omitempty"`
-	Usage          Usage           `json:"usage"`
-	CostUSD        float64         `json:"cost_usd"`
-	CreatedAt      time.Time       `json:"created_at"`
-	UpdatedAt      time.Time       `json:"updated_at"`
+	// ContextManifest records what the job's context pack held; nil for
+	// jobs built without one.
+	ContextManifest *ContextManifest `json:"context_manifest,omitempty"`
+	Usage           Usage            `json:"usage"`
+	CostUSD         float64          `json:"cost_usd"`
+	CreatedAt       time.Time        `json:"created_at"`
+	UpdatedAt       time.Time        `json:"updated_at"`
+}
+
+// ContextManifest records what went into a job's context pack, so a human
+// can see what the agent knew (jobs.context_manifest).
+type ContextManifest struct {
+	Budget   int              `json:"budget"` // characters the role's pack may hold
+	Size     int              `json:"size"`   // characters it holds
+	Sections []ContextSection `json:"sections"`
+}
+
+// ContextSection is one section of a context pack, e.g. knowledge,
+// decisions, assumptions, similar_tasks, notes or related_files.
+type ContextSection struct {
+	Name    string        `json:"name"`
+	Size    int           `json:"size"` // characters included
+	Items   []ContextItem `json:"items"`
+	Dropped []ContextItem `json:"dropped,omitempty"` // left out for the budget
+}
+
+// ContextItem is one item of a section: an ID or ref, or a path.
+type ContextItem struct {
+	ID   string `json:"id,omitempty"`   // UUID or ref (A-4, DEC-2, TASK-9)
+	Path string `json:"path,omitempty"` // repo path or knowledge entry path
+	Size int    `json:"size"`           // characters
 }
 
 // Ref returns the job's human ref, e.g. JOB-41.
@@ -215,9 +242,9 @@ func (j *Job) Finish(to JobStatus, now time.Time) error {
 }
 
 // JobSpec is everything a worker receives to run a job
-// (docs/contracts/job-spec.md). Env and RepoToken are secrets: they are
-// added when the job is leased, kept in memory only and never stored or
-// logged.
+// (docs/contracts/job-spec.md). Env, RepoToken and JobMCP.Token are
+// secrets: they are added when the job is leased, kept in memory only and
+// never stored or logged.
 //
 // Agent jobs use Runtime, Model, Prompt and the fields after them; command
 // jobs use Command, Environment, Cell, Suite and Overlay instead (see
@@ -263,7 +290,20 @@ type JobSpec struct {
 
 	Env       map[string]string `json:"env,omitempty"`
 	RepoToken string            `json:"repo_token,omitempty"`
+	// JobMCP is the job MCP gateway (docs/contracts/job-mcp.md), added at
+	// lease time like RepoToken; agent jobs only.
+	JobMCP *JobMCP `json:"job_mcp,omitempty"`
 }
+
+// JobMCP is how an agent job reaches the job MCP gateway. Token is a secret,
+// valid only while the worker holds the job's lease.
+type JobMCP struct {
+	URL   string `json:"url"`
+	Token string `json:"token"`
+}
+
+// LogValue keeps the token out of logs.
+func (m JobMCP) LogValue() slog.Value { return slog.GroupValue(slog.String("url", m.URL)) }
 
 // CommandSpec is what a command job runs. Exactly one of Argv and Shell is
 // set.
@@ -288,10 +328,12 @@ type Overlay struct {
 // IsCommand reports whether the spec is of a command job.
 func (s JobSpec) IsCommand() bool { return s.Kind == JobKindCommand }
 
-// Redacted returns a copy without Env and RepoToken, the form that is stored.
+// Redacted returns a copy without Env, RepoToken and JobMCP, the form that
+// is stored. JobMCP goes as a whole: it is only ever added at lease time.
 func (s JobSpec) Redacted() JobSpec {
 	s.Env = nil
 	s.RepoToken = ""
+	s.JobMCP = nil
 	return s
 }
 
