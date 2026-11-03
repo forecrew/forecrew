@@ -28,6 +28,7 @@ func TestLoadPacks(t *testing.T) {
 		"reviewer":             {config.TierStrong, true},
 		"test-architect":       {config.TierBest, false},
 		"environment-engineer": {config.TierStrong, false},
+		"test-engineer":        {config.TierStrong, false},
 	}
 	if len(defs) != len(want) {
 		t.Fatalf("got %d roles, want %d", len(defs), len(want))

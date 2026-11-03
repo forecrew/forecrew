@@ -1,0 +1,12 @@
+{
+  "summary": "Tests that a reset link expires after an hour and works only once.",
+  "tests": [
+    {"criterion": "AC-1", "suite": "unit", "id": "github.com/acme/app/internal/store::TestAC1ResetTokenExpiresAfterOneHour", "file": "internal/store/reset_test.go"},
+    {"criterion": "AC-1", "suite": "unit", "id": "github.com/acme/app/internal/store::TestAC1ResetTokenSingleUse", "file": "internal/store/reset_test.go"},
+    {"criterion": "AC-2", "suite": "e2e", "id": "test_reset_ac2_expired_link_offers_new_link", "file": "tests/e2e/test_reset.py"}
+  ],
+  "files": ["internal/store/reset_test.go", "internal/store/testdata/tokens.json", "tests/e2e/test_reset.py"],
+  "untestable": [{"criterion": "AC-3", "reason": "The email's wording needs a human read; check the template in the PR."}],
+  "assumptions": [{"text": "The store exposes CreateResetToken(ctx, userID) as the task describes.", "confidence": "high", "impact": "medium"}],
+  "escalation": null
+}

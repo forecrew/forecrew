@@ -1,0 +1,74 @@
+role: test-engineer
+model: strong
+prompt: roles/test-engineer.md
+tools: [repo.read, repo.write, git.read, git.commit, run.tests]
+write_paths:
+  - "**/*_test.*"
+  - "**/*.test.*"
+  - "**/*_spec.{rb,lua,exs}"
+  - "**/*.spec.{js,jsx,mjs,cjs,ts,tsx,mts,cts}"
+  - "**/test_*.*"
+  - "**/tests/**"
+  - "**/test/**"
+  - "**/__tests__/**"
+  - "**/testdata/**"
+  - "!.forecrew/**"
+  - "!.github/**"
+  - "!**/vendor/**"
+  - "!**/node_modules/**"
+  # Dependency, build and CI files, even inside test directories: CI may run them.
+  - "!**/go.mod"
+  - "!**/go.sum"
+  - "!**/go.work"
+  - "!**/go.work.sum"
+  - "!**/package.json"
+  - "!**/*.lock"
+  - "!**/*.lockb"
+  - "!**/*-lock.json"
+  - "!**/*-lock.yaml"
+  - "!**/npm-shrinkwrap.json"
+  - "!**/pyproject.toml"
+  - "!**/requirements*.txt"
+  - "!**/setup.py"
+  - "!**/setup.cfg"
+  - "!**/Cargo.toml"
+  - "!**/Gemfile"
+  - "!**/pom.xml"
+  - "!**/build.gradle*"
+  - "!**/settings.gradle*"
+  - "!**/Makefile"
+  - "!**/makefile"
+  - "!**/GNUmakefile"
+  - "!**/*.mk"
+  - "!**/justfile"
+  - "!**/Taskfile.y*ml"
+  - "!**/Dockerfile"
+  - "!**/Dockerfile.*"
+  - "!**/*.Dockerfile"
+  - "!**/docker-compose*.y*ml"
+  - "!**/compose*.y*ml"
+  - "!**/.devcontainer/**"
+  - "!**/*.sh"
+  - "!**/*.bash"
+  - "!**/*.ps1"
+  - "!**/*.bat"
+  - "!**/*.cmd"
+  - "!**/.github/**"
+  - "!**/.gitlab-ci.yml"
+  - "!**/.circleci/**"
+  - "!**/Jenkinsfile"
+  - "!**/azure-pipelines.yml"
+produces: [tests]
+output_schema: schemas/test-map.json
+definition_of_done:
+  - every acceptance criterion of the task has at least one test in tests, or an entry in untestable with the reason
+  - the name of every test contains the ID of the criterion it covers
+  - every test fails now because the feature does not exist yet, not because of a mistake in the test
+  - every test belongs to a suite of the matrix, and its id is the classname and name that suite's JUnit report gives it
+  - only test files changed, and they are committed on the job branch
+  - files lists every file created or changed, as git status shows them
+escalate_when:
+  - a criterion is ambiguous or contradicts the spec
+  - testing a criterion needs a change to source code, a dependency or the matrix that the task does not describe
+max_turns: 100
+timeout: 60m

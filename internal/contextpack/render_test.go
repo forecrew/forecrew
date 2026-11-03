@@ -27,7 +27,10 @@ var (
 	spec = Text{Heading: "Spec SPEC-4, revision 2", Body: "Reset by email.\n\n## Acceptance criteria\n\n" +
 		"- AC-1: A reset request emails a single-use link valid for 1 hour.\n" +
 		"- AC-2: An expired or used link shows an error and offers a new link.\n"}
-	task       = Text{Heading: "Task TASK-12: Add reset token store", Body: "Criteria: AC-1.\n\nAdd a reset_tokens table and repo in internal/store."}
+	task = Text{Heading: "Task TASK-12: Add reset token store", Body: "Criteria: AC-1.\n\nAdd a reset_tokens table and repo in internal/store."}
+	// testTask is a task as goal.plan writes it, with its criteria.
+	testTask = Text{Heading: "Task TASK-12: Add reset token store", Body: "Add a reset_tokens table and repo in internal/store.\n\n" +
+		"## Acceptance criteria\n\n- **AC-1** A reset request emails a single-use link valid for 1 hour.\n\nSize: m\n"}
 	testMatrix = []byte(`version: 1
 axes:
   os: [linux, windows]
@@ -79,6 +82,7 @@ func catalog(t *testing.T) *roles.Catalog {
 			"reviewer":             {Runtime: "codex", Tier: config.TierBest},
 			"test-architect":       {Runtime: "claude", Tier: config.TierBest},
 			"environment-engineer": {Runtime: "claude", Tier: config.TierStrong},
+			"test-engineer":        {Runtime: "claude", Tier: config.TierStrong},
 		},
 	}
 	c, err := roles.New(forecrew.Files, cfg)
@@ -112,6 +116,8 @@ func TestRenderGolden(t *testing.T) {
 			TestPlan: Text{Heading: "Test plan", Body: plan{ref: "main"}.render()}},
 		"environment-engineer": {Repo: "acme/app", BaseRef: "main", Branch: "agent/onboarding-tests", Profile: profile,
 			TestPlan: testPlanText("agent/onboarding-tests")},
+		"test-engineer": {Repo: "acme/app", BaseRef: "main", Branch: "agent/TASK-12", Profile: profile,
+			TestPlan: testPlanText("main"), Goal: goal, Spec: spec, Task: testTask},
 	}
 	c := catalog(t)
 	for _, name := range c.Names() {
