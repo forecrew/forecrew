@@ -76,7 +76,7 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 		})
 	register(r, ToolApprove, "Approve a pending gate. On a needs_you gate this retries the stuck work.",
 		fieldDocs{"gate": gate, "feedback": "Optional note recorded with the decision."}, gateTool(svc.Approve))
-	register(r, ToolRequestChanges, "Ask for changes on a pending profile, spec or merge gate; feedback is required and goes to the next revision. Not valid on needs_you gates: use approve to retry or reject to stop.",
+	register(r, ToolRequestChanges, "Ask for changes on a pending profile, spec, merge or test plan gate; feedback is required and goes to the next revision. Not valid on needs_you gates: use approve to retry or reject to stop.",
 		fieldDocs{"gate": gate, "feedback": "What to change. Required."}, gateTool(svc.RequestChanges), "feedback")
 	register(r, ToolReject, "Reject a pending gate. On a needs_you gate this stops the work.",
 		fieldDocs{"gate": gate, "feedback": "Optional reason recorded with the decision."}, gateTool(svc.Reject))

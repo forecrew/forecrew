@@ -127,7 +127,7 @@ are:
 | Tool | Decision | Gate kinds | Notes |
 |------|----------|------------|-------|
 | `approve` | `approved` | all | On `needs_you`: retry. |
-| `request_changes` | `changes_requested` | `profile_approval`, `spec_approval`, `merge_approval` | `feedback` required. On `needs_you` it fails with `mcp.ErrInvalidInput`. |
+| `request_changes` | `changes_requested` | `profile_approval`, `spec_approval`, `merge_approval`, `test_plan_approval` | `feedback` required. On `needs_you` it fails with `mcp.ErrInvalidInput`. |
 | `reject` | `rejected` | all | On `needs_you`: stop. |
 
 `mcp.GateDecision` implements these rules (on top of

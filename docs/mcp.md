@@ -83,7 +83,7 @@ GitHub links of issues, pull requests and gates.
 | `create_goal` | Create a goal (`project`, `title`, `body`, optional `platforms` such as `web`, `ios`) and start its playbook |
 | `job_status`, `job_logs` | Inspect a job (with why a queued job waits) and read its events |
 | `list_workers` | Workers, labels, version, whether they are online and the jobs they run |
-| `list_pending_gates` | Decisions waiting for a human: kind, project, goal or task, summary, GitHub link, created time |
+| `list_pending_gates` | Decisions waiting for a human: kind (`profile_approval`, `spec_approval`, `merge_approval`, `test_plan_approval` for the onboarding PR with the test strategy, matrix and environments, or `needs_you`), project, goal or task, summary, GitHub link, created time |
 | `approve`, `request_changes`, `reject` | Resolve a gate. `request_changes` needs `feedback` and is not valid on `needs_you` gates (use `approve` to retry, `reject` to stop) |
 | `dispatch_job` | Queue an ad-hoc job of a read-only role (`project`, `role`, optional `prompt` with the instructions, `needs`, `goal`, `task`) |
 | `list_projects`, `get_project` | Projects |
