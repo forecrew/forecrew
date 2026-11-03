@@ -36,7 +36,7 @@ func newRemoteEnv(t *testing.T) *remoteEnv {
 		t.Fatal(err)
 	}
 	e := &remoteEnv{svc: &testkit.ToolService{}}
-	handler := api.New(api.Config{Tools: e.svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: slog.New(slog.DiscardHandler)}).Handler()
+	handler := api.New(api.Config{Tools: e.svc, Artifacts: e.svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: slog.New(slog.DiscardHandler)}).Handler()
 	e.server = httptest.NewServer(handler)
 	t.Cleanup(e.server.Close)
 	vars := map[string]string{EnvURL: e.server.URL, EnvToken: apiToken}

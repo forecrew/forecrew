@@ -10,7 +10,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -42,30 +44,31 @@ func (e *apiError) Error() string {
 	return e.Message
 }
 
-// call sends a request to /api/v1 and decodes the JSON answer into out.
-func (r *remote) call(ctx context.Context, method, path string, body, out any) error {
+// send sends a request to /api/v1 and returns the response, whatever its
+// status; the caller closes the body.
+func (r *remote) send(ctx context.Context, method, path string, body any) (*http.Response, error) {
 	token := cmp.Or(r.token, r.env.Getenv(EnvToken))
 	if token == "" {
-		return errors.New("no token: set " + EnvToken + " or pass --token")
+		return nil, errors.New("no token: set " + EnvToken + " or pass --token")
 	}
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return fmt.Errorf("encode request: %w", err)
+			return nil, fmt.Errorf("encode request: %w", err)
 		}
 		rd = bytes.NewReader(b)
 	}
 	u, err := url.Parse(r.url)
 	if err != nil || u.Host == "" {
-		return fmt.Errorf("bad --url %q", r.url)
+		return nil, fmt.Errorf("bad --url %q", r.url)
 	}
 	if u.Scheme == "http" && !slices.Contains([]string{"localhost", "127.0.0.1", "::1"}, u.Hostname()) {
-		return fmt.Errorf("refusing to send the token over plain http to %s: use an https URL", u.Host)
+		return nil, fmt.Errorf("refusing to send the token over plain http to %s: use an https URL", u.Host)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(r.url, "/")+"/api/v1"+path, rd)
 	if err != nil {
-		return fmt.Errorf("bad --url: %w", err)
+		return nil, fmt.Errorf("bad --url: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	if body != nil {
@@ -77,27 +80,64 @@ func (r *remote) call(ctx context.Context, method, path string, body, out any) e
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("call forecrewd: %w", err)
+		return nil, fmt.Errorf("call forecrewd: %w", err)
+	}
+	return resp, nil
+}
+
+// failure turns an error answer into an *apiError.
+func failure(resp *http.Response) error {
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	e := &apiError{Status: resp.StatusCode, Message: fmt.Sprintf("forecrewd answered %s", resp.Status)}
+	var body struct {
+		Error struct{ Code, Message string }
+	}
+	if json.Unmarshal(data, &body) == nil && body.Error.Message != "" {
+		e.Code, e.Message = body.Error.Code, body.Error.Message
+	}
+	return e
+}
+
+// call sends a request to /api/v1 and decodes the JSON answer into out.
+func (r *remote) call(ctx context.Context, method, path string, body, out any) error {
+	resp, err := r.send(ctx, method, path, body)
+	if err != nil {
+		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 300 {
+		return failure(resp)
+	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if err != nil {
 		return fmt.Errorf("read answer: %w", err)
-	}
-	if resp.StatusCode >= 300 {
-		e := &apiError{Status: resp.StatusCode, Message: fmt.Sprintf("forecrewd answered %s", resp.Status)}
-		var body struct {
-			Error struct{ Code, Message string }
-		}
-		if json.Unmarshal(data, &body) == nil && body.Error.Message != "" {
-			e.Code, e.Message = body.Error.Code, body.Error.Message
-		}
-		return e
 	}
 	if err := json.Unmarshal(data, out); err != nil {
 		return fmt.Errorf("decode answer: %w", err)
 	}
 	return nil
+}
+
+// download streams the answer of a GET to open's writer. open is called once
+// the answer is known to be a success, so a failed request leaves no file.
+func (r *remote) download(ctx context.Context, path string, open func() (io.WriteCloser, error)) error {
+	resp, err := r.send(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 300 {
+		return failure(resp)
+	}
+	w, err := open()
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		_ = w.Close()
+		return fmt.Errorf("download: %w", err)
+	}
+	return w.Close()
 }
 
 // newRemote returns the connection that --url and --token configure.
@@ -131,6 +171,7 @@ func (r *remote) commands() []*cobra.Command {
 		decideCommand(r, "reject", "reject", "Reject a gate (GATE-7 or UUID); on a needs_you gate this stops the work"),
 		changesCommand(r),
 		jobsCommand(r),
+		artifactCommand(r),
 	}
 }
 
@@ -189,7 +230,7 @@ func decide(cmd *cobra.Command, r *remote, gate, action, feedback string) error 
 }
 
 func jobsCommand(r *remote) *cobra.Command {
-	jobs := &cobra.Command{Use: "jobs", Short: "Inspect jobs"}
+	jobs := &cobra.Command{Use: "jobs", Aliases: []string{"job"}, Short: "Inspect jobs"}
 	jobs.AddCommand(&cobra.Command{
 		Use:   "show <job>",
 		Short: "Show a job (JOB-41 or UUID)",
@@ -216,8 +257,55 @@ func jobsCommand(r *remote) *cobra.Command {
 			return nil
 		},
 	})
+	jobs.AddCommand(&cobra.Command{
+		Use:   "artifacts <job>",
+		Short: "List the artifacts a job uploaded (JOB-41 or UUID)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var items []domain.Artifact
+			if err := r.call(cmd.Context(), http.MethodGet, "/jobs/"+url.PathEscape(args[0])+"/artifacts", nil, &items); err != nil {
+				return err
+			}
+			printArtifacts(cmd.OutOrStdout(), items)
+			return nil
+		},
+	})
 	return jobs
 }
+
+// artifactCommand downloads artifacts.
+func artifactCommand(r *remote) *cobra.Command {
+	artifact := &cobra.Command{Use: "artifact", Short: "Download job artifacts"}
+	var output string
+	get := &cobra.Command{
+		Use:   "get <id>",
+		Short: "Download an artifact by UUID (see: forecrew job artifacts)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			toStdout := output == "" || output == "-"
+			created := false
+			err := r.download(cmd.Context(), "/artifacts/"+url.PathEscape(args[0]), func() (io.WriteCloser, error) {
+				if toStdout {
+					return nopCloser{cmd.OutOrStdout()}, nil
+				}
+				f, err := os.Create(output) //nolint:gosec // the path is the one the user asked for
+				created = err == nil
+				return f, err
+			})
+			if err != nil && created {
+				_ = os.Remove(output) // no partial file
+			}
+			return err
+		},
+	}
+	get.Flags().StringVarP(&output, "output", "o", "", "file to write; standard output when empty or -")
+	artifact.AddCommand(get)
+	return artifact
+}
+
+type nopCloser struct{ io.Writer }
+
+func (nopCloser) Close() error { return nil }
 
 // tokensCommand lists the tokens of the account; its subcommand revokes one.
 func tokensCommand(r *remote) *cobra.Command {
@@ -303,6 +391,14 @@ func printJob(w io.Writer, j mcp.JobInfo) {
 	}
 	if !j.FinishedAt.IsZero() {
 		rows = append(rows, []string{"Finished:", j.FinishedAt.Format("2006-01-02 15:04:05 MST")})
+	}
+	table(w, rows)
+}
+
+func printArtifacts(w io.Writer, items []domain.Artifact) {
+	rows := [][]string{{"ID", "NAME", "TYPE", "SIZE", "SHA256"}}
+	for _, a := range items {
+		rows = append(rows, []string{a.ID.String(), a.Name, dash(a.ContentType), strconv.FormatInt(a.Size, 10), a.SHA256[:min(12, len(a.SHA256))]})
 	}
 	table(w, rows)
 }
