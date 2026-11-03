@@ -6,6 +6,6 @@
   ],
   "tests_added": [{"path": "internal/store/reset_test.go", "name": "TestResetTokenExpires", "criteria": ["AC-1"]}],
   "commands_run": [{"command": "make test", "exit_code": 0}],
-  "assumptions": [{"text": "Tokens are stored hashed like other tokens.", "confidence": "medium", "impact": "low"}],
+  "assumptions": [{"statement": "Tokens are stored hashed like other tokens.", "confidence": "medium", "impact": "low", "verify_by": "test"}],
   "escalation": null
 }

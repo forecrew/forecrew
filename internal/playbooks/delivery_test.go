@@ -13,7 +13,7 @@ func approveReview() map[string]any {
 	return map[string]any{
 		"verdict": "approve", "summary": "Looks right.", "comments": []any{},
 		"criteria_check": []any{map[string]any{"criterion": "AC-1", "status": "met", "evidence": "TestCharge"}},
-		"assumptions":    []any{map[string]any{"text": "Cards only", "confidence": "low", "impact": "high"}},
+		"assumptions":    []any{map[string]any{"statement": "Cards only", "confidence": "low", "impact": "high", "verify_by": "test"}},
 	}
 }
 

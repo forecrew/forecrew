@@ -8,5 +8,5 @@
     "platforms": ["linux"],
     "open_questions": ["Which Postgres version do the integration tests need?"]
   },
-  "assumptions": [{"text": "CI on main is the source of truth for checks.", "confidence": "high", "impact": "low"}]
+  "assumptions": [{"statement": "CI on main is the source of truth for checks.", "confidence": "high", "impact": "low", "verify_by": "test"}]
 }

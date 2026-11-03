@@ -9,7 +9,7 @@
     {"part": "exclude", "name": "os=windows,postgres=16", "change": "added", "reason": "Postgres runs only on Linux; one version is enough on the other platforms."},
     {"part": "suites", "name": "quirks", "change": "added", "reason": "Platform-specific behaviour gets a suite of its own so it can run alone."}
   ],
-  "assumptions": [{"text": "Postgres 16 is the oldest version in production.", "confidence": "medium", "impact": "high"}],
+  "assumptions": [{"statement": "Postgres 16 is the oldest version in production.", "confidence": "medium", "impact": "high", "verify_by": "test"}],
   "open_questions": ["Must macOS on Apple silicon and on Intel both be covered?"],
   "escalation": null
 }

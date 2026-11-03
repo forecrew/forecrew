@@ -27,8 +27,8 @@ type specDoc struct {
 		In  []string `json:"in"`
 		Out []string `json:"out"`
 	} `json:"scope"`
-	Assumptions   []assumption `json:"assumptions"`
-	OpenQuestions []string     `json:"open_questions"`
+	Assumptions   []domain.StatedAssumption `json:"assumptions"`
+	OpenQuestions []string                  `json:"open_questions"`
 }
 
 // check reports why the spec cannot be used, if so.

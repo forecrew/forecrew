@@ -14,18 +14,11 @@ import (
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
-// assumption is an assumption of the analyst's output.
-type assumption struct {
-	Text       string `json:"text"`
-	Confidence string `json:"confidence"`
-	Impact     string `json:"impact"`
-}
-
 // assumptionLines describes the assumptions in one markdown line each.
-func assumptionLines(as []assumption) []string {
+func assumptionLines(as []domain.StatedAssumption) []string {
 	var out []string
 	for _, a := range as {
-		out = append(out, fmt.Sprintf("%s (confidence %s, impact %s)", a.Text, a.Confidence, a.Impact))
+		out = append(out, fmt.Sprintf("%s (confidence %s, impact %s)", a.Statement, a.Confidence, a.Impact))
 	}
 	return out
 }
@@ -43,9 +36,9 @@ type proposalOutput struct {
 // and the open questions.
 func (a *actions) onboardingProposal(_ context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
-		Profile     json.RawMessage `json:"profile"`
-		Summary     string          `json:"summary"`
-		Assumptions []assumption    `json:"assumptions"`
+		Profile     json.RawMessage           `json:"profile"`
+		Summary     string                    `json:"summary"`
+		Assumptions []domain.StatedAssumption `json:"assumptions"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err

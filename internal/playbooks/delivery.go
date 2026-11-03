@@ -130,9 +130,9 @@ func gateSummary(prURL, sha, checks string, review reviewDoc, result devResult) 
 		checked = append(checked, c.line())
 	}
 	section(&b, "Criteria", checked, "- ")
-	var risky []assumption
-	for _, as := range append(append([]assumption{}, result.Assumptions...), review.Assumptions...) {
-		if as.Impact == "high" {
+	var risky []domain.StatedAssumption
+	for _, as := range append(append([]domain.StatedAssumption{}, result.Assumptions...), review.Assumptions...) {
+		if as.Impact == domain.LevelHigh {
 			risky = append(risky, as)
 		}
 	}

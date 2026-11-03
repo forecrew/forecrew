@@ -27,10 +27,10 @@ type planTask struct {
 
 // planDoc is the output of the architect role (packs/schemas/task-breakdown.json).
 type planDoc struct {
-	Summary     string       `json:"summary"`
-	Tasks       []planTask   `json:"tasks"`
-	Assumptions []assumption `json:"assumptions"`
-	Escalation  *string      `json:"escalation"`
+	Summary     string                    `json:"summary"`
+	Tasks       []planTask                `json:"tasks"`
+	Assumptions []domain.StatedAssumption `json:"assumptions"`
+	Escalation  *string                   `json:"escalation"`
 }
 
 // check reports why the breakdown cannot be used for spec: the architect

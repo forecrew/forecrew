@@ -56,7 +56,7 @@ End your answer with exactly one fenced `json` block whose content matches this 
       "description": "Every assumption you made; an empty list only if you made none.",
       "items": {
         "additionalProperties": false,
-        "description": "Something taken as true without confirmation.",
+        "description": "Something taken as true without confirmation. Forecrew registers it as A-n (docs/contracts/data-model.md, assumptions); docs/contracts/council-brief.schema.json repeats this definition.",
         "properties": {
           "confidence": {
             "description": "How sure you are the assumption holds.",
@@ -76,15 +76,26 @@ End your answer with exactly one fenced `json` block whose content matches this 
             ],
             "type": "string"
           },
-          "text": {
+          "statement": {
+            "description": "What you take as true, as one sentence.",
             "pattern": "\\S",
+            "type": "string"
+          },
+          "verify_by": {
+            "description": "How it can be checked: a test, a question to a human, or research.",
+            "enum": [
+              "test",
+              "ask-human",
+              "research"
+            ],
             "type": "string"
           }
         },
         "required": [
-          "text",
+          "statement",
           "confidence",
-          "impact"
+          "impact",
+          "verify_by"
         ],
         "type": "object"
       },

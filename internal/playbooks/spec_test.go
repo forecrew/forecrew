@@ -32,7 +32,7 @@ func specOutput(texts ...string) map[string]any {
 		"summary":             "Customers pay by card at checkout.",
 		"acceptance_criteria": criteria,
 		"scope":               map[string]any{"in": []any{"card payments"}, "out": []any{"refunds"}},
-		"assumptions":         []any{map[string]any{"text": "Stripe is the processor", "confidence": "medium", "impact": "high"}},
+		"assumptions":         []any{map[string]any{"statement": "Stripe is the processor", "confidence": "medium", "impact": "high", "verify_by": "test"}},
 		"open_questions":      []any{"Which currencies?"},
 	}
 }

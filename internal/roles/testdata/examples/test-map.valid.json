@@ -7,6 +7,6 @@
   ],
   "files": ["internal/store/reset_test.go", "internal/store/testdata/tokens.json", "tests/e2e/test_reset.py"],
   "untestable": [{"criterion": "AC-3", "reason": "The email's wording needs a human read; check the template in the PR."}],
-  "assumptions": [{"text": "The store exposes CreateResetToken(ctx, userID) as the task describes.", "confidence": "high", "impact": "medium"}],
+  "assumptions": [{"statement": "The store exposes CreateResetToken(ctx, userID) as the task describes.", "confidence": "high", "impact": "medium", "verify_by": "test"}],
   "escalation": null
 }

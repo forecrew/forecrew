@@ -22,7 +22,7 @@ func planOutput(tasks ...map[string]any) map[string]any {
 	}
 	return map[string]any{
 		"summary": "Payments first, then the form.", "tasks": ts, "escalation": nil,
-		"assumptions": []any{map[string]any{"text": "One PSP", "confidence": "high", "impact": "low"}},
+		"assumptions": []any{map[string]any{"statement": "One PSP", "confidence": "high", "impact": "low", "verify_by": "test"}},
 	}
 }
 

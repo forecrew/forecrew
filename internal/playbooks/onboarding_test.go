@@ -21,7 +21,7 @@ func TestOnboardingProposal(t *testing.T) {
 	v := newEnv(t)
 	out, err := v.call(t, "onboarding.proposal", map[string]any{
 		"profile": fullProfile, "summary": "Found a Go service and a web app.",
-		"assumptions": []any{map[string]any{"text": "CI runs on Linux", "confidence": "high", "impact": "low"}},
+		"assumptions": []any{map[string]any{"statement": "CI runs on Linux", "confidence": "high", "impact": "low", "verify_by": "test"}},
 	})
 	must(t, err)
 	m := toMap(t, out)

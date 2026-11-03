@@ -5,6 +5,6 @@
     {"id": "AC-2", "text": "Given an expired or used link, when it is opened, then the page says so and offers a new link."}
   ],
   "scope": {"in": ["Reset request form", "Reset email"], "out": ["Password strength rules"]},
-  "assumptions": [{"text": "The existing mailer can send transactional email.", "confidence": "high", "impact": "medium"}],
+  "assumptions": [{"statement": "The existing mailer can send transactional email.", "confidence": "high", "impact": "medium", "verify_by": "test"}],
   "open_questions": ["Should a reset log the user out of other sessions?"]
 }
