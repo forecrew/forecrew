@@ -38,6 +38,7 @@ func TestRefs(t *testing.T) {
 		{in: "COUNCIL-2", kind: RefCouncil, number: 2},
 		{in: "a-42", kind: RefAssumption, number: 42},
 		{in: "DEC-9", kind: RefDecision, number: 9},
+		{in: "KB-5", kind: RefKnowledge, number: 5},
 		{in: "GOAL", wantErr: true},
 		{in: "GOAL-0", wantErr: true},
 		{in: "GOAL-x", wantErr: true},
@@ -59,7 +60,7 @@ func TestRefs(t *testing.T) {
 			t.Errorf("Ref round trip = %q, want %q", got, strings.ToUpper(tt.in))
 		}
 	}
-	if len(RefKinds()) != 8 {
+	if len(RefKinds()) != 9 {
 		t.Errorf("RefKinds = %v", RefKinds())
 	}
 }
@@ -68,9 +69,9 @@ func TestEntityRefs(t *testing.T) {
 	got := []string{
 		Goal{Number: 3}.Ref(), Spec{Number: 4}.Ref(), Task{Number: 12}.Ref(),
 		Job{Number: 41}.Ref(), Gate{Number: 7}.Ref(),
-		Council{Number: 2}.Ref(), Assumption{Number: 42}.Ref(), Decision{Number: 9}.Ref(),
+		Council{Number: 2}.Ref(), Assumption{Number: 42}.Ref(), Decision{Number: 9}.Ref(), KnowledgeProposal{Number: 5}.Ref(),
 	}
-	want := []string{"GOAL-3", "SPEC-4", "TASK-12", "JOB-41", "GATE-7", "COUNCIL-2", "A-42", "DEC-9"}
+	want := []string{"GOAL-3", "SPEC-4", "TASK-12", "JOB-41", "GATE-7", "COUNCIL-2", "A-42", "DEC-9", "KB-5"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("refs = %v, want %v", got, want)
 	}
@@ -260,7 +261,7 @@ func TestGateResolve(t *testing.T) {
 			t.Errorf("second resolve err = %v", err)
 		}
 	}
-	if len(GateKinds()) != 7 {
+	if len(GateKinds()) != 9 {
 		t.Errorf("GateKinds = %v", GateKinds())
 	}
 }
