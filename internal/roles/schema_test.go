@@ -16,7 +16,7 @@ import (
 // outputSchemas are the role output schemas; common.json only holds shared
 // $defs.
 var outputSchemas = []string{"profile-draft", "spec", "task-breakdown", "developer-result", "review-verdict",
-	"test-plan", "environments"}
+	"test-plan", "environments", "test-map"}
 
 func TestSchemaExamples(t *testing.T) {
 	for _, name := range outputSchemas {
@@ -201,6 +201,15 @@ func TestTestRoleSchemaRejects(t *testing.T) {
 		{"environments", "bad name", func(d map[string]any) { item(d, "environments", 0)["name"] = "Ubuntu Latest" }},
 		{"environments", "no reason", func(d map[string]any) { item(d, "environments", 0)["reason"] = "" }},
 		{"environments", "unknown change", func(d map[string]any) { item(d, "environments", 0)["change"] = "rebuilt" }},
+		{"test-map", "bad criterion", func(d map[string]any) { item(d, "tests", 0)["criterion"] = "1" }},
+		{"test-map", "bad suite", func(d map[string]any) { item(d, "tests", 0)["suite"] = "Unit" }},
+		{"test-map", "empty id", func(d map[string]any) { item(d, "tests", 0)["id"] = "" }},
+		{"test-map", "absolute file", func(d map[string]any) { item(d, "tests", 0)["file"] = "/src/reset_test.go" }},
+		{"test-map", "extra field", func(d map[string]any) { item(d, "tests", 0)["passed"] = false }},
+		{"test-map", "untestable without reason", func(d map[string]any) { delete(item(d, "untestable", 0), "reason") }},
+		{"test-map", "no untestable", func(d map[string]any) { delete(d, "untestable") }},
+		{"test-map", "no files", func(d map[string]any) { delete(d, "files") }},
+		{"test-map", "absolute listed file", func(d map[string]any) { d["files"] = []any{"/etc/passwd"} }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.schema+"/"+tt.name, func(t *testing.T) {

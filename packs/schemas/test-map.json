@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Test map",
+  "description": "Output of the test-engineer role: the tests written for the acceptance criteria of one task, and the criteria that cannot be tested automatically. The verification report and the fail-on-base check read it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "tests", "files", "untestable", "assumptions", "escalation"],
+  "properties": {
+    "summary": {"$ref": "common.json#/$defs/text", "description": "What the tests check, in a few sentences."},
+    "tests": {
+      "description": "Every test you wrote, one entry per test and criterion. A test that checks two criteria has two entries.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion", "suite", "id", "file"],
+        "properties": {
+          "criterion": {"$ref": "common.json#/$defs/criterion_id"},
+          "suite": {
+            "description": "Name of the matrix suite that runs the test.",
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+          },
+          "id": {
+            "description": "The test as its suite's JUnit XML will name it: <classname>::<name> of its testcase element, or <name> when the reporter writes no classname.",
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "file": {
+            "description": "File that holds the test, relative to the repo root, with / separators.",
+            "type": "string",
+            "pattern": "^[^/\\\\]"
+          }
+        }
+      }
+    },
+    "files": {
+      "description": "Every file you created or changed, tests, helpers, fixtures and test data alike, relative to the repo root with / separators. The developer may not change them, and the check on the base branch applies them all.",
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[^/\\\\]"}
+    },
+    "untestable": {
+      "description": "Criteria of the task no automated test can check, each with the reason. Every criterion of the task is in tests or here.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion", "reason"],
+        "properties": {
+          "criterion": {"$ref": "common.json#/$defs/criterion_id"},
+          "reason": {"$ref": "common.json#/$defs/text", "description": "Why, and how a human can check it instead."}
+        }
+      }
+    },
+    "assumptions": {"$ref": "common.json#/$defs/assumptions"},
+    "escalation": {"$ref": "common.json#/$defs/escalation"}
+  }
+}

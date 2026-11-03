@@ -1,0 +1,10 @@
+{
+  "summary": "Tests.",
+  "tests": [
+    {"criterion": "1", "suite": "Unit", "id": "", "file": "/abs/reset_test.go", "passed": false}
+  ],
+  "files": ["/abs/reset_test.go"],
+  "untestable": [{"criterion": "AC-3"}],
+  "assumptions": [],
+  "escalation": null
+}

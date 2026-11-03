@@ -31,6 +31,7 @@ func testConfig() *config.Config {
 			"reviewer":             {Runtime: "codex", Tier: config.TierBest},
 			"test-architect":       {Runtime: "claude", Tier: config.TierBest},
 			"environment-engineer": {Runtime: "claude", Tier: config.TierStrong},
+			"test-engineer":        {Runtime: "claude", Tier: config.TierStrong},
 		},
 	}
 }
@@ -40,7 +41,7 @@ func TestCatalogResolve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	want := []string{"architect", "developer", "environment-engineer", "onboarding-analyst", "product-owner", "reviewer", "test-architect"}
+	want := []string{"architect", "developer", "environment-engineer", "onboarding-analyst", "product-owner", "reviewer", "test-architect", "test-engineer"}
 	if got := c.Names(); !slices.Equal(got, want) {
 		t.Errorf("Names = %v, want %v", got, want)
 	}
@@ -68,7 +69,7 @@ func TestCatalogResolve(t *testing.T) {
 	if err != nil || po.Model != "claude-best" {
 		t.Errorf("Resolve product-owner = %q, %v; want claude-best", po.Model, err)
 	}
-	for name, model := range map[string]string{"test-architect": "claude-best", "environment-engineer": "claude-strong"} {
+	for name, model := range map[string]string{"test-architect": "claude-best", "environment-engineer": "claude-strong", "test-engineer": "claude-strong"} {
 		r, err := c.Resolve(ctx, uuid.Nil(), uuid.Nil(), name)
 		if err != nil || r.Model != model || r.ReadOnly() || !slices.Contains(r.AllowedTools, "Write") || r.Pool != "build" {
 			t.Errorf("Resolve %s = %+v, %v; want a writing role on %s", name, r, err, model)
