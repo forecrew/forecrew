@@ -74,6 +74,8 @@ type Config struct {
 	Pools map[string]Pool `yaml:"pools"`
 	// Evidence is the artifact storage; nil when not configured.
 	Evidence *Evidence `yaml:"evidence"`
+	// Sizing is the rule that gives goals their councils from their triage.
+	Sizing Sizing `yaml:"sizing"`
 }
 
 // Server configures the HTTP listener.
@@ -181,6 +183,7 @@ func (c *Config) applyDefaults() {
 		c.Server.CertCacheDir = DefaultCertCacheDir
 	}
 	c.applyPoolDefaults()
+	c.applySizing()
 }
 
 // problems collects validation messages.
@@ -209,6 +212,7 @@ func (c *Config) Validate() error {
 	c.validateRoles(&p)
 	c.validatePools(&p)
 	c.validateEvidence(&p)
+	c.validateSizing(&p)
 	return p.err()
 }
 
