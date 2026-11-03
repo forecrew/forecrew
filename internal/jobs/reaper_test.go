@@ -198,3 +198,34 @@ func (f *fixture) job(t *testing.T, id uuid.UUID) domain.Job {
 	must(t, err)
 	return j
 }
+
+func TestReapConcurrentJobsOnOneWorker(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	var jobs []domain.Job
+	for range 3 {
+		f.newJob(t)
+		jobs = append(jobs, f.lease(t))
+	}
+	// The daemon dies between heartbeats of the first job; the other two
+	// keep beating from the same worker.
+	for range 12 {
+		f.clock.Advance(30 * time.Second)
+		for _, j := range jobs[1:] {
+			_, err := f.st.Jobs().ExtendLease(ctx, f.account, j.ID, f.worker.ID, domain.LeaseDuration)
+			must(t, err)
+		}
+	}
+	got, err := f.svc.Reap(ctx)
+	must(t, err)
+	if len(got) != 1 || got[0].ID != jobs[0].ID || got[0].Status != domain.JobQueued {
+		t.Fatalf("reaped = %+v, want only the silent job requeued", got)
+	}
+	for _, j := range jobs[1:] {
+		cur, err := f.st.Jobs().Get(ctx, f.account, j.ID)
+		must(t, err)
+		if cur.Status != domain.JobRunning {
+			t.Errorf("job %s = %s, want running", j.Ref(), cur.Status)
+		}
+	}
+}
