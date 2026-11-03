@@ -3,7 +3,8 @@
 # checks the control worker: it registers in pool control, comes online with
 # its runtime labels, cannot reach Postgres, and its token is hidden from the
 # agents' user. Needs Docker with the Compose plugin and openssl.
-# It writes .env and forecrew.yaml into deploy/compose and removes them again.
+# It writes .env, garage.env and forecrew.yaml into deploy/compose and removes
+# them again.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,11 +18,12 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 cd "$dir"
 [ ! -e .env ] || fail "$dir/.env exists; move it away first"
+[ ! -e garage.env ] || fail "$dir/garage.env exists; move it away first"
 [ ! -e forecrew.yaml ] || fail "$dir/forecrew.yaml exists; move it away first"
 
 cleanup() {
 	docker compose down -v --remove-orphans >/dev/null 2>&1 || true
-	rm -f "$dir/.env" "$dir/forecrew.yaml"
+	rm -f "$dir/.env" "$dir/garage.env" "$dir/forecrew.yaml"
 }
 trap cleanup EXIT
 
@@ -33,10 +35,16 @@ key="$(openssl genrsa -traditional 2048 2>/dev/null | awk 'NF{printf "%s\\n", $0
 	echo "FORECREW_GITHUB_WEBHOOK_SECRET=control-test-secret"
 	echo "ANTHROPIC_API_KEY=control-test-anthropic"
 	echo "CODEX_API_KEY=control-test-codex"
+	echo "FORECREW_EVIDENCE_ACCESS_KEY_ID=GK$(openssl rand -hex 12)"
+	echo "FORECREW_EVIDENCE_SECRET_ACCESS_KEY=$(openssl rand -hex 32)"
 	echo "FORECREW_HTTP_PORT=$FORECREW_HTTP_PORT"
 	echo "FORECREW_HTTPS_PORT=$FORECREW_HTTPS_PORT"
 	echo "FORECREW_CONTROL_MAX_JOBS=2"
 } >.env
+{
+	echo "GARAGE_RPC_SECRET=$(openssl rand -hex 32)"
+	echo "GARAGE_ADMIN_TOKEN=$(openssl rand -hex 32)"
+} >garage.env
 cp forecrew.example.yaml forecrew.yaml
 
 docker compose up -d --build --wait --wait-timeout 300 forecrewd worker-control
@@ -67,6 +75,10 @@ probe() { docker compose exec -T worker-control timeout 4 bash -c "</dev/tcp/$1/
 probe forecrewd 80 || fail "the control worker cannot reach forecrewd:80"
 ! probe postgres 5432 || fail "the control worker reaches postgres by name"
 ! probe "$ip" 5432 || fail "the control worker reaches postgres at $ip:5432"
+# Nor the artifact store: workers upload through forecrewd.
+! probe garage 3900 || fail "the control worker reaches garage:3900 (S3)"
+! probe garage 3903 || fail "the control worker reaches garage:3903 (admin API)"
+probe forecrewd 80 || fail "the control worker lost forecrewd:80"
 
 # The agents run as forecrew and must not read the worker token.
 ! docker compose exec -T --user 10001 worker-control cat /var/lib/forecrew-control/token >/dev/null 2>&1 ||

@@ -1,5 +1,6 @@
-# Forecrew: forecrewd, its Postgres, a daily database backup and a control
-# worker for the read-only "control" pool.
+# Forecrew: forecrewd, its Postgres, a daily database backup, Garage (the
+# S3-compatible store of job artifacts: test reports, logs, screenshots) and a
+# control worker for the read-only "control" pool.
 #
 #   cp .env.example .env                    # fill in the secrets
 #   cp forecrew.example.yaml forecrew.yaml  # edit
@@ -10,9 +11,14 @@
 # Postgres is reachable only on "db", which the control worker does not join:
 # agents run in that container, so it must not see the database. forecrewd
 # joins "edge" too, so the control worker reaches its public API there.
+# Garage is reachable only on "storage", which holds just forecrewd, Garage and
+# garage-init: workers upload artifacts through forecrewd and never see the
+# store or its keys.
 networks:
   db:
     internal: true # no route outside the host
+  storage:
+    internal: true
   edge: {}
 
 services:
@@ -44,11 +50,47 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # Single-node Garage. The image has no shell, so the health check runs the
+  # binary itself.
+  garage:
+    image: dxflrs/garage:v2.5.0
+    restart: unless-stopped
+    networks: [storage]
+    # GARAGE_RPC_SECRET and GARAGE_ADMIN_TOKEN: only Garage and garage-init
+    # get them, never forecrewd (which reads .env).
+    env_file: garage.env
+    volumes:
+      - ./garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Creates the layout, the bucket and the access key on first start; does
+  # nothing on later starts.
+  garage-init:
+    image: curlimages/curl:8.23.0
+    entrypoint: ["/bin/sh", "/garage-init.sh"]
+    networks: [storage]
+    env_file: garage.env
+    environment:
+      FORECREW_EVIDENCE_ACCESS_KEY_ID: ${FORECREW_EVIDENCE_ACCESS_KEY_ID:?set FORECREW_EVIDENCE_ACCESS_KEY_ID in .env}
+      FORECREW_EVIDENCE_SECRET_ACCESS_KEY: ${FORECREW_EVIDENCE_SECRET_ACCESS_KEY:?set FORECREW_EVIDENCE_SECRET_ACCESS_KEY in .env}
+    volumes:
+      - ./garage-init.sh:/garage-init.sh:ro
+    depends_on:
+      garage:
+        condition: service_healthy
+    restart: "no"
+
   forecrewd:
     image: ghcr.io/forecrew/forecrewd:${FORECREW_VERSION:-latest}
     restart: unless-stopped
     # One replica only: forecrewd is not built to run twice against a database.
-    networks: [db, edge] # edge: outbound HTTPS, and the control worker's API
+    networks: [db, edge, storage] # edge: outbound HTTPS, and the control worker's API
     env_file: .env
     environment:
       FORECREW_DATABASE_URL: *database_url
@@ -69,6 +111,8 @@ services:
       start_period: 20s
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      garage-init:
         condition: service_completed_successfully
 
   backup:
@@ -141,3 +185,5 @@ volumes:
   certs:
   backups:
   control-token:
+  garage-meta:
+  garage-data:
