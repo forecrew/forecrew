@@ -9,6 +9,14 @@ import (
 func TestValidateProfile(t *testing.T) {
 	valid := map[string]any{"version": 1, "name": "app", "summary": "An app."}
 	invalid := map[string]any{"version": 2, "name": "app", "summary": "An app."}
+	integration := map[string]any{
+		"tool": "jira", "uses": []any{"tracker"}, "confidence": "high", "status": "proposed",
+		"evidence": []any{map[string]any{"kind": "autolink", "location": "github:autolinks", "count": 1}},
+	}
+	withIntegration := map[string]any{"version": 1, "name": "app", "summary": "An app.", "integrations": []any{integration}}
+	badTool := maps.Clone(integration)
+	badTool["tool"] = "github-issues"
+	withBadTool := map[string]any{"version": 1, "name": "app", "summary": "An app.", "integrations": []any{badTool}}
 	tests := []struct {
 		name      string
 		with      map[string]any
@@ -20,6 +28,8 @@ func TestValidateProfile(t *testing.T) {
 		{"invalid, can retry", map[string]any{"profile": invalid, "attempt": 1, "attempts": 2}, false, ""},
 		{"invalid, no attempt limit", map[string]any{"profile": invalid}, false, ""},
 		{"invalid on the last attempt", map[string]any{"profile": invalid, "attempt": 2, "attempts": 2}, false, "still invalid after 2 attempts"},
+		{"integrations", map[string]any{"profile": withIntegration}, true, ""},
+		{"integration of an unknown tool", map[string]any{"profile": withBadTool}, false, ""},
 		{"no profile", map[string]any{"profile": nil}, false, ""},
 		{"nothing to check", map[string]any{}, true, ""},
 		{"unknown key", map[string]any{"profile": valid, "strict": true}, false, "unknown field"},
