@@ -555,3 +555,96 @@ func TestStoreJobLeasingByPool(t *testing.T) {
 	_, err = jobs.LeaseNext(ctx, f.account, control.ID, labels, time.Minute)
 	wantErr(t, err, store.ErrNoJob)
 }
+
+func TestStoreArtifacts(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Artifacts()
+	job := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Role: "developer"}
+	must(t, f.st.Jobs().Create(ctx, &job))
+	art := func(name string) domain.Artifact {
+		return domain.Artifact{AccountID: f.account, ProjectID: f.project.ID, JobID: job.ID, Name: name, Size: 1, StorageKey: "k/" + name}
+	}
+
+	b, a := art("b.txt"), art("a.txt")
+	must(t, repo.Put(ctx, &b))
+	f.clock.Advance(time.Hour)
+	must(t, repo.Put(ctx, &a))
+	list, err := repo.ListByJob(ctx, f.account, job.ID)
+	if err != nil || len(list) != 2 || list[0].Name != "a.txt" {
+		t.Fatalf("list = %+v, %v", list, err)
+	}
+
+	again := art("a.txt")
+	again.Size = 7
+	must(t, repo.Put(ctx, &again))
+	got, err := repo.Get(ctx, f.account, a.ID)
+	if err != nil || again.ID != a.ID || got.Size != 7 {
+		t.Fatalf("re-upload = %+v, %v", got, err)
+	}
+	if list, _ := repo.ListByJob(ctx, f.account, job.ID); len(list) != 2 {
+		t.Fatalf("re-upload added a row: %+v", list)
+	}
+
+	// Without a job a key may not repeat; rows are never merged.
+	r1 := domain.Artifact{AccountID: f.account, ProjectID: f.project.ID, Name: "r.md", StorageKey: "r1"}
+	r2 := domain.Artifact{AccountID: f.account, ProjectID: f.project.ID, Name: "r.md", StorageKey: "r2"}
+	must(t, repo.Put(ctx, &r1))
+	must(t, repo.Put(ctx, &r2))
+	r3 := domain.Artifact{AccountID: f.account, ProjectID: f.project.ID, Name: "r3.md", StorageKey: "r1"}
+	wantErr(t, repo.Put(ctx, &r3), store.ErrConflict)
+
+	older, err := repo.ListOlderThan(ctx, f.account, t0.Add(30*time.Minute), 0)
+	if err != nil || len(older) != 1 || older[0].Name != "b.txt" {
+		t.Fatalf("older = %+v, %v", older, err)
+	}
+	older, _ = repo.ListOlderThan(ctx, f.account, t0.Add(2*time.Hour), 2)
+	if len(older) != 2 {
+		t.Fatalf("limit = %+v", older)
+	}
+	_, err = repo.ListOlderThan(ctx, domain.NewID(), t0.Add(time.Hour), 0)
+	must(t, err)
+
+	must(t, repo.Delete(ctx, f.account, a.ID))
+	_, err = repo.Get(ctx, f.account, a.ID)
+	wantErr(t, err, store.ErrNotFound)
+	wantErr(t, repo.Delete(ctx, f.account, a.ID), store.ErrNotFound)
+
+	foreign := art("z.txt")
+	foreign.AccountID = domain.NewID()
+	foreign.ProjectID = f.project.ID
+	wantErr(t, repo.Put(ctx, &foreign), store.ErrNotFound)
+}
+
+func TestStoreArtifactsPutLeased(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Artifacts()
+	job := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Role: "developer", Runtime: "claude-code"}
+	must(t, f.st.Jobs().Create(ctx, &job))
+	w := domain.Worker{AccountID: f.account, Name: "box", TokenHash: []byte("h"), MaxJobs: 1}
+	must(t, f.st.Workers().Create(ctx, &w))
+	art := func(name, key string) domain.Artifact {
+		return domain.Artifact{AccountID: f.account, ProjectID: f.project.ID, JobID: job.ID, Name: name, StorageKey: key}
+	}
+
+	a := art("a.txt", "k1")
+	_, err := repo.PutLeased(ctx, &a, w.ID)
+	wantErr(t, err, store.ErrLeaseLost) // still queued
+	_, err = f.st.Jobs().LeaseNext(ctx, f.account, w.ID, []string{"runtime:claude-code"}, time.Minute)
+	must(t, err)
+	_, err = repo.PutLeased(ctx, &a, domain.NewID())
+	wantErr(t, err, store.ErrLeaseLost) // another worker
+	replaced, err := repo.PutLeased(ctx, &a, w.ID)
+	if err != nil || replaced != "" {
+		t.Fatalf("first: %q, %v", replaced, err)
+	}
+	again := art("a.txt", "k2")
+	if replaced, err = repo.PutLeased(ctx, &again, w.ID); err != nil || replaced != "k1" || again.ID != a.ID {
+		t.Fatalf("replace: %q, %v", replaced, err)
+	}
+	missing := art("x", "k3")
+	missing.JobID = domain.NewID()
+	_, err = repo.PutLeased(ctx, &missing, w.ID)
+	wantErr(t, err, store.ErrNotFound)
+}

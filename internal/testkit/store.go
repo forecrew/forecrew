@@ -50,6 +50,7 @@ type storeData struct {
 	steps      table[domain.StepRun]
 	tokens     table[domain.MCPToken]
 	audit      table[domain.AuditEntry]
+	artifacts  table[domain.Artifact]
 	deliveries map[string]domain.WebhookDelivery
 	counters   map[counterKey]int64
 }
@@ -72,6 +73,7 @@ func NewStore(now func() time.Time) *Store {
 		steps:      table[domain.StepRun]{key: func(r domain.StepRun) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		tokens:     table[domain.MCPToken]{key: func(r domain.MCPToken) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		audit:      table[domain.AuditEntry]{key: func(r domain.AuditEntry) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		artifacts:  table[domain.Artifact]{key: func(r domain.Artifact) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		deliveries: map[string]domain.WebhookDelivery{},
 		counters:   map[counterKey]int64{},
 	}}}
@@ -94,6 +96,7 @@ func (d *storeData) clone() *storeData {
 	c.steps = d.steps.clone()
 	c.tokens = d.tokens.clone()
 	c.audit = d.audit.clone()
+	c.artifacts = d.artifacts.clone()
 	c.deliveries = maps.Clone(d.deliveries)
 	c.counters = maps.Clone(d.counters)
 	return &c
