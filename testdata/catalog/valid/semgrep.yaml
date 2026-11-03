@@ -1,0 +1,9 @@
+name: semgrep
+kind: cli
+purpose: Static analysis for security and correctness rules.
+homepage: https://semgrep.dev
+install: pip install semgrep==1.140.0
+license: LGPL-2.1-only
+roles: [security-reviewer]
+categories: [security, ci]
+credentials: [SEMGREP_APP_TOKEN]

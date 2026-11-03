@@ -1,0 +1,8 @@
+name: playwright
+kind: mcp_server
+purpose: Drives a real browser so agents can check web UIs end to end.
+homepage: https://github.com/microsoft/playwright-mcp
+install: npx -y @playwright/mcp@0.0.41
+license: Apache-2.0
+roles: [qa, developer]
+categories: [testing]
