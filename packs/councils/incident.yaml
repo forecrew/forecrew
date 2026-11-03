@@ -1,0 +1,24 @@
+# The incident council: why did it break, how do we fix it and prevent it?
+# Format: docs/councils.md.
+kind: incident
+question: Why did it break, how do we fix it, and how do we keep it from happening again?
+facilitator: facilitator
+max_rounds: 1
+budget: {tokens: 400000, time: 30m}
+members:
+  - role: developer
+    priority: simplicity
+    focus: the root cause shown by the code and the logs, and the smallest safe fix
+    runtimes: [codex, claude-code]
+  - role: environment-engineer
+    priority: risk
+    focus: the blast radius of the failure and of each fix, and how to roll back
+    runtimes: [claude-code, codex]
+  - role: test-architect
+    priority: prevention
+    focus: the test or check that would have caught it, and where else the same mistake can happen
+    runtimes: [codex, claude-code]
+  - role: devils-advocate
+    priority: dissent
+    focus: the cause the evidence does not rule out, and the fix that treats a symptom
+    runtimes: [claude-code, codex]

@@ -1,0 +1,24 @@
+# The product council: should we build this, and what exactly?
+# Format: docs/councils.md.
+kind: product
+question: Should we build this, and what exactly?
+facilitator: facilitator
+max_rounds: 2
+budget: {tokens: 600000, time: 60m}
+members:
+  - role: product-owner
+    priority: scope
+    focus: the smallest scope that delivers the goal, with criteria that can be tested
+    runtimes: [claude-code, codex]
+  - role: market-researcher
+    priority: market-fit
+    focus: what comparable products do and what their users ask for, with sourced evidence
+    runtimes: [codex, claude-code]
+  - role: ux
+    priority: user-value
+    focus: what each option changes for the people who use the product, and what it asks of them
+    runtimes: [claude-code, codex]
+  - role: devils-advocate
+    priority: dissent
+    focus: the case for not building it, building less, or building something else
+    runtimes: [codex, claude-code]

@@ -1,0 +1,8 @@
+{
+  "question": "Which store?",
+  "constraints": [],
+  "must_contain": [],
+  "context": [{"claim": "Jobs are leased.", "kind": "file", "source": "lease.go"}],
+  "assumptions": [],
+  "escalation": null
+}

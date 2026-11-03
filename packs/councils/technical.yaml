@@ -1,0 +1,28 @@
+# The technical council: how should we build it?
+# Format: docs/councils.md.
+kind: technical
+question: How should we build it?
+facilitator: facilitator
+max_rounds: 2
+budget: {tokens: 800000, time: 90m}
+members:
+  - role: architect
+    priority: simplicity
+    focus: the design with the fewest moving parts that meets the spec, reusing what the code already has
+    runtimes: [claude-code, codex]
+  - role: developer
+    priority: cost
+    focus: the effort to build, test and maintain each option in this codebase, and what it costs to change later
+    runtimes: [codex, claude-code]
+  - role: security-reviewer
+    priority: risk
+    focus: what each option exposes, and how likely and how bad a failure or an attack would be
+    runtimes: [claude-code, codex]
+  - role: environment-engineer
+    priority: operability
+    focus: how each option is deployed, configured, observed and rolled back on every supported platform
+    runtimes: [codex, claude-code]
+  - role: devils-advocate
+    priority: dissent
+    focus: the case against the design most members will favour, and the alternative they overlook
+    runtimes: [codex, claude-code]

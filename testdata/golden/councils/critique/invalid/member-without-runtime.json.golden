@@ -1,0 +1,1 @@
+council critique: invalid file: at '/critiques/0/member': 'architect' does not match pattern '^[a-z][a-z0-9-]*@[a-z0-9][a-z0-9-]*$'
