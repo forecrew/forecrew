@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"uuid"
@@ -22,11 +23,14 @@ const (
 	RefTask RefKind = "TASK"
 	RefJob  RefKind = "JOB"
 	RefGate RefKind = "GATE"
+
+	RefAssumption RefKind = "A"
+	RefDecision   RefKind = "DEC"
 )
 
 // RefKinds returns every ref kind.
 func RefKinds() []RefKind {
-	return []RefKind{RefGoal, RefSpec, RefTask, RefJob, RefGate}
+	return []RefKind{RefGoal, RefSpec, RefTask, RefJob, RefGate, RefAssumption, RefDecision}
 }
 
 // Ref formats a human ref such as GOAL-3.
@@ -48,13 +52,7 @@ func ParseRef(s string) (RefKind, int64, error) {
 	return kind, n, nil
 }
 
-func (k RefKind) valid() bool {
-	switch k {
-	case RefGoal, RefSpec, RefTask, RefJob, RefGate:
-		return true
-	}
-	return false
-}
+func (k RefKind) valid() bool { return slices.Contains(RefKinds(), k) }
 
 // ParseRefOrID parses s as a human ref of the kind (GATE-7: number is set)
 // or as a UUID (id is set). Anything else fails with an error wrapping

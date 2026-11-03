@@ -16,4 +16,7 @@ var (
 	// ErrInvalidSpec means a job spec, environment or toolbox breaks the
 	// rules of docs/contracts.
 	ErrInvalidSpec = errors.New("invalid spec")
+	// ErrInvalidRecord means a council, assumption, decision, knowledge
+	// entry or proposal breaks the rules of docs/contracts.
+	ErrInvalidRecord = errors.New("invalid record")
 )
