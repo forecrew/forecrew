@@ -24,6 +24,9 @@ export default defineConfig({
   preview: { headers: { "Content-Security-Policy": csp } },
   test: {
     globals: true,
+    // Every file renders the whole app: more workers than the cores can spare
+    // starve the first test of each file under coverage and time it out.
+    maxWorkers: "50%",
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
