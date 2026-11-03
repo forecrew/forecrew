@@ -20,6 +20,10 @@
     "stringList": {
       "type": "array",
       "items": {"type": "string", "minLength": 1}
+    },
+    "level": {
+      "type": "string",
+      "enum": ["low", "medium", "high"]
     }
   },
   "properties": {
@@ -158,6 +162,63 @@
       "description": "Questions the analyst could not answer from the repo, for the human to resolve.",
       "type": "array",
       "items": {"type": "string", "minLength": 1}
+    },
+    "integrations": {
+      "description": "Tools the team uses outside the repo, found by onboarding from the repo and GitHub metadata (MCP configs, links, autolinks, files, CI steps, issue keys) and approved by a human in the profile PR. Connecting one that needs credentials is always a human step; nothing here is ever a secret.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool", "uses", "evidence", "confidence", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "tool": {
+            "description": "The tool: one of a fixed vocabulary, or mcp:<name> for an MCP server found in an MCP config.",
+            "anyOf": [
+              {"type": "string", "enum": ["jira", "linear", "confluence", "notion", "gdrive", "sharepoint", "slack", "teams", "sentry", "datadog", "grafana", "backstage", "techdocs", "pagerduty"]},
+              {"type": "string", "pattern": "^mcp:[A-Za-z0-9][A-Za-z0-9._-]*$"}
+            ]
+          },
+          "instance": {
+            "description": "Host or organization (acme.atlassian.net, acme), or for an MCP server its URL host or command. Never credentials, user info or a full URL.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][^\\s@:]*$"
+          },
+          "uses": {
+            "description": "What Forecrew could use it for.",
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {"type": "string", "enum": ["knowledge", "tracker", "notifications", "monitoring", "catalog"]}
+          },
+          "evidence": {
+            "description": "Where onboarding saw it.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["kind", "location", "count"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": {"type": "string", "enum": ["mcp_config", "link", "autolink", "file", "ci_step", "issue_key"]},
+                "location": {"description": "File relative to the repo root, or github:<what> for GitHub metadata.", "type": "string", "minLength": 1},
+                "count": {"description": "How many times it was seen there.", "type": "integer", "minimum": 1}
+              }
+            }
+          },
+          "confidence": {"description": "high: an MCP config or autolink; medium: several links or files; low: one link or a guess.", "$ref": "#/$defs/level"},
+          "mapping": {
+            "description": "For knowledge tools: knowledge section to the locations it maps to (folders, spaces, pages).",
+            "type": "object",
+            "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+            "additionalProperties": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+          },
+          "status": {
+            "description": "proposed by onboarding, approved by a human in the profile PR, connected once credentials are set up.",
+            "type": "string",
+            "enum": ["proposed", "approved", "connected"]
+          }
+        }
+      }
     }
   }
 }

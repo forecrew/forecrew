@@ -1,21 +1,15 @@
 package analyzer
 
 import (
-	"bytes"
 	_ "embed"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
 	"slices"
 	"strings"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
-	"go.yaml.in/yaml/v3"
+	"github.com/forecrew/forecrew/internal/schema"
 )
-
-// profileSchemaID is the $id of profile.schema.json.
-const profileSchemaID = "https://github.com/forecrew/forecrew/docs/contracts/profile.schema.json"
 
 // profileSchema is a copy of docs/contracts/profile.schema.json; a test fails
 // when the two differ.
@@ -40,6 +34,26 @@ type Profile struct {
 	AgentInstructions string             `yaml:"agent_instructions,omitempty"`
 	SuggestedRoles    []ProfileRole      `yaml:"suggested_roles,omitempty"`
 	OpenQuestions     []string           `yaml:"open_questions,omitempty"`
+	Integrations      []Integration      `yaml:"integrations,omitempty"`
+}
+
+// Integration is a tool the team uses outside the repo, in a Profile.
+type Integration struct {
+	Tool       string                `yaml:"tool"`               // jira, confluence, ..., or mcp:<name>
+	Instance   string                `yaml:"instance,omitempty"` // host or organization, never credentials
+	Uses       []string              `yaml:"uses"`               // knowledge, tracker, notifications, monitoring, catalog
+	Evidence   []IntegrationEvidence `yaml:"evidence"`
+	Confidence string                `yaml:"confidence"` // low, medium or high
+	// Mapping maps knowledge sections to the tool's locations.
+	Mapping map[string][]string `yaml:"mapping,omitempty"`
+	Status  string              `yaml:"status"` // proposed, approved or connected
+}
+
+// IntegrationEvidence is where onboarding saw an integration.
+type IntegrationEvidence struct {
+	Kind     string `yaml:"kind"` // mcp_config, link, autolink, file, ci_step, issue_key
+	Location string `yaml:"location"`
+	Count    int    `yaml:"count"`
 }
 
 // ProfileComponent is a component entry of a Profile.
@@ -198,37 +212,12 @@ func needsOf(manifests []string) []string {
 // Validate checks that data, the YAML of a .forecrew/profile.yaml, follows
 // profile.schema.json. Errors wrap ErrInvalidProfile.
 func Validate(data []byte) error {
-	var doc any
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("%w: parse yaml: %w", ErrInvalidProfile, err)
+	_, inst, err := schema.DecodeYAML(data)
+	if err == nil {
+		err = schema.Check("profile.schema.json", profileSchema, inst)
 	}
-	raw, err := json.Marshal(doc)
-	if err != nil {
-		return fmt.Errorf("%w: convert to json: %w", ErrInvalidProfile, err)
-	}
-	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
-	if err != nil {
-		return fmt.Errorf("%w: parse json: %w", ErrInvalidProfile, err)
-	}
-	schema, err := compileProfileSchema()
-	if err != nil {
-		return fmt.Errorf("compile profile schema: %w", err)
-	}
-	if err := schema.Validate(inst); err != nil {
+	if errors.Is(err, schema.ErrInvalid) {
 		return fmt.Errorf("%w: %w", ErrInvalidProfile, err)
 	}
-	return nil
-}
-
-// compileProfileSchema compiles the embedded profile schema.
-func compileProfileSchema() (*jsonschema.Schema, error) {
-	doc, err := jsonschema.UnmarshalJSON(strings.NewReader(profileSchema))
-	if err != nil {
-		return nil, err
-	}
-	c := jsonschema.NewCompiler()
-	if err := c.AddResource(profileSchemaID, doc); err != nil {
-		return nil, err
-	}
-	return c.Compile(profileSchemaID)
+	return err
 }

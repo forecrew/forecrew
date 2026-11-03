@@ -214,6 +214,142 @@ End your answer with exactly one fenced `json` block whose content matches this 
           },
           "type": "array"
         },
+        "integrations": {
+          "description": "Tools the team uses outside the repo, found by onboarding from the repo and GitHub metadata (MCP configs, links, autolinks, files, CI steps, issue keys) and approved by a human in the profile PR. Connecting one that needs credentials is always a human step; nothing here is ever a secret.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "confidence": {
+                "description": "high: an MCP config or autolink; medium: several links or files; low: one link or a guess.",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "type": "string"
+              },
+              "evidence": {
+                "description": "Where onboarding saw it.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "count": {
+                      "description": "How many times it was seen there.",
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    "kind": {
+                      "enum": [
+                        "mcp_config",
+                        "link",
+                        "autolink",
+                        "file",
+                        "ci_step",
+                        "issue_key"
+                      ],
+                      "type": "string"
+                    },
+                    "location": {
+                      "description": "File relative to the repo root, or github:\u003cwhat\u003e for GitHub metadata.",
+                      "minLength": 1,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "location",
+                    "count"
+                  ],
+                  "type": "object"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "instance": {
+                "description": "Host or organization (acme.atlassian.net, acme), or for an MCP server its URL host or command. Never credentials, user info or a full URL.",
+                "pattern": "^[A-Za-z0-9][^\\s@:]*$",
+                "type": "string"
+              },
+              "mapping": {
+                "additionalProperties": {
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "description": "For knowledge tools: knowledge section to the locations it maps to (folders, spaces, pages).",
+                "propertyNames": {
+                  "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+                },
+                "type": "object"
+              },
+              "status": {
+                "description": "proposed by onboarding, approved by a human in the profile PR, connected once credentials are set up.",
+                "enum": [
+                  "proposed",
+                  "approved",
+                  "connected"
+                ],
+                "type": "string"
+              },
+              "tool": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "jira",
+                      "linear",
+                      "confluence",
+                      "notion",
+                      "gdrive",
+                      "sharepoint",
+                      "slack",
+                      "teams",
+                      "sentry",
+                      "datadog",
+                      "grafana",
+                      "backstage",
+                      "techdocs",
+                      "pagerduty"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "pattern": "^mcp:[A-Za-z0-9][A-Za-z0-9._-]*$",
+                    "type": "string"
+                  }
+                ],
+                "description": "The tool: one of a fixed vocabulary, or mcp:\u003cname\u003e for an MCP server found in an MCP config."
+              },
+              "uses": {
+                "description": "What Forecrew could use it for.",
+                "items": {
+                  "enum": [
+                    "knowledge",
+                    "tracker",
+                    "notifications",
+                    "monitoring",
+                    "catalog"
+                  ],
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "tool",
+              "uses",
+              "evidence",
+              "confidence",
+              "status"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
         "languages": {
           "description": "Languages used, most important first.",
           "items": {

@@ -1,0 +1,87 @@
+{
+  "Version": 1,
+  "Name": "shop",
+  "Summary": "An online shop.",
+  "Languages": null,
+  "Components": null,
+  "Platforms": null,
+  "Services": null,
+  "CI": {
+    "Workflows": null,
+    "Runners": null,
+    "GatingChecks": null
+  },
+  "AgentInstructions": "",
+  "SuggestedRoles": null,
+  "OpenQuestions": null,
+  "Integrations": [
+    {
+      "Tool": "confluence",
+      "Instance": "acme.atlassian.net",
+      "Uses": [
+        "knowledge"
+      ],
+      "Evidence": [
+        {
+          "Kind": "link",
+          "Location": "README.md",
+          "Count": 3
+        },
+        {
+          "Kind": "link",
+          "Location": "github:issues",
+          "Count": 12
+        }
+      ],
+      "Confidence": "medium",
+      "Mapping": {
+        "architecture": [
+          "space:ENG/page:123456"
+        ],
+        "runbooks": [
+          "space:OPS"
+        ]
+      },
+      "Status": "proposed"
+    },
+    {
+      "Tool": "jira",
+      "Instance": "acme.atlassian.net",
+      "Uses": [
+        "tracker"
+      ],
+      "Evidence": [
+        {
+          "Kind": "autolink",
+          "Location": "github:autolinks",
+          "Count": 1
+        },
+        {
+          "Kind": "issue_key",
+          "Location": "git log",
+          "Count": 40
+        }
+      ],
+      "Confidence": "high",
+      "Mapping": null,
+      "Status": "approved"
+    },
+    {
+      "Tool": "mcp:sentry",
+      "Instance": "mcp.sentry.dev",
+      "Uses": [
+        "monitoring"
+      ],
+      "Evidence": [
+        {
+          "Kind": "mcp_config",
+          "Location": ".mcp.json",
+          "Count": 1
+        }
+      ],
+      "Confidence": "high",
+      "Mapping": null,
+      "Status": "connected"
+    }
+  ]
+}
