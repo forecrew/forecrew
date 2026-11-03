@@ -16,7 +16,7 @@ import (
 // outputSchemas are the role output schemas; common.json only holds shared
 // $defs.
 var outputSchemas = []string{"profile-draft", "spec", "task-breakdown", "developer-result", "review-verdict",
-	"test-plan", "environments", "test-map", "council-brief"}
+	"test-plan", "environments", "test-map", "council-brief", "council-frame", "council-proposal", "council-critique", "council-check"}
 
 func TestSchemaExamples(t *testing.T) {
 	for _, name := range outputSchemas {

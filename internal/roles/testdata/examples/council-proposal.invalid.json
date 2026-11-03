@@ -1,0 +1,11 @@
+{
+  "priority": "simplicity",
+  "position": "Keep the Postgres queue.",
+  "recommendation": "postgres-queue",
+  "options": [{"name": "postgres-queue", "summary": "Keep it.", "pros": [], "cons": [], "cost": "low", "risk": "low"}],
+  "evidence": [],
+  "assumptions": [],
+  "risks": [],
+  "revision": {"changed": true},
+  "escalation": null
+}

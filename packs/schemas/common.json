@@ -33,6 +33,24 @@
       "type": "array",
       "items": {"$ref": "#/$defs/assumption"}
     },
+    "member": {
+      "description": "A council member: its role and the runtime its jobs run on, as role@runtime (architect@claude-code), as council.read names it. One role may sit on several runtimes, so the role alone does not name a member.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*@[a-z0-9][a-z0-9-]*$"
+    },
+    "evidence": {
+      "description": "A claim of a council member and the source that backs it. Forecrew checks every source after the contribution: paths and KB paths must exist at the council's commit, URLs are fetched and archived, jobs must exist. An unchecked or missing source weakens the claim in the synthesis.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim", "kind", "source", "date", "confidence"],
+      "properties": {
+        "claim": {"$ref": "#/$defs/text", "description": "One claim, as a sentence."},
+        "kind": {"type": "string", "enum": ["path", "kb", "url", "job"], "description": "path: a file of the repo; kb: a knowledge entry; url: a public web page; job: an earlier Forecrew job."},
+        "source": {"$ref": "#/$defs/text", "description": "path: relative to the repo root, optionally with :line or :start-end (internal/queue/lease.go:40-58); kb: the entry's path (docs/adr/0003-queue.md); url: an absolute http(s) URL; job: its ref (JOB-12)."},
+        "date": {"description": "For a url: the date the page was published or, when it shows none, the day you read it, as YYYY-MM-DD. null for other kinds.", "type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "confidence": {"$ref": "#/$defs/level", "description": "How sure you are that the source supports the claim."}
+      }
+    },
     "escalation": {
       "description": "Set when you stopped because of an escalation condition: what a human must decide or provide. null otherwise.",
       "type": ["string", "null"]

@@ -1,0 +1,8 @@
+{
+  "question": "Which store should hold the job queue?",
+  "constraints": ["Postgres is the only service the deployment runs (docs/adr/0002-postgres.md)."],
+  "must_contain": ["the store", "how existing jobs migrate"],
+  "context": [{"claim": "Jobs are leased with SKIP LOCKED today.", "kind": "path", "source": "internal/queue/lease.go:40-58", "date": null, "confidence": "high"}],
+  "assumptions": [],
+  "escalation": null
+}

@@ -136,7 +136,7 @@
         "properties": {
           "member": {
             "$ref": "#/$defs/text",
-            "description": "Member role, e.g. architect."
+            "description": "The member as role@runtime, e.g. architect@claude-code (council_contributions holds one member per role and runtime)."
           },
           "option": {
             "type": "string",
@@ -160,7 +160,8 @@
         ],
         "properties": {
           "member": {
-            "$ref": "#/$defs/text"
+            "$ref": "#/$defs/text",
+            "description": "The member as role@runtime, as in votes."
           },
           "position": {
             "$ref": "#/$defs/text"

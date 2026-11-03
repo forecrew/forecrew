@@ -1,0 +1,13 @@
+{
+  "priority": "risk",
+  "critiques": [
+    {
+      "member": "architect@claude-code",
+      "agree": [],
+      "disagree": [{"point": "Polling is harmless.", "reason": "I doubt it.", "evidence": []}],
+      "challenged_assumptions": []
+    }
+  ],
+  "assumptions": [],
+  "escalation": null
+}
