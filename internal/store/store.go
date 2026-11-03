@@ -101,8 +101,13 @@ type GoalRepo interface {
 	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Goal, error)
 	GetByNumber(ctx context.Context, accountID uuid.UUID, number int64) (domain.Goal, error)
 	List(ctx context.Context, accountID uuid.UUID, f GoalFilter) ([]domain.Goal, error)
-	// Update writes Title, Body and IssueNumber.
+	// Update writes Title, Body and IssueNumber. It never touches the size:
+	// see SetSize.
 	Update(ctx context.Context, g *domain.Goal) error
+	// SetSize stores the size of a goal that has none, once. A goal that has
+	// a size keeps it, so a caller that read the goal earlier cannot replace
+	// or clear it; read the goal again to see the stored size.
+	SetSize(ctx context.Context, accountID, id uuid.UUID, size domain.GoalSize) error
 	UpdateStatus(ctx context.Context, accountID, id uuid.UUID, from, to domain.GoalStatus) error
 }
 

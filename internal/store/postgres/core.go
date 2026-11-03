@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
@@ -114,12 +115,32 @@ func mustUpdate(ctx context.Context, db dbtx, q string, args ...any) error {
 
 type goalRepo struct{ db dbtx }
 
-var goalCols = `id, account_id, project_id, number, title, body, platforms, status, ` + cint("issue_number") + `, created_by, created_at, updated_at`
+var goalCols = `id, account_id, project_id, number, title, body, platforms, status, ` + cint("issue_number") + `, size, created_by, created_at, updated_at`
 
 func scanGoal(row pgx.Row) (g domain.Goal, err error) {
-	err = row.Scan(&g.ID, &g.AccountID, &g.ProjectID, &g.Number, &g.Title, &g.Body, &g.Platforms, &g.Status, &g.IssueNumber, &g.CreatedBy, &g.CreatedAt, &g.UpdatedAt)
+	var size []byte
+	err = row.Scan(&g.ID, &g.AccountID, &g.ProjectID, &g.Number, &g.Title, &g.Body, &g.Platforms, &g.Status, &g.IssueNumber, &size, &g.CreatedBy, &g.CreatedAt, &g.UpdatedAt)
 	utc(&g.CreatedAt, &g.UpdatedAt)
-	return g, err
+	if err != nil || size == nil {
+		return g, err
+	}
+	g.Size = new(domain.GoalSize)
+	if err := json.Unmarshal(size, g.Size); err != nil {
+		return domain.Goal{}, fmt.Errorf("decode goal size: %w", err)
+	}
+	return g, nil
+}
+
+// goalSize encodes the size of a goal for goals.size; NULL without one.
+func goalSize(s *domain.GoalSize) (any, error) {
+	if s == nil {
+		return nil, nil
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return nil, fmt.Errorf("encode goal size: %w", err)
+	}
+	return b, nil
 }
 
 func (r goalRepo) Create(ctx context.Context, g *domain.Goal) error {
@@ -137,9 +158,13 @@ func (r goalRepo) Create(ctx context.Context, g *domain.Goal) error {
 		}
 		g.Number = n
 		g.Platforms = domain.NormalizeLabels(g.Platforms)
-		return mapErr(tx.QueryRow(ctx, `INSERT INTO goals (id, account_id, project_id, number, title, body, platforms, status, issue_number, created_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING created_at, updated_at`,
-			g.ID, g.AccountID, g.ProjectID, g.Number, g.Title, g.Body, g.Platforms, string(g.Status), opt(g.IssueNumber), g.CreatedBy).Scan(&g.CreatedAt, &g.UpdatedAt))
+		size, err := goalSize(g.Size)
+		if err != nil {
+			return err
+		}
+		return mapErr(tx.QueryRow(ctx, `INSERT INTO goals (id, account_id, project_id, number, title, body, platforms, status, issue_number, size, created_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING created_at, updated_at`,
+			g.ID, g.AccountID, g.ProjectID, g.Number, g.Title, g.Body, g.Platforms, string(g.Status), opt(g.IssueNumber), size, g.CreatedBy).Scan(&g.CreatedAt, &g.UpdatedAt))
 	})
 }
 
@@ -164,6 +189,24 @@ func (r goalRepo) Update(ctx context.Context, g *domain.Goal) error {
 		g.AccountID, g.ID, g.Title, g.Body, opt(g.IssueNumber)).Scan(&g.UpdatedAt)
 	utc(&g.UpdatedAt)
 	return mapErr(err)
+}
+
+func (r goalRepo) SetSize(ctx context.Context, accountID, id uuid.UUID, size domain.GoalSize) error {
+	b, err := goalSize(&size)
+	if err != nil {
+		return err
+	}
+	tag, err := r.db.Exec(ctx, `UPDATE goals SET size = $3, updated_at = now()
+		WHERE account_id = $1 AND id = $2 AND size IS NULL`, accountID, id, b)
+	if err != nil {
+		return mapErr(err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	// Nothing was written: the goal is missing, or it has a size already.
+	_, err = r.Get(ctx, accountID, id)
+	return err
 }
 
 func (r goalRepo) UpdateStatus(ctx context.Context, accountID, id uuid.UUID, from, to domain.GoalStatus) error {
