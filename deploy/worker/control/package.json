@@ -1,0 +1,9 @@
+{
+  "name": "forecrew-worker-control-cli",
+  "private": true,
+  "description": "Runtime CLIs of the control worker image; see Dockerfile and docs/runbooks/install.md",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.306",
+    "@openai/codex": "0.163.0"
+  }
+}
