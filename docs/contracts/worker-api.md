@@ -43,8 +43,9 @@ Non-2xx responses have this body:
 | 401 | `unauthorized` | Missing, unknown or revoked token. |
 | 404 | `not_found` | `job_id` is not a job of the worker's account. |
 | 409 | `lease_lost` | The job is not running under this worker's lease. |
-| 413 | `too_large` | Body over 1 MiB. |
+| 413 | `too_large` | Body over 1 MiB; for an artifact upload, over `evidence.max_artifact_size`. |
 | 500 | `internal` | Server error; the worker retries with backoff. |
+| 503 | `unavailable` | Artifact upload while no `evidence` storage is configured. The worker completes the job without the artifact and says so in a `log` event. |
 
 The worker retries 5xx and network errors with exponential backoff (1 s up to
 30 s). It never retries 4xx except 401 after a config reload.
@@ -75,15 +76,31 @@ Behavior:
 - `free_slots == 0`: answer `204` immediately (presence only). A worker with
   no free slot stays online through its heartbeats and does not need to poll.
 - Otherwise forecrewd leases at most one job: the oldest queued job of the
-  account whose `needs` and `runtime:<runtime>` labels are all among `labels`
-  (case-insensitive), `Jobs.LeaseNext`. If none is available it waits up to
+  account **in the worker's pool** whose `needs` (plus `runtime:<runtime>`
+  for agent jobs) are all among `labels` (case-insensitive),
+  `Jobs.LeaseNext`. If none is available it waits up to
   30 s for one and then answers `204`. The worker polls again right away; its
   HTTP client timeout must be at least 45 s.
 - After leasing, forecrewd completes the spec with secrets (`env` from the
   runtime's `credential_env`, `repo_token` from a fresh GitHub App
   installation token with contents `write` for writing roles and `read` for
-  read-only roles). If that fails it releases the lease (`Jobs.Release`) and
-  answers `500`.
+  read-only roles), within what the job's pool allows (config.md `pools`,
+  `credentials`). Command jobs get no `env` and a `read` token. If that
+  fails it releases the lease (`Jobs.Release`) and answers `500`.
+
+### Pools
+
+Every worker belongs to exactly one pool (`workers.pool`, default `build`),
+set by an admin when the worker is created (`forecrew worker add --pool`)
+and changed only by an admin. It is **never** taken from `poll`: nothing a
+worker sends, labels included (a `pool:control` label is just a label),
+changes which pool it leases from. A worker only ever leases jobs whose
+`jobs.pool` equals its pool; labels route jobs inside a pool. A job's pool
+is fixed when it is created: from its role pack's `pool` (roles.md) for
+agent jobs, and from its environment for command jobs (provider `actions`
+→ `actions`, otherwise `build`). forecrewd refuses to create a job whose
+role or kind its pool's policy does not allow. Pool `actions` has no
+workers: forecrewd itself runs its jobs on GitHub-hosted runners.
 
 Response `200`:
 
@@ -156,6 +173,31 @@ the worker redacts the values of `env` and `repo_token` from any text it sends.
 Response `204`. `409 lease_lost` when the job is not running under this
 worker (the worker stops sending).
 
+## PUT /worker/v1/jobs/{job_id}/artifacts/{name}
+
+Uploads one artifact of a running job: a JUnit report, a log, a screenshot,
+coverage output. `{name}` is the rest of the path, a relative path such as
+`reports/unit.xml` (`domain.ValidArtifactName`: at most 255 bytes, segments
+of letters, digits, `.`, `_` and `-` not starting with `.`); the worker
+uses the file's path relative to the repo root. The body is the raw file
+(not JSON), with its `Content-Type` (`application/octet-stream` when
+unknown) and `Content-Length`.
+
+- Only while the worker holds the job's lease, like `heartbeat`: otherwise
+  `409 lease_lost` (or `404` outside the account).
+- The body may be at most `evidence.max_artifact_size` bytes (config.md):
+  above it, `413 too_large` and nothing is stored. forecrewd streams the
+  body to evidence storage and computes its SHA-256 while streaming.
+- Uploading the same name again replaces the artifact (a retry).
+- Workers never receive storage credentials; this endpoint is their only
+  way to store evidence.
+
+Response `201`:
+
+```json
+{"id": "01960d3e-8b20-7c1a-9f3e-2a7c4b1d9e12", "name": "reports/unit.xml", "size": 48213, "sha256": "9f86d08..."}
+```
+
 ## POST /worker/v1/jobs/{job_id}/complete
 
 Reports the end of a job. Sent once, after the last events batch and, for
@@ -178,10 +220,45 @@ Request:
 |-------|------|---------|
 | `status` | `succeeded` \| `failed` \| `retry` | `succeeded`: the agent finished. `failed`: the agent or a check of the worker failed (bad output, write outside `write_paths`, timeout); not retried. `retry`: the worker could not run the job for an infrastructure reason (clone failed, disk full, shutting down); the attempt does not count as a result. |
 | `output` | object | Structured output; required for `succeeded` when the spec has an `output_schema`. |
-| `head_sha` | string | Head of the spec `branch` on the remote after the run (the commit pushed, or the existing head when nothing new was pushed); empty if there is no branch. |
+| `head_sha` | string | Head of the spec `branch` on the remote after the run (the commit pushed, or the existing head when nothing new was pushed); empty if there is no branch. For command jobs: the commit checked out and tested (`branch`, or `base_ref` when there is none), before any `overlay`.
 | `error` | string | Required for `failed` and `retry`. |
 | `usage` | object | Total `domain.Usage`. |
 | `cost_usd` | number | Total cost reported by the runtime. |
+| `test_runs` | array | Command jobs only, optional: one entry per suite and cell the job ran, stored in `test_runs` and `test_results` (data-model.md). |
+| `test_runs[].suite` | string | Suite name (the spec's `suite`). |
+| `test_runs[].status` | `passed` \| `failed` \| `errored` | `passed`: every test passed or was skipped. `failed`: a test failed or errored. `errored`: no usable result (no report, a report that cannot be parsed, the command could not start). |
+| `test_runs[].counts` | object | `passed`, `failed`, `skipped`, `errored` (integers, `domain.TestCounts`). |
+| `test_runs[].duration_ms` | integer | Wall time of the command. |
+| `test_runs[].results` | array | One per test case: `name`, `classname`, `status` (`passed`, `failed`, `skipped`, `errored`), `duration_ms`, `message` (failure, error or skip text, may be empty). |
+| `test_runs[].report_artifacts` | string[] | Names of the uploaded artifacts holding the JUnit reports. |
+| `test_runs[].versions` | object string → string | Tool → output of the environment's `versions` command. |
+| `test_runs[].exit_code` | integer | Exit code of the command; `-1` when it did not exit by itself (killed on timeout or cancel, or never started). |
+
+A command job's `complete` example:
+
+```json
+{
+  "status": "succeeded",
+  "test_runs": [{
+    "suite": "unit",
+    "status": "failed",
+    "counts": {"passed": 41, "failed": 1, "skipped": 2, "errored": 0},
+    "duration_ms": 48211,
+    "results": [
+      {"name": "TestLogin", "classname": "app/internal/auth", "status": "passed", "duration_ms": 12, "message": ""},
+      {"name": "TestLogout", "classname": "app/internal/auth", "status": "failed", "duration_ms": 30, "message": "logout_test.go:21: want 204, got 500"}
+    ],
+    "report_artifacts": ["reports/unit.xml"],
+    "versions": {"go": "go version go1.27.1 linux/amd64"},
+    "exit_code": 1
+  }]
+}
+```
+
+forecrewd stores each entry with the job's project, the SHA tested (the
+job's `head_sha`), the
+environment and cell of the spec, the job's attempt, and the change whose
+head is that SHA when there is one. `test_runs` on an agent job is a `400`.
 
 Server behavior:
 
