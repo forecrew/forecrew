@@ -18,11 +18,15 @@ const (
 	// strategy, .forecrew/matrix.yaml and .forecrew/environments.
 	GateTestPlanApproval GateKind = "test_plan_approval"
 	GateNeedsYou         GateKind = "needs_you" // escalation: approve = retry, reject = stop
+
+	// Phase 3 gates (docs/contracts/conventions.md, Gate decisions).
+	GateAssumptionReview GateKind = "assumption_review" // a high-impact assumption: approve = accept, reject = invalidate
 )
 
 // GateKinds returns every gate kind.
 func GateKinds() []GateKind {
-	return []GateKind{GateProfileApproval, GateSpecApproval, GateMergeApproval, GateTestPlanApproval, GateNeedsYou}
+	return []GateKind{GateProfileApproval, GateSpecApproval, GateMergeApproval, GateTestPlanApproval, GateNeedsYou,
+		GateAssumptionReview}
 }
 
 // GateStatus is the state of a gate. The terminal states are also the

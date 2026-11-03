@@ -64,11 +64,28 @@ func (p *problems) addf(format string, args ...any) {
 
 // err returns nil without problems, or every problem joined, wrapping
 // ErrInvalidSpec.
-func (p problems) err(what string) error {
+func (p problems) err(what string) error { return p.errOf(ErrInvalidSpec, what) }
+
+// errOf is err with another sentinel.
+func (p problems) errOf(sentinel error, what string) error {
 	if len(p) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%w: %s: %s", ErrInvalidSpec, what, strings.Join(p, "; "))
+	return fmt.Errorf("%w: %s: %s", sentinel, what, strings.Join(p, "; "))
+}
+
+// checkText adds a problem when s is empty or only blanks.
+func (p *problems) checkText(field, s string) {
+	if strings.TrimSpace(s) == "" {
+		p.addf("%s must be set", field)
+	}
+}
+
+// checkEnum adds a problem when v is not one of all.
+func checkEnum[S ~string](p *problems, field string, v S, all []S) {
+	if !slices.Contains(all, v) {
+		p.addf("%s must be one of %v, got %q", field, all, v)
+	}
 }
 
 // checkEnv adds a problem per empty or secret-looking name in env.
