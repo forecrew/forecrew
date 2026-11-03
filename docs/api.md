@@ -76,6 +76,29 @@ structs in `internal/domain` and `internal/mcp`.
 | `DELETE /api/v1/session` | | | `204`, clears the cookie |
 | `GET /api/v1/me` | | | `200` session |
 
+### Planned endpoints
+
+Contract only (T31), with the planned MCP tools of [mcp.md](mcp.md#planned-tools),
+same inputs and outputs; each is served when its tool is built, together with
+the CLI command listed there.
+
+| Method and path | Tool | Request | Response |
+|-----------------|------|---------|----------|
+| `POST /api/v1/councils` | `start_council` | `{"project", "question", "kind", "roles": []}` | `202` council |
+| `GET /api/v1/councils/{council}` | `get_council` | | `200` council with brief, contributions, gate, decision |
+| `POST /api/v1/councils/{council}/constraints` | | `{"constraint": "..."}` | `200` council; the next round's prompts include it (T33) |
+| `GET /api/v1/assumptions?project=&status=&impact=` | `list_assumptions` | `project` required | `200` assumptions |
+| `POST /api/v1/assumptions/{assumption}/resolve` | `resolve_assumption` | `{"status", "evidence"}` | `200` assumption |
+| `GET /api/v1/decisions?project=&goal=&council=` | `list_decisions` | `project` required | `200` decisions |
+| `GET /api/v1/knowledge?project=&q=&section=&kind=&provider=` | `search_knowledge` | `project` and `q` required | `200` results |
+| `POST /api/v1/knowledge/proposals` | `propose_knowledge` | `{"project", "section", "path", "body", "reason", "action"}` | `201` knowledge proposal |
+| `POST /api/v1/bugs` | `report_bug` | `{"project", "title", "body", "platforms": []}` | `201` goal of kind `bug` |
+| `GET /api/v1/proposals?project=&status=&category=` | `list_proposals` | `project` required | `200` proposals |
+| `POST /api/v1/proposals/{proposal}/decide` | `decide_proposal` | `{"decision", "reason", "until"}` | `200` proposal |
+
+Councils, assumptions, decisions, knowledge proposals and proposals are
+named by ref (`COUNCIL-2`, `A-42`, `DEC-9`, `KB-5`, `PROP-3`) or UUID.
+
 On a `needs_you` gate, `approve` retries the stuck work and `reject` stops
 it. Gate decisions follow the rules in
 [conventions.md](contracts/conventions.md#gate-decisions).

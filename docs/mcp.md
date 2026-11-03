@@ -93,6 +93,34 @@ GitHub links of issues, pull requests and gates.
 | `list_tokens` | The account's API and MCP tokens: `id`, `name`, `created_at`, `last_used_at`, `revoked_at`, and `current` on the one you are using. Never the secret |
 | `revoke_token` | Revoke a token by `token` (name or ID); it stops working at once, as do the web sessions it backs. Revoking the token you are using is allowed: the answer has `self: true` and your next request gets `401`. Tokens are created only with `forecrew token create` on the server |
 
+### Planned tools
+
+Contract only (T31): these tools are not served yet. Each joins the list
+above, with its REST endpoint (api.md) and CLI command, when the task named
+in the table builds it. Refs: `COUNCIL-2`, `A-42`, `DEC-9`, `KB-5`,
+`PROP-3`.
+
+| Tool | Input | Result | CLI (`internal/cli`) | Task |
+|------|-------|--------|-----|------|
+| `start_council` | `project`, `question`, optional `kind` (`product`, `technical`, `test_design`, `incident`, `onboarding`; default `adhoc`), optional `roles` (members instead of the kind's) | the council (`running`) with its ref and run | `forecrew councils start <project> <question> [--kind] [--role ...]` | T33 |
+| `get_council` | `council` | the council with its brief, its contributions by stage and round (runtime of each), the gate and the decision | `forecrew councils show <council>` | T33 |
+| `list_assumptions` | `project`, optional `status` (`unverified`, `verified`, `invalidated`, `accepted`), optional `impact` (`low`, `medium`, `high`) | `{"assumptions": [...]}` with ref, statement, made_by, source, confidence, impact, verify_by, dependents | `forecrew assumptions <project> [--status] [--impact]` | T32 |
+| `resolve_assumption` | `assumption`, `status` (`verified`, `invalidated` or `accepted`), `evidence` (required for verified and invalidated) | the assumption; invalidating flags its dependents | `forecrew assumptions resolve <assumption> <status> [--evidence]` | T32 |
+| `list_decisions` | `project`, optional `goal`, optional `council` | `{"decisions": [...]}` with question, options, choice, reasons, dissent, decided_by, assumptions | `forecrew decisions <project> [--goal] [--council]` | T32 |
+| `search_knowledge` | `project`, `query`, optional `section`, `kind` (`entry`, `note`, `generated`), `provider` | `{"results": [...]}` as `kb_search` (job-mcp.md), every kind visible | `forecrew knowledge search <project> <query> [--section] [--kind] [--provider]` | T36 |
+| `propose_knowledge` | `project`, `section`, `path`, `body`, `reason`, optional `action` (default `edit` when the entry exists, else `add`) | the knowledge proposal (`KB-n`) and its PR; for a protected section the caller is recorded as approver | `forecrew knowledge propose <project> <section> <path> --body-file <file> --reason` | T37 |
+| `report_bug` | `project`, `title`, `body`, optional `platforms` | a goal of kind `bug` (draft) and its playbook run | `forecrew bugs report <project> <title> [--body] [--platform ...]` | T41 |
+| `list_proposals` | `project`, optional `status` (`proposed`, `accepted`, `rejected`, `snoozed`, `done`, `superseded`), optional `category` | `{"proposals": [...]}` with ref, scope, category, title, rationale, evidence, benefit, effort, risk, action, status | `forecrew proposals <project> [--status] [--category]` | T50 |
+| `decide_proposal` | `proposal`, `decision` (`accept`, `reject` or `snooze`), `reason` (required to reject), `until` (RFC 3339, required to snooze) | the proposal; accept starts its action | `forecrew proposals decide <proposal> accept\|reject\|snooze [--reason] [--until]` | T50 |
+
+`list_pending_gates` will also return the Phase 3 gate kinds
+(`assumption_review`, `council_decision`, `knowledge_proposal`,
+`access_request`, `improvement_proposal`; conventions.md, Gate decisions).
+
+Agents never use this server: during a run they use the job MCP gateway at
+`/job-mcp`, a separate endpoint with job tokens and job tools
+([contracts/job-mcp.md](contracts/job-mcp.md)).
+
 Invalid input and unknown refs come back as a tool error with a short message.
 Unexpected failures return a generic "internal error"; the cause is in the
 server log only.

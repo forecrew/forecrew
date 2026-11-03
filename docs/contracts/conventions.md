@@ -70,12 +70,15 @@ has the coding conventions they refer to.
   as Postgres `uuid`, sent as the canonical string.
 - Goals, specs, tasks, jobs and gates also get a per-account number and a
   human ref `GOAL-3`, `SPEC-4`, `TASK-12`, `JOB-41`, `GATE-7`
-  (`domain.Ref`, `domain.ParseRef`; parsing is case-insensitive). Humans,
+  (`domain.Ref`, `domain.ParseRef`; parsing is case-insensitive). So do
+  councils `COUNCIL-2`, assumptions `A-42`, decisions `DEC-9`, knowledge
+  proposals `KB-5` and improvement proposals `PROP-3` (`domain.RefKinds`). Humans,
   MCP tools, GitHub comments and logs use refs; APIs accept a ref or a UUID.
 - Agent branches are `agent/<lowercase ref>[-<slug>]`, e.g. `agent/task-12`
   or `agent/goal-3-spec`. Workers push only branches starting with `agent/`.
 - Tokens are random 32 bytes, base64url without padding, with a prefix:
-  `fcw_` worker tokens, `fcm_` MCP/API tokens. Only their SHA-256 is stored;
+  `fcw_` worker tokens, `fcm_` MCP/API tokens, `fcj_` job MCP tokens
+  (job-mcp.md; bound to one lease, never stored in clear). Only their SHA-256 is stored;
   they are shown once. Compare hashes, not tokens.
 
 ## Time
@@ -108,6 +111,7 @@ correlation `key` (what a waiting step listens for) and a unique semantic
 | `pr.merged` | `repo`, `number`, `sha` (merge commit) | `pr:<repo>#<number>` | `pr.merged:<repo>#<number>` |
 | `pr.closed` | `repo`, `number` | `pr:<repo>#<number>` | `pr.closed:<repo>#<number>` |
 | `checks.completed` | `repo`, `number`, `sha`, `conclusion` (success \| failure \| none) | `checks:<repo>@<sha>` | `checks.completed:<repo>@<sha>` |
+| `council.decided` | `council_id`, `status` (decided \| failed \| canceled), `decision_id` (set exactly when decided) | `council:<council_id>` | `council.decided:<council_id>` |
 
 In `key` and `dedupe_key`, `<repo>` and `<sha>` are always lowercased
 (`domain.PRKey`, `domain.ChecksKey`), e.g. `checks:owner/repo@4f1c2b9e`, even
@@ -127,14 +131,33 @@ are:
 | Tool | Decision | Gate kinds | Notes |
 |------|----------|------------|-------|
 | `approve` | `approved` | all | On `needs_you`: retry. |
-| `request_changes` | `changes_requested` | `profile_approval`, `spec_approval`, `merge_approval`, `test_plan_approval` | `feedback` required. On `needs_you` it fails with `mcp.ErrInvalidInput`. |
+| `request_changes` | `changes_requested` | every kind but `needs_you` | `feedback` required. On `needs_you` it fails with `mcp.ErrInvalidInput`. |
 | `reject` | `rejected` | all | On `needs_you`: stop. |
+
+What the decisions mean on the Phase 3 gate kinds (contract of T32, T33,
+T37 and T50, which open them):
+
+| Kind | Opened for | `approve` | `request_changes` | `reject` |
+|------|------------|-----------|-------------------|----------|
+| `assumption_review` | a high-impact assumption | accepted (the human takes the risk) | the human's feedback is evidence to check; it stays unverified | invalidated: its dependents are flagged |
+| `council_decision` | a council brief | the recommendation is the decision | the human's revision round with the feedback as a constraint, then a new synthesis and gate; once per council (`domain.MaxRevisionRounds`), after it the council runner refuses `request_changes` | the council fails |
+| `knowledge_proposal` | a change to a protected section, or to a provider without its own review | the change is applied (or, for a read-only provider, the human copied it across) | rejected, with the feedback kept for a new proposal | rejected |
+| `access_request` | an agent's request for knowledge access | a policy PR grants it (merged like any PR) | nothing is granted; the feedback says what narrower request would pass | nothing is granted |
+| `improvement_proposal` | an improvement proposal | accepted: its action starts | the advisor revises it with the feedback | rejected, with the feedback as reason |
+
+A snooze of an improvement proposal (`decide_proposal`) leaves its gate
+pending until the date. Question gates of the job MCP tool `ask_human` are
+`needs_you` gates with `origin` `ask_human` and the asking job (job-mcp.md,
+Question gates): the answer is the `approve` feedback, `reject` declines,
+and no playbook escalation meaning applies; every playbook gate, escalations
+included, has `origin` `playbook`.
 
 `mcp.GateDecision` implements these rules (on top of
 `domain.GateKind.AllowsDecision`); every entry point uses it. A resolved gate
 is final and publishes `gate.resolved`; a new review round opens a new gate.
 
-The 18 MCP tools are listed by `mcp.Tools()`: `onboard_project`,
+The 18 MCP tools are listed by `mcp.Tools()` (docs/mcp.md also lists the
+planned Phase 3 tools, which join it as they are built): `onboard_project`,
 `create_goal`, `job_status`, `job_logs`, `list_workers`,
 `list_pending_gates`, `approve`, `request_changes`, `reject`,
 `dispatch_job`, `list_projects`, `get_project`, `list_goals`, `get_goal`,
