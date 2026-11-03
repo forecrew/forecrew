@@ -25,7 +25,7 @@ func ParseEnvironment(file string, data []byte) (domain.Environment, error) {
 	var f environmentFile
 	err := validate("environment.schema.json", environmentSchema, data,
 		func(raw json.RawMessage) error { return decodeJSON(raw, &f) },
-		func() error { return checkNamed(file, f.Name, f.Environment.Validate()) })
+		func() error { return checkNamed(file, f.Name, f.Validate()) })
 	if err != nil {
 		return domain.Environment{}, fmt.Errorf("%s: %w", file, err)
 	}
