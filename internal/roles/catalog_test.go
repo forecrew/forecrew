@@ -41,7 +41,8 @@ func TestCatalogResolve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	want := []string{"architect", "developer", "environment-engineer", "onboarding-analyst", "product-owner", "reviewer", "test-architect", "test-engineer"}
+	want := []string{"architect", "developer", "devils-advocate", "environment-engineer", "facilitator", "market-researcher",
+		"onboarding-analyst", "product-owner", "reviewer", "security-reviewer", "test-architect", "test-engineer", "ux"}
 	if got := c.Names(); !slices.Equal(got, want) {
 		t.Errorf("Names = %v, want %v", got, want)
 	}

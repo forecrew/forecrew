@@ -1,0 +1,16 @@
+role: market-researcher
+model: strong
+prompt: roles/market-researcher.md
+tools: [repo.read, git.read]
+write_paths: []
+produces: [council-contribution, market-research]
+output_schema: schemas/council-proposal.json
+definition_of_done:
+  - every market claim has a source URL with its date, and a confidence
+  - claims you could not source are listed as assumptions with verify_by research
+  - every assumption is listed with its confidence and impact
+escalate_when:
+  - the question cannot be answered without data only a human can provide
+max_turns: 40
+timeout: 20m
+pool: control

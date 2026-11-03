@@ -1,0 +1,15 @@
+role: facilitator
+model: best
+prompt: roles/facilitator.md
+tools: [repo.read, git.read]
+write_paths: []
+produces: [council-brief]
+output_schema: schemas/council-brief.json
+definition_of_done:
+  - the output answers the council step the job runs, and only that step
+  - every option, vote and dissent in a synthesis comes from what members wrote, not from your own preference
+  - a synthesis has one vote per member, and every member who disagrees with the recommendation is in the dissent in their own terms
+  - a synthesis rests on no claim whose source failed the evidence check, unless another source backs it
+max_turns: 40
+timeout: 20m
+pool: control
