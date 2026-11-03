@@ -38,6 +38,7 @@ func TestLoadPacks(t *testing.T) {
 		"market-researcher": {config.TierStrong, true, domain.PoolControl},
 		"security-reviewer": {config.TierStrong, true, domain.PoolBuild},
 		"ux":                {config.TierStrong, true, domain.PoolControl},
+		"triage":            {config.TierFast, true, domain.PoolControl},
 	}
 	if len(defs) != len(want) {
 		t.Fatalf("got %d roles, want %d", len(defs), len(want))

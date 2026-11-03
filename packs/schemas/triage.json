@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Triage",
+  "description": "Output of the triage role: how big and how reversible a goal is, and which components it touches. The goal.size action turns it into the goal's councils.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["impact", "reversibility", "areas", "reason", "assumptions"],
+  "properties": {
+    "impact": {"$ref": "common.json#/$defs/level", "description": "How much the goal changes what users or the system do: low, medium or high."},
+    "reversibility": {
+      "description": "easy: a plain revert undoes it; hard: undoing it needs more work, such as a data migration; irreversible: data or external effects cannot be taken back.",
+      "type": "string",
+      "enum": ["easy", "hard", "irreversible"]
+    },
+    "areas": {
+      "description": "The paths or components the goal touches, one entry per component, at least one.",
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "common.json#/$defs/text"}
+    },
+    "reason": {"$ref": "common.json#/$defs/text", "description": "Why the goal gets these grades, in a few sentences."},
+    "assumptions": {"$ref": "common.json#/$defs/assumptions"}
+  }
+}

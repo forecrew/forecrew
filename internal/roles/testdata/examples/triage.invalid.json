@@ -1,0 +1,10 @@
+{
+  "impact": "huge",
+  "reversibility": "never",
+  "areas": [],
+  "reason": "",
+  "assumptions": [
+    {"statement": "It is small.", "confidence": "high", "impact": "medium"}
+  ],
+  "councils": ["product"]
+}

@@ -1,0 +1,9 @@
+{
+  "impact": "medium",
+  "reversibility": "easy",
+  "areas": ["internal/playbooks", "web/src/goals"],
+  "reason": "Adds a field to the goal form and its handler; a revert removes both.",
+  "assumptions": [
+    {"statement": "The goal form has no migration to run.", "confidence": "high", "impact": "medium", "verify_by": "test"}
+  ]
+}

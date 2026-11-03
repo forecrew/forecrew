@@ -20,6 +20,7 @@ func testConfig() *config.Config {
 			"codex":  {Adapter: config.AdapterCodex, Vendor: "openai"},
 		},
 		ModelTiers: map[config.Tier]map[string]string{
+			config.TierFast:   {"anthropic": "claude-fast", "openai": "gpt-fast"},
 			config.TierStrong: {"anthropic": "claude-strong", "openai": "gpt-strong"},
 			config.TierBest:   {"anthropic": "claude-best", "openai": "gpt-best"},
 		},
@@ -32,6 +33,7 @@ func testConfig() *config.Config {
 			"test-architect":       {Runtime: "claude", Tier: config.TierBest},
 			"environment-engineer": {Runtime: "claude", Tier: config.TierStrong},
 			"test-engineer":        {Runtime: "claude", Tier: config.TierStrong},
+			"triage":               {Runtime: "claude", Tier: config.TierFast},
 		},
 	}
 }
@@ -42,11 +44,15 @@ func TestCatalogResolve(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	want := []string{"architect", "developer", "devils-advocate", "environment-engineer", "facilitator", "market-researcher",
-		"onboarding-analyst", "product-owner", "reviewer", "security-reviewer", "test-architect", "test-engineer", "ux"}
+		"onboarding-analyst", "product-owner", "reviewer", "security-reviewer", "test-architect", "test-engineer", "triage", "ux"}
 	if got := c.Names(); !slices.Equal(got, want) {
 		t.Errorf("Names = %v, want %v", got, want)
 	}
 	ctx := context.Background()
+	tri, err := c.Resolve(ctx, uuid.Nil(), uuid.Nil(), "triage")
+	if err != nil || tri.Model != "claude-fast" || !tri.ReadOnly() || tri.Pool != "control" || tri.MaxTurns != 15 || tri.Timeout != 10*time.Minute {
+		t.Errorf("triage = %+v, %v", tri, err)
+	}
 	dev, err := c.Resolve(ctx, uuid.Nil(), uuid.Nil(), "developer")
 	if err != nil {
 		t.Fatalf("Resolve developer: %v", err)
@@ -88,6 +94,7 @@ func TestCatalogResolveErrors(t *testing.T) {
 	cfg := testConfig()
 	delete(cfg.Roles, "architect")
 	cfg.Roles["onboarding-analyst"] = config.Role{Runtime: "gone", Tier: config.TierStrong}
+	cfg.ModelTiers[config.TierFast] = map[string]string{"openai": "gpt-fast"}
 	cfg.Roles["product-owner"] = config.Role{Runtime: "claude", Tier: config.TierFast}
 	c, err := New(forecrew.Files, cfg)
 	if err != nil {
