@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "team-docs": {
+      "command": "/opt/tools/team-docs-mcp",
+      "args": ["--root", "/srv/docs"]
+    }
+  }
+}

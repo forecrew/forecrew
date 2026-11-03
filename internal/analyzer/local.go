@@ -81,17 +81,27 @@ func (Local) Analyze(ctx context.Context, dir string) (Facts, error) {
 	if err != nil {
 		return Facts{}, fmt.Errorf("analyze %s: %w", dir, err)
 	}
+	integrations, err := repoIntegrations(ctx, root, files)
+	if err != nil {
+		return Facts{}, fmt.Errorf("analyze %s: %w", dir, err)
+	}
+	knowledge, err := knowledgeSources(root, files)
+	if err != nil {
+		return Facts{}, fmt.Errorf("analyze %s: %w", dir, err)
+	}
 	return Facts{
-		Name:       filepath.Base(root),
-		Languages:  nonNil(langs),
-		Manifests:  filter(files, isManifest),
-		CIFiles:    filter(files, isWorkflow),
-		DocFiles:   filter(files, isDoc),
-		TopLevel:   nonNil(top),
-		Components: comps,
-		CIRunners:  runners,
-		AgentFiles: filter(files, isAgentFile),
-		Services:   services,
+		Name:         filepath.Base(root),
+		Languages:    nonNil(langs),
+		Manifests:    filter(files, isManifest),
+		CIFiles:      filter(files, isWorkflow),
+		DocFiles:     filter(files, isDoc),
+		TopLevel:     nonNil(top),
+		Components:   comps,
+		CIRunners:    runners,
+		AgentFiles:   filter(files, isAgentFile),
+		Services:     services,
+		Integrations: nonNil(integrations),
+		Knowledge:    nonNil(knowledge),
 	}, nil
 }
 

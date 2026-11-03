@@ -16,25 +16,25 @@
   "OpenQuestions": null,
   "Integrations": [
     {
-      "Tool": "confluence",
-      "Instance": "acme.atlassian.net",
-      "Uses": [
+      "tool": "confluence",
+      "instance": "acme.atlassian.net",
+      "uses": [
         "knowledge"
       ],
-      "Evidence": [
+      "evidence": [
         {
-          "Kind": "link",
-          "Location": "README.md",
-          "Count": 3
+          "kind": "link",
+          "location": "README.md",
+          "count": 3
         },
         {
-          "Kind": "link",
-          "Location": "github:issues",
-          "Count": 12
+          "kind": "link",
+          "location": "github:issues",
+          "count": 12
         }
       ],
-      "Confidence": "medium",
-      "Mapping": {
+      "confidence": "medium",
+      "mapping": {
         "architecture": [
           "space:ENG/page:123456"
         ],
@@ -42,46 +42,44 @@
           "space:OPS"
         ]
       },
-      "Status": "proposed"
+      "status": "proposed"
     },
     {
-      "Tool": "jira",
-      "Instance": "acme.atlassian.net",
-      "Uses": [
+      "tool": "jira",
+      "instance": "acme.atlassian.net",
+      "uses": [
         "tracker"
       ],
-      "Evidence": [
+      "evidence": [
         {
-          "Kind": "autolink",
-          "Location": "github:autolinks",
-          "Count": 1
+          "kind": "autolink",
+          "location": "github:autolinks",
+          "count": 1
         },
         {
-          "Kind": "issue_key",
-          "Location": "git log",
-          "Count": 40
+          "kind": "issue_key",
+          "location": "git log",
+          "count": 40
         }
       ],
-      "Confidence": "high",
-      "Mapping": null,
-      "Status": "approved"
+      "confidence": "high",
+      "status": "approved"
     },
     {
-      "Tool": "mcp:sentry",
-      "Instance": "mcp.sentry.dev",
-      "Uses": [
+      "tool": "mcp:sentry",
+      "instance": "mcp.sentry.dev",
+      "uses": [
         "monitoring"
       ],
-      "Evidence": [
+      "evidence": [
         {
-          "Kind": "mcp_config",
-          "Location": ".mcp.json",
-          "Count": 1
+          "kind": "mcp_config",
+          "location": ".mcp.json",
+          "count": 1
         }
       ],
-      "Confidence": "high",
-      "Mapping": null,
-      "Status": "connected"
+      "confidence": "high",
+      "status": "connected"
     }
   ]
 }

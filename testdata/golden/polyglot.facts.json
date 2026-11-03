@@ -103,5 +103,7 @@
       "name": "db",
       "image": "postgres:18"
     }
-  ]
+  ],
+  "integrations": [],
+  "knowledge": []
 }

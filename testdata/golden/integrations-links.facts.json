@@ -1,0 +1,147 @@
+{
+  "name": "integrations-links",
+  "languages": [],
+  "manifests": [],
+  "ci_files": [],
+  "doc_files": [
+    "README.md",
+    "docs/runbooks.md"
+  ],
+  "top_level": [
+    ".github/",
+    "README.md",
+    "docs/"
+  ],
+  "components": [],
+  "ci_runners": [],
+  "agent_files": [],
+  "services": [],
+  "integrations": [
+    {
+      "tool": "confluence",
+      "instance": "acme.atlassian.net",
+      "uses": [
+        "knowledge"
+      ],
+      "evidence": [
+        {
+          "kind": "link",
+          "location": "README.md",
+          "count": 1
+        },
+        {
+          "kind": "link",
+          "location": "docs/runbooks.md",
+          "count": 1
+        }
+      ],
+      "confidence": "medium",
+      "mapping": {
+        "ops": [
+          "space:OPS"
+        ]
+      }
+    },
+    {
+      "tool": "confluence",
+      "instance": "wiki.selfhosted.example.com",
+      "uses": [
+        "knowledge"
+      ],
+      "evidence": [
+        {
+          "kind": "link",
+          "location": "docs/runbooks.md",
+          "count": 1
+        }
+      ],
+      "confidence": "low",
+      "mapping": {
+        "eng": [
+          "space:ENG"
+        ]
+      }
+    },
+    {
+      "tool": "jira",
+      "instance": "acme.atlassian.net",
+      "uses": [
+        "tracker"
+      ],
+      "evidence": [
+        {
+          "kind": "link",
+          "location": ".github/ISSUE_TEMPLATE/bug.md",
+          "count": 1
+        }
+      ],
+      "confidence": "low"
+    },
+    {
+      "tool": "jira",
+      "instance": "tracker.selfhosted.example.com",
+      "uses": [
+        "tracker"
+      ],
+      "evidence": [
+        {
+          "kind": "link",
+          "location": "docs/runbooks.md",
+          "count": 1
+        }
+      ],
+      "confidence": "low"
+    },
+    {
+      "tool": "linear",
+      "instance": "acme",
+      "uses": [
+        "tracker"
+      ],
+      "evidence": [
+        {
+          "kind": "link",
+          "location": "README.md",
+          "count": 1
+        }
+      ],
+      "confidence": "low"
+    },
+    {
+      "tool": "notion",
+      "instance": "notion.so",
+      "uses": [
+        "knowledge"
+      ],
+      "evidence": [
+        {
+          "kind": "link",
+          "location": "README.md",
+          "count": 1
+        }
+      ],
+      "confidence": "low",
+      "mapping": {
+        "acme": [
+          "space:acme"
+        ]
+      }
+    },
+    {
+      "tool": "sentry",
+      "instance": "acme.sentry.io",
+      "uses": [
+        "monitoring"
+      ],
+      "evidence": [
+        {
+          "kind": "link",
+          "location": "README.md",
+          "count": 1
+        }
+      ],
+      "confidence": "low"
+    }
+  ],
+  "knowledge": []
+}

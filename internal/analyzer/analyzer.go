@@ -33,6 +33,13 @@ type Facts struct {
 	AgentFiles []string `json:"agent_files"`
 	// Services are the services of the docker-compose files.
 	Services []Service `json:"services"`
+	// Integrations are the tools the checkout shows the team uses outside the
+	// repo, one per tool and instance, sorted. GitHub metadata is discovered
+	// by the discover.github action, not here.
+	Integrations []Integration `json:"integrations"`
+	// Knowledge are the repo-native knowledge sources: ADR folders, the
+	// contributing guide and CODEOWNERS. They are not integrations.
+	Knowledge []KnowledgeSource `json:"knowledge"`
 }
 
 // Service is a service declared in a docker-compose file.

@@ -10,5 +10,7 @@
   "components": [],
   "ci_runners": [],
   "agent_files": [],
-  "services": []
+  "services": [],
+  "integrations": [],
+  "knowledge": []
 }

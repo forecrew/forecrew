@@ -1,0 +1,26 @@
+{
+  "name": "integrations-none",
+  "languages": [
+    {
+      "name": "Go",
+      "files": 1,
+      "lines": 3,
+      "bytes": 29
+    }
+  ],
+  "manifests": [],
+  "ci_files": [],
+  "doc_files": [
+    "README.md"
+  ],
+  "top_level": [
+    "README.md",
+    "main.go"
+  ],
+  "components": [],
+  "ci_runners": [],
+  "agent_files": [],
+  "services": [],
+  "integrations": [],
+  "knowledge": []
+}

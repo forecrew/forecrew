@@ -1,0 +1,82 @@
+{
+  "name": "integrations-mcp",
+  "languages": [],
+  "manifests": [],
+  "ci_files": [],
+  "doc_files": [
+    "README.md"
+  ],
+  "top_level": [
+    ".cursor/",
+    ".mcp.json",
+    ".vscode/",
+    "README.md"
+  ],
+  "components": [],
+  "ci_runners": [],
+  "agent_files": [],
+  "services": [],
+  "integrations": [
+    {
+      "tool": "mcp:filesystem",
+      "instance": "npx",
+      "uses": [
+        "knowledge"
+      ],
+      "evidence": [
+        {
+          "kind": "mcp_config",
+          "location": ".mcp.json",
+          "count": 1
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "tool": "mcp:linear",
+      "instance": "mcp.linear.app",
+      "uses": [
+        "tracker"
+      ],
+      "evidence": [
+        {
+          "kind": "mcp_config",
+          "location": ".mcp.json",
+          "count": 1
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "tool": "mcp:sentry",
+      "instance": "mcp.sentry.dev",
+      "uses": [
+        "monitoring"
+      ],
+      "evidence": [
+        {
+          "kind": "mcp_config",
+          "location": ".vscode/mcp.json",
+          "count": 1
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "tool": "mcp:team-docs",
+      "instance": "team-docs-mcp",
+      "uses": [
+        "knowledge"
+      ],
+      "evidence": [
+        {
+          "kind": "mcp_config",
+          "location": ".cursor/mcp.json",
+          "count": 1
+        }
+      ],
+      "confidence": "high"
+    }
+  ],
+  "knowledge": []
+}

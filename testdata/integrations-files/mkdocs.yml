@@ -1,0 +1,4 @@
+site_name: Orders docs
+plugins:
+  - search
+  - techdocs-core

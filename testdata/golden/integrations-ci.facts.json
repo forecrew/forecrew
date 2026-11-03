@@ -1,0 +1,55 @@
+{
+  "name": "integrations-ci",
+  "languages": [],
+  "manifests": [],
+  "ci_files": [
+    ".github/workflows/ci.yml",
+    ".github/workflows/notify.yml"
+  ],
+  "doc_files": [],
+  "top_level": [
+    ".github/"
+  ],
+  "components": [],
+  "ci_runners": [
+    "ubuntu-latest"
+  ],
+  "agent_files": [],
+  "services": [],
+  "integrations": [
+    {
+      "tool": "sentry",
+      "uses": [
+        "monitoring"
+      ],
+      "evidence": [
+        {
+          "kind": "ci_step",
+          "location": ".github/workflows/ci.yml",
+          "count": 1
+        }
+      ],
+      "confidence": "low"
+    },
+    {
+      "tool": "slack",
+      "uses": [
+        "notifications"
+      ],
+      "evidence": [
+        {
+          "kind": "ci_step",
+          "location": ".github/workflows/ci.yml",
+          "count": 1
+        },
+        {
+          "kind": "ci_step",
+          "location": ".github/workflows/notify.yml",
+          "count": 1
+        }
+      ],
+      "confidence": "medium"
+    }
+  ],
+  "knowledge": []
+}

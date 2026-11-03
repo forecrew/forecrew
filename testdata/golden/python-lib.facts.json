@@ -40,5 +40,7 @@
   "agent_files": [
     ".github/copilot-instructions.md"
   ],
-  "services": []
+  "services": [],
+  "integrations": [],
+  "knowledge": []
 }

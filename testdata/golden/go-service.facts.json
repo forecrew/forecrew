@@ -54,5 +54,7 @@
   "agent_files": [
     "AGENTS.md"
   ],
-  "services": []
+  "services": [],
+  "integrations": [],
+  "knowledge": []
 }
