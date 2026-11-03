@@ -1,0 +1,6 @@
+version: 1
+name: devcontainer
+provider: docker
+devcontainer: .devcontainer/devcontainer.json
+versions:
+  node: node --version

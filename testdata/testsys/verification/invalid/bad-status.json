@@ -1,0 +1,2 @@
+{"version": 1, "sha": "ABC1234", "status": "green", "results": [], "criteria": {"AC-1": {"status": "skipped", "tests": {}}},
+ "new_tests": {"t": "yes"}, "flaky": [], "environments": {}, "blocking": []}

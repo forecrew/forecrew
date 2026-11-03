@@ -1,0 +1,6 @@
+name: security
+image: ghcr.io/forecrew/toolbox-security:2026.11
+needs: [Linux]
+clis:
+  - {name: semgrep, version: semgrep --version}
+  - {name: gitleaks, version: gitleaks version}

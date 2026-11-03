@@ -1,0 +1,1 @@
+.forecrew/matrix.yaml: invalid file: at '': missing property 'version'; at '/suites/0/command': got array, want string; at '/suites/0/command': minItems: got 0, want 1

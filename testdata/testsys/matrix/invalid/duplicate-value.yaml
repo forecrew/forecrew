@@ -1,0 +1,8 @@
+version: 1
+axes:
+  os: [linux, linux]
+environments:
+  - match: {}
+    environment: linux-go
+suites:
+  - {name: unit, command: make test, level: unit, reports: [/tmp/junit.xml]}

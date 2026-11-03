@@ -1,0 +1,6 @@
+{
+  "name": "app-dev",
+  "provider": "docker",
+  "dockerfile": "ci/Dockerfile",
+  "context": "ci"
+}

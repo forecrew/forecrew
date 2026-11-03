@@ -1,0 +1,2 @@
+{"version": 1, "sha": "abc1234", "status": "passed", "results": [], "criteria": {}, "new_tests": {}, "flaky": [],
+ "environments": {}, "blocking": ["AC-1 has no test"]}

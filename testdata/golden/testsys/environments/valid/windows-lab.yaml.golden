@@ -1,0 +1,12 @@
+{
+  "name": "windows-lab",
+  "provider": "machine",
+  "needs": [
+    "go",
+    "gpu",
+    "windows"
+  ],
+  "setup": [
+    "go version"
+  ]
+}

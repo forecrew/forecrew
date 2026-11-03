@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/forecrew/forecrew/docs/contracts/matrix.schema.json",
+  "title": "Forecrew test matrix",
+  "description": "Schema of .forecrew/matrix.yaml, written by the test architect and approved with the test plan (test_plan_approval gate). The axes span cells (one value per axis); exclude removes cells, include adds them; each cell runs the suites that apply to it as command jobs in the environment its first matching rule names. internal/testsys validates it (this schema, then cross-references: axes, values and environment names).",
+  "type": "object",
+  "required": ["version", "environments", "suites"],
+  "additionalProperties": false,
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "value": {
+      "description": "Axis value. Numbers and booleans are read as the text written, so 1.20 stays \"1.20\".",
+      "type": ["string", "number", "boolean"]
+    },
+    "cell": {
+      "description": "Partial cell: axis -> value. A cell matches when it has every listed value.",
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/name"},
+      "additionalProperties": {"$ref": "#/$defs/value"}
+    },
+    "glob": {
+      "description": "Doublestar glob relative to the repo root (or to the suite's working directory when the job sets one).",
+      "type": "string",
+      "pattern": "^[^/\\\\]"
+    },
+    "suite": {
+      "type": "object",
+      "required": ["name", "command", "level", "reports"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"$ref": "#/$defs/name"},
+        "command": {
+          "description": "argv list run without a shell, or a string run with sh -c (cmd /c on Windows). It must write JUnit XML to reports.",
+          "oneOf": [
+            {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+            {"type": "string", "minLength": 1}
+          ]
+        },
+        "level": {"enum": ["unit", "integration", "e2e"]},
+        "reports": {
+          "description": "JUnit XML files the command writes. A suite with no report after the run is errored.",
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/glob"}
+        },
+        "artifacts": {
+          "description": "Other files to keep as evidence (logs, screenshots, coverage).",
+          "type": "array",
+          "items": {"$ref": "#/$defs/glob"}
+        },
+        "required": {"description": "Whether a failure of this suite in a required cell blocks the merge. Default true.", "type": "boolean"},
+        "quirks": {"description": "Platform-behaviour suite (paths, line endings, locale, time zones), runnable on its own with scope quirks. Default false.", "type": "boolean"},
+        "axes": {
+          "description": "Limits the suite to cells whose values are listed here, per axis. Absent: every cell.",
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/name"},
+          "additionalProperties": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/value"}}
+        }
+      }
+    }
+  },
+  "properties": {
+    "version": {"description": "Matrix format version.", "const": 1},
+    "axes": {
+      "description": "Axis name -> values. Cells are every combination. Absent or empty: one cell with no axes.",
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/name"},
+      "additionalProperties": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/value"}}
+    },
+    "exclude": {
+      "description": "Partial cells removed from the combinations.",
+      "type": "array",
+      "items": {"allOf": [{"$ref": "#/$defs/cell"}, {"minProperties": 1}]}
+    },
+    "include": {
+      "description": "Cells added after exclude; they may use values the axes do not list. Every axis must be given.",
+      "type": "array",
+      "items": {"allOf": [{"$ref": "#/$defs/cell"}, {"minProperties": 1}]}
+    },
+    "environments": {
+      "description": "Rules mapping a cell to an environment (.forecrew/environments/<environment>.yaml); the first rule whose match the cell has wins. A cell no rule matches is an error.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["match", "environment"],
+        "additionalProperties": false,
+        "properties": {
+          "match": {"$ref": "#/$defs/cell", "description": "Partial cell; {} matches every cell."},
+          "environment": {"$ref": "#/$defs/name"}
+        }
+      }
+    },
+    "suites": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/suite"}
+    },
+    "required": {
+      "description": "Partial cells that must pass to merge. Absent: every cell is required.",
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/cell"}
+    }
+  }
+}

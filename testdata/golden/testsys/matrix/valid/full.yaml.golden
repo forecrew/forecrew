@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "axes": {
+    "db": [
+      "postgres-17",
+      "postgres-18"
+    ],
+    "go": [
+      "1.26",
+      "1.27"
+    ],
+    "os": [
+      "linux",
+      "windows",
+      "macos"
+    ]
+  },
+  "exclude": [
+    {
+      "db": "postgres-17",
+      "os": "windows"
+    },
+    {
+      "db": "postgres-17",
+      "os": "macos"
+    }
+  ],
+  "include": [
+    {
+      "db": "postgres-18",
+      "go": "tip",
+      "os": "linux"
+    }
+  ],
+  "environments": [
+    {
+      "match": {
+        "os": "windows"
+      },
+      "environment": "windows-lab"
+    },
+    {
+      "match": {
+        "os": "macos"
+      },
+      "environment": "macos"
+    },
+    {
+      "environment": "linux-go"
+    }
+  ],
+  "suites": [
+    {
+      "name": "unit",
+      "command": {
+        "argv": [
+          "gotestsum",
+          "--junitfile",
+          "reports/unit.xml",
+          "--",
+          "./..."
+        ]
+      },
+      "level": "unit",
+      "reports": [
+        "reports/unit.xml"
+      ],
+      "artifacts": [
+        "coverage.out"
+      ]
+    },
+    {
+      "name": "integration",
+      "command": {
+        "shell": "gotestsum --junitfile reports/integration.xml -- -tags integration ./..."
+      },
+      "level": "integration",
+      "reports": [
+        "reports/integration.xml"
+      ],
+      "axes": {
+        "os": [
+          "linux"
+        ]
+      }
+    },
+    {
+      "name": "quirks",
+      "command": {
+        "argv": [
+          "go",
+          "test",
+          "-run",
+          "Quirk",
+          "./..."
+        ]
+      },
+      "level": "unit",
+      "reports": [
+        "reports/quirks-*.xml"
+      ],
+      "required": false,
+      "quirks": true
+    }
+  ],
+  "required": [
+    {
+      "os": "linux"
+    },
+    {
+      "go": "1.27",
+      "os": "windows"
+    }
+  ]
+}

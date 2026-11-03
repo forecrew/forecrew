@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "sha": "abc1234",
+  "status": "incomplete",
+  "results": [
+    {"environment": "windows-lab", "cell": {"os": "windows"}, "suite": "unit", "required": true, "status": "missing",
+     "counts": {"passed": 0, "failed": 0, "skipped": 0, "errored": 0}}
+  ],
+  "criteria": {"AC-1": {"status": "untested", "tests": {}}},
+  "new_tests": {"auth::TestLogin": false},
+  "flaky": [],
+  "environments": {},
+  "blocking": ["AC-1 has no test", "auth::TestLogin passed on the base branch", "windows-lab unit has no result yet"]
+}

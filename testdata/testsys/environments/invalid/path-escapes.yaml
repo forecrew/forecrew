@@ -1,0 +1,4 @@
+version: 1
+name: path-escapes
+provider: docker
+dockerfile: ../other-repo/Dockerfile

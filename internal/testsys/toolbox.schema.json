@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/forecrew/forecrew/docs/contracts/toolbox.schema.json",
+  "title": "Forecrew toolbox",
+  "description": "Schema of packs/toolboxes/<name>.yaml: the image an agent job runs in when its role names the toolbox (roles.md, toolbox), with the CLIs and MCP servers it offers the agent. Jobs with a toolbox need a worker with the docker label. Resolved, it is the toolbox of an agent job's spec (job-spec.md). It never holds secrets; MCP servers get secrets only by naming variables of the job's credentials. internal/roles validates it (this schema, then domain.Toolbox.Validate).",
+  "type": "object",
+  "required": ["name"],
+  "additionalProperties": false,
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "envName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    }
+  },
+  "properties": {
+    "name": {"$ref": "#/$defs/name", "description": "Must equal the file name without .yaml."},
+    "image": {"description": "Image to pull, with a pinned tag or digest.", "type": "string", "minLength": 1},
+    "dockerfile": {
+      "description": "Dockerfile to build, relative to packs/toolboxes; that directory is the build context.",
+      "type": "string",
+      "pattern": "^[^/\\\\]"
+    },
+    "needs": {
+      "description": "Worker labels the job needs besides docker, which is implied.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "clis": {
+      "description": "Command-line tools the image provides.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "version"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"$ref": "#/$defs/name"},
+          "version": {"description": "Command printing the tool's version, recorded with the job.", "type": "string", "minLength": 1}
+        }
+      }
+    },
+    "mcp_servers": {
+      "description": "stdio MCP servers the agent CLI starts inside the container.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "command"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"$ref": "#/$defs/name"},
+          "command": {"type": "string", "minLength": 1},
+          "args": {"type": "array", "items": {"type": "string"}},
+          "env": {
+            "description": "Non-secret variables. Names that are, or end in _ followed by, TOKEN, SECRET, PASSWORD or KEY (any case) are refused.",
+            "type": "object",
+            "propertyNames": {
+              "$ref": "#/$defs/envName",
+              "not": {"pattern": "^(.*_)?([Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Kk][Ee][Yy])$"}
+            },
+            "additionalProperties": {"type": "string"}
+          },
+          "credential_env": {
+            "description": "Names of variables of the job's env (its credentials, job-spec.md) passed to the server. The only way a secret reaches it.",
+            "type": "array",
+            "items": {"$ref": "#/$defs/envName"}
+          }
+        }
+      }
+    }
+  },
+  "oneOf": [{"required": ["image"]}, {"required": ["dockerfile"]}]
+}

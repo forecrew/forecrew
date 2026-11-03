@@ -1,0 +1,6 @@
+version: 1
+name: windows-lab
+provider: machine
+needs: [windows, go, gpu]
+setup:
+  - go version

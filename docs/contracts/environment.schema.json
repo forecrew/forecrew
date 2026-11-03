@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/forecrew/forecrew/docs/contracts/environment.schema.json",
+  "title": "Forecrew environment",
+  "description": "Schema of .forecrew/environments/<name>.yaml, written by the environment engineer and approved with the test plan (test_plan_approval gate). An environment says where a command job runs: a Docker image (provider docker), the worker's host (machine) or a GitHub-hosted runner (actions). It never holds secrets: names that look like secrets are refused. internal/testsys validates it (this schema, then the rules of domain.Environment.Validate). Resolved, it is the environment of a command job's spec (job-spec.md).",
+  "type": "object",
+  "required": ["version", "name", "provider"],
+  "additionalProperties": false,
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "relPath": {
+      "description": "Path relative to the repo root, with / separators; it must not start with / or contain .. segments.",
+      "type": "string",
+      "pattern": "^[^/\\\\]"
+    },
+    "label": {
+      "description": "Worker label; compared case-insensitively and normalized like jobs.needs.",
+      "type": "string",
+      "minLength": 1
+    },
+    "envMap": {
+      "description": "Non-secret environment variables. Names that are, or end in _ followed by, TOKEN, SECRET, PASSWORD or KEY (any case) are refused: secrets never go in repo files.",
+      "type": "object",
+      "propertyNames": {
+        "minLength": 1,
+        "not": {"pattern": "^(.*_)?([Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Kk][Ee][Yy])$"}
+      },
+      "additionalProperties": {"type": "string"}
+    },
+    "duration": {
+      "description": "Go duration, e.g. 2s or 1m30s.",
+      "type": "string",
+      "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+    },
+    "service": {
+      "type": "object",
+      "required": ["image"],
+      "additionalProperties": false,
+      "properties": {
+        "image": {"description": "Image of the service container, with a pinned tag.", "type": "string", "minLength": 1},
+        "env": {"$ref": "#/$defs/envMap"},
+        "ports": {
+          "description": "Container ports the job reaches at <service name>:<port>.",
+          "type": "array",
+          "items": {"type": "integer", "minimum": 1, "maximum": 65535}
+        },
+        "health": {
+          "description": "How the service is known to be ready; the job starts only then.",
+          "type": "object",
+          "required": ["command"],
+          "additionalProperties": false,
+          "properties": {
+            "command": {"description": "Shell command run in the service container; exit 0 means ready.", "type": "string", "minLength": 1},
+            "interval": {"$ref": "#/$defs/duration", "description": "Time between tries; default 2s."},
+            "retries": {"description": "Tries before the job fails as errored; default 30.", "type": "integer", "minimum": 0}
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "version": {"description": "Environment format version.", "const": 1},
+    "name": {"$ref": "#/$defs/name", "description": "Must equal the file name without .yaml."},
+    "provider": {
+      "description": "docker: a container on a worker with the docker label. machine: the worker's host as it is. actions: a GitHub-hosted runner, pool actions.",
+      "enum": ["docker", "machine", "actions"]
+    },
+    "image": {"description": "docker: image to pull, with a pinned tag or digest.", "type": "string", "minLength": 1},
+    "dockerfile": {"$ref": "#/$defs/relPath", "description": "docker: Dockerfile to build."},
+    "context": {"$ref": "#/$defs/relPath", "description": "docker: build context of dockerfile; default the repo root."},
+    "devcontainer": {
+      "$ref": "#/$defs/relPath",
+      "description": "docker: a devcontainer.json. Only image, build.dockerfile, build.context, containerEnv and postCreateCommand are used; other keys are ignored."
+    },
+    "runs_on": {
+      "description": "actions: GitHub-hosted runner label, e.g. ubuntu-24.04, windows-2025, macos-15.",
+      "type": "string",
+      "minLength": 1
+    },
+    "needs": {
+      "description": "Worker labels the job needs on top of the provider's (docker implies docker). Not used by actions.",
+      "type": "array",
+      "items": {"$ref": "#/$defs/label"}
+    },
+    "setup": {
+      "description": "Commands run once: when the image is built (docker), before each job (machine) or as workflow steps (actions).",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "env": {"$ref": "#/$defs/envMap"},
+    "versions": {
+      "description": "Tool name -> command whose output the job records as that tool's version, e.g. go: go version.",
+      "type": "object",
+      "propertyNames": {"minLength": 1},
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "services": {
+      "description": "Service name -> container started next to the job on a per-job network (docker and machine workers need the docker label).",
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/name"},
+      "additionalProperties": {"$ref": "#/$defs/service"}
+    }
+  },
+  "dependentRequired": {"context": ["dockerfile"]},
+  "allOf": [
+    {
+      "if": {"properties": {"provider": {"const": "docker"}}},
+      "then": {
+        "oneOf": [{"required": ["image"]}, {"required": ["dockerfile"]}, {"required": ["devcontainer"]}]
+      },
+      "else": {
+        "not": {"anyOf": [{"required": ["image"]}, {"required": ["dockerfile"]}, {"required": ["context"]}, {"required": ["devcontainer"]}]}
+      }
+    },
+    {
+      "if": {"properties": {"provider": {"const": "actions"}}},
+      "then": {"required": ["runs_on"]},
+      "else": {"not": {"required": ["runs_on"]}}
+    }
+  ]
+}

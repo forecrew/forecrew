@@ -1,0 +1,11 @@
+version: 1
+axes:
+  os: [linux]
+  go: ["1.27"]
+include:
+  - {os: windows}
+environments:
+  - match: {}
+    environment: linux-go
+suites:
+  - {name: unit, command: make test, level: unit, reports: [junit.xml]}

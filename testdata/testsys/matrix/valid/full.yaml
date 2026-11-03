@@ -1,0 +1,38 @@
+version: 1
+axes:
+  os: [linux, windows, macos]
+  go: [1.26, "1.27"]
+  db: [postgres-17, postgres-18]
+exclude:
+  - {os: windows, db: postgres-17}
+  - {os: macos, db: postgres-17}
+include:
+  - {os: linux, go: tip, db: postgres-18}
+environments:
+  - match: {os: windows}
+    environment: windows-lab
+  - match: {os: macos}
+    environment: macos
+  - match: {}
+    environment: linux-go
+suites:
+  - name: unit
+    command: [gotestsum, --junitfile, reports/unit.xml, --, ./...]
+    level: unit
+    reports: [reports/unit.xml]
+    artifacts: [coverage.out]
+  - name: integration
+    command: gotestsum --junitfile reports/integration.xml -- -tags integration ./...
+    level: integration
+    reports: [reports/integration.xml]
+    axes:
+      os: [linux]
+  - name: quirks
+    command: [go, test, -run, Quirk, ./...]
+    level: unit
+    reports: ["reports/quirks-*.xml"]
+    required: false
+    quirks: true
+required:
+  - {os: linux}
+  - {os: windows, go: "1.27"}

@@ -1,0 +1,20 @@
+{
+  "name": "browser",
+  "dockerfile": "browser.Dockerfile",
+  "mcp_servers": [
+    {
+      "name": "playwright",
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@0.0.41",
+        "--headless"
+      ],
+      "env": {
+        "PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright"
+      },
+      "credential_env": [
+        "BROWSERSTACK_ACCESS"
+      ]
+    }
+  ]
+}
