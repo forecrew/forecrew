@@ -142,6 +142,10 @@ type CreateGoalInput struct {
 	Body    string `json:"body"`    // markdown
 	// Platforms the goal targets, for example "web" or "ios"; optional.
 	Platforms []string `json:"platforms,omitempty"`
+	// Councils overrides the sizing of the goal: "product" and "technical",
+	// or an empty list for none. Nil (absent) sizes the goal with triage.
+	// A pointer keeps the empty list apart from an absent field.
+	Councils *[]string `json:"councils,omitempty"`
 }
 
 // JobRefInput is the input of job_status.

@@ -110,9 +110,17 @@ func (s *Service) CreateGoal(ctx context.Context, by domain.Actor, in mcp.Create
 	if p.Status != domain.ProjectOnboarded {
 		return domain.Goal{}, fmt.Errorf("project %s is %s, onboard it first: %w", p.Name, p.Status, mcp.ErrInvalidInput)
 	}
+	councils, err := overrideCouncils(in.Councils)
+	if err != nil {
+		return domain.Goal{}, err
+	}
 	g := domain.Goal{
 		AccountID: by.AccountID, ProjectID: p.ID, Title: strings.TrimSpace(in.Title), Body: in.Body,
 		Platforms: domain.NormalizeLabels(in.Platforms), Status: domain.GoalDraft, CreatedBy: by.String(),
+	}
+	if councils != nil {
+		// The override is the goal's size: the goal playbook skips the triage job for it.
+		g.Size = &domain.GoalSize{Councils: councils, Reason: "Councils set by " + by.String() + "."}
 	}
 	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := tx.Goals().Create(ctx, &g); err != nil {
@@ -134,6 +142,30 @@ func (s *Service) CreateGoal(ctx context.Context, by domain.Actor, in mcp.Create
 		return domain.Goal{}, fmt.Errorf("start the plan of %s: %w", g.Ref(), err)
 	}
 	return g, nil
+}
+
+// overrideCouncils returns the councils a human chose for a goal, in the
+// order of domain.GoalSize; nil when none were given (triage sizes the goal).
+// An empty list is no council.
+func overrideCouncils(names *[]string) ([]domain.CouncilKind, error) {
+	if names == nil {
+		return nil, nil
+	}
+	chosen := map[domain.CouncilKind]bool{}
+	for _, name := range *names {
+		c := domain.CouncilKind(strings.ToLower(strings.TrimSpace(name)))
+		if c != domain.CouncilProduct && c != domain.CouncilTechnical {
+			return nil, fmt.Errorf("council %q must be product or technical: %w", name, mcp.ErrInvalidInput)
+		}
+		chosen[c] = true
+	}
+	out := []domain.CouncilKind{}
+	for _, c := range []domain.CouncilKind{domain.CouncilProduct, domain.CouncilTechnical} {
+		if chosen[c] {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
 // DispatchJob implements mcp.ToolService. Only read-only roles can be

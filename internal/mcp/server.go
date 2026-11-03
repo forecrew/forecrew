@@ -41,7 +41,7 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 			return result(out, "Onboarding of %s started.", out.Project.Repo), err
 		})
 	register(r, ToolCreateGoal, "Create a goal for a project and start the goal playbook (spec, plan, implementation). Returns the new draft goal.",
-		fieldDocs{"project": project, "title": "Short goal title.", "body": "Goal description in markdown: what to build and why.", "platforms": "Platforms the goal targets, for example web or ios. Optional."},
+		fieldDocs{"project": project, "title": "Short goal title.", "body": "Goal description in markdown: what to build and why.", "platforms": "Platforms the goal targets, for example web or ios. Optional.", "councils": "Councils the goal gets instead of the ones triage gives it: product and technical. An empty list means none; leave it out to let triage size the goal."},
 		func(ctx context.Context, by domain.Actor, in CreateGoalInput) (toolResult, error) {
 			g, err := svc.CreateGoal(ctx, by, in)
 			return result(g, "%s created: %s (%s).", g.Ref(), g.Title, g.Status), err

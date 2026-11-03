@@ -398,3 +398,38 @@ func TestErrorCode(t *testing.T) {
 		}
 	}
 }
+
+// TestCreateGoalCouncilsOverMCP: an absent councils field sizes the goal
+// with triage; an empty list reaches the service as an override of none.
+func TestCreateGoalCouncilsOverMCP(t *testing.T) {
+	e := newEnv(t)
+	cs := e.connect(t, testToken)
+	tests := []struct {
+		name string
+		args map[string]any
+		want *[]string
+	}{
+		{"absent", map[string]any{"project": "app", "title": "Login", "body": "b"}, nil},
+		{"empty list", map[string]any{"project": "app", "title": "Login", "body": "b", "councils": []string{}}, &[]string{}},
+		{"two councils", map[string]any{"project": "app", "title": "Login", "body": "b", "councils": []string{"product", "technical"}}, &[]string{"product", "technical"}},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res, text := call(t, cs, mcp.ToolCreateGoal, tt.args)
+			if res.IsError {
+				t.Fatalf("error result %q", text)
+			}
+			calls := e.svc.Calls()
+			if len(calls) != i+1 {
+				t.Fatalf("%d calls recorded", len(calls))
+			}
+			got := calls[i].Input.(mcp.CreateGoalInput).Councils
+			switch {
+			case (got == nil) != (tt.want == nil):
+				t.Errorf("councils = %v, want %v", got, tt.want)
+			case got != nil && (*got == nil) != (*tt.want == nil) || got != nil && !slices.Equal(*got, *tt.want):
+				t.Errorf("councils = %v, want %v", *got, *tt.want)
+			}
+		})
+	}
+}

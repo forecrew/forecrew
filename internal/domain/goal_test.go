@@ -14,6 +14,14 @@ func TestGoalKindAndSize(t *testing.T) {
 	wantInvalid(t, "valid", s.Validate())
 	s = GoalSize{Impact: "huge", Reversibility: "never", Councils: []CouncilKind{CouncilIncident}}
 	wantInvalid(t, "invalid", s.Validate(), "impact must be one of", "reversibility must be one of", "councils must be one of", "reason must be set")
+	// A person set the councils: no triage, so neither grade is set.
+	wantInvalid(t, "override", GoalSize{Councils: []CouncilKind{CouncilTechnical}, Reason: "set by a human"}.Validate())
+	wantInvalid(t, "override for none", GoalSize{Councils: []CouncilKind{}, Reason: "set by a human"}.Validate())
+	// Exactly one grade without the other is not a size.
+	s = GoalSize{Impact: LevelHigh, Councils: []CouncilKind{CouncilProduct}, Reason: "r"}
+	wantInvalid(t, "impact without reversibility", s.Validate(), "reversibility must be one of")
+	s = GoalSize{Reversibility: ReversibleEasy, Councils: []CouncilKind{}, Reason: "r"}
+	wantInvalid(t, "reversibility without impact", s.Validate(), "impact must be one of")
 	b, err := json.Marshal(Goal{Title: "x"})
 	if err != nil || strings.Contains(string(b), `"size"`) || strings.Contains(string(b), `"kind"`) {
 		t.Fatalf("goal json = %s, %v", b, err)
