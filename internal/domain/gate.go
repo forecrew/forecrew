@@ -20,16 +20,17 @@ const (
 	GateNeedsYou         GateKind = "needs_you" // escalation: approve = retry, reject = stop
 
 	// Phase 3 gates (docs/contracts/conventions.md, Gate decisions).
-	GateAssumptionReview  GateKind = "assumption_review"  // a high-impact assumption: approve = accept, reject = invalidate
-	GateCouncilDecision   GateKind = "council_decision"   // a council brief: approve = the recommendation
-	GateKnowledgeProposal GateKind = "knowledge_proposal" // a change to a protected or read-only knowledge section
-	GateAccessRequest     GateKind = "access_request"     // an agent asks for knowledge access; approve = a policy PR
+	GateAssumptionReview    GateKind = "assumption_review"    // a high-impact assumption: approve = accept, reject = invalidate
+	GateCouncilDecision     GateKind = "council_decision"     // a council brief: approve = the recommendation
+	GateKnowledgeProposal   GateKind = "knowledge_proposal"   // a change to a protected or read-only knowledge section
+	GateAccessRequest       GateKind = "access_request"       // an agent asks for knowledge access; approve = a policy PR
+	GateImprovementProposal GateKind = "improvement_proposal" // an improvement proposal: approve = accept
 )
 
 // GateKinds returns every gate kind.
 func GateKinds() []GateKind {
 	return []GateKind{GateProfileApproval, GateSpecApproval, GateMergeApproval, GateTestPlanApproval, GateNeedsYou,
-		GateAssumptionReview, GateCouncilDecision, GateKnowledgeProposal, GateAccessRequest}
+		GateAssumptionReview, GateCouncilDecision, GateKnowledgeProposal, GateAccessRequest, GateImprovementProposal}
 }
 
 // GateStatus is the state of a gate. The terminal states are also the
