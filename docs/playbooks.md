@@ -188,7 +188,8 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `goal.close` | `goal_id` | `{tasks, cost_usd}`. Needs every task merged. Comments the summary (tasks, PRs, developer runs, cost of every job of the goal) on the goal issue, closes it and moves the goal to `done`. |
 | `goal.settle` | `goal_id` | `{status}`. Cancels a goal that is not done, closes its unmerged tasks and their issues and the goal's with a comment (once). A task whose PR is merged, as the change or GitHub say, becomes `merged`, not `closed`: merged PRs stay merged. |
 | `profile.validate` | `profile` and/or `repo` and `ref`, `attempt`, `attempts` | `{valid, errors}`: checks the profile value and/or the profile file of `repo` at `ref`. Fails on the last attempt. |
-| `profile.feedback` | `human`, `errors` | The feedback text of an analyst job. |
+| `discover.github` | `repo` | `{integrations, notes, text}`. Reads, with the App's token, the repo's autolinks and the link hosts in the bodies of its 100 most recent issues and pull requests, and outputs the integrations found (confidence and evidence as in the profile). It never contacts the hosts it finds. A read the App may not do is a note, not a failure; `text` is what the analyst is told, empty when nothing was found. Read-only, so idempotent. Use `on_failure: escalate`. |
+| `profile.feedback` | `human`, `errors`, `discovery` | The feedback text of an analyst job: the reviewer's feedback, the validator's errors and the `discovery` text, each when not empty. |
 | `onboarding.proposal` | `profile`, `summary`, `assumptions` | `{title, body}`: the profile PR text. |
 | `onboarding.settle` | none | Puts a project still onboarding back to registered. |
 | `onboarding.complete` | `repo`, `sha`, `ref` | Reads `.forecrew/profile.yaml` at the merge commit `sha`, or at `ref` when `sha` is empty (GitHub merged the PR), validates and stores it, and moves the project to onboarded. |
@@ -221,8 +222,14 @@ missing. The test roles are not used by a playbook yet.
 
 ## The onboarding playbook
 
-`packs/playbooks/onboarding.yaml` takes `repo` and `project`. An
-`onboarding-analyst` job writes `.forecrew/profile.yaml` on
+`packs/playbooks/onboarding.yaml` takes `repo` and `project`. Right after
+registering, `discover.github` reads the tools the team uses from GitHub; its
+text goes to the analyst as feedback, next to the repo facts' integrations
+(found by `analyzer.Local` from the MCP configs, the links in the docs and
+templates, Backstage and TechDocs files, CI notify and release steps and issue
+keys in branches and recent commits). The analyst keeps, corrects or drops
+them in the profile's `integrations`, all with status `proposed`, and the
+human approves them in the profile PR. An `onboarding-analyst` job writes `.forecrew/profile.yaml` on
 `agent/onboarding`; its profile is validated (one rerun with the errors, then
 the run fails; the profile file the analyst committed is validated too), a PR
 is opened or updated (a PR closed or merged on GitHub in between fails the
