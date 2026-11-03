@@ -23,8 +23,10 @@ change.
   (`domain.NormalizeLabels`).
 - Human refs: entities with a `number` get it from `ref_counters` in the same
   transaction as the insert, per account and kind, starting at 1.
-- Foreign keys use the default `ON DELETE NO ACTION`; nothing is deleted in
-  the MVP except expired `webhook_deliveries`.
+- Foreign keys use the default `ON DELETE NO ACTION`; nothing is deleted
+  except expired `webhook_deliveries` and, by retention, `artifacts`.
+- `jobs.pool` and `workers.pool` hold pool names from config.md `pools`
+  (no CHECK: pools are configuration); empty is stored as `build`.
 - `audit_log` is append-only: triggers reject `UPDATE`, `DELETE` and `TRUNCATE`.
 
 ## Tables
@@ -86,8 +88,10 @@ CREATE TABLE jobs (
   project_id       uuid NOT NULL REFERENCES projects(id),
   number           bigint NOT NULL,
   status           text NOT NULL CHECK (status IN ('queued','running','succeeded','failed','canceled')),
-  role             text NOT NULL,
-  runtime          text NOT NULL,          -- adapter: claude-code | codex
+  kind             text NOT NULL DEFAULT 'agent' CHECK (kind IN ('agent','command')),
+  pool             text NOT NULL DEFAULT 'build',  -- worker pool; only its workers lease the job
+  role             text NOT NULL,          -- may be '' for command jobs
+  runtime          text NOT NULL,          -- adapter: claude-code | codex; '' for command jobs
   needs            text[] NOT NULL DEFAULT '{}',
   goal_id          uuid REFERENCES goals(id),
   spec_id          uuid,                   -- FK added after specs
@@ -110,7 +114,7 @@ CREATE TABLE jobs (
   UNIQUE (account_id, number),
   CHECK ((status = 'running') = (worker_id IS NOT NULL AND lease_expires_at IS NOT NULL))
 );
-CREATE INDEX jobs_queued   ON jobs (account_id, created_at, id) WHERE status = 'queued';
+CREATE INDEX jobs_queued   ON jobs (account_id, pool, created_at, id) WHERE status = 'queued';
 CREATE INDEX jobs_leases   ON jobs (account_id, lease_expires_at) WHERE status = 'running';
 CREATE INDEX jobs_project  ON jobs (account_id, project_id, created_at DESC);
 CREATE INDEX jobs_task     ON jobs (account_id, task_id) WHERE task_id IS NOT NULL;
@@ -178,6 +182,7 @@ CREATE TABLE workers (
   id           uuid PRIMARY KEY DEFAULT uuidv7(),
   account_id   uuid NOT NULL REFERENCES accounts(id),
   name         text NOT NULL,
+  pool         text NOT NULL DEFAULT 'build', -- set by an admin, never by the worker
   token_hash   bytea NOT NULL UNIQUE,       -- SHA-256 of the worker token
   labels       text[] NOT NULL DEFAULT '{}',
   version      text NOT NULL DEFAULT '',
@@ -208,7 +213,7 @@ CREATE TABLE gates (
   account_id     uuid NOT NULL REFERENCES accounts(id),
   project_id     uuid NOT NULL REFERENCES projects(id),
   number         bigint NOT NULL,
-  kind           text NOT NULL CHECK (kind IN ('profile_approval','spec_approval','merge_approval','needs_you')),
+  kind           text NOT NULL CHECK (kind IN ('profile_approval','spec_approval','merge_approval','test_plan_approval','needs_you')),
   status         text NOT NULL CHECK (status IN ('pending','approved','changes_requested','rejected')),
   title          text NOT NULL,
   summary        text NOT NULL DEFAULT '',
@@ -322,11 +327,85 @@ CREATE TRIGGER audit_log_append_only BEFORE UPDATE OR DELETE ON audit_log
   FOR EACH STATEMENT EXECUTE FUNCTION audit_log_append_only();
 CREATE TRIGGER audit_log_no_truncate BEFORE TRUNCATE ON audit_log
   FOR EACH STATEMENT EXECUTE FUNCTION audit_log_append_only();
+
+-- Testing system (migration 00003). Artifacts are deleted by retention
+-- (evidence.retention_days), the only other deletion besides webhook
+-- deliveries.
+
+-- Evidence files; the content is in object storage under storage_key.
+CREATE TABLE artifacts (
+  id           uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id   uuid NOT NULL REFERENCES accounts(id),
+  project_id   uuid NOT NULL REFERENCES projects(id),
+  job_id       uuid REFERENCES jobs(id),       -- NULL for artifacts forecrewd makes (verification reports)
+  name         text NOT NULL,                  -- domain.ValidArtifactName, e.g. reports/unit.xml
+  content_type text NOT NULL,
+  size         bigint NOT NULL CHECK (size >= 0),
+  sha256       text NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+  storage_key  text NOT NULL UNIQUE,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (job_id, name)                        -- a re-upload replaces the row
+);
+CREATE INDEX artifacts_created ON artifacts (account_id, created_at);  -- retention
+
+-- One suite in one matrix cell, reported by a command job's complete.
+CREATE TABLE test_runs (
+  id               uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id       uuid NOT NULL REFERENCES accounts(id),
+  project_id       uuid NOT NULL REFERENCES projects(id),
+  job_id           uuid NOT NULL REFERENCES jobs(id),
+  change_id        uuid REFERENCES changes(id),   -- the PR whose head is sha, if any
+  sha              text NOT NULL,                 -- commit tested, lowercase
+  suite            text NOT NULL,
+  environment      text NOT NULL DEFAULT '',      -- environment name; '' for the worker's host
+  cell             jsonb NOT NULL DEFAULT '{}',   -- axis -> value
+  status           text NOT NULL CHECK (status IN ('passed','failed','errored')),
+  counts           jsonb NOT NULL DEFAULT '{}',   -- domain.TestCounts
+  duration_ms      bigint NOT NULL DEFAULT 0 CHECK (duration_ms >= 0),
+  exit_code        integer NOT NULL,              -- -1: did not exit by itself
+  versions         jsonb NOT NULL DEFAULT '{}',   -- tool -> version output
+  report_artifacts text[] NOT NULL DEFAULT '{}',  -- artifact names of the JUnit reports
+  attempt          integer NOT NULL CHECK (attempt >= 1),  -- jobs.attempts + 1 when reported
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (job_id, attempt, suite)
+);
+CREATE INDEX test_runs_sha    ON test_runs (account_id, project_id, sha);
+CREATE INDEX test_runs_change ON test_runs (account_id, change_id) WHERE change_id IS NOT NULL;
+
+CREATE TABLE test_results (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id  uuid NOT NULL REFERENCES accounts(id),
+  run_id      uuid NOT NULL REFERENCES test_runs(id),
+  name        text NOT NULL,
+  classname   text NOT NULL DEFAULT '',
+  status      text NOT NULL CHECK (status IN ('passed','failed','skipped','errored')),
+  duration_ms bigint NOT NULL DEFAULT 0 CHECK (duration_ms >= 0),
+  message     text NOT NULL DEFAULT ''
+);
+CREATE INDEX test_results_run ON test_results (run_id);
+
+-- One per PR head; report follows verification.schema.json.
+CREATE TABLE verification_reports (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id  uuid NOT NULL REFERENCES accounts(id),
+  project_id  uuid NOT NULL REFERENCES projects(id),
+  change_id   uuid NOT NULL REFERENCES changes(id),
+  sha         text NOT NULL,                  -- lowercase
+  status      text NOT NULL CHECK (status IN ('passed','failed','incomplete')),
+  report      jsonb NOT NULL,
+  artifact_id uuid REFERENCES artifacts(id),  -- rendered Markdown, when stored
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (change_id, sha)                     -- a rebuild updates the row
+);
 ```
 
 ## Leasing query
 
-`Jobs.LeaseNext(account, worker, labels, leaseFor)`; `labels` is normalized:
+`Jobs.LeaseNext(account, worker, labels, leaseFor)`; `labels` is normalized.
+The worker's pool is read from its row, never from the request: a worker
+only leases jobs of its pool, whatever labels it sends. Command jobs need no
+runtime label:
 
 ```sql
 UPDATE jobs SET status = 'running', worker_id = $2, started_at = now(),
@@ -335,8 +414,9 @@ WHERE id = (
   SELECT id FROM jobs
   WHERE account_id = $1 AND status = 'queued'
     AND (run_after IS NULL OR run_after <= now())
-    AND (needs || ARRAY[lower('runtime:' || runtime)]) <@ $3::text[]
-    AND EXISTS (SELECT 1 FROM workers w WHERE w.id = $2 AND w.account_id = $1)
+    AND pool = (SELECT w.pool FROM workers w WHERE w.id = $2 AND w.account_id = $1)
+    AND (needs || CASE WHEN kind = 'agent' THEN ARRAY[lower('runtime:' || runtime)]
+                       ELSE '{}'::text[] END) <@ $3::text[]
   ORDER BY created_at, id
   LIMIT 1
   FOR UPDATE SKIP LOCKED
@@ -374,4 +454,7 @@ cap). `RequeueExpired` does not delay the job.
 | WebhookDelivery | webhook_deliveries | `WebhookDeliveries()` |
 | MCPToken | mcp_tokens | `MCPTokens()` |
 | AuditEntry | audit_log | `Audit()` |
+| Artifact | artifacts | `store.ArtifactRepo` (added to `Store` by T21) |
+| TestRun, TestResult | test_runs, test_results | `store.TestRunRepo` (added to `Store` by T22) |
+| VerificationReport | verification_reports | `store.VerificationReportRepo` (added to `Store` by T27) |
 | (human ref numbers) | ref_counters | used by `Create` |
