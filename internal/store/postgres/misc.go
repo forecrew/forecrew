@@ -189,10 +189,10 @@ func (r signalRepo) ListByKey(ctx context.Context, accountID uuid.UUID, key stri
 
 type workerRepo struct{ db dbtx }
 
-var workerCols = `id, account_id, name, token_hash, labels, version, max_jobs, ` + ctime("last_seen_at") + `, ` + ctime("revoked_at") + `, created_at`
+var workerCols = `id, account_id, name, pool, token_hash, labels, version, max_jobs, ` + ctime("last_seen_at") + `, ` + ctime("revoked_at") + `, created_at`
 
 func scanWorker(row pgx.Row) (w domain.Worker, err error) {
-	err = row.Scan(&w.ID, &w.AccountID, &w.Name, &w.TokenHash, &w.Labels, &w.Version, &w.MaxJobs, &w.LastSeenAt, &w.RevokedAt, &w.CreatedAt)
+	err = row.Scan(&w.ID, &w.AccountID, &w.Name, &w.Pool, &w.TokenHash, &w.Labels, &w.Version, &w.MaxJobs, &w.LastSeenAt, &w.RevokedAt, &w.CreatedAt)
 	utc(&w.LastSeenAt, &w.RevokedAt, &w.CreatedAt)
 	return w, err
 }
@@ -200,12 +200,13 @@ func scanWorker(row pgx.Row) (w domain.Worker, err error) {
 func (r workerRepo) Create(ctx context.Context, w *domain.Worker) error {
 	w.ID = newID(w.ID)
 	w.Labels = domain.NormalizeLabels(w.Labels)
+	w.Pool = domain.OrDefaultPool(w.Pool)
 	if w.MaxJobs == 0 {
 		w.MaxJobs = 1
 	}
-	return mapErr(r.db.QueryRow(ctx, `INSERT INTO workers (id, account_id, name, token_hash, labels, version, max_jobs)
-		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING created_at`,
-		w.ID, w.AccountID, w.Name, w.TokenHash, w.Labels, w.Version, w.MaxJobs).Scan(&w.CreatedAt))
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO workers (id, account_id, name, token_hash, labels, version, max_jobs, pool)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING created_at`,
+		w.ID, w.AccountID, w.Name, w.TokenHash, w.Labels, w.Version, w.MaxJobs, w.Pool).Scan(&w.CreatedAt))
 }
 
 func (r workerRepo) Get(ctx context.Context, accountID, id uuid.UUID) (domain.Worker, error) {

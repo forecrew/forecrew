@@ -524,3 +524,25 @@ func TestStoreRejectsForeignRows(t *testing.T) {
 	_, err := f.st.Signals().Insert(ctx, &domain.Signal{AccountID: o, ProjectID: f.project.ID, DedupeKey: "k"})
 	wantErr(t, err, store.ErrNotFound)
 }
+
+func TestStoreJobLeasingByPool(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	jobs := f.st.Jobs()
+	build := newJob(f)
+	must(t, jobs.Create(ctx, &build))
+	cmd := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.JobKindCommand, Pool: domain.PoolControl, Needs: []string{"docker"}}
+	must(t, jobs.Create(ctx, &cmd))
+	if build.Kind != domain.JobKindAgent || build.Pool != domain.PoolBuild {
+		t.Fatalf("defaults = %s, %s", build.Kind, build.Pool)
+	}
+	control := domain.Worker{AccountID: f.account, Name: "ctl", Pool: domain.PoolControl}
+	must(t, f.st.Workers().Create(ctx, &control))
+	labels := []string{"runtime:claude-code", "docker", "pool:build"}
+	leased, err := jobs.LeaseNext(ctx, f.account, control.ID, labels, time.Minute)
+	if err != nil || leased.ID != cmd.ID {
+		t.Fatalf("control leased %+v, %v; want the control command job", leased, err)
+	}
+	_, err = jobs.LeaseNext(ctx, f.account, control.ID, labels, time.Minute)
+	wantErr(t, err, store.ErrNoJob)
+}

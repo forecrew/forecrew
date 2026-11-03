@@ -78,16 +78,42 @@ type Usage struct {
 	CacheWriteTokens int64 `json:"cache_write_tokens"`
 }
 
-// Job is one run of an agent role on a repo, executed by a worker.
+// JobKind is what a job runs.
+type JobKind string
+
+// Job kinds.
+const (
+	JobKindAgent   JobKind = "agent"   // an agent role through a runtime adapter
+	JobKindCommand JobKind = "command" // a command, without a model
+)
+
+// JobKinds returns every job kind.
+func JobKinds() []JobKind { return []JobKind{JobKindAgent, JobKindCommand} }
+
+// OrDefault returns k, or JobKindAgent when k is empty (specs stored before
+// job kinds existed).
+func (k JobKind) OrDefault() JobKind {
+	if k == "" {
+		return JobKindAgent
+	}
+	return k
+}
+
+// Job is one run of an agent role or a command on a repo, executed by a
+// worker.
 type Job struct {
-	ID          uuid.UUID `json:"id"`
-	AccountID   uuid.UUID `json:"account_id"`
-	ProjectID   uuid.UUID `json:"project_id"`
-	Number      int64     `json:"number"` // JOB-<number>
-	Status      JobStatus `json:"status"`
-	Role        string    `json:"role"`
-	Runtime     string    `json:"runtime"` // runtime adapter: claude-code or codex
-	Needs       []string  `json:"needs"`   // labels the worker must have, besides runtime:<runtime>
+	ID        uuid.UUID `json:"id"`
+	AccountID uuid.UUID `json:"account_id"`
+	ProjectID uuid.UUID `json:"project_id"`
+	Number    int64     `json:"number"` // JOB-<number>
+	Status    JobStatus `json:"status"`
+	Kind      JobKind   `json:"kind"` // agent or command; empty is stored as agent
+	// Pool is the worker pool the job runs in; only workers of that pool
+	// lease it. Empty is stored as PoolBuild.
+	Pool        string    `json:"pool"`
+	Role        string    `json:"role"`    // role name; for command jobs the role that asked for it, may be empty
+	Runtime     string    `json:"runtime"` // runtime adapter: claude-code or codex; empty for command jobs
+	Needs       []string  `json:"needs"`   // labels the worker must have, besides runtime:<runtime> for agent jobs
 	GoalID      uuid.UUID `json:"goal_id,omitzero"`
 	SpecID      uuid.UUID `json:"spec_id,omitzero"`
 	TaskID      uuid.UUID `json:"task_id,omitzero"`
@@ -113,10 +139,14 @@ type Job struct {
 // Ref returns the job's human ref, e.g. JOB-41.
 func (j Job) Ref() string { return Ref(RefJob, j.Number) }
 
-// RequiredLabels returns the labels a worker needs to lease the job: Needs
-// plus runtime:<Runtime>.
+// RequiredLabels returns the labels a worker needs to lease the job: Needs,
+// plus runtime:<Runtime> for agent jobs. Command jobs have no runtime.
 func (j Job) RequiredLabels() []string {
-	return append(append([]string(nil), j.Needs...), RuntimeLabel(j.Runtime))
+	out := append([]string(nil), j.Needs...)
+	if j.Kind.OrDefault() == JobKindAgent {
+		out = append(out, RuntimeLabel(j.Runtime))
+	}
+	return out
 }
 
 // Lease moves a queued job to running under worker until now+LeaseDuration.
@@ -188,27 +218,75 @@ func (j *Job) Finish(to JobStatus, now time.Time) error {
 // (docs/contracts/job-spec.md). Env and RepoToken are secrets: they are
 // added when the job is leased, kept in memory only and never stored or
 // logged.
+//
+// Agent jobs use Runtime, Model, Prompt and the fields after them; command
+// jobs use Command, Environment, Cell, Suite and Overlay instead (see
+// Validate).
 type JobSpec struct {
 	JobID     uuid.UUID `json:"job_id"`
 	AccountID uuid.UUID `json:"account_id"`
-	Repo      string    `json:"repo"`     // "owner/name"
-	BaseRef   string    `json:"base_ref"` // branch or SHA to start from
-	Branch    string    `json:"branch"`   // agent/<...> branch to check out; writing roles push it, read-only roles may leave it empty or name one to inspect (never pushed)
+	Kind      JobKind   `json:"kind,omitempty"` // absent means agent
+	Repo      string    `json:"repo"`           // "owner/name"
+	BaseRef   string    `json:"base_ref"`       // branch or SHA to start from
+	Branch    string    `json:"branch"`         // agent/<...> branch to check out; writing roles push it, read-only roles may leave it empty or name one to inspect (never pushed)
 	Role      string    `json:"role"`
 	// WritePaths are doublestar globs relative to the repo root; a pattern
 	// starting with "!" excludes. Empty means read-only.
-	WritePaths       []string          `json:"write_paths"`
-	Runtime          string            `json:"runtime"` // runtime adapter: claude-code or codex
-	Model            string            `json:"model"`
-	Prompt           string            `json:"prompt"`
-	OutputSchema     json.RawMessage   `json:"output_schema,omitempty"` // inline JSON Schema, no $ref
-	AllowedTools     []string          `json:"allowed_tools"`
-	MaxTurns         int               `json:"max_turns"`
-	Timeout          Duration          `json:"timeout"`
-	IncludeRepoFacts bool              `json:"include_repo_facts"`
-	Env              map[string]string `json:"env,omitempty"`
-	RepoToken        string            `json:"repo_token,omitempty"`
+	WritePaths       []string        `json:"write_paths"`
+	Runtime          string          `json:"runtime"` // runtime adapter: claude-code or codex
+	Model            string          `json:"model"`
+	Prompt           string          `json:"prompt"`
+	OutputSchema     json.RawMessage `json:"output_schema,omitempty"` // inline JSON Schema, no $ref
+	AllowedTools     []string        `json:"allowed_tools"`
+	MaxTurns         int             `json:"max_turns"`
+	Timeout          Duration        `json:"timeout"`
+	IncludeRepoFacts bool            `json:"include_repo_facts"`
+	// LockedPaths are globs (like WritePaths, without "!") an agent job may
+	// not change even when WritePaths allow it, e.g. tests written before
+	// the developer's job.
+	LockedPaths []string `json:"locked_paths,omitempty"`
+	// Toolbox is the role's toolbox, resolved; agent jobs only.
+	Toolbox *Toolbox `json:"toolbox,omitempty"`
+
+	// Command is what a command job runs.
+	Command *CommandSpec `json:"command,omitempty"`
+	// Environment is the resolved environment a command job runs in; nil
+	// means the worker's host as it is.
+	Environment *Environment `json:"environment,omitempty"`
+	// Cell is the matrix cell (axis -> value) the command job runs.
+	Cell map[string]string `json:"cell,omitempty"`
+	// Suite is the matrix suite the command job runs.
+	Suite string `json:"suite,omitempty"`
+	// Overlay checks out files from another ref on top of BaseRef before
+	// the command runs.
+	Overlay *Overlay `json:"overlay,omitempty"`
+
+	Env       map[string]string `json:"env,omitempty"`
+	RepoToken string            `json:"repo_token,omitempty"`
 }
+
+// CommandSpec is what a command job runs. Exactly one of Argv and Shell is
+// set.
+type CommandSpec struct {
+	Argv  []string `json:"argv,omitempty"`  // program and arguments, run without a shell
+	Shell string   `json:"shell,omitempty"` // run with sh -c, or cmd /c on Windows
+	// Env holds non-secret variables; names that look like secrets are
+	// refused (SecretLikeName).
+	Env       map[string]string `json:"env,omitempty"`
+	Workdir   string            `json:"workdir,omitempty"`   // relative to the repo root; empty is the root
+	Reports   []string          `json:"reports,omitempty"`   // JUnit XML globs, relative to the repo root
+	Artifacts []string          `json:"artifacts,omitempty"` // globs of files to upload, relative to the repo root
+}
+
+// Overlay names files taken from another ref, e.g. new tests from the change
+// branch run against the base.
+type Overlay struct {
+	Ref   string   `json:"ref"`   // branch or SHA
+	Paths []string `json:"paths"` // paths or globs relative to the repo root
+}
+
+// IsCommand reports whether the spec is of a command job.
+func (s JobSpec) IsCommand() bool { return s.Kind == JobKindCommand }
 
 // Redacted returns a copy without Env and RepoToken, the form that is stored.
 func (s JobSpec) Redacted() JobSpec {
@@ -219,13 +297,21 @@ func (s JobSpec) Redacted() JobSpec {
 
 // LogValue keeps secrets out of logs.
 func (s JobSpec) LogValue() slog.Value {
-	return slog.GroupValue(
+	attrs := []slog.Attr{
 		slog.String("job_id", s.JobID.String()),
+		slog.String("kind", string(s.Kind.OrDefault())),
 		slog.String("repo", s.Repo),
 		slog.String("role", s.Role),
-		slog.String("runtime", s.Runtime),
-		slog.String("model", s.Model),
-	)
+	}
+	if s.IsCommand() {
+		attrs = append(attrs, slog.String("suite", s.Suite))
+		if s.Environment != nil {
+			attrs = append(attrs, slog.String("environment", s.Environment.Name))
+		}
+	} else {
+		attrs = append(attrs, slog.String("runtime", s.Runtime), slog.String("model", s.Model))
+	}
+	return slog.GroupValue(attrs...)
 }
 
 // Duration is a time.Duration encoded in JSON as a Go duration string ("30m0s").

@@ -13,10 +13,14 @@ const OnlineWindow = 60 * time.Second
 
 // Worker is a registered worker daemon.
 type Worker struct {
-	ID         uuid.UUID `json:"id"`
-	AccountID  uuid.UUID `json:"account_id"`
-	Name       string    `json:"name"` // unique per account
-	TokenHash  []byte    `json:"-"`    // SHA-256 of the worker token
+	ID        uuid.UUID `json:"id"`
+	AccountID uuid.UUID `json:"account_id"`
+	Name      string    `json:"name"` // unique per account
+	// Pool is set by an admin when the worker is created and never taken
+	// from what the worker sends; the worker leases only jobs of its pool.
+	// Empty is stored as PoolBuild.
+	Pool       string    `json:"pool"`
+	TokenHash  []byte    `json:"-"` // SHA-256 of the worker token
 	Labels     []string  `json:"labels"`
 	Version    string    `json:"version"`
 	MaxJobs    int       `json:"max_jobs"`
