@@ -8,6 +8,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/playbooks"
@@ -70,7 +71,7 @@ func (v *env) register() {
 		tr = v.wrapped
 	}
 	playbooks.Register(v.actions, playbooks.Deps{
-		Store: v.st, Tracker: tr, Signals: v.bus, Now: v.clock.Now,
+		Store: v.st, Tracker: tr, Signals: v.bus, Sizing: config.DefaultSizing(), Now: v.clock.Now,
 	})
 }
 
