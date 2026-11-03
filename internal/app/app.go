@@ -149,7 +149,7 @@ func New(d Deps) (*App, error) {
 	bus := workflow.NewBus(st.Signals())
 	jobSvc := jobs.New(st, bus, log, d.Now)
 	gateSvc := gates.New(st, bus, d.Now)
-	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, cfg.GitHub.Allowed, 0), jobs: jobSvc}
+	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0), jobs: jobSvc}
 
 	actions := workflow.Actions{}
 	playbooks.Register(actions, playbooks.Deps{Store: st, Tracker: d.GitHub, Signals: bus, Now: d.Now})

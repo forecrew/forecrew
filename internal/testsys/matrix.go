@@ -15,6 +15,10 @@ import (
 // MatrixFile is where a repo keeps its test matrix.
 const MatrixFile = ".forecrew/matrix.yaml"
 
+// StrategyFile is where a repo keeps the test strategy the matrix follows,
+// written by the test architect for humans and the other test roles.
+const StrategyFile = ".forecrew/test-strategy.md"
+
 // Cell is a matrix cell, or a partial one: axis -> value.
 type Cell map[string]string
 
