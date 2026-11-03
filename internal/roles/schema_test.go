@@ -15,7 +15,8 @@ import (
 
 // outputSchemas are the role output schemas; common.json only holds shared
 // $defs.
-var outputSchemas = []string{"profile-draft", "spec", "task-breakdown", "developer-result", "review-verdict"}
+var outputSchemas = []string{"profile-draft", "spec", "task-breakdown", "developer-result", "review-verdict",
+	"test-plan"}
 
 func TestSchemaExamples(t *testing.T) {
 	for _, name := range outputSchemas {
@@ -181,4 +182,45 @@ func TestValidateOutputErrors(t *testing.T) {
 	if err := ValidateOutput([]byte(`{"type": "object"}`), []byte(`{"a": 1}`)); err != nil {
 		t.Errorf("valid output: %v", err)
 	}
+}
+
+// TestTestRoleSchemaRejects checks that each rule the test roles' consumers
+// rely on is enforced: every case breaks one rule of a valid example.
+func TestTestRoleSchemaRejects(t *testing.T) {
+	tests := []struct {
+		schema, name string
+		edit         func(doc map[string]any)
+	}{
+		{"test-plan", "axis without reason", func(d map[string]any) { item(d, "axes", 0)["reason"] = " " }},
+		{"test-plan", "axis without values", func(d map[string]any) { item(d, "axes", 0)["values"] = []any{} }},
+		{"test-plan", "bad axis name", func(d map[string]any) { item(d, "axes", 0)["name"] = "OS" }},
+		{"test-plan", "unknown matrix part", func(d map[string]any) { item(d, "matrix_changes", 0)["part"] = "services" }},
+		{"test-plan", "change without reason", func(d map[string]any) { delete(item(d, "matrix_changes", 0), "reason") }},
+		{"test-plan", "no open questions", func(d map[string]any) { delete(d, "open_questions") }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.schema+"/"+tt.name, func(t *testing.T) {
+			schema, err := BundleSchema(forecrew.Files, path.Join("packs", "schemas", tt.schema+".json"))
+			if err != nil {
+				t.Fatalf("BundleSchema: %v", err)
+			}
+			var doc map[string]any
+			if err := json.Unmarshal(readExample(t, tt.schema+".valid.json"), &doc); err != nil {
+				t.Fatal(err)
+			}
+			tt.edit(doc)
+			data, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ValidateOutput(schema, data); !errors.Is(err, ErrInvalidOutput) {
+				t.Errorf("error = %v, want ErrInvalidOutput", err)
+			}
+		})
+	}
+}
+
+// item returns the i-th object of the list doc[key].
+func item(doc map[string]any, key string, i int) map[string]any {
+	return doc[key].([]any)[i].(map[string]any)
 }

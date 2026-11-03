@@ -47,6 +47,7 @@ func catalog(t *testing.T) *roles.Catalog {
 			"architect":          {Runtime: "claude", Tier: config.TierBest},
 			"developer":          {Runtime: "claude", Tier: config.TierStrong},
 			"reviewer":           {Runtime: "codex", Tier: config.TierBest},
+			"test-architect":     {Runtime: "claude", Tier: config.TierBest},
 		},
 	}
 	c, err := roles.New(forecrew.Files, cfg)
@@ -76,6 +77,8 @@ func TestRenderGolden(t *testing.T) {
 		"developer": {Repo: "acme/app", BaseRef: "main", Branch: "agent/task-12", Profile: profile,
 			Goal: goal, Spec: spec, Task: task, Feedback: feedback},
 		"reviewer": {Repo: "acme/app", BaseRef: "main", Branch: "agent/task-12", Profile: profile, Goal: goal, Spec: spec, Task: task},
+		"test-architect": {Repo: "acme/app", BaseRef: "main", Branch: "agent/onboarding-tests", Profile: profile,
+			TestPlan: Text{Heading: "Test plan", Body: plan{ref: "main"}.render()}},
 	}
 	c := catalog(t)
 	for _, name := range c.Names() {

@@ -29,6 +29,7 @@ func testConfig() *config.Config {
 			"architect":          {Runtime: "claude", Tier: config.TierBest},
 			"developer":          {Runtime: "claude", Tier: config.TierStrong},
 			"reviewer":           {Runtime: "codex", Tier: config.TierBest},
+			"test-architect":     {Runtime: "claude", Tier: config.TierBest},
 		},
 	}
 }
@@ -38,7 +39,7 @@ func TestCatalogResolve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	want := []string{"architect", "developer", "onboarding-analyst", "product-owner", "reviewer"}
+	want := []string{"architect", "developer", "onboarding-analyst", "product-owner", "reviewer", "test-architect"}
 	if got := c.Names(); !slices.Equal(got, want) {
 		t.Errorf("Names = %v, want %v", got, want)
 	}
@@ -65,6 +66,12 @@ func TestCatalogResolve(t *testing.T) {
 	po, err := c.Resolve(ctx, uuid.Nil(), uuid.Nil(), "product-owner")
 	if err != nil || po.Model != "claude-best" {
 		t.Errorf("Resolve product-owner = %q, %v; want claude-best", po.Model, err)
+	}
+	for name, model := range map[string]string{"test-architect": "claude-best"} {
+		r, err := c.Resolve(ctx, uuid.Nil(), uuid.Nil(), name)
+		if err != nil || r.Model != model || r.ReadOnly() || !slices.Contains(r.AllowedTools, "Write") || r.Pool != "build" {
+			t.Errorf("Resolve %s = %+v, %v; want a writing role on %s", name, r, err, model)
+		}
 	}
 	// The resolved role does not share slices with the catalog.
 	dev.WritePaths[0] = "changed"
