@@ -1,0 +1,1 @@
+invalid file: at '/criteria/AC-1/status': value must be one of 'passed', 'failed', 'untested'; at '/new_tests/t': got string, want boolean; at '/sha': 'ABC1234' does not match pattern '^[0-9a-f]{7,64}$'; at '/status': value must be one of 'passed', 'failed', 'incomplete'

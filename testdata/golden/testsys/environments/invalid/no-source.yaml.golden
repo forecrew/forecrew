@@ -1,0 +1,1 @@
+no-source.yaml: invalid file: invalid spec: environment no-source: docker needs exactly one of image, dockerfile or devcontainer

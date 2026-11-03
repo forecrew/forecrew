@@ -1,0 +1,5 @@
+environments:
+  - match: {}
+    environment: linux-go
+suites:
+  - {name: unit, command: [], level: unit, reports: [junit.xml]}

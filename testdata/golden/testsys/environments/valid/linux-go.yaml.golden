@@ -1,0 +1,36 @@
+{
+  "name": "linux-go",
+  "provider": "docker",
+  "image": "golang:1.27-bookworm",
+  "needs": [
+    "linux"
+  ],
+  "setup": [
+    "go install gotest.tools/gotestsum@v1.12.3"
+  ],
+  "env": {
+    "CGO_ENABLED": "0",
+    "GOFLAGS": "-count=1"
+  },
+  "versions": {
+    "go": "go version",
+    "gotestsum": "gotestsum --version"
+  },
+  "services": {
+    "postgres": {
+      "image": "postgres:18",
+      "env": {
+        "POSTGRES_DB": "app_test",
+        "POSTGRES_HOST_AUTH_METHOD": "trust"
+      },
+      "ports": [
+        5432
+      ],
+      "health": {
+        "command": "pg_isready -U postgres",
+        "interval": "2s",
+        "retries": 30
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+version: 1
+axes:
+  os: [linux, windows]
+environments:
+  - match: {os: macos}
+    environment: macos
+  - match: {}
+    environment: linux-go
+suites:
+  - {name: unit, command: make test, level: unit, reports: [junit.xml], axes: {os: [freebsd]}}
+required:
+  - {os: solaris}

@@ -1,0 +1,4 @@
+version: 1
+name: machine-image
+provider: machine
+image: ubuntu:24.04

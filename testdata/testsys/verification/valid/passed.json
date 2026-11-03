@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "sha": "4f1c2b9e8d7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c",
+  "status": "passed",
+  "results": [
+    {"environment": "linux-go", "cell": {"os": "linux", "go": "1.27"}, "suite": "unit", "required": true, "status": "passed",
+     "counts": {"passed": 120, "failed": 0, "skipped": 2, "errored": 0}, "duration_ms": 48211, "job": "JOB-41",
+     "test_run": "01960d3e-6d7b-7c1a-9f3e-2a7c4b1d9e10", "attempts": 2},
+    {"environment": "macos", "cell": {"os": "macos", "go": "1.27"}, "suite": "quirks", "required": false, "status": "failed",
+     "counts": {"passed": 3, "failed": 1, "skipped": 0, "errored": 0}}
+  ],
+  "criteria": {
+    "AC-1": {"status": "passed", "tests": {"auth::TestLogin": "passed", "auth::TestLoginRejectsBadPassword": "passed"}},
+    "AC-2": {"status": "untested", "tests": {}, "untestable": "Visual layout; checked by the reviewer on screenshots."}
+  },
+  "new_tests": {"auth::TestLogin": true},
+  "flaky": [{"test": "store::TestLeaseConcurrent", "environments": ["linux-go"]}],
+  "environments": {"linux-go": {"versions": {"go": "go version go1.27.1 linux/amd64"}}, "macos": {"versions": {}}},
+  "blocking": []
+}

@@ -1,0 +1,6 @@
+version: 1
+environments:
+  - match: {}
+    environment: linux-go
+suites:
+  - {name: unit, command: make test, level: smoke, reports: [junit.xml]}

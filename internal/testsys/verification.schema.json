@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/forecrew/forecrew/docs/contracts/verification.schema.json",
+  "title": "Forecrew verification report",
+  "description": "The report column of verification_reports (data-model.md): the verification of one PR head (change and sha), built by forecrewd from the stored test runs, the task's acceptance criteria, the test engineer's test map and the fail-on-base check. It is rendered as the forecrew/verification check run and a PR comment. Any entry in blocking blocks the merge.",
+  "type": "object",
+  "required": ["version", "sha", "status", "results", "criteria", "new_tests", "flaky", "environments", "blocking"],
+  "additionalProperties": false,
+  "$defs": {
+    "counts": {
+      "type": "object",
+      "required": ["passed", "failed", "skipped", "errored"],
+      "additionalProperties": false,
+      "properties": {
+        "passed": {"type": "integer", "minimum": 0},
+        "failed": {"type": "integer", "minimum": 0},
+        "skipped": {"type": "integer", "minimum": 0},
+        "errored": {"type": "integer", "minimum": 0}
+      }
+    },
+    "testID": {
+      "description": "A test as <classname>::<name>, or <name> when the report has no classname.",
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "properties": {
+    "version": {"description": "Report format version.", "const": 1},
+    "sha": {"description": "Commit verified, lowercase.", "type": "string", "pattern": "^[0-9a-f]{7,64}$"},
+    "status": {
+      "description": "passed: nothing blocks. failed: something in blocking. incomplete: required cells have no result yet.",
+      "enum": ["passed", "failed", "incomplete"]
+    },
+    "results": {
+      "description": "One entry per environment, cell and suite: the latest attempt's test run.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["environment", "cell", "suite", "required", "status", "counts"],
+        "additionalProperties": false,
+        "properties": {
+          "environment": {"type": "string"},
+          "cell": {"type": "object", "additionalProperties": {"type": "string"}},
+          "suite": {"type": "string", "minLength": 1},
+          "required": {"description": "Whether a failure here blocks: a required cell and a required suite.", "type": "boolean"},
+          "status": {
+            "description": "The test run status, or missing when the cell has no result yet.",
+            "enum": ["passed", "failed", "errored", "missing"]
+          },
+          "counts": {"$ref": "#/$defs/counts"},
+          "duration_ms": {"type": "integer", "minimum": 0},
+          "job": {"description": "Ref of the command job, e.g. JOB-41.", "type": "string"},
+          "test_run": {"description": "ID of the test run.", "type": "string", "format": "uuid"},
+          "attempts": {"description": "Test runs of this cell and suite for the sha (reruns included).", "type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "criteria": {
+      "description": "Acceptance criterion id (e.g. AC-1) -> its tests and status. untested: no test covers it, which blocks unless untestable gives a reason.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status", "tests"],
+        "additionalProperties": false,
+        "properties": {
+          "status": {"enum": ["passed", "failed", "untested"]},
+          "tests": {
+            "description": "Test -> its worst result over the required results.",
+            "type": "object",
+            "propertyNames": {"$ref": "#/$defs/testID"},
+            "additionalProperties": {"enum": ["passed", "failed", "skipped", "errored", "missing"]}
+          },
+          "untestable": {"description": "Why the criterion cannot be tested automatically, when so.", "type": "string", "minLength": 1}
+        }
+      }
+    },
+    "new_tests": {
+      "description": "Test added by the change -> whether it failed on the base branch. A new test that passed on base blocks.",
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/testID"},
+      "additionalProperties": {"type": "boolean"}
+    },
+    "flaky": {
+      "description": "Tests that failed and then passed in a rerun of the same cell; listed, not blocking.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["test", "environments"],
+        "additionalProperties": false,
+        "properties": {
+          "test": {"$ref": "#/$defs/testID"},
+          "environments": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "environments": {
+      "description": "Environment name -> tool versions reported by its jobs (tool -> version output).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["versions"],
+        "additionalProperties": false,
+        "properties": {
+          "versions": {"type": "object", "additionalProperties": {"type": "string"}}
+        }
+      }
+    },
+    "blocking": {
+      "description": "Human-readable reasons the merge is blocked, e.g. \"AC-2 has no test\". Empty when status is passed.",
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "if": {"properties": {"status": {"const": "passed"}}},
+  "then": {"properties": {"blocking": {"maxItems": 0}}}
+}

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "environments": [
+    {
+      "environment": "linux-go"
+    }
+  ],
+  "suites": [
+    {
+      "name": "unit",
+      "command": {
+        "shell": "make test"
+      },
+      "level": "unit",
+      "reports": [
+        "junit.xml"
+      ]
+    }
+  ]
+}

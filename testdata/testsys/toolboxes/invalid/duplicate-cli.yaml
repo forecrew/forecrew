@@ -1,0 +1,5 @@
+name: duplicate-cli
+image: x:1
+clis:
+  - {name: semgrep, version: semgrep --version}
+  - {name: semgrep, version: semgrep -v}

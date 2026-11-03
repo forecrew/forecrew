@@ -1,0 +1,1 @@
+machine-image.yaml: invalid file: invalid spec: environment machine-image: image, dockerfile, context and devcontainer are only for provider docker

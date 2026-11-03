@@ -1,0 +1,1 @@
+bad-provider.yaml: invalid file: invalid spec: environment bad-provider: provider must be docker, machine or actions, got "kubernetes"

@@ -1,0 +1,1 @@
+actions-no-runner.yaml: invalid file: invalid spec: environment actions-no-runner: actions needs runs_on, e.g. ubuntu-24.04

@@ -1,0 +1,1 @@
+duplicate-cli.yaml: invalid file: invalid spec: toolbox duplicate-cli: clis: name "semgrep" must be unique and match ^[a-z0-9][a-z0-9._-]{0,63}$

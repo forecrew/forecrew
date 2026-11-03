@@ -1,0 +1,11 @@
+{
+  "name": "macos",
+  "provider": "actions",
+  "runs_on": "macos-15",
+  "setup": [
+    "brew install gotestsum"
+  ],
+  "versions": {
+    "go": "go version"
+  }
+}

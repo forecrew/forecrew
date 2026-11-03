@@ -1,0 +1,6 @@
+version: 1
+environments:
+  - match: {}
+    environment: nowhere
+suites:
+  - {name: unit, command: make test, level: unit, reports: [junit.xml]}

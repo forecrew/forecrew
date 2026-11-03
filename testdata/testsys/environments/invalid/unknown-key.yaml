@@ -1,0 +1,5 @@
+version: 1
+name: unknown-key
+provider: machine
+secrets:
+  - GITHUB_TOKEN
