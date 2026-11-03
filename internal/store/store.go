@@ -374,3 +374,170 @@ type VerificationReportRepo interface {
 	// Latest returns the most recently updated report of a change.
 	Latest(ctx context.Context, accountID, changeID uuid.UUID) (domain.VerificationReport, error)
 }
+
+// The repositories below belong to the team (councils, registers,
+// knowledge, proposals; docs/contracts/data-model.md, migration 00004).
+// Like the testing system's, they are contracts only: CouncilRepo is added
+// to Store by T33, AssumptionRepo and DecisionRepo by T32, KnowledgeRepo by
+// T36, KnowledgeProposalRepo by T37 and ProposalRepo by T50, each with the
+// Postgres implementation and the testkit fake. goals.kind and goals.size
+// are read and written by GoalRepo from T35 (Size) and T41 (Kind),
+// jobs.context_manifest by JobRepo from T38, and gates.origin and
+// jobs.job_mcp_token_hash from T47; until then they keep their defaults
+// (feature, NULL, playbook, NULL).
+
+// CouncilFilter selects councils; zero fields match everything.
+type CouncilFilter struct {
+	ProjectID uuid.UUID
+	GoalID    uuid.UUID
+	Status    domain.CouncilStatus
+	Limit     int
+}
+
+// CouncilRepo stores councils and their contributions.
+type CouncilRepo interface {
+	Create(ctx context.Context, c *domain.Council) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Council, error)
+	GetByNumber(ctx context.Context, accountID uuid.UUID, number int64) (domain.Council, error)
+	List(ctx context.Context, accountID uuid.UUID, f CouncilFilter) ([]domain.Council, error)
+	// Update writes Constraints, Brief, GateID and RunID.
+	Update(ctx context.Context, c *domain.Council) error
+	UpdateStatus(ctx context.Context, accountID, id uuid.UUID, from, to domain.CouncilStatus) error
+	// AddContribution stores c; a second contribution of the same job, or
+	// of the same role, runtime, stage and round, fails with ErrConflict.
+	AddContribution(ctx context.Context, c *domain.CouncilContribution) error
+	// SetEvidenceCheck stores the check of a contribution's cited sources.
+	SetEvidenceCheck(ctx context.Context, accountID, contributionID uuid.UUID, checks []domain.SourceCheck) error
+	// Contributions returns a council's contributions of a stage (all
+	// stages when stage is empty), oldest first.
+	Contributions(ctx context.Context, accountID, councilID uuid.UUID, stage domain.CouncilStage) ([]domain.CouncilContribution, error)
+}
+
+// AssumptionFilter selects assumptions; zero fields match everything.
+type AssumptionFilter struct {
+	ProjectID uuid.UUID
+	GoalID    uuid.UUID
+	JobID     uuid.UUID
+	Status    domain.AssumptionStatus
+	Impact    domain.Level
+	VerifyBy  domain.VerifyBy
+	Limit     int
+}
+
+// AssumptionRepo is the assumption register.
+type AssumptionRepo interface {
+	Create(ctx context.Context, a *domain.Assumption) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Assumption, error)
+	GetByNumber(ctx context.Context, accountID uuid.UUID, number int64) (domain.Assumption, error)
+	List(ctx context.Context, accountID uuid.UUID, f AssumptionFilter) ([]domain.Assumption, error)
+	// AddDependents appends the dependents a does not list yet.
+	AddDependents(ctx context.Context, accountID, id uuid.UUID, deps []domain.Dependent) error
+	// Resolve stores Status, Evidence, ResolvedBy and ResolvedAt of a after
+	// domain.Assumption.Resolve, as a compare-and-set from from.
+	Resolve(ctx context.Context, a *domain.Assumption, from domain.AssumptionStatus) error
+}
+
+// DecisionFilter selects decisions; zero fields match everything.
+type DecisionFilter struct {
+	ProjectID uuid.UUID
+	GoalID    uuid.UUID
+	CouncilID uuid.UUID
+	Limit     int
+}
+
+// DecisionRepo is the decision register; decisions are never changed.
+type DecisionRepo interface {
+	Create(ctx context.Context, d *domain.Decision) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Decision, error)
+	GetByNumber(ctx context.Context, accountID uuid.UUID, number int64) (domain.Decision, error)
+	List(ctx context.Context, accountID uuid.UUID, f DecisionFilter) ([]domain.Decision, error)
+}
+
+// KnowledgeQuery is a knowledge search; zero fields match everything.
+type KnowledgeQuery struct {
+	ProjectID uuid.UUID
+	Text      string // websearch_to_tsquery syntax; empty lists by section and path
+	Sections  []string
+	Kinds     []domain.KnowledgeKind
+	Providers []string
+	// GoalID is the searching job's goal: goal notes of other goals are
+	// never returned. Nil returns project notes only.
+	GoalID uuid.UUID
+	// Embedding of Text, mixed into the ranking where the embedding column
+	// exists; ignored otherwise.
+	Embedding []float32
+	Limit     int
+}
+
+// KnowledgeHit is one search result.
+type KnowledgeHit struct {
+	Entry   domain.KnowledgeEntry
+	Rank    float64
+	Snippet string // ts_headline of the body
+}
+
+// KnowledgeRepo is the knowledge index.
+type KnowledgeRepo interface {
+	// Upsert inserts or replaces the entry of (project, provider, path),
+	// writing ID and timestamps back.
+	Upsert(ctx context.Context, e *domain.KnowledgeEntry) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.KnowledgeEntry, error)
+	GetByPath(ctx context.Context, accountID, projectID uuid.UUID, provider, path string) (domain.KnowledgeEntry, error)
+	Delete(ctx context.Context, accountID, id uuid.UUID) error
+	// Search returns the best hits first.
+	Search(ctx context.Context, accountID uuid.UUID, q KnowledgeQuery) ([]KnowledgeHit, error)
+	// SetEmbedding stores an entry's embedding. It fails with
+	// errors.ErrUnsupported when the database has no pgvector.
+	SetEmbedding(ctx context.Context, accountID, id uuid.UUID, embedding []float32) error
+	// MarkReverify sets needs_reverify with the reason on the entries.
+	MarkReverify(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID, reason string) error
+	// DeleteExpired deletes the notes whose ExpiresAt is before t and
+	// returns how many.
+	DeleteExpired(ctx context.Context, accountID uuid.UUID, t time.Time) (int, error)
+}
+
+// KnowledgeProposalFilter selects knowledge proposals; zero fields match
+// everything.
+type KnowledgeProposalFilter struct {
+	ProjectID uuid.UUID
+	GoalID    uuid.UUID
+	Batch     domain.KnowledgeBatch
+	Status    domain.KnowledgeProposalStatus
+	Limit     int
+}
+
+// KnowledgeProposalRepo stores knowledge proposals.
+type KnowledgeProposalRepo interface {
+	Create(ctx context.Context, k *domain.KnowledgeProposal) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.KnowledgeProposal, error)
+	GetByNumber(ctx context.Context, accountID uuid.UUID, number int64) (domain.KnowledgeProposal, error)
+	List(ctx context.Context, accountID uuid.UUID, f KnowledgeProposalFilter) ([]domain.KnowledgeProposal, error)
+	// Update writes Status, ExternalRef, ChangeID and GateID, as a
+	// compare-and-set of the status from from.
+	Update(ctx context.Context, k *domain.KnowledgeProposal, from domain.KnowledgeProposalStatus) error
+}
+
+// ProposalFilter selects improvement proposals; zero fields match
+// everything.
+type ProposalFilter struct {
+	ProjectID uuid.UUID
+	Status    domain.ProposalStatus
+	Category  domain.ProposalCategory
+	Limit     int
+}
+
+// ProposalRepo stores improvement proposals. A dedupe key is unique among
+// the project's proposals that are not final; a duplicate fails with
+// ErrConflict.
+type ProposalRepo interface {
+	Create(ctx context.Context, p *domain.Proposal) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Proposal, error)
+	GetByNumber(ctx context.Context, accountID uuid.UUID, number int64) (domain.Proposal, error)
+	// GetOpen returns the proposal of the project with the dedupe key that
+	// is not final.
+	GetOpen(ctx context.Context, accountID, projectID uuid.UUID, dedupeKey string) (domain.Proposal, error)
+	List(ctx context.Context, accountID uuid.UUID, f ProposalFilter) ([]domain.Proposal, error)
+	// Update writes everything but the IDs, Number and CreatedAt, as a
+	// compare-and-set of the status from from.
+	Update(ctx context.Context, p *domain.Proposal, from domain.ProposalStatus) error
+}
