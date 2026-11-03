@@ -46,6 +46,7 @@ Non-2xx responses have this body:
 | 413 | `too_large` | Body over 1 MiB. |
 | 415 | `unsupported_media_type` | A cookie session sent a state-changing request that is not `application/json`. |
 | 500 | `internal` | Server error; the cause is only in the server log. |
+| 503 | `unavailable` | The feature is not configured: downloading an artifact while no `evidence` storage is configured. |
 
 ## Endpoints
 
@@ -65,6 +66,8 @@ structs in `internal/domain` and `internal/mcp`.
 | `GET /api/v1/jobs/{job}` | `job_status` | | `200` job with `ref`, `reason` (why a queued job waits, e.g. `no online worker in pool build with labels go, runtime:claude-code`; why a failed job failed) and `worker_name` |
 | `GET /api/v1/jobs/{job}/logs?after_seq=&limit=` | `job_logs` | `limit` defaults to 200, at most 1000 | `200` `{"events": [...], "next_seq": 12}`; pass `next_seq` as `after_seq` to continue |
 | `POST /api/v1/jobs/{job}/cancel` | `cancel_job` | body optional | `200` job (now `canceled`) with `ref`; `409` when the job is not queued or running |
+| `GET /api/v1/jobs/{job}/artifacts` | `list_artifacts` | | `200` artifacts of the job by name: `id`, `name`, `content_type`, `size`, `sha256`, `created_at` |
+| `GET /api/v1/artifacts/{id}` | | `{id}` is an artifact UUID | `200` the file, streamed; see [Artifact downloads](#artifact-downloads). `404` when it is unknown, of another account, or deleted by retention; `503` without evidence storage |
 | `GET /api/v1/workers` | `list_workers` | | `200` workers with `pool`, `labels`, `version`, `last_seen_at`, `online` and `running_jobs` (refs) |
 | `GET /api/v1/gates?project=` | `list_pending_gates` | `project` optional | `200` pending gates with `ref`, `kind`, `project`, `goal_ref`, `task_ref`, `summary`, `url` (GitHub issue or PR) and `created_at` |
 | `POST /api/v1/gates/{gate}/approve` | `approve` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `approved` |
@@ -75,6 +78,32 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/session` | | `{"token": "fcm_..."}` | `200` session, sets the cookie |
 | `DELETE /api/v1/session` | | | `204`, clears the cookie |
 | `GET /api/v1/me` | | | `200` session |
+
+### Artifact downloads
+
+Artifacts are files jobs produced (test reports, logs, screenshots,
+verification reports); workers upload them through the worker API and
+forecrewd keeps them in S3-compatible storage (`evidence` in
+[config.md](contracts/config.md)). `GET /api/v1/artifacts/{id}` streams the
+file with `Content-Length` and these headers:
+
+- `Content-Type` and `Content-Disposition: inline` only for `text/plain`
+  (served as UTF-8), `image/png`, `image/jpeg` and `application/json`.
+  Everything else, HTML and SVG included, is sent as
+  `Content-Disposition: attachment; filename=<last path segment>` with
+  `Content-Type: application/octet-stream`, so an uploaded page can never run
+  on forecrewd's origin.
+- `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox;
+  default-src 'none'` and `Cache-Control: private, no-cache`.
+
+If the storage fails halfway, the connection is cut: a short body is never a
+complete download.
+
+Retention: a daily sweep deletes artifacts older than `evidence.retention_days`
+(`0` keeps them forever) from storage and the database, and records each
+deletion in the audit log (`artifact.deleted` by `system:forecrewd`). A
+verification report that points at a deleted artifact keeps its data and loses
+only the link to the rendered copy (`artifact_id` becomes null).
 
 ### Planned endpoints
 

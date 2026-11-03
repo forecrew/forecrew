@@ -10,15 +10,18 @@ You need:
 - a Linux host with Docker and the Compose plugin (or systemd and Postgres 18);
 - a domain name pointing at the host, unless a load balancer fronts it;
 - a GitHub App for the installation (app ID, private key, webhook secret);
-- API keys for the runtimes you use (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`).
+- API keys for the runtimes you use (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`);
+- S3-compatible storage for job artifacts (test reports, logs, screenshots):
+  the Compose stack ships Garage, see [Artifact storage](#artifact-storage).
 
 ## With Docker Compose
 
 ```sh
 git clone https://github.com/forecrew/forecrew && cd forecrew/deploy/compose
 cp .env.example .env                    # fill in every value
+cp garage.env.example garage.env        # the same for Garage's secrets
 cp forecrew.example.yaml forecrew.yaml  # edit, see below
-chmod 600 .env
+chmod 600 .env garage.env
 docker compose up -d
 ```
 
@@ -30,8 +33,10 @@ on one line in double quotes with `\n` for the line breaks:
 awk 'NF{printf "%s\\n", $0}' app-key.pem   # prints the value for .env
 ```
 
-`docker compose up` starts Postgres, runs `forecrew migrate up` once in the
-`migrate` service, then starts forecrewd. A `backup` service dumps the database
+`garage.env` holds Garage's own secrets (see [Artifact storage](#artifact-storage)).
+`docker compose up` starts Postgres and Garage, runs `forecrew migrate up` once
+in the `migrate` service and `garage-init` once for Garage, then starts
+forecrewd. A `backup` service dumps the database
 daily (see [Backups](#backups)). The image is
 `ghcr.io/forecrew/forecrewd:${FORECREW_VERSION:-latest}`; pin `FORECREW_VERSION`
 in `.env` to a release tag for production. To build from a checkout instead of
@@ -70,6 +75,54 @@ The forecrewd container's health check runs `forecrewd healthcheck`, which
 asks the local `/healthz` (over HTTPS for the configured domain in own-domain
 mode) and exits 0 or 1. Run it by hand with
 `docker compose exec forecrewd forecrewd healthcheck --config /etc/forecrew/forecrew.yaml`.
+
+### Artifact storage
+
+Workers upload job artifacts (JUnit reports, logs, screenshots, later
+verification reports) to forecrewd, which stores them in S3-compatible object
+storage; users download them through forecrewd after logging in (never
+directly from the bucket, and workers never get storage credentials). The
+Compose stack runs a single-node [Garage](https://garagehq.deuxfleurs.fr/)
+for this:
+
+- `garage` is the server, configured by `garage.toml`. It listens only on the
+  internal `storage` network (`garage:3900` for S3), which holds just forecrewd
+  and Garage's own services: the control worker cannot reach it, and no port is
+  published. It keeps its data
+  in the `garage-meta` and `garage-data` volumes.
+- `garage-init` runs `garage-init.sh` at every `docker compose up`: on first
+  start it assigns the one-node layout, creates the bucket `forecrew-evidence`
+  and imports the access key from `.env`, with read and write on the bucket
+  only. On later starts it changes nothing.
+- `forecrew.yaml` has an `evidence` section (the example file has it) with the
+  endpoint `http://garage:3900`, that bucket, `max_artifact_size` and
+  `retention_days`.
+
+Before the first start generate the secrets (the commands are in the example
+files). `garage.env` holds `GARAGE_RPC_SECRET` and `GARAGE_ADMIN_TOKEN`, read
+only by the `garage` and `garage-init` services. `.env` holds the access key
+`FORECREW_EVIDENCE_ACCESS_KEY_ID` (`GK` followed by 24 hex digits) with its
+`FORECREW_EVIDENCE_SECRET_ACCESS_KEY` (64 hex digits): forecrewd reads these
+two from the environment (`docs/contracts/config.md`) and never logs them, and
+`garage-init` imports them into Garage. forecrewd never sees Garage's admin
+token or RPC secret.
+
+`retention_days` (default 0: forever; the example sets 90) makes forecrewd
+delete artifacts older than that once a day, from storage and database, and
+write each deletion to the audit log. Deleting an artifact that a verification
+report points at keeps the report and clears its link to the rendered copy.
+
+Without an `evidence` section artifacts are not stored: uploads get
+`503 unavailable` and workers finish their jobs without them. To use another
+S3 server (AWS S3, MinIO, Cloudflare R2) instead of Garage, point `endpoint`,
+`bucket`, `region` and `path_style` at it, put its keys in `.env`, create the
+bucket yourself, and delete the `garage` and `garage-init` services (and their
+`depends_on` entry and the `storage` network in `forecrewd`).
+
+Garage's volumes are part of the installation's state: back up `garage-meta`
+and `garage-data` along with the database dumps (a plain copy of the volumes
+with Garage stopped is enough for one node), or the artifacts of old jobs are
+lost with the host. The Postgres dump only has their metadata.
 
 ### GitHub App
 
@@ -178,10 +231,16 @@ sudo systemctl daemon-reload && sudo systemctl enable --now forecrewd
 
 `/etc/forecrew/forecrewd.env` holds `FORECREW_DATABASE_URL`,
 `FORECREW_GITHUB_PRIVATE_KEY` (a quoted value with `\n`, as above, or the PEM
-in double quotes across lines), `FORECREW_GITHUB_WEBHOOK_SECRET` and the
-runtime credentials. systemd reads the file as root before it drops to the
+in double quotes across lines), `FORECREW_GITHUB_WEBHOOK_SECRET`, the runtime credentials and, when you
+configure `evidence`, `FORECREW_EVIDENCE_ACCESS_KEY_ID` and
+`FORECREW_EVIDENCE_SECRET_ACCESS_KEY`. systemd reads the file as root before it drops to the
 `forecrew` user, so the file stays `root:root` 0600 and the service cannot read
 or change its own configuration. The unit applies migrations before each start.
+
+For artifact storage without Compose, run any S3-compatible server (Garage,
+MinIO, a cloud bucket), create the bucket and an access key limited to it, and
+add the `evidence` section to `/etc/forecrew/forecrew.yaml`; see
+[Artifact storage](#artifact-storage).
 
 ## Backups
 

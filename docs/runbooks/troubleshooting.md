@@ -8,6 +8,8 @@ docker compose logs --tail 100 forecrewd       # systemd: journalctl -u forecrew
 curl -fsS https://<host>/healthz               # 503 "database unavailable" means Postgres
 forecrew jobs show <job>                       # status, attempts, events
 forecrew jobs cancel <job>                     # stop a queued or running job
+forecrew job artifacts <job>                   # files the job uploaded (reports, logs)
+forecrew artifact get <id> -o file             # download one
 ```
 
 forecrewd logs JSON. Look for `job lease expired`, `requeue expired jobs` and
@@ -132,3 +134,19 @@ request fails:
   start until it succeeds. Do not edit the schema by hand.
 - Disk full: Postgres and the `backups` volume share the host's disk. Lower
   `BACKUP_RETAIN_DAYS` or move dumps off the host.
+
+## Artifacts
+
+- **A worker logs that the artifact was not uploaded, `503 unavailable`.**
+  forecrewd has no `evidence` section in `forecrew.yaml`, or the file was not
+  reloaded: add it, restart forecrewd, see
+  [install.md](install.md#artifact-storage).
+- **`413 too_large`.** The file is over `evidence.max_artifact_size` (100 MiB
+  by default). Raise it or make the job write less.
+- **`500` on upload or download, `put evidence` or `get evidence` in the log.**
+  forecrewd cannot reach the bucket or the keys are wrong. Check
+  `docker compose logs garage garage-init forecrewd`; `garage-init` must have
+  exited 0 and `FORECREW_EVIDENCE_ACCESS_KEY_ID` / `..._SECRET_ACCESS_KEY` in
+  `.env` must be the keys it imported.
+- **A listed artifact answers `404` on download.** Retention deleted it
+  (`evidence.retention_days`), or the object is gone from storage.

@@ -90,6 +90,7 @@ GitHub links of issues, pull requests and gates.
 | `list_goals`, `get_goal` | Goals; `get_goal` includes the latest spec, tasks (state, issue and PR links, check status, iterations, cost), the goal's gates with their decisions and the total cost |
 | `list_jobs` | Recent jobs, filtered by `project`, `goal` and `status` |
 | `cancel_job` | Cancel a queued or running job (`job`). A worker running it stops within one heartbeat (30 s) without pushing (if the heartbeat just before the push fails, the worker relies on the time-based lease check alone), and the playbook step waiting for it fails through its normal failure path (escalation, `finally`). A finished job is a conflict |
+| `list_artifacts` | The artifacts a job's worker uploaded (`job`): `id`, `name` (a relative path such as `reports/unit.xml`), `content_type`, `size`, `sha256` and `created_at`, by name. The content is not an MCP result: download it with `GET /api/v1/artifacts/{id}` or `forecrew artifact get`. Artifacts are deleted after `evidence.retention_days` |
 | `list_tokens` | The account's API and MCP tokens: `id`, `name`, `created_at`, `last_used_at`, `revoked_at`, and `current` on the one you are using. Never the secret |
 | `revoke_token` | Revoke a token by `token` (name or ID); it stops working at once, as do the web sessions it backs. Revoking the token you are using is allowed: the answer has `self: true` and your next request gets `401`. Tokens are created only with `forecrew token create` on the server |
 

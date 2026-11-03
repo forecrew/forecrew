@@ -9,7 +9,14 @@
    docker compose exec backup /backup.sh
    ```
 
-3. Set `FORECREW_VERSION` in `.env` to the new tag, then:
+3. Upgrading from a release without artifact storage: copy `garage.toml`,
+   `garage-init.sh` and the new `docker-compose.yml` services from the
+   release, create `garage.env` from `garage.env.example`, add the two evidence keys to `.env` and the
+   `evidence` section to `forecrew.yaml` (all described in
+   [install.md](install.md#artifact-storage)). Until you do, forecrewd runs
+   as before and uploads of artifacts get `503`.
+
+   Set `FORECREW_VERSION` in `.env` to the new tag, then:
 
    ```sh
    docker compose pull
@@ -20,6 +27,10 @@
    it succeeds. If it fails, `docker compose logs migrate` shows why and the
    old forecrewd keeps running.
 4. Check `curl -fsS https://<host>/healthz` and `docker compose logs --tail 50 forecrewd`.
+
+The Garage image is pinned in `docker-compose.yml`; change it only when a
+release says so, and take a copy of the `garage-meta` and `garage-data` volumes
+first (Garage's own upgrade notes apply).
 
 Roll back by setting the previous tag and running `docker compose up -d`. Schema
 migrations are not reversed: if a release changed the schema, restore the
