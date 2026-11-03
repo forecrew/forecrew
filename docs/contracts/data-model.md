@@ -84,7 +84,7 @@ CREATE TABLE goals (
   body         text NOT NULL DEFAULT '',
   platforms    text[] NOT NULL DEFAULT '{}',   -- target platforms (worker labels), normalized
   status       text NOT NULL CHECK (status IN ('draft','spec_review','planned','in_progress','done','canceled')),
-  size         jsonb,                          -- domain.GoalSize (triage); NULL until triaged
+  size         jsonb,                          -- domain.GoalSize; NULL until sized, then set once. Impact and reversibility are both empty when a person set the councils (no triage)
   issue_number integer,
   created_by   text NOT NULL,              -- domain.Actor.String()
   created_at   timestamptz NOT NULL DEFAULT now(),

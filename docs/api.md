@@ -58,7 +58,7 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/projects` | `onboard_project` | `{"repo": "owner/name", "name": "optional", "default_branch": "optional, default main"}` | `202` `{"project": {...}, "run_id": "uuid"}` |
 | `GET /api/v1/projects` | `list_projects` | | `200` projects |
 | `GET /api/v1/projects/{project}` | `get_project` | `{project}` is the name or `owner/name` | `200` project with status and approved `profile` |
-| `POST /api/v1/goals` | `create_goal` | `{"project", "title", "body", "platforms": ["web"]}` | `201` goal (draft) |
+| `POST /api/v1/goals` | `create_goal` | `{"project", "title", "body", "platforms": ["web"], "councils": ["product"]}`; `councils` is optional, `[]` means none (no triage) | `201` goal (draft) |
 | `GET /api/v1/goals?project=&status=` | `list_goals` | both filters optional | `200` goals |
 | `GET /api/v1/goals/{goal}` | `get_goal` | | `200` goal detail, see below |
 | `POST /api/v1/jobs` | `dispatch_job` | `{"project", "role", "base_ref", "branch", "needs": [], "pool", "include_repo_facts", "goal", "task", "feedback", "prompt"}`; `project` and `role` required, the role must be read-only; `pool` defaults to the role's pool and its policy must allow the role (`400 invalid_input` otherwise) | `201` job (queued, with its `pool`) |

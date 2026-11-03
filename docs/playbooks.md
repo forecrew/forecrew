@@ -176,6 +176,7 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `github.open_or_update_pr` | `repo`, `title`, `body`, `head`, `base`, optional `previous`, `task_id` (defaults to the run's task) | `{number, url, head_sha}`. Updates the open PR from `head` or opens one, and upserts its `changes` row. With `previous`, the number of an earlier round's PR, it fails when a human closed that PR instead of opening another, and when a human merged it outputs `merged: true` with `merge_sha` and changes nothing. `if_open` is `[number]`, or `[]` for a merged PR, for a `foreach` that skips steps. |
 | `github.merge_pr` | `repo`, `number`, optional `check_profile` | `{merged, already_merged, sha}` (the merge commit). Squash-merges unless already merged. Only a head whose checks succeeded (or has none) is merged; it fails on failed or running checks, and with `check_profile` when the profile file at the head is invalid. Use `on_failure: escalate`. |
 | `goal.intake` | `repo`, `goal_id` | `{issue_number, issue_url, default_branch}`. Creates the labels `forecrew:goal` and `forecrew:task` if missing and opens the goal's issue, labeled `forecrew:goal`, unless the goal has one. |
+| `goal.size` | `goal_id`, `triage` | `{councils, if_product, if_technical}`. A goal without a size takes it from `triage`, the `triage` job's output: the councils the sizing rule gives (config.md, sizing) are stored as `goals.size`. A goal that has a size keeps it and `triage` is not read: a human's override (create_goal with `councils`) is such a size, so that goal skips the triage job. `if_product` and `if_technical` are `[goal_id]` when the goal gets that council, else `[]`, for a `foreach` that skips the council steps. Refuses a triage with an unknown grade, no area or no reason. |
 | `goal.spec` | `goal_id`, `job_id`, `spec` | `{spec_id, revision, summary}`. Stores the product owner's output as the next spec revision (once per job), renders it under the goal's text in the goal issue, moves the goal to `spec_review`. `summary` is the text of the `spec_approval` gate. |
 | `goal.plan` | `goal_id`, `spec_id`, `platforms`, `plan`, `spec` | `{valid, errors, tasks: [{id, ref, number, seq, title, issue_number, branch, needs, criteria}]}`. Stores the architect's tasks in order, one issue per task (labels `forecrew:task` and `needs:<label>`, a sub-issue of the goal's), comments the plan on the goal issue and moves the goal to `planned`. `needs` are the task's labels plus `platforms`. A plan that cannot be used (the architect escalated, no task, an unknown criterion, a dependency that is not an earlier task, criteria of the spec that no task covers) stores nothing: the output is `valid: false` with `errors` as the architect's feedback, which is also commented on the goal issue (once per call) for the human a `needs_you` gate asks. Kept tasks and issues are not created twice. |
 | `goal.round` | `task_id`, `iteration`, `human`, `review` | `{task_id, ref, title, branch, feedback}`. Before a developer job: the task goes (back) to `in_progress`, the goal to `in_progress`, the branch `agent/TASK-n` is recorded. `feedback` is `human` in the first round and `review` in the others. |
@@ -205,6 +206,7 @@ profile, the goal, spec and task, the step's `prompt` and feedback.
 | Role | Writes | Output schema | Context beyond the job |
 |------|--------|---------------|------------------------|
 | `onboarding-analyst` | `.forecrew/**` | `profile-draft.json` | repo facts |
+| `triage` | nothing | `triage.json`: impact, reversibility, areas, reason, assumptions | profile, goal |
 | `product-owner` | nothing | `spec.json` | profile, goal |
 | `architect` | nothing | `task-breakdown.json` | profile, goal, spec |
 | `developer` | everything but `.github/workflows/**` and `.forecrew/**` | `developer-result.json` | profile, goal, spec, task, feedback |
@@ -259,6 +261,12 @@ its `finally` step puts the project back to registered.
 
 `packs/playbooks/goal.yaml` takes `repo`, `goal_id` and `platforms` (the
 goal's worker labels); `create_goal` starts it.
+
+Sizing: the `triage` role and `goal.size` decide which councils a goal gets
+(config.md, sizing). A goal created with `councils` (`product`, `technical`,
+or `[]` for none) keeps that size and skips the triage job. The goal playbook
+does not run triage yet; wiring it in, with a `foreach` over `if_product` and
+`if_technical`, is a later task.
 
 1. **Intake.** `goal.intake` opens the goal's GitHub issue.
 2. **Spec.** A loop of at most three rounds (a needs_you gate for the next

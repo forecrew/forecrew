@@ -48,6 +48,7 @@ roles:
   test-architect:       {runtime: claude, tier: best}
   environment-engineer: {runtime: claude, tier: strong}
   test-engineer:        {runtime: claude, tier: strong}
+  triage:               {runtime: claude, tier: fast}
 
 policy:
   allow_same_vendor_review: false
@@ -73,6 +74,14 @@ evidence:                                     # optional; artifact storage
   path_style: true
   max_artifact_size: 104857600
   retention_days: 90
+
+sizing:                                       # optional; these are the defaults
+  product:
+    impact: [high]
+    reversibility: [hard, irreversible]
+  technical:
+    impact: [medium, high]
+    components: 2
 ```
 
 Model names above are examples; use the ones your vendors offer.
@@ -106,6 +115,10 @@ Model names above are examples; use the ones your vendors offer.
 | `evidence.path_style` | bool | no | `false` | Path-style URLs (`<endpoint>/<bucket>/<key>`), needed by most self-hosted servers. |
 | `evidence.max_artifact_size` | integer bytes | no | `104857600` (100 MiB) | Largest artifact a worker may upload; larger uploads get `413`. |
 | `evidence.retention_days` | integer ≥ 0 | no | `0` | Artifacts older than this are deleted; `0` keeps them forever. |
+| `sizing.product.impact` | list of `low` \| `medium` \| `high` | no | `[high]` | Impacts that give a goal the product council (goal.size, playbooks.md). An empty list means none. |
+| `sizing.product.reversibility` | list of `easy` \| `hard` \| `irreversible` | no | `[hard, irreversible]` | Reversibilities that give a goal the product council. |
+| `sizing.technical.impact` | list of `low` \| `medium` \| `high` | no | `[medium, high]` | Impacts that give a goal the technical council. |
+| `sizing.technical.components` | integer ≥ 1 | no | `2` | Distinct areas (paths or components) the triage names that give a goal the technical council; `0` or absent keeps the default. |
 
 A job may run in a pool when the pool lists its kind and, for an agent job,
 its role (or `"*"`), and when the role writes, the pool's `repo_token` is
@@ -115,6 +128,17 @@ environment (`actions` for provider `actions`, otherwise `build`,
 `domain.CommandPool`); a job its pool does not allow is refused when it is
 created. Pool `actions` has no worker daemons: forecrewd runs its jobs on
 GitHub-hosted runners.
+
+### Sizing
+
+A goal's triage (the `triage` role, playbooks.md) grades its impact and
+reversibility and names the areas it touches. `goal.size` applies this rule:
+a goal gets the product council when its impact is one of
+`sizing.product.impact` or its reversibility is one of
+`sizing.product.reversibility`; it gets the technical council when its impact
+is one of `sizing.technical.impact` or its triage names at least
+`sizing.technical.components` distinct areas. Small reversible goals therefore
+get no council. A goal created with councils (create_goal) is not triaged.
 
 ### Environment variables
 

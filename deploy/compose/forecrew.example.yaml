@@ -52,6 +52,7 @@ roles:
   market-researcher:    {runtime: codex,  tier: strong}
   security-reviewer:    {runtime: claude, tier: strong}
   ux:                   {runtime: claude, tier: strong}
+  triage:               {runtime: claude, tier: fast}
 
 policy:
   allow_same_vendor_review: false
