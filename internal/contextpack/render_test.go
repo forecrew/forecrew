@@ -71,6 +71,7 @@ func catalog(t *testing.T) *roles.Catalog {
 			"codex":  {Adapter: config.AdapterCodex, Vendor: "openai"},
 		},
 		ModelTiers: map[config.Tier]map[string]string{
+			config.TierFast:   {"anthropic": "claude-fast", "openai": "gpt-fast"},
 			config.TierStrong: {"anthropic": "claude-strong", "openai": "gpt-strong"},
 			config.TierBest:   {"anthropic": "claude-best", "openai": "gpt-best"},
 		},
@@ -83,6 +84,7 @@ func catalog(t *testing.T) *roles.Catalog {
 			"test-architect":       {Runtime: "claude", Tier: config.TierBest},
 			"environment-engineer": {Runtime: "claude", Tier: config.TierStrong},
 			"test-engineer":        {Runtime: "claude", Tier: config.TierStrong},
+			"triage":               {Runtime: "claude", Tier: config.TierFast},
 		},
 	}
 	c, err := roles.New(forecrew.Files, cfg)
@@ -107,6 +109,7 @@ func TestRenderGolden(t *testing.T) {
 	feedback := Text{Heading: "Feedback to address", Body: "Also log the reset request in the audit log."}
 	inputs := map[string]Input{
 		"onboarding-analyst": {Repo: "acme/app", BaseRef: "main", Branch: "agent/onboarding"},
+		"triage":             {Repo: "acme/app", BaseRef: "main", Profile: profile, Goal: goal},
 		"product-owner":      {Repo: "acme/app", BaseRef: "main", Profile: profile, Goal: untrustedGoal, Feedback: feedback},
 		"architect":          {Repo: "acme/app", BaseRef: "main", Profile: profile, Goal: goal, Spec: spec},
 		"developer": {Repo: "acme/app", BaseRef: "main", Branch: "agent/task-12", Profile: profile,

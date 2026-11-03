@@ -16,7 +16,7 @@ import (
 // outputSchemas are the role output schemas; common.json only holds shared
 // $defs.
 var outputSchemas = []string{"profile-draft", "spec", "task-breakdown", "developer-result", "review-verdict",
-	"test-plan", "environments", "test-map", "council-brief", "council-frame", "council-proposal", "council-critique", "council-check"}
+	"test-plan", "environments", "test-map", "council-brief", "council-frame", "council-proposal", "council-critique", "council-check", "triage"}
 
 func TestSchemaExamples(t *testing.T) {
 	for _, name := range outputSchemas {
@@ -236,4 +236,42 @@ func TestTestRoleSchemaRejects(t *testing.T) {
 // item returns the i-th object of the list doc[key].
 func item(doc map[string]any, key string, i int) map[string]any {
 	return doc[key].([]any)[i].(map[string]any)
+}
+
+// TestTriageSchema checks the triage output: good outputs pass and each
+// broken field is refused.
+func TestTriageSchema(t *testing.T) {
+	schema, err := BundleSchema(forecrew.Files, path.Join("packs", "schemas", "triage.json"))
+	if err != nil {
+		t.Fatalf("BundleSchema: %v", err)
+	}
+	good := `{"impact": "high", "reversibility": "irreversible", "areas": ["internal/billing"], "reason": "Moves charges.", "assumptions": []}`
+	tests := []struct {
+		name string
+		doc  string
+		ok   bool
+	}{
+		{"good", good, true},
+		{"good with several areas", `{"impact": "low", "reversibility": "easy", "areas": ["web", "internal/cli"], "reason": "r", "assumptions": []}`, true},
+		{"missing reason", `{"impact": "high", "reversibility": "easy", "areas": ["a"], "assumptions": []}`, false},
+		{"unknown impact", strings.Replace(good, `"high"`, `"huge"`, 1), false},
+		{"unknown reversibility", strings.Replace(good, `"irreversible"`, `"never"`, 1), false},
+		{"no areas", strings.Replace(good, `["internal/billing"]`, `[]`, 1), false},
+		{"blank area", strings.Replace(good, `["internal/billing"]`, `[" "]`, 1), false},
+		{"blank reason", strings.Replace(good, `"Moves charges."`, `""`, 1), false},
+		{"extra field", strings.Replace(good, `"assumptions": []`, `"assumptions": [], "size": "big"`, 1), false},
+		{"assumption without verify_by", `{"impact": "high", "reversibility": "easy", "areas": ["a"], "reason": "r",
+			"assumptions": [{"statement": "s", "confidence": "low", "impact": "low"}]}`, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateOutput(schema, []byte(tt.doc))
+			if tt.ok && err != nil {
+				t.Errorf("valid output rejected: %v", err)
+			}
+			if !tt.ok && !errors.Is(err, ErrInvalidOutput) {
+				t.Errorf("error = %v, want ErrInvalidOutput", err)
+			}
+		})
+	}
 }

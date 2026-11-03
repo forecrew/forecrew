@@ -1,0 +1,16 @@
+role: triage
+model: fast
+prompt: roles/triage.md
+tools: [repo.read, git.read]
+write_paths: []
+produces: [triage]
+output_schema: schemas/triage.json
+pool: control
+definition_of_done:
+  - impact and reversibility are graded by the rubric in the prompt, not by how the goal sounds
+  - areas lists each component the goal touches once, as a path or a component name from the repo
+  - every assumption is listed with its confidence and impact
+escalate_when:
+  - the goal contradicts the code or the project profile
+max_turns: 15
+timeout: 10m
