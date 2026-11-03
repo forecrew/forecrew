@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -262,5 +263,44 @@ func TestChanges(t *testing.T) {
 	list, _ = repo.List(ctx, f.account, store.ChangeFilter{TaskID: task.ID, State: domain.ChangeMerged, Limit: 5})
 	if len(list) != 1 || list[0].ID != c.ID {
 		t.Fatalf("filtered = %+v", list)
+	}
+}
+
+func TestGoalSize(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Goals()
+	g := f.newGoal(t)
+	if got, _ := repo.Get(ctx, f.account, g.ID); got.Size != nil {
+		t.Fatalf("new goal size = %+v, want none", got.Size)
+	}
+	stale := g // loaded before the size is set
+	size := domain.GoalSize{Impact: domain.LevelHigh, Reversibility: domain.ReversibleHard, Councils: []domain.CouncilKind{domain.CouncilProduct, domain.CouncilTechnical}, Reason: "touches billing"}
+	must(t, repo.SetSize(ctx, f.account, g.ID, size))
+	got, err := repo.Get(ctx, f.account, g.ID)
+	if err != nil || got.Size == nil || !reflect.DeepEqual(*got.Size, size) {
+		t.Fatalf("size after SetSize = %+v, %v", got.Size, err)
+	}
+	// A stale goal updates its title and keeps the stored size.
+	stale.Title = "Renamed"
+	must(t, repo.Update(ctx, &stale))
+	got, err = repo.Get(ctx, f.account, g.ID)
+	if err != nil || got.Title != "Renamed" || got.Size == nil || !reflect.DeepEqual(*got.Size, size) {
+		t.Fatalf("after a stale update = %+v, %v", got, err)
+	}
+	// A second SetSize keeps the first size.
+	must(t, repo.SetSize(ctx, f.account, g.ID, domain.GoalSize{Councils: []domain.CouncilKind{}, Reason: "other"}))
+	if got, _ := repo.Get(ctx, f.account, g.ID); got.Size == nil || !reflect.DeepEqual(*got.Size, size) {
+		t.Errorf("second SetSize replaced the size: %+v", got.Size)
+	}
+	wantErr(t, repo.SetSize(ctx, f.account, domain.NewID(), size), store.ErrNotFound)
+
+	// An override with no councils is stored and read back as an empty list.
+	none := domain.GoalSize{Councils: []domain.CouncilKind{}, Reason: "set by a human"}
+	g2 := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Title: "Small", Status: domain.GoalDraft, Size: &none}
+	must(t, repo.Create(ctx, &g2))
+	got, err = repo.Get(ctx, f.account, g2.ID)
+	if err != nil || got.Size == nil || got.Size.Councils == nil || len(got.Size.Councils) != 0 || got.Size.Reason != "set by a human" {
+		t.Fatalf("created size = %+v, %v", got.Size, err)
 	}
 }

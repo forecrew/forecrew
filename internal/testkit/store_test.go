@@ -669,3 +669,29 @@ func TestStoreLeasedWritesRefuseAnotherWorker(t *testing.T) {
 		t.Fatalf("rows = %+v", rows)
 	}
 }
+
+func TestStoreGoalSize(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Title: "Login", Status: domain.GoalDraft}
+	must(t, f.st.Goals().Create(ctx, &g))
+	stale := g // loaded before the size is set
+	low := domain.GoalSize{Impact: domain.LevelLow, Reversibility: domain.ReversibleEasy, Councils: []domain.CouncilKind{}, Reason: "small"}
+	must(t, f.st.Goals().SetSize(ctx, f.account, g.ID, low))
+	got, err := f.st.Goals().Get(ctx, f.account, g.ID)
+	if err != nil || got.Size == nil || got.Size.Reason != "small" || got.Size.Impact != domain.LevelLow {
+		t.Fatalf("goal size = %+v, %v", got.Size, err)
+	}
+	// A stale goal updates its title and keeps the stored size.
+	stale.Title = "Login v2"
+	must(t, f.st.Goals().Update(ctx, &stale))
+	if got, _ := f.st.Goals().Get(ctx, f.account, g.ID); got.Size == nil || got.Size.Reason != "small" || got.Title != "Login v2" {
+		t.Errorf("after a stale update = %+v", got)
+	}
+	// A second SetSize keeps the first size.
+	must(t, f.st.Goals().SetSize(ctx, f.account, g.ID, domain.GoalSize{Councils: []domain.CouncilKind{domain.CouncilProduct}, Reason: "other"}))
+	if got, _ := f.st.Goals().Get(ctx, f.account, g.ID); got.Size == nil || got.Size.Reason != "small" {
+		t.Errorf("second SetSize replaced the size: %+v", got.Size)
+	}
+	wantErr(t, f.st.Goals().SetSize(ctx, f.account, domain.NewID(), low), store.ErrNotFound)
+}

@@ -59,6 +59,15 @@ func (r goalRepo) Update(_ context.Context, g *domain.Goal) error {
 	})
 }
 
+func (r goalRepo) SetSize(_ context.Context, accountID, id uuid.UUID, size domain.GoalSize) error {
+	return update(r.s, goalsT, accountID, id, func(g *domain.Goal, now time.Time) error {
+		if g.Size == nil {
+			g.Size, g.UpdatedAt = &size, now
+		}
+		return nil
+	})
+}
+
 func (r goalRepo) UpdateStatus(_ context.Context, accountID, id uuid.UUID, from, to domain.GoalStatus) error {
 	return update(r.s, goalsT, accountID, id, func(g *domain.Goal, now time.Time) error {
 		g.UpdatedAt = now
