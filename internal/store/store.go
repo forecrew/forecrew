@@ -316,3 +316,57 @@ type AuditRepo interface {
 	// List returns entries newest first.
 	List(ctx context.Context, accountID uuid.UUID, f AuditFilter) ([]domain.AuditEntry, error)
 }
+
+// The repositories below belong to the testing system
+// (docs/contracts/data-model.md). They are contracts only: the tasks that
+// first use them add them to Store, with the Postgres implementation and the
+// testkit fake (ArtifactRepo with evidence storage, TestRunRepo with command
+// jobs, VerificationReportRepo with verification reports).
+
+// ArtifactRepo stores artifact metadata; the content lives in evidence
+// storage under Artifact.StorageKey.
+type ArtifactRepo interface {
+	// Put stores a, replacing the artifact of the same job and name if
+	// there is one (a re-upload), and writes ID and CreatedAt back.
+	Put(ctx context.Context, a *domain.Artifact) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Artifact, error)
+	// ListByJob returns a job's artifacts by name.
+	ListByJob(ctx context.Context, accountID, jobID uuid.UUID) ([]domain.Artifact, error)
+	// ListOlderThan returns up to limit artifacts created before t, oldest
+	// first, for retention.
+	ListOlderThan(ctx context.Context, accountID uuid.UUID, t time.Time, limit int) ([]domain.Artifact, error)
+	Delete(ctx context.Context, accountID, id uuid.UUID) error
+}
+
+// TestRunFilter selects test runs; zero fields match everything.
+type TestRunFilter struct {
+	ProjectID uuid.UUID
+	JobID     uuid.UUID
+	ChangeID  uuid.UUID
+	SHA       string
+	Limit     int
+}
+
+// TestRunRepo stores test runs and their results. (job, attempt, suite) is
+// unique; a duplicate fails with ErrConflict.
+type TestRunRepo interface {
+	// Create stores a run and its results in one transaction, writing IDs,
+	// AccountID and RunID of the results and CreatedAt back.
+	Create(ctx context.Context, run *domain.TestRun, results []domain.TestResult) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.TestRun, error)
+	List(ctx context.Context, accountID uuid.UUID, f TestRunFilter) ([]domain.TestRun, error)
+	// Results returns the results of a run by classname, then name.
+	Results(ctx context.Context, accountID, runID uuid.UUID) ([]domain.TestResult, error)
+}
+
+// VerificationReportRepo stores verification reports, one per change and
+// SHA.
+type VerificationReportRepo interface {
+	// Upsert inserts the report of (change, sha) or replaces its Status,
+	// Report and ArtifactID, writing ID and timestamps back.
+	Upsert(ctx context.Context, r *domain.VerificationReport) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.VerificationReport, error)
+	GetBySHA(ctx context.Context, accountID, changeID uuid.UUID, sha string) (domain.VerificationReport, error)
+	// Latest returns the most recently updated report of a change.
+	Latest(ctx context.Context, accountID, changeID uuid.UUID) (domain.VerificationReport, error)
+}
