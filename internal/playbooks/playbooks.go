@@ -7,6 +7,7 @@ package playbooks
 import (
 	"time"
 
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
@@ -17,7 +18,9 @@ type Deps struct {
 	Store   store.Store
 	Tracker github.Tracker
 	Signals workflow.SignalBus
-	Now     func() time.Time // defaults to the real UTC time
+	// Sizing is the rule goal.size applies to a triage (forecrew.yaml sizing).
+	Sizing config.Sizing
+	Now    func() time.Time // defaults to the real UTC time
 }
 
 // Register adds every action of the package to registry, by name.
@@ -36,6 +39,7 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["onboarding.settle"] = d.settleOnboarding
 	registry["onboarding.complete"] = d.completeOnboarding
 	registry["goal.intake"] = d.goalIntake
+	registry["goal.size"] = d.goalSize
 	registry["goal.spec"] = d.goalSpec
 	registry["goal.plan"] = d.goalPlan
 	registry["goal.task_move"] = d.taskMove
