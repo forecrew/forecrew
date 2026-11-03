@@ -1,6 +1,7 @@
 package app
 
 import (
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -101,3 +102,6 @@ func packs(t *testing.T, edit func(fstest.MapFS)) fs.FS {
 	edit(m)
 	return m
 }
+
+// slogTo returns a logger writing JSON lines to w.
+func slogTo(w io.Writer) *slog.Logger { return slog.New(slog.NewJSONHandler(w, nil)) }
