@@ -75,31 +75,33 @@ func TestGolden(t *testing.T) {
 			}
 			for _, file := range files {
 				name := kind + "/" + outcome + "/" + filepath.Base(file)
-				t.Run(name, func(t *testing.T) {
-					data, err := os.ReadFile(file)
-					if err != nil {
-						t.Fatal(err)
-					}
-					got, err := parse(filepath.Base(file), data)
-					var out []byte
-					switch {
-					case outcome == "valid" && err != nil:
-						t.Fatalf("valid fixture refused: %v", err)
-					case outcome == "invalid" && !errors.Is(err, ErrInvalid):
-						t.Fatalf("invalid fixture: err = %v, want ErrInvalid", err)
-					case err != nil:
-						out = []byte(err.Error() + "\n")
-					default:
-						if out, err = json.MarshalIndent(got, "", "  "); err != nil {
-							t.Fatal(err)
-						}
-						out = append(out, '\n')
-					}
-					checkGolden(t, filepath.Join(goldens, name+".golden"), out)
-				})
+				t.Run(name, func(t *testing.T) { checkFixture(t, file, outcome == "valid", parse, name) })
 			}
 		}
 	}
+}
+
+func checkFixture(t *testing.T, file string, valid bool, parse func(string, []byte) (any, error), name string) {
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := parse(filepath.Base(file), data)
+	var out []byte
+	switch {
+	case valid && err != nil:
+		t.Fatalf("valid fixture refused: %v", err)
+	case !valid && !errors.Is(err, ErrInvalid):
+		t.Fatalf("invalid fixture: err = %v, want ErrInvalid", err)
+	case err != nil:
+		out = []byte(err.Error() + "\n")
+	default:
+		if out, err = json.MarshalIndent(got, "", "  "); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, '\n')
+	}
+	checkGolden(t, filepath.Join(goldens, name+".golden"), out)
 }
 
 // TestSchemasAloneAcceptValidFixtures checks the contracts by themselves,

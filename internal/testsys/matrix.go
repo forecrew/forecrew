@@ -105,75 +105,92 @@ func ParseMatrix(data []byte, environments []string) (Matrix, error) {
 // check validates the cross-references the schema cannot: axes and values
 // of partial cells, suite names and environment names.
 func (m Matrix) check(environments []string) []string {
-	var p []string
-	add := func(format string, args ...any) { p = append(p, fmt.Sprintf(format, args...)) }
-	known := map[string][]string{} // axis -> values of axes and include
-	for _, axis := range slices.Sorted(maps.Keys(m.Axes)) {
-		values := m.Axes[axis]
-		if len(slices.Compact(slices.Sorted(slices.Values(values)))) != len(values) {
-			add("axes.%s: values must be unique", axis)
-		}
-		if slices.Contains(values, "") {
-			add("axes.%s: empty value", axis)
-		}
-		known[axis] = slices.Clone(values)
+	c := matrixCheck{m: m, known: map[string][]string{}}
+	c.axes()
+	for i, cell := range m.Exclude {
+		c.cell(fmt.Sprintf("exclude[%d]", i), cell)
 	}
-	for i, c := range m.Include {
-		if len(c) != len(m.Axes) {
-			add("include[%d]: must give a value for every axis", i)
-		}
-		for axis, v := range c {
-			if _, ok := m.Axes[axis]; ok && !slices.Contains(known[axis], v) {
-				known[axis] = append(known[axis], v)
-			}
-		}
-	}
-	checkCell := func(field string, c Cell) {
-		for _, axis := range slices.Sorted(maps.Keys(c)) {
-			values, ok := known[axis]
-			switch {
-			case !ok:
-				add("%s: unknown axis %q", field, axis)
-			case !slices.Contains(values, c[axis]):
-				add("%s: %s has no value %q", field, axis, c[axis])
-			}
-		}
-	}
-	for i, c := range m.Include {
-		for axis := range c {
-			if _, ok := m.Axes[axis]; !ok {
-				add("include[%d]: unknown axis %q", i, axis)
-			}
-		}
-	}
-	for i, c := range m.Exclude {
-		checkCell(fmt.Sprintf("exclude[%d]", i), c)
-	}
-	for i, c := range m.Required {
-		checkCell(fmt.Sprintf("required[%d]", i), c)
+	for i, cell := range m.Required {
+		c.cell(fmt.Sprintf("required[%d]", i), cell)
 	}
 	for i, r := range m.Environments {
-		checkCell(fmt.Sprintf("environments[%d].match", i), r.Match)
+		c.cell(fmt.Sprintf("environments[%d].match", i), r.Match)
 		if environments != nil && !slices.Contains(environments, r.Environment) {
-			add("environments[%d]: no environment %q in %s", i, r.Environment, EnvironmentsDir)
+			c.addf("environments[%d]: no environment %q in %s", i, r.Environment, EnvironmentsDir)
 		}
 	}
+	c.suites()
+	return c.problems
+}
+
+// matrixCheck collects the problems of a matrix.
+type matrixCheck struct {
+	m        Matrix
+	known    map[string][]string // axis -> values of axes and include
+	problems []string
+}
+
+func (c *matrixCheck) addf(format string, args ...any) {
+	c.problems = append(c.problems, fmt.Sprintf(format, args...))
+}
+
+// axes checks the axes and include, and records the known values.
+func (c *matrixCheck) axes() {
+	for _, axis := range slices.Sorted(maps.Keys(c.m.Axes)) {
+		values := c.m.Axes[axis]
+		if len(slices.Compact(slices.Sorted(slices.Values(values)))) != len(values) {
+			c.addf("axes.%s: values must be unique", axis)
+		}
+		if slices.Contains(values, "") {
+			c.addf("axes.%s: empty value", axis)
+		}
+		c.known[axis] = slices.Clone(values)
+	}
+	for i, cell := range c.m.Include {
+		if len(cell) != len(c.m.Axes) {
+			c.addf("include[%d]: must give a value for every axis", i)
+		}
+		for _, axis := range slices.Sorted(maps.Keys(cell)) {
+			values, ok := c.known[axis]
+			switch {
+			case !ok:
+				c.addf("include[%d]: unknown axis %q", i, axis)
+			case !slices.Contains(values, cell[axis]):
+				c.known[axis] = append(values, cell[axis])
+			}
+		}
+	}
+}
+
+// cell checks that a partial cell uses known axes and values.
+func (c *matrixCheck) cell(field string, cell Cell) {
+	for _, axis := range slices.Sorted(maps.Keys(cell)) {
+		values, ok := c.known[axis]
+		switch {
+		case !ok:
+			c.addf("%s: unknown axis %q", field, axis)
+		case !slices.Contains(values, cell[axis]):
+			c.addf("%s: %s has no value %q", field, axis, cell[axis])
+		}
+	}
+}
+
+func (c *matrixCheck) suites() {
 	seen := map[string]bool{}
-	for i, s := range m.Suites {
+	for i, s := range c.m.Suites {
 		if seen[s.Name] {
-			add("suites[%d]: duplicate name %q", i, s.Name)
+			c.addf("suites[%d]: duplicate name %q", i, s.Name)
 		}
 		seen[s.Name] = true
 		for _, g := range append(slices.Clone(s.Reports), s.Artifacts...) {
 			if !domain.RelativePath(g) {
-				add("suites.%s: %q must be relative to the repo root", s.Name, g)
+				c.addf("suites.%s: %q must be relative to the repo root", s.Name, g)
 			}
 		}
 		for _, axis := range slices.Sorted(maps.Keys(s.Axes)) {
 			for _, v := range s.Axes[axis] {
-				checkCell("suites."+s.Name+".axes", Cell{axis: v})
+				c.cell("suites."+s.Name+".axes", Cell{axis: v})
 			}
 		}
 	}
-	return p
 }
