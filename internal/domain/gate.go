@@ -33,6 +33,30 @@ func GateKinds() []GateKind {
 		GateAssumptionReview, GateCouncilDecision, GateKnowledgeProposal, GateAccessRequest, GateImprovementProposal}
 }
 
+// GateOrigin says what opened a gate.
+type GateOrigin string
+
+// Gate origins.
+const (
+	// GateFromPlaybook gates are opened by a playbook step, escalations
+	// included: a needs_you gate from a playbook means approve = retry,
+	// reject = stop. Empty is stored as playbook.
+	GateFromPlaybook GateOrigin = "playbook"
+	// GateFromAskHuman gates are needs_you gates the job MCP tool ask_human
+	// opens on its job (JobID set): Summary holds the question, the
+	// approval's Feedback is the answer, reject declines. No playbook step
+	// waits on them.
+	GateFromAskHuman GateOrigin = "ask_human"
+)
+
+// OrDefault returns o, or GateFromPlaybook when o is empty.
+func (o GateOrigin) OrDefault() GateOrigin {
+	if o == "" {
+		return GateFromPlaybook
+	}
+	return o
+}
+
 // GateStatus is the state of a gate. The terminal states are also the
 // decisions a human can make.
 type GateStatus string
@@ -89,6 +113,7 @@ type Gate struct {
 	ProjectID     uuid.UUID  `json:"project_id"`
 	Number        int64      `json:"number"` // GATE-<number>
 	Kind          GateKind   `json:"kind"`
+	Origin        GateOrigin `json:"origin,omitempty"` // empty is stored as playbook
 	Status        GateStatus `json:"status"`
 	Title         string     `json:"title"`
 	Summary       string     `json:"summary"` // markdown shown to the reviewer
@@ -106,6 +131,10 @@ type Gate struct {
 
 // Ref returns the gate's human ref, e.g. GATE-7.
 func (g Gate) Ref() string { return Ref(RefGate, g.Number) }
+
+// AsksHuman reports whether the gate is an ask_human question of its job
+// rather than a playbook's gate.
+func (g Gate) AsksHuman() bool { return g.Origin == GateFromAskHuman }
 
 // Resolve records a decision on a pending gate.
 func (g *Gate) Resolve(by Actor, decision GateStatus, feedback string, now time.Time) error {

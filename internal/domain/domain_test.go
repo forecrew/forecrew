@@ -204,14 +204,20 @@ func TestJobFinish(t *testing.T) {
 }
 
 func TestJobSpecSecrets(t *testing.T) {
-	s := JobSpec{JobID: NewID(), Repo: "o/r", Env: map[string]string{"KEY": "secret"}, RepoToken: "ghs_secret", Timeout: Duration(45 * time.Minute)}
+	s := JobSpec{JobID: NewID(), Repo: "o/r", Env: map[string]string{"KEY": "secret"}, RepoToken: "ghs_secret", Timeout: Duration(45 * time.Minute),
+		JobMCP: &JobMCP{URL: "https://forecrew.example.com/job-mcp", Token: "fcj_secret"}}
 	r := s.Redacted()
-	if r.Env != nil || r.RepoToken != "" || s.RepoToken == "" {
+	if r.Env != nil || r.RepoToken != "" || r.JobMCP != nil || s.RepoToken == "" || s.JobMCP.Token == "" {
 		t.Fatalf("Redacted = %+v (original %+v)", r, s)
 	}
+	if b, _ := json.Marshal(r); strings.Contains(string(b), "job_mcp") || strings.Contains(string(b), "secret") {
+		t.Fatalf("redacted json = %s", b)
+	}
 	var buf strings.Builder
-	slog.New(slog.NewJSONHandler(&buf, nil)).Info("job", "spec", s)
-	if strings.Contains(buf.String(), "secret") || !strings.Contains(buf.String(), "o/r") {
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
+	log.Info("job", "spec", s)
+	log.Info("gateway", "job_mcp", *s.JobMCP)
+	if strings.Contains(buf.String(), "secret") || !strings.Contains(buf.String(), "o/r") || !strings.Contains(buf.String(), "/job-mcp") {
 		t.Fatalf("log = %s", buf.String())
 	}
 	b, err := json.Marshal(s)
