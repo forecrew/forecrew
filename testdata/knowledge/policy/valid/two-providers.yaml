@@ -1,0 +1,25 @@
+version: 1
+providers:
+  wiki:
+    kind: confluence
+    instance: acme.atlassian.net
+    config: {space: ENG}
+    credentials: acme-confluence
+sections:
+  architecture:
+    paths: ["docs/adr/**", "docs/architecture/**"]
+    owner: architect
+  conventions:
+    paths: [CONTRIBUTING.md]
+    owner: codeowners
+  runbooks:
+    provider: wiki
+    paths: ["space:ENG/page:123456"]
+    owner: developer
+    access: {read: ["*"], propose: [developer, devops]}
+  vision:
+    owner: human
+    protected: true
+    access: {propose: [product-owner]}
+  generated:
+    access: {read: ["*"]}

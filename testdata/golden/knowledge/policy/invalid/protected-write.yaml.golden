@@ -1,0 +1,1 @@
+.forecrew/knowledge-policy.yaml: invalid file: sections.security.paths: "../secrets/**" must be relative to the repo root; sections.security: a protected section cannot be written without a proposal

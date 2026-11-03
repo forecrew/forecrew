@@ -1,0 +1,1 @@
+.forecrew/knowledge-policy.yaml: invalid file: at '/providers/wiki/kind': value must be one of 'repo', 'confluence', 'notion', 'gdrive', 'sharepoint'; at '/sections/lessons/owner': 'Knowledge-Curator' does not match pattern '^[a-z][a-z0-9-]*$'

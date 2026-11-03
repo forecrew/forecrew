@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/forecrew/forecrew/docs/contracts/knowledge-policy.schema.json",
+  "title": "Forecrew knowledge policy",
+  "description": "Schema of .forecrew/knowledge-policy.yaml: the knowledge providers of a project, the sections mapped to them, who owns each section and which roles may read, propose to and write it (docs/contracts/knowledge.md). The file itself is always protected, whatever it says. It never holds secrets: providers name their credentials by reference.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version"
+  ],
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+      "description": "A provider or section name: 1 to 64 lowercase letters, digits, '.', '_' or '-' (domain.ValidName)."
+    },
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "A role name."
+    },
+    "roles": {
+      "description": "Role names, or \"*\" for every role.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/role"
+          },
+          {
+            "const": "*"
+          }
+        ]
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "description": "Provider kind. internal (forecrewd's agent notes) is built in and cannot be declared.",
+          "type": "string",
+          "enum": [
+            "repo",
+            "confluence",
+            "notion",
+            "gdrive",
+            "sharepoint"
+          ]
+        },
+        "instance": {
+          "description": "Host or organization, e.g. acme.atlassian.net. No credentials, no user info.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]*(/[A-Za-z0-9._-]+)?$"
+        },
+        "config": {
+          "description": "Provider settings without secrets, e.g. a Confluence space key. Keys that look like secrets are refused.",
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        },
+        "credentials": {
+          "description": "Name of a credential set an admin configured on forecrewd for this provider kind and instance (never the secret, never an environment variable name). Absent for the repo provider, which uses the GitHub App.",
+          "$ref": "#/$defs/name"
+        }
+      }
+    },
+    "access": {
+      "description": "Who may read the section, propose changes to it and write it without a proposal. Defaults: read and propose every role, write none.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "read": {
+          "$ref": "#/$defs/roles"
+        },
+        "propose": {
+          "$ref": "#/$defs/roles"
+        },
+        "write": {
+          "$ref": "#/$defs/roles"
+        }
+      }
+    },
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "description": "Provider name; default repo.",
+          "$ref": "#/$defs/name"
+        },
+        "paths": {
+          "description": "Where the section's entries live: doublestar globs relative to the repo root for a repo provider (default knowledge/<section>/**), provider locations (space, page or folder ids) otherwise.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "owner": {
+          "description": "Who approves proposals: a role name, human, or codeowners (the CODEOWNERS reviewers of the paths). Default human.",
+          "$ref": "#/$defs/role"
+        },
+        "protected": {
+          "description": "Changes only with a human's approval, whatever the owner. Default false.",
+          "type": "boolean"
+        },
+        "access": {
+          "$ref": "#/$defs/access"
+        }
+      }
+    },
+    "reserved": {
+      "description": "generated and notes are kept by forecrewd: no provider, no paths, no owner, never protected, never proposed to or written by the policy. Only who reads them can be set.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read": {
+              "$ref": "#/$defs/roles"
+            }
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "version": {
+      "description": "Policy format version.",
+      "const": 1
+    },
+    "providers": {
+      "description": "Providers by name. A provider named repo of kind repo is always there, declared or not. The name internal is reserved for forecrewd's agent notes.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/provider"
+      }
+    },
+    "sections": {
+      "description": "Sections by name.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "properties": {
+        "generated": {
+          "$ref": "#/$defs/reserved"
+        },
+        "notes": {
+          "$ref": "#/$defs/reserved"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/section"
+      }
+    }
+  }
+}

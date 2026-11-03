@@ -1,0 +1,10 @@
+{
+  "title": "other-tool",
+  "has_provenance": false,
+  "provenance": {
+    "author_role": "",
+    "source": "",
+    "created": "0001-01-01T00:00:00Z"
+  },
+  "body": "Restart the worker with systemctl restart forecrew-worker.\n"
+}

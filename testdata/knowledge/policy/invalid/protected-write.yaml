@@ -1,0 +1,6 @@
+version: 1
+sections:
+  security:
+    paths: ["../secrets/**"]
+    protected: true
+    access: {write: [security-reviewer]}
