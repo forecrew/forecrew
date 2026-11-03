@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -55,6 +56,62 @@ func TestCatalogFixtures(t *testing.T) {
 			if (outcome == "valid") != (err == nil) || (err != nil && !errors.Is(err, ErrInvalid)) {
 				t.Errorf("%s: %v", f, err)
 			}
+		}
+	}
+}
+
+// jobMCPTools are the tools of docs/contracts/job-mcp.md.
+var jobMCPTools = []string{"kb_search", "kb_propose", "request_access", "assumption_record", "evidence_attach",
+	"notes_write", "ask_human", "report_progress", "council_read"}
+
+// TestJobMCPSchemas: every gateway tool has an input and an output schema,
+// and they accept and refuse sample calls.
+func TestJobMCPSchemas(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "contracts", "job-mcp.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	defs := doc["$defs"].(map[string]any)
+	for _, tool := range jobMCPTools {
+		if defs[tool+"_input"] == nil || defs[tool+"_output"] == nil {
+			t.Errorf("%s lacks an input or output schema", tool)
+		}
+	}
+	assumption := `"assumption": {"statement": "Nobody uses IE", "confidence": "medium", "impact": "low", "verify_by": "ask-human"}`
+	tests := []struct {
+		def, instance string
+		ok            bool
+	}{
+		{"kb_search_input", `{"query": "lease expiry", "kinds": ["note"], "limit": 5}`, true},
+		{"kb_search_input", `{"query": " ", "limit": 50}`, false},
+		{"ask_human_input", `{"question": "Which browsers?", "timeout": "10m", ` + assumption + `}`, true},
+		{"ask_human_input", `{"question": "Which browsers?", "timeout": "10m"}`, false},
+		{"ask_human_output", `{"status": "no_answer", "gate": "GATE-4", "assumption": "A-7"}`, true},
+		{"notes_write_input", `{"scope": "team", "title": "t", "body": "b"}`, false},
+		{"council_read_input", `{}`, true},
+		{"council_read_output", `{"council": "COUNCIL-2", "question": "q", "constraints": [], "stage": "critique", "round": 1,
+			"contributions": [{"member": "architect", "runtime": "codex", "stage": "proposal", "round": 1, "content": {},
+			"evidence_check": [{"source": "http://10.0.0.1/x", "kind": "url", "status": "refused"}]}]}`, true},
+		{"council_read_output", `{"council": "COUNCIL-2", "question": "q", "constraints": [], "stage": "critique", "round": 1,
+			"contributions": [{"member": "architect", "runtime": "codex", "stage": "proposal", "round": 1, "content": {}}]}`, false},
+		{"kb_propose_output", `{"proposal": "KB-1", "status": "queued", "batch": "per_goal", "message": "waits for the learn PR"}`, true},
+	}
+	for _, tt := range tests {
+		doc["$ref"] = "#/$defs/" + tt.def
+		sch, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inst, err := DecodeJSON([]byte(tt.instance))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := Check("job-mcp.schema.json", string(sch), inst); (err == nil) != tt.ok {
+			t.Errorf("%s %s: %v, want ok %v", tt.def, tt.instance, err, tt.ok)
 		}
 	}
 }

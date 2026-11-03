@@ -85,8 +85,10 @@ Behavior:
   runtime's `credential_env`, `repo_token` from a fresh GitHub App
   installation token with contents `write` for writing roles and `read` for
   read-only roles), within what the job's pool allows (config.md `pools`,
-  `credentials`). Command jobs get no `env` and a `read` token. If that
-  fails it releases the lease (`Jobs.Release`) and answers `500`.
+  `credentials`). Command jobs get no `env` and a `read` token. From T47,
+  agent jobs also get `job_mcp` (job-mcp.md): the job MCP gateway's URL and a
+  token bound to this lease. If that fails it releases the lease
+  (`Jobs.Release`) and answers `500`.
 
 ### Pools
 
@@ -137,6 +139,14 @@ Response `200`:
 | `continue` | Keep working; the lease now ends at `lease_expires_at`. |
 | `cancel` | Stop now and discard the workspace without pushing. Sent when the job was canceled or finished, or when its lease expired and it is queued again. Do not call `complete`. |
 
+From T47, a `continue` answer may also carry `attach`: the files the agent
+marked with the job MCP tool `evidence_attach` (job-mcp.md) since the last
+heartbeat, as `[{"path": "screenshots/home.png", "name":
+"evidence/screenshots/home.png"}]`. The worker uploads each through `PUT
+.../artifacts/{name}` with the rules of `command.artifacts` (inside the work
+tree, no symlinks), and sends one more heartbeat after the runtime exits to
+collect the last ones before `complete`.
+
 `404` if the job is not in the worker's account. `409 lease_lost` if the job
 now runs under another worker's lease (it expired and was leased again); the
 worker stops as for `cancel`.
@@ -168,7 +178,7 @@ Request:
 | `events[].data` | object | Structured data for `tool_call` `{name, input}`, `tool_result` `{name, output, is_error}`, `usage` (`domain.Usage` fields plus `cost_usd`). |
 
 At most 500 events and 1 MiB per request. Secrets must never appear in events;
-the worker redacts the values of `env` and `repo_token` from any text it sends.
+the worker redacts the values of `env`, `repo_token` and `job_mcp.token` from any text it sends.
 
 Response `204`. `409 lease_lost` when the job is not running under this
 worker (the worker stops sending).

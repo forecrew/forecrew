@@ -48,6 +48,16 @@ toolbox: security    # optional, packs/toolboxes/security.yaml
 | `toolbox` | string | no | Name of a toolbox, `packs/toolboxes/<name>.yaml` (toolbox.schema.json); it must exist. The role's agent jobs run inside the toolbox image, with its CLIs and MCP servers, on a worker with the `docker` label (from T48). The resolved toolbox is the spec's `toolbox`. |
 | `context` | mapping | no | Reserved for the context pack settings of T38 (which knowledge sections and registers a job sees). Must be absent or empty until then. |
 
+## Job MCP tools
+
+The job MCP gateway (job-mcp.md) adds role tools that expose its tools to
+the role's agent jobs: `kb.search`, `kb.propose`, `request_access`,
+`assumption.record`, `evidence.attach`, `notes.write`, `ask_human`,
+`report_progress` and `council.read`. A job sees a gateway tool only when
+its role lists the role tool. They become valid `tools` entries when the
+gateway registers them (T47 and the tasks that add each tool); until then
+`roles.Load` refuses them as unknown.
+
 ## Toolboxes
 
 `packs/toolboxes/*.yaml` are loaded with the roles (`roles.LoadToolboxes`)
