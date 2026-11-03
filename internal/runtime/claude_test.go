@@ -459,3 +459,39 @@ func TestClaudeSlowConsumerKeepsEndOfStream(t *testing.T) {
 		t.Errorf("output = %s after %d events", res.Output, n)
 	}
 }
+
+func TestClaudeChattyChildDrainIsCapped(t *testing.T) {
+	// A child that left the process group and never stops writing must not
+	// keep the run open after the CLI is gone.
+	pidfile := filepath.Join(t.TempDir(), "pid")
+	a := newFakeClaude("FAKE_STREAM="+stream("claude_success.jsonl"), "FAKE_BGCHILD=chatty", "FAKE_PIDFILE="+pidfile)
+	spec := claudeSpec()
+	type outcome struct {
+		res Result
+		err error
+	}
+	done := make(chan outcome, 1)
+	start := time.Now()
+	go func() {
+		_, res, err := collect(t, a, spec)
+		done <- outcome{res, err}
+	}()
+	defer func() {
+		b, _ := os.ReadFile(pidfile)
+		var pid int
+		if _, err := fmt.Sscan(string(b), &pid); err == nil {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	}()
+	select {
+	case o := <-done:
+		if o.err != nil || string(o.res.Output) != `{"summary":"listed files"}` {
+			t.Fatalf("result = %s, %v", o.res.Output, o.err)
+		}
+		if d := time.Since(start); d > drainCap+3*time.Second {
+			t.Errorf("took %s, want about %s", d, drainCap)
+		}
+	case <-time.After(drainCap + 10*time.Second):
+		t.Fatal("run still open: a chatty child kept the output drain going")
+	}
+}

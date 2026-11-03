@@ -79,7 +79,3 @@ the first runs and note the result next to the report:
    real API key, watch a command outside the allow list being denied (for
    example have a role prompt ask for `curl`; the `tool_result` event shows
    the denial) and check that the job still ends cleanly.
-3. **Runtime drain.** A child process that leaves the agent's process group
-   and keeps writing to stdout keeps the run open (see
-   [runtimes.md](../runtimes.md)). Check that a job whose agent starts a
-   background process still ends, and note how long it took.

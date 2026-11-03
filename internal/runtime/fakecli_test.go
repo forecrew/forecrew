@@ -74,10 +74,14 @@ func fakeCLI() {
 	}
 	if os.Getenv("FAKE_BGCHILD") != "" {
 		// A background child (a dev server) that keeps stdout and stderr open
-		// after the CLI exits. FAKE_BGCHILD=setsid also leaves the process group.
+		// after the CLI exits. FAKE_BGCHILD=setsid also leaves the process group; chatty does too and keeps writing.
 		child := exec.Command("sleep", "300")
+		if os.Getenv("FAKE_BGCHILD") == "chatty" {
+			// Leaves the group and never stops writing.
+			child = exec.Command("sh", "-c", "while :; do echo noise; sleep 0.02; done")
+		}
 		child.Stdout, child.Stderr = os.Stdout, os.Stderr
-		child.SysProcAttr = &syscall.SysProcAttr{Setsid: os.Getenv("FAKE_BGCHILD") == "setsid"}
+		child.SysProcAttr = &syscall.SysProcAttr{Setsid: os.Getenv("FAKE_BGCHILD") != "1"}
 		_ = child.Start()
 		_ = os.WriteFile(os.Getenv("FAKE_PIDFILE"), []byte(strconv.Itoa(child.Process.Pid)), 0o600)
 	}
