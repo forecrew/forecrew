@@ -450,13 +450,16 @@ func TestGoalChangesRequestedAtTheMergeGate(t *testing.T) {
 	pr := r.pr(t, 0, 1, 1)
 	r.decide(t, domain.GateMergeApproval, mcp.ToolRequestChanges, "Use cents everywhere.")
 
-	// Back to the developer, in a new delivery, with the human's words.
+	// Back to the developer, in a new delivery, with the human's words. The
+	// task state is read while the developer works: once the job is answered
+	// the playbook moves on to in_review at its own pace.
+	r.waitStep(t, build(0, 2, 1, "dev/1/develop"), domain.StepWaiting)
+	if r.prNow(t, pr.Number).Merged || r.taskStatus(t, 0) != domain.TaskInProgress {
+		t.Errorf("merged = %v, task %s", r.prNow(t, pr.Number).Merged, r.taskStatus(t, 0))
+	}
 	dev := r.develop(t, 0, 2, 1)
 	if dev.Feedback != "Use cents everywhere." || dev.Branch != "agent/TASK-1" {
 		t.Errorf("developer request = %+v", dev)
-	}
-	if r.prNow(t, pr.Number).Merged || r.taskStatus(t, 0) != domain.TaskInProgress {
-		t.Errorf("merged = %v, task %s", r.prNow(t, pr.Number).Merged, r.taskStatus(t, 0))
 	}
 	if again := r.pr(t, 0, 2, 1); again.Number != pr.Number {
 		t.Errorf("PR #%d, want #%d", again.Number, pr.Number)
