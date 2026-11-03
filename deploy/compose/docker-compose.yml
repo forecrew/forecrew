@@ -1,4 +1,5 @@
-# Forecrew: forecrewd, its Postgres and a daily database backup.
+# Forecrew: forecrewd, its Postgres, a daily database backup and a control
+# worker for the read-only "control" pool.
 #
 #   cp .env.example .env                    # fill in the secrets
 #   cp forecrew.example.yaml forecrew.yaml  # edit
@@ -6,10 +7,19 @@
 #
 # See docs/runbooks/install.md.
 
+# Postgres is reachable only on "db", which the control worker does not join:
+# agents run in that container, so it must not see the database. forecrewd
+# joins "edge" too, so the control worker reaches its public API there.
+networks:
+  db:
+    internal: true # no route outside the host
+  edge: {}
+
 services:
   postgres:
     image: postgres:18
     restart: unless-stopped
+    networks: [db]
     environment:
       POSTGRES_USER: forecrew
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -26,6 +36,7 @@ services:
     image: ghcr.io/forecrew/forecrewd:${FORECREW_VERSION:-latest}
     entrypoint: ["/usr/local/bin/forecrew"]
     command: ["migrate", "up"]
+    networks: [db]
     environment:
       FORECREW_DATABASE_URL: &database_url postgres://forecrew:${POSTGRES_PASSWORD}@postgres:5432/forecrew?sslmode=disable
     depends_on:
@@ -37,6 +48,7 @@ services:
     image: ghcr.io/forecrew/forecrewd:${FORECREW_VERSION:-latest}
     restart: unless-stopped
     # One replica only: forecrewd is not built to run twice against a database.
+    networks: [db, edge] # edge: outbound HTTPS, and the control worker's API
     env_file: .env
     environment:
       FORECREW_DATABASE_URL: *database_url
@@ -63,6 +75,7 @@ services:
     image: postgres:18
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c", "while true; do /backup.sh; sleep 86400; done"]
+    networks: [db]
     environment:
       PGHOST: postgres
       PGUSER: forecrew
@@ -77,7 +90,54 @@ services:
       postgres:
         condition: service_healthy
 
+  # Registers worker "control" once and keeps its token in the control-token
+  # volume (see control.sh). Runs before the worker and then exits.
+  control-init:
+    image: ghcr.io/forecrew/forecrew-worker-control:${FORECREW_VERSION:-latest}
+    command: ["init"]
+    environment:
+      FORECREW_DATABASE_URL: *database_url
+    volumes:
+      - control-token:/var/lib/forecrew-control
+    networks: [db]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
+  # Runs the read-only "control" pool next to forecrewd. It has no database
+  # URL, no GitHub key and no runtime keys: forecrewd sends those with each
+  # job. Its only network is edge, which holds forecrewd and nothing else
+  # that matters. See docs/runbooks/install.md, Control worker.
+  worker-control:
+    image: ghcr.io/forecrew/forecrew-worker-control:${FORECREW_VERSION:-latest}
+    restart: unless-stopped
+    command: ["run"]
+    # Docker's default is 10 seconds: a stop must leave running jobs their
+    # 10-minute grace period, as the worker does on SIGTERM (docs/worker.md).
+    stop_grace_period: 10m
+    environment:
+      FORECREW_CONTROL_MAX_JOBS: ${FORECREW_CONTROL_MAX_JOBS:-4}
+      FORECREW_CONTROL_SERVER_URL: ${FORECREW_CONTROL_SERVER_URL:-http://forecrewd:80}
+    # The entrypoint starts as root only to read the token and drop to
+    # forecrew (control.sh): it needs SETUID and SETGID for that and nothing
+    # else. The worker and its agents run with no capabilities.
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - control-token:/var/lib/forecrew-control:ro
+    networks: [edge]
+    depends_on:
+      control-init:
+        condition: service_completed_successfully
+      forecrewd:
+        condition: service_healthy
+
 volumes:
   pgdata:
   certs:
   backups:
+  control-token:

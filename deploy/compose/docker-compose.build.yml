@@ -1,4 +1,4 @@
-# Builds the image from this checkout instead of pulling it:
+# Builds the images from this checkout instead of pulling them:
 #   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 services:
   migrate:
@@ -7,3 +7,9 @@ services:
       dockerfile: deploy/compose/Dockerfile
   forecrewd:
     build: *build
+  control-init:
+    build: &control_build
+      context: ../..
+      dockerfile: deploy/worker/control/Dockerfile
+  worker-control:
+    build: *control_build
