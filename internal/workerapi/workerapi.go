@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobs"
@@ -47,8 +48,12 @@ type Config struct {
 	Store  store.Store
 	Jobs   *jobs.Service
 	Tokens TokenSource
-	// Env returns the runtime secrets of a leased job; see RuntimeEnv.
-	Env    func(j domain.Job) map[string]string
+	// Env returns the runtime (a key of runtimes) and its secrets for a
+	// leased job; see RuntimeEnv.
+	Env func(j domain.Job) (runtime string, env map[string]string)
+	// Pools is the pool policy that limits the credentials of leased jobs
+	// (config.Config.Pools); nil means config.DefaultPools.
+	Pools  map[string]config.Pool
 	Logger *slog.Logger
 	// PollWait and PollRecheck default to the constants of the same name.
 	PollWait    time.Duration
@@ -69,7 +74,10 @@ func New(cfg Config) *Server {
 		cfg.PollRecheck = PollRecheck
 	}
 	if cfg.Env == nil {
-		cfg.Env = func(domain.Job) map[string]string { return nil }
+		cfg.Env = func(domain.Job) (string, map[string]string) { return "", nil }
+	}
+	if cfg.Pools == nil {
+		cfg.Pools = config.DefaultPools()
 	}
 	return &Server{cfg: cfg}
 }

@@ -163,7 +163,7 @@ func New(d Deps) (*App, error) {
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Logger: log,
 	})
 	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Tracker: d.GitHub, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
-	workers := workerapi.New(workerapi.Config{Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Logger: log})
+	workers := workerapi.New(workerapi.Config{Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Pools: cfg.Pools, Logger: log})
 
 	a := &App{
 		d: d, jobs: jobSvc, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80",
