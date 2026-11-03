@@ -9,6 +9,8 @@ import (
 	"errors"
 	"time"
 	"uuid"
+
+	"github.com/forecrew/forecrew/internal/domain"
 )
 
 // ErrUnknownRole means no role has the requested name.
@@ -32,6 +34,11 @@ type Role struct {
 	DefinitionOfDone []string
 	// EscalateWhen lists when the agent must stop and ask a human.
 	EscalateWhen []string
+	// Pool is the worker pool the role's jobs run in.
+	Pool string
+	// Toolbox is the image the role's jobs run in; nil means the worker's
+	// host.
+	Toolbox *domain.Toolbox
 }
 
 // ReadOnly reports whether the role may not write any path.

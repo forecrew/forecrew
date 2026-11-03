@@ -50,7 +50,8 @@ func TestCatalogResolve(t *testing.T) {
 	if dev.Name != "developer" || dev.Runtime != config.AdapterClaudeCode || dev.Model != "claude-strong" ||
 		dev.ReadOnly() || dev.Timeout != 60*time.Minute || dev.MaxTurns != 120 ||
 		!slices.Contains(dev.AllowedTools, "Edit") || len(dev.OutputSchema) == 0 ||
-		len(dev.DefinitionOfDone) == 0 || len(dev.EscalateWhen) == 0 || dev.Instructions == "" {
+		len(dev.DefinitionOfDone) == 0 || len(dev.EscalateWhen) == 0 || dev.Instructions == "" ||
+		dev.Pool != "build" || dev.Toolbox != nil {
 		t.Errorf("unexpected developer %+v", dev)
 	}
 	rev, err := c.Resolve(ctx, uuid.Nil(), uuid.Nil(), "reviewer")
