@@ -138,24 +138,27 @@ test("dialogs lock the page's scroll without a policy violation", async ({ page 
   page.on("console", (m) => {
     if (m.text().includes("Content Security Policy")) violations.push(m.text())
   })
-  const overflow = () => page.evaluate(() => getComputedStyle(document.body).overflow)
+  // Base UI sets and clears the lock in a timeout after the dialog changes, so
+  // the body's overflow is polled instead of read once.
+  const overflow = () => expect.poll(() => page.evaluate(() => getComputedStyle(document.body).overflow))
 
   await page.goto("/inbox")
   await expect(page.getByRole("article", { name: /GATE-9/ })).toBeVisible()
-  expect(await overflow()).toBe("visible")
+  await overflow().toBe("visible")
   await page.keyboard.press("Control+k")
   await expect(page.getByPlaceholder(/Search pages/)).toBeVisible()
-  expect(await overflow()).toBe("hidden")
+  await overflow().toBe("hidden")
   await page.keyboard.press("Escape")
   await expect(page.getByPlaceholder(/Search pages/)).toHaveCount(0)
-  expect(await overflow()).toBe("visible")
+  await overflow().toBe("visible")
 
   await page.setViewportSize({ width: 375, height: 812 })
   await page.getByRole("button", { name: "Menu", exact: true }).click()
   await expect(page.getByRole("dialog")).toBeVisible()
-  expect(await overflow()).toBe("hidden")
+  await overflow().toBe("hidden")
   await page.keyboard.press("Escape")
   await expect(page.getByRole("dialog")).toHaveCount(0)
+  await overflow().toBe("visible")
   expect(violations).toEqual([])
 })
 
