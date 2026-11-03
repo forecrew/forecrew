@@ -46,6 +46,12 @@ roles:
   test-architect:       {runtime: claude, tier: best}
   environment-engineer: {runtime: claude, tier: strong}
   test-engineer:        {runtime: claude, tier: strong}
+  # Council roles (docs/councils.md); council seats prefer runtimes of their own.
+  facilitator:          {runtime: claude, tier: best}
+  devils-advocate:      {runtime: codex,  tier: strong}
+  market-researcher:    {runtime: codex,  tier: strong}
+  security-reviewer:    {runtime: claude, tier: strong}
+  ux:                   {runtime: claude, tier: strong}
 
 policy:
   allow_same_vendor_review: false

@@ -119,8 +119,14 @@ func TestRenderGolden(t *testing.T) {
 		"test-engineer": {Repo: "acme/app", BaseRef: "main", Branch: "agent/TASK-12", Profile: profile,
 			TestPlan: testPlanText("main"), Goal: goal, Spec: spec, Task: testTask},
 	}
+	// Council roles only run council jobs, whose prompts internal/councils
+	// renders (testdata/golden/councils/prompts).
+	council := []string{"facilitator", "devils-advocate", "market-researcher", "security-reviewer", "ux"}
 	c := catalog(t)
 	for _, name := range c.Names() {
+		if slices.Contains(council, name) {
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
 			in, ok := inputs[name]
 			if !ok {

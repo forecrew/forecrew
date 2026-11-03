@@ -1,0 +1,16 @@
+role: security-reviewer
+model: strong
+prompt: roles/security-reviewer.md
+tools: [repo.read, git.read, run.tests]
+write_paths: []
+produces: [council-contribution, threat-notes]
+output_schema: schemas/council-proposal.json
+definition_of_done:
+  - every security claim points at code, a scanner finding, a knowledge entry or an advisory
+  - scanners you could not run are listed as assumptions
+  - every assumption is listed with its confidence and impact
+escalate_when:
+  - the question cannot be answered without a decision only a human can make
+  - you find a vulnerability that is exploitable now
+max_turns: 60
+timeout: 30m

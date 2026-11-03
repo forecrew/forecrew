@@ -1,0 +1,16 @@
+role: ux
+model: strong
+prompt: roles/ux.md
+tools: [repo.read, git.read]
+write_paths: []
+produces: [council-contribution]
+output_schema: schemas/council-proposal.json
+definition_of_done:
+  - every option is judged by what it changes for the people who use the product
+  - every claim about users has a source, or is listed as an assumption
+  - every assumption is listed with its confidence and impact
+escalate_when:
+  - the question cannot be answered without knowing who the users are
+max_turns: 30
+timeout: 15m
+pool: control

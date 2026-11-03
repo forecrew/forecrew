@@ -31,6 +31,13 @@ func TestLoadPacks(t *testing.T) {
 		"test-architect":       {config.TierBest, false, domain.PoolBuild},
 		"environment-engineer": {config.TierStrong, false, domain.PoolBuild},
 		"test-engineer":        {config.TierStrong, false, domain.PoolBuild},
+		// Council roles reason without running anything, except the
+		// security reviewer, which runs the project's scanners.
+		"facilitator":       {config.TierBest, true, domain.PoolControl},
+		"devils-advocate":   {config.TierStrong, true, domain.PoolControl},
+		"market-researcher": {config.TierStrong, true, domain.PoolControl},
+		"security-reviewer": {config.TierStrong, true, domain.PoolBuild},
+		"ux":                {config.TierStrong, true, domain.PoolControl},
 	}
 	if len(defs) != len(want) {
 		t.Fatalf("got %d roles, want %d", len(defs), len(want))
