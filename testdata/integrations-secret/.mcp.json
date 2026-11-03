@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "acme-search": {
+      "type": "http",
+      "url": "https://user:FAKE-PASSWORD-4c1e@mcp.acme.example/search?key=FAKE-QUERY-8a2f",
+      "headers": {
+        "Authorization": "Bearer FAKE-TOKEN-7f3a9c"
+      }
+    },
+    "local-notes": {
+      "command": "node",
+      "args": ["notes.js", "--token", "FAKE-ARG-6d0b"],
+      "env": {
+        "NOTES_API_KEY": "FAKE-ENV-9e5d"
+      }
+    }
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "name": "integrations-polyglot",
+  "languages": [
+    {
+      "name": "Go",
+      "files": 1,
+      "lines": 3,
+      "bytes": 29
+    }
+  ],
+  "manifests": [
+    "go.mod",
+    "package.json"
+  ],
+  "ci_files": [
+    ".github/workflows/ci.yml"
+  ],
+  "doc_files": [
+    "README.md",
+    "docs/errors.md"
+  ],
+  "top_level": [
+    ".github/",
+    ".mcp.json",
+    "README.md",
+    "catalog-info.yaml",
+    "docs/",
+    "go.mod",
+    "main.go",
+    "package.json"
+  ],
+  "components": [
+    {
+      "path": ".",
+      "stack": "go",
+      "manifests": [
+        "go.mod",
+        "package.json"
+      ],
+      "build": "go build ./...",
+      "test": "go test ./..."
+    }
+  ],
+  "ci_runners": [
+    "ubuntu-latest"
+  ],
+  "agent_files": [],
+  "services": [],
+  "integrations": [
+    {
+      "tool": "backstage",
+      "uses": [
+        "catalog"
+      ],
+      "evidence": [
+        {
+          "kind": "file",
+          "location": "catalog-info.yaml",
+          "count": 1
+        }
+      ],
+      "confidence": "low"
+    },
+    {
+      "tool": "confluence",
+      "instance": "acme.atlassian.net",
+      "uses": [
+        "knowledge"
+      ],
+      "evidence": [
+        {
+          "kind": "link",
+          "location": "README.md",
+          "count": 2
+        }
+      ],
+      "confidence": "medium",
+      "mapping": {
+        "prod": [
+          "space:PROD"
+        ]
+      }
+    },
+    {
+      "tool": "mcp:team-docs",
+      "instance": "team-docs-mcp",
+      "uses": [
+        "knowledge"
+      ],
+      "evidence": [
+        {
+          "kind": "mcp_config",
+          "location": ".mcp.json",
+          "count": 1
+        }
+      ],
+      "confidence": "high"
+    },
+    {
+      "tool": "sentry",
+      "instance": "acme.sentry.io",
+      "uses": [
+        "monitoring"
+      ],
+      "evidence": [
+        {
+          "kind": "link",
+          "location": "docs/errors.md",
+          "count": 1
+        }
+      ],
+      "confidence": "low"
+    },
+    {
+      "tool": "slack",
+      "uses": [
+        "notifications"
+      ],
+      "evidence": [
+        {
+          "kind": "ci_step",
+          "location": ".github/workflows/ci.yml",
+          "count": 1
+        }
+      ],
+      "confidence": "low"
+    }
+  ],
+  "knowledge": []
+}

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "team-docs": {
+      "command": "team-docs-mcp"
+    }
+  }
+}

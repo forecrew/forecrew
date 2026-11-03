@@ -1,0 +1,10 @@
+name: ci
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: slackapi/slack-github-action@v2
+        with:
+          webhook: FAKE-WEBHOOK-3a6e

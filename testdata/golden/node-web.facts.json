@@ -52,5 +52,7 @@
     ".cursor/rules/style.mdc",
     "CLAUDE.md"
   ],
-  "services": []
+  "services": [],
+  "integrations": [],
+  "knowledge": []
 }

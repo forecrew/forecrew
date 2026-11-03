@@ -1,0 +1,19 @@
+name: ci
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make test
+  release:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: getsentry/action-release@v3
+        env:
+          SENTRY_AUTH_TOKEN: FAKE-CI-SECRET-2b7a
+      - uses: slackapi/slack-github-action@v2
+        with:
+          webhook: FAKE-WEBHOOK-1f9c
+      - uses: aws-actions/configure-aws-credentials@v4

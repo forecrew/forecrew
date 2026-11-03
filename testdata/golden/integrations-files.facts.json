@@ -1,0 +1,68 @@
+{
+  "name": "integrations-files",
+  "languages": [],
+  "manifests": [],
+  "ci_files": [],
+  "doc_files": [
+    "CONTRIBUTING.md",
+    "docs/adr/0001-use-postgres.md"
+  ],
+  "top_level": [
+    "CODEOWNERS",
+    "CONTRIBUTING.md",
+    "catalog-info.yaml",
+    "docs/",
+    "mkdocs.yml"
+  ],
+  "components": [],
+  "ci_runners": [],
+  "agent_files": [],
+  "services": [],
+  "integrations": [
+    {
+      "tool": "backstage",
+      "uses": [
+        "catalog"
+      ],
+      "evidence": [
+        {
+          "kind": "file",
+          "location": "catalog-info.yaml",
+          "count": 1
+        }
+      ],
+      "confidence": "low"
+    },
+    {
+      "tool": "techdocs",
+      "uses": [
+        "knowledge"
+      ],
+      "evidence": [
+        {
+          "kind": "file",
+          "location": "mkdocs.yml",
+          "count": 1
+        }
+      ],
+      "confidence": "low"
+    }
+  ],
+  "knowledge": [
+    {
+      "kind": "adr",
+      "path": "docs/adr",
+      "section": "architecture"
+    },
+    {
+      "kind": "contributing",
+      "path": "CONTRIBUTING.md",
+      "section": "conventions"
+    },
+    {
+      "kind": "codeowners",
+      "path": "CODEOWNERS",
+      "section": "owners"
+    }
+  ]
+}

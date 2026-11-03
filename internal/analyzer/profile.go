@@ -39,21 +39,21 @@ type Profile struct {
 
 // Integration is a tool the team uses outside the repo, in a Profile.
 type Integration struct {
-	Tool       string                `yaml:"tool"`               // jira, confluence, ..., or mcp:<name>
-	Instance   string                `yaml:"instance,omitempty"` // host or organization, never credentials
-	Uses       []string              `yaml:"uses"`               // knowledge, tracker, notifications, monitoring, catalog
-	Evidence   []IntegrationEvidence `yaml:"evidence"`
-	Confidence string                `yaml:"confidence"` // low, medium or high
+	Tool       string                `yaml:"tool" json:"tool"`                             // jira, confluence, ..., or mcp:<name>
+	Instance   string                `yaml:"instance,omitempty" json:"instance,omitempty"` // host or organization, never credentials
+	Uses       []string              `yaml:"uses" json:"uses"`                             // knowledge, tracker, notifications, monitoring, catalog
+	Evidence   []IntegrationEvidence `yaml:"evidence" json:"evidence"`
+	Confidence string                `yaml:"confidence" json:"confidence"` // low, medium or high
 	// Mapping maps knowledge sections to the tool's locations.
-	Mapping map[string][]string `yaml:"mapping,omitempty"`
-	Status  string              `yaml:"status"` // proposed, approved or connected
+	Mapping map[string][]string `yaml:"mapping,omitempty" json:"mapping,omitempty"`
+	Status  string              `yaml:"status" json:"status,omitempty"` // proposed, approved or connected
 }
 
 // IntegrationEvidence is where onboarding saw an integration.
 type IntegrationEvidence struct {
-	Kind     string `yaml:"kind"` // mcp_config, link, autolink, file, ci_step, issue_key
-	Location string `yaml:"location"`
-	Count    int    `yaml:"count"`
+	Kind     string `yaml:"kind" json:"kind"` // mcp_config, link, autolink, file, ci_step, issue_key
+	Location string `yaml:"location" json:"location"`
+	Count    int    `yaml:"count" json:"count"`
 }
 
 // ProfileComponent is a component entry of a Profile.
