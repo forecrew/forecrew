@@ -37,6 +37,8 @@ type fakeRepo struct {
 	branches  map[string]bool
 	files     map[string][]byte // by ref and path, see fileKey
 	remote    string            // bare git repository, see UseRemote
+	autolinks []github.Autolink
+	forbidden bool // the discovery reads fail with github.ErrForbidden
 }
 
 type fakeIssue struct {
@@ -563,4 +565,90 @@ func (t *Tracker) InstallationToken(_ context.Context, repo string, access githu
 		return nil
 	})
 	return out, err
+}
+
+// AddAutolink adds an autolink to repo.
+func (t *Tracker) AddAutolink(repo string, a github.Autolink) error {
+	return t.with(repo, func(r *fakeRepo) error {
+		r.autolinks = append(r.autolinks, a)
+		return nil
+	})
+}
+
+// Forbid makes the discovery reads of repo (autolinks, recent issues and
+// pull requests) fail with github.ErrForbidden, as when the App lacks a
+// permission.
+func (t *Tracker) Forbid(repo string) error {
+	return t.with(repo, func(r *fakeRepo) error {
+		r.forbidden = true
+		return nil
+	})
+}
+
+// denied returns the error of a discovery read of repo, or nil.
+func (r *fakeRepo) denied(repo string) error {
+	if r.forbidden {
+		return fmt.Errorf("discover %s: %w", repo, github.ErrForbidden)
+	}
+	return nil
+}
+
+// ListAutolinks implements github.Tracker.
+func (t *Tracker) ListAutolinks(_ context.Context, repo string) ([]github.Autolink, error) {
+	var out []github.Autolink
+	err := t.with(repo, func(r *fakeRepo) error {
+		if err := r.denied(repo); err != nil {
+			return err
+		}
+		out = slices.Clone(r.autolinks)
+		return nil
+	})
+	return out, err
+}
+
+// ListRecentIssues implements github.Tracker. Pull requests are not issues.
+func (t *Tracker) ListRecentIssues(_ context.Context, repo string, limit int) ([]github.Issue, error) {
+	var out []github.Issue
+	err := t.with(repo, func(r *fakeRepo) error {
+		if err := r.denied(repo); err != nil {
+			return err
+		}
+		var numbers []int
+		for n := range r.issues {
+			if r.prs[n] == nil { // a PR shares its number with an issue, as on GitHub
+				numbers = append(numbers, n)
+			}
+		}
+		for _, n := range recentFirst(numbers, limit) {
+			out = append(out, r.issues[n].issue)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// ListRecentPulls implements github.Tracker.
+func (t *Tracker) ListRecentPulls(_ context.Context, repo string, limit int) ([]github.PullRequest, error) {
+	var out []github.PullRequest
+	err := t.with(repo, func(r *fakeRepo) error {
+		if err := r.denied(repo); err != nil {
+			return err
+		}
+		for _, n := range recentFirst(slices.Collect(maps.Keys(r.prs)), limit) {
+			out = append(out, *r.prs[n])
+		}
+		return nil
+	})
+	return out, err
+}
+
+// recentFirst returns the largest numbers, newest first, at most limit.
+func recentFirst(numbers []int, limit int) []int {
+	ns := slices.Clone(numbers)
+	slices.Sort(ns)
+	slices.Reverse(ns)
+	if limit > 0 && len(ns) > limit {
+		ns = ns[:limit]
+	}
+	return ns
 }

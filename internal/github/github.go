@@ -23,6 +23,9 @@ var (
 	// ErrRateLimited means GitHub rate-limited the request and the wait was
 	// too long, or retries ran out.
 	ErrRateLimited = errors.New("github: rate limited")
+	// ErrForbidden means the App may not do this: a permission it was not
+	// granted (HTTP 403).
+	ErrForbidden = errors.New("github: forbidden")
 )
 
 // Issue is a GitHub issue.
@@ -47,6 +50,13 @@ type IssueUpdate struct {
 	Title *string
 	Body  *string
 	State *string // open or closed
+}
+
+// Autolink is a repo autolink: a reference to KeyPrefix followed by a number
+// links to URLTemplate, which holds <num> where the number goes.
+type Autolink struct {
+	KeyPrefix   string
+	URLTemplate string
 }
 
 // Comment is an issue or PR conversation comment.
@@ -230,4 +240,14 @@ type Tracker interface {
 
 	// InstallationToken returns a token scoped to repo with contents access.
 	InstallationToken(ctx context.Context, repo string, access TokenAccess) (Token, error)
+
+	// ListAutolinks returns the autolinks of repo. ErrForbidden when the App
+	// may not read them (they need administration access).
+	ListAutolinks(ctx context.Context, repo string) ([]Autolink, error)
+	// ListRecentIssues returns up to limit (at most 100) recent issues, newest
+	// first, pull requests left out.
+	ListRecentIssues(ctx context.Context, repo string, limit int) ([]Issue, error)
+	// ListRecentPulls returns up to limit (at most 100) recent pull requests,
+	// newest first.
+	ListRecentPulls(ctx context.Context, repo string, limit int) ([]PullRequest, error)
 }
