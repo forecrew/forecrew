@@ -92,6 +92,79 @@ func TestLeaseNextStaysInPool(t *testing.T) {
 	}
 }
 
+// TestLeaseNextPoolMatrix: a control worker never leases a build job and a
+// build worker never leases a control job, whether the labels match or not,
+// pool labels included.
+func TestLeaseNextPoolMatrix(t *testing.T) {
+	matching := []string{"runtime:claude-code", "linux"}
+	tests := []struct {
+		name, worker, job string
+		labels            []string
+		leased            bool
+	}{
+		{"control worker, build job, labels match", domain.PoolControl, domain.PoolBuild, matching, false},
+		{"control worker, build job, labels differ", domain.PoolControl, domain.PoolBuild, []string{"gpu"}, false},
+		{"control worker, build job, pool label", domain.PoolControl, domain.PoolBuild, append([]string{"pool:build"}, matching...), false},
+		{"build worker, control job, labels match", domain.PoolBuild, domain.PoolControl, matching, false},
+		{"build worker, control job, labels differ", domain.PoolBuild, domain.PoolControl, []string{"gpu"}, false},
+		{"build worker, control job, pool label", domain.PoolBuild, domain.PoolControl, append([]string{"pool:control"}, matching...), false},
+		{"control worker, control job", domain.PoolControl, domain.PoolControl, matching, true},
+		{"control worker, control job, labels differ", domain.PoolControl, domain.PoolControl, []string{"gpu"}, false},
+		{"build worker, build job", domain.PoolBuild, domain.PoolBuild, matching, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			ctx := t.Context()
+			w := domain.Worker{AccountID: f.account, Name: "w", Pool: tt.worker, TokenHash: []byte("hash-w")}
+			must(t, f.st.Workers().Create(ctx, &w))
+			j := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Pool: tt.job, Role: "reviewer", Runtime: "claude-code",
+				Needs: []string{"linux"}, Spec: domain.JobSpec{Repo: "acme/forecrew", Prompt: "review"}}
+			must(t, f.st.Jobs().Create(ctx, &j))
+			got, err := f.st.Jobs().LeaseNext(ctx, f.account, w.ID, tt.labels, time.Minute)
+			if !tt.leased {
+				wantErr(t, err, store.ErrNoJob)
+				return
+			}
+			if err != nil || got.ID != j.ID {
+				t.Fatalf("lease = %+v, %v", got, err)
+			}
+		})
+	}
+}
+
+// TestSetPool: a moved worker leases from its new pool at the next lease;
+// the job it runs stays leased to it.
+func TestSetPool(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	labels := []string{"runtime:claude-code"}
+	w := f.newWorker(t, "w")
+	running := f.newJob(t)
+	_, err := f.st.Jobs().LeaseNext(ctx, f.account, w.ID, labels, time.Minute)
+	must(t, err)
+	review := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Pool: domain.PoolControl, Role: "reviewer", Runtime: "claude-code",
+		Spec: domain.JobSpec{Repo: "acme/forecrew", Prompt: "review"}}
+	must(t, f.st.Jobs().Create(ctx, &review))
+	f.newJob(t) // a build job it must no longer lease
+
+	must(t, f.st.Workers().SetPool(ctx, f.account, w.ID, domain.PoolControl))
+	got, err := f.st.Jobs().LeaseNext(ctx, f.account, w.ID, labels, time.Minute)
+	if err != nil || got.ID != review.ID {
+		t.Fatalf("lease after move = %+v, %v", got, err)
+	}
+	_, err = f.st.Jobs().LeaseNext(ctx, f.account, w.ID, labels, time.Minute)
+	wantErr(t, err, store.ErrNoJob)
+	if _, err := f.st.Jobs().ExtendLease(ctx, f.account, running.ID, w.ID, time.Minute); err != nil {
+		t.Fatalf("running job after move: %v", err)
+	}
+	must(t, f.st.Workers().SetPool(ctx, f.account, w.ID, ""))
+	if stored, _ := f.st.Workers().Get(ctx, f.account, w.ID); stored.Pool != domain.PoolBuild {
+		t.Fatalf("pool = %q, want build", stored.Pool)
+	}
+	wantErr(t, f.st.Workers().SetPool(ctx, f.account, domain.NewID(), domain.PoolControl), store.ErrNotFound)
+}
+
 // TestLeaseNextCommandJob: a command job needs no runtime label.
 func TestLeaseNextCommandJob(t *testing.T) {
 	f := newFixture(t)

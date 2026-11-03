@@ -261,6 +261,10 @@ type WorkerRepo interface {
 	// Seen records a poll or heartbeat: LastSeenAt = now, and labels and
 	// version as reported.
 	Seen(ctx context.Context, accountID, id uuid.UUID, labels []string, version string) error
+	// SetPool moves a worker to pool (empty is PoolBuild). Only admins call
+	// it; the worker leases from the new pool at its next lease attempt and
+	// its running jobs finish.
+	SetPool(ctx context.Context, accountID, id uuid.UUID, pool string) error
 	Revoke(ctx context.Context, accountID, id uuid.UUID) error
 }
 

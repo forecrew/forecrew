@@ -379,6 +379,15 @@ func TestStoreWorkersAndTokens(t *testing.T) {
 	if err != nil || !got.Online(t0) || got.Version != "v1" || got.Labels[0] != "go" {
 		t.Fatalf("worker = %+v, %v", got, err)
 	}
+	must(t, f.st.Workers().SetPool(ctx, f.account, w.ID, domain.PoolControl))
+	if got, _ = f.st.Workers().Get(ctx, f.account, w.ID); got.Pool != domain.PoolControl {
+		t.Fatalf("pool = %q", got.Pool)
+	}
+	must(t, f.st.Workers().SetPool(ctx, f.account, w.ID, ""))
+	if got, _ = f.st.Workers().Get(ctx, f.account, w.ID); got.Pool != domain.PoolBuild {
+		t.Fatalf("pool = %q", got.Pool)
+	}
+	wantErr(t, f.st.Workers().SetPool(ctx, f.account, domain.NewID(), domain.PoolControl), store.ErrNotFound)
 	must(t, f.st.Workers().Revoke(ctx, f.account, w.ID))
 	f.clock.Advance(time.Hour)
 	must(t, f.st.Workers().Revoke(ctx, f.account, w.ID))

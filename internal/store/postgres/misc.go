@@ -226,6 +226,10 @@ func (r workerRepo) Seen(ctx context.Context, accountID, id uuid.UUID, labels []
 		accountID, id, domain.NormalizeLabels(labels), version)
 }
 
+func (r workerRepo) SetPool(ctx context.Context, accountID, id uuid.UUID, pool string) error {
+	return mustUpdate(ctx, r.db, `UPDATE workers SET pool = $3 WHERE account_id = $1 AND id = $2`, accountID, id, domain.OrDefaultPool(pool))
+}
+
 func (r workerRepo) Revoke(ctx context.Context, accountID, id uuid.UUID) error {
 	return mustUpdate(ctx, r.db, `UPDATE workers SET revoked_at = COALESCE(revoked_at, now()) WHERE account_id = $1 AND id = $2`, accountID, id)
 }
