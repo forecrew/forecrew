@@ -29,6 +29,7 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["project.register"] = d.registerProject
 	registry["github.open_or_update_pr"] = d.openOrUpdatePR
 	registry["github.merge_pr"] = d.mergePR
+	registry["discover.github"] = d.discoverGitHub
 	registry["profile.validate"] = d.validateProfile
 	registry["profile.feedback"] = d.profileFeedback
 	registry["onboarding.proposal"] = d.onboardingProposal

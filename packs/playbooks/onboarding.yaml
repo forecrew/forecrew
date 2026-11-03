@@ -7,6 +7,15 @@ steps:
     action: project.register
     with: {repo: '${inputs.repo}'}
 
+  # Reads the tools the team uses from GitHub: the autolinks and the links in
+  # the recent issues and pull requests. Read-only; a permission the App lacks
+  # is a note for the analyst, not a failure.
+  - id: discover
+    type: action
+    action: discover.github
+    with: {repo: '${inputs.repo}'}
+    on_failure: escalate
+
   # One round per review: draft the profile, open or update the PR, ask for
   # approval. The third requested change opens a needs_you gate, as every
   # round after it.
@@ -28,7 +37,7 @@ steps:
           - id: feedback
             type: action
             action: profile.feedback
-            with: {human: '${steps.approval.output.0.decision.output.feedback}', errors: '${steps.validate.output.errors}'}
+            with: {human: '${steps.approval.output.0.decision.output.feedback}', errors: '${steps.validate.output.errors}', discovery: '${steps.discover.output.text}'}
           - id: analyze
             type: job
             with:
