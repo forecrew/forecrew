@@ -100,7 +100,7 @@ func TestReapPublishError(t *testing.T) {
 	f.clock.Advance(domain.LeaseDuration + time.Second)
 
 	var logs syncBuffer
-	broken := New(f.st, failingBus{}, slog.New(slog.NewJSONHandler(&logs, nil)), f.clock.Now)
+	broken := New(f.st, failingBus{}, nil, slog.New(slog.NewJSONHandler(&logs, nil)), f.clock.Now)
 	wake := broken.Wait()
 	got, err := broken.Reap(ctx)
 	if err == nil {
@@ -140,10 +140,10 @@ func (failingRequeueJobs) RequeueExpired(context.Context, uuid.UUID) ([]domain.J
 
 func TestReapAccountError(t *testing.T) {
 	f := newFixture(t)
-	broken := New(failingRequeue{f.st}, f.bus, slog.New(slog.DiscardHandler), f.clock.Now)
+	broken := New(failingRequeue{f.st}, f.bus, nil, slog.New(slog.DiscardHandler), f.clock.Now)
 	_, err := broken.Reap(t.Context())
 	wantErr(t, err, errDown)
-	_, err = New(noAccounts{f.st}, f.bus, slog.New(slog.DiscardHandler), f.clock.Now).Reap(t.Context())
+	_, err = New(noAccounts{f.st}, f.bus, nil, slog.New(slog.DiscardHandler), f.clock.Now).Reap(t.Context())
 	wantErr(t, err, errDown)
 }
 
@@ -174,7 +174,7 @@ func TestRunReaperLogsErrors(t *testing.T) {
 	f.lease(t)
 	f.clock.Advance(domain.LeaseDuration + time.Second)
 	var logs syncBuffer
-	broken := New(noAccounts{f.st}, f.bus, slog.New(slog.NewJSONHandler(&logs, nil)), f.clock.Now)
+	broken := New(noAccounts{f.st}, f.bus, nil, slog.New(slog.NewJSONHandler(&logs, nil)), f.clock.Now)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {

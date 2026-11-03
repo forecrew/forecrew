@@ -14,13 +14,15 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/queue"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
-// ErrInvalid means a job request misses a required field.
+// ErrInvalid means a job request misses a required field or its pool does
+// not allow it (then it also wraps config.ErrNotAllowed).
 var ErrInvalid = errors.New("invalid job")
 
 // ErrSchemaMismatch is the error stored on a job whose output does not match
@@ -36,6 +38,7 @@ type Publisher interface {
 type Service struct {
 	st     store.Store
 	bus    Publisher
+	pools  map[string]config.Pool
 	logger *slog.Logger
 	now    func() time.Time
 
@@ -43,10 +46,14 @@ type Service struct {
 	wake chan struct{} // closed and replaced when a job may have become leasable
 }
 
-// New returns a service on st that publishes signals on bus. now is the
-// clock of the read models (online workers).
-func New(st store.Store, bus Publisher, logger *slog.Logger, now func() time.Time) *Service {
-	return &Service{st: st, bus: bus, logger: logger, now: now, wake: make(chan struct{})}
+// New returns a service on st that publishes signals on bus. pools is the
+// pool policy jobs are created under (config.Config.Pools); nil means
+// config.DefaultPools. now is the clock of the read models (online workers).
+func New(st store.Store, bus Publisher, pools map[string]config.Pool, logger *slog.Logger, now func() time.Time) *Service {
+	if pools == nil {
+		pools = config.DefaultPools()
+	}
+	return &Service{st: st, bus: bus, pools: pools, logger: logger, now: now, wake: make(chan struct{})}
 }
 
 // Wait returns a channel that is closed the next time a job may have become
@@ -66,13 +73,28 @@ func (s *Service) notify() {
 }
 
 // Create stores j as a queued job and audits it. AccountID, ProjectID,
-// Role, Runtime and Spec.Repo are required; ID is kept when set (the
-// workflow engine relies on it), otherwise a new one is made; Needs, GoalID, SpecID, TaskID
-// and the rest of Spec are kept as given. The spec gets the job's ID,
-// account, role and runtime and is stored without secrets.
+// Spec.Repo and, for agent jobs, Role and Runtime are required; ID is kept
+// when set (the workflow engine relies on it), otherwise a new one is made;
+// Needs, GoalID, SpecID, TaskID and the rest of Spec are kept as given. The
+// job's pool is j.Pool (the role pack's, default build) for agent jobs and
+// comes from the environment for command jobs (domain.CommandPool); a job
+// the pool's policy does not allow is refused with an error wrapping
+// ErrInvalid and config.ErrNotAllowed. The spec gets the job's ID, account,
+// kind, role and runtime and is stored without secrets.
 func (s *Service) Create(ctx context.Context, by domain.Actor, j domain.Job) (domain.Job, error) {
-	if j.AccountID == uuid.Nil() || j.ProjectID == uuid.Nil() || j.Role == "" || j.Runtime == "" || j.Spec.Repo == "" {
-		return domain.Job{}, fmt.Errorf("create job: %w: account, project, role, runtime and repo are required", ErrInvalid)
+	if j.Kind == "" {
+		j.Kind = j.Spec.Kind
+	}
+	j.Kind = j.Kind.OrDefault()
+	agent := j.Kind == domain.JobKindAgent
+	if !agent {
+		j.Spec.Kind = j.Kind
+	}
+	if j.AccountID == uuid.Nil() || j.ProjectID == uuid.Nil() || j.Spec.Repo == "" || (agent && (j.Role == "" || j.Runtime == "")) {
+		return domain.Job{}, fmt.Errorf("create job: %w: account, project, repo and, for agent jobs, role and runtime are required", ErrInvalid)
+	}
+	if err := s.place(&j); err != nil {
+		return domain.Job{}, fmt.Errorf("create job: %w: %w", ErrInvalid, err)
 	}
 	if j.ID == uuid.Nil() {
 		j.ID = domain.NewID()
@@ -84,7 +106,7 @@ func (s *Service) Create(ctx context.Context, by domain.Actor, j domain.Job) (do
 		if err := queue.New(tx.Jobs()).Enqueue(ctx, &j); err != nil {
 			return err
 		}
-		return audit(ctx, tx, by, j, "job.created", map[string]any{"role": j.Role, "runtime": j.Runtime, "needs": j.Needs})
+		return audit(ctx, tx, by, j, "job.created", map[string]any{"role": j.Role, "runtime": j.Runtime, "needs": j.Needs, "pool": j.Pool})
 	})
 	if err != nil {
 		return domain.Job{}, fmt.Errorf("create job: %w", err)
@@ -92,6 +114,19 @@ func (s *Service) Create(ctx context.Context, by domain.Actor, j domain.Job) (do
 	s.notify()
 	s.logger.InfoContext(ctx, "job created", logAttrs(j)...)
 	return j, nil
+}
+
+// place sets the job's pool and checks that the pool's policy allows it.
+func (s *Service) place(j *domain.Job) error {
+	if j.Kind == domain.JobKindCommand {
+		j.Pool = domain.CommandPool(j.Spec.Environment)
+	}
+	j.Pool = domain.OrDefaultPool(j.Pool)
+	p, ok := s.pools[j.Pool]
+	if !ok {
+		return fmt.Errorf("pool %s is not configured: %w", j.Pool, config.ErrNotAllowed)
+	}
+	return p.Check(j.Pool, j.Role, j.Kind, len(j.Spec.WritePaths) > 0)
 }
 
 // Cancel cancels a queued or running job, audits it and publishes

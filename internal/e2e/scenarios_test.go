@@ -259,7 +259,7 @@ func TestJobsGoToWorkersWithTheLabels(t *testing.T) {
 	eventually(t, "the job status to name the missing worker", func() bool {
 		var info mcp.JobInfo
 		w.api(http.MethodGet, "/jobs/"+job.Ref(), nil, &info)
-		return info.Status == domain.JobQueued && info.Reason == "no matching worker"
+		return info.Status == domain.JobQueued && info.Reason == "no online worker in pool build with labels gpu, runtime:claude-code"
 	})
 
 	gpu := w.startWorker("gpu", append([]string{"gpu"}, claudeLabels...)...)

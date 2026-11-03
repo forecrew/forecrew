@@ -61,7 +61,7 @@ func newEnv(t *testing.T, opts ...option) *env {
 	bus := testkit.NewSignalBus(b.st)
 	tracker := testkit.NewTracker(b.clock.Now)
 	tracker.Install(repo)
-	svc := jobs.New(b.st, bus, logger, b.clock.Now)
+	svc := jobs.New(b.st, bus, nil, logger, b.clock.Now)
 	cfg := Config{
 		Store: b.st, Jobs: svc, Tokens: tracker, Logger: logger,
 		Env:         func(domain.Job) map[string]string { return map[string]string{"ANTHROPIC_API_KEY": apiSecret} },
