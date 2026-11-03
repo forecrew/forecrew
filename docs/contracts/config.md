@@ -45,6 +45,9 @@ roles:
   architect:          {runtime: claude, tier: best}
   developer:          {runtime: claude, tier: strong}
   reviewer:           {runtime: codex,  tier: best}
+  test-architect:       {runtime: claude, tier: best}
+  environment-engineer: {runtime: claude, tier: strong}
+  test-engineer:        {runtime: claude, tier: strong}
 
 policy:
   allow_same_vendor_review: false

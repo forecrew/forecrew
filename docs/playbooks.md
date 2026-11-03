@@ -193,6 +193,32 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `onboarding.settle` | none | Puts a project still onboarding back to registered. |
 | `onboarding.complete` | `repo`, `sha`, `ref` | Reads `.forecrew/profile.yaml` at the merge commit `sha`, or at `ref` when `sha` is empty (GitHub merged the PR), validates and stores it, and moves the project to onboarded. |
 
+## Roles
+
+`job` steps name a role from `packs/roles` (format in
+`docs/contracts/roles.md`); forecrew.yaml `roles` gives each the runtime and
+tier its jobs run with. The prompt of a job is the role's instructions
+followed by its context pack (`internal/contextpack`): the job, the project
+profile, the goal, spec and task, the step's `prompt` and feedback.
+
+| Role | Writes | Output schema | Context beyond the job |
+|------|--------|---------------|------------------------|
+| `onboarding-analyst` | `.forecrew/**` | `profile-draft.json` | repo facts |
+| `product-owner` | nothing | `spec.json` | profile, goal |
+| `architect` | nothing | `task-breakdown.json` | profile, goal, spec |
+| `developer` | everything but `.github/workflows/**` and `.forecrew/**` | `developer-result.json` | profile, goal, spec, task, feedback |
+| `reviewer` | nothing | `review-verdict.json` | profile, goal, spec, task |
+| `test-architect` | `.forecrew/matrix.yaml`, `.forecrew/test-strategy.md` | `test-plan.json`: summary, every axis with its reason, matrix changes with reasons, assumptions, open questions | profile, spec when given, test plan |
+| `environment-engineer` | `.forecrew/environments/**` | `environments.json`: summary, every environment with its provider and reason, assumptions | profile, test plan |
+| `test-engineer` | test files only: `**/*_test.*`, `**/*.test.*`, `**/test_*.*`, `*.spec.*` and `*_spec.*` with code extensions, and `tests/`, `test/`, `__tests__/` and `testdata/` directories; never `.forecrew/**`, `.github/**`, `vendor/`, `node_modules/`, nor dependency, lock, build, Docker, script or CI files at any depth (`go.mod`, `package.json`, `*.lock`, `Makefile`, `Dockerfile`, `*.sh`, ...) | `test-map.json`: per test its criterion, suite, JUnit id (`<classname>::<name>`) and file; every file created or changed (`files`, the paths later locked for the developer and applied on the base); untestable criteria with reasons; assumptions | profile, goal, spec, task with its criteria, test plan |
+
+Every output also has `escalation` (null unless the role stopped for a
+reason its `escalate_when` lists). The test plan section holds
+`.forecrew/matrix.yaml`, `.forecrew/test-strategy.md` and every environment
+file the matrix's rules name, read from GitHub at the job branch when the
+matrix is there and at the base otherwise; files not written yet are marked
+missing. The test roles are not used by a playbook yet.
+
 ## The onboarding playbook
 
 `packs/playbooks/onboarding.yaml` takes `repo` and `project`. An
