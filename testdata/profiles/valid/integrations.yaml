@@ -1,0 +1,27 @@
+version: 1
+name: shop
+summary: An online shop.
+integrations:
+  - tool: confluence
+    instance: acme.atlassian.net
+    uses: [knowledge]
+    evidence:
+      - {kind: link, location: README.md, count: 3}
+      - {kind: link, location: "github:issues", count: 12}
+    confidence: medium
+    mapping:
+      runbooks: ["space:OPS"]
+      architecture: ["space:ENG/page:123456"]
+    status: proposed
+  - tool: jira
+    instance: acme.atlassian.net
+    uses: [tracker]
+    evidence: [{kind: autolink, location: "github:autolinks", count: 1}, {kind: issue_key, location: git log, count: 40}]
+    confidence: high
+    status: approved
+  - tool: mcp:sentry
+    instance: mcp.sentry.dev
+    uses: [monitoring]
+    evidence: [{kind: mcp_config, location: .mcp.json, count: 1}]
+    confidence: high
+    status: connected

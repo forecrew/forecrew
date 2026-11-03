@@ -1,0 +1,32 @@
+{
+  "Version": 1,
+  "Name": "shop",
+  "Summary": "An online shop.",
+  "Languages": [
+    "go"
+  ],
+  "Components": [
+    {
+      "Path": ".",
+      "Stack": "go",
+      "Manifests": null,
+      "Build": "go build ./...",
+      "Test": "go test ./...",
+      "Platforms": null,
+      "Needs": null
+    }
+  ],
+  "Platforms": [
+    "linux"
+  ],
+  "Services": null,
+  "CI": {
+    "Workflows": null,
+    "Runners": null,
+    "GatingChecks": null
+  },
+  "AgentInstructions": "",
+  "SuggestedRoles": null,
+  "OpenQuestions": null,
+  "Integrations": null
+}

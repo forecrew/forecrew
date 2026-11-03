@@ -191,11 +191,8 @@ func TestCompileProfileSchemaBrokenDocument(t *testing.T) {
 	saved := profileSchema
 	defer func() { profileSchema = saved }()
 	profileSchema = "{"
-	if _, err := compileProfileSchema(); err == nil {
-		t.Error("compileProfileSchema on bad JSON: want error")
-	}
-	if err := Validate([]byte(minimalProfile)); err == nil {
-		t.Error("Validate with a broken schema: want error")
+	if err := Validate([]byte(minimalProfile)); err == nil || errors.Is(err, ErrInvalidProfile) {
+		t.Errorf("Validate with a broken schema = %v, want a schema error", err)
 	}
 }
 

@@ -1,0 +1,9 @@
+version: 1
+name: shop
+summary: An online shop.
+integrations:
+  - tool: trello
+    uses: [chat]
+    evidence: []
+    confidence: sure
+    status: wanted

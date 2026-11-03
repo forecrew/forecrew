@@ -1,0 +1,10 @@
+version: 1
+name: shop
+summary: An online shop.
+languages: [go]
+components:
+  - path: .
+    stack: go
+    build: go build ./...
+    test: go test ./...
+platforms: [linux]
