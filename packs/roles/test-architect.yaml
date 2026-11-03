@@ -1,0 +1,20 @@
+role: test-architect
+model: best
+prompt: roles/test-architect.md
+tools: [repo.read, repo.write, git.read, git.commit, run.tests]
+write_paths: [".forecrew/matrix.yaml", ".forecrew/test-strategy.md"]
+produces: [test-strategy, matrix]
+output_schema: schemas/test-plan.json
+definition_of_done:
+  - .forecrew/matrix.yaml follows the matrix format, and every environment rule names an environment the strategy describes
+  - every platform of the project profile is a value of the os axis, or the strategy says why it is not tested
+  - every suite command writes JUnit XML to the suite's reports; each one that can run on this machine was run once
+  - exactly one suite has quirks set, covering the file system, path, line ending, locale and time zone behaviour the project depends on
+  - .forecrew/test-strategy.md says why each axis exists, which cells are required, and how a test is placed in each suite
+  - every matrix change is in matrix_changes with its reason
+  - the matrix and the strategy are committed on the job branch
+escalate_when:
+  - the profile or spec needs a platform, version or service that neither a GitHub-hosted runner nor a container can provide
+  - a test command cannot be made to write JUnit XML
+max_turns: 80
+timeout: 40m

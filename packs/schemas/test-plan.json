@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Test plan",
+  "description": "Output of the test-architect role: what it changed in .forecrew/matrix.yaml and .forecrew/test-strategy.md, and why.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "axes", "matrix_changes", "assumptions", "open_questions", "escalation"],
+  "$defs": {
+    "name": {
+      "description": "Name of an axis, suite or environment as in the matrix.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    }
+  },
+  "properties": {
+    "summary": {"$ref": "common.json#/$defs/text", "description": "The test strategy in a few sentences; it becomes the pull request description."},
+    "axes": {
+      "description": "Every axis of the matrix as you leave it, with why it exists. An empty list only for a matrix without axes.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "values", "reason"],
+        "properties": {
+          "name": {"$ref": "#/$defs/name"},
+          "values": {"type": "array", "minItems": 1, "items": {"$ref": "common.json#/$defs/text"}},
+          "reason": {"$ref": "common.json#/$defs/text", "description": "What a failure only this axis can show, e.g. path separators differ on windows."}
+        }
+      }
+    },
+    "matrix_changes": {
+      "description": "Every change you made to .forecrew/matrix.yaml, one entry per changed part. Empty when the matrix is unchanged.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["part", "name", "change", "reason"],
+        "properties": {
+          "part": {
+            "description": "The top-level key of the matrix the change is in.",
+            "type": "string",
+            "enum": ["axes", "exclude", "include", "environments", "suites", "required"]
+          },
+          "name": {"$ref": "common.json#/$defs/text", "description": "What changed: an axis, suite or environment name, or the cell, e.g. os=windows,db=postgres-16."},
+          "change": {"type": "string", "enum": ["added", "changed", "removed"]},
+          "reason": {"$ref": "common.json#/$defs/text", "description": "Why, in one or two sentences."}
+        }
+      }
+    },
+    "assumptions": {"$ref": "common.json#/$defs/assumptions"},
+    "open_questions": {
+      "description": "Questions only a human can answer, e.g. which database versions must be supported; the test plan gate shows them.",
+      "type": "array",
+      "items": {"$ref": "common.json#/$defs/text"}
+    },
+    "escalation": {"$ref": "common.json#/$defs/escalation"}
+  }
+}
