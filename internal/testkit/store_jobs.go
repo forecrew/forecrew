@@ -28,6 +28,8 @@ func (r jobRepo) Create(_ context.Context, j *domain.Job) error {
 		j.ID = newID(j.ID)
 		j.Number = d.nextNumber(j.AccountID, domain.RefJob)
 		j.Status = domain.JobQueued
+		j.Kind = j.Kind.OrDefault()
+		j.Pool = domain.OrDefaultPool(j.Pool)
 		if j.MaxAttempts == 0 {
 			j.MaxAttempts = domain.DefaultMaxAttempts
 		}
@@ -59,8 +61,15 @@ func (r jobRepo) List(_ context.Context, accountID uuid.UUID, f store.JobFilter)
 func (r jobRepo) LeaseNext(_ context.Context, accountID, workerID uuid.UUID, labels []string, leaseFor time.Duration) (domain.Job, error) {
 	var out domain.Job
 	err := r.s.do(func(d *storeData, now time.Time) error {
+		// Only jobs of the worker's pool. Unlike Postgres, the fake lets
+		// tests lease for a worker it does not know, as one of pool build.
+		pool := domain.PoolBuild
+		if w, err := d.workers.find(func(w domain.Worker) bool { return w.AccountID == accountID && w.ID == workerID }); err == nil {
+			pool = w.Pool
+		}
 		j, err := d.jobs.find(func(j domain.Job) bool {
-			return j.AccountID == accountID && j.Status == domain.JobQueued && !j.RunAfter.After(now) && domain.MatchLabels(j.RequiredLabels(), labels)
+			return j.AccountID == accountID && j.Status == domain.JobQueued && !j.RunAfter.After(now) &&
+				j.Pool == pool && domain.MatchLabels(j.RequiredLabels(), labels)
 		})
 		if err != nil {
 			return store.ErrNoJob
@@ -190,6 +199,7 @@ func (r workerRepo) Create(_ context.Context, w *domain.Worker) error {
 			return fmt.Errorf("worker %s: %w", w.Name, store.ErrConflict)
 		}
 		w.ID = newID(w.ID)
+		w.Pool = domain.OrDefaultPool(w.Pool)
 		w.CreatedAt = now
 		d.workers.insert(*w)
 		return nil

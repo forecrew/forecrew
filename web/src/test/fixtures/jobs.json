@@ -5,6 +5,8 @@
     "project_id": "018f0000-0000-7000-8000-000000000010",
     "number": 41,
     "status": "running",
+    "kind": "",
+    "pool": "",
     "role": "developer",
     "runtime": "claude-code",
     "needs": [
@@ -51,6 +53,8 @@
     "project_id": "018f0000-0000-7000-8000-000000000010",
     "number": 42,
     "status": "queued",
+    "kind": "",
+    "pool": "",
     "role": "reviewer",
     "runtime": "claude-code",
     "needs": [
@@ -95,6 +99,8 @@
     "project_id": "018f0000-0000-7000-8000-000000000010",
     "number": 40,
     "status": "succeeded",
+    "kind": "",
+    "pool": "",
     "role": "architect",
     "runtime": "claude-code",
     "needs": [

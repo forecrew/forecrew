@@ -13,4 +13,7 @@ var (
 	ErrInvalidSignal = errors.New("invalid signal")
 	// ErrInvalidDecision means a gate decision is not allowed for the gate kind.
 	ErrInvalidDecision = errors.New("invalid gate decision")
+	// ErrInvalidSpec means a job spec, environment or toolbox breaks the
+	// rules of docs/contracts.
+	ErrInvalidSpec = errors.New("invalid spec")
 )
