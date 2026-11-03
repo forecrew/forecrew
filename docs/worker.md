@@ -46,6 +46,10 @@ roles and job kinds each pool runs and which credentials its jobs receive:
   get runtime keys.
 - `job_status` says when no online worker of the job's pool has its labels,
   for example `no online worker in pool control with labels runtime:codex`.
+- The read-only roles of the packs, `architect` and `product-owner`, run in
+  `control`. Until a worker of that pool is online their jobs stay queued and
+  `job_status` says why. The Compose stack ships one (`worker-control`, see
+  install.md); other installs add one with `forecrew worker add <name> --pool control`.
 - Pools other than `build`, `control` and `actions` are defined under `pools`
   in `forecrew.yaml`; `forecrew worker add` and `move` read it (`--config`,
   default `forecrew.yaml`) only for those. Pool `actions` takes no workers.

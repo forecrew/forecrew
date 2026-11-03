@@ -35,7 +35,9 @@ awk 'NF{printf "%s\\n", $0}' app-key.pem   # prints the value for .env
 daily (see [Backups](#backups)). The image is
 `ghcr.io/forecrew/forecrewd:${FORECREW_VERSION:-latest}`; pin `FORECREW_VERSION`
 in `.env` to a release tag for production. To build from a checkout instead of
-pulling, add `-f docker-compose.build.yml` and `--build`.
+pulling, add `-f docker-compose.build.yml` and `--build`. The `worker-control`
+service runs read-only agent work next to forecrewd (see
+[Control worker](#control-worker-compose)).
 
 ### Choose how HTTPS works
 
@@ -100,6 +102,62 @@ keeps it in a `Secure`, `HttpOnly` cookie for 30 days; the page never stores it.
 Use **Log out** in the sidebar, or revoke the token, to end the session. The
 cookie needs HTTPS (or `http://localhost`), so behind a load balancer the
 public URL must be `https://`. See [ui.md](../ui.md).
+
+### Control worker (Compose)
+
+`worker-control` is a worker in pool `control` (docs/worker.md, Pools). It runs
+the read-only roles that the role packs put there: `architect` and
+`product-owner` today. Roles that write, and `reviewer` (it runs the tests),
+stay on build workers (see [add-worker.md](add-worker.md)). A role may go to
+`control` only when it has no write paths; a writing role in that pool is
+refused when its job is created.
+
+- **Image.** `ghcr.io/forecrew/forecrew-worker-control:${FORECREW_VERSION:-latest}`
+  (`deploy/worker/control/Dockerfile`): `forecrew-worker`, git, and Claude Code
+  and Codex CLI on Node. The CLI versions are exact in
+  `deploy/worker/control/package.json`; `package-lock.json` pins their
+  transitive dependencies with integrity hashes, and the image installs exactly
+  that with `npm ci`. Base images are pinned by digest. To upgrade a CLI, change
+  its version there and regenerate the lock with `npm install --package-lock-only`.
+  No language toolchains. The worker and its agents run as user `forecrew`
+  (uid 10001), with no capabilities and no new privileges.
+- **Token.** `forecrew worker add` shows the token once and cannot be given
+  one, so it is not in `.env`. The `control-init` service runs
+  `forecrew worker add control --pool control` when the `control-token` volume
+  has no token, and keeps the token there, readable only by root. The worker's
+  startup reads it as root and drops to `forecrew` before the agents start, so
+  they cannot read it. Running it again does nothing. If the worker is
+  registered but the volume is gone, revoke it with `docker compose exec forecrewd forecrew worker revoke control` and run
+  `docker compose up -d`.
+- **Settings in `.env`.** `FORECREW_CONTROL_MAX_JOBS` (default 4) is how many
+  jobs run at once. `FORECREW_CONTROL_SERVER_URL` (default `http://forecrewd:80`)
+  is where the worker reaches forecrewd; the default works with `listen: ":80"`,
+  which is the example file. **With your own domain certificates you must change
+  it**: forecrewd then serves HTTPS on 443 only, so set it to
+  `https://<your domain>`, which the worker reaches through the host's public
+  address. Otherwise the worker cannot connect and stays offline.
+- **max_jobs above 1.** Concurrent jobs can read each other's repo tokens (see
+  [worker.md](../worker.md)). Control jobs get only read-only tokens, so the
+  exposure is limited to reading the repos of the other control jobs. Raise
+  `FORECREW_CONTROL_MAX_JOBS` only for repos you trust equally.
+- **Networks.** Postgres is on `db`, an internal network. `control-init` and
+  `migrate` join it too, and so does forecrewd, which also joins `edge` for its
+  outbound HTTPS. `worker-control` is only on `edge`, which holds forecrewd and
+  nothing else. The reason is that agents run in that container: an agent that
+  could reach Postgres could read or change any job, token or account. The
+  worker also has no database URL, no GitHub key and no runtime keys (forecrewd
+  sends runtime keys with each job), and it reaches forecrewd's worker API only.
+  The compose test (`deploy/tests/control_worker_test.sh`) checks that it cannot
+  reach Postgres.
+- **Other installs need one too.** Without this Compose service, add a worker
+  in pool `control` with `forecrew worker add <name> --pool control` (see
+  [add-worker.md](add-worker.md)), or move a read-only worker there with
+  `forecrew worker move <name> --pool control`. Until one is online,
+  `architect` and `product-owner` jobs stay queued, and `forecrew jobs show`
+  (or `job_status`) says `no online worker in pool control`.
+- **Check it.** `docker compose ps` shows `worker-control` running and
+  `control-init` exited with 0. The web UI's Workers page lists `control` in pool
+  `control`, online, with the labels `runtime:claude-code` and `runtime:codex`.
 
 ## With systemd
 
