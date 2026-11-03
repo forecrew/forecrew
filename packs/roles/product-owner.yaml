@@ -3,6 +3,7 @@ model: best
 prompt: roles/product-owner.md
 tools: [repo.read, git.read]
 write_paths: []
+pool: control
 produces: [spec]
 output_schema: schemas/spec.json
 definition_of_done:

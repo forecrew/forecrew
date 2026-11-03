@@ -3,6 +3,7 @@ model: best
 prompt: roles/architect.md
 tools: [repo.read, git.read]
 write_paths: []
+pool: control
 produces: [tasks]
 output_schema: schemas/task-breakdown.json
 definition_of_done:

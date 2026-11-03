@@ -44,7 +44,7 @@ toolbox: security    # optional, packs/toolboxes/security.yaml
 | `escalate_when` | list of strings | no | When the agent must stop and ask a human; part of the prompt. |
 | `max_turns` | integer ≥ 0 | no | Agent turns; 0 means the runtime default. |
 | `timeout` | Go duration | yes | Positive, e.g. `30m`. |
-| `pool` | string | no, default `build` | Worker pool the role's jobs run in (config.md `pools`, worker-api.md Pools). A `domain.ValidName`; whether the pool exists and allows the role is checked when a job is created. Read-only reasoning roles (councils, triage, review) belong in `control`. |
+| `pool` | string | no, default `build` | Worker pool the role's jobs run in (config.md `pools`, worker-api.md Pools). A `domain.ValidName`; whether the pool exists and allows the role is checked when a job is created. Read-only reasoning roles (councils, triage, architect, product-owner) belong in `control`; a read-only role that runs the tests, such as `reviewer`, stays in `build`. |
 | `toolbox` | string | no | Name of a toolbox, `packs/toolboxes/<name>.yaml` (toolbox.schema.json); it must exist. The role's agent jobs run inside the toolbox image, with its CLIs and MCP servers, on a worker with the `docker` label (from T48). The resolved toolbox is the spec's `toolbox`. |
 | `context` | mapping | no | Reserved for the context pack settings of T38 (which knowledge sections and registers a job sees). Must be absent or empty until then. |
 
