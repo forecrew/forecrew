@@ -36,8 +36,9 @@ for (const size of sizes) {
       const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical")
       expect(bad.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`)).toEqual([])
       // no horizontal scrolling of the page
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
-      expect(overflow).toBeLessThanOrEqual(0)
+      await expect
+        .poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth))
+        .toBeLessThanOrEqual(0)
     })
   }
 
