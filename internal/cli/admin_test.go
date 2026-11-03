@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -181,6 +182,114 @@ func TestWorkerAddAndRevoke(t *testing.T) {
 	}
 	if _, errOut, code := e.run(t, "worker", "revoke", "ghost"); code != 1 || !strings.Contains(errOut, `worker "ghost" does not exist or is already revoked`) {
 		t.Errorf("unknown worker: code %d, %q", code, errOut)
+	}
+}
+
+// poolEnv is an admin env whose forecrew.yaml (the returned path) defines
+// pool gpu.
+func poolEnv(t *testing.T) (*adminEnv, string) {
+	t.Helper()
+	e := newAdminEnv(t)
+	e.vars[config.EnvGitHubPrivateKey] = "key"
+	e.vars[config.EnvGitHubWebhookSecret] = "secret"
+	cfg := filepath.Join(t.TempDir(), "forecrew.yaml")
+	gpu := validConfig + "pools:\n  gpu: {kinds: [command], credentials: {repo_token: read}}\n"
+	if err := os.WriteFile(cfg, []byte(gpu), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return e, cfg
+}
+
+// pool returns the pool of the worker called name, or "" when there is none.
+func (e *adminEnv) pool(t *testing.T, name string) string {
+	t.Helper()
+	list, err := e.db.st.Workers().List(t.Context(), e.account.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range list {
+		if w.Name == name {
+			return w.Pool
+		}
+	}
+	return ""
+}
+
+// TestWorkerAddPool: workers join a default pool without forecrew.yaml or a
+// pool forecrew.yaml defines.
+func TestWorkerAddPool(t *testing.T) {
+	e, cfg := poolEnv(t)
+	tests := []struct {
+		args []string
+		name string
+		want string
+	}{
+		{[]string{"box"}, "box", domain.PoolBuild},
+		{[]string{"ctl", "--pool", "control", "--config", "/missing.yaml"}, "ctl", domain.PoolControl},
+		{[]string{"gpu-1", "--pool", "gpu", "--config", cfg}, "gpu-1", "gpu"},
+	}
+	for _, tt := range tests {
+		if _, errOut, code := e.run(t, append([]string{"worker", "add"}, tt.args...)...); code != 0 || e.pool(t, tt.name) != tt.want {
+			t.Errorf("%v: code %d, %q, pool %q, want %q", tt.args, code, errOut, e.pool(t, tt.name), tt.want)
+		}
+	}
+}
+
+// TestWorkerPoolRefused: unknown pools and actions are refused, and nothing
+// is created or printed.
+func TestWorkerPoolRefused(t *testing.T) {
+	e, cfg := poolEnv(t)
+	e.run(t, "worker", "add", "box")
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"worker", "add", "x", "--pool", "actions"}, "pool actions has no workers"},
+		{[]string{"worker", "add", "x", "--pool", "nope", "--config", cfg}, "unknown pool nope"},
+		{[]string{"worker", "add", "x", "--pool", "nope", "--config", "/missing.yaml"}, "the pools of /missing.yaml cannot be read"},
+		{[]string{"worker", "add", "x", "--pool", "Bad Name"}, `pool "Bad Name" is not a valid pool name`},
+		{[]string{"worker", "move", "box", "--pool", "nope", "--config", cfg}, "unknown pool nope"},
+		{[]string{"worker", "move", "box"}, `required flag(s) "pool" not set`},
+		{[]string{"worker", "move", "ghost", "--pool", "control"}, `worker "ghost" does not exist or is revoked`},
+	}
+	for _, tt := range tests {
+		if out, errOut, code := e.run(t, tt.args...); code != 1 || out != "" || !strings.Contains(errOut, tt.want) {
+			t.Errorf("%v: code %d, stdout %q, stderr %q, want %q", tt.args, code, out, errOut, tt.want)
+		}
+	}
+	if e.pool(t, "x") != "" || e.pool(t, "box") != domain.PoolBuild {
+		t.Error("a refused command changed a worker")
+	}
+}
+
+// TestWorkerMove: move changes the stored pool of an active worker.
+func TestWorkerMove(t *testing.T) {
+	e, cfg := poolEnv(t)
+	e.run(t, "worker", "add", "box")
+	out, errOut, code := e.run(t, "worker", "move", "box", "--pool", "gpu", "--config", cfg)
+	if code != 0 || !strings.Contains(out, "worker box moved to pool gpu") || e.pool(t, "box") != "gpu" {
+		t.Fatalf("move: code %d, %q, %q, pool %q", code, out, errOut, e.pool(t, "box"))
+	}
+	e.vars["USER"] = "ops"
+	e.run(t, "worker", "move", "box", "--pool", "control")
+	entries, err := e.db.st.Audit().List(t.Context(), e.account.ID, store.AuditFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var moves []string
+	for _, a := range entries {
+		if a.Action == "worker.pool_changed" && a.SubjectType == "worker" {
+			moves = append(moves, a.Actor+" "+string(a.Data))
+		}
+	}
+	slices.Sort(moves)
+	want := []string{`user:admin {"from":"build","name":"box","to":"gpu"}`, `user:ops {"from":"gpu","name":"box","to":"control"}`}
+	if !slices.Equal(moves, want) {
+		t.Errorf("audit = %v, want %v", moves, want)
+	}
+	e.run(t, "worker", "revoke", "box")
+	if _, errOut, code := e.run(t, "worker", "move", "box", "--pool", "build"); code != 1 || !strings.Contains(errOut, "is revoked") {
+		t.Errorf("move revoked: code %d, %q", code, errOut)
 	}
 }
 
