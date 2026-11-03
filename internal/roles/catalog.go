@@ -91,5 +91,7 @@ func (c *Catalog) Resolve(_ context.Context, _, _ uuid.UUID, name string) (Role,
 		Timeout:          d.Timeout,
 		DefinitionOfDone: slices.Clone(d.DefinitionOfDone),
 		EscalateWhen:     slices.Clone(d.EscalateWhen),
+		Pool:             d.Pool,
+		Toolbox:          d.Toolbox,
 	}, nil
 }

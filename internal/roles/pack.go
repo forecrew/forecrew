@@ -16,6 +16,8 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/forecrew/forecrew/internal/config"
+	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/testsys"
 )
 
 // ErrInvalidRole means a role file is malformed or inconsistent.
@@ -64,6 +66,12 @@ type Definition struct {
 	EscalateWhen     []string
 	MaxTurns         int
 	Timeout          time.Duration
+	// Pool is the worker pool the role's jobs run in (pool: in the role
+	// file, default domain.PoolBuild).
+	Pool string
+	// Toolbox is the role's toolbox from packs/toolboxes, resolved; nil
+	// without one.
+	Toolbox *domain.Toolbox
 }
 
 // AllowedTools returns the runtime tools the definition's tools allow,
@@ -90,6 +98,11 @@ type file struct {
 	EscalateWhen     []string      `yaml:"escalate_when"`
 	MaxTurns         int           `yaml:"max_turns"`
 	Timeout          time.Duration `yaml:"timeout"`
+	Pool             string        `yaml:"pool"`
+	Toolbox          string        `yaml:"toolbox"`
+	// Context is reserved for the context pack settings of T38; it must be
+	// empty until they are defined.
+	Context map[string]any `yaml:"context"`
 }
 
 // Load reads every packs/roles/*.yaml file in fsys, keyed by role name. It
@@ -102,10 +115,14 @@ func Load(fsys fs.FS) (map[string]Definition, error) {
 	if len(names) == 0 {
 		return nil, fmt.Errorf("%w: no role files in %s/roles", ErrInvalidRole, PacksDir)
 	}
+	toolboxes, err := LoadToolboxes(fsys)
+	if err != nil {
+		return nil, err
+	}
 	defs := map[string]Definition{}
 	var errs []error
 	for _, name := range names {
-		d, err := loadFile(fsys, name)
+		d, err := loadFile(fsys, name, toolboxes)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -118,7 +135,34 @@ func Load(fsys fs.FS) (map[string]Definition, error) {
 	return defs, nil
 }
 
-func loadFile(fsys fs.FS, name string) (Definition, error) {
+// LoadToolboxes reads every packs/toolboxes/*.yaml file in fsys, keyed by
+// toolbox name (testsys.ParseToolbox). There may be none. It reports every
+// problem at once, wrapping ErrInvalidRole.
+func LoadToolboxes(fsys fs.FS) (map[string]domain.Toolbox, error) {
+	names, err := fs.Glob(fsys, path.Join(PacksDir, "toolboxes", "*.yaml"))
+	if err != nil {
+		return nil, fmt.Errorf("list toolbox files: %w", err)
+	}
+	out := map[string]domain.Toolbox{}
+	var errs []error
+	for _, name := range names {
+		data, err := fs.ReadFile(fsys, name)
+		if err == nil {
+			var t domain.Toolbox
+			if t, err = testsys.ParseToolbox(name, data); err == nil {
+				out[t.Name] = t
+				continue
+			}
+		}
+		errs = append(errs, fmt.Errorf("%w: %w", ErrInvalidRole, err))
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	return out, nil
+}
+
+func loadFile(fsys fs.FS, name string, toolboxes map[string]domain.Toolbox) (Definition, error) {
 	data, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return Definition{}, fmt.Errorf("%w: %w", ErrInvalidRole, err)
@@ -131,6 +175,13 @@ func loadFile(fsys fs.FS, name string) (Definition, error) {
 	}
 	var p []string
 	d := f.check(name, &p)
+	if f.Toolbox != "" {
+		if t, ok := toolboxes[f.Toolbox]; ok {
+			d.Toolbox = &t
+		} else {
+			p = append(p, fmt.Sprintf("toolbox %q: no %s/toolboxes/%s.yaml", f.Toolbox, PacksDir, f.Toolbox))
+		}
+	}
 	if f.Prompt != "" {
 		prompt, err := fs.ReadFile(fsys, path.Join(PacksDir, f.Prompt))
 		switch {
@@ -195,6 +246,12 @@ func (f file) check(name string, p *[]string) Definition {
 	if f.Timeout <= 0 {
 		add("timeout must be a positive duration such as 30m")
 	}
+	if f.Pool != "" && !domain.ValidName(f.Pool) {
+		add("pool %q is not a valid pool name", f.Pool)
+	}
+	if len(f.Context) > 0 {
+		add("context is reserved and must be empty for now")
+	}
 	var writePaths []string
 	if f.WritePaths != nil {
 		writePaths = *f.WritePaths
@@ -209,6 +266,7 @@ func (f file) check(name string, p *[]string) Definition {
 		EscalateWhen:     f.EscalateWhen,
 		MaxTurns:         f.MaxTurns,
 		Timeout:          f.Timeout,
+		Pool:             domain.OrDefaultPool(f.Pool),
 	}
 }
 

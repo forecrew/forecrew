@@ -96,6 +96,23 @@ func TestLoadValid(t *testing.T) {
 	}
 }
 
+func TestLoadPoolAndToolbox(t *testing.T) {
+	fsys := packFS(validRole + "pool: control\ntoolbox: security\ncontext: {}\n")
+	fsys["packs/toolboxes/security.yaml"] = &fstest.MapFile{Data: []byte("name: security\nimage: ghcr.io/x/security:1\nneeds: [Linux]\n")}
+	defs, err := Load(fsys)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	d := defs["dev"]
+	if d.Pool != "control" || d.Toolbox == nil || d.Toolbox.Image != "ghcr.io/x/security:1" || !slices.Equal(d.Toolbox.Needs, []string{"linux"}) {
+		t.Fatalf("definition = %+v", d)
+	}
+	defs, err = Load(packFS(validRole))
+	if err != nil || defs["dev"].Pool != "build" || defs["dev"].Toolbox != nil {
+		t.Fatalf("defaults = %+v, %v", defs["dev"], err)
+	}
+}
+
 func TestLoadInvalid(t *testing.T) {
 	tests := []struct {
 		name string
@@ -126,6 +143,12 @@ func TestLoadInvalid(t *testing.T) {
 		{"no timeout", setRole(strings.Replace(validRole, "timeout: 5m\n", "", 1)), "timeout must be a positive duration"},
 		{"bad yaml", setRole("role: [dev"), "packs/roles/dev.yaml: yaml"},
 		{"no files", func(f fstest.MapFS) { delete(f, "packs/roles/dev.yaml") }, "no role files"},
+		{"bad pool", setRole(validRole + "pool: Control Room\n"), `pool "Control Room" is not a valid pool name`},
+		{"unknown toolbox", setRole(validRole + "toolbox: security\n"), `toolbox "security": no packs/toolboxes/security.yaml`},
+		{"context set", setRole(validRole + "context: {sections: [adr]}\n"), "context is reserved"},
+		{"bad toolbox file", func(f fstest.MapFS) {
+			f["packs/toolboxes/security.yaml"] = &fstest.MapFile{Data: []byte("name: security\n")}
+		}, "packs/toolboxes/security.yaml: invalid file"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
