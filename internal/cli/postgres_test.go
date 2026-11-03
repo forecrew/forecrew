@@ -3,12 +3,15 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 )
 
@@ -37,6 +40,8 @@ func TestPostgresAdminCommands(t *testing.T) {
 	secret := strings.TrimSpace(run("token", "create", "laptop"))
 	worker := strings.TrimSpace(run("worker", "add", "build-1"))
 	run("worker", "revoke", "build-1")
+	ctl := strings.TrimSpace(run("worker", "add", "ctl-1", "--pool", "control"))
+	run("worker", "move", "ctl-1", "--pool", "build")
 
 	db, err := OpenPostgres(t.Context(), url)
 	if err != nil {
@@ -50,6 +55,18 @@ func TestPostgresAdminCommands(t *testing.T) {
 	w, err := db.Store().Workers().GetByTokenHash(t.Context(), mcp.HashToken(worker))
 	if err != nil || !w.Revoked() {
 		t.Fatalf("worker = %+v, %v", w, err)
+	}
+	moved, err := db.Store().Workers().GetByTokenHash(t.Context(), mcp.HashToken(ctl))
+	if err != nil || moved.Pool != "build" {
+		t.Fatalf("moved worker = %+v, %v", moved, err)
+	}
+	audit, err := db.Store().Audit().List(t.Context(), moved.AccountID, store.AuditFilter{SubjectID: moved.ID})
+	if err != nil || len(audit) != 1 || audit[0].Action != "worker.pool_changed" || audit[0].Actor != "user:admin" {
+		t.Fatalf("audit = %+v, %v", audit, err)
+	}
+	var data map[string]string
+	if err := json.Unmarshal(audit[0].Data, &data); err != nil || !maps.Equal(data, map[string]string{"from": "control", "name": "ctl-1", "to": "build"}) {
+		t.Fatalf("audit data = %s, %v", audit[0].Data, err)
 	}
 }
 

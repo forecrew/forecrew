@@ -55,8 +55,8 @@ func TestWorkersCommand(t *testing.T) {
 	e := newRemoteEnv(t)
 	e.svc.ListWorkersFunc = func(context.Context, domain.Actor, any) ([]mcp.WorkerInfo, error) {
 		return []mcp.WorkerInfo{
-			{Name: "build-1", Version: "v1", Labels: []string{"linux", "runtime:codex"}, Online: true, RunningJobs: []string{"JOB-3", "JOB-4"}},
-			{Name: "mac"},
+			{Name: "build-1", Pool: "build", Version: "v1", Labels: []string{"linux", "runtime:codex"}, Online: true, RunningJobs: []string{"JOB-3", "JOB-4"}},
+			{Name: "mac", Pool: "control"},
 			{Name: "old", RevokedAt: time.Now()},
 		}, nil
 	}
@@ -64,7 +64,8 @@ func TestWorkersCommand(t *testing.T) {
 	if code != 0 || errOut != "" {
 		t.Fatalf("code %d, stderr %q", code, errOut)
 	}
-	for _, want := range []string{"NAME", "build-1  online   v1       linux,runtime:codex  JOB-3,JOB-4", "mac      offline  -", "old      revoked"} {
+	for _, want := range []string{"NAME", "NAME     POOL     STATUS", "build-1  build    online   v1       linux,runtime:codex  JOB-3,JOB-4",
+		"mac      control  offline  -", "old      build    revoked"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}

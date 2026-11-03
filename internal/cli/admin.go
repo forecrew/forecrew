@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -189,12 +190,41 @@ func revokeByNameOrID[T any](what, key string, items []T, info func(T) (id uuid.
 }
 
 func newWorkerAdminCommand(env Env) *cobra.Command {
-	worker := &cobra.Command{Use: "worker", Short: "Register and revoke workers"}
-	var accountFlag string
-	add := issueCommand(env, &accountFlag, "add <name>", "Register a worker; its token is shown once", prefixWorkerToken, "worker",
+	worker := &cobra.Command{Use: "worker", Short: "Register, move and revoke workers"}
+	var accountFlag, addPool, configPath string
+	add := issueCommand(env, &accountFlag, "add <name>", "Register a worker in a pool; its token is shown once", prefixWorkerToken, "worker",
 		func(ctx context.Context, st store.Store, accountID uuid.UUID, name string, hash []byte) error {
-			return st.Workers().Create(ctx, &domain.Worker{AccountID: accountID, Name: name, TokenHash: hash})
+			if err := checkWorkerPool(env, configPath, addPool); err != nil {
+				return err
+			}
+			return st.Workers().Create(ctx, &domain.Worker{AccountID: accountID, Name: name, Pool: addPool, TokenHash: hash})
 		})
+	add.Flags().StringVar(&addPool, "pool", domain.PoolBuild, "pool the worker leases jobs from")
+	var movePool string
+	move := &cobra.Command{
+		Use:   "move <name|id>",
+		Short: "Move a worker to another pool; it takes effect at its next poll and running jobs finish",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkWorkerPool(env, configPath, movePool); err != nil {
+				return err
+			}
+			return withDatabase(env, cmd, func(ctx context.Context, db Database) error {
+				accountID, err := account(ctx, db.Store(), accountFlag)
+				if err != nil {
+					return err
+				}
+				by := domain.Actor{AccountID: accountID, Kind: domain.ActorUser, Name: adminName(env)}
+				if err := moveWorker(ctx, db.Store(), by, args[0], movePool); err != nil {
+					return err
+				}
+				cmd.Printf("worker %s moved to pool %s\n", args[0], movePool)
+				return nil
+			})
+		},
+	}
+	move.Flags().StringVar(&movePool, "pool", "", "pool to move the worker to (required)")
+	_ = move.MarkFlagRequired("pool")
 	revoke := &cobra.Command{
 		Use:   "revoke <name|id>",
 		Short: "Revoke a worker's token",
@@ -214,8 +244,73 @@ func newWorkerAdminCommand(env Env) *cobra.Command {
 		},
 	}
 	worker.PersistentFlags().StringVar(&accountFlag, "account", "", "account ID; defaults to the only account")
-	worker.AddCommand(add, revoke)
+	worker.PersistentFlags().StringVar(&configPath, "config", "forecrew.yaml",
+		"path to forecrew.yaml, read for pools other than "+domain.PoolBuild+" and "+domain.PoolControl)
+	worker.AddCommand(add, move, revoke)
 	return worker
+}
+
+// checkWorkerPool fails unless workers may join pool: a default pool except
+// actions, whose jobs forecrewd runs on GitHub-hosted runners, or a pool of
+// the forecrew.yaml at path, which is read only for pools that are not
+// default ones.
+func checkWorkerPool(env Env, path, pool string) error {
+	if pool == domain.PoolActions {
+		return fmt.Errorf("pool %s has no workers: forecrewd runs its jobs on GitHub-hosted runners", pool)
+	}
+	if _, ok := config.DefaultPools()[pool]; ok {
+		return nil
+	}
+	if !domain.ValidName(pool) {
+		return fmt.Errorf("pool %q is not a valid pool name", pool)
+	}
+	cfg, err := config.Load(path, env.Getenv)
+	if err != nil {
+		return fmt.Errorf("pool %s is not a default pool and the pools of %s cannot be read: %w", pool, path, err)
+	}
+	if _, ok := cfg.Pools[pool]; !ok {
+		return fmt.Errorf("unknown pool %s: it is not a default pool or under pools in %s", pool, path)
+	}
+	return nil
+}
+
+// moveWorker moves the active worker with the given name or ID to pool and
+// records worker.pool_changed with the old and new pool, in one transaction:
+// a move changes the worker's trust boundary.
+func moveWorker(ctx context.Context, st store.Store, by domain.Actor, nameOrID, pool string) error {
+	return st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		workers, err := tx.Workers().List(ctx, by.AccountID)
+		if err != nil {
+			return fmt.Errorf("list workers: %w", err)
+		}
+		w, err := store.FindActive(nameOrID, workers, workerInfo)
+		if err != nil {
+			return fmt.Errorf("worker %q does not exist or is revoked", nameOrID)
+		}
+		if err := tx.Workers().SetPool(ctx, by.AccountID, w.ID, pool); err != nil {
+			return fmt.Errorf("move worker %s: %w", nameOrID, err)
+		}
+		data, err := json.Marshal(map[string]string{"name": w.Name, "from": w.Pool, "to": domain.OrDefaultPool(pool)})
+		if err != nil {
+			return fmt.Errorf("marshal audit data: %w", err)
+		}
+		err = tx.Audit().Append(ctx, &domain.AuditEntry{
+			AccountID: by.AccountID, Actor: by.String(), Action: "worker.pool_changed", SubjectType: "worker", SubjectID: w.ID, Data: data,
+		})
+		if err != nil {
+			return fmt.Errorf("audit move of worker %s: %w", nameOrID, err)
+		}
+		return nil
+	})
+}
+
+// adminName names the person running an admin command in the audit log:
+// the login of $USER, or admin.
+func adminName(env Env) string {
+	if u := env.Getenv("USER"); u != "" {
+		return u
+	}
+	return "admin"
 }
 
 // revokeWorker revokes the active worker with the given name or ID.
@@ -224,10 +319,11 @@ func revokeWorker(ctx context.Context, st store.Store, accountID uuid.UUID, name
 	if err != nil {
 		return fmt.Errorf("list workers: %w", err)
 	}
-	return revokeByNameOrID("worker", nameOrID, workers,
-		func(w domain.Worker) (uuid.UUID, string, bool) { return w.ID, w.Name, w.Revoked() },
+	return revokeByNameOrID("worker", nameOrID, workers, workerInfo,
 		func(id uuid.UUID) error { return st.Workers().Revoke(ctx, accountID, id) })
 }
+
+func workerInfo(w domain.Worker) (uuid.UUID, string, bool) { return w.ID, w.Name, w.Revoked() }
 
 // createError explains why a token or worker could not be created.
 func createError(what, name string, err error) error {

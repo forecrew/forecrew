@@ -254,7 +254,7 @@ func dash(s string) string {
 }
 
 func printWorkers(w io.Writer, items []mcp.WorkerInfo) {
-	rows := [][]string{{"NAME", "STATUS", "VERSION", "LABELS", "RUNNING"}}
+	rows := [][]string{{"NAME", "POOL", "STATUS", "VERSION", "LABELS", "RUNNING"}}
 	for _, x := range items {
 		status := "offline"
 		switch {
@@ -263,7 +263,7 @@ func printWorkers(w io.Writer, items []mcp.WorkerInfo) {
 		case x.Online:
 			status = "online"
 		}
-		rows = append(rows, []string{x.Name, status, dash(x.Version), dash(strings.Join(x.Labels, ",")), dash(strings.Join(x.RunningJobs, ","))})
+		rows = append(rows, []string{x.Name, domain.OrDefaultPool(x.Pool), status, dash(x.Version), dash(strings.Join(x.Labels, ",")), dash(strings.Join(x.RunningJobs, ","))})
 	}
 	table(w, rows)
 }
