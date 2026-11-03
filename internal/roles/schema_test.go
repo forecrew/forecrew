@@ -16,7 +16,7 @@ import (
 // outputSchemas are the role output schemas; common.json only holds shared
 // $defs.
 var outputSchemas = []string{"profile-draft", "spec", "task-breakdown", "developer-result", "review-verdict",
-	"test-plan"}
+	"test-plan", "environments"}
 
 func TestSchemaExamples(t *testing.T) {
 	for _, name := range outputSchemas {
@@ -197,6 +197,10 @@ func TestTestRoleSchemaRejects(t *testing.T) {
 		{"test-plan", "unknown matrix part", func(d map[string]any) { item(d, "matrix_changes", 0)["part"] = "services" }},
 		{"test-plan", "change without reason", func(d map[string]any) { delete(item(d, "matrix_changes", 0), "reason") }},
 		{"test-plan", "no open questions", func(d map[string]any) { delete(d, "open_questions") }},
+		{"environments", "unknown provider", func(d map[string]any) { item(d, "environments", 0)["provider"] = "vm" }},
+		{"environments", "bad name", func(d map[string]any) { item(d, "environments", 0)["name"] = "Ubuntu Latest" }},
+		{"environments", "no reason", func(d map[string]any) { item(d, "environments", 0)["reason"] = "" }},
+		{"environments", "unknown change", func(d map[string]any) { item(d, "environments", 0)["change"] = "rebuilt" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.schema+"/"+tt.name, func(t *testing.T) {

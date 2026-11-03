@@ -1,0 +1,8 @@
+{
+  "summary": "Linux only.",
+  "environments": [
+    {"name": "Ubuntu Latest", "provider": "vm", "reason": "Because."}
+  ],
+  "assumptions": [],
+  "escalation": null
+}

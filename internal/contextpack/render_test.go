@@ -27,8 +27,38 @@ var (
 	spec = Text{Heading: "Spec SPEC-4, revision 2", Body: "Reset by email.\n\n## Acceptance criteria\n\n" +
 		"- AC-1: A reset request emails a single-use link valid for 1 hour.\n" +
 		"- AC-2: An expired or used link shows an error and offers a new link.\n"}
-	task = Text{Heading: "Task TASK-12: Add reset token store", Body: "Criteria: AC-1.\n\nAdd a reset_tokens table and repo in internal/store."}
+	task       = Text{Heading: "Task TASK-12: Add reset token store", Body: "Criteria: AC-1.\n\nAdd a reset_tokens table and repo in internal/store."}
+	testMatrix = []byte(`version: 1
+axes:
+  os: [linux, windows]
+environments:
+  - {match: {os: linux}, environment: linux}
+  - {match: {os: windows}, environment: windows}
+suites:
+  - name: unit
+    level: unit
+    command: [go, run, gotest.tools/gotestsum@v1.12.0, --junitfile, unit.xml, --, ./...]
+    reports: [unit.xml]
+  - name: quirks
+    level: unit
+    quirks: true
+    command: [go, run, gotest.tools/gotestsum@v1.12.0, --junitfile, quirks.xml, --, -run, Quirks, ./...]
+    reports: [quirks.xml]
+`)
+	testStrategy = []byte("# Test strategy\n\n## Suites\n\n- unit: every `*_test.go`; classname is the package import path.\n" +
+		"- quirks: tests named `TestQuirks...`.\n")
+	linuxEnv = []byte("version: 1\nname: linux\nprovider: actions\nruns_on: ubuntu-24.04\nversions: {go: go version}\n")
 )
+
+// testPlanText is the Test plan section of the golden inputs: the windows
+// environment is not written yet.
+func testPlanText(ref string) Text {
+	p := plan{ref: ref, matrix: testMatrix, strategy: testStrategy, environments: []environment{
+		{name: "linux", file: ".forecrew/environments/linux.yaml", data: linuxEnv},
+		{name: "windows", file: ".forecrew/environments/windows.yaml"},
+	}}
+	return Text{Heading: "Test plan", Body: p.render()}
+}
 
 func catalog(t *testing.T) *roles.Catalog {
 	t.Helper()
@@ -42,12 +72,13 @@ func catalog(t *testing.T) *roles.Catalog {
 			config.TierBest:   {"anthropic": "claude-best", "openai": "gpt-best"},
 		},
 		Roles: map[string]config.Role{
-			"onboarding-analyst": {Runtime: "claude", Tier: config.TierStrong},
-			"product-owner":      {Runtime: "claude", Tier: config.TierBest},
-			"architect":          {Runtime: "claude", Tier: config.TierBest},
-			"developer":          {Runtime: "claude", Tier: config.TierStrong},
-			"reviewer":           {Runtime: "codex", Tier: config.TierBest},
-			"test-architect":     {Runtime: "claude", Tier: config.TierBest},
+			"onboarding-analyst":   {Runtime: "claude", Tier: config.TierStrong},
+			"product-owner":        {Runtime: "claude", Tier: config.TierBest},
+			"architect":            {Runtime: "claude", Tier: config.TierBest},
+			"developer":            {Runtime: "claude", Tier: config.TierStrong},
+			"reviewer":             {Runtime: "codex", Tier: config.TierBest},
+			"test-architect":       {Runtime: "claude", Tier: config.TierBest},
+			"environment-engineer": {Runtime: "claude", Tier: config.TierStrong},
 		},
 	}
 	c, err := roles.New(forecrew.Files, cfg)
@@ -79,6 +110,8 @@ func TestRenderGolden(t *testing.T) {
 		"reviewer": {Repo: "acme/app", BaseRef: "main", Branch: "agent/task-12", Profile: profile, Goal: goal, Spec: spec, Task: task},
 		"test-architect": {Repo: "acme/app", BaseRef: "main", Branch: "agent/onboarding-tests", Profile: profile,
 			TestPlan: Text{Heading: "Test plan", Body: plan{ref: "main"}.render()}},
+		"environment-engineer": {Repo: "acme/app", BaseRef: "main", Branch: "agent/onboarding-tests", Profile: profile,
+			TestPlan: testPlanText("agent/onboarding-tests")},
 	}
 	c := catalog(t)
 	for _, name := range c.Names() {
