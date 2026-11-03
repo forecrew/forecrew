@@ -48,6 +48,28 @@ roles:
 
 policy:
   allow_same_vendor_review: false
+
+pools:                                        # optional; these are the defaults
+  build:
+    roles: ["*"]
+    kinds: [agent, command]
+    credentials: {runtimes: ["*"], repo_token: write}
+  control:
+    roles: ["*"]
+    kinds: [agent]
+    credentials: {runtimes: ["*"], repo_token: read}
+  actions:
+    roles: []
+    kinds: [command]
+    credentials: {runtimes: [], repo_token: read}
+
+evidence:                                     # optional; artifact storage
+  endpoint: http://garage:3900
+  bucket: forecrew-evidence
+  region: garage
+  path_style: true
+  max_artifact_size: 104857600
+  retention_days: 90
 ```
 
 Model names above are examples; use the ones your vendors offer.
@@ -69,6 +91,27 @@ Model names above are examples; use the ones your vendors offer.
 | `model_tiers` | map tier → vendor → model | yes for every (tier, vendor) a role uses | | Tiers are `fast`, `strong`, `best`. |
 | `roles` | map role → `{runtime, tier}` | no | empty | Runtime and tier per role. Role definitions (prompts, write paths, schemas) live in `packs/roles`. |
 | `policy.allow_same_vendor_review` | bool | no | `false` | When false, `reviewer` and `developer` must use runtimes of different vendors. |
+| `pools` | map name → pool | no | `build`, `control`, `actions` as above | Worker pools (`config.Pool`). Names are `domain.ValidName`s. An entry replaces the default of the same name; the defaults not redefined always exist. Every worker belongs to one pool (worker-api.md, Pools). |
+| `pools.<name>.roles` | list of strings | no | empty | Roles whose agent jobs the pool runs, or `"*"` for all. Not used for command jobs. |
+| `pools.<name>.kinds` | list of `agent` \| `command` | yes | | Job kinds the pool runs. |
+| `pools.<name>.credentials.runtimes` | list of strings | no | empty | Runtimes (keys of `runtimes`) whose `credential_env` the pool's jobs may receive, or `"*"`. A job whose runtime is not listed is leased without `env`. |
+| `pools.<name>.credentials.repo_token` | `write` \| `read` \| `none` | yes | | Widest repo token scope the pool's jobs receive. A writing role's job is refused in a pool without `write`. |
+| `evidence` | object | no | absent | S3-compatible object storage for artifacts (test reports, logs, screenshots, verification reports). Absent: artifact uploads answer `503` (worker-api.md). |
+| `evidence.endpoint` | URL | yes | | S3 endpoint, `https://` (or `http://` on a private network such as Docker Compose). |
+| `evidence.bucket` | string | yes | | Bucket; must exist. |
+| `evidence.region` | string | no | `us-east-1` | Region sent with requests. |
+| `evidence.path_style` | bool | no | `false` | Path-style URLs (`<endpoint>/<bucket>/<key>`), needed by most self-hosted servers. |
+| `evidence.max_artifact_size` | integer bytes | no | `104857600` (100 MiB) | Largest artifact a worker may upload; larger uploads get `413`. |
+| `evidence.retention_days` | integer ≥ 0 | no | `0` | Artifacts older than this are deleted; `0` keeps them forever. |
+
+A job may run in a pool when the pool lists its kind and, for an agent job,
+its role (or `"*"`), and when the role writes, the pool's `repo_token` is
+`write` (`config.Pool.Allows`). A job's pool comes from its role pack's
+`pool` (roles.md, default `build`) or, for a command job, from its
+environment (`actions` for provider `actions`, otherwise `build`,
+`domain.CommandPool`); a job its pool does not allow is refused when it is
+created. Pool `actions` has no worker daemons: forecrewd runs its jobs on
+GitHub-hosted runners.
 
 ### Environment variables
 
@@ -78,6 +121,8 @@ Model names above are examples; use the ones your vendors offer.
 | `FORECREW_GITHUB_PRIVATE_KEY` | yes | GitHub App private key, PEM. |
 | `FORECREW_GITHUB_WEBHOOK_SECRET` | yes | GitHub App webhook secret. |
 | each `runtimes.*.credential_env` entry | yes | Runtime credentials, e.g. `ANTHROPIC_API_KEY`. |
+| `FORECREW_EVIDENCE_ACCESS_KEY_ID` | when `evidence` is set | Access key of the evidence bucket. |
+| `FORECREW_EVIDENCE_SECRET_ACCESS_KEY` | when `evidence` is set | Secret key of the evidence bucket. Never logged. |
 
 forecrewd takes the config path from `--config` (default `forecrew.yaml`).
 
@@ -87,8 +132,12 @@ forecrewd takes the config path from `--config` (default `forecrew.yaml`).
 missing or malformed `public_base_url`, `public_base_url` not matching
 `tls_domain`, missing env secrets, `app_id` ≤ 0, no runtimes, unknown adapter,
 missing vendor, invalid runtime name, unknown tier, role referring to an
-unknown runtime, role tier without a model for the runtime's vendor, and
-reviewer/developer on the same vendor without `allow_same_vendor_review`.
+unknown runtime, role tier without a model for the runtime's vendor,
+reviewer/developer on the same vendor without `allow_same_vendor_review`,
+invalid pool names, pools without kinds or with unknown kinds, empty role
+names, pool runtimes that are not configured, unknown `repo_token` scopes,
+and, when `evidence` is set, a malformed endpoint, no bucket, a negative
+size or retention, and missing evidence keys.
 
 ## worker.yaml
 
