@@ -14,6 +14,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/evidence"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 )
 
@@ -38,12 +39,12 @@ func request(t *testing.T, base, method, path, token string, body io.Reader) (in
 }
 
 // runningJob adds a worker and leases it a job through the worker API.
-func runningJob(t *testing.T, f *fixture, base string) (job domain.Job, workerToken string) {
+func runningJob(t *testing.T, st store.Store, account domain.Account, project domain.Project, base string) (job domain.Job, workerToken string) {
 	t.Helper()
 	workerToken = "fcw_test-worker"
-	must(t, f.st.Workers().Create(t.Context(), &domain.Worker{AccountID: f.account.ID, Name: "box", TokenHash: mcp.HashToken(workerToken), MaxJobs: 1}))
-	job = domain.Job{AccountID: f.account.ID, ProjectID: f.project.ID, Role: "developer", Runtime: "claude-code", Spec: domain.JobSpec{Repo: "acme/app", Model: "m", Prompt: "p"}}
-	must(t, f.st.Jobs().Create(t.Context(), &job))
+	must(t, st.Workers().Create(t.Context(), &domain.Worker{AccountID: account.ID, Name: "box", TokenHash: mcp.HashToken(workerToken), MaxJobs: 1}))
+	job = domain.Job{AccountID: account.ID, ProjectID: project.ID, Role: "developer", Runtime: "claude-code", Spec: domain.JobSpec{Repo: "acme/app", Model: "m", Prompt: "p"}}
+	must(t, st.Jobs().Create(t.Context(), &job))
 	status, _, body := request(t, base, "POST", "/worker/v1/poll", workerToken, strings.NewReader(`{"labels":["runtime:claude-code"],"free_slots":1,"version":"v"}`))
 	if status != http.StatusOK {
 		t.Fatalf("poll: %d %s", status, body)
@@ -58,7 +59,7 @@ func TestEvidenceEndToEnd(t *testing.T) {
 	t.Cleanup(srv.Close)
 	const userToken = "fcm_user"
 	must(t, f.st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: f.account.ID, Name: "me", TokenHash: mcp.HashToken(userToken)}))
-	job, workerToken := runningJob(t, f, srv.URL)
+	job, workerToken := runningJob(t, f.st, f.account, f.project, srv.URL)
 	up := "/worker/v1/jobs/" + job.ID.String() + "/artifacts/reports/unit.xml"
 
 	// The size limit of the config applies.
@@ -92,7 +93,7 @@ func TestEvidenceNotConfigured(t *testing.T) {
 	t.Cleanup(srv.Close)
 	const userToken = "fcm_user"
 	must(t, f.st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: f.account.ID, Name: "me", TokenHash: mcp.HashToken(userToken)}))
-	job, workerToken := runningJob(t, f, srv.URL)
+	job, workerToken := runningJob(t, f.st, f.account, f.project, srv.URL)
 
 	status, _, body := request(t, srv.URL, "PUT", "/worker/v1/jobs/"+job.ID.String()+"/artifacts/a.log", workerToken, strings.NewReader("x"))
 	if status != http.StatusServiceUnavailable || !strings.Contains(body, "unavailable") {
