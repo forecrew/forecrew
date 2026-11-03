@@ -378,3 +378,45 @@ func TestReleaseBacksOff(t *testing.T) {
 		t.Fatalf("lease after backoff = %+v, %v", got, err)
 	}
 }
+
+func TestRequeueExpiredWaitsForLockedRow(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Jobs()
+	worker := f.newWorker(t, "w1").ID
+	labels := []string{"runtime:claude-code"}
+	var ids []uuid.UUID
+	for range 3 {
+		f.newJob(t)
+		j, err := repo.LeaseNext(ctx, f.account, worker, labels, time.Hour)
+		must(t, err)
+		ids = append(ids, j.ID)
+	}
+	// The first job's daemon died while a write on its row was still open
+	// (an events insert); the other jobs of the worker keep heartbeating.
+	_, err := f.pool.Exec(ctx, `UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1`, ids[0])
+	must(t, err)
+	_, err = repo.ExtendLease(ctx, f.account, ids[1], worker, time.Hour)
+	must(t, err)
+	tx, err := f.pool.Begin(ctx)
+	must(t, err)
+	defer tx.Rollback(ctx) //nolint:errcheck
+	_, err = tx.Exec(ctx, `SELECT 1 FROM jobs WHERE id = $1 FOR UPDATE`, ids[0])
+	must(t, err)
+	committed := make(chan error, 1)
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		committed <- tx.Commit(ctx)
+	}()
+	// The transaction is used by one goroutine at a time: the test only
+	// touches it again (the deferred Rollback) after the commit returned.
+	defer func() {
+		if err := <-committed; err != nil {
+			t.Errorf("commit: %v", err)
+		}
+	}()
+	got, err := repo.RequeueExpired(ctx, f.account)
+	if err != nil || len(got) != 1 || got[0].ID != ids[0] || got[0].Status != domain.JobQueued {
+		t.Fatalf("requeue = %+v, %v; a locked expired lease must not be skipped", got, err)
+	}
+}

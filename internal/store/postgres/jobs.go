@@ -214,7 +214,7 @@ func (r jobRepo) RequeueExpired(ctx context.Context, accountID uuid.UUID) ([]dom
 	err := inTx(ctx, r.db, func(tx dbtx) error {
 		expired, err := many(ctx, tx, scanJob, `SELECT `+jobCols+` FROM jobs
 			WHERE account_id = $1 AND status = 'running' AND lease_expires_at <= now()
-			ORDER BY lease_expires_at, id FOR UPDATE SKIP LOCKED`, accountID)
+			ORDER BY lease_expires_at, id FOR UPDATE`, accountID)
 		if err != nil {
 			return err
 		}
