@@ -1,0 +1,10 @@
+{
+  "question": "Which queue?",
+  "options": [{"name": "postgres-queue", "summary": "SKIP LOCKED.", "pros": [], "cons": [], "cost": "cheap", "risk": "low"}],
+  "recommendation": "postgres-queue",
+  "votes": [],
+  "dissent": [],
+  "assumptions": [{"text": "One instance.", "confidence": "high", "impact": "low"}],
+  "open_questions": [],
+  "reversible": true
+}

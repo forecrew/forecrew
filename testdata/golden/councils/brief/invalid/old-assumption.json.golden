@@ -1,0 +1,1 @@
+council brief: invalid file: at '': missing property 'budget_exhausted'; at '/assumptions/0': additional properties 'text' not allowed; at '/assumptions/0': missing properties 'statement', 'verify_by'; at '/options/0/cost': value must be one of 'low', 'medium', 'high'

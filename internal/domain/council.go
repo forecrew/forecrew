@@ -269,16 +269,16 @@ func (b CouncilBrief) check(p *problems) {
 	names := map[string]bool{}
 	for _, o := range b.Options {
 		if names[o.Name] {
-			p.addf("brief: option %q is listed twice", o.Name)
+			p.addf("option %q is listed twice", o.Name)
 		}
 		names[o.Name] = true
 	}
 	if !names[b.Recommendation] {
-		p.addf("brief: recommendation %q is not an option", b.Recommendation)
+		p.addf("recommendation %q is not an option", b.Recommendation)
 	}
 	for _, v := range b.Votes {
 		if !names[v.Option] {
-			p.addf("brief: %s votes for %q, which is not an option", v.Member, v.Option)
+			p.addf("%s votes for %q, which is not an option", v.Member, v.Option)
 		}
 	}
 	for _, a := range b.Assumptions {
