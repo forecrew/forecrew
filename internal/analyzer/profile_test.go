@@ -220,3 +220,30 @@ func mustMarshal(t *testing.T, p Profile) []byte {
 	}
 	return data
 }
+
+func TestDraftProfileIntegrations(t *testing.T) {
+	f := Facts{
+		Name: "shop",
+		Integrations: []Integration{{
+			Tool: "jira", Uses: []string{"tracker"}, Confidence: "low",
+			Evidence: []IntegrationEvidence{{Kind: "issue_key", Location: "git:commits:ENG", Count: 2}},
+		}},
+	}
+	p := DraftProfile(f)
+	if len(p.Integrations) != 1 || p.Integrations[0].Tool != "jira" || p.Integrations[0].Status != "proposed" {
+		t.Fatalf("integrations = %+v, want one proposed jira", p.Integrations)
+	}
+	if f.Integrations[0].Status != "" {
+		t.Errorf("DraftProfile changed the facts: status %q", f.Integrations[0].Status)
+	}
+	data, err := marshalProfile(p)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := Validate(data); err != nil {
+		t.Errorf("draft with integrations does not validate: %v\n%s", err, data)
+	}
+	if got := DraftProfile(Facts{Name: "shop"}).Integrations; got != nil {
+		t.Errorf("no facts integrations = %+v, want none", got)
+	}
+}
