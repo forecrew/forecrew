@@ -1,6 +1,7 @@
-// Package councils holds the council contracts: the decision brief a
-// council ends with. The council runner (T33) and the council packs (T34)
-// build on it.
+// Package councils holds the council contracts and packs: the decision
+// brief a council ends with, the standard councils of packs/councils, and
+// the prompts and schemas of each council step (docs/councils.md). The
+// council runner (T33) builds on it.
 package councils
 
 import (
@@ -16,7 +17,8 @@ import (
 // is a copy that role packs use as the synthesis output schema.
 const BriefSchemaFile = "docs/contracts/council-brief.schema.json"
 
-// ErrInvalid is wrapped by every error about a brief.
+// ErrInvalid is wrapped by every error about a brief or another council
+// output.
 var ErrInvalid = schema.ErrInvalid
 
 // ParseBrief checks data, a brief as JSON, against council-brief.schema.json

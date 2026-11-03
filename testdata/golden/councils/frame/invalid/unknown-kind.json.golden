@@ -1,0 +1,1 @@
+council frame: invalid file: at '/context/0': missing properties 'date', 'confidence'; at '/context/0/kind': value must be one of 'path', 'kb', 'url', 'job'; at '/must_contain': minItems: got 0, want 1

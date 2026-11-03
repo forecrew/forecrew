@@ -1,0 +1,62 @@
+{
+  "priority": "simplicity",
+  "position": "Keep the Postgres queue: it already meets the load and adds no service.",
+  "recommendation": "postgres-queue",
+  "options": [
+    {
+      "name": "postgres-queue",
+      "summary": "Keep SKIP LOCKED leasing.",
+      "pros": [
+        "no new service"
+      ],
+      "cons": [
+        "polling"
+      ],
+      "cost": "low",
+      "risk": "low"
+    },
+    {
+      "name": "redis-streams",
+      "summary": "Move jobs to Redis streams.",
+      "pros": [
+        "push delivery"
+      ],
+      "cons": [
+        "a second store"
+      ],
+      "cost": "medium",
+      "risk": "medium"
+    }
+  ],
+  "evidence": [
+    {
+      "claim": "Leasing uses SKIP LOCKED.",
+      "kind": "path",
+      "source": "internal/queue/lease.go:40-58",
+      "date": null,
+      "confidence": "high"
+    }
+  ],
+  "assumptions": [
+    {
+      "statement": "Load stays under 100 jobs a minute.",
+      "confidence": "medium",
+      "impact": "high",
+      "verify_by": "research"
+    }
+  ],
+  "risks": [
+    {
+      "risk": "Polling delays jobs.",
+      "likelihood": "low",
+      "impact": "low",
+      "mitigation": "LISTEN/NOTIFY wake-ups."
+    }
+  ],
+  "revision": {
+    "changed": false,
+    "reason": "The critiques did not show load above the assumption.",
+    "prompted_by": []
+  },
+  "escalation": null
+}

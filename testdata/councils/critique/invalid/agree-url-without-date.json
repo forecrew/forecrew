@@ -1,0 +1,55 @@
+{
+  "priority": "risk",
+  "critiques": [
+    {
+      "member": "architect@claude-code",
+      "agree": [
+        {
+          "point": "No new service.",
+          "reason": "Fewer credentials to protect.",
+          "evidence": [
+            {
+              "claim": "x",
+              "kind": "url",
+              "source": "https://example.com",
+              "date": null,
+              "confidence": "low"
+            }
+          ]
+        }
+      ],
+      "disagree": [
+        {
+          "point": "Polling is harmless.",
+          "reason": "Lease expiry is not tested under load.",
+          "evidence": [
+            {
+              "claim": "No load test covers lease expiry.",
+              "kind": "path",
+              "source": "internal/queue/lease_test.go",
+              "date": null,
+              "confidence": "medium"
+            }
+          ]
+        }
+      ],
+      "challenged_assumptions": [
+        {
+          "assumption": "Load stays under 100 jobs a minute.",
+          "challenge": "Fan-out councils multiply jobs per goal.",
+          "evidence": [
+            {
+              "claim": "Councils run jobs in parallel.",
+              "kind": "kb",
+              "source": "docs/playbooks.md",
+              "date": null,
+              "confidence": "medium"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "assumptions": [],
+  "escalation": null
+}

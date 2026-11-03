@@ -1,0 +1,24 @@
+# The test design council: what must be verified, where and how?
+# Format: docs/councils.md.
+kind: test_design
+question: What must be verified, where and how?
+facilitator: facilitator
+max_rounds: 1
+budget: {tokens: 400000, time: 45m}
+members:
+  - role: test-architect
+    priority: risk
+    focus: which failures matter most to users and the business, and the test level and cell that would catch each
+    runtimes: [claude-code, codex]
+  - role: environment-engineer
+    priority: cost
+    focus: what each environment, platform and service in the matrix costs to provide, run and keep working
+    runtimes: [codex, claude-code]
+  - role: developer
+    priority: simplicity
+    focus: tests that are fast, deterministic and easy to keep passing as the code changes
+    runtimes: [claude-code, codex]
+  - role: devils-advocate
+    priority: dissent
+    focus: what the planned tests would still miss, and which planned tests are not worth their cost
+    runtimes: [codex, claude-code]

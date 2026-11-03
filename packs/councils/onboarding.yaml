@@ -1,0 +1,24 @@
+# The onboarding council: what is this project and what does it need?
+# Format: docs/councils.md.
+kind: onboarding
+question: What is this project, and what does it need from Forecrew to be built and verified safely?
+facilitator: facilitator
+max_rounds: 1
+budget: {tokens: 400000, time: 45m}
+members:
+  - role: architect
+    priority: simplicity
+    focus: the smallest setup that describes the project as it is, built on what the repo already uses
+    runtimes: [claude-code, codex]
+  - role: environment-engineer
+    priority: operability
+    focus: what it takes to build, run and test the project on every platform it supports, and what breaks there
+    runtimes: [codex, claude-code]
+  - role: test-architect
+    priority: risk
+    focus: what can break unnoticed today, and which checks would catch it first
+    runtimes: [claude-code, codex]
+  - role: devils-advocate
+    priority: dissent
+    focus: the case against the setup most members will reach for, and what the obvious reading of the repo gets wrong
+    runtimes: [codex, claude-code]
