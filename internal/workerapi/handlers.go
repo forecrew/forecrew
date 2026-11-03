@@ -251,10 +251,7 @@ func (s *Server) events(rw http.ResponseWriter, r *http.Request) {
 		writeError(rw, http.StatusBadRequest, "bad_request", msg)
 		return
 	}
-	j, err := s.cfg.Store.Jobs().Get(ctx, w.AccountID, id)
-	if err == nil && (j.Status != domain.JobRunning || j.WorkerID != w.ID) {
-		err = fmt.Errorf("job %s is %s: %w", j.Ref(), j.Status, store.ErrLeaseLost)
-	}
+	_, err := s.leasedJob(ctx, w, id)
 	if err == nil && len(req.Events) > 0 {
 		_, err = s.cfg.Store.JobEvents().Append(ctx, w.AccountID, id, req.Events)
 	}

@@ -8,14 +8,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/evidence"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/mcp"
@@ -55,6 +58,12 @@ type Config struct {
 	// (config.Config.Pools); nil means config.DefaultPools.
 	Pools  map[string]config.Pool
 	Logger *slog.Logger
+	// Evidence stores artifacts; nil answers artifact uploads with 503.
+	Evidence evidence.Store
+	// MaxArtifactSize is the largest artifact a worker may upload, in bytes
+	// (evidence.max_artifact_size); it defaults to
+	// config.DefaultMaxArtifactSize.
+	MaxArtifactSize int64
 	// PollWait and PollRecheck default to the constants of the same name.
 	PollWait    time.Duration
 	PollRecheck time.Duration
@@ -73,6 +82,9 @@ func New(cfg Config) *Server {
 	if cfg.PollRecheck == 0 {
 		cfg.PollRecheck = PollRecheck
 	}
+	if cfg.MaxArtifactSize <= 0 {
+		cfg.MaxArtifactSize = config.DefaultMaxArtifactSize
+	}
 	if cfg.Env == nil {
 		cfg.Env = func(domain.Job) (string, map[string]string) { return "", nil }
 	}
@@ -89,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /worker/v1/poll", s.poll)
 	mux.HandleFunc("POST /worker/v1/jobs/{job_id}/heartbeat", s.heartbeat)
 	mux.HandleFunc("POST /worker/v1/jobs/{job_id}/events", s.events)
+	mux.HandleFunc("PUT /worker/v1/jobs/{job_id}/artifacts/{name...}", s.uploadArtifact)
 	mux.HandleFunc("POST /worker/v1/jobs/{job_id}/complete", s.complete)
 	return s.authenticate(mux)
 }
@@ -122,6 +135,17 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(rw, r.WithContext(context.WithValue(r.Context(), workerKey{}, w)))
 	})
+}
+
+// leasedJob returns the job id if w still holds its lease: the job is running
+// and leased to w. Otherwise it wraps store.ErrLeaseLost (store.ErrNotFound
+// when the job is not one of the worker's account).
+func (s *Server) leasedJob(ctx context.Context, w domain.Worker, id uuid.UUID) (domain.Job, error) {
+	j, err := s.cfg.Store.Jobs().Get(ctx, w.AccountID, id)
+	if err == nil && (j.Status != domain.JobRunning || j.WorkerID != w.ID) {
+		err = fmt.Errorf("job %s is %s: %w", j.Ref(), j.Status, store.ErrLeaseLost)
+	}
+	return j, err
 }
 
 // worker returns the authenticated worker and a logger with its IDs.

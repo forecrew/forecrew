@@ -43,6 +43,7 @@ Non-2xx responses have this body:
 | 401 | `unauthorized` | Missing, unknown or revoked token. |
 | 404 | `not_found` | `job_id` is not a job of the worker's account. |
 | 409 | `lease_lost` | The job is not running under this worker's lease. |
+| 411 | `length_required` | Artifact upload without a `Content-Length` (a chunked body). |
 | 413 | `too_large` | Body over 1 MiB; for an artifact upload, over `evidence.max_artifact_size`. |
 | 500 | `internal` | Server error; the worker retries with backoff. |
 | 503 | `unavailable` | Artifact upload while no `evidence` storage is configured. The worker completes the job without the artifact and says so in a `log` event. |
@@ -195,6 +196,8 @@ unknown) and `Content-Length`.
 
 - Only while the worker holds the job's lease, like `heartbeat`: otherwise
   `409 lease_lost` (or `404` outside the account).
+- The request must carry `Content-Length`: without it, `411 length_required`
+  and nothing is read.
 - The body may be at most `evidence.max_artifact_size` bytes (config.md):
   above it, `413 too_large` and nothing is stored. forecrewd streams the
   body to evidence storage and computes its SHA-256 while streaming.
