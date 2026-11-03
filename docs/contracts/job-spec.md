@@ -17,10 +17,10 @@ A job has a **kind** (`jobs.kind`, `domain.JobKind`):
 forecrewd builds the spec when the job is created (`workflow.JobCreator`):
 the role is resolved (`roles.Resolver`: runtime adapter, model, write paths,
 tools, schema, limits) and the prompt is built (`contextpack.Builder`). The
-spec is stored in `jobs.spec` **without** `env` and `repo_token`
-(`JobSpec.Redacted`). Those two secrets are added when the job is leased and
+spec is stored in `jobs.spec` **without** `env`, `repo_token` and `job_mcp`
+(`JobSpec.Redacted`). These secrets are added when the job is leased and
 exist only in memory on both sides; they are never stored, logged or written
-to disk (`JobSpec.LogValue` omits them).
+to disk (`JobSpec.LogValue` and `JobMCP.LogValue` omit them).
 
 ## Example: agent job
 
@@ -43,7 +43,8 @@ to disk (`JobSpec.LogValue` omits them).
   "include_repo_facts": false,
   "locked_paths": ["internal/auth/*_test.go"],
   "env": {"ANTHROPIC_API_KEY": "sk-ant-..."},
-  "repo_token": "ghs_..."
+  "repo_token": "ghs_...",
+  "job_mcp": {"url": "https://forecrew.example.com/job-mcp", "token": "fcj_..."}
 }
 ```
 
@@ -111,6 +112,7 @@ same with `"branch": ""`, `"base_ref": "main"` and
 | `include_repo_facts` | boolean | When true the worker runs the analyzer on the checkout and appends the facts to the prompt as a `## Repo facts` section holding the `analyzer.Facts` JSON in a fenced block. |
 | `env` | object string → string | Secrets (runtime credentials) set in the runtime process environment only. Never written to disk or logs. May be absent. |
 | `repo_token` | string | Short-lived GitHub App installation token scoped to `repo`: contents `write` when `write_paths` is non-empty, `read` otherwise (always `read` for command jobs, and never wider than the job's pool allows, config.md `pools`). Used for clone and push over HTTPS through a credential helper or `GIT_CONFIG_*` env vars, never written into `.git/config`. Expires after about an hour. |
+| `job_mcp` | object | Agent jobs only, from T47. The job MCP gateway (job-mcp.md): `url` (`<public base>/job-mcp`) and `token` (`fcj_...`), a secret valid only while this worker holds this lease. Added at lease time, never stored; the worker passes the token to the runtime in an environment variable, never in argv or a file. Absent: the agent has no channel back to forecrewd. |
 | `kind` | `agent` \| `command` | Job kind; absent means `agent`. |
 | `locked_paths` | string[] | Agent jobs only. Globs like `write_paths` (no `!`) the job may not change even when `write_paths` allow it, e.g. the tests a test engineer wrote before the developer's job. |
 | `toolbox` | object | Agent jobs only. The role's toolbox (`packs/toolboxes/<name>.yaml`, toolbox.schema.json), resolved: the image the agent runs in, its CLIs and MCP servers. Absent: the agent runs on the worker's host. A job with a toolbox needs the `docker` label. |
