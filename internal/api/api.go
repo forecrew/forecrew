@@ -19,15 +19,19 @@ import (
 	"github.com/forecrew/forecrew/internal/store"
 )
 
+var errNotAuthenticated = errors.New("not authenticated")
+
 // MaxBodyBytes is the largest request body accepted.
 const MaxBodyBytes = 1 << 20
 
 // Config holds the dependencies of the API.
 type Config struct {
-	Tools    mcp.ToolService
-	Tokens   store.MCPTokenRepo
-	Accounts store.AccountRepo
-	Logger   *slog.Logger
+	Tools mcp.ToolService
+	// Artifacts serves artifact downloads; nil leaves the endpoint out.
+	Artifacts ArtifactOpener
+	Tokens    store.MCPTokenRepo
+	Accounts  store.AccountRepo
+	Logger    *slog.Logger
 }
 
 // Server is the /api/v1 handler.
@@ -64,6 +68,10 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/jobs/{job}", serve(s, http.StatusOK, jobInput, t.JobStatus))
 	route("GET /api/v1/jobs/{job}/logs", serve(s, http.StatusOK, jobLogsInput, t.JobLogs))
 	route("POST /api/v1/jobs/{job}/cancel", serve(s, http.StatusOK, jobInput, t.CancelJob))
+	route("GET /api/v1/jobs/{job}/artifacts", serve(s, http.StatusOK, jobInput, list(t.ListArtifacts)))
+	if s.cfg.Artifacts != nil {
+		route("GET /api/v1/artifacts/{id}", http.HandlerFunc(s.artifact))
+	}
 
 	route("GET /api/v1/workers", serve(s, http.StatusOK, noInput, list(noArg(t.ListWorkers))))
 
@@ -87,7 +95,7 @@ func serve[In, Out any](s *Server, status int, in func(*http.Request) (In, error
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		by, ok := mcp.ActorFromContext(r.Context())
 		if !ok {
-			s.fail(w, r, errors.New("not authenticated"), http.StatusUnauthorized, "unauthorized")
+			s.fail(w, r, errNotAuthenticated, http.StatusUnauthorized, "unauthorized")
 			return
 		}
 		input, err := in(r)

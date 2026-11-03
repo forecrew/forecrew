@@ -14,6 +14,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/evidence"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobs"
@@ -66,7 +67,10 @@ type Config struct {
 	Playbooks Starter
 	Roles     roles.Resolver
 	GitHub    Checker
-	Logger    *slog.Logger // defaults to discarding
+	// Evidence serves artifact content; nil when no evidence storage is
+	// configured.
+	Evidence evidence.Store
+	Logger   *slog.Logger // defaults to discarding
 }
 
 // Service is the mcp.ToolService.

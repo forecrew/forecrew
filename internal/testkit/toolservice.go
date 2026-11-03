@@ -2,6 +2,7 @@ package testkit
 
 import (
 	"context"
+	"io"
 	"slices"
 	"sync"
 
@@ -43,6 +44,8 @@ type ToolService struct {
 	CancelJobFunc        func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error)
 	ListTokensFunc       func(context.Context, domain.Actor, any) ([]mcp.TokenInfo, error)
 	RevokeTokenFunc      func(context.Context, domain.Actor, mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error)
+	ListArtifactsFunc    func(context.Context, domain.Actor, mcp.JobRefInput) ([]domain.Artifact, error)
+	OpenArtifactFunc     func(context.Context, domain.Actor, string) (domain.Artifact, io.ReadCloser, error)
 
 	mu    sync.Mutex
 	calls []ToolCall
@@ -165,4 +168,18 @@ func (s *ToolService) ListTokens(ctx context.Context, by domain.Actor) ([]mcp.To
 // RevokeToken implements mcp.ToolService.
 func (s *ToolService) RevokeToken(ctx context.Context, by domain.Actor, in mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error) {
 	return invoke(ctx, s, mcp.ToolRevokeToken, by, in, s.RevokeTokenFunc)
+}
+
+// ListArtifacts implements mcp.ToolService.
+func (s *ToolService) ListArtifacts(ctx context.Context, by domain.Actor, in mcp.JobRefInput) ([]domain.Artifact, error) {
+	return invoke(ctx, s, mcp.ToolListArtifacts, by, in, s.ListArtifactsFunc)
+}
+
+// OpenArtifact implements api.ArtifactOpener. It records no call; without
+// OpenArtifactFunc it answers mcp.ErrNotFound.
+func (s *ToolService) OpenArtifact(ctx context.Context, by domain.Actor, id string) (domain.Artifact, io.ReadCloser, error) {
+	if s.OpenArtifactFunc == nil {
+		return domain.Artifact{}, nil, mcp.ErrNotFound
+	}
+	return s.OpenArtifactFunc(ctx, by, id)
 }
