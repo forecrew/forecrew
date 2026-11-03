@@ -28,13 +28,14 @@ func TestStatus(t *testing.T) {
 	ctx := t.Context()
 	j := f.newJob(t, "Docker")
 
+	noWorker := "no online worker in pool build with labels docker, runtime:claude-code"
 	v, err := f.svc.Status(ctx, f.account, j.ID)
 	must(t, err)
-	if v.Reason != ReasonNoWorker {
-		t.Fatalf("reason = %q, want %q (worker never seen)", v.Reason, ReasonNoWorker)
+	if v.Reason != noWorker {
+		t.Fatalf("reason = %q, want %q (worker never seen)", v.Reason, noWorker)
 	}
 	must(t, f.st.Workers().Seen(ctx, f.account, f.worker.ID, []string{"runtime:claude-code"}, "v1"))
-	if v, _ = f.svc.Status(ctx, f.account, j.ID); v.Reason != ReasonNoWorker {
+	if v, _ = f.svc.Status(ctx, f.account, j.ID); v.Reason != noWorker {
 		t.Fatalf("reason = %q, want no match (label missing)", v.Reason)
 	}
 	must(t, f.st.Workers().Seen(ctx, f.account, f.worker.ID, []string{"DOCKER", "Runtime:Claude-Code"}, "v1"))
@@ -42,7 +43,7 @@ func TestStatus(t *testing.T) {
 		t.Fatalf("reason = %q, want none (labels match case-insensitively)", v.Reason)
 	}
 	f.clock.Advance(domain.OnlineWindow + time.Second)
-	if v, _ = f.svc.Status(ctx, f.account, j.ID); v.Reason != ReasonNoWorker {
+	if v, _ = f.svc.Status(ctx, f.account, j.ID); v.Reason != noWorker {
 		t.Fatalf("reason = %q, want no match (worker offline)", v.Reason)
 	}
 
@@ -70,12 +71,39 @@ func TestStatus(t *testing.T) {
 	wantErr(t, err, store.ErrNotFound)
 }
 
+// TestStatusOtherPool: an online worker with every label but of another
+// pool does not run the job, and the reason names the job's pool.
+func TestStatusOtherPool(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	review, err := f.svc.Create(ctx, system, domain.Job{
+		AccountID: f.account, ProjectID: f.project.ID, Pool: domain.PoolControl, Role: "reviewer", Runtime: "codex",
+		Spec: domain.JobSpec{Repo: "acme/app", Prompt: "review"},
+	})
+	must(t, err)
+	must(t, f.st.Workers().Seen(ctx, f.account, f.worker.ID, []string{"runtime:codex"}, "v1"))
+	v, err := f.svc.Status(ctx, f.account, review.ID)
+	must(t, err)
+	if want := "no online worker in pool control with labels runtime:codex"; v.Reason != want {
+		t.Fatalf("reason = %q, want %q", v.Reason, want)
+	}
+	ctl := domain.Worker{AccountID: f.account, Name: "ctl", Pool: domain.PoolControl, TokenHash: []byte("c")}
+	must(t, f.st.Workers().Create(ctx, &ctl))
+	must(t, f.st.Workers().Seen(ctx, f.account, ctl.ID, []string{"runtime:codex"}, "v1"))
+	if v, _ = f.svc.Status(ctx, f.account, review.ID); v.Reason != "" {
+		t.Fatalf("reason = %q, want none (control worker online)", v.Reason)
+	}
+	if got := NoWorkerReason(domain.Job{Kind: domain.JobKindCommand}); got != "no online worker in pool build" {
+		t.Fatalf("command reason = %q", got)
+	}
+}
+
 func TestStatusErrors(t *testing.T) {
 	f := newFixture(t)
 	queued := f.newJob(t)
 	running := f.newJob(t)
 	f.lease(t)
-	broken := New(noWorkers{f.st}, f.bus, f.svc.logger, f.clock.Now)
+	broken := New(noWorkers{f.st}, f.bus, nil, f.svc.logger, f.clock.Now)
 	_, err := broken.Status(t.Context(), f.account, queued.ID)
 	wantErr(t, err, errDown)
 	_, err = broken.Status(t.Context(), f.account, running.ID)
@@ -145,6 +173,6 @@ func TestWorkers(t *testing.T) {
 		t.Fatal("online after the online window")
 	}
 
-	_, err = New(noWorkers{f.st}, f.bus, f.svc.logger, f.clock.Now).Workers(ctx, f.account)
+	_, err = New(noWorkers{f.st}, f.bus, nil, f.svc.logger, f.clock.Now).Workers(ctx, f.account)
 	wantErr(t, err, errDown)
 }

@@ -54,7 +54,7 @@ func newFixture(t *testing.T) *fixture {
 	logger := slog.New(slog.NewJSONHandler(f.logs, nil))
 	f.creator = &testkit.JobCreator{Store: st}
 	f.gates = gates.New(st, bus, clock.Now)
-	f.jobs = jobs.New(st, bus, logger, clock.Now)
+	f.jobs = jobs.New(st, bus, nil, logger, clock.Now)
 	f.svc = tools.New(tools.Config{
 		Store: st, Gates: f.gates, Jobs: f.jobs, Creator: f.creator, Playbooks: f.playbooks, GitHub: f.tracker, Logger: logger,
 		Roles: testkit.Roles{

@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
@@ -45,7 +47,7 @@ func newFixture(t *testing.T) *fixture {
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	return &fixture{
-		clock: clock, st: st, bus: bus, svc: New(st, bus, logger, clock.Now), logs: &logs,
+		clock: clock, st: st, bus: bus, svc: New(st, bus, nil, logger, clock.Now), logs: &logs,
 		account: acc.ID, project: p, worker: w,
 	}
 }
@@ -161,6 +163,68 @@ func TestCreate(t *testing.T) {
 	wantErr(t, err, store.ErrNotFound)
 }
 
+// TestCreatePools: the pool comes from the job (the role pack) or, for a
+// command job, from its environment, and a job the pool's policy refuses is
+// not stored.
+func TestCreatePools(t *testing.T) {
+	pools := config.DefaultPools()
+	pools["gpu"] = config.Pool{Roles: []string{"reviewer"}, Kinds: []domain.JobKind{domain.JobKindAgent},
+		Credentials: config.PoolCredentials{RepoToken: config.RepoTokenWrite}}
+	f := newFixture(t)
+	f.svc = New(f.st, f.bus, pools, f.svc.logger, f.clock.Now)
+	agent := func(pool, role string, writes ...string) domain.Job {
+		return domain.Job{AccountID: f.account, ProjectID: f.project.ID, Pool: pool, Role: role, Runtime: "codex",
+			Spec: domain.JobSpec{Repo: "acme/app", WritePaths: writes}}
+	}
+	command := func(env *domain.Environment, pool string) domain.Job {
+		return domain.Job{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.JobKindCommand, Pool: pool,
+			Spec: domain.JobSpec{Repo: "acme/app", Command: &domain.CommandSpec{Shell: "make test"}, Environment: env}}
+	}
+	actions := &domain.Environment{Name: "linux", Provider: domain.ProviderActions}
+	docker := &domain.Environment{Name: "go", Provider: domain.ProviderDocker}
+	tests := []struct {
+		name     string
+		job      domain.Job
+		wantPool string
+		refused  string
+	}{
+		{"default build", agent("", "developer", "**"), domain.PoolBuild, ""},
+		{"control reader", agent(domain.PoolControl, "reviewer"), domain.PoolControl, ""},
+		{"listed role", agent("gpu", "reviewer", "docs/**"), "gpu", ""},
+		{"command on build", command(docker, ""), domain.PoolBuild, ""},
+		{"command pool from environment", command(actions, domain.PoolControl), domain.PoolActions, ""},
+		{"command without environment", command(nil, ""), domain.PoolBuild, ""},
+		{"writer in control", agent(domain.PoolControl, "developer", "**"), "", "role developer writes to the repo and pool control gets no write token"},
+		{"role not listed", agent("gpu", "developer"), "", "pool gpu does not run role developer"},
+		{"kind not listed", agent(domain.PoolActions, "reviewer"), "", "pool actions does not run agent jobs"},
+		{"unknown pool", agent("nope", "reviewer"), "", "pool nope is not configured"},
+	}
+	for _, tt := range tests {
+		j, err := f.svc.Create(t.Context(), system, tt.job)
+		if tt.refused != "" {
+			if !errors.Is(err, ErrInvalid) || !errors.Is(err, config.ErrNotAllowed) || !strings.Contains(err.Error(), tt.refused) {
+				t.Errorf("%s: err = %v, want %q", tt.name, err, tt.refused)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: %v", tt.name, err)
+			continue
+		}
+		got, err := f.st.Jobs().Get(t.Context(), f.account, j.ID)
+		must(t, err)
+		if got.Pool != tt.wantPool {
+			t.Errorf("%s: pool = %q, want %q", tt.name, got.Pool, tt.wantPool)
+		}
+		if tt.job.Kind == domain.JobKindCommand && (got.Kind != domain.JobKindCommand || got.Spec.Kind != domain.JobKindCommand) {
+			t.Errorf("%s: kind = %q, spec kind = %q", tt.name, got.Kind, got.Spec.Kind)
+		}
+	}
+	if list, _ := f.st.Jobs().List(t.Context(), f.account, store.JobFilter{}); len(list) != 6 {
+		t.Fatalf("stored %d jobs, want 6", len(list))
+	}
+}
+
 func TestCancel(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
@@ -264,7 +328,7 @@ func TestCompleteRepublishesLostSignal(t *testing.T) {
 	ctx := t.Context()
 	j := f.newJob(t)
 	f.lease(t)
-	broken := New(f.st, failingBus{}, slog.New(slog.DiscardHandler), f.clock.Now)
+	broken := New(f.st, failingBus{}, nil, slog.New(slog.DiscardHandler), f.clock.Now)
 	if _, err := broken.Complete(ctx, f.worker, j.ID, store.JobResult{Status: domain.JobSucceeded}); err == nil {
 		t.Fatal("want publish error")
 	}

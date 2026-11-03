@@ -147,7 +147,7 @@ func New(d Deps) (*App, error) {
 	}
 
 	bus := workflow.NewBus(st.Signals())
-	jobSvc := jobs.New(st, bus, log, d.Now)
+	jobSvc := jobs.New(st, bus, cfg.Pools, log, d.Now)
 	gateSvc := gates.New(st, bus, d.Now)
 	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0), jobs: jobSvc}
 

@@ -331,7 +331,7 @@ func TestNoMatchingWorkerReason(t *testing.T) {
 		t.Fatalf("poll status %d", status)
 	}
 	v, err := e.jobs.Status(ctx, e.account, j.ID)
-	if err != nil || v.Status != domain.JobQueued || v.Reason != jobs.ReasonNoWorker {
+	if err != nil || v.Status != domain.JobQueued || v.Reason != "no online worker in pool build with labels docker, runtime:claude-code" {
 		t.Fatalf("status = %+v, %v", v, err)
 	}
 	if status, _ := e.poll(t, token, "Docker"); status != http.StatusOK {

@@ -129,7 +129,7 @@ func TestJobTools(t *testing.T) {
 	queued := create("ios")
 	info, err := f.svc.JobStatus(ctx, f.by, mcp.JobRefInput{Job: queued.Ref()})
 	must(t, err)
-	if info.Ref != "JOB-1" || info.Status != domain.JobQueued || info.Reason != "no matching worker" {
+	if info.Ref != "JOB-1" || info.Status != domain.JobQueued || info.Reason != "no online worker in pool build with labels ios, runtime:claude-code" {
 		t.Errorf("queued = %+v", info)
 	}
 

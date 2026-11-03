@@ -4,14 +4,27 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
-// ReasonNoWorker is the reason of a queued job that no online worker can run.
-const ReasonNoWorker = "no matching worker"
+// ReasonNoWorker starts the reason of a queued job that no online worker
+// of its pool can run; NoWorkerReason gives the whole reason.
+const ReasonNoWorker = "no online worker"
+
+// NoWorkerReason is the reason of a queued job that no online worker of
+// its pool has all the labels for, e.g. "no online worker in pool control
+// with labels runtime:codex".
+func NoWorkerReason(j domain.Job) string {
+	reason := ReasonNoWorker + " in pool " + domain.OrDefaultPool(j.Pool)
+	if labels := j.RequiredLabels(); len(labels) > 0 {
+		reason += " with labels " + strings.Join(labels, ", ")
+	}
+	return reason
+}
 
 // Log page sizes of Logs.
 const (
@@ -22,8 +35,9 @@ const (
 // JobView is a job with what a human needs to know about its state.
 type JobView struct {
 	domain.Job
-	// Reason explains the state: ReasonNoWorker for a queued job that no
-	// online worker has all the labels for, the error of a failed job.
+	// Reason explains the state: NoWorkerReason for a queued job that no
+	// online worker of its pool has all the labels for, the error of a
+	// failed job.
 	Reason string `json:"reason,omitempty"`
 	// WorkerName is the worker running the job.
 	WorkerName string `json:"worker_name,omitempty"`
@@ -60,7 +74,7 @@ func (s *Service) Status(ctx context.Context, accountID, jobID uuid.UUID) (JobVi
 			return JobView{}, fmt.Errorf("job %s: list workers: %w", j.Ref(), err)
 		}
 		if !s.anyCanRun(j, workers) {
-			v.Reason = ReasonNoWorker
+			v.Reason = NoWorkerReason(j)
 		}
 	case domain.JobRunning:
 		w, err := s.st.Workers().Get(ctx, accountID, j.WorkerID)
@@ -77,7 +91,7 @@ func (s *Service) Status(ctx context.Context, accountID, jobID uuid.UUID) (JobVi
 func (s *Service) anyCanRun(j domain.Job, workers []domain.Worker) bool {
 	now := s.now()
 	for _, w := range workers {
-		if w.Online(now) && domain.MatchLabels(j.RequiredLabels(), w.Labels) {
+		if w.Online(now) && w.Pool == domain.OrDefaultPool(j.Pool) && domain.MatchLabels(j.RequiredLabels(), w.Labels) {
 			return true
 		}
 	}
