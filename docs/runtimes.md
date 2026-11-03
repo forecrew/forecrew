@@ -16,7 +16,8 @@ same events and result for every runtime. Adapters are looked up by name in a
 - Enforces `RunSpec.Timeout` and context cancellation by killing the whole
   process group (SIGKILL). Whatever the CLI left running (a dev server the
   agent started) is killed when the run ends, and its open pipes never hold
-  the run up. Timeout returns `ErrTimeout`, cancellation returns
+  the run up: output is read for at most 5 s after the group is stopped,
+  even from a child that left the group and keeps writing. Timeout returns `ErrTimeout`, cancellation returns
   the context error, a non-zero exit or an error result returns
   `ErrRunFailed` with the reason and the stderr tail, a missing CLI returns
   `ErrNotInstalled`.

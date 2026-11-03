@@ -28,8 +28,11 @@ var (
 )
 
 const (
-	waitDelay     = 3 * time.Second
-	drainGrace    = time.Second
+	waitDelay  = 3 * time.Second
+	drainGrace = time.Second
+	// drainCap is the most time spent reading what is left in the pipes once
+	// the process group is stopped, whatever still writes to them.
+	drainCap      = 5 * time.Second
 	stderrTail    = 2048
 	maxToolOutput = 8000
 )
@@ -137,7 +140,11 @@ func execute(ctx context.Context, r cliRun, onLine func([]byte)) (string, error)
 	deadline := time.Now().Add(drainGrace)
 	_ = outR.SetReadDeadline(deadline)
 	_ = errR.SetReadDeadline(deadline)
+	// A child that left the group and keeps writing would never let the
+	// readers go idle: closing the pipes ends them after drainCap.
+	capTimer := time.AfterFunc(drainCap, func() { closeAll(outR, errR) })
 	wg.Wait()
+	capTimer.Stop()
 	closeAll(outR, errR)
 	switch {
 	case ctx.Err() != nil:
