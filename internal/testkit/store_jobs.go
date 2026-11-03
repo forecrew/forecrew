@@ -225,6 +225,13 @@ func (r workerRepo) Seen(_ context.Context, accountID, id uuid.UUID, labels []st
 	})
 }
 
+func (r workerRepo) SetPool(_ context.Context, accountID, id uuid.UUID, pool string) error {
+	return update(r.s, workersT, accountID, id, func(w *domain.Worker, _ time.Time) error {
+		w.Pool = domain.OrDefaultPool(pool)
+		return nil
+	})
+}
+
 func (r workerRepo) Revoke(_ context.Context, accountID, id uuid.UUID) error {
 	return update(r.s, workersT, accountID, id, func(w *domain.Worker, now time.Time) error {
 		if w.RevokedAt.IsZero() {
