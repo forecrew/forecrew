@@ -19,11 +19,12 @@ function isTyping(el: EventTarget | null): boolean {
   return el instanceof HTMLElement && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))
 }
 
-const KIND_ORDER: GateKind[] = ["merge_approval", "spec_approval", "profile_approval", "needs_you"]
+const KIND_ORDER: GateKind[] = ["merge_approval", "spec_approval", "profile_approval", "test_plan_approval", "needs_you"]
 const KIND_CHIP: Record<GateKind, string> = {
   merge_approval: "Merges",
   spec_approval: "Specs",
   profile_approval: "Profiles",
+  test_plan_approval: "Test plans",
   needs_you: "Needs you",
 }
 
