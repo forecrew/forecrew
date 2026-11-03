@@ -65,13 +65,14 @@ func (a *actions) validateProfile(ctx context.Context, call workflow.ActionCall)
 }
 
 // profileFeedback is the action profile.feedback. It builds the feedback of
-// an analyst job from the reviewer's with.human feedback and the validator's
-// with.errors (either may be empty) and outputs it as a string, empty when
-// there is nothing to say.
+// an analyst job from the reviewer's with.human feedback, the validator's
+// with.errors and the GitHub discovery with.discovery (each may be empty) and
+// outputs it as a string, empty when there is nothing to say.
 func (a *actions) profileFeedback(_ context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
-		Human  string `json:"human"`
-		Errors string `json:"errors"`
+		Human     string `json:"human"`
+		Errors    string `json:"errors"`
+		Discovery string `json:"discovery"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -82,6 +83,9 @@ func (a *actions) profileFeedback(_ context.Context, call workflow.ActionCall) (
 	}
 	if e := strings.TrimSpace(with.Errors); e != "" {
 		parts = append(parts, "Your last profile does not match the profile schema. Fix .forecrew/profile.yaml and the profile in your answer:\n"+e)
+	}
+	if d := strings.TrimSpace(with.Discovery); d != "" {
+		parts = append(parts, d)
 	}
 	return strings.Join(parts, "\n\n"), nil
 }
