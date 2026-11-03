@@ -28,11 +28,12 @@ const (
 	RefAssumption RefKind = "A"
 	RefDecision   RefKind = "DEC"
 	RefKnowledge  RefKind = "KB" // knowledge proposal
+	RefProposal   RefKind = "PROP"
 )
 
 // RefKinds returns every ref kind.
 func RefKinds() []RefKind {
-	return []RefKind{RefGoal, RefSpec, RefTask, RefJob, RefGate, RefCouncil, RefAssumption, RefDecision, RefKnowledge}
+	return []RefKind{RefGoal, RefSpec, RefTask, RefJob, RefGate, RefCouncil, RefAssumption, RefDecision, RefKnowledge, RefProposal}
 }
 
 // Ref formats a human ref such as GOAL-3.
