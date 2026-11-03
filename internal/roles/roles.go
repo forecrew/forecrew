@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 	"uuid"
 
@@ -47,4 +48,19 @@ func (r Role) ReadOnly() bool { return len(r.WritePaths) == 0 }
 // Resolver looks up roles. The project lets project profiles adjust roles.
 type Resolver interface {
 	Resolve(ctx context.Context, accountID, projectID uuid.UUID, name string) (Role, error)
+}
+
+// WithoutWrites returns r read-only: without write paths and without the
+// runtime tools of repo.write and git.commit. Council jobs of roles that
+// usually write run this way.
+func (r Role) WithoutWrites() Role {
+	drop := map[string]bool{}
+	for _, t := range writeTools {
+		for _, rt := range tools[t] {
+			drop[rt] = true
+		}
+	}
+	r.WritePaths = nil
+	r.AllowedTools = slices.DeleteFunc(slices.Clone(r.AllowedTools), func(t string) bool { return drop[t] })
+	return r
 }
