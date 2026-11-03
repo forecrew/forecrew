@@ -36,7 +36,7 @@ func (c *JobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 		return newID(req.ID), nil
 	}
 	j := domain.Job{
-		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Role: req.Role, Needs: req.Needs,
+		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Pool: req.Pool, Role: req.Role, Needs: req.Needs,
 		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID,
 		Spec: domain.JobSpec{
 			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, Role: req.Role, IncludeRepoFacts: req.IncludeRepoFacts,

@@ -27,7 +27,9 @@ type jobCreator struct {
 	jobs  *jobs.Service
 }
 
-// Create implements workflow.JobCreator. The job gets req.ID when it is set.
+// Create implements workflow.JobCreator. The job gets req.ID when it is set
+// and runs in req.Pool, or else the role pack's pool; jobs.Service refuses
+// a job the pool's policy does not allow.
 func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.UUID, error) {
 	project, err := c.store.Projects().Get(ctx, req.AccountID, req.ProjectID)
 	if err != nil {
@@ -49,8 +51,12 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	if err != nil {
 		return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
 	}
+	pool := req.Pool
+	if pool == "" {
+		pool = role.Pool
+	}
 	j, err := c.jobs.Create(ctx, domain.SystemActor(req.AccountID, domain.ForecrewdName), domain.Job{
-		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Role: role.Name, Runtime: role.Runtime, Needs: req.Needs,
+		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Pool: pool, Role: role.Name, Runtime: role.Runtime, Needs: req.Needs,
 		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID,
 		Spec: domain.JobSpec{
 			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, WritePaths: role.WritePaths, Model: role.Model,

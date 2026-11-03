@@ -244,6 +244,7 @@ type DispatchJobInput struct {
 	BaseRef          string   `json:"base_ref,omitempty"`
 	Branch           string   `json:"branch,omitempty"`
 	Needs            []string `json:"needs,omitempty"`
+	Pool             string   `json:"pool,omitempty"` // defaults to the role pack's pool
 	IncludeRepoFacts bool     `json:"include_repo_facts,omitempty"`
 	Goal             string   `json:"goal,omitempty"` // GOAL-3 or UUID
 	Task             string   `json:"task,omitempty"` // TASK-12 or UUID

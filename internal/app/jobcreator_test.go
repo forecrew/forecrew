@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 	"uuid"
 
@@ -76,6 +77,43 @@ func TestJobCreatorReadOnlyBranchAndOverrides(t *testing.T) {
 	if j.Runtime != "codex" || j.Spec.Model != "gpt-best" || len(j.Spec.WritePaths) != 0 ||
 		j.Spec.Repo != "acme/app" || j.Spec.BaseRef != "develop" || j.Spec.Branch != "agent/task-2" {
 		t.Errorf("job = %+v", j)
+	}
+}
+
+// TestJobCreatorPools: the job runs in the request's pool, else the role
+// pack's, and a pool whose policy does not allow the role refuses it.
+func TestJobCreatorPools(t *testing.T) {
+	f := newFixture(t, func(d *Deps) {
+		d.Files = packs(t, func(m fstest.MapFS) {
+			m["packs/roles/reviewer.yaml"].Data = append(m["packs/roles/reviewer.yaml"].Data, "pool: control\n"...)
+		})
+	})
+	pool := func(role, pool string) (string, error) {
+		req := f.request(role)
+		req.Pool = pool
+		id, err := f.creator.Create(t.Context(), req)
+		if err != nil {
+			return "", err
+		}
+		j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+		return j.Pool, err
+	}
+	for _, tt := range []struct{ role, pool, want string }{
+		{"reviewer", "", domain.PoolControl},
+		{"reviewer", domain.PoolBuild, domain.PoolBuild},
+		{"developer", "", domain.PoolBuild},
+	} {
+		if got, err := pool(tt.role, tt.pool); err != nil || got != tt.want {
+			t.Errorf("%s in %q: pool %q, %v; want %q", tt.role, tt.pool, got, err, tt.want)
+		}
+	}
+	_, err := pool("developer", domain.PoolControl)
+	if !errors.Is(err, jobs.ErrInvalid) || !errors.Is(err, config.ErrNotAllowed) ||
+		!strings.Contains(err.Error(), "role developer writes to the repo and pool control gets no write token") {
+		t.Errorf("writer in control: %v", err)
+	}
+	if _, err := pool("reviewer", "gpu"); !errors.Is(err, config.ErrNotAllowed) {
+		t.Errorf("unknown pool: %v", err)
 	}
 }
 

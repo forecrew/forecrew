@@ -18,15 +18,18 @@ import (
 type JobRequest struct {
 	// ID, when set, is the new job's ID. The engine sets it to the step
 	// run's ID so that a step resumed after a crash finds its job.
-	ID               uuid.UUID `json:"-" yaml:"-"`
-	AccountID        uuid.UUID `json:"account_id" yaml:"account_id"`
-	ProjectID        uuid.UUID `json:"project_id" yaml:"project_id"`
-	Repo             string    `json:"repo" yaml:"repo"`         // "owner/name"
-	BaseRef          string    `json:"base_ref" yaml:"base_ref"` // defaults to the project's default branch
-	Branch           string    `json:"branch" yaml:"branch"`     // agent/<...> to check out; writing roles push it, read-only roles may leave it empty or name one to inspect (never pushed)
-	Role             string    `json:"role" yaml:"role"`
-	Needs            []string  `json:"needs" yaml:"needs"` // labels the worker must have
-	IncludeRepoFacts bool      `json:"include_repo_facts" yaml:"include_repo_facts"`
+	ID        uuid.UUID `json:"-" yaml:"-"`
+	AccountID uuid.UUID `json:"account_id" yaml:"account_id"`
+	ProjectID uuid.UUID `json:"project_id" yaml:"project_id"`
+	Repo      string    `json:"repo" yaml:"repo"`         // "owner/name"
+	BaseRef   string    `json:"base_ref" yaml:"base_ref"` // defaults to the project's default branch
+	Branch    string    `json:"branch" yaml:"branch"`     // agent/<...> to check out; writing roles push it, read-only roles may leave it empty or name one to inspect (never pushed)
+	Role      string    `json:"role" yaml:"role"`
+	Needs     []string  `json:"needs" yaml:"needs"` // labels the worker must have
+	// Pool is the worker pool to run in; empty means the role pack's pool.
+	// The pool's policy must allow the role (config.md, pools).
+	Pool             string `json:"pool,omitempty" yaml:"pool,omitempty"`
+	IncludeRepoFacts bool   `json:"include_repo_facts" yaml:"include_repo_facts"`
 	// Optional refs the context pack draws on.
 	GoalID uuid.UUID `json:"goal_id,omitzero" yaml:"goal_id,omitempty"`
 	SpecID uuid.UUID `json:"spec_id,omitzero" yaml:"spec_id,omitempty"`
