@@ -220,6 +220,11 @@ file the matrix's rules name, read from GitHub at the job branch when the
 matrix is there and at the base otherwise; files not written yet are marked
 missing. The test roles are not used by a playbook yet.
 
+The council roles (`facilitator`, `devils-advocate`, `market-researcher`,
+`security-reviewer`, `ux`) and the council packs that seat them, with other
+roles in a council mode, are described in [councils.md](councils.md). They
+are not used by a playbook yet.
+
 ## The onboarding playbook
 
 `packs/playbooks/onboarding.yaml` takes `repo` and `project`. Right after
