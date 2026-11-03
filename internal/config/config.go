@@ -69,6 +69,11 @@ type Config struct {
 	ModelTiers map[Tier]map[string]string `yaml:"model_tiers"`
 	Roles      map[string]Role            `yaml:"roles"`
 	Policy     Policy                     `yaml:"policy"`
+	// Pools holds the worker pools by name; Parse adds DefaultPools that
+	// are not redefined.
+	Pools map[string]Pool `yaml:"pools"`
+	// Evidence is the artifact storage; nil when not configured.
+	Evidence *Evidence `yaml:"evidence"`
 }
 
 // Server configures the HTTP listener.
@@ -147,6 +152,7 @@ func Parse(data []byte, getenv func(string) string) (*Config, error) {
 		}
 		c.Runtimes[name] = rt
 	}
+	c.readEvidence(getenv)
 	c.applyDefaults()
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -174,6 +180,7 @@ func (c *Config) applyDefaults() {
 	if c.Server.TLSDomain != "" && c.Server.CertCacheDir == "" {
 		c.Server.CertCacheDir = DefaultCertCacheDir
 	}
+	c.applyPoolDefaults()
 }
 
 // problems collects validation messages.
@@ -200,6 +207,8 @@ func (c *Config) Validate() error {
 	c.validateGitHub(&p)
 	c.validateRuntimes(&p)
 	c.validateRoles(&p)
+	c.validatePools(&p)
+	c.validateEvidence(&p)
 	return p.err()
 }
 
