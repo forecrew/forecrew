@@ -81,7 +81,9 @@ func Reversibilities() []Reversibility {
 }
 
 // GoalSize is the triage of a goal: how big and how reversible it is, and
-// which councils it gets (goals.size).
+// which councils it gets (goals.size). A size a person set (the councils of
+// a goal created with an override, with no triage) has neither impact nor
+// reversibility.
 type GoalSize struct {
 	Impact        Level         `json:"impact"`
 	Reversibility Reversibility `json:"reversibility"`
@@ -89,11 +91,14 @@ type GoalSize struct {
 	Reason        string        `json:"reason"`
 }
 
-// Validate checks the fields, wrapping ErrInvalidRecord.
+// Validate checks the fields, wrapping ErrInvalidRecord. Impact and
+// reversibility are both empty or both set.
 func (s GoalSize) Validate() error {
 	var p problems
-	checkEnum(&p, "impact", s.Impact, Levels())
-	checkEnum(&p, "reversibility", s.Reversibility, Reversibilities())
+	if s.Impact != "" || s.Reversibility != "" {
+		checkEnum(&p, "impact", s.Impact, Levels())
+		checkEnum(&p, "reversibility", s.Reversibility, Reversibilities())
+	}
 	for _, c := range s.Councils {
 		checkEnum(&p, "councils", c, []CouncilKind{CouncilProduct, CouncilTechnical})
 	}

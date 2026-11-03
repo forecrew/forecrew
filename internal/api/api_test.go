@@ -474,3 +474,27 @@ func TestBearerHeaderBeatsCookie(t *testing.T) {
 		t.Errorf("bearer POST without body = %d %s", r.status, r.body)
 	}
 }
+
+// TestCreateGoalCouncilsOverREST: councils: [] reaches the service as an
+// override of none; an absent field stays nil (triage sizes the goal).
+func TestCreateGoalCouncilsOverREST(t *testing.T) {
+	e := newEnv(t)
+	r := e.do(t, http.MethodPost, "/api/v1/goals", `{"project":"app","title":"Login","body":"b","councils":[]}`, "bearer")
+	if r.status != http.StatusCreated {
+		t.Fatalf("status = %d %s", r.status, r.body)
+	}
+	r = e.do(t, http.MethodPost, "/api/v1/goals", `{"project":"app","title":"Login","body":"b"}`, "bearer")
+	if r.status != http.StatusCreated {
+		t.Fatalf("status = %d %s", r.status, r.body)
+	}
+	calls := e.svc.Calls()
+	if len(calls) != 2 {
+		t.Fatalf("%d calls recorded", len(calls))
+	}
+	if got := calls[0].Input.(mcp.CreateGoalInput).Councils; got == nil || len(*got) != 0 {
+		t.Errorf("empty councils = %v", got)
+	}
+	if got := calls[1].Input.(mcp.CreateGoalInput).Councils; got != nil {
+		t.Errorf("absent councils = %v", *got)
+	}
+}

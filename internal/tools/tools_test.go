@@ -400,3 +400,55 @@ type failingRoles struct{ err error }
 func (r failingRoles) Resolve(context.Context, uuid.UUID, uuid.UUID, string) (roles.Role, error) {
 	return roles.Role{}, r.err
 }
+
+func TestCreateGoalCouncils(t *testing.T) {
+	ptr := func(s ...string) *[]string { return &s }
+	tests := []struct {
+		name     string
+		councils *[]string
+		want     []domain.CouncilKind // nil: the goal is left for triage
+	}{
+		{"absent is sized by triage", nil, nil},
+		{"empty list is no council", ptr(), []domain.CouncilKind{}},
+		{"product", ptr("product"), []domain.CouncilKind{domain.CouncilProduct}},
+		{"both in the order of the size", ptr("Technical", " product ", "technical"), []domain.CouncilKind{domain.CouncilProduct, domain.CouncilTechnical}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			g, err := f.svc.CreateGoal(t.Context(), f.by, mcp.CreateGoalInput{Project: "acme/app", Title: "Login", Councils: tt.councils})
+			must(t, err)
+			stored, err := f.st.Goals().Get(t.Context(), f.account.ID, g.ID)
+			must(t, err)
+			if (stored.Size == nil) != (tt.want == nil) {
+				t.Fatalf("size = %+v, want councils %v", stored.Size, tt.want)
+			}
+			if stored.Size != nil && (!slices.Equal(stored.Size.Councils, tt.want) || stored.Size.Councils == nil || stored.Size.Reason == "") {
+				t.Errorf("size = %+v, want councils %v", stored.Size, tt.want)
+			}
+			if stored.Size != nil {
+				if err := stored.Size.Validate(); err != nil {
+					t.Errorf("stored override is invalid: %v", err)
+				}
+			}
+			// The playbook starts either way; the goal playbook skips triage for an override.
+			if len(f.playbooks.Starts()) != 1 {
+				t.Errorf("starts = %d", len(f.playbooks.Starts()))
+			}
+		})
+	}
+}
+
+func TestCreateGoalCouncilsErrors(t *testing.T) {
+	f := newFixture(t)
+	bad := []string{"security", "product,technical", ""}
+	for _, c := range bad {
+		_, err := f.svc.CreateGoal(t.Context(), f.by, mcp.CreateGoalInput{Project: "acme/app", Title: "Login", Councils: &[]string{c}})
+		wantErr(t, err, mcp.ErrInvalidInput)
+	}
+	goals, err := f.st.Goals().List(t.Context(), f.account.ID, store.GoalFilter{})
+	must(t, err)
+	if len(goals) != 0 || len(f.playbooks.Starts()) != 0 {
+		t.Errorf("goals = %d, starts = %d; a refused override must create nothing", len(goals), len(f.playbooks.Starts()))
+	}
+}
