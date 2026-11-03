@@ -26,6 +26,12 @@ var (
 	ErrLeaseLost = errors.New("lease lost")
 	// ErrJobNotFound means the job is not one of the worker's account (404).
 	ErrJobNotFound = errors.New("job not found")
+	// ErrTooLarge means forecrewd refused a request as too large (413); for
+	// an artifact, it is over the evidence.max_artifact_size of the server.
+	ErrTooLarge = errors.New("too large")
+	// ErrEvidenceUnavailable means forecrewd has no evidence storage (503
+	// unavailable): artifacts cannot be uploaded until it is configured.
+	ErrEvidenceUnavailable = errors.New("evidence storage not configured")
 )
 
 // APIError is an unexpected error answer of forecrewd.
@@ -164,6 +170,15 @@ func jobPath(id uuid.UUID, action string) string {
 // retry posts like once, retrying 5xx answers and network errors up to
 // attempts times with exponential backoff and jitter.
 func (c *Client) retry(ctx context.Context, attempts int, path string, in, out any) error {
+	return c.attempt(ctx, attempts, func() error {
+		_, err := c.once(ctx, path, in, out)
+		return err
+	})
+}
+
+// attempt calls do up to attempts times, sleeping with backoff between the
+// calls, until it succeeds or fails with an error that is not retryable.
+func (c *Client) attempt(ctx context.Context, attempts int, do func() error) error {
 	var err error
 	for i := range attempts {
 		if i > 0 {
@@ -171,7 +186,7 @@ func (c *Client) retry(ctx context.Context, attempts int, path string, in, out a
 				return errors.Join(err, serr)
 			}
 		}
-		if _, err = c.once(ctx, path, in, out); err == nil || !retryable(err) {
+		if err = do(); err == nil || !retryable(err) {
 			return err
 		}
 	}
@@ -186,7 +201,8 @@ func retryable(err error) bool {
 	if apiErr, ok := errors.AsType[*APIError](err); ok {
 		return apiErr.Status >= 500
 	}
-	return !errors.Is(err, ErrUnauthorized) && !errors.Is(err, ErrLeaseLost) && !errors.Is(err, ErrJobNotFound)
+	return !errors.Is(err, ErrUnauthorized) && !errors.Is(err, ErrLeaseLost) && !errors.Is(err, ErrJobNotFound) &&
+		!errors.Is(err, ErrTooLarge) && !errors.Is(err, ErrEvidenceUnavailable)
 }
 
 // backoff returns the delay before retry n (1, 2, ...): BackoffMin doubling
@@ -279,6 +295,12 @@ func answerError(status int, body []byte) error {
 		return fmt.Errorf("%w: %s", ErrLeaseLost, msg)
 	case http.StatusNotFound:
 		return fmt.Errorf("%w: %s", ErrJobNotFound, msg)
+	case http.StatusRequestEntityTooLarge:
+		return fmt.Errorf("%w: %s", ErrTooLarge, msg)
+	case http.StatusServiceUnavailable:
+		if e.Error.Code == "unavailable" {
+			return fmt.Errorf("%w: %s", ErrEvidenceUnavailable, msg)
+		}
 	}
 	return &APIError{Status: status, Code: e.Error.Code, Message: msg}
 }
