@@ -138,8 +138,8 @@ func fixtureEnv(t *testing.T) *env {
 	}
 	s.ListWorkersFunc = func(context.Context, domain.Actor, any) ([]mcp.WorkerInfo, error) {
 		return []mcp.WorkerInfo{
-			{ID: fid(60), AccountID: acc.ID, Name: "build-box-1", Labels: []string{"docker", "go", "linux", "node", "runtime:claude-code"}, Version: "v0.3.1", MaxJobs: 1, LastSeenAt: at(0), CreatedAt: at(-1000), Online: true, RunningJobs: []string{"JOB-41"}},
-			{ID: fid(61), AccountID: acc.ID, Name: "mac-mini", Labels: []string{"macos", "runtime:codex"}, Version: "v0.3.0", MaxJobs: 1, LastSeenAt: at(-120), CreatedAt: at(-900), Online: false, RunningJobs: []string{}},
+			{ID: fid(60), AccountID: acc.ID, Name: "build-box-1", Pool: domain.PoolBuild, Labels: []string{"docker", "go", "linux", "node", "runtime:claude-code"}, Version: "v0.3.1", MaxJobs: 1, LastSeenAt: at(0), CreatedAt: at(-1000), Online: true, RunningJobs: []string{"JOB-41"}},
+			{ID: fid(61), AccountID: acc.ID, Name: "mac-mini", Pool: domain.PoolControl, Labels: []string{"macos", "runtime:codex"}, Version: "v0.3.0", MaxJobs: 1, LastSeenAt: at(-120), CreatedAt: at(-900), Online: false, RunningJobs: []string{}},
 		}, nil
 	}
 	s.ListPendingGatesFunc = func(context.Context, domain.Actor, mcp.ProjectFilterInput) ([]mcp.GateInfo, error) { return gates, nil }
@@ -242,7 +242,7 @@ func fixtureCases() []fixtureCase {
 		{"job-queued", "GET", "/api/v1/jobs/JOB-42", "", 200, "bearer", func(e *env) {
 			e.svc.JobStatusFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
 				j := fixtureJob(42, domain.JobQueued, "reviewer", 0, time.Time{})
-				return mcp.JobInfo{Job: j, Ref: "JOB-42", Reason: "no matching worker: needs go, linux, runtime:claude-code"}, nil
+				return mcp.JobInfo{Job: j, Ref: "JOB-42", Reason: "no online worker in pool build with labels go, linux, runtime:claude-code"}, nil
 			}
 		}},
 		{"job-failed", "GET", "/api/v1/jobs/JOB-43", "", 200, "bearer", func(e *env) {

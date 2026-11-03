@@ -44,6 +44,6 @@
   "created_at": "2026-03-01T10:00:00Z",
   "updated_at": "2026-03-01T11:59:00Z",
   "ref": "JOB-42",
-  "reason": "no matching worker: needs go, linux, runtime:claude-code"
+  "reason": "no online worker in pool build with labels go, linux, runtime:claude-code"
 }
 

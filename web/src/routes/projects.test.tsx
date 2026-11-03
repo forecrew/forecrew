@@ -180,7 +180,7 @@ describe("project page", () => {
       expect(advanced).not.toHaveAttribute("open")
       await user.click(screen.getByText("Advanced"))
       expect(advanced).toHaveAttribute("open")
-      for (const label of ["Goal", "Task", "Base ref", "Branch", "Feedback", "Include repository facts"]) {
+      for (const label of ["Goal", "Task", "Base ref", "Branch", "Pool", "Feedback", "Include repository facts"]) {
         expect(within(advanced).getByLabelText(label)).toBeInTheDocument()
       }
     })
@@ -200,13 +200,14 @@ describe("project page", () => {
       await fill(user, screen.getByLabelText("Task"), fx.goal.tasks[0]!.id)
       await fill(user, screen.getByLabelText("Base ref"), "main")
       await fill(user, screen.getByLabelText("Branch"), "agent/task-12")
+      await fill(user, screen.getByLabelText("Pool"), " control ")
       await fill(user, screen.getByLabelText("Feedback"), "Check the tests.")
       await user.click(screen.getByLabelText("Include repository facts"))
       await user.click(screen.getByRole("button", { name: "Run job" }))
       await waitFor(() => expect(router.state.location.pathname).toBe("/jobs/JOB-42"))
       expect(body).toEqual({
         project: "app", role: "reviewer", prompt: "Review it.", needs: [], goal: "goal-3", task: fx.goal.tasks[0]!.id,
-        base_ref: "main", branch: "agent/task-12", feedback: "Check the tests.", include_repo_facts: true,
+        base_ref: "main", branch: "agent/task-12", pool: "control", feedback: "Check the tests.", include_repo_facts: true,
       })
     })
 

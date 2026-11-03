@@ -236,6 +236,8 @@ export interface RevokeResult {
 export interface Worker {
   id: string
   name: string
+  /** Pool the worker leases jobs from, set by an admin; empty means build. */
+  pool: string
   labels: string[]
   version: string
   max_jobs: number
@@ -266,6 +268,8 @@ export interface DispatchJobInput {
   task?: string
   base_ref?: string
   branch?: string
+  /** Worker pool; defaults to the role's pool. */
+  pool?: string
   feedback?: string
   include_repo_facts?: boolean
 }

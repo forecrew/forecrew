@@ -83,7 +83,7 @@ describe("job page", () => {
   test("shows why a queued job waits", async () => {
     server.use(http.get("/api/v1/jobs/:ref", () => HttpResponse.json(fx.jobQueued)), http.get("/api/v1/jobs/:ref/logs", () => HttpResponse.json(fx.jobLogsEmpty)))
     await renderApp("/jobs/JOB-42")
-    expect(await screen.findByText(/no matching worker/)).toBeInTheDocument()
+    expect(await screen.findByText(/no online worker in pool build/)).toBeInTheDocument()
     expect(screen.getByText("queued")).toBeInTheDocument()
     expect(screen.getByText("none")).toBeInTheDocument() // no worker yet
     expect(await screen.findByText("No events.")).toBeInTheDocument()
@@ -151,7 +151,7 @@ describe("job page details", () => {
   test("shows the needs next to the reason a queued job waits", async () => {
     server.use(http.get("/api/v1/jobs/:ref", () => HttpResponse.json(fx.jobQueued)), http.get("/api/v1/jobs/:ref/logs", () => HttpResponse.json(fx.jobLogsEmpty)))
     await renderApp("/jobs/JOB-42")
-    await screen.findByText(/no matching worker/)
+    await screen.findByText(/no online worker in pool build/)
     const labels = Array.from(document.querySelectorAll("dt")).map((t) => t.textContent)
     expect(labels.indexOf("Needs")).toBe(labels.indexOf("Reason") + 1)
   })
