@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Council progress check",
+  "description": "Output of the facilitator's check after the critiques and after each revision round: whether another revision round could still change a position. Not a contribution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["positions_moving", "reason", "open_disagreements"],
+  "properties": {
+    "positions_moving": {"type": "boolean", "description": "true when a member's position is likely to change in another round: a critique is still unanswered, new evidence was raised, or a member changed position in the last round. false when positions have settled, agreed or not."},
+    "reason": {"$ref": "common.json#/$defs/text", "description": "What you based the judgement on, naming members."},
+    "open_disagreements": {"description": "Disagreements still standing, each naming the members on each side.", "type": "array", "items": {"$ref": "common.json#/$defs/text"}}
+  }
+}

@@ -245,7 +245,7 @@ type BriefOption struct {
 
 // BriefVote is a member's vote.
 type BriefVote struct {
-	Member string `json:"member"` // role
+	Member string `json:"member"` // role@runtime, e.g. architect@claude-code
 	Option string `json:"option"` // name of an option
 	Reason string `json:"reason"`
 }

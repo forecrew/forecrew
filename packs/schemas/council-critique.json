@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Council critique",
+  "description": "Output of a council member at the critique stage: a critique of every other member's proposal from the critic's own priority. Critiques address what the proposals say; they raise no new topics.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["priority", "critiques", "assumptions", "escalation"],
+  "properties": {
+    "priority": {"$ref": "common.json#/$defs/text", "description": "The priority you critique from, as your seat names it."},
+    "critiques": {
+      "description": "One entry per proposal of another member.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["member", "agree", "disagree", "challenged_assumptions"],
+        "properties": {
+          "member": {"$ref": "common.json#/$defs/member", "description": "The proposal's author, as role@runtime."},
+          "agree": {
+            "description": "Points of the proposal you agree with, and why from your priority.",
+            "type": "array",
+            "items": {"$ref": "#/$defs/point"}
+          },
+          "disagree": {
+            "description": "Points of the proposal you disagree with, and why from your priority.",
+            "type": "array",
+            "items": {"$ref": "#/$defs/objection"}
+          },
+          "challenged_assumptions": {
+            "description": "Assumptions of the proposal, stated or not, that you doubt.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["assumption", "challenge", "evidence"],
+              "properties": {
+                "assumption": {"$ref": "common.json#/$defs/text", "description": "The assumption, quoted or stated as the proposal relies on it."},
+                "challenge": {"$ref": "common.json#/$defs/text", "description": "Why it may not hold and what changes if it does not."},
+                "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "common.json#/$defs/evidence"}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "assumptions": {"$ref": "common.json#/$defs/assumptions"},
+    "escalation": {"$ref": "common.json#/$defs/escalation"}
+  },
+  "$defs": {
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["point", "reason", "evidence"],
+      "properties": {
+        "point": {"$ref": "common.json#/$defs/text", "description": "The part of the proposal you mean, briefly."},
+        "reason": {"$ref": "common.json#/$defs/text"},
+        "evidence": {"type": "array", "items": {"$ref": "common.json#/$defs/evidence"}, "description": "Sources for your reason, if it adds any to the proposal's."}
+      }
+    },
+    "objection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["point", "reason", "evidence"],
+      "properties": {
+        "point": {"$ref": "common.json#/$defs/text", "description": "The part of the proposal you mean, briefly."},
+        "reason": {"$ref": "common.json#/$defs/text"},
+        "evidence": {"type": "array", "minItems": 1, "items": {"$ref": "common.json#/$defs/evidence"}, "description": "Sources for your reason."}
+      }
+    }
+  }
+}

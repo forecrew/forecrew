@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Council framing",
+  "description": "Output of the facilitator's opening job: the question as the members will answer it. Every member sees it at every stage; it is not a contribution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["question", "constraints", "must_contain", "context", "assumptions", "escalation"],
+  "properties": {
+    "question": {"$ref": "common.json#/$defs/text", "description": "One answerable question, neutral between the possible answers."},
+    "constraints": {"description": "Limits every option must respect: the ones the council was given, and those you found in the repo or knowledge base, with where each comes from.", "type": "array", "items": {"$ref": "common.json#/$defs/text"}},
+    "must_contain": {"description": "What the decision must settle to be usable, e.g. which store, the migration path, who is affected.", "type": "array", "minItems": 1, "items": {"$ref": "common.json#/$defs/text"}},
+    "context": {"description": "Facts members should start from, each with its source: relevant code, ADRs, knowledge entries, earlier jobs.", "type": "array", "items": {"$ref": "common.json#/$defs/evidence"}},
+    "assumptions": {"$ref": "common.json#/$defs/assumptions"},
+    "escalation": {"$ref": "common.json#/$defs/escalation"}
+  }
+}
