@@ -4,7 +4,7 @@
 export type GoalStatus = "draft" | "spec_review" | "planned" | "in_progress" | "done" | "canceled"
 export type TaskStatus = "open" | "in_progress" | "in_review" | "merge_ready" | "merged" | "closed"
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "canceled"
-export type GateKind = "profile_approval" | "spec_approval" | "merge_approval" | "needs_you"
+export type GateKind = "profile_approval" | "spec_approval" | "merge_approval" | "test_plan_approval" | "needs_you"
 export type GateStatus = "pending" | "approved" | "changes_requested" | "rejected"
 export type ProjectStatus = "registered" | "onboarding" | "onboarded"
 export type ChecksStatus = "failure" | "pending" | "success" | "none" | "unknown"

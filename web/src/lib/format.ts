@@ -54,6 +54,7 @@ const GATE_KINDS: Record<GateKind, string> = {
   profile_approval: "Profile approval",
   spec_approval: "Spec approval",
   merge_approval: "Merge approval",
+  test_plan_approval: "Test plan approval",
   needs_you: "Needs you",
 }
 export const gateKindLabel = (k: GateKind) => GATE_KINDS[k]
