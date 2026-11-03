@@ -1,6 +1,6 @@
 # Data model
 
-Postgres 18 schema created by T02 (`internal/store`). Each table maps to a
+Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team). Each table maps to a
 type in `internal/domain` and a repository in `store.Store`; JSON names in
 `domain` equal the column names. The DDL below is the contract; T02 may add
 indexes but not change columns, types or constraints without a contract
@@ -28,6 +28,15 @@ change.
 - `jobs.pool` and `workers.pool` hold pool names from config.md `pools`
   (no CHECK: pools are configuration); empty is stored as `build`.
 - `audit_log` is append-only: triggers reject `UPDATE`, `DELETE` and `TRUNCATE`.
+- pgvector is optional. Migration 00004 creates the extension and
+  `knowledge_entries.embedding` only when the extension is installed or
+  available and the database role may create it; otherwise it logs a notice
+  and goes on. Knowledge search never needs it: full-text search over
+  `knowledge_entries.search` always works, and embeddings only add to the
+  ranking where the column exists (decision 10, T36). To add it later, a
+  superuser runs `CREATE EXTENSION vector; ALTER TABLE knowledge_entries ADD
+  COLUMN embedding vector;`. The column has no fixed dimension until T36
+  picks an embedder.
 
 ## Tables
 
@@ -38,10 +47,10 @@ CREATE TABLE accounts (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Next human ref number per account and kind (GOAL, SPEC, TASK, JOB, GATE).
+-- Next human ref number per account and kind (domain.RefKinds).
 CREATE TABLE ref_counters (
   account_id uuid NOT NULL REFERENCES accounts(id),
-  kind       text NOT NULL CHECK (kind IN ('GOAL','SPEC','TASK','JOB','GATE')),
+  kind       text NOT NULL CHECK (kind IN ('GOAL','SPEC','TASK','JOB','GATE','COUNCIL','A','DEC','KB','PROP')),
   last       bigint NOT NULL DEFAULT 0,
   PRIMARY KEY (account_id, kind)
 );
@@ -70,10 +79,12 @@ CREATE TABLE goals (
   account_id   uuid NOT NULL REFERENCES accounts(id),
   project_id   uuid NOT NULL REFERENCES projects(id),
   number       bigint NOT NULL,
+  kind         text NOT NULL DEFAULT 'feature' CHECK (kind IN ('feature','bug')),  -- every goal before 00004 is a feature
   title        text NOT NULL,
   body         text NOT NULL DEFAULT '',
   platforms    text[] NOT NULL DEFAULT '{}',   -- target platforms (worker labels), normalized
   status       text NOT NULL CHECK (status IN ('draft','spec_review','planned','in_progress','done','canceled')),
+  size         jsonb,                          -- domain.GoalSize (triage); NULL until triaged
   issue_number integer,
   created_by   text NOT NULL,              -- domain.Actor.String()
   created_at   timestamptz NOT NULL DEFAULT now(),
@@ -107,6 +118,9 @@ CREATE TABLE jobs (
   output           jsonb,
   head_sha         text,
   error            text,
+  context_manifest jsonb,                         -- domain.ContextManifest: what the context pack held (T38)
+  job_mcp_token_hash bytea                        -- SHA-256 of the job MCP token of the current lease (job-mcp.md)
+                   CHECK (job_mcp_token_hash IS NULL OR (status = 'running' AND octet_length(job_mcp_token_hash) = 32)),
   usage            jsonb NOT NULL DEFAULT '{}',   -- domain.Usage
   cost_usd         numeric(12,6) NOT NULL DEFAULT 0,
   created_at       timestamptz NOT NULL DEFAULT now(),
@@ -120,6 +134,11 @@ CREATE INDEX jobs_project  ON jobs (account_id, project_id, created_at DESC);
 CREATE INDEX jobs_task     ON jobs (account_id, task_id) WHERE task_id IS NOT NULL;
 CREATE INDEX jobs_goal     ON jobs (account_id, goal_id) WHERE goal_id IS NOT NULL;
 CREATE INDEX jobs_worker   ON jobs (worker_id) WHERE status = 'running';
+CREATE UNIQUE INDEX jobs_job_mcp_token ON jobs (job_mcp_token_hash) WHERE job_mcp_token_hash IS NOT NULL;
+-- Trigger jobs_clear_job_mcp_token (BEFORE UPDATE, migration 00004) sets
+-- job_mcp_token_hash to NULL when status leaves running (complete, cancel,
+-- release, requeue, lease expiry) and when a new lease starts (worker_id or
+-- started_at change) without a new hash. The token itself is never stored.
 
 CREATE TABLE specs (
   id         uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -213,7 +232,9 @@ CREATE TABLE gates (
   account_id     uuid NOT NULL REFERENCES accounts(id),
   project_id     uuid NOT NULL REFERENCES projects(id),
   number         bigint NOT NULL,
-  kind           text NOT NULL CHECK (kind IN ('profile_approval','spec_approval','merge_approval','test_plan_approval','needs_you')),
+  kind           text NOT NULL CHECK (kind IN ('profile_approval','spec_approval','merge_approval','test_plan_approval','needs_you',
+                                               'assumption_review','council_decision','knowledge_proposal','access_request','improvement_proposal')),
+  origin         text NOT NULL DEFAULT 'playbook' CHECK (origin IN ('playbook','ask_human')),  -- domain.GateOrigin
   status         text NOT NULL CHECK (status IN ('pending','approved','changes_requested','rejected')),
   title          text NOT NULL,
   summary        text NOT NULL DEFAULT '',
@@ -228,8 +249,12 @@ CREATE TABLE gates (
   resolved_at    timestamptz,
   created_at     timestamptz NOT NULL DEFAULT now(),
   UNIQUE (account_id, number),
-  CHECK ((status = 'pending') = (resolved_at IS NULL))
+  CHECK ((status = 'pending') = (resolved_at IS NULL)),
+  CHECK (origin <> 'ask_human' OR (kind = 'needs_you' AND job_id IS NOT NULL))
 );
+-- origin ask_human: a question the job MCP tool ask_human asked (job-mcp.md):
+-- summary holds the question, the approval's feedback the answer. No
+-- playbook step waits on it; escalations are origin playbook.
 CREATE INDEX gates_pending ON gates (account_id, project_id) WHERE status = 'pending';
 CREATE INDEX gates_subject ON gates (account_id, lower(subject_repo), subject_number) WHERE status = 'pending';
 
@@ -237,7 +262,7 @@ CREATE TABLE signals (
   id         uuid PRIMARY KEY DEFAULT uuidv7(),
   account_id uuid NOT NULL REFERENCES accounts(id),
   project_id uuid NOT NULL REFERENCES projects(id),
-  kind       text NOT NULL CHECK (kind IN ('job.completed','gate.resolved','pr.merged','pr.closed','checks.completed')),
+  kind       text NOT NULL CHECK (kind IN ('job.completed','gate.resolved','pr.merged','pr.closed','checks.completed','council.decided')),
   key        text NOT NULL,                 -- correlation key, e.g. job:<id>
   dedupe_key text NOT NULL,                 -- e.g. pr.merged:owner/repo#12
   payload    jsonb NOT NULL,
@@ -398,6 +423,220 @@ CREATE TABLE verification_reports (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   UNIQUE (change_id, sha)                     -- a rebuild updates the row
 );
+
+-- Team (migration 00004): councils, the assumption and decision
+-- registers, the knowledge index and improvement proposals.
+
+-- A council answers one question with a decision brief
+-- (council-brief.schema.json, set at synthesis). Ref COUNCIL-n.
+CREATE TABLE councils (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id  uuid NOT NULL REFERENCES accounts(id),
+  project_id  uuid NOT NULL REFERENCES projects(id),
+  goal_id     uuid REFERENCES goals(id),          -- NULL for a council of its own (start_council)
+  number      bigint NOT NULL,
+  kind        text NOT NULL CHECK (kind IN ('onboarding','product','technical','test_design','incident','adhoc')),
+  question    text NOT NULL,
+  constraints text[] NOT NULL DEFAULT '{}',       -- given at start or added mid-debate
+  status      text NOT NULL CHECK (status IN ('running','decided','failed','canceled')),
+  brief       jsonb,                              -- domain.CouncilBrief
+  gate_id     uuid REFERENCES gates(id),          -- the council_decision gate, if any
+  run_id      uuid REFERENCES workflow_runs(id),  -- the council playbook's run
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, number),
+  CHECK (status <> 'decided' OR brief IS NOT NULL)
+);
+CREATE INDEX councils_project ON councils (account_id, project_id, created_at);
+CREATE INDEX councils_goal    ON councils (account_id, goal_id) WHERE goal_id IS NOT NULL;
+
+-- One member's output at one stage. Not ref-numbered. A council has one
+-- member per role and runtime (the same role may sit on several runtimes).
+-- Rounds: proposal and critique 1; revision 1..3, where the council runs at most 2 of its own and request_changes on its
+-- council_decision gate adds one human round (domain.MaxRevisionRounds),
+-- after which the gate can only be approved or rejected; synthesis 1..2, the
+-- second after the human round. The facilitator's opening brief and its
+-- "do positions still move" checks are jobs of the council's run, not
+-- contributions.
+CREATE TABLE council_contributions (
+  id         uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id uuid NOT NULL REFERENCES accounts(id),
+  council_id uuid NOT NULL REFERENCES councils(id),
+  role       text NOT NULL,                       -- member role
+  runtime    text NOT NULL DEFAULT '',            -- runtime adapter it ran on (vendor diversity)
+  stage      text NOT NULL CHECK (stage IN ('proposal','critique','revision','synthesis')),
+  round      integer NOT NULL CHECK (round >= 1 AND round <= CASE stage WHEN 'revision' THEN 3 WHEN 'synthesis' THEN 2 ELSE 1 END),
+  job_id     uuid UNIQUE REFERENCES jobs(id),     -- one contribution per job: a resumed council adds none twice
+  content    jsonb NOT NULL,                      -- the job's output, valid against its stage's schema
+  evidence_check jsonb,                           -- [domain.SourceCheck] of the cited sources; NULL until checked (T33)
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (council_id, role, runtime, stage, round) -- a retried job (new id) cannot add a second one
+);
+CREATE INDEX council_contributions_council ON council_contributions (council_id, created_at);
+
+-- Register of assumptions. Ref A-n. Sources are the job, spec or council it
+-- came from (any may be NULL); dependents is [{kind, id}] (domain.Dependent).
+CREATE TABLE assumptions (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id  uuid NOT NULL REFERENCES accounts(id),
+  project_id  uuid NOT NULL REFERENCES projects(id),
+  number      bigint NOT NULL,
+  goal_id     uuid REFERENCES goals(id),           -- duplicates merge per goal (T32)
+  statement   text NOT NULL,
+  made_by     text NOT NULL,                       -- role
+  job_id      uuid REFERENCES jobs(id),
+  spec_id     uuid REFERENCES specs(id),
+  council_id  uuid REFERENCES councils(id),
+  confidence  text NOT NULL CHECK (confidence IN ('low','medium','high')),
+  impact      text NOT NULL CHECK (impact IN ('low','medium','high')),
+  status      text NOT NULL CHECK (status IN ('unverified','verified','invalidated','accepted')),
+  verify_by   text NOT NULL CHECK (verify_by IN ('test','ask-human','research')),
+  evidence    text NOT NULL DEFAULT '',
+  dependents  jsonb NOT NULL DEFAULT '[]',
+  resolved_by text,                                -- domain.Actor.String()
+  resolved_at timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, number),
+  CHECK ((status = 'unverified') = (resolved_at IS NULL))
+);
+CREATE INDEX assumptions_project ON assumptions (account_id, project_id, status, impact);
+CREATE INDEX assumptions_goal    ON assumptions (account_id, goal_id) WHERE goal_id IS NOT NULL;
+
+-- Register of decisions. Ref DEC-n. Never updated.
+CREATE TABLE decisions (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id  uuid NOT NULL REFERENCES accounts(id),
+  project_id  uuid NOT NULL REFERENCES projects(id),
+  number      bigint NOT NULL,
+  goal_id     uuid REFERENCES goals(id),
+  question    text NOT NULL,
+  options     jsonb NOT NULL DEFAULT '[]',        -- [{name, summary}]
+  choice      text NOT NULL,
+  reasons     text NOT NULL DEFAULT '',
+  dissent     text NOT NULL DEFAULT '',
+  decided_by  text NOT NULL,                      -- domain.Actor.String() or 'policy'
+  council_id  uuid REFERENCES councils(id),
+  gate_id     uuid REFERENCES gates(id),
+  assumptions uuid[] NOT NULL DEFAULT '{}',       -- assumptions.id it rests on
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, number),
+  CHECK (decided_by <> 'policy' OR council_id IS NOT NULL)
+);
+CREATE INDEX decisions_project ON decisions (account_id, project_id, created_at);
+CREATE INDEX decisions_goal    ON decisions (account_id, goal_id) WHERE goal_id IS NOT NULL;
+
+-- The knowledge index (knowledge.md): one row per entry of a provider, per
+-- generated entry and per agent note (provider 'internal', section 'notes').
+-- Not ref-numbered.
+CREATE TABLE knowledge_entries (
+  id              uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id      uuid NOT NULL REFERENCES accounts(id),
+  project_id      uuid NOT NULL REFERENCES projects(id),
+  provider        text NOT NULL,                  -- provider name from the policy, or 'internal'
+  path            text NOT NULL,                  -- repo path, or the provider's stable id
+  source_url      text NOT NULL DEFAULT '',
+  version         text NOT NULL DEFAULT '',       -- blob SHA, page version
+  section         text NOT NULL,
+  title           text NOT NULL,
+  body            text NOT NULL DEFAULT '',       -- Markdown without frontmatter
+  body_hash       text NOT NULL CHECK (body_hash ~ '^[0-9a-f]{64}$'),
+  provenance      jsonb NOT NULL DEFAULT '{}',    -- domain.Provenance {author_role, source, created, last_verified}
+  generated       boolean NOT NULL DEFAULT false,
+  needs_reverify  boolean NOT NULL DEFAULT false,
+  reverify_reason text NOT NULL DEFAULT '',       -- commit and paths that changed
+  scope           text CHECK (scope IN ('goal','project')),  -- notes only
+  goal_id         uuid REFERENCES goals(id),      -- goal notes only
+  expires_at      timestamptz,                    -- notes only
+  tags            text[] NOT NULL DEFAULT '{}',   -- notes only
+  synced_at       timestamptz NOT NULL DEFAULT now(),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  search          tsvector GENERATED ALWAYS AS
+                    (setweight(to_tsvector('english', title), 'A') || setweight(to_tsvector('english', body), 'B')) STORED,
+  -- embedding vector,                          -- only with pgvector (Rules)
+  UNIQUE (account_id, project_id, provider, path),
+  CHECK ((provider = 'internal') = (section = 'notes')),
+  CHECK ((provider = 'internal') = (scope IS NOT NULL)),
+  CHECK ((coalesce(scope, '') = 'goal') = (goal_id IS NOT NULL)),
+  CHECK (provider = 'internal' OR (expires_at IS NULL AND tags = '{}')),
+  CHECK (generated = (section = 'generated'))
+);
+-- Query with: search @@ websearch_to_tsquery('english', $q), ranked by ts_rank(search, query).
+CREATE INDEX knowledge_entries_search   ON knowledge_entries USING gin (search);
+CREATE INDEX knowledge_entries_section  ON knowledge_entries (account_id, project_id, section);
+CREATE INDEX knowledge_entries_goal     ON knowledge_entries (account_id, goal_id) WHERE goal_id IS NOT NULL;
+CREATE INDEX knowledge_entries_expires  ON knowledge_entries (expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX knowledge_entries_reverify ON knowledge_entries (account_id, project_id) WHERE needs_reverify;
+
+-- A proposed change to a curated section. Ref KB-n. Never to 'generated'
+-- or to notes.
+CREATE TABLE knowledge_proposals (
+  id           uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id   uuid NOT NULL REFERENCES accounts(id),
+  project_id   uuid NOT NULL REFERENCES projects(id),
+  number       bigint NOT NULL,
+  provider     text NOT NULL,
+  section      text NOT NULL,
+  path         text NOT NULL,
+  action       text NOT NULL CHECK (action IN ('add','edit','retire')),
+  body         text NOT NULL DEFAULT '',
+  reason       text NOT NULL,
+  proposed_by  text NOT NULL,                     -- role, or domain.Actor.String() of a human
+  job_id       uuid REFERENCES jobs(id),
+  goal_id      uuid REFERENCES goals(id),
+  batch        text NOT NULL CHECK (batch IN ('per_goal','standalone')),
+  external_ref text NOT NULL DEFAULT '',          -- PR number, page id: what the review is followed by
+  change_id    uuid REFERENCES changes(id),       -- the PR, for the repo provider
+  gate_id      uuid REFERENCES gates(id),         -- knowledge_proposal gate, if a human decides here
+  status       text NOT NULL CHECK (status IN ('queued','open','accepted','rejected')),
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, number),
+  CHECK (section NOT IN ('generated','notes') AND provider <> 'internal'),
+  CHECK (batch <> 'per_goal' OR goal_id IS NOT NULL)
+);
+CREATE INDEX knowledge_proposals_queued ON knowledge_proposals (account_id, goal_id) WHERE status = 'queued';
+CREATE INDEX knowledge_proposals_open   ON knowledge_proposals (account_id, project_id) WHERE status = 'open';
+
+-- Improvement proposals. Ref PROP-n. action is exactly one of
+-- {goal: {title, body, platforms}}, {config_pr: {files: [{path, content}]}}
+-- (paths under .forecrew/) and {setup: {instructions, issue}}
+-- (domain.ProposalAction); measure is {detector, value}, outcome
+-- {before, after, measured_at}, evidence [{kind, ref, detail}].
+CREATE TABLE proposals (
+  id              uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id      uuid NOT NULL REFERENCES accounts(id),
+  project_id      uuid NOT NULL REFERENCES projects(id),
+  number          bigint NOT NULL,
+  scope           text NOT NULL CHECK (scope IN ('project','platform')),
+  category        text NOT NULL CHECK (category IN ('observability','testing','ci','security','docs','knowledge','tooling','workers','roles','cost')),
+  title           text NOT NULL,
+  rationale       text NOT NULL,
+  evidence        jsonb NOT NULL DEFAULT '[]',
+  benefit         text NOT NULL,
+  effort          text NOT NULL CHECK (effort IN ('s','m','l')),
+  risk            text NOT NULL CHECK (risk IN ('low','medium','high')),
+  action          jsonb NOT NULL,
+  measure         jsonb,
+  status          text NOT NULL CHECK (status IN ('proposed','accepted','rejected','snoozed','done','superseded')),
+  dedupe_key      text NOT NULL,
+  evidence_weight double precision NOT NULL DEFAULT 0 CHECK (evidence_weight >= 0),
+  snoozed_until   timestamptz,
+  decided_by      text,                           -- domain.Actor.String()
+  reason          text,
+  outcome         jsonb,
+  gate_id         uuid REFERENCES gates(id),      -- the improvement_proposal gate
+  goal_id         uuid REFERENCES goals(id),      -- the goal a goal action created
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, number),
+  CHECK ((status = 'snoozed') = (snoozed_until IS NOT NULL))
+);
+-- rejected, done and superseded are final; a dedupe key is unique among the others.
+CREATE UNIQUE INDEX proposals_dedupe ON proposals (account_id, project_id, dedupe_key)
+  WHERE status IN ('proposed','accepted','snoozed');
+CREATE INDEX proposals_project ON proposals (account_id, project_id, status);
 ```
 
 ## Leasing query
@@ -440,11 +679,11 @@ cap). `RequeueExpired` does not delay the job.
 |-------------|-------|------------|
 | Account | accounts | `Accounts()` |
 | Project | projects | `Projects()` |
-| Goal | goals | `Goals()` |
+| Goal, GoalSize | goals | `Goals()` |
 | Spec | specs | `Specs()` |
 | Task | tasks | `Tasks()` |
 | Change | changes | `Changes()` |
-| Job, JobSpec, Usage | jobs | `Jobs()` |
+| Job, JobSpec, Usage, ContextManifest | jobs | `Jobs()` |
 | JobEvent | job_events | `JobEvents()` |
 | Gate | gates | `Gates()` |
 | Signal | signals | `Signals()` |
@@ -457,4 +696,11 @@ cap). `RequeueExpired` does not delay the job.
 | Artifact | artifacts | `store.ArtifactRepo` (added to `Store` by T21) |
 | TestRun, TestResult | test_runs, test_results | `store.TestRunRepo` (added to `Store` by T22) |
 | VerificationReport | verification_reports | `store.VerificationReportRepo` (added to `Store` by T27) |
+| Council, CouncilBrief | councils | `store.CouncilRepo` (added to `Store` by T33) |
+| CouncilContribution | council_contributions | `store.CouncilRepo` (T33) |
+| Assumption, StatedAssumption, Dependent | assumptions | `store.AssumptionRepo` (added to `Store` by T32) |
+| Decision | decisions | `store.DecisionRepo` (added to `Store` by T32) |
+| KnowledgeEntry, Provenance | knowledge_entries | `store.KnowledgeRepo` (added to `Store` by T36) |
+| KnowledgeProposal | knowledge_proposals | `store.KnowledgeProposalRepo` (added to `Store` by T37) |
+| Proposal | proposals | `store.ProposalRepo` (added to `Store` by T50) |
 | (human ref numbers) | ref_counters | used by `Create` |
