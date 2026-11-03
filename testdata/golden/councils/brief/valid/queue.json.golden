@@ -1,0 +1,68 @@
+{
+  "question": "How should forecrewd queue command jobs?",
+  "options": [
+    {
+      "name": "postgres-queue",
+      "summary": "Keep the jobs table and SKIP LOCKED leasing.",
+      "pros": [
+        "No new service",
+        "Leases stay transactional"
+      ],
+      "cons": [
+        "Polling load grows with workers"
+      ],
+      "cost": "low",
+      "risk": "low"
+    },
+    {
+      "name": "nats",
+      "summary": "Add NATS JetStream for dispatch.",
+      "pros": [
+        "Push instead of polling"
+      ],
+      "cons": [
+        "A second source of truth",
+        "One more service to run"
+      ],
+      "cost": "medium",
+      "risk": "medium"
+    }
+  ],
+  "recommendation": "postgres-queue",
+  "votes": [
+    {
+      "member": "architect",
+      "option": "postgres-queue",
+      "reason": "Fewer moving parts."
+    },
+    {
+      "member": "devops",
+      "option": "postgres-queue",
+      "reason": "Nothing new to operate."
+    },
+    {
+      "member": "devils-advocate",
+      "option": "nats",
+      "reason": "Polling will not scale past a few hundred workers."
+    }
+  ],
+  "dissent": [
+    {
+      "member": "devils-advocate",
+      "position": "Measure polling load before the pilot grows."
+    }
+  ],
+  "assumptions": [
+    {
+      "statement": "Fewer than 200 workers poll one forecrewd.",
+      "confidence": "medium",
+      "impact": "high",
+      "verify_by": "research"
+    }
+  ],
+  "open_questions": [
+    "What poll interval keeps Postgres under 5% CPU?"
+  ],
+  "reversible": true,
+  "budget_exhausted": false
+}

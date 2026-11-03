@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/forecrew/forecrew/docs/contracts/council-brief.schema.json",
+  "title": "Council decision brief",
+  "description": "The facilitator's synthesis that ends a council (stage synthesis), stored in councils.brief and shown in the council_decision gate. Also the output schema of the synthesis job: packs/schemas/council-brief.json is a copy of this file. Every object requires all its properties and forbids others, for runtimes with strict structured output. $defs text, level and assumption equal those of packs/schemas/common.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "question",
+    "options",
+    "recommendation",
+    "votes",
+    "dissent",
+    "assumptions",
+    "open_questions",
+    "reversible",
+    "budget_exhausted"
+  ],
+  "$defs": {
+    "text": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "level": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    "assumption": {
+      "description": "Something taken as true without confirmation. Forecrew registers it as A-n (docs/contracts/data-model.md, assumptions); docs/contracts/council-brief.schema.json repeats this definition.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "statement",
+        "confidence",
+        "impact",
+        "verify_by"
+      ],
+      "properties": {
+        "statement": {
+          "$ref": "#/$defs/text",
+          "description": "What you take as true, as one sentence."
+        },
+        "confidence": {
+          "$ref": "#/$defs/level",
+          "description": "How sure you are the assumption holds."
+        },
+        "impact": {
+          "$ref": "#/$defs/level",
+          "description": "How much the result changes if the assumption is wrong."
+        },
+        "verify_by": {
+          "type": "string",
+          "enum": [
+            "test",
+            "ask-human",
+            "research"
+          ],
+          "description": "How it can be checked: a test, a question to a human, or research."
+        }
+      }
+    }
+  },
+  "properties": {
+    "question": {
+      "$ref": "#/$defs/text",
+      "description": "The question the council answered, as framed in its brief."
+    },
+    "options": {
+      "description": "Every option the council weighed, the recommended one included.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "summary",
+          "pros",
+          "cons",
+          "cost",
+          "risk"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$",
+            "description": "Short unique name, e.g. postgres-queue; votes and the recommendation refer to it."
+          },
+          "summary": {
+            "$ref": "#/$defs/text",
+            "description": "What the option is, in a few sentences."
+          },
+          "pros": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/text"
+            }
+          },
+          "cons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/text"
+            }
+          },
+          "cost": {
+            "$ref": "#/$defs/level",
+            "description": "Effort and running cost compared with the other options."
+          },
+          "risk": {
+            "$ref": "#/$defs/level",
+            "description": "How likely and how bad a failure of this option is."
+          }
+        }
+      }
+    },
+    "recommendation": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "description": "Name of the recommended option."
+    },
+    "votes": {
+      "description": "One vote per member.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "member",
+          "option",
+          "reason"
+        ],
+        "properties": {
+          "member": {
+            "$ref": "#/$defs/text",
+            "description": "Member role, e.g. architect."
+          },
+          "option": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+          },
+          "reason": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    },
+    "dissent": {
+      "description": "Members who disagree with the recommendation, in their own terms; empty only if nobody does.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "member",
+          "position"
+        ],
+        "properties": {
+          "member": {
+            "$ref": "#/$defs/text"
+          },
+          "position": {
+            "$ref": "#/$defs/text"
+          }
+        }
+      }
+    },
+    "assumptions": {
+      "description": "Assumptions the recommendation rests on; each is registered.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/assumption"
+      }
+    },
+    "open_questions": {
+      "description": "What the council could not settle.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/text"
+      }
+    },
+    "reversible": {
+      "type": "boolean",
+      "description": "Whether the decision is cheap to undo later. Judge honestly: an irreversible decision always goes to a human."
+    },
+    "budget_exhausted": {
+      "type": "boolean",
+      "description": "true when the council's token or time budget ran out and this synthesis uses what existed."
+    }
+  }
+}

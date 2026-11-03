@@ -1,0 +1,11 @@
+{
+  "question": "Which queue?",
+  "options": [{"name": "postgres-queue", "summary": "SKIP LOCKED.", "pros": [], "cons": [], "cost": "low", "risk": "low"}],
+  "recommendation": "kafka",
+  "votes": [{"member": "architect", "option": "redis", "reason": "Fast."}],
+  "dissent": [],
+  "assumptions": [],
+  "open_questions": [],
+  "reversible": false,
+  "budget_exhausted": true
+}
