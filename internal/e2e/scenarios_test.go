@@ -51,11 +51,16 @@ func TestOnboardingApproved(t *testing.T) {
 	}
 }
 
+// controlBox is the name of the control worker the worlds with a project
+// start: product-owner and architect run in pool control.
+const controlBox = "control-box"
+
 // onboarded runs the onboarding of a new world with the workers it needs.
 func onboarded(t *testing.T) (w *world, claude, codex *workerProc) {
 	t.Helper()
 	w = newWorld(t, false)
 	claude, codex = w.startWorker("claude-box", claudeLabels...), w.startWorker("codex-box", codexLabels...)
+	w.startWorkerIn(domain.PoolControl, controlBox, claudeLabels...)
 	w.onboard()
 	w.decide(w.gate(domain.GateProfileApproval), "approve", "")
 	w.waitProject(domain.ProjectOnboarded)
@@ -66,6 +71,7 @@ func onboarded(t *testing.T) (w *world, claude, codex *workerProc) {
 func seeded(t *testing.T) (w *world, claude, codex *workerProc) {
 	t.Helper()
 	w = newWorld(t, true)
+	w.startWorkerIn(domain.PoolControl, controlBox, claudeLabels...)
 	return w, w.startWorker("claude-box", claudeLabels...), w.startWorker("codex-box", codexLabels...)
 }
 
@@ -110,8 +116,11 @@ func TestFeatureHappyPath(t *testing.T) {
 			t.Errorf("%s jobs = %d, want %d", role, len(js), want)
 		}
 		on := claude.Name
-		if role == "reviewer" {
+		switch role {
+		case "reviewer":
 			on = codex.Name
+		case "product-owner", "architect":
+			on = controlBox // read-only roles run in pool control
 		}
 		for _, j := range js {
 			if ran := w.ag.workersOf(j.ID); j.Status != domain.JobSucceeded || !slices.Equal(ran, []string{on}) {
@@ -224,7 +233,7 @@ func TestWorkerKilledMidJob(t *testing.T) {
 		}
 		return nil
 	}
-	victim := w.startWorker("victim", claudeLabels...)
+	victim := w.startWorkerIn(domain.PoolControl, "victim", claudeLabels...)
 	var job domain.Job
 	if code := w.api(http.MethodPost, "/jobs", mcp.DispatchJobInput{Project: "app", Role: "product-owner"}, &job); code != http.StatusCreated {
 		t.Fatalf("dispatch: status %d", code)
@@ -236,7 +245,7 @@ func TestWorkerKilledMidJob(t *testing.T) {
 	// reaper requeues the job once, and a second worker completes it.
 	_, err := w.pool.Exec(t.Context(), `UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1`, job.ID)
 	must(t, err)
-	heir := w.startWorker("heir", claudeLabels...)
+	heir := w.startWorkerIn(domain.PoolControl, "heir", claudeLabels...)
 	eventually(t, "the job to succeed", func() bool {
 		j, err := w.st.Jobs().Get(t.Context(), w.account.ID, job.ID)
 		must(t, err)
@@ -251,7 +260,7 @@ func TestWorkerKilledMidJob(t *testing.T) {
 
 func TestJobsGoToWorkersWithTheLabels(t *testing.T) {
 	w := newWorld(t, true)
-	plain := w.startWorker("plain", claudeLabels...)
+	plain := w.startWorkerIn(domain.PoolControl, "plain", claudeLabels...)
 	var job domain.Job
 	if code := w.api(http.MethodPost, "/jobs", mcp.DispatchJobInput{Project: "app", Role: "product-owner", Needs: []string{"gpu"}}, &job); code != http.StatusCreated {
 		t.Fatalf("dispatch: status %d", code)
@@ -259,10 +268,10 @@ func TestJobsGoToWorkersWithTheLabels(t *testing.T) {
 	eventually(t, "the job status to name the missing worker", func() bool {
 		var info mcp.JobInfo
 		w.api(http.MethodGet, "/jobs/"+job.Ref(), nil, &info)
-		return info.Status == domain.JobQueued && info.Reason == "no online worker in pool build with labels gpu, runtime:claude-code"
+		return info.Status == domain.JobQueued && info.Reason == "no online worker in pool control with labels gpu, runtime:claude-code"
 	})
 
-	gpu := w.startWorker("gpu", append([]string{"gpu"}, claudeLabels...)...)
+	gpu := w.startWorkerIn(domain.PoolControl, "gpu", append([]string{"gpu"}, claudeLabels...)...)
 	eventually(t, "the job to succeed", func() bool {
 		var info mcp.JobInfo
 		w.api(http.MethodGet, "/jobs/"+job.Ref(), nil, &info)

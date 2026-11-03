@@ -10,6 +10,7 @@ import (
 
 	"github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/config"
+	"github.com/forecrew/forecrew/internal/domain"
 )
 
 func TestLoadPacks(t *testing.T) {
@@ -20,15 +21,16 @@ func TestLoadPacks(t *testing.T) {
 	want := map[string]struct {
 		tier     config.Tier
 		readOnly bool
+		pool     string
 	}{
-		"onboarding-analyst":   {config.TierStrong, false},
-		"product-owner":        {config.TierBest, true},
-		"architect":            {config.TierBest, true},
-		"developer":            {config.TierStrong, false},
-		"reviewer":             {config.TierStrong, true},
-		"test-architect":       {config.TierBest, false},
-		"environment-engineer": {config.TierStrong, false},
-		"test-engineer":        {config.TierStrong, false},
+		"onboarding-analyst":   {config.TierStrong, false, domain.PoolBuild},
+		"product-owner":        {config.TierBest, true, domain.PoolControl},
+		"architect":            {config.TierBest, true, domain.PoolControl},
+		"developer":            {config.TierStrong, false, domain.PoolBuild},
+		"reviewer":             {config.TierStrong, true, domain.PoolBuild}, // runs the tests, so it needs a build worker
+		"test-architect":       {config.TierBest, false, domain.PoolBuild},
+		"environment-engineer": {config.TierStrong, false, domain.PoolBuild},
+		"test-engineer":        {config.TierStrong, false, domain.PoolBuild},
 	}
 	if len(defs) != len(want) {
 		t.Fatalf("got %d roles, want %d", len(defs), len(want))
@@ -41,6 +43,9 @@ func TestLoadPacks(t *testing.T) {
 		}
 		if d.Tier != w.tier || (len(d.WritePaths) == 0) != w.readOnly {
 			t.Errorf("%s: tier %s read-only %v, want %s %v", name, d.Tier, len(d.WritePaths) == 0, w.tier, w.readOnly)
+		}
+		if d.Pool != w.pool {
+			t.Errorf("%s: pool %s, want %s", name, d.Pool, w.pool)
 		}
 		for _, phrase := range []string{"assumption", "one fenced `json` block"} {
 			if !strings.Contains(d.Instructions, phrase) {

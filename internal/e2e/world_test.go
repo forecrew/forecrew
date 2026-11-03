@@ -273,13 +273,19 @@ type workerProc struct {
 	logs   *logBuffer
 }
 
-// startWorker registers a worker with the labels (it adds runtime labels for
-// the runtimes it has) and runs it against forecrewd. It stops when the
+// startWorker registers a build worker with the labels (it adds runtime labels
+// for the runtimes it has) and runs it against forecrewd. It stops when the
 // test ends.
 func (w *world) startWorker(name string, labels ...string) *workerProc {
+	return w.startWorkerIn(domain.PoolBuild, name, labels...)
+}
+
+// startWorkerIn is startWorker for a worker of pool, registered the way an
+// admin does with "forecrew worker add <name> --pool <pool>".
+func (w *world) startWorkerIn(pool, name string, labels ...string) *workerProc {
 	w.t.Helper()
 	token := "fcw_" + name + "_" + strings.Repeat("x", 30)
-	p := &workerProc{AccountID: w.account.ID, Name: name, TokenHash: mcp.HashToken(token), MaxJobs: 1, done: make(chan error, 1), logs: &logBuffer{}}
+	p := &workerProc{AccountID: w.account.ID, Name: name, Pool: pool, TokenHash: mcp.HashToken(token), MaxJobs: 1, done: make(chan error, 1), logs: &logBuffer{}}
 	must(w.t, w.st.Workers().Create(w.t.Context(), &p.Worker))
 	client := worker.NewClient(w.url, token, nil)
 	client.BackoffMin, client.BackoffMax = 5*time.Millisecond, 50*time.Millisecond
