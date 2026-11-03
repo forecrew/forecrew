@@ -24,12 +24,13 @@ func testConfig() *config.Config {
 			config.TierBest:   {"anthropic": "claude-best", "openai": "gpt-best"},
 		},
 		Roles: map[string]config.Role{
-			"onboarding-analyst": {Runtime: "claude", Tier: config.TierStrong},
-			"product-owner":      {Runtime: "claude", Tier: config.TierBest},
-			"architect":          {Runtime: "claude", Tier: config.TierBest},
-			"developer":          {Runtime: "claude", Tier: config.TierStrong},
-			"reviewer":           {Runtime: "codex", Tier: config.TierBest},
-			"test-architect":     {Runtime: "claude", Tier: config.TierBest},
+			"onboarding-analyst":   {Runtime: "claude", Tier: config.TierStrong},
+			"product-owner":        {Runtime: "claude", Tier: config.TierBest},
+			"architect":            {Runtime: "claude", Tier: config.TierBest},
+			"developer":            {Runtime: "claude", Tier: config.TierStrong},
+			"reviewer":             {Runtime: "codex", Tier: config.TierBest},
+			"test-architect":       {Runtime: "claude", Tier: config.TierBest},
+			"environment-engineer": {Runtime: "claude", Tier: config.TierStrong},
 		},
 	}
 }
@@ -39,7 +40,7 @@ func TestCatalogResolve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	want := []string{"architect", "developer", "onboarding-analyst", "product-owner", "reviewer", "test-architect"}
+	want := []string{"architect", "developer", "environment-engineer", "onboarding-analyst", "product-owner", "reviewer", "test-architect"}
 	if got := c.Names(); !slices.Equal(got, want) {
 		t.Errorf("Names = %v, want %v", got, want)
 	}
@@ -67,7 +68,7 @@ func TestCatalogResolve(t *testing.T) {
 	if err != nil || po.Model != "claude-best" {
 		t.Errorf("Resolve product-owner = %q, %v; want claude-best", po.Model, err)
 	}
-	for name, model := range map[string]string{"test-architect": "claude-best"} {
+	for name, model := range map[string]string{"test-architect": "claude-best", "environment-engineer": "claude-strong"} {
 		r, err := c.Resolve(ctx, uuid.Nil(), uuid.Nil(), name)
 		if err != nil || r.Model != model || r.ReadOnly() || !slices.Contains(r.AllowedTools, "Write") || r.Pool != "build" {
 			t.Errorf("Resolve %s = %+v, %v; want a writing role on %s", name, r, err, model)

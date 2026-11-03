@@ -21,12 +21,13 @@ func TestLoadPacks(t *testing.T) {
 		tier     config.Tier
 		readOnly bool
 	}{
-		"onboarding-analyst": {config.TierStrong, false},
-		"product-owner":      {config.TierBest, true},
-		"architect":          {config.TierBest, true},
-		"developer":          {config.TierStrong, false},
-		"reviewer":           {config.TierStrong, true},
-		"test-architect":     {config.TierBest, false},
+		"onboarding-analyst":   {config.TierStrong, false},
+		"product-owner":        {config.TierBest, true},
+		"architect":            {config.TierBest, true},
+		"developer":            {config.TierStrong, false},
+		"reviewer":             {config.TierStrong, true},
+		"test-architect":       {config.TierBest, false},
+		"environment-engineer": {config.TierStrong, false},
 	}
 	if len(defs) != len(want) {
 		t.Fatalf("got %d roles, want %d", len(defs), len(want))

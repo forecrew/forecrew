@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Environments",
+  "description": "Output of the environment-engineer role: the environments under .forecrew/environments and why each is set up as it is.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "environments", "assumptions", "escalation"],
+  "properties": {
+    "summary": {"$ref": "common.json#/$defs/text", "description": "What you added or changed, in a few sentences; it becomes the pull request description."},
+    "environments": {
+      "description": "Every environment the matrix's rules name, one entry each, whether you changed it or not, and every environment file you removed.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "provider", "change", "reason"],
+        "properties": {
+          "name": {
+            "description": "Environment name; its file is .forecrew/environments/<name>.yaml.",
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+          },
+          "provider": {"type": "string", "enum": ["actions", "docker", "machine"]},
+          "change": {"type": "string", "enum": ["added", "changed", "unchanged", "removed"]},
+          "reason": {
+            "$ref": "common.json#/$defs/text",
+            "description": "Which matrix cells it serves and how it is built. For docker or machine: what a GitHub-hosted runner cannot do here."
+          }
+        }
+      }
+    },
+    "assumptions": {"$ref": "common.json#/$defs/assumptions"},
+    "escalation": {"$ref": "common.json#/$defs/escalation"}
+  }
+}

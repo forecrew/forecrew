@@ -1,0 +1,11 @@
+{
+  "summary": "GitHub-hosted runners for the three platforms, and a Docker environment from the repo's devcontainer for the integration suite.",
+  "environments": [
+    {"name": "linux", "provider": "actions", "change": "added", "reason": "Cells with os=linux; ubuntu-24.04 with a Postgres service container."},
+    {"name": "windows", "provider": "actions", "change": "added", "reason": "Cells with os=windows; windows-2025."},
+    {"name": "macos", "provider": "actions", "change": "unchanged", "reason": "Cells with os=macos; macos-15."},
+    {"name": "gpu", "provider": "machine", "change": "added", "reason": "The e2e suite needs a CUDA GPU, which GitHub-hosted runners do not have."}
+  ],
+  "assumptions": [{"text": "The devcontainer's Go version matches go.mod.", "confidence": "high", "impact": "low"}],
+  "escalation": null
+}

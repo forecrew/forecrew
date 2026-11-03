@@ -1,0 +1,21 @@
+role: environment-engineer
+model: strong
+prompt: roles/environment-engineer.md
+tools: [repo.read, repo.write, git.read, git.commit, run.tests]
+write_paths: [".forecrew/environments/**"]
+produces: [environments]
+output_schema: schemas/environments.json
+definition_of_done:
+  - every environment the matrix's rules name has a file .forecrew/environments/<name>.yaml with that name that follows the environment format
+  - plain Linux, Windows and macOS targets use provider actions; docker and machine are used only for what a GitHub-hosted runner cannot do, and the output says why
+  - every image, service image and runner label is a pinned version, never latest
+  - every service an integration or e2e suite needs is declared with a health check
+  - every environment records the versions of the toolchains its suites use
+  - no environment holds a secret
+  - the environments are committed on the job branch
+escalate_when:
+  - a target needs hardware, an OS or a licence that no GitHub-hosted runner or image provides
+  - a suite needs a secret to run
+  - the matrix names an environment that cannot work without a change to the matrix
+max_turns: 80
+timeout: 40m
