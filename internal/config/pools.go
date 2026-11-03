@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"fmt"
 	"net/url"
 	"slices"
 
@@ -84,21 +86,33 @@ func DefaultPools() map[string]Pool {
 	}
 }
 
+// ErrNotAllowed means a pool's policy does not allow a job.
+var ErrNotAllowed = errors.New("not allowed in pool")
+
 // Allows reports whether the pool runs a job of kind for role: the kind is
 // listed and, for agent jobs, so is the role (or "*"). A writing role also
 // needs a pool whose repo token scope is write.
 func (p Pool) Allows(role string, kind domain.JobKind, writes bool) bool {
+	return p.Check("", role, kind, writes) == nil
+}
+
+// Check is Allows with the reason: it returns an error wrapping
+// ErrNotAllowed that says why pool name refuses the job, or nil.
+func (p Pool) Check(name, role string, kind domain.JobKind, writes bool) error {
 	kind = kind.OrDefault()
 	if !slices.Contains(p.Kinds, kind) {
-		return false
+		return fmt.Errorf("pool %s does not run %s jobs: %w", name, kind, ErrNotAllowed)
 	}
 	if kind == domain.JobKindCommand {
-		return true
+		return nil
+	}
+	if !slices.Contains(p.Roles, AnyRole) && !slices.Contains(p.Roles, role) {
+		return fmt.Errorf("pool %s does not run role %s: %w", name, role, ErrNotAllowed)
 	}
 	if writes && p.Credentials.RepoToken != RepoTokenWrite {
-		return false
+		return fmt.Errorf("role %s writes to the repo and pool %s gets no write token: %w", role, name, ErrNotAllowed)
 	}
-	return slices.Contains(p.Roles, AnyRole) || slices.Contains(p.Roles, role)
+	return nil
 }
 
 // AllowsRuntime reports whether the pool's jobs may receive the credentials

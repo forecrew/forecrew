@@ -86,6 +86,40 @@ func TestDefaultPools(t *testing.T) {
 	}
 }
 
+// TestPoolCheck: each refusal says which rule refused the job.
+func TestPoolCheck(t *testing.T) {
+	pools := DefaultPools()
+	reviewers := Pool{Roles: []string{"reviewer"}, Kinds: []domain.JobKind{domain.JobKindAgent},
+		Credentials: PoolCredentials{RepoToken: RepoTokenWrite}}
+	tests := []struct {
+		name, pool, role string
+		p                Pool
+		kind             domain.JobKind
+		writes           bool
+		want             string
+	}{
+		{"kind", domain.PoolControl, "", pools[domain.PoolControl], domain.JobKindCommand, false, "pool control does not run command jobs"},
+		{"default kind", domain.PoolActions, "reviewer", pools[domain.PoolActions], "", false, "pool actions does not run agent jobs"},
+		{"role", "rev", "developer", reviewers, domain.JobKindAgent, false, "pool rev does not run role developer"},
+		{"write token", domain.PoolControl, "developer", pools[domain.PoolControl], domain.JobKindAgent, true,
+			"role developer writes to the repo and pool control gets no write token"},
+		{"listed role", "rev", "reviewer", reviewers, domain.JobKindAgent, true, ""},
+		{"command ignores roles", domain.PoolBuild, "", pools[domain.PoolBuild], domain.JobKindCommand, true, ""},
+	}
+	for _, tt := range tests {
+		err := tt.p.Check(tt.pool, tt.role, tt.kind, tt.writes)
+		if tt.want == "" {
+			if err != nil {
+				t.Errorf("%s: %v", tt.name, err)
+			}
+			continue
+		}
+		if !errors.Is(err, ErrNotAllowed) || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%s: err = %v, want %q", tt.name, err, tt.want)
+		}
+	}
+}
+
 func TestParsePoolsAndEvidenceInvalid(t *testing.T) {
 	tests := []struct {
 		name    string
