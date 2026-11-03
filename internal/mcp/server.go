@@ -84,8 +84,10 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 		fieldDocs{
 			"project": project, "role": "Name of a read-only role, for example reviewer.",
 			"base_ref": "Git ref to start from; defaults to the project's default branch.", "branch": "Branch to check out and inspect; it is never pushed.",
-			"needs": "Worker labels the job needs, for example runtime:claude-code or linux.", "include_repo_facts": "Include the analyzer's repo facts in the context.",
-			"goal": goal, "task": "Task ref (TASK-12) or UUID.", "feedback": "Review feedback for the job.", "prompt": "Instructions for the job: what it should do.",
+			"needs":              "Worker labels the job needs, for example runtime:claude-code or linux.",
+			"pool":               "Worker pool to run in, for example control; defaults to the role's pool. The pool's policy must allow the role.",
+			"include_repo_facts": "Include the analyzer's repo facts in the context.",
+			"goal":               goal, "task": "Task ref (TASK-12) or UUID.", "feedback": "Review feedback for the job.", "prompt": "Instructions for the job: what it should do.",
 		}, func(ctx context.Context, by domain.Actor, in DispatchJobInput) (toolResult, error) {
 			j, err := svc.DispatchJob(ctx, by, in)
 			return result(j, "%s queued (%s).", j.Ref(), j.Role), err

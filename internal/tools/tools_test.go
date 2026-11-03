@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 	"uuid"
@@ -318,10 +320,10 @@ func TestDispatchJob(t *testing.T) {
 		t.Errorf("audit = %v", got)
 	}
 
-	j, err = f.svc.DispatchJob(ctx, f.by, mcp.DispatchJobInput{Project: "app", Role: "reviewer", Goal: g.ID.String()})
+	j, err = f.svc.DispatchJob(ctx, f.by, mcp.DispatchJobInput{Project: "app", Role: "reviewer", Goal: g.ID.String(), Pool: domain.PoolControl})
 	must(t, err)
-	if j.GoalID != g.ID {
-		t.Errorf("goal = %v", j.GoalID)
+	if j.GoalID != g.ID || j.Pool != domain.PoolControl || f.creator.Requests()[1].Pool != domain.PoolControl {
+		t.Errorf("goal = %v, pool = %q", j.GoalID, j.Pool)
 	}
 }
 
@@ -370,9 +372,15 @@ func TestDispatchJobErrors(t *testing.T) {
 		t.Errorf("%d jobs created", n)
 	}
 
+	f.creator.Err = fmt.Errorf("create reviewer job: %w: pool actions does not run agent jobs", jobs.ErrInvalid)
+	_, err := f.svc.DispatchJob(ctx, f.by, mcp.DispatchJobInput{Project: "app", Role: "reviewer", Pool: domain.PoolActions})
+	if !errors.Is(err, mcp.ErrInvalidInput) || !strings.Contains(err.Error(), "pool actions does not run agent jobs") {
+		t.Errorf("refused pool: %v", err)
+	}
+
 	boom := errors.New("pack failed")
 	f.creator.Err = boom
-	_, err := f.svc.DispatchJob(ctx, f.by, mcp.DispatchJobInput{Project: "app", Role: "reviewer"})
+	_, err = f.svc.DispatchJob(ctx, f.by, mcp.DispatchJobInput{Project: "app", Role: "reviewer"})
 	wantErr(t, err, boom)
 
 	broken := tools.New(tools.Config{Store: f.st, Creator: &testkit.JobCreator{}, Roles: failingRoles{boom}})

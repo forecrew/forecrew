@@ -10,6 +10,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
+	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
@@ -157,7 +158,7 @@ func (s *Service) DispatchJob(ctx context.Context, by domain.Actor, in mcp.Dispa
 	}
 	req := workflow.JobRequest{
 		AccountID: by.AccountID, ProjectID: p.ID, Repo: p.Repo, BaseRef: in.BaseRef, Branch: in.Branch, Role: in.Role,
-		Needs: in.Needs, IncludeRepoFacts: in.IncludeRepoFacts, Feedback: in.Feedback, Prompt: in.Prompt,
+		Needs: in.Needs, Pool: in.Pool, IncludeRepoFacts: in.IncludeRepoFacts, Feedback: in.Feedback, Prompt: in.Prompt,
 	}
 	if in.Goal != "" {
 		g, err := s.goal(ctx, by.AccountID, in.Goal)
@@ -182,11 +183,7 @@ func (s *Service) DispatchJob(ctx context.Context, by domain.Actor, in mcp.Dispa
 			req.GoalID = t.GoalID
 		}
 	}
-	id, err := s.cfg.Creator.Create(ctx, req)
-	if err != nil {
-		return domain.Job{}, fmt.Errorf("dispatch %s job: %w", in.Role, err)
-	}
-	j, err := s.cfg.Store.Jobs().Get(ctx, by.AccountID, id)
+	j, err := s.createJob(ctx, req)
 	if err != nil {
 		return domain.Job{}, fmt.Errorf("dispatch %s job: %w", in.Role, err)
 	}
@@ -194,6 +191,20 @@ func (s *Service) DispatchJob(ctx context.Context, by domain.Actor, in mcp.Dispa
 		return domain.Job{}, fmt.Errorf("audit dispatch of %s: %w", j.Ref(), err)
 	}
 	return j, nil
+}
+
+// createJob creates the job of req and returns it. A request the job
+// service refuses, such as a pool that does not run the role, is invalid
+// input.
+func (s *Service) createJob(ctx context.Context, req workflow.JobRequest) (domain.Job, error) {
+	id, err := s.cfg.Creator.Create(ctx, req)
+	if errors.Is(err, jobs.ErrInvalid) {
+		return domain.Job{}, fmt.Errorf("%w: %w", mcp.ErrInvalidInput, err)
+	}
+	if err != nil {
+		return domain.Job{}, err
+	}
+	return s.cfg.Store.Jobs().Get(ctx, req.AccountID, id)
 }
 
 // Approve implements mcp.ToolService.
