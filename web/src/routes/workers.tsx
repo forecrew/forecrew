@@ -15,8 +15,9 @@ function AddWorker() {
       </h2>
       <ol className="list-decimal space-y-3 pl-5 text-sm">
         <li>
-          On the server, register it. The token is shown once.
-          <pre tabIndex={0} className="mt-1 overflow-x-auto rounded-lg bg-muted p-3 font-mono text-xs">forecrew worker add build-box-1</pre>
+          On the server, register it in a pool (<code className="font-mono">build</code> by default, <code className="font-mono">control</code>{" "}
+          for read-only work). The token is shown once.
+          <pre tabIndex={0} className="mt-1 overflow-x-auto rounded-lg bg-muted p-3 font-mono text-xs">forecrew worker add build-box-1 --pool build</pre>
         </li>
         <li>
           On the worker machine, run the install script as root with that token in <code className="font-mono">FORECREW_WORKER_TOKEN</code>.
@@ -46,6 +47,7 @@ export function WorkersPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Worker</TableHead>
+                  <TableHead>Pool</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Labels</TableHead>
                   <TableHead>Version</TableHead>
@@ -57,6 +59,7 @@ export function WorkersPage() {
                 {items.map((w) => (
                   <TableRow key={w.id}>
                     <TableCell className="font-mono">{w.name}</TableCell>
+                    <TableCell className="font-mono">{w.pool || "build"}</TableCell>
                     <TableCell>
                       <StatusBadge tone={w.online ? "good" : "bad"}>{w.online ? "online" : "offline"}</StatusBadge>
                     </TableCell>

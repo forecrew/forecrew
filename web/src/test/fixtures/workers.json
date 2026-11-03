@@ -3,7 +3,7 @@
     "id": "018f0000-0000-7000-8000-000000000060",
     "account_id": "018f0000-0000-7000-8000-000000000001",
     "name": "build-box-1",
-    "pool": "",
+    "pool": "build",
     "labels": [
       "docker",
       "go",
@@ -24,7 +24,7 @@
     "id": "018f0000-0000-7000-8000-000000000061",
     "account_id": "018f0000-0000-7000-8000-000000000001",
     "name": "mac-mini",
-    "pool": "",
+    "pool": "control",
     "labels": [
       "macos",
       "runtime:codex"

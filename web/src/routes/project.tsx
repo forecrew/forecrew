@@ -91,6 +91,7 @@ function DispatchForm({ project }: { project: string }) {
   const [task, setTask] = useState("")
   const [baseRef, setBaseRef] = useState("")
   const [branch, setBranch] = useState("")
+  const [pool, setPool] = useState("")
   const [feedback, setFeedback] = useState("")
   const [facts, setFacts] = useState(false)
   const [advanced, setAdvanced] = useState(false)
@@ -120,6 +121,7 @@ function DispatchForm({ project }: { project: string }) {
         task: task.trim() || undefined,
         base_ref: baseRef.trim() || undefined,
         branch: branch.trim() || undefined,
+        pool: pool.trim() || undefined,
         feedback: feedback.trim() || undefined,
         include_repo_facts: facts || undefined,
       })
@@ -156,6 +158,9 @@ function DispatchForm({ project }: { project: string }) {
           </Field>
           <Field label="Branch" hint="Optional branch to check out and inspect. A read-only job never pushes it.">
             {(p) => <Input {...p} className="font-mono" autoComplete="off" spellCheck={false} value={branch} onChange={(e) => setBranch(e.target.value)} />}
+          </Field>
+          <Field label="Pool" hint="Optional worker pool, for example control. Defaults to the role's pool.">
+            {(p) => <Input {...p} className="font-mono" autoComplete="off" spellCheck={false} value={pool} onChange={(e) => setPool(e.target.value)} />}
           </Field>
           <Field label="Feedback" hint="Optional notes for the job, for example what to look at.">
             {(p) => <Textarea {...p} rows={3} value={feedback} onChange={(e) => setFeedback(e.target.value)} />}
