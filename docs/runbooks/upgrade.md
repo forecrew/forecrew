@@ -29,6 +29,27 @@ older version.
 Restarting forecrewd does not lose jobs: running jobs keep their leases on
 the workers, and workers retry while forecrewd is down.
 
+## Control worker (Compose)
+
+The control worker uses the same `FORECREW_VERSION` as forecrewd. Pull and start
+it with the rest of the stack in step 3; the `control-init` service does nothing
+when the token volume already holds the worker's token, so the worker keeps its
+registration. A stop sends `SIGTERM`, and the worker lets running jobs finish
+for up to 10 minutes (`stop_grace_period` in `docker-compose.yml`). Its
+`FORECREW_CONTROL_*` settings are in `.env` (see
+[install.md](install.md#control-worker-compose)).
+
+## Read-only roles need a control worker
+
+From the version that runs `architect` and `product-owner` in pool `control`,
+those jobs wait for a worker of that pool. Compose installs get one from
+`docker compose up -d` (`worker-control`). Other installs must have one online
+before or right after the upgrade: `forecrew worker add <name> --pool control`
+and install that worker with its token ([add-worker.md](add-worker.md)), or
+`forecrew worker move <name> --pool control` for a read-only worker. Architect
+and product-owner jobs queued in the meantime stay queued and run once it is up;
+nothing is lost.
+
 ## forecrewd (systemd)
 
 Replace `/usr/local/bin/forecrewd` and `/usr/local/bin/forecrew` with the new
