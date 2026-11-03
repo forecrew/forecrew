@@ -14,12 +14,15 @@ const (
 	GateProfileApproval GateKind = "profile_approval"
 	GateSpecApproval    GateKind = "spec_approval"
 	GateMergeApproval   GateKind = "merge_approval"
-	GateNeedsYou        GateKind = "needs_you" // escalation: approve = retry, reject = stop
+	// GateTestPlanApproval approves the onboarding PR with the test
+	// strategy, .forecrew/matrix.yaml and .forecrew/environments.
+	GateTestPlanApproval GateKind = "test_plan_approval"
+	GateNeedsYou         GateKind = "needs_you" // escalation: approve = retry, reject = stop
 )
 
 // GateKinds returns every gate kind.
 func GateKinds() []GateKind {
-	return []GateKind{GateProfileApproval, GateSpecApproval, GateMergeApproval, GateNeedsYou}
+	return []GateKind{GateProfileApproval, GateSpecApproval, GateMergeApproval, GateTestPlanApproval, GateNeedsYou}
 }
 
 // GateStatus is the state of a gate. The terminal states are also the
