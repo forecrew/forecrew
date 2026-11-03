@@ -123,6 +123,10 @@ func DraftProfile(f Facts) Profile {
 	for _, s := range f.Services {
 		p.Services = append(p.Services, ProfileService{Name: s.Name, Image: s.Image, File: s.File})
 	}
+	for _, in := range f.Integrations {
+		in.Status = "proposed"
+		p.Integrations = append(p.Integrations, in)
+	}
 	if len(f.CIFiles) > 0 {
 		p.CI = ProfileCI{Workflows: f.CIFiles, Runners: f.CIRunners}
 	}
