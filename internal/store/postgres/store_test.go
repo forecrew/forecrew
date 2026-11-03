@@ -20,7 +20,7 @@ func TestMigrate(t *testing.T) {
 	var versions, accounts int
 	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM goose_db_version WHERE version_id > 0`).Scan(&versions))
 	must(t, pool.QueryRow(ctx, `SELECT count(*) FROM accounts`).Scan(&accounts))
-	if versions != 3 || accounts != 1 {
+	if versions != 4 || accounts != 1 {
 		t.Fatalf("versions = %d, accounts = %d", versions, accounts)
 	}
 }
