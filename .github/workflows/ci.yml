@@ -99,7 +99,7 @@ jobs:
       COMPOSE_FILE: docker-compose.yml:docker-compose.build.yml
     steps:
       - uses: actions/checkout@v7
-      - name: Write .env and forecrew.yaml
+      - name: Write .env, garage.env and forecrew.yaml
         run: |
           key="$(openssl genrsa -traditional 2048 | awk 'NF{printf "%s\\n", $0}')"
           {
@@ -108,9 +108,15 @@ jobs:
             echo "FORECREW_GITHUB_WEBHOOK_SECRET=ci-secret"
             echo "ANTHROPIC_API_KEY=ci-anthropic"
             echo "CODEX_API_KEY=ci-codex"
+            echo "FORECREW_EVIDENCE_ACCESS_KEY_ID=GK$(openssl rand -hex 12)"
+            echo "FORECREW_EVIDENCE_SECRET_ACCESS_KEY=$(openssl rand -hex 32)"
             echo "FORECREW_HTTP_PORT=8080"
             echo "FORECREW_HTTPS_PORT=8443"
           } > .env
+          {
+            echo "GARAGE_RPC_SECRET=$(openssl rand -hex 32)"
+            echo "GARAGE_ADMIN_TOKEN=$(openssl rand -hex 32)"
+          } > garage.env
           cp forecrew.example.yaml forecrew.yaml
       - run: docker compose build
       - run: docker compose up -d --wait --wait-timeout 120 postgres

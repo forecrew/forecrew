@@ -49,3 +49,14 @@ roles:
 
 policy:
   allow_same_vendor_review: false
+
+# Artifact storage: the Garage of the Compose stack. Keep the bucket name,
+# which garage-init creates. Without this section workers cannot upload
+# artifacts. retention_days: 0 keeps them forever.
+evidence:
+  endpoint: http://garage:3900
+  bucket: forecrew-evidence
+  region: garage
+  path_style: true
+  max_artifact_size: 104857600
+  retention_days: 90
