@@ -21,12 +21,13 @@ const (
 
 	// Phase 3 gates (docs/contracts/conventions.md, Gate decisions).
 	GateAssumptionReview GateKind = "assumption_review" // a high-impact assumption: approve = accept, reject = invalidate
+	GateCouncilDecision  GateKind = "council_decision"  // a council brief: approve = the recommendation
 )
 
 // GateKinds returns every gate kind.
 func GateKinds() []GateKind {
 	return []GateKind{GateProfileApproval, GateSpecApproval, GateMergeApproval, GateTestPlanApproval, GateNeedsYou,
-		GateAssumptionReview}
+		GateAssumptionReview, GateCouncilDecision}
 }
 
 // GateStatus is the state of a gate. The terminal states are also the

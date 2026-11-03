@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,11 +20,12 @@ const (
 	SignalPRMerged        SignalKind = "pr.merged"
 	SignalPRClosed        SignalKind = "pr.closed"
 	SignalChecksCompleted SignalKind = "checks.completed"
+	SignalCouncilDecided  SignalKind = "council.decided"
 )
 
 // SignalKinds returns every signal kind.
 func SignalKinds() []SignalKind {
-	return []SignalKind{SignalJobCompleted, SignalGateResolved, SignalPRMerged, SignalPRClosed, SignalChecksCompleted}
+	return []SignalKind{SignalJobCompleted, SignalGateResolved, SignalPRMerged, SignalPRClosed, SignalChecksCompleted, SignalCouncilDecided}
 }
 
 // Signal is a stored fact. Key correlates it with the step waiting for it;
@@ -90,6 +92,8 @@ func (s Signal) Decode() (SignalPayload, error) {
 		p = &PRClosed{}
 	case SignalChecksCompleted:
 		p = &ChecksCompleted{}
+	case SignalCouncilDecided:
+		p = &CouncilDecidedSignal{}
 	default:
 		return nil, fmt.Errorf("kind %q: %w", s.Kind, ErrInvalidSignal)
 	}
@@ -102,7 +106,7 @@ func (s Signal) Decode() (SignalPayload, error) {
 	return p, nil
 }
 
-// JobKey, GateKey, PRKey and ChecksKey build correlation keys. Repos are
+// JobKey, GateKey, CouncilKey, PRKey and ChecksKey build correlation keys. Repos are
 // lowercased because GitHub repo names are case-insensitive.
 
 // JobKey returns "job:<id>".
@@ -110,6 +114,9 @@ func JobKey(jobID uuid.UUID) string { return "job:" + jobID.String() }
 
 // GateKey returns "gate:<id>".
 func GateKey(gateID uuid.UUID) string { return "gate:" + gateID.String() }
+
+// CouncilKey returns "council:<id>".
+func CouncilKey(councilID uuid.UUID) string { return "council:" + councilID.String() }
 
 // PRKey returns "pr:<repo>#<number>".
 func PRKey(repo string, number int) string {
@@ -255,4 +262,31 @@ func (p ChecksCompleted) validate() error {
 		return nil
 	}
 	return fmt.Errorf("conclusion %q: %w", p.Conclusion, ErrInvalidSignal)
+}
+
+// CouncilDecidedSignal is the payload of council.decided, sent once when a
+// council ends: decided (with the decision recorded), failed or canceled.
+type CouncilDecidedSignal struct {
+	CouncilID  uuid.UUID     `json:"council_id"`
+	Status     CouncilStatus `json:"status"`
+	DecisionID uuid.UUID     `json:"decision_id,omitzero"` // set when decided
+}
+
+// SignalKind implements SignalPayload.
+func (CouncilDecidedSignal) SignalKind() SignalKind { return SignalCouncilDecided }
+
+// SignalKey implements SignalPayload.
+func (p CouncilDecidedSignal) SignalKey() string { return CouncilKey(p.CouncilID) }
+
+func (p CouncilDecidedSignal) validate() error {
+	if p.CouncilID == uuid.Nil() {
+		return missing("council_id")
+	}
+	if !p.Status.Terminal() || !slices.Contains(CouncilStatuses(), p.Status) {
+		return fmt.Errorf("status %q is not terminal: %w", p.Status, ErrInvalidSignal)
+	}
+	if (p.Status == CouncilDecided) != (p.DecisionID != uuid.Nil()) {
+		return fmt.Errorf("decision_id is set exactly when decided: %w", ErrInvalidSignal)
+	}
+	return nil
 }

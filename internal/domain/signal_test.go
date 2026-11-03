@@ -7,7 +7,7 @@ import (
 )
 
 func TestSignals(t *testing.T) {
-	job, gate := NewID(), NewID()
+	job, gate, council, decision := NewID(), NewID(), NewID(), NewID()
 	sha := "ABC123"
 	tests := []struct {
 		name      string
@@ -36,6 +36,14 @@ func TestSignals(t *testing.T) {
 			name: "checks completed", payload: &ChecksCompleted{Repo: "owner/repo", Number: 12, SHA: sha, Conclusion: ChecksNone},
 			kind: SignalChecksCompleted, key: "checks:owner/repo@abc123", dedupeKey: "checks.completed:owner/repo@abc123",
 		},
+		{
+			name: "council decided", payload: &CouncilDecidedSignal{CouncilID: council, Status: CouncilDecided, DecisionID: decision},
+			kind: SignalCouncilDecided, key: "council:" + council.String(), dedupeKey: "council.decided:" + council.String(),
+		},
+		{
+			name: "council failed", payload: &CouncilDecidedSignal{CouncilID: council, Status: CouncilFailed},
+			kind: SignalCouncilDecided, key: "council:" + council.String(), dedupeKey: "council.decided:" + council.String(),
+		},
 	}
 	account, project := NewID(), NewID()
 	for _, tt := range tests {
@@ -58,7 +66,7 @@ func TestSignals(t *testing.T) {
 			}
 		})
 	}
-	if len(SignalKinds()) != 5 {
+	if len(SignalKinds()) != 6 {
 		t.Errorf("SignalKinds = %v", SignalKinds())
 	}
 }
@@ -76,6 +84,11 @@ func TestInvalidSignals(t *testing.T) {
 		&ChecksCompleted{Repo: "o/r", SHA: "a", Conclusion: ChecksSuccess},
 		&ChecksCompleted{Repo: "o/r", Number: 1, Conclusion: ChecksSuccess},
 		&ChecksCompleted{Repo: "o/r", Number: 1, SHA: "a", Conclusion: "pending"},
+		&CouncilDecidedSignal{Status: CouncilCanceled},
+		&CouncilDecidedSignal{CouncilID: NewID(), Status: CouncilRunning},
+		&CouncilDecidedSignal{CouncilID: NewID(), Status: "gone"},
+		&CouncilDecidedSignal{CouncilID: NewID(), Status: CouncilDecided},
+		&CouncilDecidedSignal{CouncilID: NewID(), Status: CouncilFailed, DecisionID: NewID()},
 	}
 	for _, p := range payloads {
 		if _, err := NewSignal(NewID(), NewID(), p, now); !errors.Is(err, ErrInvalidSignal) {
