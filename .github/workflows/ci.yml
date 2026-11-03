@@ -84,7 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: shellcheck
-        run: shellcheck deploy/backup/*.sh deploy/tests/*.sh deploy/worker/*.sh
+        run: shellcheck deploy/backup/*.sh deploy/tests/*.sh deploy/worker/*.sh deploy/worker/control/*.sh
       - name: backup script
         run: deploy/tests/backup_test.sh
       - name: worker install script
@@ -134,6 +134,12 @@ jobs:
           docker compose exec -T forecrewd forecrew token create ci
       - if: always()
         run: docker compose down -v
+
+  control-worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: deploy/tests/control_worker_test.sh
 
   goreleaser:
     runs-on: ubuntu-latest
