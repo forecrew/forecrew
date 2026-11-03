@@ -19,9 +19,11 @@ A queued job waits until a worker leases it. Check, in order:
 
 1. **Is any worker online?** `GET /api/v1/workers` (`online` is true when the
    worker polled in the last 60 s). None online: see [worker offline](#worker-offline).
-2. **Does a worker match?** A worker leases a job only if it has every label
-   the job needs plus `runtime:<adapter>` (for example `runtime:claude-code`).
-   See [no matching worker](#no-matching-worker).
+2. **Does a worker match?** A worker leases a job only if it is in the job's
+   pool and has every label the job needs plus `runtime:<adapter>` (for
+   example `runtime:claude-code`). `job_status` then says
+   `no online worker in pool <pool> with labels ...`. See
+   [no matching worker](#no-matching-worker).
 3. **Is it waiting out a retry backoff?** After a failed attempt that gave the
    job back, it waits 30 s doubling per attempt up to 10 minutes before it can
    be leased again. A lease that expired is requeued immediately.
@@ -32,9 +34,15 @@ A queued job waits until a worker leases it. Check, in order:
 
 ## No matching worker
 
-The job needs labels no online worker has. Compare the job's `needs` (and its
-runtime) with the worker's labels in `GET /api/v1/workers`.
+No online worker of the job's pool has the labels the job needs. Compare the
+job's `pool` and `needs` (and its runtime) with the workers' `pool` and labels
+in `GET /api/v1/workers`.
 
+- Wrong pool: a worker leases only jobs of its own pool, whatever labels it
+  has. Add a worker to the job's pool or move one there
+  (`forecrew worker move <name> --pool <pool>`, see
+  [add-worker.md](add-worker.md#move-to-another-pool)). A role pack's `pool`
+  decides where its jobs run.
 - Missing toolchain label (`go`, `node`, `docker`): add it to `labels` in the
   worker's `worker.yaml` and restart the service, or use another worker.
 - Missing `runtime:claude-code` or `runtime:codex`: the CLI is not on the

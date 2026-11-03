@@ -17,11 +17,23 @@ in [install.md](install.md#security-notes).
 
 ## Add
 
-1. Register the worker on the instance. The token is shown once:
+1. Register the worker on the instance, in its pool. The token is shown once:
 
    ```sh
-   docker compose exec forecrewd forecrew worker add build-box-1
+   docker compose exec forecrewd forecrew worker add build-box-1   # pool build
    ```
+
+   `--pool` picks the pool (default `build`, see
+   [docs/worker.md](../worker.md#pools)): `build` for machines with the
+   toolchains, `control` for read-only work (reviews, councils, triage) on a
+   machine with only the agent CLIs: it never receives a write token. A pool
+   defined under `pools` in `forecrew.yaml` needs that file:
+
+   ```sh
+   docker compose exec forecrewd forecrew worker add gpu-box-1 --pool gpu --config /etc/forecrew/forecrew.yaml
+   ```
+
+   Unknown pools and `actions` (served by GitHub-hosted runners) are refused.
 
 2. On the worker machine, run the install script as root with that token.
    Do not type the token on a command line, in `--token` or in
@@ -140,6 +152,17 @@ worker token lets someone lease jobs, and with them repo tokens, until you
 revoke it. Use Linux workers where that matters. The user owns nothing else; do not add it to groups you would not
 give to the code the agents run. Giving it access to Docker (the `docker`
 group) is root-equivalent on that machine.
+
+## Move to another pool
+
+```sh
+docker compose exec forecrewd forecrew worker move build-box-1 --pool control
+```
+
+The worker leases from the new pool at its next poll; the jobs it is running
+finish where they started. The move is recorded in the audit log (`worker.pool_changed`, with the old and new pool). Nothing on the machine changes: the pool is never
+taken from `worker.yaml` or the labels. Check the result in the POOL column of
+`forecrew workers` or on the Workers page.
 
 ## Change the configuration
 

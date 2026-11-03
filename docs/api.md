@@ -60,12 +60,12 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/goals` | `create_goal` | `{"project", "title", "body", "platforms": ["web"]}` | `201` goal (draft) |
 | `GET /api/v1/goals?project=&status=` | `list_goals` | both filters optional | `200` goals |
 | `GET /api/v1/goals/{goal}` | `get_goal` | | `200` goal detail, see below |
-| `POST /api/v1/jobs` | `dispatch_job` | `{"project", "role", "base_ref", "branch", "needs": [], "include_repo_facts", "goal", "task", "feedback", "prompt"}`; `project` and `role` required, the role must be read-only | `201` job (queued) |
+| `POST /api/v1/jobs` | `dispatch_job` | `{"project", "role", "base_ref", "branch", "needs": [], "pool", "include_repo_facts", "goal", "task", "feedback", "prompt"}`; `project` and `role` required, the role must be read-only; `pool` defaults to the role's pool and its policy must allow the role (`400 invalid_input` otherwise) | `201` job (queued, with its `pool`) |
 | `GET /api/v1/jobs?project=&goal=&status=&limit=` | `list_jobs` | all optional; `limit` defaults to 50, at most 500 | `200` jobs, newest first |
-| `GET /api/v1/jobs/{job}` | `job_status` | | `200` job with `ref`, `reason` (why a queued job waits, why a failed job failed) and `worker_name` |
+| `GET /api/v1/jobs/{job}` | `job_status` | | `200` job with `ref`, `reason` (why a queued job waits, e.g. `no online worker in pool build with labels go, runtime:claude-code`; why a failed job failed) and `worker_name` |
 | `GET /api/v1/jobs/{job}/logs?after_seq=&limit=` | `job_logs` | `limit` defaults to 200, at most 1000 | `200` `{"events": [...], "next_seq": 12}`; pass `next_seq` as `after_seq` to continue |
 | `POST /api/v1/jobs/{job}/cancel` | `cancel_job` | body optional | `200` job (now `canceled`) with `ref`; `409` when the job is not queued or running |
-| `GET /api/v1/workers` | `list_workers` | | `200` workers with `labels`, `version`, `last_seen_at`, `online` and `running_jobs` (refs) |
+| `GET /api/v1/workers` | `list_workers` | | `200` workers with `pool`, `labels`, `version`, `last_seen_at`, `online` and `running_jobs` (refs) |
 | `GET /api/v1/gates?project=` | `list_pending_gates` | `project` optional | `200` pending gates with `ref`, `kind`, `project`, `goal_ref`, `task_ref`, `summary`, `url` (GitHub issue or PR) and `created_at` |
 | `POST /api/v1/gates/{gate}/approve` | `approve` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `approved` |
 | `POST /api/v1/gates/{gate}/request-changes` | `request_changes` | `{"feedback": "required"}` | `200` the gate, now `changes_requested` |

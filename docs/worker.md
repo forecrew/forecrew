@@ -16,6 +16,40 @@ The configured labels, the os (`linux`, `windows`; a macOS worker advertises
 both `darwin`, the `GOOS` value of conventions.md, and `macos`, the name repo profiles use) and `runtime:claude-code` / `runtime:codex` for each of `claude`
 and `codex` found on `PATH`.
 
+## Pools
+
+Every worker belongs to one pool, set by an admin on the server, never by
+the worker: `forecrew worker add <name> --pool <pool>` (default `build`) and
+`forecrew worker move <name> --pool <pool>`. A worker leases only jobs of its
+pool; labels then route jobs inside the pool. Nothing in `worker.yaml` or a
+poll changes the pool: a `pool:control` label is just a label. A move takes
+effect at the worker's next poll; the jobs it is running finish.
+
+A pool is also a trust zone. `forecrew.yaml` `pools` (config.md) says which
+roles and job kinds each pool runs and which credentials its jobs receive:
+
+| Pool | Runs | Repo token | Runtime keys |
+|------|------|------------|--------------|
+| `build` | every role, agent and command jobs | `write` for writing roles, `read` otherwise | every runtime |
+| `control` | every read-only role, agent jobs only | `read` | every runtime |
+| `actions` | command jobs on GitHub-hosted runners; no workers | `read` | none |
+
+- A job's pool is its role pack's `pool` (default `build`), or the `pool`
+  given to `dispatch_job`; a command job's pool comes from its environment
+  (`actions` for provider `actions`, otherwise `build`). forecrewd refuses to
+  create a job its pool does not allow, for example a writing role in
+  `control`, with an error that says which rule refused it.
+- At lease time the job gets only what its pool allows: a repo token no wider
+  than the pool's `repo_token` (none for `none`), and the runtime keys
+  (`credential_env`) only of the runtimes the pool lists. A `control` job
+  never gets a write token, even if it had write paths. Command jobs never
+  get runtime keys.
+- `job_status` says when no online worker of the job's pool has its labels,
+  for example `no online worker in pool control with labels runtime:codex`.
+- Pools other than `build`, `control` and `actions` are defined under `pools`
+  in `forecrew.yaml`; `forecrew worker add` and `move` read it (`--config`,
+  default `forecrew.yaml`) only for those. Pool `actions` takes no workers.
+
 ## Jobs
 
 - Each repo has a bare cache under `work_dir/repos/<owner>/<name>.git`; every
