@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/forecrew/forecrew/internal/schema"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files in testdata/golden/testsys")
@@ -108,7 +108,7 @@ func checkFixture(t *testing.T, file string, valid bool, parse func(string, []by
 // as an editor or another implementation would use them.
 func TestSchemasAloneAcceptValidFixtures(t *testing.T) {
 	schemas := map[string]string{"environments": environmentSchema, "matrix": matrixSchema, "toolboxes": toolboxSchema, "verification": verificationSchema}
-	for kind, schema := range schemas {
+	for kind, sch := range schemas {
 		files, _ := filepath.Glob(filepath.Join(fixtures, kind, "valid", "*"))
 		for _, file := range files {
 			data, err := os.ReadFile(file)
@@ -117,14 +117,14 @@ func TestSchemasAloneAcceptValidFixtures(t *testing.T) {
 			}
 			var inst any
 			if kind == "verification" {
-				inst, err = jsonschema.UnmarshalJSON(bytes.NewReader(data))
+				inst, err = schema.DecodeJSON(data)
 			} else {
-				_, inst, err = decodeYAML(data)
+				_, inst, err = schema.DecodeYAML(data)
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := checkSchema(kind, schema, inst); err != nil {
+			if err := schema.Check(kind, sch, inst); err != nil {
 				t.Errorf("%s: %v", file, err)
 			}
 		}
@@ -171,16 +171,16 @@ func TestSchemasAloneRejectStructuralFixtures(t *testing.T) {
 		"toolboxes/invalid/secret-env.yaml":            toolboxSchema,
 		"toolboxes/invalid/no-image.yaml":              toolboxSchema,
 	}
-	for name, schema := range cases {
+	for name, sch := range cases {
 		data, err := os.ReadFile(filepath.Join(fixtures, name))
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, inst, err := decodeYAML(data)
+		_, inst, err := schema.DecodeYAML(data)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := checkSchema(name, schema, inst); !errors.Is(err, ErrInvalid) {
+		if err := schema.Check(name, sch, inst); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: schema alone accepted it (%v)", name, err)
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/schema"
 )
 
 // ParseToolbox validates a packs/toolboxes/<name>.yaml file and returns it
@@ -13,7 +14,7 @@ import (
 func ParseToolbox(file string, data []byte) (domain.Toolbox, error) {
 	var t domain.Toolbox
 	err := validate("toolbox.schema.json", toolboxSchema, data,
-		func(raw json.RawMessage) error { return decodeJSON(raw, &t) },
+		func(raw json.RawMessage) error { return schema.Strict(raw, &t) },
 		func() error { return checkNamed(file, t.Name, t.Validate()) })
 	if err != nil {
 		return domain.Toolbox{}, fmt.Errorf("%s: %w", file, err)

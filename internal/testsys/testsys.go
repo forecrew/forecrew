@@ -13,17 +13,15 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"slices"
-	"strings"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
 	"go.yaml.in/yaml/v3"
+
+	"github.com/forecrew/forecrew/internal/schema"
 )
 
 // ErrInvalid is wrapped by every validation error.
-var ErrInvalid = errors.New("invalid file")
+var ErrInvalid = schema.ErrInvalid
 
 // The schemas are copies of docs/contracts/*.schema.json (a test keeps
 // them equal), since go:embed cannot reach outside the package.
@@ -38,75 +36,13 @@ var (
 	verificationSchema string
 )
 
-const schemaBase = "https://github.com/forecrew/forecrew/docs/contracts/"
-
-// checkSchema validates instance, decoded JSON or YAML, against schema.
-// Problems are joined with "; ", each as "at '<location>': <message>".
-func checkSchema(name, schema string, instance any) error {
-	doc, err := jsonschema.UnmarshalJSON(strings.NewReader(schema))
-	if err != nil {
-		return fmt.Errorf("parse %s: %w", name, err)
-	}
-	c := jsonschema.NewCompiler()
-	if err := c.AddResource(schemaBase+name, doc); err != nil {
-		return fmt.Errorf("add %s: %w", name, err)
-	}
-	s, err := c.Compile(schemaBase + name)
-	if err != nil {
-		return fmt.Errorf("compile %s: %w", name, err)
-	}
-	err = s.Validate(instance)
-	if ve, ok := errors.AsType[*jsonschema.ValidationError](err); ok {
-		return fmt.Errorf("%w: %s", ErrInvalid, schemaErrors(ve))
-	}
-	return err
-}
-
-// schemaErrors flattens a validation error into its leaf messages.
-func schemaErrors(ve *jsonschema.ValidationError) string {
-	var out []string
-	var walk func(e *jsonschema.ValidationError)
-	walk = func(e *jsonschema.ValidationError) {
-		if len(e.Causes) == 0 {
-			out = append(out, e.Error()) // "at '/path': message"
-			return
-		}
-		for _, c := range e.Causes {
-			walk(c)
-		}
-	}
-	walk(ve)
-	slices.Sort(out) // the validator's order is not stable
-	return strings.Join(out, "; ")
-}
-
-// decodeYAML returns data converted to JSON and as the value the schema
-// validator takes. YAML scalars keep their type, so 1.20 is the number 1.2
-// here; the matrix decodes its values from the YAML itself to keep them as
-// written.
-func decodeYAML(data []byte) (json.RawMessage, any, error) {
-	var doc any
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, nil, fmt.Errorf("%w: parse yaml: %w", ErrInvalid, err)
-	}
-	raw, err := json.Marshal(doc)
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: convert to json: %w", ErrInvalid, err)
-	}
-	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(raw))
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: parse json: %w", ErrInvalid, err)
-	}
-	return raw, inst, nil
-}
-
 // validate runs the checks of one YAML file. decode fills the typed value
 // from data or its JSON form; an error means the file has the wrong shape.
 // check returns the problems with the rules of the typed value. When the
 // file decodes, check runs first, as its messages are clearer; the schema
 // then catches whatever check does not cover.
-func validate(schemaName, schema string, data []byte, decode func(raw json.RawMessage) error, check func() error) error {
-	raw, inst, err := decodeYAML(data)
+func validate(schemaName, sch string, data []byte, decode func(raw json.RawMessage) error, check func() error) error {
+	raw, inst, err := schema.DecodeYAML(data)
 	if err != nil {
 		return err
 	}
@@ -116,31 +52,20 @@ func validate(schemaName, schema string, data []byte, decode func(raw json.RawMe
 			return err
 		}
 	}
-	if err := checkSchema(schemaName, schema, inst); err != nil {
+	if err := schema.Check(schemaName, sch, inst); err != nil {
 		return err
 	}
 	return decErr
 }
 
-// decodeJSON decodes raw into out through its json tags, refusing unknown
-// fields.
-func decodeJSON(raw json.RawMessage, out any) error {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(out); err != nil {
-		return fmt.Errorf("%w: %w", ErrInvalid, err)
-	}
-	return nil
-}
-
 // ValidateVerification checks a verification report (the JSON stored in
 // verification_reports.report) against verification.schema.json.
 func ValidateVerification(report []byte) error {
-	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(report))
+	inst, err := schema.DecodeJSON(report)
 	if err != nil {
-		return fmt.Errorf("%w: parse json: %w", ErrInvalid, err)
+		return err
 	}
-	return checkSchema("verification.schema.json", verificationSchema, inst)
+	return schema.Check("verification.schema.json", verificationSchema, inst)
 }
 
 // decodeStrict decodes YAML into out, refusing unknown keys.
