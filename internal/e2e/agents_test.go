@@ -161,7 +161,7 @@ var errUnknownRole = errors.New("unknown role")
 
 // act returns the output of the role and the files it writes, by path.
 func (a *agents) act(c call) (map[string]any, map[string]string, error) {
-	assumptions := []any{map[string]any{"text": "scripted", "confidence": "high", "impact": "low"}}
+	assumptions := []any{map[string]any{"statement": "scripted", "confidence": "high", "impact": "low", "verify_by": "test"}}
 	switch c.Role {
 	case "onboarding-analyst":
 		profile := map[string]any{

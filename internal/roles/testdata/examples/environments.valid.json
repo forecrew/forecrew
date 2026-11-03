@@ -6,6 +6,6 @@
     {"name": "macos", "provider": "actions", "change": "unchanged", "reason": "Cells with os=macos; macos-15."},
     {"name": "gpu", "provider": "machine", "change": "added", "reason": "The e2e suite needs a CUDA GPU, which GitHub-hosted runners do not have."}
   ],
-  "assumptions": [{"text": "The devcontainer's Go version matches go.mod.", "confidence": "high", "impact": "low"}],
+  "assumptions": [{"statement": "The devcontainer's Go version matches go.mod.", "confidence": "high", "impact": "low", "verify_by": "test"}],
   "escalation": null
 }

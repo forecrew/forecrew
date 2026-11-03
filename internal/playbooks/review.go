@@ -7,15 +7,16 @@ import (
 	"strings"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
 // devResult is the output of the developer role (packs/schemas/developer-result.json).
 type devResult struct {
-	Summary     string       `json:"summary"`
-	Assumptions []assumption `json:"assumptions"`
-	Escalation  *string      `json:"escalation"`
+	Summary     string                    `json:"summary"`
+	Assumptions []domain.StatedAssumption `json:"assumptions"`
+	Escalation  *string                   `json:"escalation"`
 }
 
 // reviewComment is a comment of the reviewer.
@@ -28,11 +29,11 @@ type reviewComment struct {
 
 // reviewDoc is the output of the reviewer role (packs/schemas/review-verdict.json).
 type reviewDoc struct {
-	Verdict       string           `json:"verdict"` // approve or request_changes
-	Summary       string           `json:"summary"`
-	Comments      []reviewComment  `json:"comments"`
-	CriteriaCheck []criterionCheck `json:"criteria_check"`
-	Assumptions   []assumption     `json:"assumptions"`
+	Verdict       string                    `json:"verdict"` // approve or request_changes
+	Summary       string                    `json:"summary"`
+	Comments      []reviewComment           `json:"comments"`
+	CriteriaCheck []criterionCheck          `json:"criteria_check"`
+	Assumptions   []domain.StatedAssumption `json:"assumptions"`
 }
 
 // criterionCheck is the reviewer's verdict on one acceptance criterion.

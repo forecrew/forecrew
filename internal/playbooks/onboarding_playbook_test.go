@@ -122,7 +122,7 @@ func (o *onboarding) projectNow(t *testing.T) domain.Project {
 func analystOutput(profile map[string]any) map[string]any {
 	return map[string]any{
 		"summary": "A Go service.", "profile": profile,
-		"assumptions": []any{map[string]any{"text": "CI runs on Linux", "confidence": "high", "impact": "low"}},
+		"assumptions": []any{map[string]any{"statement": "CI runs on Linux", "confidence": "high", "impact": "low", "verify_by": "test"}},
 	}
 }
 

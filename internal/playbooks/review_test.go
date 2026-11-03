@@ -14,7 +14,7 @@ import (
 func developerOutput(summary string) map[string]any {
 	return map[string]any{
 		"summary": summary, "files": []any{}, "tests_added": []any{}, "commands_run": []any{}, "escalation": nil,
-		"assumptions": []any{map[string]any{"text": "Amounts are in cents", "confidence": "medium", "impact": "high"}},
+		"assumptions": []any{map[string]any{"statement": "Amounts are in cents", "confidence": "medium", "impact": "high", "verify_by": "test"}},
 	}
 }
 
