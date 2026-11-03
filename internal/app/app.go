@@ -24,6 +24,7 @@ import (
 	"github.com/forecrew/forecrew/internal/api"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/contextpack"
+	"github.com/forecrew/forecrew/internal/evidence"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobs"
@@ -63,6 +64,12 @@ type Deps struct {
 	Now      func() time.Time // defaults to the real UTC time
 	// ReapEvery is how often expired leases are looked for (jobs.ReapInterval).
 	ReapEvery time.Duration
+	// Evidence stores artifacts; it defaults to the S3 storage of
+	// Config.Evidence, and nil without either.
+	Evidence evidence.Store
+	// RetainEvery is how often expired artifacts are swept
+	// (evidence.SweepInterval).
+	RetainEvery time.Duration
 }
 
 // App is a forecrewd, ready to run.
@@ -74,6 +81,8 @@ type App struct {
 	creator *jobCreator
 	tools   *tools.Service
 	engine  *workflow.Engine
+	// retention deletes expired artifacts; nil when they are kept forever.
+	retention *evidence.Retention
 	// runEngine runs the engine; tests replace it.
 	runEngine func(context.Context) error
 	webhooks  *webhook.Handler
@@ -130,10 +139,17 @@ func New(d Deps) (*App, error) {
 	if d.ReapEvery <= 0 {
 		d.ReapEvery = jobs.ReapInterval
 	}
+	if d.RetainEvery <= 0 {
+		d.RetainEvery = evidence.SweepInterval
+	}
 	if d.Logger == nil {
 		d.Logger = slog.New(slog.DiscardHandler)
 	}
 	cfg, st, log := d.Config, d.Store, d.Logger
+	ev, err := openEvidence(d)
+	if err != nil {
+		return nil, err
+	}
 	catalog, err := roles.New(d.Files, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("load roles: %w", err)
@@ -160,23 +176,53 @@ func New(d Deps) (*App, error) {
 		return nil, fmt.Errorf("start workflow engine: %w", err)
 	}
 	toolSvc := tools.New(tools.Config{
-		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Logger: log,
+		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Logger: log,
 	})
 	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Tracker: d.GitHub, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
-	workers := workerapi.New(workerapi.Config{Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Pools: cfg.Pools, Logger: log})
+	workers := workerapi.New(workerapi.Config{
+		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Pools: cfg.Pools, Logger: log,
+		Evidence: ev, MaxArtifactSize: evidenceMaxSize(cfg),
+	})
 
 	a := &App{
 		d: d, jobs: jobSvc, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80",
 		webhooks: webhook.NewHandler([]byte(cfg.GitHub.WebhookSecret), hooks),
 		poller:   webhook.NewPoller(hooks),
 	}
+	if ev != nil && cfg.Evidence != nil && cfg.Evidence.RetentionDays > 0 {
+		a.retention = &evidence.Retention{Store: st, Evidence: ev, Days: cfg.Evidence.RetentionDays, Logger: log, Now: d.Now}
+	}
 	if cfg.Server.TLSDomain != "" {
 		a.certs = newCertManager(cfg.Server.TLSDomain, cfg.Server.CertCacheDir)
 	}
 	a.handler = a.routes(workers.Handler(),
 		mcp.NewHandler(toolSvc, st.MCPTokens(), d.Version, log),
-		api.New(api.Config{Tools: toolSvc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: log}).Handler())
+		api.New(api.Config{Tools: toolSvc, Artifacts: toolSvc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: log}).Handler())
 	return a, nil
+}
+
+// openEvidence returns the evidence storage of d: the given one, the S3
+// storage of the config, or nil when artifacts are not configured.
+func openEvidence(d Deps) (evidence.Store, error) {
+	if d.Evidence != nil || d.Config.Evidence == nil {
+		return d.Evidence, nil
+	}
+	s3, err := evidence.NewS3(d.Config.Evidence)
+	if err != nil {
+		return nil, err
+	}
+	d.Logger.Info("evidence storage configured", "endpoint", d.Config.Evidence.Endpoint, "bucket", d.Config.Evidence.Bucket,
+		"retention_days", d.Config.Evidence.RetentionDays)
+	return s3, nil
+}
+
+// evidenceMaxSize is the artifact size limit of the config, 0 (the default)
+// without evidence storage.
+func evidenceMaxSize(cfg *config.Config) int64 {
+	if cfg.Evidence == nil {
+		return 0
+	}
+	return cfg.Evidence.MaxArtifactSize
 }
 
 // checkRoles fails when a job step of a playbook runs a role that does not
@@ -246,6 +292,9 @@ func (a *App) Run(ctx context.Context) error {
 	wg.Go(func() { a.jobs.RunReaper(runCtx, a.d.ReapEvery) })
 	wg.Go(func() { a.webhooks.Run(runCtx) })
 	wg.Go(func() { a.poller.Run(runCtx) })
+	if a.retention != nil {
+		wg.Go(func() { a.retention.Run(runCtx, a.d.RetainEvery) })
+	}
 	err := a.serve(runCtx)
 	stop()
 	wg.Wait()
