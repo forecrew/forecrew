@@ -1,0 +1,4 @@
+[
+  {"id": 1, "key_prefix": "ENG-", "url_template": "https://acme.atlassian.net/browse/ENG-<num>", "is_alphanumeric": false},
+  {"id": 2, "key_prefix": "LIN", "url_template": "https://linear.app/acme/issue/LIN-<num>", "is_alphanumeric": true}
+]

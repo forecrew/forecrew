@@ -272,6 +272,8 @@ func wrap(op string, err error) error {
 		return fmt.Errorf("%s: %w: %w", op, ErrInvalid, err)
 	case http.StatusTooManyRequests:
 		return fmt.Errorf("%s: %w: %w", op, ErrRateLimited, err)
+	case http.StatusForbidden:
+		return fmt.Errorf("%s: %w: %w", op, ErrForbidden, err)
 	}
 	return fmt.Errorf("%s: %w", op, err)
 }

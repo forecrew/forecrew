@@ -1,0 +1,3 @@
+[
+  {"number": 11, "title": "Wire up the PR", "body": "Tracked in https://acme.atlassian.net/browse/ENG-9", "state": "closed", "merged": true, "merge_commit_sha": "abc1", "draft": false, "html_url": "https://github.com/acme/app/pull/11", "head": {"ref": "feature/x", "sha": "abc0"}, "base": {"ref": "main"}}
+]

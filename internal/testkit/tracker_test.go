@@ -227,3 +227,43 @@ func TestTrackerBranchExists(t *testing.T) {
 	wantErr(t, err, github.ErrNotInstalled)
 	wantErr(t, tr.AddBranch("acme/other", "x"), github.ErrNotInstalled)
 }
+
+func TestTrackerDiscoveryReads(t *testing.T) {
+	tr, _ := newTracker(t)
+	ctx := t.Context()
+	must(t, tr.AddAutolink("acme/app", github.Autolink{KeyPrefix: "ENG-", URLTemplate: "https://acme.atlassian.net/browse/ENG-<num>"}))
+	for range 3 {
+		_, err := tr.CreateIssue(ctx, "acme/app", github.IssueInput{Title: "i"})
+		must(t, err)
+	}
+	_, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "p", Head: "feature", Base: "main"})
+	must(t, err)
+
+	links, err := tr.ListAutolinks(ctx, "acme/app")
+	must(t, err)
+	if len(links) != 1 || links[0].KeyPrefix != "ENG-" {
+		t.Errorf("autolinks = %+v", links)
+	}
+	issues, err := tr.ListRecentIssues(ctx, "acme/app", 2)
+	must(t, err)
+	if len(issues) != 2 || issues[0].Number != 3 || issues[1].Number != 2 {
+		t.Errorf("recent issues = %+v, want numbers 3 and 2", issues)
+	}
+	pulls, err := tr.ListRecentPulls(ctx, "acme/app", 100)
+	must(t, err)
+	if len(pulls) != 1 || pulls[0].Number != 4 {
+		t.Errorf("recent pulls = %+v, want PR 4", pulls)
+	}
+
+	must(t, tr.Forbid("acme/app"))
+	_, err = tr.ListAutolinks(ctx, "acme/app")
+	wantErr(t, err, github.ErrForbidden)
+	_, err = tr.ListRecentIssues(ctx, "acme/app", 1)
+	wantErr(t, err, github.ErrForbidden)
+	_, err = tr.ListRecentPulls(ctx, "acme/app", 1)
+	wantErr(t, err, github.ErrForbidden)
+	_, err = tr.ListRecentPulls(ctx, "acme/other", 1)
+	wantErr(t, err, github.ErrNotInstalled)
+	wantErr(t, tr.AddAutolink("acme/other", github.Autolink{}), github.ErrNotInstalled)
+	wantErr(t, tr.Forbid("acme/other"), github.ErrNotInstalled)
+}
