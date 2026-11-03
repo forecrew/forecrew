@@ -3,6 +3,7 @@ package testkit
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -36,6 +37,7 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.CancelJob(ctx, by, mcp.JobRefInput{}); return err },
 		func() error { _, err := s.ListTokens(ctx, by); return err },
 		func() error { _, err := s.RevokeToken(ctx, by, mcp.RevokeTokenInput{}); return err },
+		func() error { _, err := s.ListArtifacts(ctx, by, mcp.JobRefInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())
@@ -149,4 +151,18 @@ func TestToolServiceGateErrors(t *testing.T) {
 	}
 	_, err = s.Reject(ctx, by, mcp.GateDecisionInput{Gate: g.Ref()})
 	wantErr(t, err, domain.ErrInvalidTransition)
+}
+
+func TestToolServiceOpenArtifact(t *testing.T) {
+	s := &ToolService{}
+	by := domain.Actor{Kind: domain.ActorMCP, Name: "laptop"}
+	if _, _, err := s.OpenArtifact(t.Context(), by, "id"); !errors.Is(err, mcp.ErrNotFound) {
+		t.Fatalf("without a func: %v", err)
+	}
+	s.OpenArtifactFunc = func(context.Context, domain.Actor, string) (domain.Artifact, io.ReadCloser, error) {
+		return domain.Artifact{Name: "a"}, nil, nil
+	}
+	if a, _, err := s.OpenArtifact(t.Context(), by, "id"); err != nil || a.Name != "a" {
+		t.Fatalf("with a func: %+v, %v", a, err)
+	}
 }

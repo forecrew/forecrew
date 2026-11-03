@@ -141,6 +141,11 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 			out, err := svc.RevokeToken(ctx, by, in)
 			return result(out, "%s", revokeMessage(out.Token.Name, out.Self)), err
 		})
+	register(r, ToolListArtifacts, "List the artifacts a job uploaded (test reports, logs, screenshots) with name, type, size and SHA-256, by name. Download one with GET /api/v1/artifacts/{id} or `forecrew artifact get`.",
+		fieldDocs{"job": job}, func(ctx context.Context, by domain.Actor, in JobRefInput) (toolResult, error) {
+			a, err := svc.ListArtifacts(ctx, by, in)
+			return list("artifacts", a, "%d artifacts.", len(a)), err
+		})
 }
 
 // toolResult is what a tool returns to the client: a short text and the

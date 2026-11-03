@@ -34,6 +34,7 @@ type fixture struct {
 	gates     *gates.Keeper
 	jobs      *jobs.Service
 	svc       *tools.Service
+	ev        *testkit.Evidence
 	logs      *bytes.Buffer
 	account   domain.Account
 	project   domain.Project // onboarded, acme/app
@@ -45,7 +46,7 @@ func newFixture(t *testing.T) *fixture {
 	ctx := t.Context()
 	clock := testkit.NewClock(t0)
 	st := testkit.NewStore(clock.Now)
-	f := &fixture{clock: clock, st: st, tracker: testkit.NewTracker(clock.Now), playbooks: &testkit.Playbooks{}, logs: &bytes.Buffer{}}
+	f := &fixture{clock: clock, st: st, tracker: testkit.NewTracker(clock.Now), playbooks: &testkit.Playbooks{}, ev: testkit.NewEvidence(), logs: &bytes.Buffer{}}
 	f.account = domain.Account{Name: "default"}
 	must(t, st.Accounts().Create(ctx, &f.account))
 	f.project = domain.Project{AccountID: f.account.ID, Name: "app", Repo: "acme/app", DefaultBranch: "main", Status: domain.ProjectOnboarded}
@@ -58,7 +59,7 @@ func newFixture(t *testing.T) *fixture {
 	f.gates = gates.New(st, bus, clock.Now)
 	f.jobs = jobs.New(st, bus, nil, logger, clock.Now)
 	f.svc = tools.New(tools.Config{
-		Store: st, Gates: f.gates, Jobs: f.jobs, Creator: f.creator, Playbooks: f.playbooks, GitHub: f.tracker, Logger: logger,
+		Store: st, Gates: f.gates, Jobs: f.jobs, Creator: f.creator, Playbooks: f.playbooks, GitHub: f.tracker, Evidence: f.ev, Logger: logger,
 		Roles: testkit.Roles{
 			"reviewer":  {Name: "reviewer"},
 			"developer": {Name: "developer", WritePaths: []string{"src/**"}},

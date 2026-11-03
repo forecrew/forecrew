@@ -47,6 +47,6 @@ func (s *Server) failTool(w http.ResponseWriter, r *http.Request, by domain.Acto
 		s.fail(w, r, errors.New("internal error, try again later"), http.StatusInternalServerError, "internal")
 		return
 	}
-	status := map[string]int{"not_found": http.StatusNotFound, "invalid_input": http.StatusBadRequest, "conflict": http.StatusConflict}[code]
+	status := map[string]int{"not_found": http.StatusNotFound, "invalid_input": http.StatusBadRequest, "conflict": http.StatusConflict, "unavailable": http.StatusServiceUnavailable}[code]
 	s.fail(w, r, err, status, code)
 }

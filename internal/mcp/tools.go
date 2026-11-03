@@ -23,11 +23,15 @@ var (
 	ErrNotFound = errors.New("not found")
 	// ErrInvalidInput means a required field is missing or malformed.
 	ErrInvalidInput = errors.New("invalid input")
+	// ErrUnavailable means a feature is not configured, for example the
+	// evidence storage of artifacts.
+	ErrUnavailable = errors.New("unavailable")
 )
 
 // ErrorCode classifies the errors callers act on: "not_found" for
 // ErrNotFound, "invalid_input" for ErrInvalidInput, domain.ErrInvalidRef and
-// domain.ErrInvalidDecision, and "conflict" for domain.ErrInvalidTransition.
+// domain.ErrInvalidDecision, "conflict" for domain.ErrInvalidTransition and
+// "unavailable" for ErrUnavailable.
 // ok is false for any other error, which is an internal one. The MCP server
 // and /api/v1 use it to decide what a client may see.
 func ErrorCode(err error) (code string, ok bool) {
@@ -38,6 +42,8 @@ func ErrorCode(err error) (code string, ok bool) {
 		return "invalid_input", true
 	case errors.Is(err, domain.ErrInvalidTransition):
 		return "conflict", true
+	case errors.Is(err, ErrUnavailable):
+		return "unavailable", true
 	}
 	return "", false
 }
@@ -62,6 +68,7 @@ const (
 	ToolCancelJob        = "cancel_job"
 	ToolListTokens       = "list_tokens"
 	ToolRevokeToken      = "revoke_token"
+	ToolListArtifacts    = "list_artifacts"
 )
 
 // Tools returns every MCP tool name.
@@ -69,7 +76,7 @@ func Tools() []string {
 	return []string{
 		ToolOnboardProject, ToolCreateGoal, ToolJobStatus, ToolJobLogs, ToolListWorkers, ToolListPendingGates,
 		ToolApprove, ToolRequestChanges, ToolReject, ToolDispatchJob, ToolListProjects, ToolGetProject,
-		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob, ToolListTokens, ToolRevokeToken,
+		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob, ToolListTokens, ToolRevokeToken, ToolListArtifacts,
 	}
 }
 
@@ -107,6 +114,10 @@ type ToolService interface {
 	// RevokeToken revokes an active token by name or ID, the caller's own
 	// included; a token that is unknown or revoked already is ErrNotFound.
 	RevokeToken(ctx context.Context, by domain.Actor, in RevokeTokenInput) (RevokeTokenOutput, error)
+	// ListArtifacts lists the artifacts a job's worker uploaded (test
+	// reports, logs, screenshots), by name. The content is served by
+	// GET /api/v1/artifacts/{id}.
+	ListArtifacts(ctx context.Context, by domain.Actor, in JobRefInput) ([]domain.Artifact, error)
 }
 
 // OnboardProjectInput is the input of onboard_project.

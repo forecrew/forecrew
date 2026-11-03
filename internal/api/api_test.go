@@ -51,7 +51,7 @@ func newEnvFor(t *testing.T, now func() time.Time, account domain.Account) *env 
 	must(t, st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: e.account.ID, Name: "old", TokenHash: mcp.HashToken("fcm_old"), RevokedAt: testkit.NewClock(t0).Now()}))
 	e.actor = domain.Actor{AccountID: e.account.ID, Kind: domain.ActorMCP, Name: "laptop"}
 	srv := api.New(api.Config{
-		Tools: e.svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: slog.New(slog.NewJSONHandler(e.logs, nil)),
+		Tools: e.svc, Artifacts: e.svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: slog.New(slog.NewJSONHandler(e.logs, nil)),
 	})
 	e.server = httptest.NewTLSServer(srv.Handler())
 	t.Cleanup(e.server.Close)
@@ -143,6 +143,7 @@ func TestEndpoints(t *testing.T) {
 		{"POST", "/api/v1/gates/GATE-7/reject", `{}`, 200, mcp.ToolReject, mcp.GateDecisionInput{Gate: "GATE-7"}},
 		{"POST", "/api/v1/jobs/JOB-41/cancel", "", 200, mcp.ToolCancelJob, mcp.JobRefInput{Job: "JOB-41"}},
 		{"GET", "/api/v1/tokens", "", 200, mcp.ToolListTokens, nil},
+		{"GET", "/api/v1/jobs/JOB-41/artifacts", "", 200, mcp.ToolListArtifacts, mcp.JobRefInput{Job: "JOB-41"}},
 		{"POST", "/api/v1/tokens/old-laptop/revoke", "", 200, mcp.ToolRevokeToken, mcp.RevokeTokenInput{Token: "old-laptop"}},
 	}
 	seen := map[string]bool{}
@@ -170,7 +171,7 @@ func TestEndpoints(t *testing.T) {
 
 func TestListsAreArrays(t *testing.T) {
 	e := newEnv(t)
-	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens"} {
+	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts"} {
 		if r := e.do(t, "GET", path, "", "bearer"); strings.TrimSpace(r.body) != "[]" {
 			t.Errorf("GET %s = %q, want []", path, r.body)
 		}
@@ -198,6 +199,7 @@ func TestToolErrors(t *testing.T) {
 		{"invalid ref", fmt.Errorf("x: %w", domain.ErrInvalidRef), 400, "invalid_input", ""},
 		{"invalid decision", fmt.Errorf("x: %w", domain.ErrInvalidDecision), 400, "invalid_input", ""},
 		{"conflict", fmt.Errorf("gate: %w", domain.ErrInvalidTransition), 409, "conflict", ""},
+		{"unavailable", fmt.Errorf("no evidence storage: %w", mcp.ErrUnavailable), 503, "unavailable", ""},
 		{"internal", errors.New("pq: connection refused password=hunter2"), 500, "internal", "hunter2"},
 	}
 	for _, tt := range tests {
