@@ -1,0 +1,7 @@
+name: mystery
+kind: plugin
+purpose: Something.
+homepage: http://example.com
+install: curl | sh
+license: Proprietary License
+roles: []
