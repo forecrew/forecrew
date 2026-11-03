@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"uuid"
 
@@ -32,35 +33,37 @@ type Builder interface {
 var _ Builder = (*StoreBuilder)(nil)
 
 // StoreBuilder is the Builder of forecrewd: it loads the project, goal,
-// spec and task from the store and renders the prompt. The repo's own
-// CLAUDE.md and AGENTS.md are not copied in: runtimes load them from the
-// checkout.
+// spec and task from the store, and for the test roles the test plan from
+// the repo, and renders the prompt. The repo's own CLAUDE.md and AGENTS.md
+// are not copied in: runtimes load them from the checkout.
 type StoreBuilder struct {
 	store   store.Store
+	files   RepoFiles
 	allowed func(login string) bool
 	budget  int
 }
 
-// New returns a StoreBuilder. allowed reports whether a GitHub login is on
+// New returns a StoreBuilder. files reads the test plan of the test roles'
+// jobs; nil leaves it out. allowed reports whether a GitHub login is on
 // the allowlist (config.GitHub.Allowed); text from other GitHub users is
 // marked untrusted. budget is the prompt size budget in bytes, DefaultBudget
 // when <= 0.
-func New(st store.Store, allowed func(login string) bool, budget int) *StoreBuilder {
-	return &StoreBuilder{store: st, allowed: allowed, budget: budget}
+func New(st store.Store, files RepoFiles, allowed func(login string) bool, budget int) *StoreBuilder {
+	return &StoreBuilder{store: st, files: files, allowed: allowed, budget: budget}
 }
 
 // Build implements Builder. The spec and goal default to those of the task,
 // and the goal to that of the spec. req.Prompt becomes the trusted Instructions section. req.Feedback is quoted as given: callers
 // wrap text from GitHub users outside the allowlist with WrapUntrusted.
 func (b *StoreBuilder) Build(ctx context.Context, req workflow.JobRequest, role roles.Role) (Pack, error) {
-	in, err := b.input(ctx, req)
+	in, err := b.input(ctx, req, role.Name)
 	if err != nil {
 		return Pack{}, fmt.Errorf("build %s context: %w", role.Name, err)
 	}
 	return Render(role, in, b.budget)
 }
 
-func (b *StoreBuilder) input(ctx context.Context, req workflow.JobRequest) (Input, error) {
+func (b *StoreBuilder) input(ctx context.Context, req workflow.JobRequest, role string) (Input, error) {
 	acc := req.AccountID
 	project, err := b.store.Projects().Get(ctx, acc, req.ProjectID)
 	if err != nil {
@@ -72,6 +75,11 @@ func (b *StoreBuilder) input(ctx context.Context, req workflow.JobRequest) (Inpu
 	}
 	if in.BaseRef == "" {
 		in.BaseRef = project.DefaultBranch
+	}
+	if b.files != nil && slices.Contains(testPlanRoles, role) {
+		if in.TestPlan, err = b.testPlan(ctx, in.Repo, in.BaseRef, in.Branch); err != nil {
+			return Input{}, err
+		}
 	}
 	specID, goalID := req.SpecID, req.GoalID
 	if req.TaskID != uuid.Nil() {
