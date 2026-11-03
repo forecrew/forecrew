@@ -1,0 +1,5 @@
+version: 1
+providers:
+  wiki: {kind: mediawiki, instance: wiki.acme.dev}
+sections:
+  lessons: {provider: wiki, owner: Knowledge-Curator}

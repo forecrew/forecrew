@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "providers": {
+    "repo": {
+      "kind": "repo"
+    },
+    "wiki": {
+      "kind": "confluence",
+      "instance": "acme.atlassian.net",
+      "config": {
+        "space": "ENG"
+      },
+      "credentials": "acme-confluence"
+    }
+  },
+  "sections": {
+    "architecture": {
+      "provider": "repo",
+      "paths": [
+        "docs/adr/**",
+        "docs/architecture/**"
+      ],
+      "owner": "architect",
+      "protected": false,
+      "access": {
+        "read": [
+          "*"
+        ],
+        "propose": [
+          "*"
+        ],
+        "write": []
+      }
+    },
+    "conventions": {
+      "provider": "repo",
+      "paths": [
+        "CONTRIBUTING.md"
+      ],
+      "owner": "codeowners",
+      "protected": false,
+      "access": {
+        "read": [
+          "*"
+        ],
+        "propose": [
+          "*"
+        ],
+        "write": []
+      }
+    },
+    "generated": {
+      "provider": "",
+      "paths": null,
+      "owner": "",
+      "protected": false,
+      "access": {
+        "read": [
+          "*"
+        ],
+        "propose": null,
+        "write": null
+      }
+    },
+    "runbooks": {
+      "provider": "wiki",
+      "paths": [
+        "space:ENG/page:123456"
+      ],
+      "owner": "developer",
+      "protected": false,
+      "access": {
+        "read": [
+          "*"
+        ],
+        "propose": [
+          "developer",
+          "devops"
+        ],
+        "write": []
+      }
+    },
+    "vision": {
+      "provider": "repo",
+      "paths": [
+        "knowledge/vision/**"
+      ],
+      "owner": "human",
+      "protected": true,
+      "access": {
+        "read": [
+          "*"
+        ],
+        "propose": [
+          "product-owner"
+        ],
+        "write": []
+      }
+    }
+  }
+}

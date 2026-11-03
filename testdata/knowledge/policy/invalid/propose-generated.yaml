@@ -1,0 +1,5 @@
+version: 1
+sections:
+  generated:
+    owner: architect
+    access: {propose: ["*"]}

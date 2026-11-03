@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "providers": {
+    "repo": {
+      "kind": "repo"
+    }
+  },
+  "sections": {}
+}

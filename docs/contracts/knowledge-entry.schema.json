@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/forecrew/forecrew/docs/contracts/knowledge-entry.schema.json",
+  "title": "Knowledge entry frontmatter",
+  "description": "The YAML frontmatter of a knowledge entry kept in the repo (docs/contracts/knowledge.md): its title and provenance. Every field is optional so existing documents index as they are; keys of other tools are allowed and ignored. A file without author_role, source and created gets its provenance from git. Entries forecrewd writes always carry all of them.",
+  "type": "object",
+  "properties": {
+    "title": {
+      "description": "Entry title; default the first # heading, else the file name.",
+      "type": "string",
+      "minLength": 1
+    },
+    "author_role": {
+      "description": "Role that wrote the entry, or human.",
+      "$ref": "#/$defs/role"
+    },
+    "source": {
+      "description": "Where it comes from: a ref (JOB-41, GOAL-3, KB-5, DEC-2), a URL, or human.",
+      "type": "string",
+      "minLength": 1
+    },
+    "created": {
+      "description": "Date (YYYY-MM-DD) or RFC 3339 time it was first written.",
+      "$ref": "#/$defs/time"
+    },
+    "last_verified": {
+      "description": "Date or time it was last checked against the code.",
+      "$ref": "#/$defs/time"
+    }
+  },
+  "$defs": {
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "time": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2}))?$"
+    }
+  }
+}
