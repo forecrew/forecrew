@@ -9,6 +9,7 @@ curl -fsS https://<host>/healthz               # 503 "database unavailable" mean
 forecrew jobs show <job>                       # status, attempts, events
 forecrew jobs cancel <job>                     # stop a queued or running job
 forecrew job artifacts <job>                   # files the job uploaded (reports, logs)
+forecrew job tests <job>                       # test runs of a command job and the tests that failed
 forecrew artifact get <id> -o file             # download one
 ```
 
