@@ -51,6 +51,8 @@ type storeData struct {
 	tokens     table[domain.MCPToken]
 	audit      table[domain.AuditEntry]
 	artifacts  table[domain.Artifact]
+	testRuns   table[domain.TestRun]
+	testResult table[domain.TestResult]
 	deliveries map[string]domain.WebhookDelivery
 	counters   map[counterKey]int64
 	// jobMCP holds the job MCP token hash of a job with the lease it was
@@ -84,6 +86,8 @@ func NewStore(now func() time.Time) *Store {
 		tokens:     table[domain.MCPToken]{key: func(r domain.MCPToken) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		audit:      table[domain.AuditEntry]{key: func(r domain.AuditEntry) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		artifacts:  table[domain.Artifact]{key: func(r domain.Artifact) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		testRuns:   table[domain.TestRun]{key: func(r domain.TestRun) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		testResult: table[domain.TestResult]{key: func(r domain.TestResult) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		deliveries: map[string]domain.WebhookDelivery{},
 		counters:   map[counterKey]int64{},
 		jobMCP:     map[uuid.UUID]jobMCPHash{},
@@ -108,6 +112,8 @@ func (d *storeData) clone() *storeData {
 	c.tokens = d.tokens.clone()
 	c.audit = d.audit.clone()
 	c.artifacts = d.artifacts.clone()
+	c.testRuns = d.testRuns.clone()
+	c.testResult = d.testResult.clone()
 	c.deliveries = maps.Clone(d.deliveries)
 	c.counters = maps.Clone(d.counters)
 	c.jobMCP = maps.Clone(d.jobMCP)

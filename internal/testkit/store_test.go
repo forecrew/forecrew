@@ -762,3 +762,126 @@ func TestStoreGateOrigin(t *testing.T) {
 		t.Fatal("ask_human spec gate accepted")
 	}
 }
+
+func TestStoreTestRuns(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.TestRuns()
+	job := newJob(f)
+	must(t, f.st.Jobs().Create(ctx, &job))
+	change := domain.Change{AccountID: f.account, ProjectID: f.project.ID, Repo: "acme/app", Number: 3, HeadSHA: "abc123", State: domain.ChangeOpen}
+	must(t, f.st.Changes().Upsert(ctx, &change))
+
+	run := domain.TestRun{AccountID: f.account, ProjectID: f.project.ID, JobID: job.ID, ChangeID: change.ID, SHA: "abc123", Suite: "unit",
+		Status: domain.TestRunFailed, Counts: domain.TestCounts{Passed: 1, Failed: 1}, ExitCode: 1, Attempt: 1, Cell: map[string]string{"os": "linux"}}
+	results := []domain.TestResult{
+		{Name: "TestB", Classname: "pkg", Status: domain.TestFailed, Message: "boom"},
+		{Name: "TestA", Classname: "pkg", Status: domain.TestPassed},
+		{Name: "TestC", Classname: "alpha", Status: domain.TestSkipped},
+	}
+	must(t, repo.Create(ctx, &run, results))
+	if run.ID == uuid.Nil() || run.CreatedAt.IsZero() || results[0].ID == uuid.Nil() || results[0].RunID != run.ID || results[0].AccountID != f.account {
+		t.Fatalf("Create did not fill %+v, %+v", run, results[0])
+	}
+	got, err := repo.Get(ctx, f.account, run.ID)
+	if err != nil || got.Suite != "unit" || got.Cell["os"] != "linux" || got.Versions == nil || got.ReportArtifacts == nil || got.ChangeID != change.ID {
+		t.Fatalf("Get = %+v, %v", got, err)
+	}
+	rs, err := repo.Results(ctx, f.account, run.ID)
+	if err != nil || len(rs) != 3 || rs[0].Name != "TestC" || rs[1].Name != "TestA" || rs[2].Name != "TestB" || rs[2].Message != "boom" {
+		t.Fatalf("Results = %+v, %v", rs, err)
+	}
+
+	dup := run
+	dup.ID = uuid.Nil()
+	wantErr(t, repo.Create(ctx, &dup, nil), store.ErrConflict)
+	other := run
+	other.ID, other.Suite = uuid.Nil(), "lint"
+	f.clock.Advance(time.Minute)
+	must(t, repo.Create(ctx, &other, nil))
+	otherJob := newJob(f)
+	must(t, f.st.Jobs().Create(ctx, &otherJob))
+	later := domain.TestRun{AccountID: f.account, ProjectID: f.project.ID, JobID: otherJob.ID, SHA: "def456", Suite: "unit", Status: domain.TestRunPassed, Attempt: 1}
+	f.clock.Advance(time.Minute)
+	must(t, repo.Create(ctx, &later, nil))
+
+	for _, tt := range []struct {
+		name string
+		f    store.TestRunFilter
+		want []string
+	}{
+		{"all", store.TestRunFilter{}, []string{"unit", "lint", "unit"}},
+		{"job", store.TestRunFilter{JobID: job.ID}, []string{"unit", "lint"}},
+		{"change", store.TestRunFilter{ChangeID: change.ID}, []string{"unit", "lint"}},
+		{"sha", store.TestRunFilter{SHA: "def456"}, []string{"unit"}},
+		{"project", store.TestRunFilter{ProjectID: f.project.ID, Limit: 2}, []string{"unit", "lint"}},
+	} {
+		list, err := repo.List(ctx, f.account, tt.f)
+		var suites []string
+		for _, r := range list {
+			suites = append(suites, r.Suite)
+		}
+		if err != nil || !slices.Equal(suites, tt.want) {
+			t.Errorf("List %s = %v, %v; want %v", tt.name, suites, err, tt.want)
+		}
+	}
+
+	// Another account sees nothing, and cannot attach a run to this project.
+	stranger := domain.NewID()
+	if _, err := repo.Get(ctx, stranger, run.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("foreign Get err = %v", err)
+	}
+	if list, _ := repo.List(ctx, stranger, store.TestRunFilter{}); len(list) != 0 {
+		t.Errorf("foreign List = %+v", list)
+	}
+	if rs, _ := repo.Results(ctx, stranger, run.ID); len(rs) != 0 {
+		t.Errorf("foreign Results = %+v", rs)
+	}
+	foreign := domain.TestRun{AccountID: stranger, ProjectID: f.project.ID, JobID: job.ID, SHA: "x", Suite: "s", Status: domain.TestRunPassed, Attempt: 1}
+	wantErr(t, repo.Create(ctx, &foreign, nil), store.ErrNotFound)
+
+	// A failed transaction leaves nothing behind.
+	boom := errors.New("boom")
+	err = f.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		r := domain.TestRun{AccountID: f.account, ProjectID: f.project.ID, JobID: job.ID, SHA: "x", Suite: "rolled-back", Status: domain.TestRunPassed, Attempt: 2}
+		must(t, tx.TestRuns().Create(ctx, &r, []domain.TestResult{{Name: "t"}}))
+		return boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatal(err)
+	}
+	if list, _ := repo.List(ctx, f.account, store.TestRunFilter{JobID: job.ID}); len(list) != 2 {
+		t.Errorf("rolled back run is visible: %+v", list)
+	}
+
+	// Changes can be found by head.
+	if cs, _ := f.st.Changes().List(ctx, f.account, store.ChangeFilter{HeadSHA: "abc123"}); len(cs) != 1 {
+		t.Errorf("changes by head = %+v", cs)
+	}
+	if cs, _ := f.st.Changes().List(ctx, f.account, store.ChangeFilter{HeadSHA: "nope"}); len(cs) != 0 {
+		t.Errorf("changes by unknown head = %+v", cs)
+	}
+}
+
+func TestStoreTestRunFailures(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.TestRuns()
+	job := newJob(f)
+	must(t, f.st.Jobs().Create(ctx, &job))
+	run := domain.TestRun{AccountID: f.account, ProjectID: f.project.ID, JobID: job.ID, SHA: "x", Suite: "s", Status: domain.TestRunFailed, Attempt: 1}
+	must(t, repo.Create(ctx, &run, []domain.TestResult{
+		{Name: "D", Status: domain.TestPassed}, {Name: "C", Status: domain.TestFailed}, {Name: "B", Status: domain.TestFailed},
+		{Name: "A", Status: domain.TestErrored}, {Name: "S", Status: domain.TestSkipped},
+	}))
+	fails, err := repo.Failures(ctx, f.account, run.ID, 0)
+	if err != nil || len(fails) != 3 || fails[0].Name != "A" || fails[2].Name != "C" {
+		t.Fatalf("Failures = %+v, %v", fails, err)
+	}
+	if fails, err := repo.Failures(ctx, f.account, run.ID, 2); err != nil || len(fails) != 2 {
+		t.Fatalf("limited Failures = %+v, %v", fails, err)
+	}
+	if fails, _ := repo.Failures(ctx, domain.NewID(), run.ID, 0); len(fails) != 0 {
+		t.Fatalf("foreign Failures = %+v", fails)
+	}
+}
