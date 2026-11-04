@@ -44,11 +44,15 @@ type Object struct {
 	LastModified time.Time
 }
 
+// ObjectsPrefix is the key prefix of every object forecrewd stores;
+// reconciliation never looks at, or deletes, anything outside it.
+const ObjectsPrefix = "jobs/"
+
 // JobKey is the object key prefix of the artifact name of a job. Names are
 // validated (domain.ValidArtifactName), so the key cannot escape its job's
 // prefix.
 func JobKey(accountID, jobID uuid.UUID, name string) string {
-	return "jobs/" + accountID.String() + "/" + jobID.String() + "/" + name
+	return ObjectsPrefix + accountID.String() + "/" + jobID.String() + "/" + name
 }
 
 // NewKey is a fresh object key for one upload of the artifact name of a job.

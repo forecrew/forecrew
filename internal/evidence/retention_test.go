@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -111,7 +113,10 @@ func TestSweepKeepsForeverAtZeroDays(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	e.r.Run(ctx, time.Hour) // returns at once
+	e.r.Run(ctx, time.Hour) // one pass, which keeps everything, then returns
+	if len(e.ev.Keys()) != 1 {
+		t.Fatal("Run deleted a referenced object")
+	}
 }
 
 func TestSweepManyAndOtherAccount(t *testing.T) {
@@ -285,4 +290,197 @@ func TestRunSweepsAgain(t *testing.T) {
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
+}
+
+func (e *retentionEnv) orphan(t *testing.T, key string, age time.Duration) {
+	t.Helper()
+	must(t, e.ev.Put(t.Context(), key, strings.NewReader("xyz"), 3, "text/plain"))
+	e.ev.SetModified(key, e.clock.Now().Add(-age))
+}
+
+func TestReconcile(t *testing.T) {
+	e := newRetentionEnv(t, 0)
+	ctx := t.Context()
+	kept := e.add(t, "kept.log")
+	e.ev.SetModified(kept.StorageKey, e.clock.Now().Add(-100*time.Hour))
+	old := evidence.NewKey(e.account.ID, e.job.ID, "old.log")
+	young := evidence.NewKey(e.account.ID, e.job.ID, "young.log")
+	e.orphan(t, old, 48*time.Hour)
+	e.orphan(t, young, time.Hour)
+	e.orphan(t, "other/"+e.account.ID.String()+"/x", 48*time.Hour)
+	e.orphan(t, "jobs/not-an-account/j/x", 48*time.Hour)
+	e.orphan(t, "jobs/"+e.account.ID.String(), 48*time.Hour)
+
+	n, err := e.r.Reconcile(ctx)
+	if err != nil || n != 1 {
+		t.Fatalf("Reconcile = %d, %v", n, err)
+	}
+	keys := e.ev.Keys()
+	if slices.Contains(keys, old) || !slices.Contains(keys, young) || !slices.Contains(keys, kept.StorageKey) || len(keys) != 5 {
+		t.Fatalf("objects left: %v", keys)
+	}
+	entries, err := e.st.Audit().List(ctx, e.account.ID, store.AuditFilter{})
+	must(t, err)
+	var found int
+	for _, en := range entries {
+		if en.Action == evidence.ActionOrphanDeleted {
+			found++
+			if !strings.Contains(string(en.Data), old) || !strings.Contains(string(en.Data), `"size":3`) || en.Actor != "system:forecrewd" {
+				t.Errorf("audit entry: %+v %s", en, en.Data)
+			}
+		}
+	}
+	if found != 1 {
+		t.Fatalf("%d orphan audit entries", found)
+	}
+
+	// The young one goes once it is past the grace period.
+	e.clock.Advance(24 * time.Hour)
+	if n, err := e.r.Reconcile(ctx); err != nil || n != 1 {
+		t.Fatalf("later Reconcile = %d, %v", n, err)
+	}
+}
+
+func TestReconcileErrors(t *testing.T) {
+	e := newRetentionEnv(t, 0)
+	ctx := t.Context()
+	old := evidence.NewKey(e.account.ID, e.job.ID, "old.log")
+	e.orphan(t, old, 48*time.Hour)
+
+	e.ev.DeleteErr = errors.New("boom")
+	if n, err := e.r.Reconcile(ctx); err == nil || n != 0 {
+		t.Fatalf("failed delete: %d, %v", n, err)
+	}
+	e.ev.DeleteErr = nil
+	e.ev.ListErr = errors.New("list boom")
+	if _, err := e.r.Reconcile(ctx); err == nil {
+		t.Fatal("list error ignored")
+	}
+	e.ev.ListErr = nil
+	if n, err := e.r.Reconcile(ctx); err != nil || n != 1 {
+		t.Fatalf("retry = %d, %v", n, err)
+	}
+}
+
+func TestReconcilePaginates(t *testing.T) {
+	e := newRetentionEnv(t, 0)
+	const total = 1300 // more than two listing pages
+	for i := range total {
+		e.orphan(t, evidence.JobKey(e.account.ID, e.job.ID, fmt.Sprintf("f%04d", i)), 48*time.Hour)
+	}
+	if n, err := e.r.Reconcile(t.Context()); err != nil || n != total || len(e.ev.Keys()) != 0 {
+		t.Fatalf("Reconcile = %d, %v, left %d", n, err, len(e.ev.Keys()))
+	}
+}
+
+func TestReconcileBoundedWork(t *testing.T) {
+	e := newRetentionEnv(t, 0)
+	total := evidence.ReconcileMaxObjects + 600
+	for i := range total {
+		e.orphan(t, evidence.JobKey(e.account.ID, e.job.ID, fmt.Sprintf("f%06d", i)), 48*time.Hour)
+	}
+	n, err := e.r.Reconcile(t.Context())
+	if err != nil || n != evidence.ReconcileMaxObjects || len(e.ev.Keys()) != total-n {
+		t.Fatalf("first pass = %d, %v, left %d", n, err, len(e.ev.Keys()))
+	}
+	if n, err := e.r.Reconcile(t.Context()); err != nil || n != 600 || len(e.ev.Keys()) != 0 {
+		t.Fatalf("second pass = %d, %v, left %d", n, err, len(e.ev.Keys()))
+	}
+}
+
+func TestReconcileLookupError(t *testing.T) {
+	e := newRetentionEnv(t, 0)
+	e.orphan(t, evidence.NewKey(e.account.ID, e.job.ID, "old.log"), 48*time.Hour)
+	e.r.Store = lookupFailStore{e.st}
+	if n, err := e.r.Reconcile(t.Context()); err == nil || n != 0 || len(e.ev.Keys()) != 1 {
+		t.Fatalf("Reconcile = %d, %v", n, err)
+	}
+}
+
+type lookupFailStore struct{ store.Store }
+
+func (s lookupFailStore) Artifacts() store.ArtifactRepo { return failKeys{s.Store.Artifacts()} }
+
+type failKeys struct{ store.ArtifactRepo }
+
+func (failKeys) ExistingKeys(context.Context, []string) ([]string, error) {
+	return nil, errors.New("db down")
+}
+
+func TestReconcileGetsPastYoungObjectsAndKeepsItsPlace(t *testing.T) {
+	e := newRetentionEnv(t, 0)
+	ctx := t.Context()
+	// More young objects than one pass examines, sorting before the orphans.
+	for i := range evidence.ReconcileMaxObjects + 100 {
+		e.orphan(t, evidence.JobKey(e.account.ID, e.job.ID, fmt.Sprintf("a%06d", i)), time.Hour)
+	}
+	for _, n := range []string{"z1", "z2", "z3"} {
+		e.orphan(t, evidence.JobKey(e.account.ID, e.job.ID, n), 48*time.Hour)
+	}
+	if n, err := e.r.Reconcile(ctx); err != nil || n != 0 {
+		t.Fatalf("first pass = %d, %v", n, err)
+	}
+	if n, err := e.r.Reconcile(ctx); err != nil || n != 3 {
+		t.Fatalf("second pass = %d, %v (it must continue after the first)", n, err)
+	}
+	if got := len(e.ev.Keys()); got != evidence.ReconcileMaxObjects+100 {
+		t.Fatalf("%d objects left", got)
+	}
+}
+
+func TestReconcileSkipsOnePageOfYoungObjects(t *testing.T) {
+	e := newRetentionEnv(t, 0)
+	for i := range 1200 {
+		e.orphan(t, evidence.JobKey(e.account.ID, e.job.ID, fmt.Sprintf("a%04d", i)), time.Hour)
+	}
+	e.orphan(t, evidence.JobKey(e.account.ID, e.job.ID, "z"), 48*time.Hour)
+	if n, err := e.r.Reconcile(t.Context()); err != nil || n != 1 || len(e.ev.Keys()) != 1200 {
+		t.Fatalf("Reconcile = %d, %v, left %d", n, err, len(e.ev.Keys()))
+	}
+}
+
+func TestReconcileKeepsUnknownModifiedTime(t *testing.T) {
+	e := newRetentionEnv(t, 0)
+	key := evidence.NewKey(e.account.ID, e.job.ID, "x.log")
+	e.orphan(t, key, 48*time.Hour)
+	e.ev.SetModified(key, time.Time{})
+	if n, err := e.r.Reconcile(t.Context()); err != nil || n != 0 || len(e.ev.Keys()) != 1 {
+		t.Fatalf("Reconcile = %d, %v, left %d", n, err, len(e.ev.Keys()))
+	}
+}
+
+func TestReconcileKeepsObjectOfUnknownAccount(t *testing.T) {
+	e := newRetentionEnv(t, 0)
+	stranger := domain.NewID()
+	key := evidence.NewKey(stranger, e.job.ID, "x.log")
+	e.orphan(t, key, 48*time.Hour)
+	if n, err := e.r.Reconcile(t.Context()); err != nil || n != 0 || len(e.ev.Keys()) != 1 {
+		t.Fatalf("Reconcile = %d, %v, left %d", n, err, len(e.ev.Keys()))
+	}
+	if !strings.Contains(e.logs.String(), key) {
+		t.Errorf("the kept object is not logged: %s", e.logs.String())
+	}
+	entries, err := e.st.Audit().List(t.Context(), stranger, store.AuditFilter{})
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("audit entries = %v, %v", entries, err)
+	}
+}
+
+func TestReconcileAccountLookupError(t *testing.T) {
+	e := newRetentionEnv(t, 0)
+	e.orphan(t, evidence.NewKey(e.account.ID, e.job.ID, "x.log"), 48*time.Hour)
+	e.r.Store = accountFailStore{e.st}
+	if n, err := e.r.Reconcile(t.Context()); err == nil || n != 0 || len(e.ev.Keys()) != 1 {
+		t.Fatalf("Reconcile = %d, %v, left %d", n, err, len(e.ev.Keys()))
+	}
+}
+
+type accountFailStore struct{ store.Store }
+
+func (s accountFailStore) Accounts() store.AccountRepo { return failAccounts{s.Store.Accounts()} }
+
+type failAccounts struct{ store.AccountRepo }
+
+func (failAccounts) Get(context.Context, uuid.UUID) (domain.Account, error) {
+	return domain.Account{}, errors.New("db down")
 }

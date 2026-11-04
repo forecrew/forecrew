@@ -133,7 +133,7 @@ func TestEvidenceFromConfig(t *testing.T) {
 	evidenceConfig(cfg)
 	cfg.Evidence.RetentionDays = 0
 	a, err := New(Deps{Config: cfg, Store: testkit.NewStore(nil)})
-	if err != nil || a.retention != nil {
+	if err != nil || a.retention == nil || a.retention.Days != 0 {
 		t.Errorf("retention with 0 days: %v, %v", a.retention, err)
 	}
 }
