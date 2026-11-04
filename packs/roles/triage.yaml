@@ -1,7 +1,7 @@
 role: triage
 model: fast
 prompt: roles/triage.md
-tools: [repo.read, git.read]
+tools: [repo.read, git.read, assumption.record]
 write_paths: []
 produces: [triage]
 output_schema: schemas/triage.json

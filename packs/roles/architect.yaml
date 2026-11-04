@@ -1,7 +1,7 @@
 role: architect
 model: best
 prompt: roles/architect.md
-tools: [repo.read, git.read]
+tools: [repo.read, git.read, assumption.record]
 write_paths: []
 pool: control
 produces: [tasks]

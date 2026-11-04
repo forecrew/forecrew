@@ -1,7 +1,7 @@
 role: devils-advocate
 model: strong
 prompt: roles/devils-advocate.md
-tools: [repo.read, git.read]
+tools: [repo.read, git.read, assumption.record]
 write_paths: []
 produces: [council-contribution]
 output_schema: schemas/council-proposal.json

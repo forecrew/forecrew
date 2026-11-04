@@ -376,3 +376,47 @@ func TestRelease(t *testing.T) {
 	_, err := f.svc.Release(ctx, f.worker, j.ID, "again")
 	wantErr(t, err, store.ErrLeaseLost)
 }
+
+type fakeRegistrar struct {
+	jobs []domain.Job
+	err  error
+}
+
+func (r *fakeRegistrar) JobCompleted(_ context.Context, _ store.Store, j domain.Job) error {
+	r.jobs = append(r.jobs, j)
+	return r.err
+}
+
+// A succeeded job is told to the registrar, in the transaction that finishes
+// it: a failing registrar keeps the job running so that the worker retries.
+func TestCompleteTellsTheRegistrar(t *testing.T) {
+	f := newFixture(t)
+	reg := &fakeRegistrar{}
+	f.svc.WithRegistrar(reg)
+	ctx := t.Context()
+
+	failed := schemaJob(t, f)
+	f.lease(t)
+	_, err := f.svc.Complete(ctx, f.worker, failed.ID, store.JobResult{Status: domain.JobFailed, Error: "boom"})
+	must(t, err)
+	if len(reg.jobs) != 0 {
+		t.Fatalf("a failed job was registered: %+v", reg.jobs)
+	}
+
+	ok := schemaJob(t, f)
+	f.lease(t)
+	reg.err = errors.New("register down")
+	_, err = f.svc.Complete(ctx, f.worker, ok.ID, store.JobResult{Status: domain.JobSucceeded, Output: json.RawMessage(`{"summary":"ok"}`)})
+	if err == nil || !strings.Contains(err.Error(), "register down") {
+		t.Fatalf("err = %v", err)
+	}
+	if cur, _ := f.st.Jobs().Get(ctx, f.account, ok.ID); cur.Status != domain.JobRunning {
+		t.Fatalf("job = %s, want running", cur.Status)
+	}
+	reg.err = nil
+	got, err := f.svc.Complete(ctx, f.worker, ok.ID, store.JobResult{Status: domain.JobSucceeded, Output: json.RawMessage(`{"summary":"ok"}`)})
+	must(t, err)
+	if last := reg.jobs[len(reg.jobs)-1]; last.ID != got.ID || last.Status != domain.JobSucceeded || string(last.Output) != `{"summary":"ok"}` {
+		t.Fatalf("registrar saw %+v", reg.jobs)
+	}
+}
