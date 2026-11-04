@@ -6,25 +6,32 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/registers"
 )
 
-// commandRE matches the commands "approve", "changes" and "status".
-var commandRE = regexp.MustCompile(`(?i)@forecrew\s+(approve|changes|status)\b`)
+// commandRE matches the commands "approve", "changes" and "status", and the
+// assumption ("A-3") a command may name.
+var commandRE = regexp.MustCompile(`(?i)@forecrew\s+(approve|changes|status)\b(?:[ \t]+(A-[0-9]+)\b)?`)
 
-// parseCommand finds the first @forecrew command in a comment. For changes,
-// feedback is the rest of the comment.
-func parseCommand(body string) (cmd, feedback string, ok bool) {
+// parseCommand finds the first @forecrew command in a comment. assumption is
+// the assumption it names ("A-3"), if any. For changes, feedback is the rest
+// of the comment.
+func parseCommand(body string) (cmd, assumption, feedback string, ok bool) {
 	loc := commandRE.FindStringSubmatchIndex(body)
 	if loc == nil {
-		return "", "", false
+		return "", "", "", false
 	}
 	cmd = strings.ToLower(body[loc[2]:loc[3]])
-	return cmd, strings.TrimSpace(body[loc[1]:]), true
+	if loc[4] >= 0 {
+		assumption = strings.ToUpper(body[loc[4]:loc[5]])
+	}
+	return cmd, assumption, strings.TrimSpace(body[loc[1]:]), true
 }
 
 // comment runs the @forecrew command in a new issue or PR comment. Without an
@@ -33,7 +40,7 @@ func (e *engine) comment(ctx context.Context, ev github.Event) error {
 	if ev.Action != "created" {
 		return nil
 	}
-	cmd, feedback, ok := parseCommand(ev.Body)
+	cmd, assumption, feedback, ok := parseCommand(ev.Body)
 	if !ok {
 		return nil
 	}
@@ -41,7 +48,7 @@ func (e *engine) comment(ctx context.Context, ev github.Event) error {
 		if e.Allowed == nil || !e.Allowed(ev.Actor) {
 			return e.auditIgnored(ctx, p, ev, cmd)
 		}
-		return e.runCommand(ctx, p, ev, cmd, feedback)
+		return e.runCommand(ctx, p, ev, cmd, assumption, feedback)
 	})
 }
 
@@ -62,9 +69,29 @@ func (e *engine) auditIgnored(ctx context.Context, p domain.Project, ev github.E
 	return nil
 }
 
-// runCommand applies the command of an allowed user to the oldest pending
-// gate about the issue or PR and replies with the outcome.
-func (e *engine) runCommand(ctx context.Context, p domain.Project, ev github.Event, cmd, feedback string) error {
+// decidable returns the gate a command without an assumption is about: the
+// oldest pending gate about the issue or PR that is not an assumption review.
+// A review of an assumption sits on the issue of its goal or task, where the
+// spec or the merge gate also is, and "@forecrew approve" meant for those
+// must not accept a high-impact assumption: that takes its name,
+// "@forecrew approve A-3".
+func decidable(pending []domain.Gate, assumption string) (domain.Gate, bool) {
+	i := slices.IndexFunc(pending, func(g domain.Gate) bool {
+		n, ok := registers.ReviewedRef(g)
+		if assumption != "" {
+			return ok && domain.Ref(domain.RefAssumption, n) == assumption
+		}
+		return g.Kind != domain.GateAssumptionReview
+	})
+	if i < 0 {
+		return domain.Gate{}, false
+	}
+	return pending[i], true
+}
+
+// runCommand applies the command of an allowed user to the gate it is about
+// (see decidable) and replies with the outcome.
+func (e *engine) runCommand(ctx context.Context, p domain.Project, ev github.Event, cmd, assumption, feedback string) error {
 	pending, err := e.Store.Gates().ListPendingBySubject(ctx, p.AccountID, ev.Repo, ev.Number)
 	if err != nil {
 		return fmt.Errorf("list gates of %s#%d: %w", ev.Repo, ev.Number, err)
@@ -75,7 +102,13 @@ func (e *engine) runCommand(ctx context.Context, p domain.Project, ev github.Eve
 	if len(pending) == 0 {
 		return e.reply(ctx, ev, "Nothing is waiting for a decision here.")
 	}
-	g := pending[0]
+	g, ok := decidable(pending, assumption)
+	if !ok {
+		if assumption != "" {
+			return e.reply(ctx, ev, fmt.Sprintf("No review of %s is waiting here.", assumption))
+		}
+		return e.reply(ctx, ev, "Only assumption reviews are waiting here: name the assumption to decide one, for example `@forecrew approve A-3`.\n\n"+statusReply(pending))
+	}
 	decision := domain.GateApproved
 	tool := mcp.ToolApprove
 	if cmd == "changes" {
