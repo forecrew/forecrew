@@ -35,26 +35,28 @@ type counterKey struct {
 }
 
 type storeData struct {
-	accounts   table[domain.Account]
-	projects   table[domain.Project]
-	goals      table[domain.Goal]
-	specs      table[domain.Spec]
-	tasks      table[domain.Task]
-	changes    table[domain.Change]
-	jobs       table[domain.Job]
-	jobEvents  table[domain.JobEvent]
-	gates      table[domain.Gate]
-	signals    table[domain.Signal]
-	workers    table[domain.Worker]
-	runs       table[domain.WorkflowRun]
-	steps      table[domain.StepRun]
-	tokens     table[domain.MCPToken]
-	audit      table[domain.AuditEntry]
-	artifacts  table[domain.Artifact]
-	testRuns   table[domain.TestRun]
-	testResult table[domain.TestResult]
-	deliveries map[string]domain.WebhookDelivery
-	counters   map[counterKey]int64
+	accounts    table[domain.Account]
+	projects    table[domain.Project]
+	goals       table[domain.Goal]
+	specs       table[domain.Spec]
+	tasks       table[domain.Task]
+	changes     table[domain.Change]
+	jobs        table[domain.Job]
+	jobEvents   table[domain.JobEvent]
+	gates       table[domain.Gate]
+	signals     table[domain.Signal]
+	workers     table[domain.Worker]
+	runs        table[domain.WorkflowRun]
+	steps       table[domain.StepRun]
+	tokens      table[domain.MCPToken]
+	audit       table[domain.AuditEntry]
+	artifacts   table[domain.Artifact]
+	testRuns    table[domain.TestRun]
+	testResult  table[domain.TestResult]
+	assumptions table[domain.Assumption]
+	decisions   table[domain.Decision]
+	deliveries  map[string]domain.WebhookDelivery
+	counters    map[counterKey]int64
 	// jobMCP holds the job MCP token hash of a job with the lease it was
 	// set for; a hash whose lease ended no longer matches (the Postgres
 	// trigger clears it).
@@ -70,27 +72,29 @@ type jobMCPHash struct {
 // NewStore returns an empty store. now defaults to the real UTC time.
 func NewStore(now func() time.Time) *Store {
 	return &Store{shared: &storeShared{now: orNow(now), d: &storeData{
-		accounts:   table[domain.Account]{key: func(a domain.Account) (uuid.UUID, uuid.UUID) { return a.ID, a.ID }},
-		projects:   table[domain.Project]{key: func(r domain.Project) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		goals:      table[domain.Goal]{key: func(r domain.Goal) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		specs:      table[domain.Spec]{key: func(r domain.Spec) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		tasks:      table[domain.Task]{key: func(r domain.Task) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		changes:    table[domain.Change]{key: func(r domain.Change) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		jobs:       table[domain.Job]{key: func(r domain.Job) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		jobEvents:  table[domain.JobEvent]{key: func(r domain.JobEvent) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		gates:      table[domain.Gate]{key: func(r domain.Gate) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		signals:    table[domain.Signal]{key: func(r domain.Signal) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		workers:    table[domain.Worker]{key: func(r domain.Worker) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		runs:       table[domain.WorkflowRun]{key: func(r domain.WorkflowRun) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		steps:      table[domain.StepRun]{key: func(r domain.StepRun) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		tokens:     table[domain.MCPToken]{key: func(r domain.MCPToken) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		audit:      table[domain.AuditEntry]{key: func(r domain.AuditEntry) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		artifacts:  table[domain.Artifact]{key: func(r domain.Artifact) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		testRuns:   table[domain.TestRun]{key: func(r domain.TestRun) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		testResult: table[domain.TestResult]{key: func(r domain.TestResult) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		deliveries: map[string]domain.WebhookDelivery{},
-		counters:   map[counterKey]int64{},
-		jobMCP:     map[uuid.UUID]jobMCPHash{},
+		accounts:    table[domain.Account]{key: func(a domain.Account) (uuid.UUID, uuid.UUID) { return a.ID, a.ID }},
+		projects:    table[domain.Project]{key: func(r domain.Project) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		goals:       table[domain.Goal]{key: func(r domain.Goal) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		specs:       table[domain.Spec]{key: func(r domain.Spec) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		tasks:       table[domain.Task]{key: func(r domain.Task) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		changes:     table[domain.Change]{key: func(r domain.Change) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		jobs:        table[domain.Job]{key: func(r domain.Job) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		jobEvents:   table[domain.JobEvent]{key: func(r domain.JobEvent) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		gates:       table[domain.Gate]{key: func(r domain.Gate) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		signals:     table[domain.Signal]{key: func(r domain.Signal) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		workers:     table[domain.Worker]{key: func(r domain.Worker) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		runs:        table[domain.WorkflowRun]{key: func(r domain.WorkflowRun) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		steps:       table[domain.StepRun]{key: func(r domain.StepRun) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		tokens:      table[domain.MCPToken]{key: func(r domain.MCPToken) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		audit:       table[domain.AuditEntry]{key: func(r domain.AuditEntry) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		artifacts:   table[domain.Artifact]{key: func(r domain.Artifact) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		assumptions: table[domain.Assumption]{key: func(r domain.Assumption) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		decisions:   table[domain.Decision]{key: func(r domain.Decision) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		testRuns:    table[domain.TestRun]{key: func(r domain.TestRun) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		testResult:  table[domain.TestResult]{key: func(r domain.TestResult) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		deliveries:  map[string]domain.WebhookDelivery{},
+		counters:    map[counterKey]int64{},
+		jobMCP:      map[uuid.UUID]jobMCPHash{},
 	}}}
 }
 
@@ -114,6 +118,8 @@ func (d *storeData) clone() *storeData {
 	c.artifacts = d.artifacts.clone()
 	c.testRuns = d.testRuns.clone()
 	c.testResult = d.testResult.clone()
+	c.assumptions = d.assumptions.clone()
+	c.decisions = d.decisions.clone()
 	c.deliveries = maps.Clone(d.deliveries)
 	c.counters = maps.Clone(d.counters)
 	c.jobMCP = maps.Clone(d.jobMCP)

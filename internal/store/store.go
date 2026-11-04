@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"time"
 	"uuid"
 
@@ -60,6 +61,8 @@ type Store interface {
 	Audit() AuditRepo
 	Artifacts() ArtifactRepo
 	TestRuns() TestRunRepo
+	Assumptions() AssumptionRepo
+	Decisions() DecisionRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
 	// must use the ctx passed to fn.
@@ -423,8 +426,9 @@ type VerificationReportRepo interface {
 
 // The repositories below belong to the team (councils, registers,
 // knowledge, proposals; docs/contracts/data-model.md, migration 00004).
-// Like the testing system's, they are contracts only: CouncilRepo is added
-// to Store by T33, AssumptionRepo and DecisionRepo by T32, KnowledgeRepo by
+// Like the testing system's, they are contracts only (AssumptionRepo and
+// DecisionRepo are in Store already): CouncilRepo is added
+// to Store by T33, KnowledgeRepo by
 // T36, KnowledgeProposalRepo by T37 and ProposalRepo by T50, each with the
 // Postgres implementation and the testkit fake. goals.kind and goals.size
 // are read and written by GoalRepo from T35 (Size) and T41 (Kind),
@@ -481,6 +485,26 @@ type AssumptionRepo interface {
 	// Resolve stores Status, Evidence, ResolvedBy and ResolvedAt of a after
 	// domain.Assumption.Resolve, as a compare-and-set from from.
 	Resolve(ctx context.Context, a *domain.Assumption, from domain.AssumptionStatus) error
+	// RaiseImpact stores a higher impact; a lower or equal one changes nothing.
+	RaiseImpact(ctx context.Context, accountID, id uuid.UUID, impact domain.Level) error
+	// Lock serializes the registrations of a goal (of the project's
+	// goal-less ones when goalID is nil) until the end of the transaction
+	// it is called in: a second caller waits for the first to commit, so
+	// that it sees the first's items. Outside a transaction it locks
+	// nothing.
+	Lock(ctx context.Context, accountID, projectID, goalID uuid.UUID) error
+}
+
+// MergeDependents returns cur followed by the dependents of add that cur
+// does not list, in order. Both implementations of AddDependents use it.
+func MergeDependents(cur, add []domain.Dependent) []domain.Dependent {
+	out := slices.Clone(cur)
+	for _, d := range add {
+		if !slices.Contains(out, d) {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // DecisionFilter selects decisions; zero fields match everything.
