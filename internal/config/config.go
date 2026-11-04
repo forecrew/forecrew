@@ -80,6 +80,7 @@ type Config struct {
 	// send to complete a command job with test runs; zero means
 	// DefaultMaxTestResultsSize.
 	MaxTestResultsSize int64 `yaml:"max_test_results_size"`
+	Auth               Auth  `yaml:"auth"`
 }
 
 // DefaultMaxTestResultsSize is the default of Config.MaxTestResultsSize.
@@ -162,6 +163,7 @@ func Parse(data []byte, getenv func(string) string) (*Config, error) {
 		c.Runtimes[name] = rt
 	}
 	c.readEvidence(getenv)
+	c.readAuth(getenv)
 	c.applyDefaults()
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -194,6 +196,7 @@ func (c *Config) applyDefaults() {
 	}
 	c.applyPoolDefaults()
 	c.applySizing()
+	c.applyAuthDefaults()
 }
 
 // problems collects validation messages.
@@ -226,6 +229,7 @@ func (c *Config) Validate() error {
 	if c.MaxTestResultsSize < 0 {
 		p.addf("max_test_results_size must be positive")
 	}
+	c.validateAuth(&p)
 	return p.err()
 }
 
