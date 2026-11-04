@@ -162,3 +162,90 @@ func TestSameVendorReviewAllowed(t *testing.T) {
 		t.Errorf("job = %+v", j)
 	}
 }
+
+func (f *fixture) commandRequest() workflow.JobRequest {
+	return workflow.JobRequest{
+		AccountID: f.account.ID, ProjectID: f.project.ID, Kind: domain.JobKindCommand, Branch: "agent/task-3", Suite: "unit",
+		Cell: map[string]string{"os": "linux"}, Needs: []string{"Linux"},
+		Command: &domain.CommandSpec{Argv: []string{"go", "test", "./..."}, Reports: []string{"reports/unit.xml"}},
+		Overlay: &domain.Overlay{Ref: "agent/task-3", Paths: []string{"a_test.go"}},
+	}
+}
+
+func TestJobCreatorCommandJob(t *testing.T) {
+	f := newFixture(t)
+	req := f.commandRequest()
+	req.ID = domain.NewID()
+	req.Environment = &domain.Environment{Name: "host", Provider: domain.ProviderMachine, Needs: []string{"go"}}
+	id, err := f.creator.Create(t.Context(), req)
+	must(t, err)
+	if id != req.ID {
+		t.Fatalf("id = %s, want %s", id, req.ID)
+	}
+	j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+	must(t, err)
+	s := j.Spec
+	if j.Kind != domain.JobKindCommand || j.Pool != domain.PoolBuild || j.Status != domain.JobQueued || j.Runtime != "" ||
+		!slices.Equal(j.Needs, []string{"go", "linux"}) {
+		t.Errorf("job = %+v", j)
+	}
+	if s.Kind != domain.JobKindCommand || s.JobID != id || s.Repo != "acme/app" || s.BaseRef != "main" || s.Branch != "agent/task-3" ||
+		s.Prompt != "" || s.Model != "" || len(s.WritePaths) != 0 || s.Suite != "unit" || s.Cell["os"] != "linux" ||
+		s.Overlay.Ref != "agent/task-3" || time.Duration(s.Timeout) != defaultCommandTimeout || s.Command.Argv[0] != "go" {
+		t.Errorf("spec = %+v", s)
+	}
+}
+
+func TestJobCreatorCommandPoolAndNeeds(t *testing.T) {
+	f := newFixture(t)
+	req := f.commandRequest()
+	req.Timeout = domain.Duration(time.Minute)
+	req.Environment = &domain.Environment{Name: "ci", Provider: domain.ProviderActions, RunsOn: "ubuntu-24.04"}
+	id, err := f.creator.Create(t.Context(), req)
+	must(t, err)
+	j, _ := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+	if j.Pool != domain.PoolActions || time.Duration(j.Spec.Timeout) != time.Minute {
+		t.Errorf("pool = %q, timeout = %v", j.Pool, j.Spec.Timeout)
+	}
+
+	req = f.commandRequest()
+	req.Environment = &domain.Environment{Name: "linux-go", Provider: domain.ProviderDocker, Image: "golang:1.27"}
+	id, err = f.creator.Create(t.Context(), req)
+	must(t, err)
+	j, _ = f.st.Jobs().Get(t.Context(), f.account.ID, id)
+	if j.Pool != domain.PoolBuild || !slices.Equal(j.Needs, []string{"docker", "linux"}) {
+		t.Errorf("pool = %q, needs = %v", j.Pool, j.Needs)
+	}
+}
+
+func TestJobCreatorCommandErrors(t *testing.T) {
+	f := newFixture(t)
+	tests := map[string]func(*workflow.JobRequest){
+		"no command":     func(r *workflow.JobRequest) { r.Command = nil },
+		"argv and shell": func(r *workflow.JobRequest) { r.Command.Shell = "make test" },
+		"prompt":         func(r *workflow.JobRequest) { r.Prompt = "hi" },
+		"role":           func(r *workflow.JobRequest) { r.Role = "developer" },
+		"pool":           func(r *workflow.JobRequest) { r.Pool = domain.PoolControl },
+		"another repo":   func(r *workflow.JobRequest) { r.Repo = "acme/other" },
+		"secret env":     func(r *workflow.JobRequest) { r.Command.Env = map[string]string{"API_TOKEN": "x"} },
+	}
+	for name, mut := range tests {
+		t.Run(name, func(t *testing.T) {
+			req := f.commandRequest()
+			mut(&req)
+			if _, err := f.creator.Create(t.Context(), req); !errors.Is(err, jobs.ErrInvalid) {
+				t.Errorf("err = %v, want ErrInvalid", err)
+			}
+		})
+	}
+	req := f.commandRequest()
+	req.ProjectID = domain.NewID()
+	if _, err := f.creator.Create(t.Context(), req); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("unknown project: %v", err)
+	}
+	agent := f.request("developer")
+	agent.Suite = "unit"
+	if _, err := f.creator.Create(t.Context(), agent); !errors.Is(err, jobs.ErrInvalid) {
+		t.Errorf("agent job with a suite: %v", err)
+	}
+}

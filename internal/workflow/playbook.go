@@ -191,6 +191,9 @@ func (v validator) step(s Step, vars []string) error {
 	}
 	switch s.Type {
 	case StepJob:
+		if s.With["kind"] == string(domain.JobKindCommand) {
+			return checkWith(s.With, keysOf(JobRequest{}), "command")
+		}
 		return checkWith(s.With, keysOf(JobRequest{}), "role")
 	case StepGate:
 		return checkGate(s.With)
