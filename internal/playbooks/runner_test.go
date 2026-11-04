@@ -79,9 +79,12 @@ func (r *runner) github() domain.Actor {
 	return a
 }
 
+// patience is how long eventually waits.
+var patience = 5 * time.Second
+
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(patience)
 	for !cond() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)
