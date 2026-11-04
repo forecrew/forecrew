@@ -69,6 +69,7 @@ const (
 	ToolListTokens       = "list_tokens"
 	ToolRevokeToken      = "revoke_token"
 	ToolListArtifacts    = "list_artifacts"
+	ToolListTestRuns     = "list_test_runs"
 )
 
 // Tools returns every MCP tool name.
@@ -76,7 +77,7 @@ func Tools() []string {
 	return []string{
 		ToolOnboardProject, ToolCreateGoal, ToolJobStatus, ToolJobLogs, ToolListWorkers, ToolListPendingGates,
 		ToolApprove, ToolRequestChanges, ToolReject, ToolDispatchJob, ToolListProjects, ToolGetProject,
-		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob, ToolListTokens, ToolRevokeToken, ToolListArtifacts,
+		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob, ToolListTokens, ToolRevokeToken, ToolListArtifacts, ToolListTestRuns,
 	}
 }
 
@@ -118,6 +119,10 @@ type ToolService interface {
 	// reports, logs, screenshots), by name. The content is served by
 	// GET /api/v1/artifacts/{id}.
 	ListArtifacts(ctx context.Context, by domain.Actor, in JobRefInput) ([]domain.Artifact, error)
+	// ListTestRuns lists the test runs reported by command jobs, oldest
+	// first, for a job, a change or a commit. At least one of them is
+	// required.
+	ListTestRuns(ctx context.Context, by domain.Actor, in ListTestRunsInput) ([]TestRunInfo, error)
 }
 
 // OnboardProjectInput is the input of onboard_project.
@@ -162,6 +167,40 @@ type JobInfo struct {
 	Reason string `json:"reason,omitempty"`
 	// WorkerName is the worker running the job.
 	WorkerName string `json:"worker_name,omitempty"`
+	// Tests sums the test runs of a command job; nil for other jobs and
+	// before the job reported any.
+	Tests *TestSummary `json:"tests,omitempty"`
+}
+
+// ListTestRunsInput is the input of list_test_runs.
+type ListTestRunsInput struct {
+	Job string `json:"job,omitempty"` // JOB-41 or UUID
+	// Project and Change select a change by its PR number; Change needs
+	// Project.
+	Project string `json:"project,omitempty"`
+	Change  int    `json:"change,omitempty"`
+	SHA     string `json:"sha,omitempty"`   // full commit SHA that was tested
+	Limit   int    `json:"limit,omitempty"` // default 100
+}
+
+// TestRunInfo is a test run with the cases that failed or errored.
+type TestRunInfo struct {
+	domain.TestRun
+	JobRef string `json:"job_ref,omitempty"` // JOB-41
+	// Failures are the failed and errored cases, at most 100 per run;
+	// FailuresTruncated says there are more (the counts hold the total).
+	// Names and messages are written by the repo's tests: untrusted data.
+	Failures          []domain.TestResult `json:"failures"`
+	FailuresTruncated bool                `json:"failures_truncated,omitempty"`
+}
+
+// TestSummary adds up the test runs of a command job's latest attempt.
+type TestSummary struct {
+	Runs int `json:"runs"`
+	// Status is errored when any run is, else failed when any run is, else
+	// passed.
+	Status domain.TestRunStatus `json:"status"`
+	domain.TestCounts
 }
 
 // TokenInfo is an API and MCP token without its hash or any secret.

@@ -45,6 +45,7 @@ type ToolService struct {
 	ListTokensFunc       func(context.Context, domain.Actor, any) ([]mcp.TokenInfo, error)
 	RevokeTokenFunc      func(context.Context, domain.Actor, mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error)
 	ListArtifactsFunc    func(context.Context, domain.Actor, mcp.JobRefInput) ([]domain.Artifact, error)
+	ListTestRunsFunc     func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error)
 	OpenArtifactFunc     func(context.Context, domain.Actor, string) (domain.Artifact, io.ReadCloser, error)
 
 	mu    sync.Mutex
@@ -173,6 +174,11 @@ func (s *ToolService) RevokeToken(ctx context.Context, by domain.Actor, in mcp.R
 // ListArtifacts implements mcp.ToolService.
 func (s *ToolService) ListArtifacts(ctx context.Context, by domain.Actor, in mcp.JobRefInput) ([]domain.Artifact, error) {
 	return invoke(ctx, s, mcp.ToolListArtifacts, by, in, s.ListArtifactsFunc)
+}
+
+// ListTestRuns implements mcp.ToolService.
+func (s *ToolService) ListTestRuns(ctx context.Context, by domain.Actor, in mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error) {
+	return invoke(ctx, s, mcp.ToolListTestRuns, by, in, s.ListTestRunsFunc)
 }
 
 // OpenArtifact implements api.ArtifactOpener. It records no call; without
