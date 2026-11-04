@@ -4,8 +4,10 @@
 package contextpack
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -107,13 +109,50 @@ func (b *StoreBuilder) input(ctx context.Context, req workflow.JobRequest, role 
 		in.Goal = Text{Heading: fmt.Sprintf("Goal %s: %s", goal.Ref(), goal.Title), Body: goal.Body}
 		in.Goal.Untrusted, in.Goal.Source = b.untrusted(goal.CreatedBy), goal.CreatedBy
 	}
+	return in, b.jobTexts(ctx, req, &in)
+}
+
+// jobTexts fills the sections that belong to the job itself.
+func (b *StoreBuilder) jobTexts(ctx context.Context, req workflow.JobRequest, in *Input) error {
 	if req.Prompt != "" {
 		in.Instructions = Text{Heading: "Instructions", Body: req.Prompt}
 	}
 	if req.Feedback != "" {
 		in.Feedback = Text{Heading: "Feedback to address", Body: req.Feedback}
 	}
-	return in, nil
+	if req.Council != nil {
+		return b.council(ctx, req.AccountID, *req.Council, in)
+	}
+	return nil
+}
+
+// council fills the Council section of a council job with the council as it
+// stands now, so a constraint added meanwhile reaches the next round, and the
+// Framing section with the framing the turn carries, if any. No contribution
+// is copied in: members read what their stage may see with council.read.
+func (b *StoreBuilder) council(ctx context.Context, acc uuid.UUID, t workflow.CouncilTurn, in *Input) error {
+	c, err := b.store.Councils().Get(ctx, acc, t.CouncilID)
+	if err != nil {
+		return fmt.Errorf("load council %s: %w", t.CouncilID, err)
+	}
+	var body strings.Builder
+	fmt.Fprintf(&body, "Question: %s\n", c.Question)
+	if len(c.Constraints) > 0 {
+		body.WriteString("\nConstraints, each binding on every option:\n\n")
+	}
+	for _, s := range c.Constraints {
+		fmt.Fprintf(&body, "- %s\n", OneLine(s))
+	}
+	in.Council = Text{Heading: "Council " + c.Ref(), Body: body.String()}
+	if len(t.Framing) == 0 || string(t.Framing) == "null" {
+		return nil
+	}
+	var framing bytes.Buffer
+	if err := json.Indent(&framing, t.Framing, "", "  "); err != nil {
+		return fmt.Errorf("framing of %s: %w", c.Ref(), err)
+	}
+	in.Framing = Text{Heading: "The facilitator's framing", Body: fenced("json", framing.String()), Untrusted: true, Source: "facilitator of " + c.Ref()}
+	return nil
 }
 
 // untrusted reports whether text by actor (Actor.String()) comes from a

@@ -12,6 +12,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/contextpack"
+	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/roles"
@@ -31,6 +32,10 @@ type jobCreator struct {
 	// knowledge gives the paths of the project's curated knowledge; nil
 	// leaves the role's write paths as they are.
 	knowledge pathSource
+	// councils and models make a council turn's job: the step's prompt and
+	// schema, on the runtime its member is pinned to.
+	councils *councils.Set
+	models   func(role, adapter string) (string, error)
 }
 
 // pathSource lists the repo paths of a project's curated knowledge, which
@@ -82,6 +87,11 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	if err != nil {
 		return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
 	}
+	if req.Council != nil {
+		if role, err = c.councilRole(ctx, req, role); err != nil {
+			return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
+		}
+	}
 	// The lease mints a token for the job's repo: it must be the project's.
 	if req.Repo != "" && !strings.EqualFold(req.Repo, project.Repo) {
 		return uuid.Nil(), fmt.Errorf("create %s job: repo %s is not the repo of project %s: %w", req.Role, req.Repo, project.Name, jobs.ErrInvalid)
@@ -124,6 +134,29 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	return j.ID, nil
 }
 
+// councilRole turns role into the job of req's council turn. The pool stays
+// the role's.
+func (c *jobCreator) councilRole(ctx context.Context, req workflow.JobRequest, role roles.Role) (roles.Role, error) {
+	t := req.Council
+	council, err := c.store.Councils().Get(ctx, req.AccountID, t.CouncilID)
+	if err != nil {
+		return roles.Role{}, fmt.Errorf("council %s: %w", t.CouncilID, err)
+	}
+	if council.ProjectID != req.ProjectID {
+		return roles.Role{}, fmt.Errorf("%s is not a council of this project: %w", council.Ref(), jobs.ErrInvalid)
+	}
+	if t.Runtime != "" && t.Runtime != role.Runtime {
+		if role.Model, err = c.models(role.Name, t.Runtime); err != nil {
+			return roles.Role{}, err
+		}
+		role.Runtime = t.Runtime
+	}
+	return c.councils.Job(councils.Turn{
+		Kind: council.Kind, Step: councils.Step(t.Step), Round: t.Round, Roles: t.Roles,
+		Seat: councils.Seat{Role: role.Name, Priority: t.Priority}, BudgetExhausted: t.BudgetExhausted,
+	}, role)
+}
+
 // Cancel implements workflow.JobCreator.
 func (c *jobCreator) Cancel(ctx context.Context, accountID, jobID uuid.UUID) error {
 	_, err := c.jobs.Cancel(ctx, domain.SystemActor(accountID, domain.ForecrewdName), accountID, jobID)
@@ -143,8 +176,8 @@ func (c *jobCreator) createCommand(ctx context.Context, req workflow.JobRequest)
 	if req.Repo != "" && !strings.EqualFold(req.Repo, project.Repo) {
 		return uuid.Nil(), fmt.Errorf("create command job: repo %s is not the repo of project %s: %w", req.Repo, project.Name, jobs.ErrInvalid)
 	}
-	if req.Role != "" || req.Pool != "" || req.Prompt != "" || req.Feedback != "" || len(req.LockedPaths) > 0 {
-		return uuid.Nil(), fmt.Errorf("create command job: role, pool, prompt, feedback and locked_paths are not for command jobs: %w", jobs.ErrInvalid)
+	if req.Role != "" || req.Pool != "" || req.Prompt != "" || req.Feedback != "" || len(req.LockedPaths) > 0 || req.Council != nil {
+		return uuid.Nil(), fmt.Errorf("create command job: role, pool, prompt, feedback, locked_paths and council are not for command jobs: %w", jobs.ErrInvalid)
 	}
 	if req.BaseRef == "" {
 		req.BaseRef = project.DefaultBranch

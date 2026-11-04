@@ -11,6 +11,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/roles"
+	"github.com/forecrew/forecrew/internal/runtime"
 	"github.com/forecrew/forecrew/internal/schema"
 )
 
@@ -45,6 +46,8 @@ type Turn struct {
 	Seat Seat
 	// BudgetExhausted tells the synthesis that the budget ran out.
 	BudgetExhausted bool
+	// Roles are the members a council chose instead of its kind's (Seated).
+	Roles []string
 }
 
 // MaxRound returns the highest round of step in a council of pack: one
@@ -80,9 +83,13 @@ type promptData struct {
 	BudgetExhausted bool
 }
 
+// readTool is the runtime name of council.read, which every council job
+// gets and which no job outside a council can use.
+var readTool = runtime.JobMCPTool("council_read")
+
 // Job returns r, the resolved role of the turn's seat, made into the
 // council job of the turn: the step prompt as instructions, the step's
-// output schema, and no write access. For a member step, r.Runtime is the
+// output schema, council.read, and no write access. For a member step, r.Runtime is the
 // runtime the member runs on and must be one of the seat's runtimes when
 // it lists any. A role written for councils (its output_schema is the
 // proposal or brief schema) keeps its own prompt, placed first, and its
@@ -92,7 +99,7 @@ type promptData struct {
 // seat's priority and focus only, so its usual job's checklists are
 // dropped.
 func (s *Set) Job(t Turn, r roles.Role) (roles.Role, error) {
-	p, err := s.Pack(t.Kind)
+	p, err := s.Seated(t.Kind, t.Roles)
 	if err != nil {
 		return roles.Role{}, err
 	}
@@ -126,6 +133,9 @@ func (s *Set) Job(t Turn, r roles.Role) (roles.Role, error) {
 	out := r.WithoutWrites()
 	out.Instructions = strings.TrimSpace(b.String())
 	out.OutputSchema = s.schemas[t.Step]
+	if !slices.Contains(out.AllowedTools, readTool) {
+		out.AllowedTools = append(out.AllowedTools, readTool)
+	}
 	if !persona {
 		out.DefinitionOfDone, out.EscalateWhen = nil, nil
 	}
