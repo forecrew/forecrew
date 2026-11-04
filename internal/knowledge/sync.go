@@ -50,6 +50,7 @@ type Syncer struct {
 
 	mu       sync.Mutex
 	policies sync.Map // project ID to Policy, as of the last Sync
+	synced   sync.Map // project ID to the head of the last Sync that succeeded
 }
 
 func (s *Syncer) log() *slog.Logger {
@@ -79,7 +80,8 @@ func (s *Syncer) Policy(p domain.Project) Policy {
 // head): changed entries by blob SHA, deleted ones removed, the generated
 // section rebuilt when head moved. When before is a commit, the entries that
 // mention a path or symbol before..head changed are flagged needs_reverify
-// (Drift). An entry that cannot be read is skipped and reported; a failure
+// (Drift). A call without before for the head already synced does nothing.
+// An entry that cannot be read is skipped and reported; a failure
 // of one part does not stop the others, and the errors are joined.
 func (s *Syncer) Sync(ctx context.Context, p domain.Project, before, head string) (SyncResult, error) {
 	s.mu.Lock()
@@ -91,6 +93,9 @@ func (s *Syncer) Sync(ctx context.Context, p domain.Project, before, head string
 		}
 	}
 	res := SyncResult{Head: head}
+	if last, ok := s.synced.Load(p.ID); ok && last == head && before == "" {
+		return res, nil // nothing moved since the last full sync
+	}
 	rc := &RepoClient{API: s.API, Repo: p.Repo, Branch: p.DefaultBranch, Ref: head}
 	policy, err := s.loadPolicy(ctx, p, rc)
 	if err != nil {
@@ -105,7 +110,11 @@ func (s *Syncer) Sync(ctx context.Context, p domain.Project, before, head string
 	if s.Snapshots != nil {
 		errs = append(errs, s.syncGenerated(ctx, p, head, &res))
 	}
-	return res, errors.Join(errs...)
+	err = errors.Join(errs...)
+	if err == nil {
+		s.synced.Store(p.ID, head)
+	}
+	return res, err
 }
 
 // loadPolicy reads the policy file at the commit, or builds the default
