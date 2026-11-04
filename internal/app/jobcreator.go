@@ -78,6 +78,12 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	return j.ID, nil
 }
 
+// Cancel implements workflow.JobCreator.
+func (c *jobCreator) Cancel(ctx context.Context, accountID, jobID uuid.UUID) error {
+	_, err := c.jobs.Cancel(ctx, domain.SystemActor(accountID, domain.ForecrewdName), accountID, jobID)
+	return err
+}
+
 // defaultCommandTimeout bounds a command job whose request has no timeout.
 const defaultCommandTimeout = 30 * time.Minute
 

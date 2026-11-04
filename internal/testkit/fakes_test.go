@@ -98,6 +98,24 @@ func TestContextBuilder(t *testing.T) {
 	wantErr(t, err, boom)
 }
 
+func TestJobCreatorCancel(t *testing.T) {
+	f := newFixture(t)
+	c := &JobCreator{Store: f.st}
+	id, err := c.Create(t.Context(), workflow.JobRequest{AccountID: f.account, ProjectID: f.project.ID, Role: "developer"})
+	must(t, err)
+	must(t, c.Cancel(t.Context(), f.account, id))
+	j, err := f.st.Jobs().Get(t.Context(), f.account, id)
+	must(t, err)
+	if j.Status != domain.JobCanceled || !slices.Equal(c.Canceled(), []uuid.UUID{id}) {
+		t.Fatalf("job is %s, canceled %v", j.Status, c.Canceled())
+	}
+	plain := &JobCreator{}
+	must(t, plain.Cancel(t.Context(), f.account, id))
+	if len(plain.Canceled()) != 1 {
+		t.Fatalf("canceled = %v", plain.Canceled())
+	}
+}
+
 func TestJobCreator(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()

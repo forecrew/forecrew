@@ -59,6 +59,10 @@ type JobRequest struct {
 // is set, and returns its ID.
 type JobCreator interface {
 	Create(ctx context.Context, req JobRequest) (uuid.UUID, error)
+	// Cancel cancels a queued or running job, as forecrewd. Errors wrap
+	// store.ErrNotFound for an unknown job and domain.ErrInvalidTransition
+	// for a finished one.
+	Cancel(ctx context.Context, accountID, jobID uuid.UUID) error
 }
 
 // SignalBus stores signals and wakes the engine.
