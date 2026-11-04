@@ -236,7 +236,7 @@ func (r *jobRun) finish(ctx context.Context, run github.WorkflowRun) {
 		return
 	}
 	res.Message = testreport.Clip(testreport.CleanText(res.Message), maxMessage)
-	files.Files = slices.Delete(files.Files, i, i+1)
+	files.Files = slices.DeleteFunc(files.Files, func(f file) bool { return f.Name == ResultFile || f.Name == RootMarker })
 	switch res.Phase {
 	case phaseSetup:
 		r.fail(ctx, "environment setup failed: %s", res.Message)

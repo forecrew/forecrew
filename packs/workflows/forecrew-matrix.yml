@@ -104,6 +104,8 @@ jobs:
           set -u
           out=forecrew-out
           mkdir -p "$out"
+          # Pins the root of the artifact at the workspace (see the upload).
+          : > forecrew-root.txt
           started=$SECONDS
           image() {
             versions_json=${3:-}
@@ -162,7 +164,10 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: forecrew-${{ inputs.job_id }}
+          # forecrew-root.txt is at the workspace root, so the artifact is
+          # rooted there whatever the globs below are.
           path: |
+            forecrew-root.txt
             forecrew-out/result.json
             ${{ inputs.reports }}
             ${{ inputs.artifacts }}
