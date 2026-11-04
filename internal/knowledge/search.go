@@ -15,7 +15,7 @@ import (
 type Search struct {
 	Index *Index
 	// Policy returns the policy of a project; the Syncer's Policy.
-	Policy func(domain.Project) Policy
+	Policy func(context.Context, domain.Project) (Policy, error)
 }
 
 // Query is a knowledge search.
@@ -64,7 +64,10 @@ type Result struct {
 // Run searches. Sections the role may not read are left out, whatever the
 // section filter says.
 func (s *Search) Run(ctx context.Context, q Query) ([]Result, error) {
-	policy := s.Policy(q.Project)
+	policy, err := s.Policy(ctx, q.Project)
+	if err != nil {
+		return nil, err
+	}
 	limit := q.Limit
 	if limit <= 0 {
 		limit = 8

@@ -1,8 +1,10 @@
 package knowledge_test
 
 import (
+	"context"
 	"errors"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -113,11 +115,13 @@ func TestSyncIndexesAndSkips(t *testing.T) {
 	}
 
 	// The default policy shows in the mapped paths and the missing sections.
-	policy := e.syncer.Policy(e.project)
+	policy, err := e.syncer.Policy(t.Context(), e.project)
+	must(t, err)
 	if got := knowledge.MissingSections(policy); strings.Join(got, ",") != "testing,glossary" {
 		t.Errorf("missing sections = %v", got)
 	}
-	paths := e.syncer.MappedPaths(e.project)
+	paths, err := e.syncer.MappedPaths(t.Context(), e.project)
+	must(t, err)
 	for _, want := range []string{"knowledge/**", knowledge.PolicyFile, "docs/adr/**", "CONTRIBUTING.md"} {
 		found := false
 		for _, p := range paths {
@@ -221,8 +225,8 @@ func TestSyncPolicyFile(t *testing.T) {
 	if len(got) != 1 || got["handbook/a.md"].Section != "handbook" {
 		t.Errorf("entries = %+v", got)
 	}
-	if !e.syncer.Policy(e.project).Sections["handbook"].Protected {
-		t.Error("the policy file was not used")
+	if pol, err := e.syncer.Policy(t.Context(), e.project); err != nil || !pol.Sections["handbook"].Protected {
+		t.Errorf("the policy file was not used: %v", err)
 	}
 
 	e.commit(t, "h2", map[string]string{knowledge.PolicyFile: "version: 2\n"})
@@ -262,3 +266,70 @@ func TestGeneratedTakesNoProposals(t *testing.T) {
 }
 
 var errTest = errors.New("boom")
+
+// failingAPI makes the reads of a SyncAPI fail while down is set.
+type failingAPI struct {
+	knowledge.SyncAPI
+	down bool
+}
+
+func (f *failingAPI) HeadSHA(ctx context.Context, repo, branch string) (string, error) {
+	if f.down {
+		return "", errors.New("github is down")
+	}
+	return f.SyncAPI.HeadSHA(ctx, repo, branch)
+}
+
+// After a restart the policy is not in memory: it is loaded from the repo,
+// and when that is impossible everything that needs it refuses instead of
+// falling back to a default that would open protected sections.
+func TestPolicySurvivesARestartAndFailsClosed(t *testing.T) {
+	e := newSyncEnv(t)
+	e.commit(t, "h1", map[string]string{
+		knowledge.PolicyFile: "version: 1\nsections:\n  handbook:\n    paths: [\"handbook/**\"]\n    protected: true\n    access:\n      read: [architect]\n",
+		"handbook/a.md":      "# Handbook\nsecret plans\n",
+	})
+	must(t, e.tr.SetHeadOfBranch("acme/app", "main", "h1"))
+	e.syncer.Snapshots = nil
+	_, err := e.syncer.Sync(t.Context(), e.project, "", "h1")
+	must(t, err)
+
+	api := &failingAPI{SyncAPI: e.tr}
+	restarted := &knowledge.Syncer{Store: e.st, Index: &knowledge.Index{Store: e.st}, API: api, Now: e.clock.Now}
+	search := &knowledge.Search{Index: restarted.Index, Policy: restarted.Policy}
+
+	// The new Syncer never synced: the policy comes from the repo.
+	hits, err := search.Run(t.Context(), knowledge.Query{Project: e.project, Text: "secret", Role: "developer"})
+	if err != nil || len(hits) != 0 {
+		t.Fatalf("a developer read the protected section after a restart: %+v, %v", hits, err)
+	}
+	if hits, err = search.Run(t.Context(), knowledge.Query{Project: e.project, Text: "secret", Role: "architect"}); err != nil || len(hits) != 1 {
+		t.Fatalf("the architect search = %+v, %v", hits, err)
+	}
+	paths, err := restarted.MappedPaths(t.Context(), e.project)
+	if err != nil || !slices.Contains(paths, "handbook/**") {
+		t.Fatalf("mapped paths = %v, %v", paths, err)
+	}
+
+	// A third Syncer that cannot reach GitHub refuses.
+	api.down = true
+	third := &knowledge.Syncer{Store: e.st, Index: &knowledge.Index{Store: e.st}, API: api, Now: e.clock.Now}
+	if _, err := third.Policy(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+		t.Errorf("Policy = %v, want ErrPolicyUnknown", err)
+	}
+	if _, err := third.MappedPaths(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+		t.Errorf("MappedPaths = %v, want ErrPolicyUnknown", err)
+	}
+	refusing := &knowledge.Search{Index: third.Index, Policy: third.Policy}
+	if _, err := refusing.Run(t.Context(), knowledge.Query{Project: e.project, Text: "secret", Role: "developer"}); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+		t.Errorf("search with an unknown policy = %v", err)
+	}
+	// A broken policy file is no policy either.
+	api.down = false
+	e.commit(t, "h2", map[string]string{knowledge.PolicyFile: "version: 2\n"})
+	must(t, e.tr.SetHeadOfBranch("acme/app", "main", "h2"))
+	fourth := &knowledge.Syncer{Store: e.st, Index: &knowledge.Index{Store: e.st}, API: api, Now: e.clock.Now}
+	if _, err := fourth.Policy(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+		t.Errorf("Policy with a broken file = %v", err)
+	}
+}

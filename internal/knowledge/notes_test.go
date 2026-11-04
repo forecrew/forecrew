@@ -24,6 +24,9 @@ type notesEnv struct {
 func newNotesEnv(t *testing.T) *notesEnv {
 	t.Helper()
 	e := newSyncEnv(t)
+	// The policy comes from the repo: give it a head to read it at.
+	e.commit(t, "h0", map[string]string{"README.md": "# app\n"})
+	must(t, e.tr.SetHeadOfBranch("acme/app", "main", "h0"))
 	idx := &knowledge.Index{Store: e.st}
 	return &notesEnv{
 		syncEnv: e,

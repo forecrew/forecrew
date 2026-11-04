@@ -41,6 +41,7 @@ func TestEvidenceOnGarage(t *testing.T) {
 	cfg.Evidence.MaxArtifactSize, cfg.Evidence.RetentionDays = 1<<20, 30
 	tracker := testkit.NewTracker(nil)
 	tracker.Install("acme/app")
+	giveHead(tracker, "acme/app")
 	var logs bytes.Buffer
 	a, err := New(Deps{Config: cfg, Store: st, GitHub: tracker, Logger: slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))})
 	must(t, err)

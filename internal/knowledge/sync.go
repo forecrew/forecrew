@@ -49,8 +49,9 @@ type Syncer struct {
 	Now       func() time.Time
 
 	mu       sync.Mutex
-	policies sync.Map // project ID to Policy, as of the last Sync
-	synced   sync.Map // project ID to the head of the last Sync that succeeded
+	pmu      sync.Mutex // serializes loading a policy that is not known
+	policies sync.Map   // project ID to Policy, as of the last Sync
+	synced   sync.Map   // project ID to the head of the last Sync that succeeded
 }
 
 func (s *Syncer) log() *slog.Logger {
@@ -67,13 +68,34 @@ func (s *Syncer) now() time.Time {
 	return s.Now()
 }
 
-// Policy returns the policy of the project as of its last Sync, or the
-// default one for a project that was never synced. It never reads GitHub.
-func (s *Syncer) Policy(p domain.Project) Policy {
+// ErrPolicyUnknown means the project's knowledge policy is not known and
+// could not be loaded. Callers refuse: no default may stand in for a policy
+// that protects sections.
+var ErrPolicyUnknown = errors.New("the knowledge policy of the project is unknown")
+
+// Policy returns the policy of the project as of its last Sync. A project
+// not synced since forecrewd started has none in memory, so the policy is
+// loaded from the default branch head; when that fails the answer is
+// ErrPolicyUnknown, never a default that would open protected sections.
+func (s *Syncer) Policy(ctx context.Context, p domain.Project) (Policy, error) {
 	if v, ok := s.policies.Load(p.ID); ok {
-		return v.(Policy)
+		return v.(Policy), nil
 	}
-	return DefaultPolicy(nil, nil)
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+	if v, ok := s.policies.Load(p.ID); ok {
+		return v.(Policy), nil
+	}
+	head, err := s.API.HeadSHA(ctx, p.Repo, p.DefaultBranch)
+	if err != nil {
+		return Policy{}, fmt.Errorf("%w: %w", ErrPolicyUnknown, err)
+	}
+	policy, err := s.loadPolicy(ctx, p, &RepoClient{API: s.API, Repo: p.Repo, Branch: p.DefaultBranch, Ref: head})
+	if err != nil {
+		return Policy{}, fmt.Errorf("%w: %w", ErrPolicyUnknown, err)
+	}
+	s.policies.Store(p.ID, policy)
+	return policy, nil
 }
 
 // Sync indexes the project's default branch at head ("" reads the branch
@@ -320,8 +342,12 @@ func MissingSections(p Policy) []string {
 // MappedPaths returns every glob of the project's sections served by the
 // repo, which writing roles may not change (curated knowledge changes only
 // through proposals), plus knowledge/** and the policy file.
-func (s *Syncer) MappedPaths(p domain.Project) []string {
-	globs := RepoMapping(s.Policy(p)).Globs()
+func (s *Syncer) MappedPaths(ctx context.Context, p domain.Project) ([]string, error) {
+	policy, err := s.Policy(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	globs := RepoMapping(policy).Globs()
 	out := []string{"knowledge/**", PolicyFile}
 	for _, g := range globs {
 		if !strings.HasPrefix(g, "!") {
@@ -329,5 +355,5 @@ func (s *Syncer) MappedPaths(p domain.Project) []string {
 		}
 	}
 	slices.Sort(out)
-	return slices.Compact(out)
+	return slices.Compact(out), nil
 }

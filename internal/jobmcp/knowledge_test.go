@@ -1,6 +1,7 @@
 package jobmcp_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"uuid"
@@ -18,7 +19,9 @@ var kbTools = []string{runtime.JobMCPTool("kb_search"), runtime.JobMCPTool("note
 func withKnowledge(cfg *jobmcp.Config) {
 	idx := &knowledge.Index{Store: cfg.Store}
 	cfg.Notes = &knowledge.Notes{Store: cfg.Store, Index: idx, Now: cfg.Now}
-	cfg.Search = &knowledge.Search{Index: idx, Policy: func(domain.Project) knowledge.Policy { return knowledge.DefaultPolicy(nil, nil) }}
+	cfg.Search = &knowledge.Search{Index: idx, Policy: func(context.Context, domain.Project) (knowledge.Policy, error) {
+		return knowledge.DefaultPolicy(nil, nil), nil
+	}}
 }
 
 // leaseGoal leases a developer job of goal (none for the zero goal).

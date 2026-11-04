@@ -23,7 +23,7 @@ import (
 // *knowledge.Syncer implements it.
 type KnowledgeSeeder interface {
 	Sync(ctx context.Context, p domain.Project, before, head string) (knowledge.SyncResult, error)
-	Policy(p domain.Project) knowledge.Policy
+	Policy(ctx context.Context, p domain.Project) (knowledge.Policy, error)
 }
 
 // Deps are the dependencies of the actions.

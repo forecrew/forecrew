@@ -37,25 +37,31 @@ type jobCreator struct {
 // writing roles except the knowledge curator may not change: curated
 // knowledge changes only through proposals.
 type pathSource interface {
-	MappedPaths(p domain.Project) []string
+	MappedPaths(ctx context.Context, p domain.Project) ([]string, error)
 }
 
 // CuratorRole is the role that writes the fallback knowledge/** folder.
 const CuratorRole = "knowledge-curator"
 
 // writePaths returns the role's write paths with the project's knowledge
-// paths excluded, for every writing role but the curator.
-func (c *jobCreator) writePaths(role roles.Role, p domain.Project) []string {
+// paths excluded, for every writing role but the curator. When the
+// project's knowledge policy is unknown the job is refused (fail closed):
+// without it the curated paths cannot be excluded.
+func (c *jobCreator) writePaths(ctx context.Context, role roles.Role, p domain.Project) ([]string, error) {
 	if c.knowledge == nil || role.ReadOnly() || role.Name == CuratorRole {
-		return role.WritePaths
+		return role.WritePaths, nil
+	}
+	mapped, err := c.knowledge.MappedPaths(ctx, p)
+	if err != nil {
+		return nil, fmt.Errorf("create %s job: %w", role.Name, err)
 	}
 	out := slices.Clone(role.WritePaths)
-	for _, g := range c.knowledge.MappedPaths(p) {
+	for _, g := range mapped {
 		if ex := "!" + g; !slices.Contains(out, ex) {
 			out = append(out, ex)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // Create implements workflow.JobCreator. The job gets req.ID when it is set
@@ -88,6 +94,10 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	if err != nil {
 		return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
 	}
+	writePaths, err := c.writePaths(ctx, role, project)
+	if err != nil {
+		return uuid.Nil(), err
+	}
 	pool := req.Pool
 	if pool == "" {
 		pool = role.Pool
@@ -103,7 +113,7 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Pool: pool, Role: role.Name, Runtime: role.Runtime, Needs: req.Needs,
 		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID,
 		Spec: domain.JobSpec{
-			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, WritePaths: c.writePaths(role, project), Model: role.Model,
+			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, WritePaths: writePaths, Model: role.Model,
 			Prompt: pack.Prompt, OutputSchema: role.OutputSchema, AllowedTools: role.AllowedTools, MaxTurns: role.MaxTurns,
 			Timeout: domain.Duration(role.Timeout), IncludeRepoFacts: req.IncludeRepoFacts, LockedPaths: req.LockedPaths,
 		},
