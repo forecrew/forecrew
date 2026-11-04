@@ -47,7 +47,11 @@ func (a *actions) seedKnowledge(ctx context.Context, call workflow.ActionCall) (
 		return out, nil
 	}
 	out.Indexed = res.Indexed
-	policy := a.Knowledge.Policy(p)
+	policy, err := a.Knowledge.Policy(ctx, p)
+	if err != nil {
+		out.Error = err.Error()
+		return out, nil
+	}
 	out.Sections = knowledge.MissingSections(policy)
 	if len(out.Sections) == 0 {
 		return out, nil

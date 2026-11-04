@@ -70,6 +70,9 @@ func kbSearch(ctx context.Context, c *Call, raw json.RawMessage) (Result, error)
 	found, err := c.Config.Search.Run(ctx, knowledge.Query{
 		Project: p, Text: in.Query, Sections: in.Sections, Kinds: in.Kinds, Limit: in.Limit, Role: c.Job.Role, GoalID: c.Job.GoalID,
 	})
+	if errors.Is(err, knowledge.ErrPolicyUnknown) {
+		return Result{}, Errorf(CodeUnavailable, "the knowledge policy of this project cannot be read now: try again later")
+	}
 	if err != nil {
 		return Result{}, err
 	}

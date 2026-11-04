@@ -121,6 +121,7 @@ func TestLoopsRun(t *testing.T) {
 
 	tracker := testkit.NewTracker(nil)
 	tracker.Install("acme/app")
+	giveHead(tracker, "acme/app")
 	openChange := func(branch string) domain.Change {
 		pr, err := tracker.CreatePR(ctx, "acme/app", github.PRInput{Title: "x", Head: branch, Base: "main"})
 		must(t, err)

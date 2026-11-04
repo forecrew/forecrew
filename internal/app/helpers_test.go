@@ -69,6 +69,7 @@ func newFixture(t *testing.T, mutate ...func(*Deps)) *fixture {
 	f.project = domain.Project{AccountID: f.account.ID, Name: "app", Repo: "acme/app", DefaultBranch: "main", Status: domain.ProjectOnboarded}
 	must(t, st.Projects().Create(t.Context(), &f.project))
 	f.tracker.Install("acme/app")
+	giveHead(f.tracker, "acme/app")
 	d := Deps{Config: testConfig(), Store: st, GitHub: f.tracker, Logger: slog.New(slog.DiscardHandler), Version: "test", Now: clock.Now}
 	for _, m := range mutate {
 		m(&d)
@@ -106,3 +107,14 @@ func packs(t *testing.T, edit func(fstest.MapFS)) fs.FS {
 
 // slogTo returns a logger writing JSON lines to w.
 func slogTo(w io.Writer) *slog.Logger { return slog.New(slog.NewJSONHandler(w, nil)) }
+
+// giveHead gives the repo a default branch with a commit: the knowledge
+// policy is read from it, and a job is refused without the policy.
+func giveHead(tr *testkit.Tracker, repo string) {
+	if err := tr.SetFile(repo, "head0", "README.md", []byte("# app\n")); err != nil {
+		panic(err)
+	}
+	if err := tr.SetHeadOfBranch(repo, "main", "head0"); err != nil {
+		panic(err)
+	}
+}

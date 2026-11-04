@@ -1,6 +1,7 @@
 package tools_test
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"uuid"
@@ -16,7 +17,9 @@ import (
 func knowledgeService(f *fixture) (*tools.Service, *knowledge.Notes) {
 	idx := &knowledge.Index{Store: f.st}
 	notes := &knowledge.Notes{Store: f.st, Index: idx, Now: f.clock.Now}
-	search := &knowledge.Search{Index: idx, Policy: func(domain.Project) knowledge.Policy { return knowledge.DefaultPolicy(nil, nil) }}
+	search := &knowledge.Search{Index: idx, Policy: func(context.Context, domain.Project) (knowledge.Policy, error) {
+		return knowledge.DefaultPolicy(nil, nil), nil
+	}}
 	return tools.New(tools.Config{Store: f.st, Search: search, Notes: notes}), notes
 }
 

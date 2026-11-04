@@ -16,13 +16,38 @@ import (
 	"github.com/forecrew/forecrew/internal/github"
 )
 
-// refFiles returns the files set with SetFile at ref, by path.
+// refFiles returns the files at ref, by path: the tree of ref in the remote
+// of a repo that has one (UseRemote), then the files set with SetFile.
 func (r *fakeRepo) refFiles(ref string) map[string][]byte {
-	out := map[string][]byte{}
+	out := r.remoteFiles(ref)
 	prefix := ref + "\x00"
 	for k, v := range r.files {
 		if p, ok := strings.CutPrefix(k, prefix); ok {
 			out[p] = v
+		}
+	}
+	return out
+}
+
+// remoteFiles returns the files of commit ref in the remote, nothing when the
+// repo has no remote or the remote has no such commit.
+func (r *fakeRepo) remoteFiles(ref string) map[string][]byte {
+	out := map[string][]byte{}
+	if r.remote == "" {
+		return out
+	}
+	listing, err := gitRaw(r.remote, "ls-tree", "-r", "-z", ref)
+	if err != nil {
+		return out
+	}
+	for entry := range bytes.SplitSeq(listing, []byte{0}) {
+		meta, name, ok := bytes.Cut(entry, []byte{'\t'})
+		fields := strings.Fields(string(meta))
+		if !ok || len(fields) != 3 || fields[1] != "blob" {
+			continue
+		}
+		if content, err := gitRaw(r.remote, "cat-file", "blob", fields[2]); err == nil {
+			out[string(name)] = content
 		}
 	}
 	return out
@@ -163,6 +188,9 @@ func (t *Tracker) HeadSHA(_ context.Context, repo, branch string) (string, error
 	var out string
 	err := t.with(repo, func(r *fakeRepo) error {
 		sha, ok := r.heads[branch]
+		if !ok {
+			sha, ok = r.branchSHA(branch) // a repo with a remote has its branches
+		}
 		if !ok {
 			return fmt.Errorf("branch %s: %w", branch, github.ErrNotFound)
 		}

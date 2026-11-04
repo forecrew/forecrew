@@ -46,6 +46,9 @@ func (s *Service) SearchKnowledge(ctx context.Context, by domain.Actor, in mcp.S
 		return nil, fmt.Errorf("limit %d must be between 1 and %d: %w", in.Limit, MaxSearchLimit, mcp.ErrInvalidInput)
 	}
 	res, err := s.cfg.Search.Run(ctx, q)
+	if errors.Is(err, knowledge.ErrPolicyUnknown) {
+		return nil, fmt.Errorf("%w: %w", err, mcp.ErrUnavailable)
+	}
 	if in.WrapUntrusted {
 		for i := range res {
 			res[i] = contextpack.WrapKnowledge(res[i])

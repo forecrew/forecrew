@@ -152,6 +152,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 func TestOnboardingQueuesItsFirstJob(t *testing.T) {
 	f := newFixture(t)
 	f.tracker.Install("acme/new")
+	giveHead(f.tracker, "acme/new")
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { _ = f.app.engine.Run(ctx); close(done) }()

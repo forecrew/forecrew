@@ -12,6 +12,7 @@ import (
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/jobs"
+	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/runtime"
 	"github.com/forecrew/forecrew/internal/store"
@@ -323,6 +324,24 @@ func TestJobCreatorRolesGetKnowledgeTools(t *testing.T) {
 		must(t, err)
 		if !slices.Contains(j.Spec.AllowedTools, search) || slices.Contains(j.Spec.AllowedTools, notes) != wantNotes {
 			t.Errorf("%s: allowed tools = %v", role, j.Spec.AllowedTools)
+		}
+	}
+}
+
+// Without the knowledge policy the curated paths cannot be excluded: a
+// writing role's job is refused, while roles that write no curated path
+// (the curator) or nothing at all still run.
+func TestJobCreatorRefusesWritersWithoutThePolicy(t *testing.T) {
+	f := newFixture(t)
+	p := domain.Project{AccountID: f.account.ID, Name: "nohead", Repo: "acme/nohead", DefaultBranch: "main", Status: domain.ProjectOnboarded}
+	must(t, f.st.Projects().Create(t.Context(), &p))
+	f.tracker.Install("acme/nohead")
+	req := workflow.JobRequest{AccountID: f.account.ID, ProjectID: p.ID}
+	for role, wantErr := range map[string]bool{"developer": true, "reviewer": false, "knowledge-curator": false} {
+		req.Role = role
+		_, err := f.creator.Create(t.Context(), req)
+		if got := errors.Is(err, knowledge.ErrPolicyUnknown); got != wantErr {
+			t.Errorf("%s: err = %v, want policy refusal %v", role, err, wantErr)
 		}
 	}
 }
