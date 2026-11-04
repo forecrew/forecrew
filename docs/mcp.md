@@ -13,6 +13,14 @@ created. Only their SHA-256 is stored, so a lost token is revoked and
 replaced. A missing, unknown or revoked token gets `401`. The token's name is
 recorded as the actor (`mcp:<name>`) on everything it does.
 
+This server is for humans and their tools. Agents of running jobs use a
+separate endpoint, the job MCP gateway at `/job-mcp`, with a token
+(`fcj_...`) scoped to one job and its lease and its own tools (`ask_human`,
+`evidence_attach`, `report_progress`, ...): see
+[contracts/job-mcp.md](contracts/job-mcp.md). Its questions show up here as
+`needs_you` gates with `origin: ask_human`; answer with `approve` and the
+answer as `feedback`, or `reject` to decline.
+
 ## Connect from Claude Code
 
 ```sh

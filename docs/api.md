@@ -138,7 +138,10 @@ Councils, assumptions, decisions, knowledge proposals and proposals are
 named by ref (`COUNCIL-2`, `A-42`, `DEC-9`, `KB-5`, `PROP-3`) or UUID.
 
 On a `needs_you` gate, `approve` retries the stuck work and `reject` stops
-it. Gate decisions follow the rules in
+it. A gate with `"origin": "ask_human"` is instead a question a running job
+asked through the job MCP gateway ([contracts/job-mcp.md](contracts/job-mcp.md)):
+`approve` with the answer as `feedback` answers it, `reject` declines, and
+the job goes on either way. Gate decisions follow the rules in
 [conventions.md](contracts/conventions.md#gate-decisions).
 
 The session, returned by login and `me`:
