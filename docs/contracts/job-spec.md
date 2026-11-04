@@ -180,8 +180,8 @@ same with `"branch": ""`, `"base_ref": "main"` and
    apply: tests may write build output and reports into the work tree,
    which is deleted anyway.
 7. Complete with `status: succeeded` when the command ran and its results
-   were reported, whatever the test outcome: failing tests make a `failed`
+   were reported, whatever the test outcome: failing tests, or a non-zero exit code, make a `failed`
    test run, a missing or unparsable report an `errored` one, and the exit
    code is kept in the run. `failed` is for the job itself: the environment
-   could not be built, a service never became healthy, or `timeout` passed.
+   could not be built, a service never became healthy, the command could not start (its `errored` run is still reported), or `timeout` passed. `timeout` is one budget for the setup and the command.
    `retry` is for infrastructure problems, as for agent jobs.

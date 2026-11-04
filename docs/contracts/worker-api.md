@@ -44,7 +44,7 @@ Non-2xx responses have this body:
 | 404 | `not_found` | `job_id` is not a job of the worker's account. |
 | 409 | `lease_lost` | The job is not running under this worker's lease. |
 | 411 | `length_required` | Artifact upload without a `Content-Length` (a chunked body). |
-| 413 | `too_large` | Body over 1 MiB; for an artifact upload, over `evidence.max_artifact_size`. |
+| 413 | `too_large` | Body over 1 MiB; for `complete`, over `max_test_results_size`; for an artifact upload, over `evidence.max_artifact_size`. |
 | 500 | `internal` | Server error; the worker retries with backoff. |
 | 503 | `unavailable` | Artifact upload while no `evidence` storage is configured. The worker completes the job without the artifact and says so in a `log` event. |
 
@@ -245,13 +245,18 @@ Request:
 | `cost_usd` | number | Total cost reported by the runtime. |
 | `test_runs` | array | Command jobs only, optional: one entry per suite and cell the job ran, stored in `test_runs` and `test_results` (data-model.md). |
 | `test_runs[].suite` | string | Suite name (the spec's `suite`). |
-| `test_runs[].status` | `passed` \| `failed` \| `errored` | `passed`: every test passed or was skipped. `failed`: a test failed or errored. `errored`: no usable result (no report, a report that cannot be parsed, the command could not start). |
+| `test_runs[].status` | `passed` \| `failed` \| `errored` | `passed`: every test passed or was skipped and the command exited 0. `failed`: a test failed or errored, or the command exited non-zero although the reports show no failure (the run then holds an errored `(command)` result saying so). `errored`: no usable result (no report, a report that cannot be parsed or holds no test case, the command could not start). |
 | `test_runs[].counts` | object | `passed`, `failed`, `skipped`, `errored` (integers, `domain.TestCounts`). |
 | `test_runs[].duration_ms` | integer | Wall time of the command. |
 | `test_runs[].results` | array | One per test case: `name`, `classname`, `status` (`passed`, `failed`, `skipped`, `errored`), `duration_ms`, `message` (failure, error or skip text, may be empty). |
 | `test_runs[].report_artifacts` | string[] | Names of the uploaded artifacts holding the JUnit reports. |
 | `test_runs[].versions` | object string → string | Tool → output of the environment's `versions` command. |
 | `test_runs[].exit_code` | integer | Exit code of the command; `-1` when it did not exit by itself (killed on timeout or cancel, or never started). |
+
+The body of `complete` may be up to `max_test_results_size` (config.md); no
+test case is ever left out. A worker whose results are refused with `413`
+completes again with each run `errored` and one `(report)` result saying the
+results were too large.
 
 A command job's `complete` example:
 

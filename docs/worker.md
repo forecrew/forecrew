@@ -105,6 +105,54 @@ roles and job kinds each pool runs and which credentials its jobs receive:
   (10 minutes), then cancels them; their leases expire and forecrewd queues
   them again.
 
+## Command jobs
+
+A job of `kind: command` runs a command instead of an agent
+(contracts/job-spec.md, "Worker rules: command jobs"). It needs no runtime
+label. The worker clones like for an agent job with the read token, checks
+out `overlay.paths` from `overlay.ref` on top of the work tree, runs
+the `setup` commands of a `machine` environment, and runs `argv` (or `shell`
+with `sh -c`, `cmd /c` on Windows) in `command.workdir`. The command is code
+of the repo, so it gets only a short list of the worker's own variables
+(see Secrets) plus the environment's and the command's variables.
+
+The process runs in its own process group. `timeout` is one budget for the
+setup commands and the command together; when it is used up the job fails.
+Stdout and stderr stream as `log` events (stderr lines start with `stderr: `;
+a line is cut at 8 KiB). A job logs at most 8 MiB of command output: after
+that one `[output truncated ...]` event says so and the rest is dropped while
+the command keeps running. When the command ends, what it left running is
+killed before any file is looked at, so nothing can change them while they
+are uploaded. A heartbeat answer of `cancel` kills the command the same way.
+
+Then it uploads the files matching `reports` and `artifacts` and parses the
+reports as JUnit XML into one test run for the suite. Globs do not follow
+symlinks, symlinks and the files behind them are refused, the search stops
+after 200000 directory entries or 30 seconds (the job then fails), at most
+200 files are uploaded, and names that are not valid artifact names are
+skipped with a log line. A report over 32 MiB is not read; names are cut to 512 bytes and
+messages to 4 KiB, and a run may hold 100000 test cases and 16 MiB of names
+and messages; beyond that the run is `errored`. NUL bytes and invalid UTF-8
+are removed from everything the worker sends.
+
+The job succeeds when the command ran and its results were reported, whatever
+the tests did. A test run is `errored`, with one `(report)` result holding
+the reason, when no report matched, none could be parsed, or the reports hold
+no test case at all (an empty report is never green). A command that cannot
+start, and a timeout, fail the job and report the `errored` run with exit
+code -1. A run whose command exited non-zero is `failed` even when the
+reports show no failure, with an errored `(command)` result saying so. A
+failed upload to forecrewd is retried, then the job is given back (`retry`);
+a file forecrewd refuses as too large, or an evidence store that is not
+configured, only costs the artifact: the results are still reported. No test
+case is left out of the report; if forecrewd refuses the results as larger
+than its `max_test_results_size`, the worker completes again with errored
+runs saying so. Docker environments and services are not run by this worker
+yet: such a job fails.
+
+A command is not isolated from the worker (see below): it runs as the
+worker's user and can read what that user can.
+
 ## Secrets
 
 The repo token is used only by the worker's own `git ls-remote`, `fetch` and
@@ -115,6 +163,13 @@ does not inherit `FORECREW_*` variables, so it never sees the worker token.
 The agent does not inherit `GIT_*` variables either. The only `FORECREW_*`
 variable an agent sees is `FORECREW_JOB_MCP_TOKEN`, its own job's gateway
 token, also redacted from events and logs.
+
+A command job gets an allowlist instead: `PATH`, `HOME`, `USER`, `LOGNAME`,
+`LANG`, `LC_*`, `TZ`, `TMPDIR`, `TEMP`, `TMP` and, for Windows, `SystemRoot`,
+`WINDIR`, `COMSPEC`, `PATHEXT`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and
+`PROGRAMDATA`, then the variables of the spec's environment and command. The
+worker's other variables, such as `ANTHROPIC_API_KEY` or `GITHUB_TOKEN`, never
+reach a command, and command jobs get no `env` and a read-only repo token.
 
 ## Agents are not isolated from the worker
 

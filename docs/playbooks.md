@@ -195,6 +195,16 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `onboarding.settle` | none | Puts a project still onboarding back to registered. |
 | `onboarding.complete` | `repo`, `sha`, `ref` | Reads `.forecrew/profile.yaml` at the merge commit `sha`, or at `ref` when `sha` is empty (GitHub merged the PR), validates and stores it, and moves the project to onboarded. |
 
+### Command jobs
+
+A `job` step with `kind: command` needs `command` instead of `role` and runs
+a command without an agent. Its `with` keys are `kind`, `command` (`argv` or
+`shell`, `env`, `workdir`, `reports`, `artifacts`), `environment`, `cell`,
+`suite`, `overlay` (`ref`, `paths`), `base_ref`, `branch`, `needs`, `timeout`
+(default 30m) and the goal, spec and task refs. `role`, `pool`, `prompt` and
+`feedback` are refused: the pool follows from the environment. Its output is
+empty; the results are the job's test runs (`list_test_runs`).
+
 ## Roles
 
 `job` steps name a role from `packs/roles` (format in
