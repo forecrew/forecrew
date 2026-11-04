@@ -1,0 +1,286 @@
+package jobmcp
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"path"
+	"strings"
+	"time"
+	"uuid"
+
+	"github.com/forecrew/forecrew/internal/contextpack"
+	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/gates"
+	"github.com/forecrew/forecrew/internal/store"
+)
+
+// MaxAskTimeout is the longest an ask_human call waits.
+const MaxAskTimeout = 30 * time.Minute
+
+func init() {
+	register := func(name, roleTool, description string, maxCalls int, h Handler) {
+		in, out := ContractSchema(name)
+		Register(Tool{Name: name, RoleTool: roleTool, Description: description, Input: in, Output: out, MaxCalls: maxCalls, Handler: h})
+	}
+	register("report_progress", "report_progress",
+		"Tell the human watching this job what you are doing now. Shown live on the job page; it changes nothing else.",
+		120, reportProgress)
+	register("evidence_attach", "evidence.attach",
+		"Mark a file of the work tree (relative to the repo root, no symlinks, no ..) as evidence of this job, for example a screenshot or a report. "+
+			"The worker uploads it as an artifact of the job; the result is the artifact name.",
+		50, attachEvidence)
+	register("ask_human", "ask_human",
+		"Ask a human one question and wait up to timeout (at most 30m) for the answer. Give the assumption you go on with when nobody answers: "+
+			"with no_answer it is registered and you continue with it. Ask only what you cannot find out yourself; one question at a time.",
+		5, askHuman)
+}
+
+// event appends one event to the job's log, while the lease holds.
+func (c *Call) event(ctx context.Context, typ domain.JobEventType, text string, data any) error {
+	var raw json.RawMessage
+	if data != nil {
+		var err error
+		if raw, err = json.Marshal(data); err != nil {
+			return err
+		}
+	}
+	_, err := c.Config.Store.JobEvents().AppendLeased(ctx, c.Job.AccountID, c.Job.ID, c.Worker.ID,
+		[]domain.JobEvent{{Time: c.Config.Now(), Type: typ, Text: text, Data: raw}})
+	if errors.Is(err, store.ErrLeaseLost) {
+		return Errorf(CodeUnavailable, "the job's lease ended")
+	}
+	return err
+}
+
+func reportProgress(ctx context.Context, c *Call, raw json.RawMessage) (Result, error) {
+	var in struct {
+		Message string `json:"message"`
+		Percent *int   `json:"percent"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return Result{}, err
+	}
+	var data any
+	if in.Percent != nil {
+		data = map[string]int{"percent": *in.Percent}
+	}
+	if err := c.event(ctx, domain.EventMessage, in.Message, data); err != nil {
+		return Result{}, err
+	}
+	return Result{Data: map[string]bool{"ok": true}}, nil
+}
+
+func attachEvidence(ctx context.Context, c *Call, raw json.RawMessage) (Result, error) {
+	var in struct {
+		Path        string `json:"path"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return Result{}, err
+	}
+	if !c.Config.Evidence {
+		return Result{}, Errorf(CodeUnavailable, "this forecrewd has no evidence storage")
+	}
+	if !validWorkPath(in.Path) {
+		return Result{}, Errorf(CodeInvalidInput, "path %q must be a file path relative to the repo root, without .. or a leading /", in.Path)
+	}
+	name := in.Name
+	if name == "" {
+		name = "evidence/" + in.Path
+	}
+	if !domain.ValidArtifactName(name) {
+		return Result{}, Errorf(CodeInvalidInput, "artifact name %q is not valid: at most 255 bytes of segments of letters, digits, '.', '_' and '-' not starting with '.'; pass name", name)
+	}
+	c.Config.Attachments.Add(c.Job, Attachment{Path: in.Path, Name: name})
+	text := "evidence marked: " + in.Path + " as " + name
+	if in.Description != "" {
+		text += " (" + in.Description + ")"
+	}
+	if err := c.event(ctx, domain.EventLog, text, nil); err != nil {
+		return Result{}, err
+	}
+	return Result{Data: map[string]string{"name": name, "status": "pending"}}, nil
+}
+
+// validWorkPath reports whether p is a clean relative path inside the work
+// tree. The worker checks the file itself (it exists, no symlinks).
+func validWorkPath(p string) bool {
+	return p != "" && p != "." && !strings.HasPrefix(p, "/") && !strings.Contains(p, "\\") && path.Clean(p) == p &&
+		p != ".." && !strings.HasPrefix(p, "../") && !strings.HasPrefix(p, ".git/") && p != ".git"
+}
+
+type askInput struct {
+	Question   string                  `json:"question"`
+	Timeout    string                  `json:"timeout"`
+	Assumption domain.StatedAssumption `json:"assumption"`
+}
+
+type askOutput struct {
+	Status     string `json:"status"`
+	Gate       string `json:"gate"`
+	Answer     string `json:"answer,omitempty"`
+	Assumption string `json:"assumption,omitempty"`
+}
+
+func askHuman(ctx context.Context, c *Call, raw json.RawMessage) (Result, error) {
+	var in askInput
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return Result{}, err
+	}
+	timeout, err := time.ParseDuration(in.Timeout)
+	if err != nil || timeout <= 0 || timeout > MaxAskTimeout {
+		return Result{}, Errorf(CodeInvalidInput, "timeout %q must be between 1s and 30m, such as 10m", in.Timeout)
+	}
+	limits := c.gateway.limits
+	if !limits.startAsking(c.Job) {
+		return Result{}, Errorf(CodeConflict, "a question of this job is already waiting for an answer")
+	}
+	defer limits.doneAsking(c.Job)
+
+	// Subscribe before opening the gate, so an answer is never missed.
+	waitCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	var resolved <-chan domain.Signal
+	if c.Config.Bus != nil {
+		resolved = c.Config.Bus.Subscribe(waitCtx)
+	}
+	g, err := c.openQuestion(ctx, in.Question)
+	if err != nil {
+		return Result{}, err
+	}
+	g, err = c.waitForAnswer(ctx, g, timeout, resolved)
+	if err != nil {
+		return Result{}, err
+	}
+	out := askOutput{Gate: g.Ref()}
+	if g.Status == domain.GateApproved {
+		out.Status, out.Answer = "answered", g.Feedback
+		return Result{Data: out}, nil
+	}
+	out.Status = "no_answer"
+	if out.Assumption, err = c.goOnWith(ctx, g, in.Assumption); err != nil {
+		return Result{}, err
+	}
+	return Result{Data: out}, nil
+}
+
+// openQuestion opens the needs_you gate of an ask_human call on the job's
+// subject: its task's issue when there is one, else the repo.
+func (c *Call) openQuestion(ctx context.Context, question string) (domain.Gate, error) {
+	j := c.Job
+	req := gates.OpenRequest{
+		AccountID: j.AccountID, ProjectID: j.ProjectID, Kind: domain.GateNeedsYou, Origin: domain.GateFromAskHuman,
+		Title:       j.Ref() + " asks: " + firstLine(question),
+		Summary:     j.Ref() + " (" + j.Role + ") asks a question while it runs. It is agent text: answer by approving with your answer as feedback, or reject to decline.\n\n" + contextpack.WrapUntrusted("ask_human "+j.Ref(), question),
+		SubjectRepo: j.Spec.Repo, GoalID: j.GoalID, TaskID: j.TaskID, JobID: j.ID,
+	}
+	if j.TaskID != uuid.Nil() {
+		t, err := c.Config.Store.Tasks().Get(ctx, j.AccountID, j.TaskID)
+		if err != nil {
+			return domain.Gate{}, fmt.Errorf("task of %s: %w", j.Ref(), err)
+		}
+		req.SubjectNumber = t.IssueNumber
+	}
+	if req.SubjectRepo == "" {
+		p, err := c.Config.Store.Projects().Get(ctx, j.AccountID, j.ProjectID)
+		if err != nil {
+			return domain.Gate{}, fmt.Errorf("project of %s: %w", j.Ref(), err)
+		}
+		req.SubjectRepo = p.Repo
+	}
+	return c.Config.Gates.Open(ctx, req)
+}
+
+// firstLine returns the first line of s, at most 120 characters.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	if r := []rune(strings.TrimSpace(line)); len(r) > 120 {
+		return string(r[:119]) + "…"
+	}
+	return strings.TrimSpace(line)
+}
+
+// waitForAnswer waits until the gate is resolved, the timeout passes (the
+// gate is then rejected by forecrewd), the job's lease ends or ctx is done.
+func (c *Call) waitForAnswer(ctx context.Context, g domain.Gate, timeout time.Duration, resolved <-chan domain.Signal) (domain.Gate, error) {
+	deadline := c.Config.After(timeout)
+	recheck := time.NewTicker(c.Config.Recheck)
+	defer recheck.Stop()
+	progress := time.NewTicker(c.Config.ProgressEvery)
+	defer progress.Stop()
+	key := domain.GateKey(g.ID)
+	waited := 0
+	for {
+		select {
+		case s, ok := <-resolved:
+			if !ok {
+				resolved = nil
+				continue
+			}
+			if s.Key != key {
+				continue
+			}
+		case <-recheck.C:
+			alive, err := c.Alive(ctx)
+			if err != nil {
+				return g, err
+			}
+			if !alive {
+				c.close(ctx, g, c.Job.Ref()+" stopped before anyone answered.")
+				return g, Errorf(CodeUnavailable, "the job's lease ended")
+			}
+		case <-progress.C:
+			waited++
+			c.Notify(ctx, float64(waited), "waiting for an answer to "+g.Ref())
+			continue
+		case <-deadline:
+			return c.close(ctx, g, fmt.Sprintf("No answer within %s; %s goes on with its assumption.", timeout, c.Job.Ref())), nil
+		case <-ctx.Done():
+			c.close(ctx, g, c.Job.Ref()+" stopped waiting for an answer.")
+			return g, ctx.Err()
+		}
+		cur, err := c.Config.Store.Gates().Get(ctx, g.AccountID, g.ID)
+		if err != nil {
+			return g, err
+		}
+		if cur.Status != domain.GatePending {
+			return cur, nil
+		}
+	}
+}
+
+// close rejects a pending question gate as forecrewd and returns the gate
+// as it ends up: someone may have answered just before.
+func (c *Call) close(ctx context.Context, g domain.Gate, why string) domain.Gate {
+	ctx = context.WithoutCancel(ctx)
+	by := domain.SystemActor(g.AccountID, domain.ForecrewdName)
+	got, err := c.Config.Gates.Resolve(ctx, by, g.ID, domain.GateRejected, why)
+	if err == nil {
+		return got
+	}
+	if cur, gerr := c.Config.Store.Gates().Get(ctx, g.AccountID, g.ID); gerr == nil && cur.Status != domain.GatePending {
+		return cur
+	}
+	if !errors.Is(err, store.ErrConflict) {
+		c.Config.Logger.ErrorContext(ctx, "close question gate", "gate_id", g.ID, "job_id", c.Job.ID, "error", err)
+	}
+	g.Status = domain.GateRejected
+	return g
+}
+
+// goOnWith records that the job goes on with its assumption: in the job log,
+// and in the assumption register when there is one. It returns the
+// assumption's ref, "" without a register.
+func (c *Call) goOnWith(ctx context.Context, g domain.Gate, a domain.StatedAssumption) (string, error) {
+	text := "No answer to " + g.Ref() + "; going on with the assumption: " + a.Statement
+	if err := c.event(ctx, domain.EventLog, text, a); err != nil {
+		return "", err
+	}
+	if c.Config.Assumptions == nil {
+		return "", nil
+	}
+	return c.Config.Assumptions.RecordAssumption(ctx, c.Job, a)
+}
