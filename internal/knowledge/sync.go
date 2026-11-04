@@ -31,6 +31,9 @@ type SyncResult struct {
 	Skipped   []string // "path: reason" for files that could not be entries
 	Flagged   int      // entries marked needs_reverify
 	Generated bool     // the generated section was rebuilt
+	// More is set when the run stopped at its read limit: the rest is
+	// found again by the next one.
+	More bool
 }
 
 // zeroSHA is the commit GitHub reports before a branch exists.
@@ -133,7 +136,10 @@ func (s *Syncer) Sync(ctx context.Context, p domain.Project, before, head string
 		errs = append(errs, s.syncGenerated(ctx, p, head, &res))
 	}
 	err = errors.Join(errs...)
-	if err == nil {
+	for _, sk := range res.Skipped {
+		s.log().WarnContext(ctx, "knowledge file skipped", "project", p.Name, "file", sk)
+	}
+	if err == nil && !res.More {
 		s.synced.Store(p.ID, head)
 	}
 	return res, err
@@ -172,7 +178,6 @@ func (s *Syncer) syncEntries(ctx context.Context, p domain.Project, rc *RepoClie
 	if err != nil {
 		return err
 	}
-	mapping := RepoMapping(policy)
 	existing, err := s.Store.Knowledge().List(ctx, p.AccountID, store.KnowledgeFilter{ProjectID: p.ID, Provider: RepoProvider})
 	if err != nil {
 		return err
@@ -183,8 +188,24 @@ func (s *Syncer) syncEntries(ctx context.Context, p domain.Project, rc *RepoClie
 			have[e.Path] = e
 		}
 	}
-	wanted := map[string]bool{}
-	var put []*domain.KnowledgeEntry
+	wanted, sections, todo := changedFiles(RepoMapping(policy), tree, have)
+	// A run reads at most MaxReadsPerSync files and saves them in batches,
+	// so a rate limit or a crash keeps what was done. The rest is found
+	// again by its blob SHA on the next run (res.More).
+	if len(todo) > MaxReadsPerSync {
+		todo, res.More = todo[:MaxReadsPerSync], true
+	}
+	if err := s.readAndSave(ctx, p, rc, todo, sections, res, fresh); err != nil {
+		return err
+	}
+	return s.removeGone(ctx, p, have, wanted, res)
+}
+
+// changedFiles returns the mapped files of the tree (wanted), the section of
+// each one that is new or changed since the index (sections) and their names
+// in order (todo).
+func changedFiles(mapping Mapping, tree map[string]github.TreeEntry, have map[string]domain.KnowledgeEntry) (wanted map[string]bool, sections map[string]string, todo []string) {
+	wanted, sections = map[string]bool{}, map[string]string{}
 	for _, name := range slices.Sorted(mapKeys(tree)) {
 		section, ok := mapping.SectionOf(name, tree[name].Size)
 		if !ok {
@@ -194,22 +215,77 @@ func (s *Syncer) syncEntries(ctx context.Context, p domain.Project, rc *RepoClie
 		if cur, ok := have[name]; ok && cur.Version == tree[name].SHA && cur.Section == section {
 			continue
 		}
-		e, err := s.readEntry(ctx, p, rc, name, section)
+		todo = append(todo, name)
+		sections[name] = section
+	}
+	return wanted, sections, todo
+}
+
+// readAndSave reads the files and saves their entries in batches. A failure
+// to read saves the batch read so far before it returns.
+func (s *Syncer) readAndSave(ctx context.Context, p domain.Project, rc *RepoClient, todo []string, sections map[string]string, res *SyncResult, fresh map[string]bool) error {
+	var batch []*domain.KnowledgeEntry
+	for _, name := range todo {
+		e, err := s.readEntry(ctx, p, rc, name, sections[name])
 		if errors.Is(err, ErrInvalid) {
-			res.Skipped = append(res.Skipped, name+": "+strings.TrimPrefix(err.Error(), name+": "))
-			continue // unreadable now: what was indexed stays
+			res.skip(name, err) // unreadable now: what was indexed stays
+			continue
 		}
 		if err != nil {
-			return err
+			return errors.Join(err, s.flush(ctx, &batch, res, fresh))
 		}
-		fresh[name] = true
-		put = append(put, e)
+		batch = append(batch, e)
+		if len(batch) == SyncBatch {
+			if err := s.flush(ctx, &batch, res, fresh); err != nil {
+				return err
+			}
+		}
 	}
-	if err := s.Index.Put(ctx, put...); err != nil {
+	return s.flush(ctx, &batch, res, fresh)
+}
+
+// Limits of one Sync: files read from GitHub and entries saved together.
+const (
+	MaxReadsPerSync = 200
+	SyncBatch       = 20
+)
+
+// skip records a file that cannot be an entry, with the reason.
+func (r *SyncResult) skip(name string, err error) {
+	r.Skipped = append(r.Skipped, name+": "+strings.TrimPrefix(err.Error(), name+": "))
+}
+
+// flush saves the batch. An entry the store refuses as invalid is skipped
+// with its reason instead of failing the batch, which would fail on every
+// retry.
+func (s *Syncer) flush(ctx context.Context, batch *[]*domain.KnowledgeEntry, res *SyncResult, fresh map[string]bool) error {
+	entries := *batch
+	*batch = nil
+	if len(entries) == 0 {
+		return nil
+	}
+	err := s.Index.Put(ctx, entries...)
+	if errors.Is(err, domain.ErrInvalidRecord) {
+		for _, e := range entries {
+			if err := s.Index.Put(ctx, e); errors.Is(err, domain.ErrInvalidRecord) {
+				res.skip(e.Path, err)
+			} else if err != nil {
+				return err
+			} else {
+				fresh[e.Path] = true
+				res.Indexed++
+			}
+		}
+		return nil
+	}
+	if err != nil {
 		return err
 	}
-	res.Indexed = len(put)
-	return s.removeGone(ctx, p, have, wanted, res)
+	for _, e := range entries {
+		fresh[e.Path] = true
+	}
+	res.Indexed += len(entries)
+	return nil
 }
 
 // removeGone deletes the indexed entries that are no longer mapped files of

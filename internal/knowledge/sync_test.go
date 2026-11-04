@@ -3,6 +3,7 @@ package knowledge_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -331,5 +332,95 @@ func TestPolicySurvivesARestartAndFailsClosed(t *testing.T) {
 	fourth := &knowledge.Syncer{Store: e.st, Index: &knowledge.Index{Store: e.st}, API: api, Now: e.clock.Now}
 	if _, err := fourth.Policy(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
 		t.Errorf("Policy with a broken file = %v", err)
+	}
+}
+
+// One file that cannot be an entry is skipped with its reason; it must not
+// fail the sync on every retry.
+func TestSyncSkipsFilesThatCannotBeEntries(t *testing.T) {
+	e := newSyncEnv(t)
+	e.syncer.Snapshots = nil
+	e.commit(t, "h1", map[string]string{
+		"knowledge/runbooks/good.md":     "# Good\nDeploy with care.\n",
+		"knowledge/runbooks/nul.md":      "# Nul\nbad \x00 byte\n",
+		"knowledge/runbooks/latin1.md":   "caf\xe9 au lait\n",
+		"knowledge/runbooks/blank.md":    "---\ntitle: \" \"\n---\nbody\n",
+		"knowledge/runbooks/nultitle.md": "---\ntitle: \"a\\0b\"\n---\nbody\n",
+	})
+	for range 2 { // a restarted forecrewd retries and fails the same way: it must not fail at all
+		e.syncer = &knowledge.Syncer{Store: e.st, Index: e.syncer.Index, API: e.tr, Now: e.clock.Now}
+		res, err := e.syncer.Sync(t.Context(), e.project, "", "h1")
+		if err != nil {
+			t.Fatalf("Sync: %v", err)
+		}
+		if len(res.Skipped) != 4 {
+			t.Fatalf("skipped = %v", res.Skipped)
+		}
+		for _, want := range []string{"nul.md: ", "latin1.md: ", "blank.md: ", "nultitle.md: "} {
+			if !slices.ContainsFunc(res.Skipped, func(s string) bool { return strings.Contains(s, want) && strings.Contains(s, "invalid") }) {
+				t.Errorf("no skip reason for %s in %v", want, res.Skipped)
+			}
+		}
+	}
+	if got := e.entries(t); len(got) != 1 || got["knowledge/runbooks/good.md"].Title != "Good" {
+		t.Errorf("entries = %+v", got)
+	}
+}
+
+// failAfter makes GetFile fail once n files were read.
+type failAfter struct {
+	knowledge.SyncAPI
+	n, reads int
+}
+
+func (f *failAfter) GetFile(ctx context.Context, repo, ref, file string) ([]byte, error) {
+	if strings.HasPrefix(file, "knowledge/") {
+		if f.reads++; f.reads > f.n {
+			return nil, errors.New("rate limited")
+		}
+	}
+	return f.SyncAPI.GetFile(ctx, repo, ref, file)
+}
+
+// A run reads a bounded number of files and saves them in batches, so a
+// rate limit in the middle keeps what was read and the next run goes on.
+func TestSyncIsBoundedAndKeepsProgress(t *testing.T) {
+	e := newSyncEnv(t)
+	e.syncer.Snapshots = nil
+	files := map[string]string{}
+	total := knowledge.MaxReadsPerSync + 60
+	for i := range total {
+		files[fmt.Sprintf("knowledge/runbooks/r%03d.md", i)] = fmt.Sprintf("# Runbook %d\nbody %d\n", i, i)
+	}
+	e.commit(t, "h1", files)
+
+	api := &failAfter{SyncAPI: e.tr, n: 2*knowledge.SyncBatch + 5}
+	e.syncer.API = api
+	if _, err := e.syncer.Sync(t.Context(), e.project, "", "h1"); err == nil {
+		t.Fatal("a rate limit was not reported")
+	}
+	saved := 2*knowledge.SyncBatch + 5 // every read before the failure, also the partial batch
+	if got := len(e.entries(t)); got != saved {
+		t.Fatalf("after the rate limit %d entries are saved, want %d", got, saved)
+	}
+
+	api.n = 1 << 30
+	res, err := e.syncer.Sync(t.Context(), e.project, "", "h1")
+	must(t, err)
+	if !res.More || res.Indexed != knowledge.MaxReadsPerSync {
+		t.Fatalf("second run = %+v", res)
+	}
+	for res.More {
+		if res, err = e.syncer.Sync(t.Context(), e.project, "", "h1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := len(e.entries(t)); got != total {
+		t.Errorf("%d entries, want %d", got, total)
+	}
+	// Done: the head counts as synced and nothing is read again.
+	api.reads = 0
+	if res, err = e.syncer.Sync(t.Context(), e.project, "", "h1"); err != nil || res.Indexed != 0 || api.reads != 0 {
+		t.Errorf("after the last run: %+v, %v, %d reads", res, err, api.reads)
 	}
 }
