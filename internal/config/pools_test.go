@@ -38,6 +38,9 @@ func TestParsePoolsAndEvidence(t *testing.T) {
 		e.RetentionDays != 90 || e.AccessKeyID != "GK1" || e.SecretAccessKey != "s3cret" {
 		t.Fatalf("evidence = %+v", e)
 	}
+	if c.MaxTestResultsSize != DefaultMaxTestResultsSize {
+		t.Errorf("max_test_results_size = %d, want the default", c.MaxTestResultsSize)
+	}
 	if len(c.Pools) != 4 {
 		t.Fatalf("pools = %v", c.Pools)
 	}
@@ -48,6 +51,13 @@ func TestParsePoolsAndEvidence(t *testing.T) {
 	}
 	if !c.Pools["gpu"].Allows("", domain.JobKindCommand, false) || c.Pools["gpu"].Allows("developer", domain.JobKindAgent, true) {
 		t.Errorf("gpu = %+v", c.Pools["gpu"])
+	}
+}
+
+func TestParseMaxTestResultsSize(t *testing.T) {
+	c, err := Parse([]byte(validYAML+"max_test_results_size: 1048576\n"), env(nil))
+	if err != nil || c.MaxTestResultsSize != 1<<20 {
+		t.Fatalf("size = %d, %v", c.MaxTestResultsSize, err)
 	}
 }
 
@@ -130,6 +140,7 @@ func TestParsePoolsAndEvidenceInvalid(t *testing.T) {
 		{name: "bad endpoint", replace: [2]string{"http://garage:3900", "garage:3900"}, want: "evidence.endpoint must be"},
 		{name: "no bucket", replace: [2]string{"bucket: forecrew-evidence", "bucket: ''"}, want: "evidence.bucket"},
 		{name: "negative size", replace: [2]string{"path_style: true", "path_style: true\n  max_artifact_size: -1"}, want: "max_artifact_size"},
+		{name: "negative test results size", replace: [2]string{"evidence:", "max_test_results_size: -5\nevidence:"}, want: "max_test_results_size"},
 		{name: "negative retention", replace: [2]string{"retention_days: 90", "retention_days: -1"}, want: "retention_days"},
 		{name: "no access key", env: map[string]string{EnvEvidenceAccessKeyID: ""}, want: EnvEvidenceAccessKeyID + " is not set"},
 		{name: "no secret key", env: map[string]string{EnvEvidenceSecretAccessKey: ""}, want: EnvEvidenceSecretAccessKey + " is not set"},

@@ -186,7 +186,7 @@ func New(d Deps) (*App, error) {
 	})
 	workers := workerapi.New(workerapi.Config{
 		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Pools: cfg.Pools, Logger: log,
-		Evidence: ev, MaxArtifactSize: evidenceMaxSize(cfg),
+		Evidence: ev, MaxArtifactSize: evidenceMaxSize(cfg), MaxTestResultsSize: cfg.MaxTestResultsSize,
 		JobMCPURL: jobMCPURL(cfg), Attachments: jobGateway.Attachments(),
 	})
 

@@ -62,6 +62,10 @@ type Config struct {
 	Logger *slog.Logger
 	// Evidence stores artifacts; nil answers artifact uploads with 503.
 	Evidence evidence.Store
+	// MaxTestResultsSize is the largest body of a complete request, in
+	// bytes (max_test_results_size); it defaults to
+	// config.DefaultMaxTestResultsSize.
+	MaxTestResultsSize int64
 	// MaxArtifactSize is the largest artifact a worker may upload, in bytes
 	// (evidence.max_artifact_size); it defaults to
 	// config.DefaultMaxArtifactSize.
@@ -89,6 +93,9 @@ func New(cfg Config) *Server {
 	}
 	if cfg.PollRecheck == 0 {
 		cfg.PollRecheck = PollRecheck
+	}
+	if cfg.MaxTestResultsSize <= 0 {
+		cfg.MaxTestResultsSize = config.DefaultMaxTestResultsSize
 	}
 	if cfg.MaxArtifactSize <= 0 {
 		cfg.MaxArtifactSize = config.DefaultMaxArtifactSize
@@ -171,12 +178,17 @@ func (s *Server) worker(r *http.Request) (domain.Worker, *slog.Logger) {
 // leaves v alone when allowEmpty is set. It writes the error response and
 // returns false on failure.
 func decode(rw http.ResponseWriter, r *http.Request, v any, allowEmpty bool) bool {
-	err := json.NewDecoder(http.MaxBytesReader(rw, r.Body, MaxBodyBytes)).Decode(v)
+	return decodeLimited(rw, r, v, allowEmpty, MaxBodyBytes)
+}
+
+// decodeLimited is decode with another body limit.
+func decodeLimited(rw http.ResponseWriter, r *http.Request, v any, allowEmpty bool, limit int64) bool {
+	err := json.NewDecoder(http.MaxBytesReader(rw, r.Body, limit)).Decode(v)
 	if err == nil || (allowEmpty && errors.Is(err, io.EOF)) {
 		return true
 	}
 	if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-		writeError(rw, http.StatusRequestEntityTooLarge, "too_large", "request body over 1 MiB")
+		writeError(rw, http.StatusRequestEntityTooLarge, "too_large", fmt.Sprintf("request body over %d bytes", limit))
 		return false
 	}
 	writeError(rw, http.StatusBadRequest, "bad_request", "malformed JSON: "+err.Error())
