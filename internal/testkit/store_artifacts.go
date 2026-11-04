@@ -33,8 +33,8 @@ func (r artifactRepo) PutLeased(_ context.Context, a *domain.Artifact, workerID 
 		if err != nil {
 			return err
 		}
-		if j.Status != domain.JobRunning || j.WorkerID != workerID {
-			return fmt.Errorf("job %s is %s: %w", j.Ref(), j.Status, store.ErrLeaseLost)
+		if err := checkLease(j, workerID); err != nil {
+			return err
 		}
 		replaced, err = putArtifact(d, now, a)
 		return err

@@ -238,3 +238,21 @@ func (r jobRepo) RequeueExpired(ctx context.Context, accountID uuid.UUID) ([]dom
 	}
 	return out, nil
 }
+
+// lockLeased locks the job row, the lock complete, cancel and the lease
+// reaper take, so a write in the same transaction is ordered against them.
+// With a non-nil workerID it also requires the job to be running under that
+// worker, and fails with ErrLeaseLost otherwise.
+func lockLeased(ctx context.Context, tx dbtx, accountID, jobID, workerID uuid.UUID) error {
+	var status string
+	var holder uuid.UUID
+	err := tx.QueryRow(ctx, `SELECT status, `+cuuid("worker_id")+` FROM jobs WHERE account_id = $1 AND id = $2 FOR UPDATE`,
+		accountID, jobID).Scan(&status, &holder)
+	if err != nil {
+		return mapErr(err)
+	}
+	if workerID != uuid.Nil() && (status != string(domain.JobRunning) || holder != workerID) {
+		return fmt.Errorf("job %s is %s: %w", jobID, status, store.ErrLeaseLost)
+	}
+	return nil
+}

@@ -315,6 +315,11 @@ func TestStoreJobQueries(t *testing.T) {
 	}
 	_, err = f.st.JobEvents().Append(ctx, f.account, domain.NewID(), nil)
 	wantErr(t, err, store.ErrNotFound)
+	w := domain.NewID()
+	_, err = f.st.JobEvents().AppendLeased(ctx, f.account, a.ID, w, events[:1])
+	wantErr(t, err, store.ErrLeaseLost)
+	_, err = f.st.JobEvents().AppendLeased(ctx, f.account, domain.NewID(), w, nil)
+	wantErr(t, err, store.ErrNotFound)
 	after, _ := f.st.JobEvents().List(ctx, f.account, a.ID, 1, 10)
 	if len(after) != 1 || after[0].Text != "two" {
 		t.Fatalf("List = %+v", after)
@@ -647,4 +652,20 @@ func TestStoreArtifactsPutLeased(t *testing.T) {
 	missing.JobID = domain.NewID()
 	_, err = repo.PutLeased(ctx, &missing, w.ID)
 	wantErr(t, err, store.ErrNotFound)
+}
+
+func TestStoreLeasedWritesRefuseAnotherWorker(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	j := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Role: "developer", Runtime: "claude-code"}
+	must(t, f.st.Jobs().Create(ctx, &j))
+	w := domain.Worker{AccountID: f.account, Name: "box", TokenHash: []byte("h"), MaxJobs: 1}
+	must(t, f.st.Workers().Create(ctx, &w))
+	_, err := f.st.Jobs().LeaseNext(ctx, f.account, w.ID, []string{"runtime:claude-code"}, time.Minute)
+	must(t, err)
+	_, err = f.st.JobEvents().AppendLeased(ctx, f.account, j.ID, domain.NewID(), []domain.JobEvent{{Type: domain.EventLog}})
+	wantErr(t, err, store.ErrLeaseLost)
+	if rows, _ := f.st.JobEvents().List(ctx, f.account, j.ID, 0, 10); len(rows) != 0 {
+		t.Fatalf("rows = %+v", rows)
+	}
 }

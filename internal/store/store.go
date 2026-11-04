@@ -216,6 +216,10 @@ type JobEventRepo interface {
 	// Append assigns AccountID, JobID, ID and the next Seq to each event and
 	// stores them in order.
 	Append(ctx context.Context, accountID, jobID uuid.UUID, events []domain.JobEvent) ([]domain.JobEvent, error)
+	// AppendLeased is Append for a worker: in one transaction that locks the
+	// job, it fails with ErrLeaseLost, storing nothing, unless the job is
+	// running under workerID.
+	AppendLeased(ctx context.Context, accountID, jobID, workerID uuid.UUID, events []domain.JobEvent) ([]domain.JobEvent, error)
 	// List returns up to limit events with Seq > afterSeq, by Seq.
 	List(ctx context.Context, accountID, jobID uuid.UUID, afterSeq int64, limit int) ([]domain.JobEvent, error)
 }

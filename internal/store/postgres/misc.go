@@ -25,11 +25,23 @@ func scanJobEvent(row pgx.Row) (e domain.JobEvent, err error) {
 }
 
 func (r jobEventRepo) Append(ctx context.Context, accountID, jobID uuid.UUID, events []domain.JobEvent) ([]domain.JobEvent, error) {
+	return r.append(ctx, accountID, jobID, uuid.Nil(), events)
+}
+
+// AppendLeased is Append for a worker: the job row is locked and must be
+// running under workerID, the same lock complete, cancel and the lease
+// reaper take, so no event is stored once the lease has ended.
+func (r jobEventRepo) AppendLeased(ctx context.Context, accountID, jobID, workerID uuid.UUID, events []domain.JobEvent) ([]domain.JobEvent, error) {
+	return r.append(ctx, accountID, jobID, workerID, events)
+}
+
+// append stores events; a non-nil workerID also requires that worker's lease.
+func (r jobEventRepo) append(ctx context.Context, accountID, jobID, workerID uuid.UUID, events []domain.JobEvent) ([]domain.JobEvent, error) {
 	out := make([]domain.JobEvent, 0, len(events))
 	err := inTx(ctx, r.db, func(tx dbtx) error {
 		// The row lock serializes concurrent appends to one job.
-		if err := tx.QueryRow(ctx, `SELECT 1 FROM jobs WHERE account_id = $1 AND id = $2 FOR UPDATE`, accountID, jobID).Scan(new(int)); err != nil {
-			return mapErr(err)
+		if err := lockLeased(ctx, tx, accountID, jobID, workerID); err != nil {
+			return err
 		}
 		var seq int64
 		if err := tx.QueryRow(ctx, `SELECT COALESCE(max(seq), 0) FROM job_events WHERE job_id = $1`, jobID).Scan(&seq); err != nil {
