@@ -64,11 +64,8 @@ func (r *jobRun) executeCommand(ctx context.Context) Completion {
 		return r.failed("%v", err)
 	}
 	env := spec.Environment
-	switch {
-	case env != nil && env.Provider == domain.ProviderActions:
+	if env != nil && env.Provider == domain.ProviderActions {
 		return r.failed("environment provider %s is not run by workers", env.Provider)
-	case env != nil && env.Provider == domain.ProviderMachine && len(env.Services) > 0:
-		return r.failed("services need provider docker; environment %s runs on the machine", env.Name)
 	}
 	start, workdir, done := r.prepareCommand(ctx)
 	defer r.w.git.remove(context.WithoutCancel(ctx), r.cache, r.dir)

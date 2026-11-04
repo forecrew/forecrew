@@ -209,7 +209,7 @@ func TestDockerJobWithoutDocker(t *testing.T) {
 	}
 	c = e.doComplete(dockerSpec(e, "true", &domain.Environment{Name: "m", Provider: domain.ProviderMachine,
 		Services: map[string]domain.Service{"db": {Image: "x:1"}}}))
-	if c.Status != StatusFailed || !strings.Contains(c.Error, "services need provider docker") {
+	if c.Status != StatusFailed || !strings.Contains(c.Error, "services are only for provider docker") {
 		t.Errorf("machine with services: completion = %+v", c)
 	}
 	c = e.doComplete(dockerSpec(e, "true", &domain.Environment{Name: "a", Provider: domain.ProviderActions, RunsOn: "ubuntu-24.04"}))

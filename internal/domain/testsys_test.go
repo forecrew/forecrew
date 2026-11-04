@@ -84,6 +84,13 @@ func TestEnvironmentValidate(t *testing.T) {
 		{"docker runs_on", Environment{Name: "x", Provider: ProviderDocker, Image: "a", RunsOn: "ubuntu-24.04"}, "runs_on is only"},
 		{"machine image", Environment{Name: "x", Provider: ProviderMachine, Image: "a"}, "only for provider docker"},
 		{"machine runs_on", Environment{Name: "x", Provider: ProviderMachine, RunsOn: "a"}, "runs_on is only"},
+		{"machine services", Environment{Name: "x", Provider: ProviderMachine, Services: map[string]Service{"db": {Image: "a"}}}, "services are only for provider docker"},
+		{"actions services", Environment{Name: "x", Provider: ProviderActions, RunsOn: "a", Services: map[string]Service{"db": {Image: "a"}}}, "services are only for provider docker"},
+		{"image flag", Environment{Name: "x", Provider: ProviderDocker, Image: "--privileged"}, "must not contain white space or start with '-'"},
+		{"image space", Environment{Name: "x", Provider: ProviderDocker, Image: "a b"}, "white space"},
+		{"service image flag", Environment{Name: "x", Provider: ProviderDocker, Image: "a", Services: map[string]Service{"db": {Image: "-v"}}}, "services.db: image"},
+		{"services share a variable", Environment{Name: "x", Provider: ProviderDocker, Image: "a",
+			Services: map[string]Service{"my-db": {Image: "a"}, "my_db": {Image: "a"}}}, "both give the job MY_DB_HOST"},
 		{"actions without runs_on", Environment{Name: "x", Provider: ProviderActions}, "needs runs_on"},
 		{"absolute dockerfile", Environment{Name: "x", Provider: ProviderDocker, Dockerfile: "/Dockerfile"}, "relative"},
 		{"empty setup", Environment{Name: "x", Provider: ProviderMachine, Setup: []string{""}}, "empty command"},
@@ -287,6 +294,14 @@ func TestPools(t *testing.T) {
 	for _, tt := range tests {
 		if got := CommandPool(tt.env); got != tt.want {
 			t.Errorf("CommandPool(%v) = %s, want %s", tt.env, got, tt.want)
+		}
+	}
+}
+
+func TestServiceVar(t *testing.T) {
+	for in, want := range map[string]string{"db": "DB", "main-db": "MAIN_DB", "pg.1_x": "PG_1_X"} {
+		if got := ServiceVar(in); got != want {
+			t.Errorf("ServiceVar(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
