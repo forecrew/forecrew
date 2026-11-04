@@ -76,6 +76,8 @@ structs in `internal/domain` and `internal/mcp`.
 | `GET /api/v1/jobs/{job}/artifacts` | `list_artifacts` | | `200` artifacts of the job by name: `id`, `name`, `content_type`, `size`, `sha256`, `created_at` |
 | `GET /api/v1/test-runs?job=&project=&change=&sha=&limit=` | `list_test_runs` | at least one of `job`, `change` (a PR number, needs `project`) and `sha`; `limit` defaults to 100, at most 500 | `200` test runs of command jobs, oldest first: `id`, `job_id`, `job_ref`, `change_id`, `sha`, `suite`, `environment`, `cell`, `status`, `counts`, `duration_ms`, `exit_code`, `versions`, `report_artifacts`, `attempt`, `created_at` and `failures` (the cases that failed or errored, at most 100 per run: `name`, `classname`, `status`, `message`, written by the repo's tests and so untrusted data) and `failures_truncated` |
 | `GET /api/v1/artifacts/{id}` | | `{id}` is an artifact UUID | `200` the file, streamed; see [Artifact downloads](#artifact-downloads). `404` when it is unknown, of another account, or deleted by retention; `503` without evidence storage |
+| `GET /api/v1/knowledge?project=&q=&section=&kind=&provider=&limit=` | `search_knowledge` | `project` and `q` required; `kind` is `entry`, `note` or `generated`; `limit` defaults to 8, at most 50 | `200` results (an array, `[]` when none) as in [mcp.md](mcp.md): `id`, `kind`, `provider`, `section`, `path`, `title`, `source_url`, `snippet`, `untrusted`, `provenance`, `needs_reverify`, `rank`. Snippets are not wrapped here: check `untrusted` before handing them to an agent |
+| `DELETE /api/v1/knowledge/notes/{note}` | `delete_note` | `{note}` is a note UUID | `200` `{"note": "uuid", "message": "..."}`; `400` when the entry is not an agent note, `404` when unknown |
 | `GET /api/v1/workers` | `list_workers` | | `200` workers with `pool`, `labels`, `version`, `last_seen_at`, `online` and `running_jobs` (refs) |
 | `GET /api/v1/gates?project=` | `list_pending_gates` | `project` optional | `200` pending gates with `ref`, `kind`, `project`, `goal_ref`, `task_ref`, `summary`, `url` (GitHub issue or PR) and `created_at` |
 | `POST /api/v1/gates/{gate}/approve` | `approve` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `approved` |
@@ -146,6 +148,9 @@ the CLI command listed there.
 | `GET /api/v1/councils/{council}` | `get_council` | | `200` council with brief, contributions, gate, decision |
 | `POST /api/v1/councils/{council}/constraints` | | `{"constraint": "..."}` | `200` council; the next round's prompts include it (T33) |
 | `GET /api/v1/knowledge?project=&q=&section=&kind=&provider=` | `search_knowledge` | `project` and `q` required | `200` results |
+| `GET /api/v1/assumptions?project=&status=&impact=` | `list_assumptions` | `project` required | `200` assumptions |
+| `POST /api/v1/assumptions/{assumption}/resolve` | `resolve_assumption` | `{"status", "evidence"}` | `200` assumption |
+| `GET /api/v1/decisions?project=&goal=&council=` | `list_decisions` | `project` required | `200` decisions |
 | `POST /api/v1/knowledge/proposals` | `propose_knowledge` | `{"project", "section", "path", "body", "reason", "action"}` | `201` knowledge proposal |
 | `POST /api/v1/bugs` | `report_bug` | `{"project", "title", "body", "platforms": []}` | `201` goal of kind `bug` |
 | `GET /api/v1/proposals?project=&status=&category=` | `list_proposals` | `project` required | `200` proposals |

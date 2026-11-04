@@ -130,7 +130,12 @@ lost with the host. The Postgres dump only has their metadata.
 
 Create the GitHub App with the webhook URL `https://<your host>/webhooks/github`
 and the webhook secret from `.env`. Install it on the repositories Forecrew
-works on. Put its ID in `github.app_id` and the logins that may command
+works on. Subscribe the App to the events `issues`, `issue_comment`,
+`pull_request`, `pull_request_review`, `check_suite`, `check_run`, `status` and
+`push`: forecrewd reindexes a project's knowledge base on a push to its default
+branch (the poller catches up every five minutes if you leave `push` out, but
+cannot flag entries a push made out of date; see [../knowledge.md](../knowledge.md)).
+Put its ID in `github.app_id` and the logins that may command
 `@forecrew` in `github.allowlist` (empty means nobody).
 
 To run command jobs on GitHub-hosted runners (pool `actions`), the App also

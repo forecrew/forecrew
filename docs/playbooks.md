@@ -236,6 +236,7 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `onboarding.proposal` | `profile`, `summary`, `assumptions` | `{title, body}`: the profile PR text. |
 | `onboarding.settle` | none | Puts a project still onboarding back to registered. |
 | `onboarding.complete` | `repo`, `sha`, `ref` | Reads `.forecrew/profile.yaml` at the merge commit `sha`, or at `ref` when `sha` is empty (GitHub merged the PR), validates and stores it, and moves the project to onboarded. |
+| `knowledge.seed` | none | `{indexed, sections, curate, text, error}`. Indexes the project's repo knowledge (the mapped paths of its policy, or the default mapping) and outputs the seed sections (`architecture`, `conventions`, `testing`, `runbooks`, `glossary`) that no location covers. `curate` has one item when there are such sections and none otherwise, so a `foreach` over it skips the curation; `text` tells the curator what to fill and what already has a home. A repo that cannot be read, or an installation without a knowledge base, gives `error` and an empty `curate`: onboarding does not depend on it. |
 
 ### Command jobs
 
@@ -336,6 +337,7 @@ profile, the goal, spec and task, the step's `prompt` and feedback.
 | `reviewer` | nothing | `review-verdict.json` | profile, goal, spec, task |
 | `test-architect` | `.forecrew/matrix.yaml`, `.forecrew/test-strategy.md` | `test-plan.json`: summary, every axis with its reason, matrix changes with reasons, assumptions, open questions | profile, spec when given, test plan |
 | `environment-engineer` | `.forecrew/environments/**` | `environments.json`: summary, every environment with its provider and reason, assumptions | profile, test plan |
+| `knowledge-curator` | `knowledge/**` | `knowledge-seed.json`: summary, the entries it wrote with their sources, the sections it skipped, assumptions | profile |
 | `test-engineer` | test files only: `**/*_test.*`, `**/*.test.*`, `**/test_*.*`, `*.spec.*` and `*_spec.*` with code extensions, and `tests/`, `test/`, `__tests__/` and `testdata/` directories; never `.forecrew/**`, `.github/**`, `vendor/`, `node_modules/`, nor dependency, lock, build, Docker, script or CI files at any depth (`go.mod`, `package.json`, `*.lock`, `Makefile`, `Dockerfile`, `*.sh`, ...) | `test-map.json`: per test its criterion, suite, JUnit id (`<classname>::<name>`) and file; every file created or changed (`files`, the paths later locked for the developer and applied on the base); untestable criteria with reasons; assumptions | profile, goal, spec, task with its criteria, test plan |
 
 Every output also has `escalation` (null unless the role stopped for a
@@ -379,6 +381,16 @@ back to registered, and the merged profile file stays on the default branch. Cha
 requested start a new round with the feedback, at most three before a
 `needs_you` gate. A rejection, a closed PR or any failure ends the run, and
 its `finally` step puts the project back to registered.
+
+After `onboarding.complete` the playbook seeds the knowledge base
+([knowledge.md](knowledge.md)): `knowledge.seed`, then, only when some seed
+section has no location, a `knowledge-curator` job on `agent/kb-seed` that
+proposes entries for those sections from `CLAUDE.md`, `AGENTS.md`, the README
+and `docs/`, a PR, and a `knowledge_proposal` gate on that PR. Approving it
+merges the PR; merging it on GitHub approves it and closing it rejects it
+(which ends the run failed; the project stays onboarded). The curator role needs
+an entry under `roles` in forecrew.yaml; without one the job fails and a
+`needs_you` gate opens.
 
 ## The goal playbook
 
