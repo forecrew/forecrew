@@ -13,74 +13,19 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
-
-var errCrash = errors.New("crash")
-
-// crashStore fails every step run update once a step run with id is about
-// to be marked waiting or done: the engine is killed after the step's side
-// effect and before the step is recorded as done.
-type crashStore struct {
-	store.Store
-	id      string
-	crashed chan struct{}
-	once    sync.Once
-}
-
-func newCrashStore(st store.Store, id string) *crashStore {
-	return &crashStore{Store: st, id: id, crashed: make(chan struct{})}
-}
-
-func (c *crashStore) StepRuns() store.StepRunRepo { return crashSteps{c.Store.StepRuns(), c} }
-
-// WorkflowRuns fails reads after the crash, so the dead engine does not
-// advance the run again before it is stopped.
-func (c *crashStore) WorkflowRuns() store.WorkflowRunRepo {
-	return crashRuns{c.Store.WorkflowRuns(), c}
-}
-
-type crashRuns struct {
-	store.WorkflowRunRepo
-	c *crashStore
-}
-
-func (r crashRuns) Get(ctx context.Context, accountID, id uuid.UUID) (domain.WorkflowRun, error) {
-	select {
-	case <-r.c.crashed:
-		return domain.WorkflowRun{}, errCrash
-	default:
-	}
-	return r.WorkflowRunRepo.Get(ctx, accountID, id)
-}
-
-type crashSteps struct {
-	store.StepRunRepo
-	c *crashStore
-}
-
-func (s crashSteps) Update(ctx context.Context, sr *domain.StepRun) error {
-	select {
-	case <-s.c.crashed:
-		return errCrash
-	default:
-	}
-	if sr.StepID == s.c.id {
-		s.c.once.Do(func() { close(s.c.crashed) })
-		return errCrash
-	}
-	return s.StepRunRepo.Update(ctx, sr)
-}
 
 // crashAt runs an engine on a store that crashes at step id and waits for
 // the crash; it returns once the engine has stopped.
 func (v *env) crashAt(t *testing.T, cfg workflow.Config, id string) {
 	t.Helper()
-	cs := newCrashStore(v.st, id)
+	cs := testkit.NewCrashStore(v.st, id)
 	cfg.Store = cs
 	_, stop := run(t, cfg)
 	select {
-	case <-cs.crashed:
+	case <-cs.Crashed():
 	case <-time.After(5 * time.Second):
 		t.Fatalf("no crash at %s", id)
 	}
