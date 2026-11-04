@@ -53,7 +53,9 @@ roles and job kinds each pool runs and which credentials its jobs receive:
   install.md); other installs add one with `forecrew worker add <name> --pool control`.
 - Pools other than `build`, `control` and `actions` are defined under `pools`
   in `forecrew.yaml`; `forecrew worker add` and `move` read it (`--config`,
-  default `forecrew.yaml`) only for those. Pool `actions` takes no workers.
+  default `forecrew.yaml`) only for those. Pool `actions` takes no workers:
+  forecrewd runs its jobs on GitHub-hosted runners (see [actions.md](actions.md),
+  with its costs and limits).
 
 ## Jobs
 
