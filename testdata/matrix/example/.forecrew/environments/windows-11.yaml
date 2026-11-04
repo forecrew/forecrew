@@ -1,0 +1,4 @@
+version: 1
+name: windows-11
+provider: machine
+needs: [windows, runtime, node]

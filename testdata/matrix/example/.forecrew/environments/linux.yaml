@@ -1,0 +1,8 @@
+version: 1
+name: linux
+provider: docker
+image: node:24-bookworm
+services:
+  postgres:
+    image: postgres:18
+    ports: [5432]
