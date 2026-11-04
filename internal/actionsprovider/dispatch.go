@@ -25,7 +25,10 @@ type payload struct {
 	Versions map[string]string `json:"versions,omitempty"`
 }
 
-var commitSHA = regexp.MustCompile(`^[0-9a-fA-F]{7,40}$`)
+var (
+	commitSHA = regexp.MustCompile(`^[0-9a-fA-F]{7,40}$`)
+	shortSHA  = regexp.MustCompile(`^[0-9a-fA-F]{7,39}$`)
+)
 
 // dispatchPlan is how a job is dispatched.
 type dispatchPlan struct {
@@ -64,6 +67,9 @@ func plan(spec domain.JobSpec, defaultBranch string) (dispatchPlan, error) {
 	checkout := spec.Branch
 	if checkout == "" {
 		checkout = spec.BaseRef
+	}
+	if shortSHA.MatchString(checkout) {
+		return dispatchPlan{}, fmt.Errorf("%w: %q looks like a short commit SHA, which cannot be told from a branch; use the full 40 characters", errNotRunnable, checkout)
 	}
 	in := map[string]string{
 		"job_id":    spec.JobID.String(),

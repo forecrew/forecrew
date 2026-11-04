@@ -66,6 +66,7 @@ func TestPlanRefusals(t *testing.T) {
 			s.Environment = &domain.Environment{Name: "d", Provider: domain.ProviderDocker, Image: "go:1"}
 		}, "provider actions"},
 		{"invalid spec", func(s *domain.JobSpec) { s.Command = nil }, "command"},
+		{"short commit", func(s *domain.JobSpec) { s.BaseRef = "0123abc" }, "short commit SHA"},
 		{"NUL byte", func(s *domain.JobSpec) { s.Command.Reports = []string{"a\x00b"} }, "NUL"},
 	}
 	for _, tt := range tests {
