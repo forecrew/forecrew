@@ -7,6 +7,7 @@ import (
 	"path"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/schema"
@@ -38,6 +39,12 @@ type frontmatter struct {
 // frontmatter. The title is the frontmatter's, else the first # heading,
 // else the file name without its extension. Errors wrap ErrInvalid.
 func ParseEntry(file string, data []byte) (Entry, error) {
+	if !utf8.Valid(data) {
+		return Entry{}, fmt.Errorf("%s: %w: the file is not UTF-8 text", file, ErrInvalid)
+	}
+	if bytes.IndexByte(data, 0) >= 0 {
+		return Entry{}, fmt.Errorf("%s: %w: the file has a NUL byte", file, ErrInvalid)
+	}
 	front, body, err := splitFrontmatter(data)
 	if err != nil {
 		return Entry{}, fmt.Errorf("%s: %w", file, err)
@@ -53,6 +60,14 @@ func ParseEntry(file string, data []byte) (Entry, error) {
 		}
 		if err := jsonDecode(raw, &fm); err != nil {
 			return Entry{}, fmt.Errorf("%s: frontmatter: %w", file, err)
+		}
+	}
+	if fm.Title != "" && strings.TrimSpace(fm.Title) == "" {
+		return Entry{}, fmt.Errorf("%s: frontmatter: %w: title is blank", file, ErrInvalid)
+	}
+	for _, s := range []string{fm.Title, fm.AuthorRole, fm.Source} {
+		if strings.ContainsRune(s, 0) || !utf8.ValidString(s) {
+			return Entry{}, fmt.Errorf("%s: frontmatter: %w: a NUL byte or invalid text in a field", file, ErrInvalid)
 		}
 	}
 	e := Entry{Title: fm.Title, Body: string(body)}
