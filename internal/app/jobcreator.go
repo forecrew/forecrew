@@ -125,7 +125,7 @@ func (c *jobCreator) createCommand(ctx context.Context, req workflow.JobRequest)
 	needs := slices.Clone(req.Needs)
 	if env := req.Environment; env != nil {
 		needs = append(needs, env.Needs...)
-		if env.Provider == domain.ProviderDocker || len(env.Services) > 0 {
+		if env.Provider == domain.ProviderDocker {
 			needs = append(needs, "docker")
 		}
 	}

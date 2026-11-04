@@ -227,6 +227,12 @@ func TestParseErrorsNameTheFile(t *testing.T) {
 	if err := ValidateVerification([]byte("{")); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("err = %v", err)
 	}
+	// Services need provider docker, in the schema as well as in Validate.
+	for _, provider := range []string{"machine", "actions\nruns_on: ubuntu-24.04"} {
+		if _, err := ParseEnvironment("p.yaml", []byte("version: 1\nname: p\nprovider: "+provider+"\nservices: {db: {image: b}}\n")); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("%s with services: err = %v", provider, err)
+		}
+	}
 	// A shape error the schema reports when the typed decode fails.
 	if _, err := ParseEnvironment("p.yaml", []byte("version: 1\nname: p\nprovider: docker\nimage: a\nservices: {db: {image: b, ports: [x]}}\n")); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "/services/db/ports/0") {
 		t.Fatalf("err = %v", err)

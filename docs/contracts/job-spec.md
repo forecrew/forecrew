@@ -123,7 +123,7 @@ same with `"branch": ""`, `"base_ref": "main"` and
 | `command.workdir` | string | Directory to run in, relative to the repo root; empty is the root. |
 | `command.reports` | string[] | JUnit XML globs relative to the repo root, parsed into `test_runs` (worker-api.md, `complete`). |
 | `command.artifacts` | string[] | Globs of other files to upload as artifacts. |
-| `environment` | object | Command jobs only. The environment (`.forecrew/environments/<name>.yaml`, environment.schema.json), resolved inline. Absent: the worker's host as it is. Its `needs` (plus `docker` for provider `docker`, or services) are part of the job's `needs`. |
+| `environment` | object | Command jobs only. The environment (`.forecrew/environments/<name>.yaml`, environment.schema.json), resolved inline. Absent: the worker's host as it is. Its `needs` (plus `docker` for provider `docker`; services need provider `docker`) are part of the job's `needs`. |
 | `cell` | object string → string | Command jobs only. The matrix cell (axis → value) the job runs. |
 | `suite` | string | Command jobs only. The matrix suite the job runs. |
 | `overlay` | object | Command jobs only. `ref` (branch or SHA) and `paths` (paths or globs): after checking out `base_ref`, the worker checks out these paths from `ref` on top of the work tree before running, e.g. new tests run against the base. |

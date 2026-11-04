@@ -1,5 +1,7 @@
 package domain
 
+import "strings"
+
 // EnvironmentProvider is where a command job's environment comes from.
 type EnvironmentProvider string
 
@@ -86,16 +88,45 @@ func (e Environment) Validate() error {
 			p.addf("versions: %q needs a tool name and a command", tool)
 		}
 	}
+	prefixes := map[string]string{}
 	for _, name := range sortedKeys(e.Services) {
 		e.Services[name].check(name, &p)
+		v := ServiceVar(name)
+		if other, ok := prefixes[v]; ok {
+			p.addf("services %s and %s both give the job %s_HOST", other, name, v)
+		}
+		prefixes[v] = name
 	}
 	return p.err("environment " + e.Name)
+}
+
+// ValidImageRef reports whether s can be passed to Docker as an image: not
+// empty, no white space and not starting with '-', which a client would read
+// as a flag.
+func ValidImageRef(s string) bool {
+	return s != "" && !strings.HasPrefix(s, "-") && !strings.ContainsAny(s, " \t\r\n")
+}
+
+// ServiceVar is the prefix of the environment variables a service's name
+// gives the job (<PREFIX>_HOST, <PREFIX>_PORT): the name in upper case with
+// every character that is not a letter or digit turned into '_', so db-main
+// becomes DB_MAIN.
+func ServiceVar(name string) string {
+	return strings.Map(func(c rune) rune {
+		if c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' {
+			return c
+		}
+		return '_'
+	}, strings.ToUpper(name))
 }
 
 func (e Environment) checkProvider(p *problems) {
 	sources := len(nonEmpty(e.Image)) + len(nonEmpty(e.Dockerfile)) + len(nonEmpty(e.Devcontainer))
 	switch e.Provider {
 	case ProviderDocker:
+		if e.Image != "" && !ValidImageRef(e.Image) {
+			p.addf("image %q must not contain white space or start with '-'", e.Image)
+		}
 		if sources != 1 {
 			p.addf("docker needs exactly one of image, dockerfile or devcontainer")
 		}
@@ -115,6 +146,9 @@ func (e Environment) checkProvider(p *problems) {
 		if e.Provider == ProviderMachine && e.RunsOn != "" {
 			p.addf("runs_on is only for provider actions")
 		}
+		if len(e.Services) > 0 {
+			p.addf("services are only for provider docker")
+		}
 	default:
 		p.addf("provider must be docker, machine or actions, got %q", e.Provider)
 	}
@@ -126,6 +160,8 @@ func (s Service) check(name string, p *problems) {
 	}
 	if s.Image == "" {
 		p.addf("services.%s: image must be set", name)
+	} else if !ValidImageRef(s.Image) {
+		p.addf("services.%s: image %q must not contain white space or start with '-'", name, s.Image)
 	}
 	p.checkEnv("services."+name+".env", s.Env)
 	for _, port := range s.Ports {

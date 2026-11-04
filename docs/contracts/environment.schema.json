@@ -98,7 +98,7 @@
       "additionalProperties": {"type": "string", "minLength": 1}
     },
     "services": {
-      "description": "Service name -> container started next to the job on a per-job network (docker and machine workers need the docker label).",
+      "description": "Service name -> container started next to the job on a per-job network. Only for provider docker; machine and actions refuse them.",
       "type": "object",
       "propertyNames": {"$ref": "#/$defs/name"},
       "additionalProperties": {"$ref": "#/$defs/service"}
@@ -112,7 +112,7 @@
         "oneOf": [{"required": ["image"]}, {"required": ["dockerfile"]}, {"required": ["devcontainer"]}]
       },
       "else": {
-        "not": {"anyOf": [{"required": ["image"]}, {"required": ["dockerfile"]}, {"required": ["context"]}, {"required": ["devcontainer"]}]}
+        "not": {"anyOf": [{"required": ["image"]}, {"required": ["dockerfile"]}, {"required": ["context"]}, {"required": ["devcontainer"]}, {"required": ["services"]}]}
       }
     },
     {
