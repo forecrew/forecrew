@@ -59,6 +59,7 @@ type Store interface {
 	MCPTokens() MCPTokenRepo
 	Audit() AuditRepo
 	Artifacts() ArtifactRepo
+	TestRuns() TestRunRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
 	// must use the ctx passed to fn.
@@ -148,6 +149,7 @@ type ChangeFilter struct {
 	ProjectID uuid.UUID
 	TaskID    uuid.UUID
 	State     domain.ChangeState
+	HeadSHA   string // lowercase, compared exactly
 	Limit     int
 }
 
@@ -369,9 +371,9 @@ type ArtifactRepo interface {
 }
 
 // The repositories below belong to the testing system
-// (docs/contracts/data-model.md). They are contracts only: the tasks that
-// first use them add them to Store, with the Postgres implementation and the
-// testkit fake (TestRunRepo with command jobs, VerificationReportRepo with
+// (docs/contracts/data-model.md). TestRunRepo is in Store; the others are
+// contracts only: the tasks that first use them add them to Store, with the
+// Postgres implementation and the testkit fake (VerificationReportRepo with
 // verification reports).
 
 // TestRunFilter selects test runs; zero fields match everything.
@@ -393,6 +395,9 @@ type TestRunRepo interface {
 	List(ctx context.Context, accountID uuid.UUID, f TestRunFilter) ([]domain.TestRun, error)
 	// Results returns the results of a run by classname, then name.
 	Results(ctx context.Context, accountID, runID uuid.UUID) ([]domain.TestResult, error)
+	// Failures returns up to limit of the failed and errored results of a
+	// run, in the order of Results; a zero limit means all.
+	Failures(ctx context.Context, accountID, runID uuid.UUID, limit int) ([]domain.TestResult, error)
 }
 
 // VerificationReportRepo stores verification reports, one per change and

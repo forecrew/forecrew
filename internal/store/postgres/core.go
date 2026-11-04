@@ -367,5 +367,6 @@ func (r changeRepo) List(ctx context.Context, accountID uuid.UUID, f store.Chang
 	andNot(w, "project_id = ?", f.ProjectID)
 	andNot(w, "task_id = ?", f.TaskID)
 	andNot(w, "state = ?", string(f.State))
+	andNot(w, "head_sha = ?", f.HeadSHA)
 	return many(ctx, r.db, scanChange, `SELECT `+changeCols+` FROM changes`+w.sql("created_at, id", f.Limit), w.args...)
 }

@@ -216,6 +216,6 @@ func (r changeRepo) GetByPR(_ context.Context, accountID uuid.UUID, repo string,
 
 func (r changeRepo) List(_ context.Context, accountID uuid.UUID, f store.ChangeFilter) ([]domain.Change, error) {
 	return listRows(r.s, changesT, f.Limit, func(c domain.Change) bool {
-		return c.AccountID == accountID && zeroOr(f.ProjectID, c.ProjectID) && zeroOr(f.TaskID, c.TaskID) && zeroOr(f.State, c.State)
+		return c.AccountID == accountID && zeroOr(f.ProjectID, c.ProjectID) && zeroOr(f.TaskID, c.TaskID) && zeroOr(f.State, c.State) && zeroOr(f.HeadSHA, c.HeadSHA)
 	})
 }
