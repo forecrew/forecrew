@@ -36,6 +36,8 @@ type fakeRepo struct {
 	commentID int64
 	branches  map[string]bool
 	files     map[string][]byte // by ref and path, see fileKey
+	heads     map[string]string // branch to commit, see SetHeadOfBranch
+	commits   map[string]github.Commit // by path, see SetLastCommit
 	remote    string            // bare git repository, see UseRemote
 	autolinks []github.Autolink
 	forbidden bool // the discovery reads fail with github.ErrForbidden
@@ -59,7 +61,7 @@ func (t *Tracker) Install(repo string) {
 	t.repos[strings.ToLower(repo)] = &fakeRepo{
 		issues: map[int]*fakeIssue{}, prs: map[int]*github.PullRequest{}, labels: map[string]github.Label{},
 		checks: map[string]github.CheckStatus{}, reviews: map[int][]github.Review{},
-		branches: map[string]bool{}, files: map[string][]byte{},
+		branches: map[string]bool{}, files: map[string][]byte{}, heads: map[string]string{}, commits: map[string]github.Commit{},
 	}
 }
 

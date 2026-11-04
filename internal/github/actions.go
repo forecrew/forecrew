@@ -14,7 +14,8 @@ import (
 	gh "github.com/google/go-github/v93/github"
 )
 
-// ErrTooLarge means a download is larger than the caller allows.
+// ErrTooLarge means a download (a workflow artifact, a repo archive) or a
+// repo tree is larger than the caller allows.
 var ErrTooLarge = errors.New("github: download too large")
 
 // ErrGone means an artifact expired or was deleted (HTTP 410).

@@ -69,12 +69,17 @@ type Event struct {
 	IsPR        bool   // issue_comment on a pull request
 	ReviewState string // pull_request_review: approved, changes_requested, commented, ...
 	RunID       int64  // workflow_run: the run; SHA is its head and Conclusion its conclusion
+	// Push events: the ref pushed (refs/heads/main), the commit it pointed to
+	// before (SHA is the one after), and the default branch of the repo.
+	Ref           string
+	Before        string
+	DefaultBranch string
 }
 
 // ParseEvent parses a webhook payload. kind is the X-GitHub-Event header.
 func ParseEvent(kind string, payload []byte) (Event, error) {
 	switch kind {
-	case "issues", "issue_comment", "pull_request", "pull_request_review", "check_suite", "check_run", "status", "workflow_run":
+	case "issues", "issue_comment", "pull_request", "pull_request_review", "check_suite", "check_run", "status", "workflow_run", "push":
 	default:
 		return Event{}, fmt.Errorf("%w: %q", ErrUnsupportedEvent, kind)
 	}
@@ -117,6 +122,12 @@ func ParseEvent(kind string, payload []byte) (Event, error) {
 		run := p.GetWorkflowRun()
 		e.Action, e.Repo, e.Actor = p.GetAction(), p.GetRepo().GetFullName(), p.GetSender().GetLogin()
 		e.RunID, e.SHA, e.Conclusion = run.GetID(), run.GetHeadSHA(), run.GetConclusion()
+	case *gh.PushEvent:
+		e.Action, e.Repo, e.Actor = "pushed", p.GetRepo().GetFullName(), p.GetSender().GetLogin()
+		if p.GetDeleted() {
+			e.Action = "deleted"
+		}
+		e.Ref, e.Before, e.SHA, e.DefaultBranch = p.GetRef(), p.GetBefore(), p.GetAfter(), p.GetRepo().GetDefaultBranch()
 	case *gh.StatusEvent:
 		e.Repo, e.Actor = p.GetRepo().GetFullName(), p.GetSender().GetLogin()
 		e.SHA, e.Conclusion = p.GetSHA(), p.GetState()
