@@ -113,6 +113,23 @@ func (r knowledgeRepo) SetEmbedding(_ context.Context, accountID, id uuid.UUID, 
 	})
 }
 
+func (r knowledgeRepo) SupportsEmbeddings(context.Context) (bool, error) { return true, nil }
+
+func (r knowledgeRepo) WithoutEmbedding(_ context.Context, accountID, projectID uuid.UUID, limit int) ([]domain.KnowledgeEntry, error) {
+	return read(r.s, func(d *storeData) ([]domain.KnowledgeEntry, error) {
+		var out []domain.KnowledgeEntry
+		for _, e := range d.knowledge.rows {
+			if e.AccountID == accountID && e.ProjectID == projectID && d.embeddings[e.ID] == nil {
+				out = append(out, e)
+			}
+		}
+		slices.SortFunc(out, func(a, b domain.KnowledgeEntry) int {
+			return cmp.Or(a.UpdatedAt.Compare(b.UpdatedAt), cmp.Compare(a.Path, b.Path))
+		})
+		return out[:min(len(out), limit)], nil
+	})
+}
+
 func (r knowledgeRepo) MarkReverify(_ context.Context, accountID uuid.UUID, ids []uuid.UUID, reason string) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
 		for i := range d.knowledge.rows {

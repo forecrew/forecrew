@@ -163,6 +163,19 @@ func (r knowledgeRepo) SetEmbedding(ctx context.Context, accountID, id uuid.UUID
 		accountID, id, vectorLiteral(embedding))
 }
 
+func (r knowledgeRepo) SupportsEmbeddings(ctx context.Context) (bool, error) {
+	return r.vec.exists(ctx, r.db)
+}
+
+func (r knowledgeRepo) WithoutEmbedding(ctx context.Context, accountID, projectID uuid.UUID, limit int) ([]domain.KnowledgeEntry, error) {
+	ok, err := r.vec.exists(ctx, r.db)
+	if err != nil || !ok {
+		return nil, err
+	}
+	return many(ctx, r.db, scanKnowledge, `SELECT `+knowledgeCols+` FROM knowledge_entries
+		WHERE account_id = $1 AND project_id = $2 AND embedding IS NULL ORDER BY updated_at, path LIMIT $3`, accountID, projectID, limit)
+}
+
 func (r knowledgeRepo) MarkReverify(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID, reason string) error {
 	_, err := r.db.Exec(ctx, `UPDATE knowledge_entries SET needs_reverify = true, reverify_reason = $3, updated_at = now()
 		WHERE account_id = $1 AND id = ANY($2)`, accountID, ids, reason)

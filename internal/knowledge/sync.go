@@ -112,6 +112,7 @@ func (s *Syncer) Sync(ctx context.Context, p domain.Project, before, head string
 	lock, _ := s.locks.LoadOrStore(p.ID, &sync.Mutex{})
 	lock.(*sync.Mutex).Lock()
 	defer lock.(*sync.Mutex).Unlock()
+	s.backfill(ctx, p)
 	if head == "" {
 		var err error
 		if head, err = s.API.HeadSHA(ctx, p.Repo, p.DefaultBranch); err != nil {
@@ -144,6 +145,18 @@ func (s *Syncer) Sync(ctx context.Context, p domain.Project, before, head string
 		s.synced.Store(p.ID, head)
 	}
 	return res, err
+}
+
+// MaxBackfill is how many entries without an embedding one Sync tries to
+// embed again.
+const MaxBackfill = 100
+
+// backfill embeds entries whose embedding failed earlier. A failure is
+// logged: it must not stop the sync.
+func (s *Syncer) backfill(ctx context.Context, p domain.Project) {
+	if _, err := s.Index.Backfill(ctx, p.AccountID, p.ID, MaxBackfill); err != nil {
+		s.log().WarnContext(ctx, "embed the knowledge entries without an embedding", "project", p.Name, "error", err)
+	}
 }
 
 // loadPolicy reads the policy file at the commit, or builds the default

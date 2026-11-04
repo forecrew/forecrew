@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // EmbeddingDimensions is the size of every embedding in the index
@@ -23,12 +25,52 @@ type Embedder interface {
 	Embed(ctx context.Context, texts []string) ([][]float32, error)
 }
 
-// Limits of one OpenAI embeddings request: texts per call, and the runes
-// of a text (the model reads 8191 tokens; longer text is cut).
+// Limits of the OpenAI embeddings API are in tokens (8192 per input, 300000
+// per request, 2048 inputs). Tokens are estimated by bytes at one token per
+// byte, the worst case of a byte-level tokenizer, so no text can go over:
+// an input is cut to embedMaxBytes (under 8192 tokens) and a request holds at
+// most embedRequestBytes (a third of the request limit) in at most
+// embedBatch inputs.
 const (
-	embedBatch   = 64
-	embedMaxRune = 20000
+	embedBatch        = 64
+	embedMaxBytes     = 8000
+	embedRequestBytes = 100_000
 )
+
+// cutText returns s cut to max bytes at a character boundary.
+func cutText(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	for limit > 0 && !utf8.RuneStart(s[limit]) {
+		limit--
+	}
+	return s[:limit]
+}
+
+// embedRequests cuts the texts to the input limit and splits them into
+// requests that respect the count and byte limits. Each request is a run of
+// consecutive texts: ranges[i] says which.
+func embedRequests(texts []string) (inputs []string, ranges [][2]int) {
+	inputs = make([]string, len(texts))
+	start, size := 0, 0
+	for i, t := range texts {
+		t = cutText(t, embedMaxBytes)
+		if strings.TrimSpace(t) == "" {
+			t = " " // the API refuses an empty input
+		}
+		inputs[i] = t
+		if i > start && (i-start == embedBatch || size+len(t) > embedRequestBytes) {
+			ranges = append(ranges, [2]int{start, i})
+			start, size = i, 0
+		}
+		size += len(t)
+	}
+	if start < len(inputs) {
+		ranges = append(ranges, [2]int{start, len(inputs)})
+	}
+	return inputs, ranges
+}
 
 // OpenAI is an Embedder over the OpenAI embeddings API.
 type OpenAI struct {
@@ -46,9 +88,10 @@ var _ Embedder = (*OpenAI)(nil)
 
 // Embed implements Embedder.
 func (o *OpenAI) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	inputs, ranges := embedRequests(texts)
 	var out [][]float32
-	for start := 0; start < len(texts); start += embedBatch {
-		part, err := o.embed(ctx, texts[start:min(start+embedBatch, len(texts))])
+	for _, r := range ranges {
+		part, err := o.embed(ctx, inputs[r[0]:r[1]])
 		if err != nil {
 			return nil, err
 		}
@@ -67,14 +110,12 @@ func (o *OpenAI) embed(ctx context.Context, texts []string) ([][]float32, error)
 			Index     int       `json:"index"`
 			Embedding []float32 `json:"embedding"`
 		} `json:"data"`
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
 	}
 	decodeErr := json.Unmarshal(raw, &answer)
 	switch {
 	case status != http.StatusOK:
-		return nil, fmt.Errorf("embed: status %d: %s", status, answer.Error.Message)
+		// Only the status: the answer may quote the text that was sent.
+		return nil, fmt.Errorf("embed: the API answered status %d", status)
 	case decodeErr != nil:
 		return nil, fmt.Errorf("embed: decode answer: %w", decodeErr)
 	}
@@ -95,16 +136,7 @@ func (o *OpenAI) embed(ctx context.Context, texts []string) ([][]float32, error)
 
 // post sends one embeddings request and returns the answer body and status.
 func (o *OpenAI) post(ctx context.Context, texts []string) (body []byte, status int, err error) {
-	in := make([]string, len(texts))
-	for i, t := range texts {
-		if r := []rune(t); len(r) > embedMaxRune {
-			t = string(r[:embedMaxRune])
-		}
-		if t == "" {
-			t = " " // the API refuses an empty input
-		}
-		in[i] = t
-	}
+	in := texts // already cut and split by embedRequests
 	model, base, client := o.Model, o.BaseURL, o.HTTP
 	if model == "" {
 		model = "text-embedding-3-small"
