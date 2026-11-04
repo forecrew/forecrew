@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -71,9 +72,8 @@ type Provider struct {
 	freed    chan struct{}
 	wg       sync.WaitGroup
 
-	mu      sync.Mutex
-	workers map[uuid.UUID]domain.Worker
-	wakers  map[int64]chan struct{}
+	mu     sync.Mutex
+	wakers map[int64]chan struct{}
 }
 
 // New returns a Provider.
@@ -96,7 +96,7 @@ func New(cfg Config) *Provider {
 	if cfg.Now == nil {
 		cfg.Now = func() time.Time { return time.Now().UTC() }
 	}
-	return &Provider{cfg: cfg, freed: make(chan struct{}, 1), workers: map[uuid.UUID]domain.Worker{}, wakers: map[int64]chan struct{}{}}
+	return &Provider{cfg: cfg, freed: make(chan struct{}, 1), wakers: map[int64]chan struct{}{}}
 }
 
 // Run leases and follows jobs until ctx ends, then cancels the runs it still
@@ -174,44 +174,49 @@ func (p *Provider) leaseFor(ctx context.Context, account uuid.UUID, w domain.Wor
 // ones meanwhile only if its context is done.
 func (p *Provider) Wait() { p.wg.Wait() }
 
+// providerVersion marks the worker row the provider created; no worker API
+// client reports it.
+const providerVersion = "forecrewd-actions-provider"
+
 // worker returns the account's worker row of pool actions, creating it on
-// first use. Its token hash is random and its token is never issued, so it
-// cannot call the worker API.
+// first use, and records it as seen so that queued jobs of the pool do not
+// look like they wait for a worker. It reads the row every time: LeaseNext
+// follows the pool stored in the database. Its token hash is random and its
+// token is never issued, so it cannot call the worker API. A row of that
+// name the provider did not create, or one that left the pool, is an error.
 func (p *Provider) worker(ctx context.Context, account uuid.UUID) (domain.Worker, error) {
-	p.mu.Lock()
-	w, ok := p.workers[account]
-	p.mu.Unlock()
-	if ok {
-		return w, nil
-	}
 	list, err := p.cfg.Store.Workers().List(ctx, account)
 	if err != nil {
 		return domain.Worker{}, fmt.Errorf("list workers: %w", err)
 	}
-	for _, c := range list {
-		if c.Name == WorkerName {
-			w, ok = c, true
-		}
-	}
-	if !ok {
+	i := slices.IndexFunc(list, func(w domain.Worker) bool { return w.Name == WorkerName })
+	if i < 0 {
 		var secret [32]byte
 		if _, err := rand.Read(secret[:]); err != nil {
 			return domain.Worker{}, fmt.Errorf("make worker secret: %w", err)
 		}
-		w = domain.Worker{AccountID: account, Name: WorkerName, Pool: domain.PoolActions, TokenHash: mcp.HashToken(string(secret[:])), MaxJobs: p.cfg.MaxInFlight}
+		w := domain.Worker{
+			AccountID: account, Name: WorkerName, Pool: domain.PoolActions, TokenHash: mcp.HashToken(string(secret[:])),
+			Version: providerVersion, MaxJobs: p.cfg.MaxInFlight,
+		}
 		if err := p.cfg.Store.Workers().Create(ctx, &w); err != nil {
 			return domain.Worker{}, fmt.Errorf("create worker %s: %w", WorkerName, err)
 		}
+		list = append(list, w)
+		i = len(list) - 1
 	}
-	if w.Pool != domain.PoolActions {
-		if err := p.cfg.Store.Workers().SetPool(ctx, account, w.ID, domain.PoolActions); err != nil {
-			return domain.Worker{}, fmt.Errorf("move worker %s to pool actions: %w", WorkerName, err)
-		}
-		w.Pool = domain.PoolActions
+	w := list[i]
+	switch {
+	case w.Version != providerVersion:
+		return domain.Worker{}, fmt.Errorf("worker %s exists but the provider did not create it: revoke or rename it", WorkerName)
+	case w.Revoked():
+		return domain.Worker{}, fmt.Errorf("worker %s is revoked", WorkerName)
+	case w.Pool != domain.PoolActions:
+		return domain.Worker{}, fmt.Errorf("worker %s is in pool %s, not %s", WorkerName, w.Pool, domain.PoolActions)
 	}
-	p.mu.Lock()
-	p.workers[account] = w
-	p.mu.Unlock()
+	if err := p.cfg.Store.Workers().Seen(ctx, account, w.ID, nil, providerVersion); err != nil {
+		return domain.Worker{}, fmt.Errorf("record worker %s as seen: %w", WorkerName, err)
+	}
 	return w, nil
 }
 
