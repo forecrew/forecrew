@@ -89,7 +89,7 @@ func (e *env) checkDispatch(j domain.Job) {
 		e.t.Fatalf("dispatches = %+v", ds)
 	}
 	in := ds[0].Inputs
-	if in["job_id"] != j.ID.String() || in["ref"] != "agent/task-1" || in["runs_on"] != "ubuntu-24.04" || in["reports"] != "reports/*.xml" || in["artifacts"] != "coverage.out" {
+	if in["job_id"] != j.ID.String() || in["ref"] != "" || in["runs_on"] != "ubuntu-24.04" || in["reports"] != "reports/*.xml" || in["artifacts"] != "coverage.out" {
 		e.t.Errorf("inputs = %v", in)
 	}
 	var p payload
@@ -285,7 +285,7 @@ func TestRunWithoutResult(t *testing.T) {
 				}
 				return
 			}
-			if len(runs) != 1 || runs[0].Status != domain.TestRunErrored || runs[0].SHA != "feed"+head[4:] {
+			if len(runs) != 1 || runs[0].Status != domain.TestRunErrored || runs[0].SHA != head {
 				t.Fatalf("runs = %+v", runs)
 			}
 			if r := e.results(runs[0]); len(r) != 1 || !strings.Contains(r[0], tt.suiteHas) {
@@ -539,6 +539,82 @@ func TestNotifyWakesTheRun(t *testing.T) {
 	if got := e.job(j); got.Status != domain.JobSucceeded {
 		t.Errorf("job = %s %q", got.Status, got.Error)
 	}
+}
+
+// The commit a job tested is the one the provider expects, not the one the
+// repo's workflow claims.
+func TestReportedCommitIsChecked(t *testing.T) {
+	const asked = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	tests := []struct {
+		name     string
+		edit     func(s *domain.JobSpec)
+		claimed  string
+		wantSHA  string
+		wantText string
+	}{
+		{"branch, honest", nil, head, head, ""},
+		{"branch, claims another commit", nil, asked, head, "tested commit"},
+		{"branch, claims none", nil, "", head, "tested commit"},
+		{"commit, honest", func(s *domain.JobSpec) { s.Branch, s.BaseRef = "", asked }, asked, asked, ""},
+		{"commit, claims the run's head", func(s *domain.JobSpec) { s.Branch, s.BaseRef = "", asked }, head, asked, "not the requested " + asked},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			var opts []jobOpts
+			if tt.edit != nil {
+				opts = append(opts, withSpec(tt.edit))
+			}
+			j := e.newJob(opts...)
+			res := strings.Replace(resultJSON(0), head, tt.claimed, 1)
+			e.finishesWith(j, "success", map[string]string{ResultFile: res, "reports/a.xml": `<testsuite><testcase name="a"/></testsuite>`})
+			e.poll()
+			got := e.job(j)
+			runs := e.testRuns(j)
+			if got.Status != domain.JobSucceeded || got.HeadSHA != tt.wantSHA || len(runs) != 1 || runs[0].SHA != tt.wantSHA {
+				t.Fatalf("job %s head %q runs %+v", got.Status, got.HeadSHA, runs)
+			}
+			if tt.wantText == "" {
+				if runs[0].Status != domain.TestRunPassed {
+					t.Errorf("run = %+v", runs[0])
+				}
+				return
+			}
+			if rs := e.results(runs[0]); runs[0].Status != domain.TestRunErrored || len(rs) != 1 || !strings.Contains(rs[0], tt.wantText) {
+				t.Errorf("run = %+v results %q", runs[0], rs)
+			}
+		})
+	}
+}
+
+// Errored and timed-out runs of a job that asked for a commit land on it.
+func TestCommitJobsKeepTheirCommit(t *testing.T) {
+	const asked = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	commit := withSpec(func(s *domain.JobSpec) { s.Branch, s.BaseRef = "", asked })
+	t.Run("no artifact", func(t *testing.T) {
+		e := newEnv(t)
+		j := e.newJob(commit)
+		e.finishesWith(j, "success", nil)
+		e.poll()
+		if runs := e.testRuns(j); len(runs) != 1 || runs[0].SHA != asked || e.job(j).HeadSHA != asked {
+			t.Errorf("runs = %+v", runs)
+		}
+		if ds := e.gh.Dispatches(); len(ds) != 1 || ds[0].Ref != "main" || ds[0].Inputs["ref"] != asked {
+			t.Errorf("dispatches = %+v", ds)
+		}
+	})
+	t.Run("timeout", func(t *testing.T) {
+		e := newEnv(t)
+		j := e.newJob(commit, withSpec(func(s *domain.JobSpec) { s.Timeout = domain.Duration(time.Minute) }))
+		e.gh.OnDispatch = func(testkit.Dispatch) *testkit.ActionsRun {
+			e.clock.Advance(time.Hour)
+			return &testkit.ActionsRun{HeadSHA: head, Polls: 1 << 20}
+		}
+		e.poll()
+		if runs := e.testRuns(j); len(runs) != 1 || runs[0].SHA != asked || e.job(j).HeadSHA != asked {
+			t.Errorf("runs = %+v", runs)
+		}
+	})
 }
 
 func TestWorkflowMessageIsBounded(t *testing.T) {

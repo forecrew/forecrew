@@ -25,9 +25,9 @@ func TestPlan(t *testing.T) {
 		ref    string
 		checks map[string]string
 	}{
-		{"branch", func(s *domain.JobSpec) { s.Branch = "agent/x" }, "agent/x", map[string]string{"ref": "agent/x", "runs_on": "windows-2025", "reports": "r/*.xml\ns.xml", "overlay_ref": ""}},
-		{"base branch", func(*domain.JobSpec) {}, "main", map[string]string{"ref": "main"}},
-		{"base commit runs the workflow of the default branch", func(s *domain.JobSpec) { s.BaseRef = "0123456789abcdef0123456789abcdef01234567" }, "trunk",
+		{"branch", func(s *domain.JobSpec) { s.Branch = "agent/x" }, "agent/x", map[string]string{"ref": "", "runs_on": "windows-2025", "reports": "r/*.xml\ns.xml", "overlay_ref": ""}},
+		{"base branch", func(*domain.JobSpec) {}, "main", map[string]string{"ref": ""}},
+		{"base commit runs the workflow of the default branch", func(s *domain.JobSpec) { s.BaseRef = "0123456789ABCDEF0123456789abcdef01234567" }, "trunk",
 			map[string]string{"ref": "0123456789abcdef0123456789abcdef01234567"}},
 		{"overlay", func(s *domain.JobSpec) {
 			s.Overlay = &domain.Overlay{Ref: "agent/x", Paths: []string{"a_test.go", "b/**"}}
@@ -93,5 +93,16 @@ func TestPlanPayload(t *testing.T) {
 	}
 	if _, has := m["argv"]; has || m["shell"] != "make test" || m["workdir"] != "sub" {
 		t.Errorf("payload = %v", m)
+	}
+}
+
+func TestPlanCommit(t *testing.T) {
+	s := spec()
+	if p, _ := plan(s, "trunk"); p.Commit != "" {
+		t.Errorf("a branch job has commit %q", p.Commit)
+	}
+	s.BaseRef = "0123456789ABCDEF0123456789abcdef01234567"
+	if p, _ := plan(s, "trunk"); p.Commit != "0123456789abcdef0123456789abcdef01234567" {
+		t.Errorf("commit = %q", p.Commit)
 	}
 }

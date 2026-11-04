@@ -176,7 +176,7 @@ func resultJSON(code int) string {
 // finishesWith makes the dispatched run end with the artifact of files.
 func (e *env) finishesWith(_ domain.Job, conclusion string, files map[string]string) {
 	e.gh.OnDispatch = func(d testkit.Dispatch) *testkit.ActionsRun {
-		run := &testkit.ActionsRun{Conclusion: conclusion, HeadSHA: "feed" + head[4:], Polls: 1}
+		run := &testkit.ActionsRun{Conclusion: conclusion, HeadSHA: head, Polls: 1}
 		if files != nil {
 			run.Artifact, run.ArtifactName = testkit.Zip(files), ArtifactPrefix+d.Inputs["job_id"]
 		}

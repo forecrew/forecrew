@@ -26,8 +26,8 @@ type payload struct {
 }
 
 var (
-	commitSHA = regexp.MustCompile(`^[0-9a-fA-F]{7,40}$`)
-	shortSHA  = regexp.MustCompile(`^[0-9a-fA-F]{7,39}$`)
+	fullSHA  = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+	shortSHA = regexp.MustCompile(`^[0-9a-fA-F]{7,39}$`)
 )
 
 // dispatchPlan is how a job is dispatched.
@@ -36,6 +36,9 @@ type dispatchPlan struct {
 	// takes a branch or tag, never a commit).
 	Ref    string
 	Inputs map[string]string
+	// Commit is the full SHA to test when the job names a commit, else "":
+	// a branch is tested at the head the run is dispatched on.
+	Commit string
 }
 
 // errNotRunnable means the job cannot run on Actions; the job fails with
@@ -71,14 +74,23 @@ func plan(spec domain.JobSpec, defaultBranch string) (dispatchPlan, error) {
 	if shortSHA.MatchString(checkout) {
 		return dispatchPlan{}, fmt.Errorf("%w: %q looks like a short commit SHA, which cannot be told from a branch; use the full 40 characters", errNotRunnable, checkout)
 	}
+	pl := dispatchPlan{Ref: checkout}
 	in := map[string]string{
 		"job_id":    spec.JobID.String(),
-		"ref":       checkout,
 		"runs_on":   env.RunsOn,
 		"payload":   string(raw),
 		"reports":   strings.Join(c.Reports, "\n"),
 		"artifacts": strings.Join(c.Artifacts, "\n"),
 	}
+	if fullSHA.MatchString(checkout) {
+		// workflow_dispatch takes a branch, not a commit: the default
+		// branch's workflow checks the commit out.
+		pl.Ref, pl.Commit = defaultBranch, strings.ToLower(checkout)
+		in["ref"] = pl.Commit
+	}
+	// A branch is checked out at the head it was dispatched on: the
+	// workflow's checkout takes it from the event when ref is empty, so the
+	// branch cannot move between the dispatch and the checkout.
 	if o := spec.Overlay; o != nil {
 		in["overlay_ref"], in["overlay_paths"] = o.Ref, strings.Join(o.Paths, "\n")
 	}
@@ -92,9 +104,6 @@ func plan(spec domain.JobSpec, defaultBranch string) (dispatchPlan, error) {
 	if size > maxInputBytes {
 		return dispatchPlan{}, fmt.Errorf("%w: the command and its environment are %d bytes, over the %d GitHub accepts as workflow inputs", errNotRunnable, size, maxInputBytes)
 	}
-	ref := checkout
-	if commitSHA.MatchString(ref) {
-		ref = defaultBranch
-	}
-	return dispatchPlan{Ref: ref, Inputs: in}, nil
+	pl.Inputs = in
+	return pl, nil
 }
