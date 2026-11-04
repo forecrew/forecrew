@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -94,16 +95,17 @@ func leaseEnd(sent, server time.Time) time.Time {
 
 // jobRun is the execution of one leased job.
 type jobRun struct {
-	w     *Worker
-	spec  domain.JobSpec
-	write bool // a writing role
-	log   *slog.Logger
-	red   *runtime.Redactor
-	ev    *eventBuffer
-	cache string // repo cache
-	dir   string // job worktree
-	lease *leaseClock
-	stop  context.CancelCauseFunc
+	w       *Worker
+	spec    domain.JobSpec
+	write   bool // a writing role
+	log     *slog.Logger
+	red     *runtime.Redactor
+	ev      *eventBuffer
+	cache   string // repo cache
+	dir     string // job worktree
+	scratch string // evidence scratch directory, next to dir
+	lease   *leaseClock
+	stop    context.CancelCauseFunc
 
 	attachMu sync.Mutex
 	attach   []Attachment // marked by the agent, one per artifact name
@@ -143,6 +145,7 @@ func (w *Worker) handleJob(ctx context.Context, lease *Lease) {
 	if validRepo(spec.Repo) {
 		r.cache = filepath.Join(w.cfg.WorkDir, "repos", strings.ToLower(spec.Repo)+".git")
 		r.dir = filepath.Join(w.cfg.WorkDir, "jobs", spec.JobID.String())
+		r.scratch = r.dir + ".evidence"
 	}
 
 	jobCtx, stop := context.WithCancelCause(ctx)
@@ -324,6 +327,21 @@ func (r *jobRun) validate() error {
 	return nil
 }
 
+// makeScratch creates the evidence scratch directory.
+func (r *jobRun) makeScratch() error {
+	if err := os.MkdirAll(r.scratch, 0o750); err != nil {
+		return fmt.Errorf("create evidence directory: %w", err)
+	}
+	return nil
+}
+
+// removeScratch deletes the evidence scratch directory, logging a failure.
+func (r *jobRun) removeScratch() {
+	if err := os.RemoveAll(r.scratch); err != nil {
+		r.log.Warn("remove evidence directory", "error", r.red.String(err.Error()))
+	}
+}
+
 // execute runs the job and returns what to report. When the job was stopped
 // from outside (context canceled) the returned completion is not used.
 func (r *jobRun) execute(ctx context.Context) Completion {
@@ -340,8 +358,12 @@ func (r *jobRun) execute(ctx context.Context) Completion {
 		BaseRef: r.spec.BaseRef, Branch: r.spec.Branch, Write: r.write,
 	})
 	defer g.remove(context.WithoutCancel(ctx), r.cache, r.dir)
+	defer r.removeScratch()
 	if err != nil {
 		return r.retry("prepare workspace: %v", err)
+	}
+	if err := r.makeScratch(); err != nil {
+		return r.retry("%v", err)
 	}
 
 	prompt := r.spec.Prompt
@@ -427,6 +449,7 @@ func (r *jobRun) runAgent(ctx context.Context, prompt string) (runtime.Result, e
 	}
 	mark := r.spec.JobID.String()
 	env[markEnv] = mark
+	env[runtime.EvidenceDirEnv] = r.scratch
 	var gateway *runtime.JobMCP
 	if m := r.spec.JobMCP; m != nil {
 		// The token goes in the environment only; the runtime's MCP
@@ -438,7 +461,7 @@ func (r *jobRun) runAgent(ctx context.Context, prompt string) (runtime.Result, e
 	res, err := adapter.Run(ctx, runtime.RunSpec{
 		WorkDir: r.dir, Model: r.spec.Model, Prompt: prompt, OutputSchema: r.spec.OutputSchema,
 		AllowedTools: r.spec.AllowedTools, MaxTurns: r.spec.MaxTurns,
-		Timeout: time.Duration(r.spec.Timeout), Env: env, JobMCP: gateway,
+		Timeout: time.Duration(r.spec.Timeout), Env: env, JobMCP: gateway, EvidenceDir: r.scratch,
 	}, r.ev.add)
 	if n := r.w.reaper.agentDone(mark); n > 0 {
 		r.log.Warn("killed processes the agent left running", "count", n)

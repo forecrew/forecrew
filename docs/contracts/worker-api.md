@@ -150,7 +150,7 @@ earlier one. The worker acknowledges what it holds by sending the same
 entries as `attach_received` in its next heartbeat; until then they are sent
 again, so a lost answer loses nothing, and the worker keeps one entry per
 name. It uploads each through `PUT .../artifacts/{name}` with the rules of
-`command.artifacts` (inside the work tree, no symlinks), and sends one more
+`command.artifacts` (inside the work tree or the scratch directory, no symlinks), and sends one more
 heartbeat after the runtime exits to collect the last ones before `complete`.
 `complete` and a `cancel` answer drop what is left.
 
