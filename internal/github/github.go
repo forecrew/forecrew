@@ -5,6 +5,7 @@ package github
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 )
 
@@ -27,6 +28,46 @@ var (
 	// granted (HTTP 403).
 	ErrForbidden = errors.New("github: forbidden")
 )
+
+// TreeEntry is a file (blob) of a repo tree.
+type TreeEntry struct {
+	Path string `json:"path"`
+	SHA  string `json:"sha"` // blob SHA
+	Size int    `json:"size"`
+}
+
+// File change states of a Comparison.
+const (
+	FileAdded    = "added"
+	FileModified = "modified"
+	FileRemoved  = "removed"
+	FileRenamed  = "renamed"
+)
+
+// FileChange is a file that differs between two commits.
+type FileChange struct {
+	Path string `json:"path"`
+	// PreviousPath is the old path of a renamed file.
+	PreviousPath string `json:"previous_path,omitempty"`
+	Status       string `json:"status"` // FileAdded, FileModified, FileRemoved or FileRenamed
+	SHA          string `json:"sha"`    // blob SHA after the change
+	// Patch is the unified diff of the file; empty for a binary file or a
+	// diff GitHub left out as too large.
+	Patch string `json:"patch,omitempty"`
+}
+
+// Comparison is the difference between two commits.
+type Comparison struct {
+	Files []FileChange `json:"files"`
+}
+
+// Commit is a commit of a repo.
+type Commit struct {
+	SHA    string    `json:"sha"`
+	Author string    `json:"author"` // GitHub login, or the git author name
+	Bot    bool      `json:"bot"`    // the author is a GitHub App or other bot
+	Time   time.Time `json:"time"`
+}
 
 // Issue is a GitHub issue.
 type Issue struct {
@@ -232,6 +273,19 @@ type Tracker interface {
 	// branch, tag or commit SHA). ErrNotFound when the file or ref does not
 	// exist or path is a directory.
 	GetFile(ctx context.Context, repo, ref, path string) ([]byte, error)
+	// Tree returns the files of the repo at ref (a branch, tag or commit
+	// SHA), sorted by path. ErrTooLarge when GitHub truncates the tree.
+	Tree(ctx context.Context, repo, ref string) ([]TreeEntry, error)
+	// Compare returns the files that changed from base to head.
+	Compare(ctx context.Context, repo, base, head string) (Comparison, error)
+	// LastCommit returns the latest commit at ref that changed path;
+	// ErrNotFound when none did.
+	LastCommit(ctx context.Context, repo, ref, path string) (Commit, error)
+	// HeadSHA returns the commit a branch points to.
+	HeadSHA(ctx context.Context, repo, branch string) (string, error)
+	// Archive returns the repo at ref as a gzipped tarball. The caller
+	// closes it and limits how much it reads.
+	Archive(ctx context.Context, repo, ref string) (io.ReadCloser, error)
 	// CheckStatus aggregates the check runs and commit statuses of sha.
 	CheckStatus(ctx context.Context, repo, sha string) (CheckStatus, error)
 	// MergePR merges and returns the merge commit SHA; ErrNotMergeable when

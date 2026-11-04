@@ -1,6 +1,11 @@
 package testkit
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -266,4 +271,111 @@ func TestTrackerDiscoveryReads(t *testing.T) {
 	wantErr(t, err, github.ErrNotInstalled)
 	wantErr(t, tr.AddAutolink("acme/other", github.Autolink{}), github.ErrNotInstalled)
 	wantErr(t, tr.Forbid("acme/other"), github.ErrNotInstalled)
+}
+
+func repoWithTwoCommits(t *testing.T) *Tracker {
+	t.Helper()
+	tr := NewTracker(nil)
+	tr.Install("acme/app")
+	for ref, files := range map[string]map[string]string{
+		"before": {"README.md": "# App\n", "internal/old.go": "package old\nfunc Old() {}\n", "keep.go": "package keep\nfunc Keep() {}\n"},
+		"after":  {"README.md": "# App v2\n", "internal/new.go": "package old\nfunc Old() {}\n", "keep.go": "package keep\nfunc Keep() {}\n", "added.go": "package a\nfunc Added() {}\n"},
+	} {
+		for p, c := range files {
+			must(t, tr.SetFile("acme/app", ref, p, []byte(c)))
+		}
+	}
+	return tr
+}
+
+func TestTrackerTree(t *testing.T) {
+	tr := repoWithTwoCommits(t)
+	tree, err := tr.Tree(t.Context(), "acme/app", "before")
+	if err != nil || len(tree) != 3 || tree[0].Path != "README.md" || len(tree[0].SHA) != 40 {
+		t.Fatalf("tree = %+v, %v", tree, err)
+	}
+	// An empty file has git's well-known blob ID.
+	if got := blobSHA(nil); got != "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391" {
+		t.Errorf("blob sha of an empty file = %s", got)
+	}
+	if _, err := tr.Tree(t.Context(), "acme/app", "gone"); !errors.Is(err, github.ErrNotFound) {
+		t.Errorf("tree of an unknown ref: %v", err)
+	}
+}
+
+func TestTrackerCompare(t *testing.T) {
+	tr := repoWithTwoCommits(t)
+	ctx := t.Context()
+	cmp, err := tr.Compare(ctx, "acme/app", "before", "after")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]github.FileChange{}
+	for _, f := range cmp.Files {
+		got[f.Path] = f
+	}
+	if len(got) != 3 || got["README.md"].Status != github.FileModified || !strings.Contains(got["README.md"].Patch, "+# App v2") ||
+		got["internal/new.go"].Status != github.FileRenamed || got["internal/new.go"].PreviousPath != "internal/old.go" ||
+		got["added.go"].Status != github.FileAdded {
+		t.Errorf("comparison = %+v", cmp)
+	}
+	back, _ := tr.Compare(ctx, "acme/app", "after", "before")
+	var removed []string
+	for _, f := range back.Files {
+		if f.Status == github.FileRemoved {
+			removed = append(removed, f.Path)
+		}
+	}
+	if !slices.Equal(removed, []string{"added.go"}) {
+		t.Errorf("removed = %v", removed)
+	}
+	if _, err := tr.Compare(ctx, "acme/app", "before", "gone"); !errors.Is(err, github.ErrNotFound) {
+		t.Errorf("compare with an unknown ref: %v", err)
+	}
+}
+
+func TestTrackerCommitsAndHeads(t *testing.T) {
+	tr := repoWithTwoCommits(t)
+	ctx := t.Context()
+	c, err := tr.LastCommit(ctx, "acme/app", "after", "keep.go")
+	if err != nil || c.Author != "octocat" {
+		t.Errorf("default commit = %+v, %v", c, err)
+	}
+	must(t, tr.SetLastCommit("acme/app", "keep.go", github.Commit{SHA: "x", Author: "bot", Bot: true}))
+	if c, _ = tr.LastCommit(ctx, "acme/app", "after", "keep.go"); !c.Bot {
+		t.Errorf("set commit = %+v", c)
+	}
+	if _, err := tr.LastCommit(ctx, "acme/app", "after", "nope"); !errors.Is(err, github.ErrNotFound) {
+		t.Errorf("commit of a missing file: %v", err)
+	}
+	if _, err := tr.HeadSHA(ctx, "acme/app", "main"); !errors.Is(err, github.ErrNotFound) {
+		t.Errorf("head of an unknown branch: %v", err)
+	}
+	must(t, tr.SetHeadOfBranch("acme/app", "main", "after"))
+	if sha, err := tr.HeadSHA(ctx, "acme/app", "main"); err != nil || sha != "after" {
+		t.Errorf("head = %q, %v", sha, err)
+	}
+}
+
+func TestTrackerArchive(t *testing.T) {
+	tr := repoWithTwoCommits(t)
+	rc, err := tr.Archive(t.Context(), "acme/app", "after")
+	must(t, err)
+	gz, err := gzip.NewReader(rc)
+	must(t, err)
+	tr2 := tar.NewReader(gz)
+	var names []string
+	for {
+		h, err := tr2.Next()
+		if err != nil {
+			break
+		}
+		names = append(names, h.Name)
+	}
+	if len(names) != 4 || names[0] != "acme-app-after/README.md" {
+		t.Errorf("archive = %v", names)
+	}
+	if _, err := tr.Archive(t.Context(), "acme/app", "gone"); !errors.Is(err, github.ErrNotFound) {
+		t.Errorf("archive of an unknown ref: %v", err)
+	}
 }

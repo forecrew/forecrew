@@ -104,6 +104,14 @@ func TestParseEvent(t *testing.T) {
 		{"check_run", "check_run_failed.json", github.Event{
 			Kind: "check_run", Action: "completed", Repo: exRepo, Number: 2, Actor: "Codertocat", SHA: exSHA, Conclusion: "failure",
 		}},
+		{"push", "push_main.json", github.Event{
+			Kind: "push", Action: "pushed", Repo: exRepo, Actor: "Codertocat", Ref: "refs/heads/main", DefaultBranch: "main",
+			Before: "1111111111111111111111111111111111111111", SHA: "2222222222222222222222222222222222222222",
+		}},
+		{"push", "push_deleted.json", github.Event{
+			Kind: "push", Action: "deleted", Repo: exRepo, Actor: "Codertocat", Ref: "refs/heads/old", DefaultBranch: "main",
+			Before: "1111111111111111111111111111111111111111", SHA: "0000000000000000000000000000000000000000",
+		}},
 		{"status", "status.json", github.Event{
 			Kind: "status", Repo: exRepo, Actor: "Codertocat", SHA: "6113728f27ae82c7b1a177c8d03f9e96e0adf246", Conclusion: "success",
 		}},
@@ -156,9 +164,9 @@ func TestParseEventVariants(t *testing.T) {
 func TestParseEventErrors(t *testing.T) {
 	_, err := github.ParseEvent("ping", fixture(t, "webhooks", "ping.json"))
 	wantErr(t, err, github.ErrUnsupportedEvent)
-	_, err = github.ParseEvent("push", []byte(`{}`))
+	_, err = github.ParseEvent("fork", []byte(`{}`))
 	wantErr(t, err, github.ErrUnsupportedEvent)
-	for _, kind := range []string{"issues", "issue_comment", "pull_request", "pull_request_review", "check_suite", "check_run", "status", "workflow_run"} {
+	for _, kind := range []string{"issues", "issue_comment", "pull_request", "pull_request_review", "check_suite", "check_run", "status", "workflow_run", "push"} {
 		_, err = github.ParseEvent(kind, []byte(`{not json`))
 		wantErr(t, err, github.ErrBadPayload)
 	}
