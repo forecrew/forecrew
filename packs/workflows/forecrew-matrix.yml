@@ -1,0 +1,164 @@
+# Installed by Forecrew as .github/workflows/forecrew-matrix.yml. Forecrew
+# dispatches it once per command job of a matrix cell (docs/actions.md) and
+# reads the artifact named forecrew-<job_id> when the run ends.
+#
+# Inputs are untrusted data: they reach the steps below only through env:
+# or with:, never through ${{ }} inside a run: script.
+name: forecrew-matrix
+run-name: forecrew-matrix ${{ inputs.job_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Forecrew job id; names the run and the artifact
+        required: true
+        type: string
+      ref:
+        description: Branch, tag or commit to test
+        required: true
+        type: string
+      overlay_ref:
+        description: Ref to take the overlay paths from, if any
+        required: false
+        default: ""
+        type: string
+      overlay_paths:
+        description: Paths or globs to check out from overlay_ref, one per line
+        required: false
+        default: ""
+        type: string
+      runs_on:
+        description: Runner label, e.g. ubuntu-24.04
+        required: true
+        type: string
+      payload:
+        description: "JSON: setup (list of commands), env, argv or shell, workdir, versions"
+        required: true
+        type: string
+      reports:
+        description: JUnit report globs, one per line
+        required: false
+        default: ""
+        type: string
+      artifacts:
+        description: Globs of other files to keep, one per line
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: command
+    runs-on: ${{ inputs.runs_on }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Apply overlay
+        shell: bash
+        env:
+          OVERLAY_REF: ${{ inputs.overlay_ref }}
+          OVERLAY_PATHS: ${{ inputs.overlay_paths }}
+        run: |
+          set -eu
+          if [ -z "$OVERLAY_REF" ]; then exit 0; fi
+          if ! sha=$(git rev-parse --verify --quiet "refs/remotes/origin/${OVERLAY_REF}^{commit}"); then
+            sha=$(git rev-parse --verify "${OVERLAY_REF}^{commit}")
+          fi
+          count=0
+          while IFS= read -r p; do
+            [ -n "$p" ] || continue
+            case "$p" in
+              /* | ../* | */../* | *..) echo "overlay path $p leaves the repo" >&2; exit 1 ;;
+            esac
+            git checkout "$sha" -- "$p"
+            count=$((count + 1))
+          done <<< "$OVERLAY_PATHS"
+          if [ "$count" -eq 0 ]; then echo "overlay_ref is set without overlay_paths" >&2; exit 1; fi
+
+      - name: Run
+        id: run
+        shell: bash
+        env:
+          PAYLOAD: ${{ inputs.payload }}
+        run: |
+          set -u
+          out=forecrew-out
+          mkdir -p "$out"
+          started=$SECONDS
+          image() {
+            versions_json=${3:-}
+            [ -n "$versions_json" ] || versions_json='{}'
+            jq -n --arg phase "$1" --argjson code "$2" --argjson ms "$(((SECONDS - started) * 1000))" \
+              --argjson versions "$versions_json" --arg msg "${4:-}" \
+              --arg image_os "${ImageOS:-}" --arg image_version "${ImageVersion:-}" \
+              --arg runner_os "${RUNNER_OS:-}" --arg runner_arch "${RUNNER_ARCH:-}" \
+              '{phase: $phase, exit_code: $code, duration_ms: $ms, versions: $versions, message: $msg,
+                image_os: $image_os, image_version: $image_version, runner_os: $runner_os, runner_arch: $runner_arch}' \
+              > "$out/result.json"
+          }
+          # Non-secret variables of the environment and the command.
+          eval "$(jq -r '(.env // {}) | to_entries[] | select(.key | test("^[A-Za-z_][A-Za-z0-9_]*$")) | "export \(.key)=\(.value | @sh)"' <<< "$PAYLOAD")"
+
+          while IFS= read -r enc; do
+            line=$(jq -r . <<< "$enc")
+            echo "setup: $line"
+            if ! bash -c "$line"; then
+              image setup 1 "{}" "setup command failed: $line"
+              echo "exit_code=1" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done < <(jq -c '(.setup // [])[]' <<< "$PAYLOAD")
+
+          versions='{}'
+          while IFS= read -r enc; do
+            tool=$(jq -r .key <<< "$enc")
+            cmd=$(jq -r .value <<< "$enc")
+            v=$(bash -c "$cmd" 2>&1 | head -n 1) || true
+            versions=$(jq -c --arg k "$tool" --arg v "$v" '. + {($k): $v}' <<< "$versions")
+          done < <(jq -c '(.versions // {}) | to_entries[]' <<< "$PAYLOAD")
+
+          workdir=$(jq -r '.workdir // ""' <<< "$PAYLOAD")
+          case "$workdir" in
+            /* | ../* | */../* | *..) image setup 1 "$versions" "workdir $workdir leaves the repo"; echo "exit_code=1" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          started=$SECONDS
+          set +e
+          (
+            cd "${workdir:-.}" || exit 127
+            if [ "$(jq 'has("argv")' <<< "$PAYLOAD")" = true ]; then
+              eval "set -- $(jq -r '.argv | map(@sh) | join(" ")' <<< "$PAYLOAD")"
+              "$@"
+            else
+              bash -c "$(jq -r '.shell // ""' <<< "$PAYLOAD")"
+            fi
+          )
+          code=$?
+          set -e
+          image command "$code" "$versions"
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: forecrew-${{ inputs.job_id }}
+          path: |
+            forecrew-out/result.json
+            ${{ inputs.reports }}
+            ${{ inputs.artifacts }}
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Fail with the command
+        if: steps.run.outputs.exit_code != '0'
+        shell: bash
+        run: exit 1
