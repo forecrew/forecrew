@@ -158,8 +158,19 @@ func TestParseEventErrors(t *testing.T) {
 	wantErr(t, err, github.ErrUnsupportedEvent)
 	_, err = github.ParseEvent("push", []byte(`{}`))
 	wantErr(t, err, github.ErrUnsupportedEvent)
-	for _, kind := range []string{"issues", "issue_comment", "pull_request", "pull_request_review", "check_suite", "check_run", "status"} {
+	for _, kind := range []string{"issues", "issue_comment", "pull_request", "pull_request_review", "check_suite", "check_run", "status", "workflow_run"} {
 		_, err = github.ParseEvent(kind, []byte(`{not json`))
 		wantErr(t, err, github.ErrBadPayload)
+	}
+}
+
+func TestParseWorkflowRun(t *testing.T) {
+	payload := `{"action": "completed", "workflow_run": {"id": 77, "head_sha": "abc", "conclusion": "failure"},
+		"repository": {"full_name": "acme/app"}, "sender": {"login": "octocat"}}`
+	got, err := github.ParseEvent("workflow_run", []byte(payload))
+	noErr(t, err)
+	want := github.Event{Kind: "workflow_run", Action: "completed", Repo: "acme/app", Actor: "octocat", SHA: "abc", Conclusion: "failure", RunID: 77}
+	if got != want {
+		t.Errorf("event = %+v, want %+v", got, want)
 	}
 }

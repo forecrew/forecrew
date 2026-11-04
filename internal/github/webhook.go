@@ -68,12 +68,13 @@ type Event struct {
 	Merged      bool   // pull_request closed by a merge
 	IsPR        bool   // issue_comment on a pull request
 	ReviewState string // pull_request_review: approved, changes_requested, commented, ...
+	RunID       int64  // workflow_run: the run; SHA is its head and Conclusion its conclusion
 }
 
 // ParseEvent parses a webhook payload. kind is the X-GitHub-Event header.
 func ParseEvent(kind string, payload []byte) (Event, error) {
 	switch kind {
-	case "issues", "issue_comment", "pull_request", "pull_request_review", "check_suite", "check_run", "status":
+	case "issues", "issue_comment", "pull_request", "pull_request_review", "check_suite", "check_run", "status", "workflow_run":
 	default:
 		return Event{}, fmt.Errorf("%w: %q", ErrUnsupportedEvent, kind)
 	}
@@ -112,6 +113,10 @@ func ParseEvent(kind string, payload []byte) (Event, error) {
 		if prs := cr.PullRequests; len(prs) > 0 {
 			e.Number = prs[0].GetNumber()
 		}
+	case *gh.WorkflowRunEvent:
+		run := p.GetWorkflowRun()
+		e.Action, e.Repo, e.Actor = p.GetAction(), p.GetRepo().GetFullName(), p.GetSender().GetLogin()
+		e.RunID, e.SHA, e.Conclusion = run.GetID(), run.GetHeadSHA(), run.GetConclusion()
 	case *gh.StatusEvent:
 		e.Repo, e.Actor = p.GetRepo().GetFullName(), p.GetSender().GetLogin()
 		e.SHA, e.Conclusion = p.GetSHA(), p.GetState()

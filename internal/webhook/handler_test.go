@@ -317,3 +317,20 @@ func TestPullRequestEndsTheAssumptionReviewsOfItsTask(t *testing.T) {
 		})
 	}
 }
+
+// A workflow_run event tells the GitHub Actions provider; without one the
+// event is accepted and ignored.
+func TestWorkflowRunNotifiesTheProvider(t *testing.T) {
+	payload := []byte(`{"action": "completed", "workflow_run": {"id": 77, "head_sha": "abc", "conclusion": "success"},
+		"repository": {"full_name": "acme/app"}, "sender": {"login": "octocat"}}`)
+	e := newEnv(t)
+	e.send("run0", "workflow_run", payload)
+
+	var got []int64
+	e.h = NewHandler(secret, e.deps())
+	e.h.e.RunChanged = func(id int64) { got = append(got, id) }
+	e.send("run1", "workflow_run", payload)
+	if len(got) != 1 || got[0] != 77 {
+		t.Errorf("notified runs = %v", got)
+	}
+}
