@@ -251,11 +251,9 @@ func (s *Server) events(rw http.ResponseWriter, r *http.Request) {
 		writeError(rw, http.StatusBadRequest, "bad_request", msg)
 		return
 	}
-	_, err := s.leasedJob(ctx, w, id)
-	if err == nil && len(req.Events) > 0 {
-		_, err = s.cfg.Store.JobEvents().Append(ctx, w.AccountID, id, req.Events)
-	}
-	if err != nil {
+	// One transaction checks the lease and writes, so a lease that ends
+	// meanwhile stores nothing.
+	if _, err := s.cfg.Store.JobEvents().AppendLeased(ctx, w.AccountID, id, w.ID, req.Events); err != nil {
 		fail(ctx, rw, logger, "append job events", err)
 		return
 	}

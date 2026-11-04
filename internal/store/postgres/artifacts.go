@@ -3,14 +3,12 @@ package postgres
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/forecrew/forecrew/internal/domain"
-	"github.com/forecrew/forecrew/internal/store"
 )
 
 // ---- artifacts
@@ -43,19 +41,10 @@ func (r artifactRepo) Put(ctx context.Context, a *domain.Artifact) error {
 func (r artifactRepo) PutLeased(ctx context.Context, a *domain.Artifact, workerID uuid.UUID) (string, error) {
 	var replaced string
 	err := inTx(ctx, r.db, func(tx dbtx) error {
-		// The row lock orders this write against complete, cancel and the
-		// lease reaper, which lock the job the same way.
-		var status string
-		var holder uuid.UUID
-		err := tx.QueryRow(ctx, `SELECT status, `+cuuid("worker_id")+` FROM jobs WHERE account_id = $1 AND id = $2 FOR UPDATE`,
-			a.AccountID, a.JobID).Scan(&status, &holder)
-		if err != nil {
-			return mapErr(err)
+		if err := lockLeased(ctx, tx, a.AccountID, a.JobID, workerID); err != nil {
+			return err
 		}
-		if status != string(domain.JobRunning) || holder != workerID {
-			return fmt.Errorf("job %s is %s: %w", a.JobID, status, store.ErrLeaseLost)
-		}
-		err = tx.QueryRow(ctx, `SELECT storage_key FROM artifacts WHERE account_id = $1 AND job_id = $2 AND name = $3`,
+		err := tx.QueryRow(ctx, `SELECT storage_key FROM artifacts WHERE account_id = $1 AND job_id = $2 AND name = $3`,
 			a.AccountID, a.JobID, a.Name).Scan(&replaced)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return mapErr(err)

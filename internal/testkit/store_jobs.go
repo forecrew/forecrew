@@ -84,14 +84,22 @@ func (r jobRepo) LeaseNext(_ context.Context, accountID, workerID uuid.UUID, lab
 	return out, err
 }
 
+// checkLease returns ErrLeaseLost unless j is running under workerID.
+func checkLease(j *domain.Job, workerID uuid.UUID) error {
+	if j.Status != domain.JobRunning || j.WorkerID != workerID {
+		return fmt.Errorf("job %s is %s: %w", j.Ref(), j.Status, store.ErrLeaseLost)
+	}
+	return nil
+}
+
 // leased applies fn to a job running under workerID, and returns the job.
 // It returns ErrLeaseLost with the current job otherwise.
 func (r jobRepo) leased(accountID, jobID, workerID uuid.UUID, fn func(j *domain.Job, now time.Time) error) (domain.Job, error) {
 	var out domain.Job
 	err := update(r.s, jobsT, accountID, jobID, func(j *domain.Job, now time.Time) error {
-		if j.Status != domain.JobRunning || j.WorkerID != workerID {
+		if err := checkLease(j, workerID); err != nil {
 			out = *j
-			return fmt.Errorf("job %s: %w", j.Ref(), store.ErrLeaseLost)
+			return err
 		}
 		if err := fn(j, now); err != nil {
 			return err
@@ -165,10 +173,24 @@ func (s *Store) JobEvents() store.JobEventRepo { return jobEventRepo{s} }
 type jobEventRepo struct{ s *Store }
 
 func (r jobEventRepo) Append(_ context.Context, accountID, jobID uuid.UUID, events []domain.JobEvent) ([]domain.JobEvent, error) {
+	return r.append(accountID, jobID, uuid.Nil(), events)
+}
+
+func (r jobEventRepo) AppendLeased(_ context.Context, accountID, jobID, workerID uuid.UUID, events []domain.JobEvent) ([]domain.JobEvent, error) {
+	return r.append(accountID, jobID, workerID, events)
+}
+
+func (r jobEventRepo) append(accountID, jobID, workerID uuid.UUID, events []domain.JobEvent) ([]domain.JobEvent, error) {
 	out := make([]domain.JobEvent, 0, len(events))
 	err := r.s.do(func(d *storeData, _ time.Time) error {
-		if _, err := d.jobs.get(accountID, jobID); err != nil {
+		j, err := d.jobs.get(accountID, jobID)
+		if err != nil {
 			return err
+		}
+		if workerID != uuid.Nil() {
+			if err := checkLease(j, workerID); err != nil {
+				return err
+			}
 		}
 		seq := int64(len(d.jobEvents.filter(0, func(e domain.JobEvent) bool { return e.JobID == jobID })))
 		for _, e := range events {

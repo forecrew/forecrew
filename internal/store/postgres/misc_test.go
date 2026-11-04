@@ -617,3 +617,62 @@ func TestWritesRejectForeignRows(t *testing.T) {
 		t.Fatalf("job = %+v", cur)
 	}
 }
+
+func TestJobEventsAppendLeased(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	job := f.newJob(t)
+	w := f.newWorker(t, "box")
+	other := f.newWorker(t, "other")
+	evs := []domain.JobEvent{{Type: domain.EventLog, Text: "hi"}}
+	repo := f.st.JobEvents()
+
+	_, err := repo.AppendLeased(ctx, f.account, job.ID, w.ID, evs)
+	wantErr(t, err, store.ErrLeaseLost)
+	_, err = f.st.Jobs().LeaseNext(ctx, f.account, w.ID, []string{"runtime:claude-code"}, time.Minute)
+	must(t, err)
+	_, err = repo.AppendLeased(ctx, f.account, job.ID, other.ID, evs)
+	wantErr(t, err, store.ErrLeaseLost)
+	_, err = repo.AppendLeased(ctx, f.account, domain.NewID(), w.ID, evs)
+	wantErr(t, err, store.ErrNotFound)
+	got, err := repo.AppendLeased(ctx, f.account, job.ID, w.ID, evs)
+	if err != nil || len(got) != 1 || got[0].Seq != 1 {
+		t.Fatalf("AppendLeased = %+v, %v", got, err)
+	}
+	if rows, _ := repo.List(ctx, f.account, job.ID, 0, 10); len(rows) != 1 {
+		t.Fatalf("rows = %+v", rows)
+	}
+}
+
+// The lease ends in a transaction that holds the job lock: the events call
+// waits for it, then sees the lease gone and writes nothing.
+func TestJobEventsAppendLeasedWaitsForTheJobLock(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	job := f.newJob(t)
+	w := f.newWorker(t, "box")
+	_, err := f.st.Jobs().LeaseNext(ctx, f.account, w.ID, []string{"runtime:claude-code"}, time.Minute)
+	must(t, err)
+
+	tx, err := f.pool.Begin(ctx)
+	must(t, err)
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `UPDATE jobs SET status = 'canceled', worker_id = NULL, lease_expires_at = NULL, finished_at = now() WHERE id = $1`, job.ID); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.st.JobEvents().AppendLeased(ctx, f.account, job.ID, w.ID, []domain.JobEvent{{Type: domain.EventLog, Text: "late"}})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("AppendLeased did not wait for the lock: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	must(t, tx.Commit(ctx))
+	wantErr(t, <-done, store.ErrLeaseLost)
+	if rows, _ := f.st.JobEvents().List(ctx, f.account, job.ID, 0, 10); len(rows) != 0 {
+		t.Fatalf("rows = %+v", rows)
+	}
+}

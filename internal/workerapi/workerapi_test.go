@@ -549,3 +549,25 @@ func TestDecodeKeepsUnknownFields(t *testing.T) {
 	st, body := e.call(t, token, "/worker/v1/poll", string(raw))
 	wantStatus(t, st, http.StatusNoContent, body)
 }
+
+func TestEventsAfterLeaseEndStoreNothing(t *testing.T) {
+	e := newEnv(t)
+	_, token := e.addWorker(t, "box")
+	j := e.newJob(t, jobOpts{})
+	if status, _ := e.poll(t, token); status != http.StatusOK {
+		t.Fatalf("poll status %d", status)
+	}
+	st, body := e.call(t, token, jobPath(j.ID, "complete"), map[string]any{"status": "succeeded"})
+	wantStatus(t, st, http.StatusOK, body)
+	ev := map[string]any{"events": []map[string]any{{"time": "2026-03-01T12:00:01Z", "type": "log", "text": "late"}}}
+	for _, body := range []any{ev, map[string]any{"events": []any{}}} {
+		st, resp := e.call(t, token, jobPath(j.ID, "events"), body)
+		wantStatus(t, st, http.StatusConflict, resp)
+		if code := errorCode(t, resp); code != "lease_lost" {
+			t.Fatalf("code = %s", code)
+		}
+	}
+	if logs, err := e.jobs.Logs(t.Context(), e.account, j.ID, 0, 0); err != nil || len(logs.Events) != 0 {
+		t.Fatalf("logs = %+v, %v", logs, err)
+	}
+}
