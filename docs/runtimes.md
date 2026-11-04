@@ -94,8 +94,9 @@ codex exec --json --skip-git-repo-check --ephemeral -c approval_policy="never" -
 - Each run sets `CODEX_HOME` to a fresh empty temporary directory, removed
   afterwards, so the worker account's `~/.codex` (config, MCP servers, login)
   cannot change what the job was given. The machine's own login is not used:
-  credentials must be `CODEX_API_KEY` in `RunSpec.Env`, which `codex exec`
-  reads directly. `OPENAI_API_KEY` alone is not documented to work for it.
+  credentials must be `CODEX_API_KEY`, in `RunSpec.Env` or the worker's
+  environment, which `codex exec` reads directly. Without it the run fails at
+  once with an error naming the variable.
 - With a job MCP gateway (below) it gets `-c` overrides for a streamable
   HTTP server `mcp_servers.forecrew`: `url`, `bearer_token_env_var =
   "FORECREW_JOB_MCP_TOKEN"`, `enabled_tools` (the allowed gateway tools),
