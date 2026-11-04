@@ -14,6 +14,7 @@ import (
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/jobmcp"
 	"github.com/forecrew/forecrew/internal/queue"
 	"github.com/forecrew/forecrew/internal/store"
 )
@@ -161,6 +162,13 @@ func (s *Server) withSecrets(ctx context.Context, j domain.Job) (domain.JobSpec,
 		if runtime, env := s.cfg.Env(j); pool.Credentials.AllowsRuntime(runtime) {
 			spec.Env = env
 		}
+		// The job MCP token is scoped to this job and lease, so every pool
+		// gets it; pools have no setting to withhold it.
+		token, hash := jobmcp.NewToken()
+		if err := s.cfg.Store.Jobs().SetJobMCPTokenHash(ctx, j.AccountID, j.ID, j.WorkerID, j.Attempts, hash); err != nil {
+			return spec, fmt.Errorf("job MCP token: %w", err)
+		}
+		spec.JobMCP = &domain.JobMCP{URL: s.cfg.JobMCPURL, Token: token}
 	}
 	return spec, nil
 }
@@ -199,6 +207,9 @@ const (
 type heartbeatResponse struct {
 	Action         string    `json:"action"`
 	LeaseExpiresAt time.Time `json:"lease_expires_at,omitzero"`
+	// Attach are the files to upload as evidence (job MCP evidence_attach)
+	// the worker has not acknowledged yet.
+	Attach []jobmcp.Attachment `json:"attach,omitempty"`
 }
 
 func (s *Server) heartbeat(rw http.ResponseWriter, r *http.Request) {
@@ -208,7 +219,10 @@ func (s *Server) heartbeat(rw http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var body struct{}
+	var body struct {
+		// AttachReceived are the attachments the worker got so far.
+		AttachReceived []jobmcp.Attachment `json:"attach_received"`
+	}
 	if !decode(rw, r, &body, true) {
 		return
 	}
@@ -219,12 +233,14 @@ func (s *Server) heartbeat(rw http.ResponseWriter, r *http.Request) {
 	j, err := queue.New(s.cfg.Store.Jobs()).Extend(ctx, w.AccountID, id, w.ID)
 	switch {
 	case err == nil:
-		writeJSON(rw, http.StatusOK, heartbeatResponse{Action: actionContinue, LeaseExpiresAt: j.LeaseExpiresAt})
+		s.cfg.Attachments.Ack(j, body.AttachReceived)
+		writeJSON(rw, http.StatusOK, heartbeatResponse{Action: actionContinue, LeaseExpiresAt: j.LeaseExpiresAt, Attach: s.cfg.Attachments.Pending(j)})
 	case errors.Is(err, store.ErrLeaseLost) && j.Status == domain.JobRunning:
 		// Leased to another worker: refuse rather than tell it to stop.
 		fail(ctx, rw, logger, "heartbeat", err)
 	case errors.Is(err, store.ErrLeaseLost):
 		// Canceled, finished, or expired and requeued: stop.
+		s.cfg.Attachments.Drop(j.ID)
 		logger.InfoContext(ctx, "job lease ended, telling worker to stop", "job_id", j.ID, "ref", j.Ref(), "status", j.Status)
 		writeJSON(rw, http.StatusOK, heartbeatResponse{Action: actionCancel})
 	default:
@@ -332,5 +348,6 @@ func (s *Server) complete(rw http.ResponseWriter, r *http.Request) {
 		fail(ctx, rw, logger.With("job_id", id), "complete job", err)
 		return
 	}
+	s.cfg.Attachments.Drop(id)
 	writeJSON(rw, http.StatusOK, completeResponse{Status: j.Status})
 }

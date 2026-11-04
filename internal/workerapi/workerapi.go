@@ -20,6 +20,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/evidence"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/jobmcp"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
@@ -64,6 +65,12 @@ type Config struct {
 	// (evidence.max_artifact_size); it defaults to
 	// config.DefaultMaxArtifactSize.
 	MaxArtifactSize int64
+	// JobMCPURL is the gateway's public URL (<public base>/job-mcp), sent as
+	// job_mcp.url for information; workers use their own server URL.
+	JobMCPURL string
+	// Attachments are the files the gateway's evidence_attach marked;
+	// heartbeat answers hand them to the worker until it acknowledges them.
+	Attachments *jobmcp.Attachments
 	// PollWait and PollRecheck default to the constants of the same name.
 	PollWait    time.Duration
 	PollRecheck time.Duration
