@@ -229,7 +229,7 @@ func TestJobsThatCannotRunOnActionsFail(t *testing.T) {
 	}{
 		{"services", func(s *domain.JobSpec) {
 			s.Environment.Services = map[string]domain.Service{"db": {Image: "postgres:18"}}
-		}, "services are not supported"},
+		}, "services are only for provider docker"},
 		{"input too large", func(s *domain.JobSpec) { s.Command.Env = map[string]string{"BIG": strings.Repeat("x", 70_000)} }, "over the 60000"},
 	}
 	for _, tt := range tests {
