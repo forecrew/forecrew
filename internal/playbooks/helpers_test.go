@@ -8,10 +8,12 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/playbooks"
+	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/workflow"
@@ -71,7 +73,7 @@ func (v *env) register() {
 		tr = v.wrapped
 	}
 	playbooks.Register(v.actions, playbooks.Deps{
-		Store: v.st, Tracker: tr, Signals: v.bus, Sizing: config.DefaultSizing(), Now: v.clock.Now,
+		Store: v.st, Tracker: tr, Signals: v.bus, Sizing: config.DefaultSizing(), Roles: testRoles(), Now: v.clock.Now,
 	})
 }
 
@@ -106,4 +108,18 @@ func wantErr(t *testing.T, err error, substr string) {
 	if err == nil || !strings.Contains(err.Error(), substr) {
 		t.Fatalf("error = %v, want one containing %q", err, substr)
 	}
+}
+
+// testRoles resolves the roles whose write paths the actions check, from the
+// shipped role pack.
+func testRoles() roles.Resolver {
+	defs, err := roles.Load(forecrew.Files)
+	if err != nil {
+		panic(err)
+	}
+	out := testkit.Roles{}
+	for name, d := range defs {
+		out[name] = roles.Role{Name: name, WritePaths: d.WritePaths}
+	}
+	return out
 }
