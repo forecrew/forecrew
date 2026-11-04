@@ -11,8 +11,10 @@ evidence, asks a human and reports progress. It is separate from the human
 MCP server (`/mcp`, docs/mcp.md): another endpoint, another token, other
 tools, and nothing on it acts with a human's authority.
 
-forecrewd serves it over MCP streamable HTTP at `/job-mcp` on its public URL
-(`server.public_base_url`), with the same MCP Go SDK as `/mcp`. Tool input
+forecrewd serves it over MCP streamable HTTP at `/job-mcp`, next to the
+worker API, with the same MCP Go SDK as `/mcp`. A worker points its runtime at
+`<server_url>/job-mcp`, its own configured forecrewd URL, which also works
+for a worker that reaches forecrewd only on an internal address. Tool input
 and output schemas are in [job-mcp.schema.json](job-mcp.schema.json):
 `$defs/<tool>_input` is the tool's `inputSchema`, `$defs/<tool>_output` its
 `outputSchema`, and every successful result carries `structuredContent`
@@ -21,7 +23,9 @@ matching it plus the same JSON as text (as the MCP spec recommends).
 ## The job's token
 
 `JobSpec.job_mcp` (job-spec.md) is `{"url": "<public base>/job-mcp", "token":
-"fcj_<43 base64url chars>"}`. forecrewd adds it to the spec of an **agent**
+"fcj_<43 base64url chars>"}`. `url` is informational: the gateway's public
+address, empty without `server.public_base_url`. Workers do not connect to it.
+forecrewd adds `job_mcp` to the spec of an **agent**
 job when the job is leased, like `repo_token`; command jobs never get one.
 
 - The token is a secret. It is never stored in `jobs.spec`
@@ -63,7 +67,7 @@ of the other role tools.
 | `kb_propose` | `kb.propose` | Proposes adding, editing or retiring an entry of a curated section the role may propose to. Becomes a `knowledge_proposals` row (`KB-n`): `per_goal` when the job has a goal and the section is not protected (it waits for the goal's learn PR), `standalone` otherwise. Never to `generated` or `notes`. |
 | `request_access` | `request_access` | Asks for read, propose or write access to a section, with a reason. Opens an `access_request` gate and returns at once; the job goes on without the access. Approving it changes the policy through a PR, never directly. |
 | `assumption_record` | `assumption.record` | Registers an assumption made mid-run (`A-n`, source the job, the goal as dependent), the same item roles list in their output. A duplicate within the goal returns the existing one. |
-| `evidence_attach` | `evidence.attach` | Marks a file of the work tree as evidence. The gateway checks the path and records the intent; the worker learns of it from its next heartbeat answer (`attach`, worker-api.md) and uploads the file through `PUT /worker/v1/jobs/{id}/artifacts/{name}` with the rules of `command.artifacts` (inside the work tree, no symlinks, size cap). forecrewd never connects to the worker, so the call returns the artifact name, not its id. |
+| `evidence_attach` | `evidence.attach` | Marks a file of the work tree as evidence. The gateway checks the path and records the intent; the worker learns of it from a heartbeat answer (`attach`, worker-api.md) and uploads the file through `PUT /worker/v1/jobs/{id}/artifacts/{name}` with the rules of `command.artifacts` (inside the work tree, no symlinks, size cap). forecrewd never connects to the worker, so the call returns the artifact name, not its id. |
 | `notes_write` | `notes.write` | Adds or replaces an agent note (`internal` provider, section `notes`) scoped to the job's goal or project, indexed at once. A job edits only notes of its own goal or project; a job without a goal writes project notes only. No proposal, no gate. |
 | `ask_human` | `ask_human` | Opens a question gate on the job (below) and waits up to `timeout` (at most 30 minutes). Approving with feedback answers (`answered`, the feedback is the answer); rejecting declines. On a decline or the timeout forecrewd resolves the gate (`rejected`, by `system:forecrewd` on timeout), registers the `assumption` the call gave and returns `no_answer`, so the agent goes on with it. |
 | `report_progress` | `report_progress` | A `message` job event, shown live on the job page. |
@@ -135,7 +139,10 @@ worker holding the lease (`worker:<name>`), action `job_mcp.call`,
 `subject_type` `job`, `subject_id` the job, and `data` `{"tool",
 "input_bytes", "status", "duration_ms"}` where `status` is `ok`, `error`
 (with the error `code` as `"code"`), `refused` (tool not offered) or
-`rate_limited`. The input itself is not stored in the audit log: what the
+`rate_limited`. Refused and rate-limited calls cost the caller nothing, so
+each job attempt gets at most 100 such rows: the next one writes a single row
+with status `audit_limit`, and those after it are answered as usual without
+a row. The input itself is not stored in the audit log: what the
 tools create (proposals, assumptions, notes, gates, events) is stored where
 it belongs.
 

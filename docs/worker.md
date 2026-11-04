@@ -87,6 +87,20 @@ roles and job kinds each pool runs and which credentials its jobs receive:
   skewed server clock cannot extend it. If it ends without a successful
   heartbeat the job is stopped and nothing is pushed; a push also needs 30
   seconds of lease left.
+- Agent jobs with `job_mcp` in their spec get the job MCP gateway
+  (docs/contracts/job-mcp.md, docs/runtimes.md): `<server_url>/job-mcp` in
+  the runtime's MCP configuration and its token in `FORECREW_JOB_MCP_TOKEN`, never on a
+  command line or in a file. The token dies with the lease; a heartbeat
+  answered `cancel` or `409 lease_lost` stops the agent, which ends any call
+  in flight, `ask_human` included (the worker's heartbeats keep the lease
+  while it waits).
+- Files the agent marks with `evidence_attach` arrive in heartbeat answers
+  (`attach`) until the worker acknowledges them in its next heartbeat. After
+  the runtime exits it sends one more heartbeat for the last ones, then uploads each as an artifact of the job
+  (`PUT .../artifacts/{name}`) before checking and pushing the work tree. A
+  file must be a regular file inside the work tree, reached without
+  symlinks, not under `.git`; one that is not, or fails to upload, is
+  reported as an `error` event and skipped. forecrewd enforces the size cap.
 - `SIGTERM` stops polling and lets running jobs finish for the grace period
   (10 minutes), then cancels them; their leases expire and forecrewd queues
   them again.
@@ -98,7 +112,9 @@ The repo token is used only by the worker's own `git ls-remote`, `fetch` and
 `http.extraHeader`). It is never in the agent's environment, a git config,
 a remote URL or a file, and it is redacted from events and logs. The agent
 does not inherit `FORECREW_*` variables, so it never sees the worker token.
-The agent does not inherit `GIT_*` variables either.
+The agent does not inherit `GIT_*` variables either. The only `FORECREW_*`
+variable an agent sees is `FORECREW_JOB_MCP_TOKEN`, its own job's gateway
+token, also redacted from events and logs.
 
 ## Agents are not isolated from the worker
 

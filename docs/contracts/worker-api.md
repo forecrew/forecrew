@@ -87,8 +87,9 @@ Behavior:
   installation token with contents `write` for writing roles and `read` for
   read-only roles), within what the job's pool allows (config.md `pools`,
   `credentials`). Command jobs get no `env` and a `read` token. From T47,
-  agent jobs also get `job_mcp` (job-mcp.md): the job MCP gateway's URL and a
-  token bound to this lease. If that fails it releases the lease
+  agent jobs also get `job_mcp` (job-mcp.md): the gateway's public URL, for
+  information (the worker uses `<server_url>/job-mcp`), and a token bound to
+  this lease. If that fails it releases the lease
   (`Jobs.Release`) and answers `500`.
 
 ### Pools
@@ -123,7 +124,8 @@ Extends the lease of a running job (`Jobs.ExtendLease`, now + 5 min) and
 records the worker as seen. Sent every `heartbeat_interval_seconds` while the
 job runs.
 
-Request: `{}` (an empty body is accepted).
+Request: `{}` (an empty body is accepted). From T47 it may carry
+`attach_received`, below.
 
 Response `200`:
 
@@ -141,12 +143,16 @@ Response `200`:
 | `cancel` | Stop now and discard the workspace without pushing. Sent when the job was canceled or finished, or when its lease expired and it is queued again. Do not call `complete`. |
 
 From T47, a `continue` answer may also carry `attach`: the files the agent
-marked with the job MCP tool `evidence_attach` (job-mcp.md) since the last
-heartbeat, as `[{"path": "screenshots/home.png", "name":
-"evidence/screenshots/home.png"}]`. The worker uploads each through `PUT
-.../artifacts/{name}` with the rules of `command.artifacts` (inside the work
-tree, no symlinks), and sends one more heartbeat after the runtime exits to
-collect the last ones before `complete`.
+marked with the job MCP tool `evidence_attach` (job-mcp.md) that the worker
+has not acknowledged, as `[{"path": "screenshots/home.png", "name":
+"evidence/screenshots/home.png"}]`. A later mark of a name replaces the
+earlier one. The worker acknowledges what it holds by sending the same
+entries as `attach_received` in its next heartbeat; until then they are sent
+again, so a lost answer loses nothing, and the worker keeps one entry per
+name. It uploads each through `PUT .../artifacts/{name}` with the rules of
+`command.artifacts` (inside the work tree, no symlinks), and sends one more
+heartbeat after the runtime exits to collect the last ones before `complete`.
+`complete` and a `cancel` answer drop what is left.
 
 `404` if the job is not in the worker's account. `409 lease_lost` if the job
 now runs under another worker's lease (it expired and was leased again); the

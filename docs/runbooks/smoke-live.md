@@ -79,3 +79,13 @@ the first runs and note the result next to the report:
    real API key, watch a command outside the allow list being denied (for
    example have a role prompt ask for `curl`; the `tool_result` event shows
    the denial) and check that the job still ends cleanly.
+3. **Job MCP gateway, Claude Code.** Give a role a gateway tool (for example
+   `report_progress`). The server config is passed inline with `--mcp-config`,
+   and Claude Code documents `${VAR}` expansion only for `.mcp.json`. Check
+   that `Bearer ${FORECREW_JOB_MCP_TOKEN}` is expanded: the tool call works and
+   the `job_mcp.call` audit row appears. A `401` from `/job-mcp` means it was
+   sent unexpanded.
+4. **Job MCP gateway, Codex.** With the same role on Codex, check that
+   `codex exec` with `approval_policy="never"` and
+   `default_tools_approval_mode="approve"` runs the gateway tool rather than
+   canceling or declining the call (`mcp_tool_call` in `job logs`).

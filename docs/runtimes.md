@@ -43,6 +43,9 @@ claude -p --output-format stream-json --verbose --no-session-persistence \
   [--model <model>] [--max-turns <n>] --allowedTools <rule> [<rule> ...]
 ```
 
+With a job MCP gateway (below), `--disallowedTools "mcp__*"` is replaced by
+`--mcp-config <json> --strict-mcp-config`.
+
 - `AllowedTools` is a hard limit. `--tools` limits which tools exist (the
   base names of the rules; `Bash(git log *)` gives `Bash`); `--allowedTools`
   only pre-approves, so it carries the rules themselves; `--permission-mode
@@ -88,6 +91,43 @@ codex exec --json --skip-git-repo-check --ephemeral -c approval_policy="never" -
   is cache write. The approval policy is set to `never` explicitly. Codex reports no cost, so
   `CostUSD` is 0.
 - Credentials: `CODEX_API_KEY` via env.
+- Each run sets `CODEX_HOME` to a fresh empty temporary directory, removed
+  afterwards, so the worker account's `~/.codex` (config, MCP servers, login)
+  cannot change what the job was given. The machine's own login is not used:
+  credentials must be `CODEX_API_KEY` in `RunSpec.Env`, which `codex exec`
+  reads directly. `OPENAI_API_KEY` alone is not documented to work for it.
+- With a job MCP gateway (below) it gets `-c` overrides for a streamable
+  HTTP server `mcp_servers.forecrew`: `url`, `bearer_token_env_var =
+  "FORECREW_JOB_MCP_TOKEN"`, `enabled_tools` (the allowed gateway tools),
+  `default_tools_approval_mode = "approve"` (so `approval_policy = "never"`
+  does not refuse them) and `tool_timeout_sec = 2100`.
+
+## Job MCP gateway
+
+When the job spec has `job_mcp` (docs/contracts/job-mcp.md), the worker
+sets `RunSpec.JobMCP` to `<server_url>/job-mcp`, built from its own configured
+forecrewd URL (`job_mcp.url` in the spec is informational and not used), and
+puts the token in `RunSpec.Env` as `FORECREW_JOB_MCP_TOKEN`. The token is never in argv or a
+file: each runtime's MCP configuration refers to the variable, and the
+variable's value is redacted like every other secret. The agent's own
+processes inherit the variable; the token only reaches the gateway tools of
+this job, and only while its lease lasts.
+
+The role's job MCP tools (`ask_human`, `evidence.attach`, ...) are in the
+job's allowed tools as `mcp__forecrew__<tool>` (the gateway names its
+server `forecrew`).
+
+- **claude-code:** `--mcp-config` with one `http` server `forecrew`, its
+  `Authorization` header `Bearer ${FORECREW_JOB_MCP_TOKEN}` (Claude Code
+  expands the variable when it connects; the name is not one of the
+  credential variables it reads as empty) and a `timeout` of 35 minutes,
+  above `ask_human`'s 30. `--strict-mcp-config` ignores every other MCP
+  configuration. The `mcp__forecrew__*` tools are pre-approved with
+  `--allowedTools` and left out of `--tools`, which lists built-in tools only.
+- **codex:** the `-c mcp_servers.forecrew.*` overrides above.
+
+Not yet verified against the real CLIs: see the live checks in
+[runbooks/smoke-live.md](runbooks/smoke-live.md).
 
 ## scripted
 
