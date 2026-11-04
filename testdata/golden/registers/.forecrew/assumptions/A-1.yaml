@@ -1,0 +1,12 @@
+id: A-1
+statement: The service runs as a single instance
+made_by: architect
+source: JOB-1
+confidence: medium
+impact: high
+status: accepted
+verify_by: test
+evidence: single instance is fine for now
+resolved_by: user:gian
+resolved_at: "2026-03-01T13:00:00Z"
+dependents: [GOAL-1, TASK-1, acme/app#9]

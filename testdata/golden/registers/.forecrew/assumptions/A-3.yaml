@@ -1,0 +1,9 @@
+id: A-3
+statement: Budget is fixed
+made_by: council
+source: 0192f5a0-0000-7000-8000-00000000000c
+confidence: medium
+impact: medium
+status: unverified
+verify_by: test
+dependents: [GOAL-1]
