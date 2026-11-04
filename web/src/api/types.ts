@@ -12,9 +12,13 @@ export type ChecksStatus = "failure" | "pending" | "success" | "none" | "unknown
 export const GOAL_STATUSES: GoalStatus[] = ["draft", "spec_review", "planned", "in_progress", "done", "canceled"]
 export const JOB_STATUSES: JobStatus[] = ["queued", "running", "succeeded", "failed", "canceled"]
 
+/** An organization (stored as an account). */
 export interface Account {
   id: string
   name: string
+  slug: string
+  created_by?: string
+  max_token_ttl?: string
   created_at: string
 }
 
