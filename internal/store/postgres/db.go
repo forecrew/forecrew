@@ -130,6 +130,9 @@ func (s *Store) Artifacts() store.ArtifactRepo { return artifactRepo{s.db} }
 // TestRuns implements store.Store.
 func (s *Store) TestRuns() store.TestRunRepo { return testRunRepo{s.db} }
 
+// Councils implements store.Store.
+func (s *Store) Councils() store.CouncilRepo { return councilRepo{s.db} }
+
 // Postgres error codes the store maps to sentinels.
 const (
 	codeUnique     = "23505"

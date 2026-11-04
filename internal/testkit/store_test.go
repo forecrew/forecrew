@@ -1038,3 +1038,76 @@ func TestKnowledgeStore(t *testing.T) {
 	f := newFixture(t)
 	KnowledgeStoreSuite(t, f.st, f.account, f.project.ID, true)
 }
+
+func TestStoreCouncils(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Councils()
+	c := domain.Council{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.CouncilTechnical, Question: "Which queue?"}
+	must(t, repo.Create(ctx, &c))
+	if c.ID == uuid.Nil() || c.Number != 1 || c.Status != domain.CouncilRunning || c.Constraints == nil {
+		t.Fatalf("Create = %+v", c)
+	}
+	dup := domain.Council{ID: c.ID, AccountID: f.account, ProjectID: f.project.ID, Kind: domain.CouncilAdhoc, Question: "q"}
+	wantErr(t, repo.Create(ctx, &dup), store.ErrConflict)
+
+	c.Constraints = []string{"keep Postgres"}
+	c.Brief = &domain.CouncilBrief{Question: "Which queue?"}
+	must(t, repo.Update(ctx, &c))
+	got, err := repo.GetForUpdate(ctx, f.account, c.ID)
+	if err != nil || !slices.Equal(got.Constraints, c.Constraints) || got.Brief == nil {
+		t.Fatalf("GetForUpdate = %+v, %v", got, err)
+	}
+	got.Constraints[0] = "changed by the caller"
+	if again, _ := repo.GetByNumber(ctx, f.account, c.Number); again.Constraints[0] != "keep Postgres" {
+		t.Fatalf("a caller changed the stored constraints: %v", again.Constraints)
+	}
+	must(t, repo.UpdateStatus(ctx, f.account, c.ID, domain.CouncilRunning, domain.CouncilDecided))
+	wantErr(t, repo.UpdateStatus(ctx, f.account, c.ID, domain.CouncilRunning, domain.CouncilFailed), store.ErrConflict)
+	wantErr(t, repo.UpdateStatus(ctx, f.account, c.ID, domain.CouncilDecided, domain.CouncilRunning), domain.ErrInvalidTransition)
+
+	other := domain.Council{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.CouncilAdhoc, Question: "q"}
+	must(t, repo.Create(ctx, &other))
+	if list, err := repo.List(ctx, f.account, store.CouncilFilter{Status: domain.CouncilRunning}); err != nil || len(list) != 1 || list[0].ID != other.ID {
+		t.Fatalf("List = %+v, %v", list, err)
+	}
+	if list, _ := repo.List(ctx, f.account, store.CouncilFilter{ProjectID: f.project.ID}); len(list) != 2 || list[0].ID != other.ID {
+		t.Fatalf("List is not newest first: %+v", list)
+	}
+	g := domain.Gate{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.GateCouncilDecision, Title: "t", SubjectRepo: "acme/app"}
+	must(t, f.st.Gates().Create(ctx, &g))
+	other.GateID = g.ID
+	must(t, repo.Update(ctx, &other))
+	if list, _ := repo.List(ctx, f.account, store.CouncilFilter{GateID: g.ID}); len(list) != 1 || list[0].ID != other.ID {
+		t.Fatalf("List by gate = %+v", list)
+	}
+}
+
+func TestStoreCouncilContributions(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Councils()
+	c := domain.Council{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.CouncilAdhoc, Question: "q"}
+	must(t, repo.Create(ctx, &c))
+	j := newJob(f)
+	must(t, f.st.Jobs().Create(ctx, &j))
+	p := domain.CouncilContribution{AccountID: f.account, CouncilID: c.ID, Role: "architect", Runtime: "codex", Stage: domain.StageProposal, Round: 1, JobID: j.ID, Content: json.RawMessage(`{}`)}
+	must(t, repo.AddContribution(ctx, &p))
+	same := p
+	same.ID, same.Runtime = uuid.Nil(), "claude-code"
+	wantErr(t, repo.AddContribution(ctx, &same), store.ErrConflict) // same job
+	same.JobID, same.Runtime = uuid.Nil(), "codex"
+	wantErr(t, repo.AddContribution(ctx, &same), store.ErrConflict) // same member, stage and round
+	same.Stage = domain.StageCritique
+	must(t, repo.AddContribution(ctx, &same))
+
+	must(t, repo.SetEvidenceCheck(ctx, f.account, p.ID, nil))
+	all, err := repo.Contributions(ctx, f.account, c.ID, "")
+	if err != nil || len(all) != 2 || all[0].EvidenceCheck == nil || len(all[0].EvidenceCheck) != 0 || all[1].EvidenceCheck != nil {
+		t.Fatalf("Contributions = %+v, %v", all, err)
+	}
+	if got, _ := repo.Contributions(ctx, f.account, c.ID, domain.StageCritique); len(got) != 1 || got[0].ID != same.ID {
+		t.Fatalf("critiques = %+v", got)
+	}
+	wantErr(t, repo.SetEvidenceCheck(ctx, f.account, domain.NewID(), nil), store.ErrNotFound)
+}

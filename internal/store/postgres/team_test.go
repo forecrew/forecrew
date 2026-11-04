@@ -267,3 +267,87 @@ func stored(t *testing.T, f *fixture, job uuid.UUID) []byte {
 	must(t, f.pool.QueryRow(t.Context(), `SELECT job_mcp_token_hash FROM jobs WHERE id = $1`, job).Scan(&h))
 	return h
 }
+
+func TestCouncils(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Councils()
+	goal := f.newGoal(t)
+	c := domain.Council{AccountID: f.account, ProjectID: f.project.ID, GoalID: goal.ID, Kind: domain.CouncilTechnical, Question: "Which queue?"}
+	must(t, repo.Create(ctx, &c))
+	if c.Number == 0 || c.Status != domain.CouncilRunning || c.CreatedAt.IsZero() {
+		t.Fatalf("Create = %+v", c)
+	}
+	dup := domain.Council{ID: c.ID, AccountID: f.account, ProjectID: f.project.ID, Kind: domain.CouncilAdhoc, Question: "q"}
+	wantErr(t, repo.Create(ctx, &dup), store.ErrConflict)
+
+	run := domain.WorkflowRun{ID: c.ID, AccountID: f.account, ProjectID: f.project.ID, Playbook: "council"}
+	must(t, f.st.WorkflowRuns().Create(ctx, &run))
+	gate := domain.Gate{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.GateCouncilDecision, Title: "t", SubjectRepo: "acme/forecrew"}
+	must(t, f.st.Gates().Create(ctx, &gate))
+	must(t, f.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		cur, err := tx.Councils().GetForUpdate(ctx, f.account, c.ID)
+		if err != nil {
+			return err
+		}
+		cur.Constraints = []string{"keep Postgres"}
+		cur.Brief = &domain.CouncilBrief{Question: "Which queue?", Recommendation: "pg", Reversible: true}
+		cur.GateID, cur.RunID = gate.ID, run.ID
+		return tx.Councils().Update(ctx, &cur)
+	}))
+	got, err := repo.GetByNumber(ctx, f.account, c.Number)
+	if err != nil || len(got.Constraints) != 1 || got.Brief == nil || got.Brief.Recommendation != "pg" || got.GateID != gate.ID || got.RunID != run.ID || got.GoalID != goal.ID {
+		t.Fatalf("GetByNumber = %+v, %v", got, err)
+	}
+	must(t, repo.UpdateStatus(ctx, f.account, c.ID, domain.CouncilRunning, domain.CouncilDecided))
+	wantErr(t, repo.UpdateStatus(ctx, f.account, c.ID, domain.CouncilRunning, domain.CouncilFailed), store.ErrConflict)
+
+	bare := domain.Council{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.CouncilAdhoc, Question: "q"}
+	must(t, repo.Create(ctx, &bare))
+	if b, err := repo.Get(ctx, f.account, bare.ID); err != nil || b.Brief != nil || b.GoalID != uuid.Nil() || b.Constraints == nil {
+		t.Fatalf("Get = %+v, %v", b, err)
+	}
+	list, err := repo.List(ctx, f.account, store.CouncilFilter{ProjectID: f.project.ID, Status: domain.CouncilDecided, GoalID: goal.ID, GateID: gate.ID})
+	if err != nil || len(list) != 1 || list[0].ID != c.ID {
+		t.Fatalf("List = %+v, %v", list, err)
+	}
+	if list, _ := repo.List(ctx, f.account, store.CouncilFilter{Limit: 1}); len(list) != 1 || list[0].ID != bare.ID {
+		t.Fatalf("newest = %+v", list)
+	}
+	wantErr(t, f.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		_, err := tx.Councils().GetForUpdate(ctx, f.account, domain.NewID())
+		return err
+	}), store.ErrNotFound)
+}
+
+func TestCouncilContributions(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Councils()
+	c := domain.Council{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.CouncilAdhoc, Question: "q"}
+	must(t, repo.Create(ctx, &c))
+	job := f.newJob(t)
+	p := domain.CouncilContribution{AccountID: f.account, CouncilID: c.ID, Role: "architect", Runtime: "codex", Stage: domain.StageProposal, Round: 1, JobID: job.ID, Content: []byte(`{"position":"pg"}`)}
+	must(t, repo.AddContribution(ctx, &p))
+	same := p
+	same.ID, same.Runtime = uuid.Nil(), "claude-code"
+	wantErr(t, repo.AddContribution(ctx, &same), store.ErrConflict)
+	same.JobID, same.Runtime = uuid.Nil(), "codex"
+	wantErr(t, repo.AddContribution(ctx, &same), store.ErrConflict)
+	same.Stage = domain.StageCritique
+	same.EvidenceCheck = []domain.SourceCheck{}
+	must(t, repo.AddContribution(ctx, &same))
+
+	check := []domain.SourceCheck{{Source: "a.go", Kind: domain.SourcePath, Status: domain.SourceMissing, Detail: "gone"}}
+	must(t, repo.SetEvidenceCheck(ctx, f.account, p.ID, check))
+	all, err := repo.Contributions(ctx, f.account, c.ID, "")
+	if err != nil || len(all) != 2 || !strings.Contains(string(all[0].Content), "pg") || len(all[0].EvidenceCheck) != 1 ||
+		all[0].EvidenceCheck[0].Status != domain.SourceMissing || all[1].EvidenceCheck == nil {
+		t.Fatalf("Contributions = %+v, %v", all, err)
+	}
+	if got, _ := repo.Contributions(ctx, f.account, c.ID, domain.StageCritique); len(got) != 1 || got[0].JobID != uuid.Nil() {
+		t.Fatalf("critiques = %+v", got)
+	}
+	must(t, repo.SetEvidenceCheck(ctx, f.account, same.ID, nil))
+	wantErr(t, repo.SetEvidenceCheck(ctx, f.account, domain.NewID(), nil), store.ErrNotFound)
+}

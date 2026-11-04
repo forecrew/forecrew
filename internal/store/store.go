@@ -69,6 +69,7 @@ type Store interface {
 	Assumptions() AssumptionRepo
 	Decisions() DecisionRepo
 	Knowledge() KnowledgeRepo
+	Councils() CouncilRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
 	// must use the ctx passed to fn.
@@ -437,10 +438,9 @@ type VerificationReportRepo interface {
 
 // The repositories below belong to the team (councils, registers,
 // knowledge, proposals; docs/contracts/data-model.md, migration 00004).
-// Like the testing system's, they are contracts only (AssumptionRepo and
-// DecisionRepo are in Store already): CouncilRepo is added
-// to Store by T33, KnowledgeRepo by
-// T36, KnowledgeProposalRepo by T37 and ProposalRepo by T50, each with the
+// Like the testing system's, they are contracts only until they join Store
+// (AssumptionRepo, DecisionRepo, CouncilRepo and KnowledgeRepo are in it):
+// KnowledgeProposalRepo by T37 and ProposalRepo by T50, each with the
 // Postgres implementation and the testkit fake. goals.kind and goals.size
 // are read and written by GoalRepo from T35 (Size) and T41 (Kind),
 // and jobs.context_manifest by JobRepo from T38; until then they keep their
@@ -451,6 +451,7 @@ type VerificationReportRepo interface {
 type CouncilFilter struct {
 	ProjectID uuid.UUID
 	GoalID    uuid.UUID
+	GateID    uuid.UUID
 	Status    domain.CouncilStatus
 	Limit     int
 }
@@ -459,6 +460,10 @@ type CouncilFilter struct {
 type CouncilRepo interface {
 	Create(ctx context.Context, c *domain.Council) error
 	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Council, error)
+	// GetForUpdate is Get for a read-modify-write with Update inside WithTx:
+	// it holds the row until the transaction ends, so a constraint a human
+	// adds while an action stores the brief is not lost.
+	GetForUpdate(ctx context.Context, accountID, id uuid.UUID) (domain.Council, error)
 	GetByNumber(ctx context.Context, accountID uuid.UUID, number int64) (domain.Council, error)
 	List(ctx context.Context, accountID uuid.UUID, f CouncilFilter) ([]domain.Council, error)
 	// Update writes Constraints, Brief, GateID and RunID.

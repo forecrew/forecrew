@@ -55,6 +55,8 @@ type storeData struct {
 	testResult  table[domain.TestResult]
 	assumptions table[domain.Assumption]
 	decisions   table[domain.Decision]
+	councils    table[domain.Council]
+	council     table[domain.CouncilContribution] // contributions
 	deliveries  map[string]domain.WebhookDelivery
 	counters    map[counterKey]int64
 	knowledge   table[domain.KnowledgeEntry]
@@ -94,6 +96,8 @@ func NewStore(now func() time.Time) *Store {
 		decisions:   table[domain.Decision]{key: func(r domain.Decision) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		testRuns:    table[domain.TestRun]{key: func(r domain.TestRun) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		testResult:  table[domain.TestResult]{key: func(r domain.TestResult) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		councils:    table[domain.Council]{key: func(r domain.Council) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		council:     table[domain.CouncilContribution]{key: func(r domain.CouncilContribution) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		deliveries:  map[string]domain.WebhookDelivery{},
 		counters:    map[counterKey]int64{},
 		jobMCP:      map[uuid.UUID]jobMCPHash{},
@@ -126,6 +130,8 @@ func (d *storeData) clone() *storeData {
 	c.decisions = d.decisions.clone()
 	c.knowledge = d.knowledge.clone()
 	c.embeddings = maps.Clone(d.embeddings)
+	c.councils = d.councils.clone()
+	c.council = d.council.clone()
 	c.deliveries = maps.Clone(d.deliveries)
 	c.counters = maps.Clone(d.counters)
 	c.jobMCP = maps.Clone(d.jobMCP)
