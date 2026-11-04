@@ -333,6 +333,7 @@ var waitKeyFields = map[domain.SignalKind][]string{
 	domain.SignalPRMerged:        {"repo", "number"},
 	domain.SignalPRClosed:        {"repo", "number"},
 	domain.SignalChecksCompleted: {"repo", "sha"},
+	domain.SignalCouncilDecided:  {"council_id"},
 }
 
 func checkWait(with map[string]any) error {

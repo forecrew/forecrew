@@ -155,3 +155,31 @@ func TestParsePlaybookFinally(t *testing.T) {
 		t.Fatalf("ParsePlaybook = %+v, %v", p, err)
 	}
 }
+
+// TestFinallySeesHowTheRunEnds: a finally action reads the ending status
+// from the run, also when the run was waiting.
+func TestFinallySeesHowTheRunEnds(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		job    domain.JobStatus
+		gate   domain.GateStatus
+		status domain.RunStatus
+	}{
+		{"failed", domain.JobFailed, "", domain.RunFailed},
+		{"canceled", domain.JobSucceeded, domain.GateRejected, domain.RunCanceled},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			v := newEnv(t)
+			_, r := v.engine(t, withFinally, map[string]any{"repo": "acme/app"})
+			build, _ := v.waitJob(t, r.ID, "build", 1)
+			v.finishJob(t, build.JobID, tt.job, `{}`, "")
+			if tt.gate != "" {
+				v.decide(t, r.ID, "review", 1, tt.gate, "")
+			}
+			v.waitRun(t, r.ID, tt.status)
+			if calls := v.actionCalls(); len(calls) != 1 || calls[0].Run.Status != tt.status {
+				t.Fatalf("calls = %+v", calls)
+			}
+		})
+	}
+}

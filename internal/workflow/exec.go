@@ -30,6 +30,8 @@ type exec struct {
 	run   domain.WorkflowRun
 	p     *Playbook
 	steps map[stepKey]domain.StepRun
+	// ending is how the run ends while its finally steps run.
+	ending domain.RunStatus
 }
 
 func (e *Engine) newExec(ctx context.Context, run domain.WorkflowRun) (*exec, error) {
@@ -73,8 +75,8 @@ func (x *exec) scope() (*scope, error) {
 // canceled. Each is recorded like any step (as finally/<id>), so after a
 // restart the recorded ones are not called again and the others continue. A
 // failed one is logged. It returns an error only when the engine should try
-// again later.
-func (x *exec) finally(ctx context.Context) error {
+// again later. The actions see ending as the run's status.
+func (x *exec) finally(ctx context.Context, ending domain.RunStatus) error {
 	if x.p == nil {
 		return nil
 	}
@@ -82,6 +84,7 @@ func (x *exec) finally(ctx context.Context) error {
 	if err != nil {
 		return nil // the run ended on its inputs; the finally steps need them
 	}
+	x.ending = ending
 	for _, s := range x.p.Finally {
 		_, err := x.leaf(ctx, s, stepKey{"finally/" + s.ID, 1}, sc, "")
 		var failed *stepFailed
@@ -391,7 +394,9 @@ func (x *exec) start(ctx context.Context, s Step, sr *domain.StepRun, sc *scope,
 		err = startWait(sr, with)
 	case StepAction:
 		var out any
-		out, err = x.e.cfg.Actions[s.Action](ctx, ActionCall{Key: sr.ID.String(), Run: x.run, With: with})
+		run := x.run
+		run.Status = cmp.Or(x.ending, run.Status)
+		out, err = x.e.cfg.Actions[s.Action](ctx, ActionCall{Key: sr.ID.String(), Run: run, With: with})
 		if err == nil {
 			return x.finish(ctx, sr, map[string]any{"output": out}, "")
 		}
@@ -489,6 +494,8 @@ type waitWith struct {
 	SHA    string            `json:"sha"`
 	JobID  uuid.UUID         `json:"job_id"`
 	GateID uuid.UUID         `json:"gate_id"`
+	// CouncilID is the council of a wait for council.decided.
+	CouncilID uuid.UUID `json:"council_id"`
 }
 
 func startWait(sr *domain.StepRun, with map[string]any) error {
@@ -505,6 +512,8 @@ func startWait(sr *domain.StepRun, with map[string]any) error {
 		sr.GateID = w.GateID // for the lost-signal fallback of await
 	case domain.SignalPRMerged, domain.SignalPRClosed:
 		key, missing = domain.PRKey(w.Repo, w.Number), empty("repo", w.Repo)+empty("number", w.Number)
+	case domain.SignalCouncilDecided:
+		key, missing = domain.CouncilKey(w.CouncilID), empty("council_id", w.CouncilID)
 	default: // checks.completed; playbooks are validated
 		key, missing = domain.ChecksKey(w.Repo, w.SHA), empty("repo", w.Repo)+empty("sha", w.SHA)
 	}
@@ -587,6 +596,10 @@ func (x *exec) complete(ctx context.Context, sr *domain.StepRun, sig domain.Sign
 		return x.jobDone(ctx, sr, job, p.Status)
 	case *domain.GateResolved:
 		return x.finish(ctx, sr, gateValue(p.GateID.String(), p.Decision, p.Feedback), "")
+	case *domain.CouncilDecidedSignal:
+		if p.Status != domain.CouncilDecided {
+			return x.finish(ctx, sr, nil, fmt.Sprintf("council %s", p.Status))
+		}
 	}
 	var out any
 	_ = json.Unmarshal(sig.Payload, &out) // Decode succeeded, so the payload is JSON

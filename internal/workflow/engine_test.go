@@ -339,6 +339,66 @@ steps:
 	}
 }
 
+// TestWaitCouncilDecided: a decided council gives the wait the signal's
+// values; a council that failed or was canceled fails the step.
+func TestWaitCouncilDecided(t *testing.T) {
+	const pb = `
+inputs: [council]
+steps:
+  - {id: council, type: wait, with: {signal: council.decided, council_id: '${inputs.council}'}}
+  - {id: then, type: action, action: record, with: {decision: '${steps.council.output.decision_id}'}}
+`
+	id, decision := domain.NewID(), domain.NewID()
+	t.Run("decided", func(t *testing.T) {
+		v := newEnv(t)
+		_, r := v.engine(t, pb, map[string]any{"council": id.String()})
+		v.waitStep(t, r.ID, "council", 1, domain.StepWaiting)
+		v.publish(t, &domain.CouncilDecidedSignal{CouncilID: id, Status: domain.CouncilDecided, DecisionID: decision})
+		v.waitRun(t, r.ID, domain.RunSucceeded)
+		if calls := v.actionCalls(); len(calls) != 1 || calls[0].With["decision"] != decision.String() {
+			t.Fatalf("calls = %+v", calls)
+		}
+	})
+	for _, status := range []domain.CouncilStatus{domain.CouncilFailed, domain.CouncilCanceled} {
+		t.Run(string(status), func(t *testing.T) {
+			v := newEnv(t)
+			v.publish(t, &domain.CouncilDecidedSignal{CouncilID: id, Status: status})
+			_, r := v.engine(t, pb, map[string]any{"council": id.String()})
+			done := v.waitRun(t, r.ID, domain.RunFailed)
+			if !strings.Contains(done.Error, "council "+string(status)) {
+				t.Fatalf("error = %q", done.Error)
+			}
+		})
+	}
+	v := newEnv(t)
+	_, r := v.engine(t, `
+steps:
+  - {id: council, type: wait, with: {signal: council.decided, council_id: '${steps.council.output.none}'}}
+`, nil)
+	if done := v.waitRun(t, r.ID, domain.RunFailed); !strings.Contains(done.Error, "empty council_id") {
+		t.Fatalf("error = %q", done.Error)
+	}
+}
+
+// TestStartWithID: a run started with an ID is started once.
+func TestStartWithID(t *testing.T) {
+	v := newEnv(t)
+	e, _ := run(t, v.config(t, map[string]string{"pb": "steps:\n- {id: a, type: action, action: record}"}))
+	id := domain.NewID()
+	req := workflow.StartRequest{ID: id, AccountID: v.account, ProjectID: v.project.ID}
+	first, err := e.Start(t.Context(), "pb", req)
+	must(t, err)
+	again, err := e.Start(t.Context(), "pb", req)
+	must(t, err)
+	if first.ID != id || again.ID != id {
+		t.Fatalf("runs %s, %s, want %s", first.ID, again.ID, id)
+	}
+	v.waitRun(t, id, domain.RunSucceeded)
+	if n := len(v.actionCalls()); n != 1 {
+		t.Fatalf("action calls = %d, want 1", n)
+	}
+}
+
 func TestWaitTimeout(t *testing.T) {
 	v := newEnv(t)
 	_, r := v.engine(t, `
