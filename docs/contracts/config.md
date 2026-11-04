@@ -54,6 +54,7 @@ roles:
 
 policy:
   allow_same_vendor_review: false
+  accept_recommendations: []                  # council kinds; see below
 
 pools:                                        # optional; these are the defaults
   build:
@@ -121,6 +122,7 @@ Model names above are examples; use the ones your vendors offer.
 | `model_tiers` | map tier → vendor → model | yes for every (tier, vendor) a role uses | | Tiers are `fast`, `strong`, `best`. |
 | `roles` | map role → `{runtime, tier}` | no | empty | Runtime and tier per role. Role definitions (prompts, write paths, schemas) live in `packs/roles`. |
 | `policy.allow_same_vendor_review` | bool | no | `false` | When false, `reviewer` and `developer` must use runtimes of different vendors. |
+| `policy.accept_recommendations` | list of council kinds | no | empty | Council kinds (`domain.CouncilKind`) whose recommendation is accepted without a human when the brief says the decision is `reversible`; the decision is recorded as `policy`. Empty means every brief opens a `council_decision` gate. |
 | `pools` | map name → pool | no | `build`, `control`, `actions` as above | Worker pools (`config.Pool`). Names are `domain.ValidName`s. An entry replaces the default of the same name; the defaults not redefined always exist. Every worker belongs to one pool (worker-api.md, Pools). |
 | `pools.<name>.roles` | list of strings | no | empty | Roles whose agent jobs the pool runs, or `"*"` for all. Not used for command jobs. |
 | `pools.<name>.kinds` | list of `agent` \| `command` | yes | | Job kinds the pool runs. |

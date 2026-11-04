@@ -16,6 +16,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/forecrew/forecrew/internal/domain"
 )
 
 // Sentinel errors.
@@ -147,6 +149,10 @@ type Role struct {
 type Policy struct {
 	// AllowSameVendorReview allows the reviewer to use the developer's vendor.
 	AllowSameVendorReview bool `yaml:"allow_same_vendor_review"`
+	// AcceptRecommendations lists the council kinds whose recommendation
+	// is accepted without a human when the brief says the decision is
+	// reversible. Empty means every brief goes to a council_decision gate.
+	AcceptRecommendations []domain.CouncilKind `yaml:"accept_recommendations"`
 }
 
 // Load reads forecrew.yaml from path. getenv supplies secrets (os.Getenv in
@@ -326,6 +332,11 @@ func (c *Config) validateRoles(p *problems) {
 	if v, ok := c.SameVendorReview(); ok {
 		p.addf("roles: reviewer and developer both use vendor %q; set policy.allow_same_vendor_review to allow it", v)
 	}
+	for _, k := range c.Policy.AcceptRecommendations {
+		if !slices.Contains(domain.CouncilKinds(), k) {
+			p.addf("policy.accept_recommendations: unknown council kind %q", k)
+		}
+	}
 }
 
 // SameVendorReview reports whether the reviewer and developer roles use
@@ -357,6 +368,24 @@ func (c *Config) Model(role string) (adapter, model string, err error) {
 	}
 	rt := c.Runtimes[r.Runtime]
 	return rt.Adapter, c.ModelTiers[r.Tier][rt.Vendor], nil
+}
+
+// ModelOn returns the model role runs with on a runtime of adapter: the
+// role's tier for that runtime's vendor. A council seats a role on another
+// runtime than the one roles gives it. It fails when no runtime of adapter
+// has a model for the tier.
+func (c *Config) ModelOn(role, adapter string) (string, error) {
+	r, ok := c.Roles[role]
+	if !ok {
+		return "", fmt.Errorf("role %q: %w", role, ErrUnknownRole)
+	}
+	for _, name := range sortedKeys(c.Runtimes) {
+		rt := c.Runtimes[name]
+		if model := c.ModelTiers[r.Tier][rt.Vendor]; rt.Adapter == adapter && model != "" {
+			return model, nil
+		}
+	}
+	return "", fmt.Errorf("role %q: no runtime of adapter %q has a %s model", role, adapter, r.Tier)
 }
 
 func sortedKeys[K ~string, V any](m map[K]V) []K {

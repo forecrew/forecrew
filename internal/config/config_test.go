@@ -5,8 +5,11 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/forecrew/forecrew/internal/domain"
 )
 
 const validYAML = `
@@ -195,5 +198,37 @@ func TestParseActions(t *testing.T) {
 	}
 	if _, err = Parse([]byte(validYAML+"actions:\n  max_in_flight: -1\n"), env(nil)); !errors.Is(err, ErrInvalid) {
 		t.Errorf("negative max_in_flight: %v", err)
+	}
+}
+
+func TestAcceptRecommendations(t *testing.T) {
+	src := strings.Replace(validYAML, "policy:", "policy:\n  accept_recommendations: [technical, adhoc]", 1)
+	c, err := Parse([]byte(src), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(c.Policy.AcceptRecommendations, []domain.CouncilKind{domain.CouncilTechnical, domain.CouncilAdhoc}) {
+		t.Fatalf("accept_recommendations = %v", c.Policy.AcceptRecommendations)
+	}
+	src = strings.Replace(validYAML, "policy:", "policy:\n  accept_recommendations: [debate]", 1)
+	if _, err := Parse([]byte(src), env(nil)); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), `unknown council kind "debate"`) {
+		t.Fatalf("unknown kind: %v", err)
+	}
+}
+
+func TestModelOn(t *testing.T) {
+	c := &Config{
+		Roles:      map[string]Role{"architect": {Runtime: "claude", Tier: TierBest}},
+		Runtimes:   map[string]Runtime{"claude": {Adapter: AdapterClaudeCode, Vendor: "anthropic"}, "gpt": {Adapter: AdapterCodex, Vendor: "openai"}},
+		ModelTiers: map[Tier]map[string]string{TierBest: {"anthropic": "a-best", "openai": "o-best"}},
+	}
+	if m, err := c.ModelOn("architect", AdapterCodex); err != nil || m != "o-best" {
+		t.Fatalf("codex = %q, %v", m, err)
+	}
+	if _, err := c.ModelOn("ghost", AdapterCodex); !errors.Is(err, ErrUnknownRole) {
+		t.Fatalf("unknown role: %v", err)
+	}
+	if _, err := c.ModelOn("architect", "other"); err == nil {
+		t.Fatal("an adapter without a runtime gave a model")
 	}
 }
