@@ -5,8 +5,10 @@ for each forecrew-worker. Both are loaded by `internal/config` with strict
 decoding: unknown keys are errors. Secrets never appear in the files; they come
 from environment variables and live in memory only.
 
-Projects, MCP/API tokens and workers are not configuration: they live in the
-database and are managed with the `forecrew` CLI, MCP or the web UI.
+Projects, organizations, people, roles, MCP/API tokens and workers are not
+configuration: they live in the database and are managed with the
+`forecrew` CLI, MCP or the web UI. Only instance-level sign-in connections
+and instance admins are configured here (`auth`, identity.md).
 
 The same file shape serves self-hosted installations and the SaaS; nothing in
 the code depends on which one it is.
@@ -82,6 +84,22 @@ sizing:                                       # optional; these are the defaults
   technical:
     impact: [medium, high]
     components: 2
+
+auth:                                         # optional; these are the defaults
+  session_idle: 168h
+  session_absolute: 720h
+  token_default_ttl: 2160h
+  token_login: false
+  instance_admins: [ana@example.com, 'github:583231']   # example; default empty
+  connections:                                # example; default none
+    github:
+      kind: github
+      client_id: Iv1.0123456789abcdef
+      client_secret_ref: env:FORECREW_GITHUB_CLIENT_SECRET
+    google:
+      kind: google
+      client_id: 1234-abc.apps.googleusercontent.com
+      client_secret_ref: secret:forecrew-google
 ```
 
 Model names above are examples; use the ones your vendors offer.
@@ -120,6 +138,21 @@ Model names above are examples; use the ones your vendors offer.
 | `sizing.product.reversibility` | list of `easy` \| `hard` \| `irreversible` | no | `[hard, irreversible]` | Reversibilities that give a goal the product council. |
 | `sizing.technical.impact` | list of `low` \| `medium` \| `high` | no | `[medium, high]` | Impacts that give a goal the technical council. |
 | `sizing.technical.components` | integer ≥ 1 | no | `2` | Distinct areas (paths or components) the triage names that give a goal the technical council; `0` or absent keeps the default. |
+| `auth` | object | no | defaults below | Sign-in, sessions and tokens ([identity.md](identity.md); `config.Auth`). |
+| `auth.session_idle` | Go duration | no | `168h` (7 days) | A browser session not used for this long ends. At most `session_absolute`. |
+| `auth.session_absolute` | Go duration | no | `720h` (30 days) | A browser session ends this long after sign-in, used or not. |
+| `auth.token_default_ttl` | Go duration | no | `2160h` (90 days) | Expiry of a personal or service account token created without one. |
+| `auth.token_login` | bool | no | `false` | Legacy: lets `POST /api/v1/session` sign in with a token. Off, people sign in through a connection. |
+| `auth.instance_admins` | list of strings | no | empty | The people who may open any organization's settings to recover access: verified emails (compared ignoring case) or `github:<user ID>`, the numeric ID. GitHub logins are refused, because a login can be renamed and then taken by someone else. Every use is audited. |
+| `auth.connections` | map name → connection | no | empty | Instance-level sign-in connections, usable by every organization. Names are `domain.ValidName`s. forecrewd stores them at startup (`account_id` NULL). |
+| `auth.connections.<name>.kind` | `github` \| `google` \| `microsoft` \| `oidc` | yes | | `github` is the Forecrew GitHub App's user authorization; the others are OpenID Connect. |
+| `auth.connections.<name>.issuer` | URL | for `microsoft` and `oidc` | `https://accounts.google.com` for `google` | OIDC issuer, `https://`; empty for `github`. |
+| `auth.connections.<name>.client_id` | string | yes | | OAuth client ID. |
+| `auth.connections.<name>.client_secret_ref` | `env:NAME` \| `secret:name` | yes | | Where forecrewd reads the client secret: an environment variable, or the file `/run/secrets/<name>`. Never the secret itself, which is refused. Connections here may use the full forms; an organization's own connections are limited to `env:FORECREW_CONN_*` and `secret:conn-*` (identity.md). |
+| `auth.connections.<name>.group_claim` | string | no | empty | ID token claim holding the user's groups, for group mapping (enterprise). |
+
+Instance connections have no just-in-time provisioning (`jit` is not a
+key here); an organization configures that on its own connections.
 
 A job may run in a pool when the pool lists its kind and, for an agent job,
 its role (or `"*"`), and when the role writes, the pool's `repo_token` is
@@ -151,6 +184,7 @@ get no council. A goal created with councils (create_goal) is not triaged.
 | each `runtimes.*.credential_env` entry | yes | Runtime credentials, e.g. `ANTHROPIC_API_KEY`, `CODEX_API_KEY`. |
 | `FORECREW_EVIDENCE_ACCESS_KEY_ID` | when `evidence` is set | Access key of the evidence bucket. |
 | `FORECREW_EVIDENCE_SECRET_ACCESS_KEY` | when `evidence` is set | Secret key of the evidence bucket. Never logged. |
+| each `auth.connections.*.client_secret_ref` `env:NAME` | yes | Client secret of the connection, e.g. `FORECREW_GITHUB_CLIENT_SECRET`. Read when used, kept in memory only, never logged. |
 
 forecrewd takes the config path from `--config` (default `forecrew.yaml`).
 
@@ -165,7 +199,11 @@ reviewer/developer on the same vendor without `allow_same_vendor_review`,
 invalid pool names, pools without kinds or with unknown kinds, empty role
 names, pool runtimes that are not configured, unknown `repo_token` scopes,
 and, when `evidence` is set, a malformed endpoint, no bucket, a negative
-size or retention, and missing evidence keys.
+size or retention, and missing evidence keys; for `auth`, negative
+durations, `session_idle` longer than `session_absolute`, connections with
+an unknown kind, an invalid name, no client ID, an issuer that does not fit
+the kind or a `client_secret_ref` that is not a reference, unset `env:`
+secrets, and instance admins that are not an email or `github:<user ID>`.
 
 ## worker.yaml
 
