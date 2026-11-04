@@ -40,10 +40,13 @@ change.
   available and the database role may create it; otherwise it logs a notice
   and goes on. Knowledge search never needs it: full-text search over
   `knowledge_entries.search` always works, and embeddings only add to the
-  ranking where the column exists (decision 10, T36). To add it later, a
-  superuser runs `CREATE EXTENSION vector; ALTER TABLE knowledge_entries ADD
-  COLUMN embedding vector;`. The column has no fixed dimension until T36
-  picks an embedder.
+  ranking where the column exists (decision 10, T36). Migration 00006
+  gives the column its dimension, 1536 (OpenAI `text-embedding-3-small`), and
+  a cosine index. To add it later, a superuser runs `CREATE EXTENSION vector;
+  ALTER TABLE knowledge_entries ADD COLUMN embedding vector(1536); CREATE INDEX
+  knowledge_entries_embedding ON knowledge_entries USING hnsw (embedding
+  vector_cosine_ops);`. Entries stored before that have no embedding; forecrewd
+  embeds them on its next sync.
 
 ## Tables
 
@@ -582,7 +585,7 @@ CREATE TABLE knowledge_entries (
   updated_at      timestamptz NOT NULL DEFAULT now(),
   search          tsvector GENERATED ALWAYS AS
                     (setweight(to_tsvector('english', title), 'A') || setweight(to_tsvector('english', body), 'B')) STORED,
-  -- embedding vector,                          -- only with pgvector (Rules)
+  -- embedding vector(1536),                    -- only with pgvector (Rules)
   UNIQUE (account_id, project_id, provider, path),
   CHECK ((provider = 'internal') = (section = 'notes')),
   CHECK ((provider = 'internal') = (scope IS NOT NULL)),
@@ -596,6 +599,7 @@ CREATE INDEX knowledge_entries_section  ON knowledge_entries (account_id, projec
 CREATE INDEX knowledge_entries_goal     ON knowledge_entries (account_id, goal_id) WHERE goal_id IS NOT NULL;
 CREATE INDEX knowledge_entries_expires  ON knowledge_entries (expires_at) WHERE expires_at IS NOT NULL;
 CREATE INDEX knowledge_entries_reverify ON knowledge_entries (account_id, project_id) WHERE needs_reverify;
+-- Only with pgvector (Rules): CREATE INDEX knowledge_entries_embedding ON knowledge_entries USING hnsw (embedding vector_cosine_ops);
 
 -- A proposed change to a curated section. Ref KB-n. Never to 'generated'
 -- or to notes.

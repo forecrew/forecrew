@@ -48,6 +48,35 @@ whose file is gone or no longer mapped. The index therefore always matches
 the head, whichever events were missed. After `onboarding.complete` the
 `knowledge.seed` action runs the same sync.
 
+The webhook handler and the poller only queue a sync (`knowledge.Scheduler`);
+one worker runs them, so a slow repo never holds up webhooks. Requests for a
+project that is waiting are coalesced into one sync from the oldest previous
+commit to the newest head, so drift covers every push. A sync that fails is
+retried after 30 seconds, then 1, 2, 4 minutes and so on up to 30 minutes, also
+when the poller asks again meanwhile, so an oversized repo is not downloaded
+every five minutes. One sync reads at most 200 files from GitHub and saves
+entries in batches of 20: a rate limit keeps what was read, and a sync that
+stopped at its limit goes on at once.
+
+A file that cannot be an entry (not UTF-8 text, a NUL byte, a blank
+frontmatter title, a frontmatter that breaks its schema) is skipped, with its
+reason in the sync result and the log; it never fails the sync, and the entry
+indexed before it stays. The repo archive that feeds the generated section
+counts every entry of every type against its limits (100000 entries, 512 MiB of
+files, 8 MiB per file kept, and the same for the unpacked stream).
+
+### Policy
+
+The policy (`.forecrew/knowledge-policy.yaml`, or the default mapping) decides
+who reads which section and which paths writing roles may not change. It is
+kept in memory per project and read again from the default branch when a sync
+runs. After a restart nothing is in memory: the first search or job reads it
+from GitHub. When that is impossible (GitHub down, a policy file that does not
+parse) everything that needs it refuses: `kb_search` and `search_knowledge`
+answer `unavailable` and a writing role's job is not created. There is no
+default policy to fall back to, because the default would allow what a policy
+may protect.
+
 ### Drift
 
 On a push, `before..after` is compared. The push changed these:
@@ -104,8 +133,21 @@ similarity is at least 0.45. Embeddings are OpenAI `text-embedding-3-small`
 at 1536 dimensions (it fits pgvector's index limit of 2000, is cheap and
 needs only an OpenAI key); set `FORECREW_EMBEDDINGS_API_KEY` to turn them on.
 They need pgvector: migration 00004 adds the column only where the extension
-exists and 00005 gives it its dimension and a cosine index. Without the key or
+exists and 00006 gives it its dimension and a cosine index. Without the key or
 the extension, or when the embeddings API fails, search is words only.
+
+**What leaves forecrewd.** With `FORECREW_EMBEDDINGS_API_KEY` set and pgvector
+installed, the title and body of every knowledge entry and agent note (cut to
+8000 bytes each) and every search query are sent to the embeddings provider,
+OpenAI. Repo text, notes and queries go to a third party that way; leave the
+key unset to keep them in your installation. Without pgvector nothing is sent,
+since the vectors could not be stored. Requests stay under the API limits: an
+input is under 8192 tokens whatever it holds (one token per byte is assumed)
+and a request holds at most 100000 bytes in 64 inputs. Errors are logged with
+the status only, never with what the provider answered, since it may quote the
+text. A request the provider refuses loses nothing: entries are saved first and
+embedded in groups of 16, and every sync embeds up to 100 entries that have no
+embedding yet.
 
 Tools: `kb_search` for agents (their role's `access.read` filters the sections;
 the notes of other goals are never returned), `search_knowledge` and
