@@ -23,7 +23,10 @@ type accountRepo struct{ s *Store }
 func (r accountRepo) Create(_ context.Context, a *domain.Account) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
 		a.ID = newID(a.ID)
-		if d.accounts.exists(func(x domain.Account) bool { return x.ID == a.ID }) {
+		if a.Slug == "" {
+			a.Slug = domain.Slugify(a.Name)
+		}
+		if d.accounts.exists(func(x domain.Account) bool { return x.ID == a.ID || x.Slug == a.Slug }) {
 			return fmt.Errorf("account %s: %w", a.ID, store.ErrConflict)
 		}
 		a.CreatedAt = now
