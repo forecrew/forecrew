@@ -249,3 +249,20 @@ func TestJobCreatorCommandErrors(t *testing.T) {
 		t.Errorf("agent job with a suite: %v", err)
 	}
 }
+
+func TestJobCreatorCancel(t *testing.T) {
+	f := newFixture(t)
+	id, err := f.creator.Create(t.Context(), f.commandRequest())
+	must(t, err)
+	must(t, f.creator.Cancel(t.Context(), f.account.ID, id))
+	j, _ := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+	if j.Status != domain.JobCanceled {
+		t.Errorf("job is %s", j.Status)
+	}
+	if err := f.creator.Cancel(t.Context(), f.account.ID, id); !errors.Is(err, domain.ErrInvalidTransition) {
+		t.Errorf("cancel a finished job: %v", err)
+	}
+	if err := f.creator.Cancel(t.Context(), f.account.ID, domain.NewID()); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("cancel an unknown job: %v", err)
+	}
+}

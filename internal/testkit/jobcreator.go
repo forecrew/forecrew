@@ -22,6 +22,7 @@ type JobCreator struct {
 
 	mu       sync.Mutex
 	requests []workflow.JobRequest
+	canceled []uuid.UUID
 }
 
 // Create implements workflow.JobCreator.
@@ -50,6 +51,26 @@ func (c *JobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 		return uuid.Nil(), err
 	}
 	return j.ID, nil
+}
+
+// Cancel implements workflow.JobCreator: it cancels the job in the store and
+// records its ID. Without a store it only records the ID.
+func (c *JobCreator) Cancel(ctx context.Context, accountID, jobID uuid.UUID) error {
+	c.mu.Lock()
+	c.canceled = append(c.canceled, jobID)
+	c.mu.Unlock()
+	if c.Store == nil {
+		return nil
+	}
+	_, err := c.Store.Jobs().Cancel(ctx, accountID, jobID)
+	return err
+}
+
+// Canceled returns the job IDs Cancel was called with.
+func (c *JobCreator) Canceled() []uuid.UUID {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.canceled)
 }
 
 // Requests returns the requests Create was called with.

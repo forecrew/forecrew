@@ -295,6 +295,10 @@ func (c idlessCreator) Create(ctx context.Context, req workflow.JobRequest) (uui
 	return c.inner.Create(ctx, req)
 }
 
+func (c idlessCreator) Cancel(ctx context.Context, accountID, jobID uuid.UUID) error {
+	return c.inner.Cancel(ctx, accountID, jobID)
+}
+
 func TestCreatorMustUseJobID(t *testing.T) {
 	v := newEnv(t)
 	cfg := v.config(t, map[string]string{"pb": "steps:\n- {id: build, type: job, with: {role: developer}}"})
