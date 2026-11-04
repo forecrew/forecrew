@@ -634,7 +634,7 @@
             "properties": {
               "member": {
                 "type": "string",
-                "description": "Member role."
+                "description": "The member as role@runtime, e.g. architect@claude-code (councils.MemberName)."
               },
               "runtime": {
                 "type": "string"
