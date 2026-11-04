@@ -8,6 +8,7 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -43,6 +44,9 @@ type JobRequest struct {
 	// write paths allow it (the tests written from the spec). They are put
 	// in the job spec.
 	LockedPaths []string `json:"locked_paths,omitempty" yaml:"locked_paths,omitempty"`
+	// Council makes the job a turn of a council: the creator replaces the
+	// role's job with the council step's (councils.Set.Job).
+	Council *CouncilTurn `json:"council,omitempty" yaml:"council,omitempty"`
 
 	// Kind is agent (the default) or command. A command job has no role,
 	// prompt or context pack: it runs Command, optionally in Environment,
@@ -56,6 +60,26 @@ type JobRequest struct {
 	Overlay     *domain.Overlay     `json:"overlay,omitempty" yaml:"overlay,omitempty"`
 	// Timeout bounds a command job; zero means the creator's default.
 	Timeout domain.Duration `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+}
+
+// CouncilTurn says which turn of a council a job is (docs/councils.md). The
+// council playbook fills it from the outputs of its actions.
+type CouncilTurn struct {
+	CouncilID uuid.UUID `json:"council_id" yaml:"council_id"`
+	Step      string    `json:"step" yaml:"step"` // a councils.Step
+	Round     int       `json:"round" yaml:"round"`
+	// Priority names the member's seat; empty for the facilitator.
+	Priority string `json:"priority,omitempty" yaml:"priority,omitempty"`
+	// Runtime is the adapter a member is pinned to; empty for the facilitator,
+	// which runs on its role's runtime.
+	Runtime string `json:"runtime,omitempty" yaml:"runtime,omitempty"`
+	// Roles are the members a council of its own chose instead of its pack's.
+	Roles []string `json:"roles,omitempty" yaml:"roles,omitempty"`
+	// BudgetExhausted tells a synthesis that the budget ran out.
+	BudgetExhausted bool `json:"budget_exhausted,omitempty" yaml:"budget_exhausted,omitempty"`
+	// Framing is the facilitator's framing, the output of the frame job.
+	// It is agent text: the prompt quotes it as untrusted data.
+	Framing json.RawMessage `json:"framing,omitempty" yaml:"framing,omitempty"`
 }
 
 // JobCreator creates jobs. The implementation resolves the role, builds the
