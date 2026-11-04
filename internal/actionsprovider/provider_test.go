@@ -97,7 +97,7 @@ func (e *env) checkDispatch(j domain.Job) {
 	}
 }
 
-func TestWorkerRowIsReused(t *testing.T) {
+func TestWorkerRowIsReusedAndSeen(t *testing.T) {
 	e := newEnv(t)
 	for range 2 {
 		e.newJob()
@@ -108,14 +108,42 @@ func TestWorkerRowIsReused(t *testing.T) {
 	if err != nil || len(ws) != 1 || ws[0].Name != WorkerName || ws[0].Pool != domain.PoolActions {
 		t.Errorf("workers = %+v, %v", ws, err)
 	}
-	// A fresh provider finds the row, and moves it back into pool actions.
-	if err := e.st.Workers().SetPool(t.Context(), e.account.ID, ws[0].ID, domain.PoolBuild); err != nil {
-		t.Fatal(err)
+	w, err := New(Config{Store: e.st, Jobs: e.jobs, GitHub: e.gh.Client}).worker(t.Context(), e.account.ID)
+	if err != nil || w.ID != ws[0].ID {
+		t.Errorf("a fresh provider did not find the row: %+v, %v", w, err)
 	}
-	p := New(Config{Store: e.st, Jobs: e.jobs, GitHub: e.gh.Client})
-	w, err := p.worker(t.Context(), e.account.ID)
-	if err != nil || w.ID != ws[0].ID || w.Pool != domain.PoolActions {
-		t.Errorf("worker = %+v, %v", w, err)
+	if got, _ := e.st.Workers().Get(t.Context(), e.account.ID, w.ID); !got.Online(e.clock.Now()) {
+		t.Error("the worker row is not recorded as seen, so job_status would say no worker is online")
+	}
+}
+
+// The provider serves the row it created, nothing else under its name.
+func TestWorkerRowIsNotAdopted(t *testing.T) {
+	tests := []struct {
+		name string
+		row  domain.Worker
+		want string
+	}{
+		{"made by an admin", domain.Worker{Pool: domain.PoolActions, MaxJobs: 1}, "the provider did not create it"},
+		{"revoked", domain.Worker{Pool: domain.PoolActions, Version: providerVersion, RevokedAt: time.Now()}, "is revoked"},
+		{"moved to another pool", domain.Worker{Pool: domain.PoolBuild, Version: providerVersion}, "is in pool build"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			tt.row.AccountID, tt.row.Name, tt.row.TokenHash = e.account.ID, WorkerName, []byte("issued")
+			if err := e.st.Workers().Create(t.Context(), &tt.row); err != nil {
+				t.Fatal(err)
+			}
+			j := e.newJob()
+			e.poll()
+			if _, err := e.provider.worker(t.Context(), e.account.ID); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("err = %v, want %q", err, tt.want)
+			}
+			if got := e.job(j); got.Status != domain.JobQueued || len(e.gh.Dispatches()) != 0 {
+				t.Errorf("job = %s, dispatches %d; want it left queued", got.Status, len(e.gh.Dispatches()))
+			}
+		})
 	}
 }
 
