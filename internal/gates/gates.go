@@ -36,6 +36,9 @@ type OpenRequest struct {
 	SpecID        uuid.UUID       `json:"spec_id,omitzero"`
 	TaskID        uuid.UUID       `json:"task_id,omitzero"`
 	JobID         uuid.UUID       `json:"job_id,omitzero"`
+	// Origin is what opens the gate; playbooks leave it empty
+	// (domain.GateFromPlaybook).
+	Origin domain.GateOrigin `json:"-"`
 }
 
 // Service manages gates.
@@ -89,7 +92,7 @@ func (k *Keeper) Open(ctx context.Context, req OpenRequest) (domain.Gate, error)
 	g := domain.Gate{
 		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Kind: req.Kind, Status: domain.GatePending,
 		Title: req.Title, Summary: req.Summary, SubjectRepo: req.SubjectRepo, SubjectNumber: req.SubjectNumber,
-		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID, JobID: req.JobID,
+		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID, JobID: req.JobID, Origin: req.Origin,
 	}
 	err := k.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if req.ID != uuid.Nil() {

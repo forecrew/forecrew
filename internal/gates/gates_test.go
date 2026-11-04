@@ -68,7 +68,7 @@ func TestOpen(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
 	g := f.open(t, domain.GateSpecApproval)
-	if g.Status != domain.GatePending || g.Number != 1 || g.SubjectNumber != 3 {
+	if g.Status != domain.GatePending || g.Number != 1 || g.SubjectNumber != 3 || g.Origin != domain.GateFromPlaybook {
 		t.Fatalf("Open = %+v", g)
 	}
 	entries, _ := f.st.Audit().List(ctx, f.account, store.AuditFilter{SubjectID: g.ID})
@@ -89,6 +89,15 @@ func TestOpen(t *testing.T) {
 		t.Fatalf("gates = %d, want 2", len(all))
 	}
 
+	// An ask_human question keeps its origin.
+	j := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Role: "developer", Runtime: "claude-code"}
+	must(t, f.st.Jobs().Create(ctx, &j))
+	ask, err := f.svc.Open(ctx, gates.OpenRequest{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.GateNeedsYou,
+		Title: "JOB-1 asks: which?", SubjectRepo: "acme/app", JobID: j.ID, Origin: domain.GateFromAskHuman})
+	if err != nil || !ask.AsksHuman() {
+		t.Fatalf("ask_human gate = %+v, %v", ask, err)
+	}
+
 	_, err = f.svc.Open(ctx, gates.OpenRequest{AccountID: f.account, ProjectID: f.project.ID, Kind: "vibe_check"})
 	wantErr(t, err, mcp.ErrInvalidInput)
 
@@ -99,8 +108,8 @@ func TestOpen(t *testing.T) {
 	must(t, f.st.Projects().Create(ctx, &op))
 	_, err = f.svc.Open(ctx, gates.OpenRequest{AccountID: f.account, ProjectID: op.ID, Kind: domain.GateNeedsYou})
 	wantErr(t, err, store.ErrNotFound)
-	if entries, _ := f.st.Audit().List(ctx, f.account, store.AuditFilter{}); len(entries) != 2 {
-		t.Fatalf("audit = %d entries, want 2", len(entries))
+	if entries, _ := f.st.Audit().List(ctx, f.account, store.AuditFilter{}); len(entries) != 3 {
+		t.Fatalf("audit = %d entries, want 3", len(entries))
 	}
 }
 
