@@ -114,6 +114,7 @@ func TestRoutes(t *testing.T) {
 		{http.MethodGet, "/worker/v1/poll", http.StatusUnauthorized},
 		{http.MethodGet, "/api/v1/me", http.StatusUnauthorized},
 		{http.MethodPost, "/mcp", http.StatusUnauthorized},
+		{http.MethodPost, "/job-mcp", http.StatusUnauthorized},
 		{http.MethodPost, "/webhooks/github", http.StatusUnauthorized},
 		{http.MethodGet, "/webhooks/github", http.StatusMethodNotAllowed},
 	}
@@ -258,5 +259,16 @@ func TestNewRefusesSameVendorReview(t *testing.T) {
 	cfg.Policy.AllowSameVendorReview = true
 	if _, err := New(Deps{Config: cfg, Store: f.st, GitHub: f.tracker}); err != nil {
 		t.Errorf("allowed by policy: %v", err)
+	}
+}
+
+func TestJobMCPURL(t *testing.T) {
+	cfg := &config.Config{}
+	if got := jobMCPURL(cfg); got != "" {
+		t.Errorf("without a public URL: %q", got)
+	}
+	cfg.Server.PublicBaseURL = "https://forecrew.example.com"
+	if got := jobMCPURL(cfg); got != "https://forecrew.example.com/job-mcp" {
+		t.Errorf("jobMCPURL = %q", got)
 	}
 }
