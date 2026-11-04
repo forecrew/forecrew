@@ -39,7 +39,7 @@ rejected.
 | `action` | `action`, `with`, `on_failure` | Calls the Go function registered under `action` in `workflow.Actions` with the resolved `with`. Its result is the step output; an error fails the step. |
 | `gate` | `with`, `on_failure` | Opens a gate and waits for `gate.resolved`. `with` takes the json keys of `gates.OpenRequest`: `kind`, `title`, `subject_repo` (required), `summary`, `subject_number`, `goal_id`, `spec_id`, `task_id`, `job_id`. |
 | `wait` | `with`, `timeout`, `on_failure` | Waits for a signal. `with.signal` is the kind and the remaining keys build its key with the `domain` helpers: `checks.completed` (`repo`, `sha`), `pr.merged` / `pr.closed` (`repo`, `number`), `job.completed` (`job_id`), `gate.resolved` (`gate_id`). The first signal stored under the key completes the step, so for a PR either merged or closed does (the output's `signal` says which). On `job.completed` the step follows the job-step rules: it outputs the job's values and fails when the job did not succeed. On `gate.resolved` it outputs the gate's values but does not apply the gate-decision rules below. Unlike job and gate steps, a wait has no lost-signal fallback. `timeout` (Go duration, e.g. `30m`) fails the step after that long; zero waits forever. |
-| `foreach` | `items`, `steps` | Runs `steps` once per element of the list `items` (a single `${...}`), in order. Inside, `${item}` and `${index}` (from 0) are set. |
+| `foreach` | `items`, `parallel`, `steps` | Runs `steps` once per element of the list `items` (a single `${...}`), in order, or with `parallel: <n>` at most n items at a time (see [Parallel foreach](#parallel-foreach)). Inside, `${item}` and `${index}` (from 0) are set. |
 | `loop` | `steps`, `max_iterations`, `until`, `on_failure` | Runs `steps` until `until` holds after a round, at most `max_iterations` rounds. Inside, `${iteration}` (from 1) is set. When the rounds run out, `on_failure` applies. |
 
 A step waiting for a signal first looks at signals already stored under its
@@ -114,6 +114,40 @@ when nothing ran. Inside the foreach `${item}` is the list's element and hides
 an outer foreach's, so read what an outer item held from a step output
 instead.
 
+## Parallel foreach
+
+`parallel: <n>` runs up to n items at once; 0 or absent runs them one after
+the other. It must be a number, is checked on load and fits `foreach` only.
+
+```yaml
+- id: reviews
+  type: foreach
+  parallel: 3
+  items: '${steps.plan.output.tasks}'
+  steps:
+    - {id: review, type: job, with: {role: reviewer, repo: '${inputs.repo}', branch: '${item.branch}'}}
+```
+
+- Items start in order, and an item is in flight from its first step until its
+  last one finishes, also while it waits for a gate or a signal. When an item
+  finishes, the next one starts.
+- The output is the same list as without `parallel`, in item order, however
+  the items finish.
+- The step runs are keyed by item index as always, and what is in flight
+  follows from them, so after a restart each item continues where it stopped.
+- The foreach finishes when every item has finished. An item whose step fails
+  (`on_failure: fail`) does not stop the others: the items not started yet
+  still run, and the run fails afterwards with the failure of the first such
+  item. So `parallel: 1` differs from no `parallel`, which stops at the first
+  failure. An item that escalates waits for its gate while the others go on.
+- A canceled run (a gate or an escalation rejected in any item) stops at once:
+  no other item starts, every job in flight is canceled and its step fails
+  with `canceled: the run ended`, and then the `finally` steps run. A gate
+  still open in another item stays pending; deciding it has no effect.
+- Parallelism is that of jobs, gates and waits. One run advances on one engine
+  worker, so the actions of a body are called one at a time and a slow action
+  delays the items after it.
+
 ## Failures and escalation
 
 `on_failure` is `fail` (default; the run fails) or `escalate`. Escalate opens
@@ -156,6 +190,8 @@ crash continues where it stopped:
   `JobCreator` must create the job with that ID (the step fails otherwise).
   On resume the engine finds the job instead of creating another.
 - **Gates**: opened with the step run ID; opening it again returns the gate.
+- **Items of a parallel foreach** resume the same way, each from its own step
+  runs.
 - **Actions** run at least once: a crash between the call and the step being
   recorded calls the action again with the same `ActionCall.Key`. Actions
   must be idempotent for their key (for example by checking whether the

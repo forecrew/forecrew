@@ -234,6 +234,9 @@ func (e *Engine) advance(ctx context.Context, k runKey) error {
 	err = x.replay(ctx)
 	var end *runEnd
 	if errors.As(err, &end) && end.status != domain.RunSucceeded {
+		if err := x.stopJobs(ctx); err != nil {
+			return err
+		}
 		if err := x.finally(ctx); err != nil {
 			return err
 		}
