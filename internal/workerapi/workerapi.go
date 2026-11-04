@@ -12,6 +12,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 	"uuid"
@@ -98,7 +99,7 @@ func New(cfg Config) *Server {
 // authentication.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /worker/v1/poll", s.poll)
+	mux.HandleFunc("POST "+pollPath, s.poll)
 	mux.HandleFunc("POST /worker/v1/jobs/{job_id}/heartbeat", s.heartbeat)
 	mux.HandleFunc("POST /worker/v1/jobs/{job_id}/events", s.events)
 	mux.HandleFunc("PUT /worker/v1/jobs/{job_id}/artifacts/{name...}", s.uploadArtifact)
@@ -128,6 +129,11 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		switch {
 		case errors.Is(err, store.ErrNotFound) || (err == nil && w.Revoked()):
 			writeError(rw, http.StatusUnauthorized, "unauthorized", "unknown or revoked worker token")
+			return
+		case r.URL.Path == pollPath && clientGone(r.Context(), err):
+			// Only poll: elsewhere the context is also done on shutdown while
+			// the worker is alive, and a 2xx would make it drop its call.
+			rw.WriteHeader(http.StatusNoContent)
 			return
 		case err != nil:
 			fail(r.Context(), rw, s.cfg.Logger, "look up worker", err)
@@ -187,6 +193,18 @@ func writeError(rw http.ResponseWriter, status int, code, message string) {
 		rw.Header().Set("WWW-Authenticate", "Bearer")
 	}
 	writeJSON(rw, status, map[string]apiError{"error": {Code: code, Message: message}})
+}
+
+// pollPath is the long-poll route, the only one answered 204 when its client
+// is gone.
+const pollPath = "/worker/v1/poll"
+
+// clientGone reports whether err is the request context ending (the client
+// went away or forecrewd is shutting down), which is not a server error. It
+// includes the i/o timeout pgx reports when the deadline hits a socket write.
+func clientGone(ctx context.Context, err error) bool {
+	return ctx.Err() != nil && (errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded))
 }
 
 // fail answers a store or service error with its status code.
