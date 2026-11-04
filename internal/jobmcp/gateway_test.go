@@ -333,14 +333,18 @@ func TestEvidenceAttach(t *testing.T) {
 	if out["name"] != "reports/unit.xml" {
 		t.Fatalf("named attach = %v", out)
 	}
-	for _, bad := range []map[string]any{{"path": "../etc/passwd"}, {"path": "/etc/passwd"}, {"path": "a/../../b"}, {"path": ".git/config"}, {"path": "x", "name": ".hidden"}} {
+	_, out = call(t, cs, "evidence_attach", map[string]any{"path": "evidence:shots/a.png"})
+	if out["name"] != "evidence/scratch/shots/a.png" {
+		t.Fatalf("scratch attach = %v", out)
+	}
+	for _, bad := range []map[string]any{{"path": "evidence:../x"}, {"path": "evidence:/x"}, {"path": "evidence:"}, {"path": "../etc/passwd"}, {"path": "/etc/passwd"}, {"path": "a/../../b"}, {"path": ".git/config"}, {"path": "x", "name": ".hidden"}} {
 		res, out := call(t, cs, "evidence_attach", bad)
 		if !res.IsError || errorCode(out) != jobmcp.CodeInvalidInput {
 			t.Errorf("attach %v = %v", bad, out)
 		}
 	}
 	got := e.gw.Attachments().Pending(j)
-	want := []jobmcp.Attachment{{Path: "shots/home.png", Name: "evidence/shots/home.png"}, {Path: "report.xml", Name: "reports/unit.xml"}}
+	want := []jobmcp.Attachment{{Path: "shots/home.png", Name: "evidence/shots/home.png"}, {Path: "report.xml", Name: "reports/unit.xml"}, {Path: "evidence:shots/a.png", Name: "evidence/scratch/shots/a.png"}}
 	if !slices.Equal(got, want) {
 		t.Fatalf("attachments = %+v", got)
 	}

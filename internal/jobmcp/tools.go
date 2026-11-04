@@ -13,6 +13,7 @@ import (
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
+	"github.com/forecrew/forecrew/internal/runtime"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
@@ -28,7 +29,7 @@ func init() {
 		"Tell the human watching this job what you are doing now. Shown live on the job page; it changes nothing else.",
 		120, reportProgress)
 	register("evidence_attach", "evidence.attach",
-		"Mark a file of the work tree (relative to the repo root, no symlinks, no ..) as evidence of this job, for example a screenshot or a report. "+
+		"Mark a file as evidence of this job, for example a screenshot or a report: a path relative to the repo root, or \"evidence:<path>\" for a file under $FORECREW_EVIDENCE_DIR (no symlinks, no ..). "+
 			"The worker uploads it as an artifact of the job; the result is the artifact name.",
 		50, attachEvidence)
 	register("ask_human", "ask_human",
@@ -84,12 +85,15 @@ func attachEvidence(ctx context.Context, c *Call, raw json.RawMessage) (Result, 
 	if !c.Config.Evidence {
 		return Result{}, Errorf(CodeUnavailable, "this forecrewd has no evidence storage")
 	}
-	if !validWorkPath(in.Path) {
+	if !validWorkPath(strings.TrimPrefix(in.Path, runtime.EvidencePrefix)) {
 		return Result{}, Errorf(CodeInvalidInput, "path %q must be a file path relative to the repo root, without .. or a leading /", in.Path)
 	}
 	name := in.Name
 	if name == "" {
 		name = "evidence/" + in.Path
+		if p, ok := strings.CutPrefix(in.Path, runtime.EvidencePrefix); ok {
+			name = "evidence/scratch/" + p
+		}
 	}
 	if !domain.ValidArtifactName(name) {
 		return Result{}, Errorf(CodeInvalidInput, "artifact name %q is not valid: at most 255 bytes of segments of letters, digits, '.', '_' and '-' not starting with '.'; pass name", name)
