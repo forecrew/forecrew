@@ -57,6 +57,9 @@ func (p *Provider) runJob(ctx context.Context, w domain.Worker, j domain.Job) {
 		return
 	}
 	r.commit = pl.Commit
+	if j.Attempts > 0 && r.resume(ctx) {
+		return
+	}
 	r.event(ctx, domain.EventStatus, "dispatching")
 	runID, err := p.cfg.GitHub.DispatchWorkflow(ctx, r.spec.Repo, WorkflowFile, pl.Ref, pl.Inputs)
 	switch {
@@ -84,9 +87,20 @@ func (p *Provider) runJob(ctx context.Context, w domain.Worker, j domain.Job) {
 	r.follow(ctx, runID)
 }
 
-// find looks for the run a dispatch started by the job id in its title, for
-// a GitHub that did not return the run's id. It reports whether it found it;
-// otherwise the job has been released or ctx has ended.
+// lookup returns the newest run in runs whose title names the job and that
+// was created after since (zero: any time).
+func (r *jobRun) lookup(runs []github.WorkflowRun, since time.Time) (github.WorkflowRun, bool) {
+	for _, run := range runs { // newest first
+		if run.CreatedAt.After(since) && strings.Contains(run.Title, r.j.ID.String()) {
+			return run, true
+		}
+	}
+	return github.WorkflowRun{}, false
+}
+
+// find looks for the run a dispatch started, for a GitHub that did not
+// return the run's id. It reports whether it found it; otherwise the job has
+// been released or ctx has ended.
 func (r *jobRun) find(ctx context.Context, id *int64) bool {
 	for range findTries {
 		select {
@@ -99,15 +113,45 @@ func (r *jobRun) find(ctx context.Context, id *int64) bool {
 			r.log.WarnContext(ctx, "list workflow runs", "error", err)
 			continue
 		}
-		for _, run := range runs { // newest first
-			if run.CreatedAt.After(r.start.Add(-time.Minute)) && strings.Contains(run.Title, r.j.ID.String()) {
-				*id = run.ID
-				return true
-			}
+		if run, ok := r.lookup(runs, r.start.Add(-time.Minute)); ok {
+			*id = run.ID
+			return true
 		}
 	}
 	r.release(ctx, "the dispatched workflow run was not found")
 	return false
+}
+
+// resume looks for a run an earlier attempt of the job dispatched (forecrewd
+// restarted, or the attempt was released) and follows it instead of starting
+// another. It reports whether the job has been handled; false means to
+// dispatch. A run that already ended without a usable result is not resumed:
+// the job gets a fresh run, so retry-once holds.
+func (r *jobRun) resume(ctx context.Context) bool {
+	runs, err := r.p.cfg.GitHub.ListWorkflowRuns(ctx, r.spec.Repo, WorkflowFile)
+	if err != nil {
+		if ctx.Err() == nil {
+			r.release(ctx, "look for an earlier workflow run: %v", err)
+		}
+		return true
+	}
+	run, ok := r.lookup(runs, time.Time{})
+	if !ok {
+		return false
+	}
+	r.log.InfoContext(ctx, "resuming an earlier workflow run", "run_id", run.ID, "status", run.Status)
+	if !run.CreatedAt.IsZero() {
+		r.start = run.CreatedAt // the timeout counts from the dispatch
+	}
+	if !run.Completed() {
+		r.follow(ctx, run.ID)
+		return true
+	}
+	if r.finish(ctx, run, true) {
+		r.start = r.p.cfg.Now()
+		return false
+	}
+	return true
 }
 
 // follow reads the run until it ends, keeping the lease alive.
@@ -126,7 +170,8 @@ func (r *jobRun) follow(ctx context.Context, runID int64) {
 	for {
 		select {
 		case <-ctx.Done():
-			r.cancelRun(runID) // the job's lease expires and it is queued again
+			// The run keeps going: the lease expires, the job is queued again
+			// and its next attempt resumes the run.
 			return
 		case <-wake:
 		case <-timer.C:
@@ -162,7 +207,7 @@ func (r *jobRun) follow(ctx context.Context, runID int64) {
 		}
 		if run.Completed() {
 			r.event(ctx, domain.EventStatus, "collecting")
-			r.finish(ctx, run)
+			r.finish(ctx, run, false)
 			return
 		}
 		if p.cfg.Now().After(deadline) {
@@ -185,13 +230,15 @@ func (r *jobRun) cancelRun(runID int64) {
 // artifactName is the name of the artifact the workflow uploads for the job.
 func (r *jobRun) artifactName() string { return ArtifactPrefix + r.j.ID.String() }
 
-// finish turns the ended run into the job's result.
-func (r *jobRun) finish(ctx context.Context, run github.WorkflowRun) {
+// finish turns the ended run into the job's result. With fresh set, a run
+// that left no usable result is not turned into one: finish returns true and
+// the caller dispatches again.
+func (r *jobRun) finish(ctx context.Context, run github.WorkflowRun, fresh bool) (dispatchAgain bool) {
 	p := r.p
 	arts, err := p.cfg.GitHub.ListRunArtifacts(ctx, r.spec.Repo, run.ID)
 	if err != nil {
 		r.release(ctx, "list artifacts of workflow run %d: %v", run.ID, err)
-		return
+		return false
 	}
 	var art *github.RunArtifact
 	for i := range arts {
@@ -200,27 +247,30 @@ func (r *jobRun) finish(ctx context.Context, run github.WorkflowRun) {
 		}
 	}
 	if art == nil {
+		if fresh {
+			return true
+		}
 		r.noResult(ctx, run, "the run uploaded no artifact")
-		return
+		return false
 	}
 	data, err := p.cfg.GitHub.DownloadArtifact(ctx, r.spec.Repo, art.ID, MaxUnpacked)
 	switch {
 	case ctx.Err() != nil:
-		return
+		return false
 	case errors.Is(err, github.ErrGone):
 		r.errored(ctx, run, "the artifact of the run expired")
-		return
+		return false
 	case errors.Is(err, github.ErrTooLarge):
 		r.errored(ctx, run, fmt.Sprintf("the artifact of the run is over %d bytes", MaxUnpacked))
-		return
+		return false
 	case err != nil:
 		r.release(ctx, "download the artifact of workflow run %d: %v", run.ID, err)
-		return
+		return false
 	}
 	files, err := unpack(data, p.cfg.MaxArtifactSize, MaxUnpacked)
 	if err != nil {
 		r.errored(ctx, run, err.Error())
-		return
+		return false
 	}
 	if len(files.Skipped) > 0 {
 		r.event(ctx, domain.EventLog, "skipped in the artifact: "+joinLimited(files.Skipped))
@@ -228,12 +278,15 @@ func (r *jobRun) finish(ctx context.Context, run github.WorkflowRun) {
 	var res result
 	i := slices.IndexFunc(files.Files, func(f file) bool { return f.Name == ResultFile })
 	if i < 0 {
+		if fresh {
+			return true
+		}
 		r.noResult(ctx, run, "the artifact holds no "+ResultFile)
-		return
+		return false
 	}
 	if err := json.Unmarshal(files.Files[i].Data, &res); err != nil {
 		r.errored(ctx, run, "the artifact's "+ResultFile+" is not valid: "+err.Error())
-		return
+		return false
 	}
 	res.Message = testreport.Clip(testreport.CleanText(res.Message), maxMessage)
 	files.Files = slices.DeleteFunc(files.Files, func(f file) bool { return f.Name == ResultFile || f.Name == RootMarker })
@@ -245,6 +298,7 @@ func (r *jobRun) finish(ctx context.Context, run github.WorkflowRun) {
 	default:
 		r.errored(ctx, run, fmt.Sprintf("the artifact's %s has an unknown phase %q", ResultFile, res.Phase))
 	}
+	return false
 }
 
 // noResult handles a run without a usable result: a run that failed or was
