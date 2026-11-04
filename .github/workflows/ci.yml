@@ -59,6 +59,7 @@ jobs:
           check-latest: true
       - uses: ./.github/actions/web-setup
       - run: make test-integration
+      - run: make test-docker
       - run: make cover
 
   web:

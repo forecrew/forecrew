@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
 
-.PHONY: build test test-integration lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live
+.PHONY: build test test-integration test-docker lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
@@ -15,6 +15,10 @@ test: web-test
 test-integration:
 	@test -n "$$FORECREW_TEST_DATABASE_URL" || { echo "FORECREW_TEST_DATABASE_URL is not set"; exit 1; }
 	go test -race -tags integration ./...
+
+# Needs a Docker engine: the worker's environments run in containers.
+test-docker:
+	go test -race -count=1 -tags docker ./internal/worker/
 
 lint: web-lint
 	golangci-lint run ./...
