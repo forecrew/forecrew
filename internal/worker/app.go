@@ -46,7 +46,12 @@ func filterEnv(environ []string, keep func(name string) bool) []string {
 // environ is the process environment (os.Environ()).
 func newFromConfig(ctx context.Context, cfg *config.Worker, environ []string, version string, logger *slog.Logger) *Worker {
 	labels, dockerBin, _ := detectLabels(ctx, cfg, environ)
+	dockerHost := ""
+	if dockerBin != "" && !cfg.RegistryAuth {
+		dockerHost = newDockerCLI(dockerBin, cfg.WorkDir, environ).host(ctx)
+	}
 	return New(Config{
+		RegistryAuth: cfg.RegistryAuth, DockerHost: dockerHost,
 		DockerBin: dockerBin, ImageMaxAge: time.Duration(cfg.ImagePruneDays) * 24 * time.Hour,
 		Client: NewClient(cfg.ServerURL, cfg.Token, nil), Labels: labels, Version: version,
 		WorkDir: cfg.WorkDir, MaxJobs: cfg.MaxJobs,

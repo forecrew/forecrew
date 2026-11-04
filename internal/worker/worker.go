@@ -56,6 +56,12 @@ type Config struct {
 	// ImageMaxAge is how long an environment image is kept after its last
 	// use; zero means 14 days.
 	ImageMaxAge time.Duration
+	// RegistryAuth lets Docker use the operator's registry logins; without
+	// it Docker runs with an empty config in work_dir/docker-config.
+	RegistryAuth bool
+	// DockerHost is the daemon endpoint of the operator's Docker context,
+	// kept when the config is replaced; see DetectDocker.
+	DockerHost string
 }
 
 // Worker polls forecrewd and runs its jobs.
@@ -95,6 +101,9 @@ func New(cfg Config) *Worker {
 	w := &Worker{cfg: cfg, git: g, reaper: newReaper(g.runningPIDs, &g.gate)}
 	if cfg.DockerBin != "" {
 		w.docker = newDockerCLI(cfg.DockerBin, cfg.WorkDir, cfg.Environ)
+		if !cfg.RegistryAuth {
+			w.docker.isolate(filepath.Join(cfg.WorkDir, "docker-config"), cfg.DockerHost)
+		}
 	}
 	return w
 }

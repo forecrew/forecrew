@@ -25,12 +25,13 @@ labels: [go, node]
 work_dir: /srv/forecrew
 max_jobs: 2
 image_prune_days: 3
+registry_auth: true
 `
 	w, err := ParseWorker([]byte(y), workerEnv("fcw_token"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w.Name != "build-1" || w.WorkDir != "/srv/forecrew" || w.MaxJobs != 2 || w.ImagePruneDays != 3 || w.Token != "fcw_token" || len(w.Labels) != 2 {
+	if w.Name != "build-1" || w.WorkDir != "/srv/forecrew" || w.MaxJobs != 2 || w.ImagePruneDays != 3 || !w.RegistryAuth || w.Token != "fcw_token" || len(w.Labels) != 2 {
 		t.Fatalf("worker = %+v", w)
 	}
 }
@@ -41,7 +42,7 @@ func TestParseWorkerDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	host, _ := os.Hostname()
-	if w.MaxJobs != DefaultMaxJobs || w.ImagePruneDays != DefaultImagePruneDays || w.Name != host || !strings.HasSuffix(w.WorkDir, "forecrew-worker") {
+	if w.MaxJobs != DefaultMaxJobs || w.ImagePruneDays != DefaultImagePruneDays || w.RegistryAuth || w.Name != host || !strings.HasSuffix(w.WorkDir, "forecrew-worker") {
 		t.Fatalf("worker = %+v", w)
 	}
 }

@@ -30,6 +30,9 @@ type Worker struct {
 	// ImagePruneDays removes the Docker images built for environments
 	// (forecrew-env:*) that no job used for that many days.
 	ImagePruneDays int `yaml:"image_prune_days"`
+	// RegistryAuth lets Docker pulls and builds use the registry logins of
+	// the worker's user. Off by default: image names come from repos.
+	RegistryAuth bool `yaml:"registry_auth"`
 	// Token comes from FORECREW_WORKER_TOKEN.
 	Token string `yaml:"-"`
 }
