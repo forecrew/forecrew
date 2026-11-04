@@ -76,6 +76,7 @@ func kbSearch(ctx context.Context, c *Call, raw json.RawMessage) (Result, error)
 	results := make([]searchResult, 0, len(found))
 	var text strings.Builder
 	for _, f := range found {
+		f = contextpack.WrapKnowledge(f)
 		r := searchResult{
 			Kind: f.Kind, Provider: f.Provider, Section: f.Section, Path: f.Path, Title: f.Title, SourceURL: f.SourceURL,
 			Snippet: f.Snippet, Untrusted: f.Untrusted, NeedsReverify: f.NeedsReverify,
@@ -83,9 +84,6 @@ func kbSearch(ctx context.Context, c *Call, raw json.RawMessage) (Result, error)
 		}
 		if !f.Provenance.LastVerified.IsZero() {
 			r.Provenance.LastVerified = &f.Provenance.LastVerified
-		}
-		if r.Untrusted {
-			r.Snippet = contextpack.WrapUntrusted("knowledge "+string(f.Kind)+" "+f.Provider+":"+f.Path, f.Snippet)
 		}
 		results = append(results, r)
 		fmt.Fprintf(&text, "%s [%s %s/%s] %s", f.Title, f.Kind, f.Section, f.Path, f.SourceURL)

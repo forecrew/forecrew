@@ -48,9 +48,7 @@ func (s *Service) SearchKnowledge(ctx context.Context, by domain.Actor, in mcp.S
 	res, err := s.cfg.Search.Run(ctx, q)
 	if in.WrapUntrusted {
 		for i := range res {
-			if res[i].Untrusted {
-				res[i].Snippet = contextpack.WrapUntrusted("knowledge "+string(res[i].Kind)+" "+res[i].Provider+":"+res[i].Path, res[i].Snippet)
-			}
+			res[i] = contextpack.WrapKnowledge(res[i])
 		}
 	}
 	return res, err
