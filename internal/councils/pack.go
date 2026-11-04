@@ -189,6 +189,15 @@ func (s *Set) Pack(kind domain.CouncilKind) (Pack, error) {
 	return p, nil
 }
 
+// Pool returns the worker pool of role's jobs, "" for an unknown role.
+func (s *Set) Pool(role string) string {
+	d, err := s.role(role)
+	if err != nil {
+		return ""
+	}
+	return d.Pool
+}
+
 // Schema returns the bundled output schema of a step.
 func (s *Set) Schema(step Step) (json.RawMessage, error) {
 	sch, ok := s.schemas[step]

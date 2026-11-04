@@ -303,6 +303,29 @@ func (o stepOutput) sources() []evidence {
 	return all
 }
 
+// Source is a source a contribution cites.
+type Source struct {
+	Kind   domain.SourceKind
+	Source string
+}
+
+// Sources returns the sources cited in a contribution's content, each once,
+// in the order they appear. Content that is not such an output cites none.
+func Sources(content []byte) []Source {
+	var out stepOutput
+	if err := json.Unmarshal(content, &out); err != nil {
+		return []Source{}
+	}
+	sources := []Source{}
+	for _, e := range out.sources() {
+		s := Source{e.Kind, e.Source}
+		if !slices.Contains(sources, s) {
+			sources = append(sources, s)
+		}
+	}
+	return sources
+}
+
 // cited is anything with evidence.
 type cited struct {
 	Evidence []evidence `json:"evidence"`

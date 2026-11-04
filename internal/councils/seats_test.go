@@ -7,6 +7,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/testkit"
 )
 
 func TestSeated(t *testing.T) {
@@ -112,5 +113,65 @@ func TestJobOfSeatedCouncil(t *testing.T) {
 	}
 	if _, err := s.Job(Turn{Kind: domain.CouncilAdhoc, Step: StepProposal, Round: 1, Seat: Seat{Role: "ux", Priority: "ux"}}, r); !errors.Is(err, ErrInvalidTurn) {
 		t.Fatalf("a seat the council does not have: %v", err)
+	}
+}
+
+func TestStart(t *testing.T) {
+	s := shipped(t)
+	st := testkit.NewStore(nil)
+	ctx := t.Context()
+	acc := domain.Account{Name: "default"}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(st.Accounts().Create(ctx, &acc))
+	p := domain.Project{AccountID: acc.ID, Name: "app", Repo: "acme/app"}
+	must(st.Projects().Create(ctx, &p))
+	runs := &testkit.Playbooks{}
+	r := Request{ID: domain.NewID(), AccountID: acc.ID, ProjectID: p.ID, Question: "Which queue?"}
+	c, err := s.Start(ctx, st, runs, r)
+	must(err)
+	if c.ID != r.ID || c.Kind != domain.CouncilAdhoc || c.RunID != c.ID {
+		t.Fatalf("council = %+v", c)
+	}
+	again, err := s.Start(ctx, st, runs, r)
+	must(err)
+	if again.ID != c.ID || again.Number != c.Number {
+		t.Fatalf("second start = %+v", again)
+	}
+	if _, err := s.Start(ctx, st, runs, Request{AccountID: acc.ID, ProjectID: domain.NewID(), Question: "\n"}); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("no question: %v", err)
+	}
+	if _, err := s.Start(ctx, st, runs, Request{AccountID: acc.ID, ProjectID: p.ID, Question: "q", Kind: "debate"}); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("unknown kind: %v", err)
+	}
+	bad := Request{AccountID: domain.NewID(), ProjectID: p.ID, Question: "q", Constraints: []string{" "}}
+	if _, err := s.Start(ctx, st, runs, bad); !errors.Is(err, ErrInvalidTurn) {
+		t.Fatalf("empty constraint: %v", err)
+	}
+}
+
+func TestSources(t *testing.T) {
+	content := []byte(`{"evidence":[{"kind":"path","source":"a.go"},{"kind":"path","source":"a.go"}],
+		"critiques":[{"disagree":[{"evidence":[{"kind":"url","source":"https://x.example"}]}]}]}`)
+	got := Sources(content)
+	if want := []Source{{domain.SourcePath, "a.go"}, {domain.SourceURL, "https://x.example"}}; !slices.Equal(got, want) {
+		t.Fatalf("Sources = %+v", got)
+	}
+	if got := Sources([]byte(`[`)); len(got) != 0 {
+		t.Fatalf("Sources of bad content = %+v", got)
+	}
+}
+
+func TestPool(t *testing.T) {
+	s := shipped(t)
+	if got := s.Pool("facilitator"); got != "control" {
+		t.Fatalf("facilitator = %q", got)
+	}
+	if got := s.Pool("ghost"); got != "" {
+		t.Fatalf("ghost = %q", got)
 	}
 }
