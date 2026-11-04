@@ -50,26 +50,29 @@ func ErrorCode(err error) (code string, ok bool) {
 
 // Tool names as exposed over MCP.
 const (
-	ToolOnboardProject   = "onboard_project"
-	ToolCreateGoal       = "create_goal"
-	ToolJobStatus        = "job_status"
-	ToolJobLogs          = "job_logs"
-	ToolListWorkers      = "list_workers"
-	ToolListPendingGates = "list_pending_gates"
-	ToolApprove          = "approve"
-	ToolRequestChanges   = "request_changes"
-	ToolReject           = "reject"
-	ToolDispatchJob      = "dispatch_job"
-	ToolListProjects     = "list_projects"
-	ToolGetProject       = "get_project"
-	ToolListGoals        = "list_goals"
-	ToolGetGoal          = "get_goal"
-	ToolListJobs         = "list_jobs"
-	ToolCancelJob        = "cancel_job"
-	ToolListTokens       = "list_tokens"
-	ToolRevokeToken      = "revoke_token"
-	ToolListArtifacts    = "list_artifacts"
-	ToolListTestRuns     = "list_test_runs"
+	ToolOnboardProject    = "onboard_project"
+	ToolCreateGoal        = "create_goal"
+	ToolJobStatus         = "job_status"
+	ToolJobLogs           = "job_logs"
+	ToolListWorkers       = "list_workers"
+	ToolListPendingGates  = "list_pending_gates"
+	ToolApprove           = "approve"
+	ToolRequestChanges    = "request_changes"
+	ToolReject            = "reject"
+	ToolDispatchJob       = "dispatch_job"
+	ToolListProjects      = "list_projects"
+	ToolGetProject        = "get_project"
+	ToolListGoals         = "list_goals"
+	ToolGetGoal           = "get_goal"
+	ToolListJobs          = "list_jobs"
+	ToolCancelJob         = "cancel_job"
+	ToolListTokens        = "list_tokens"
+	ToolRevokeToken       = "revoke_token"
+	ToolListArtifacts     = "list_artifacts"
+	ToolListTestRuns      = "list_test_runs"
+	ToolListAssumptions   = "list_assumptions"
+	ToolResolveAssumption = "resolve_assumption"
+	ToolListDecisions     = "list_decisions"
 )
 
 // Tools returns every MCP tool name.
@@ -78,6 +81,7 @@ func Tools() []string {
 		ToolOnboardProject, ToolCreateGoal, ToolJobStatus, ToolJobLogs, ToolListWorkers, ToolListPendingGates,
 		ToolApprove, ToolRequestChanges, ToolReject, ToolDispatchJob, ToolListProjects, ToolGetProject,
 		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob, ToolListTokens, ToolRevokeToken, ToolListArtifacts, ToolListTestRuns,
+		ToolListAssumptions, ToolResolveAssumption, ToolListDecisions,
 	}
 }
 
@@ -123,6 +127,16 @@ type ToolService interface {
 	// first, for a job, a change or a commit. At least one of them is
 	// required.
 	ListTestRuns(ctx context.Context, by domain.Actor, in ListTestRunsInput) ([]TestRunInfo, error)
+	// ListAssumptions lists the assumption register of a project, by number.
+	ListAssumptions(ctx context.Context, by domain.Actor, in ListAssumptionsInput) ([]AssumptionInfo, error)
+	// ResolveAssumption verifies, invalidates or accepts an assumption.
+	// Invalidating flags its dependents: tasks not merged go back with the
+	// evidence as feedback, merged work gets a draft re-evaluation goal.
+	// ErrUnavailable without a register; a change the assumption's state does
+	// not allow fails with domain.ErrInvalidTransition.
+	ResolveAssumption(ctx context.Context, by domain.Actor, in ResolveAssumptionInput) (AssumptionInfo, error)
+	// ListDecisions lists the decision register of a project, by number.
+	ListDecisions(ctx context.Context, by domain.Actor, in ListDecisionsInput) ([]DecisionInfo, error)
 }
 
 // OnboardProjectInput is the input of onboard_project.
@@ -333,6 +347,9 @@ type GoalDetail struct {
 	Tasks []TaskDetail `json:"tasks"`
 	// Gates holds every gate of the goal, pending and decided.
 	Gates []GateInfo `json:"gates"`
+	// Assumptions holds the goal's register, by number: medium-impact ones
+	// that are unverified are the open ones to look at.
+	Assumptions []AssumptionInfo `json:"assumptions"`
 	// CostUSD is the cost of every job of the goal.
 	CostUSD float64 `json:"cost_usd"`
 }
@@ -372,4 +389,46 @@ type ListJobsInput struct {
 	Goal    string           `json:"goal,omitempty"` // GOAL-3 or UUID
 	Status  domain.JobStatus `json:"status,omitempty"`
 	Limit   int              `json:"limit,omitempty"` // default 50
+}
+
+// ListAssumptionsInput is the input of list_assumptions.
+type ListAssumptionsInput struct {
+	Project  string                  `json:"project"`             // name or repo, required
+	Goal     string                  `json:"goal,omitempty"`      // GOAL-3 or UUID
+	Task     string                  `json:"task,omitempty"`      // TASK-12 or UUID: what the task rests on
+	Status   domain.AssumptionStatus `json:"status,omitempty"`    // unverified, verified, invalidated or accepted
+	Impact   domain.Level            `json:"impact,omitempty"`    // low, medium or high
+	VerifyBy domain.VerifyBy         `json:"verify_by,omitempty"` // test, ask-human or research
+}
+
+// AssumptionInfo is a registered assumption with its ref and where it came
+// from.
+type AssumptionInfo struct {
+	domain.Assumption
+	Ref string `json:"ref"` // A-42
+	// Source is the job (JOB-41), else the council (its ID), else the spec
+	// (SPEC-4) the assumption came from.
+	Source string `json:"source,omitempty"`
+}
+
+// ResolveAssumptionInput is the input of resolve_assumption.
+type ResolveAssumptionInput struct {
+	Assumption string                  `json:"assumption"`         // A-42 or UUID
+	Status     domain.AssumptionStatus `json:"status"`             // verified, invalidated or accepted
+	Evidence   string                  `json:"evidence,omitempty"` // required for verified and invalidated
+}
+
+// ListDecisionsInput is the input of list_decisions.
+type ListDecisionsInput struct {
+	Project string `json:"project"`           // name or repo, required
+	Goal    string `json:"goal,omitempty"`    // GOAL-3 or UUID
+	Council string `json:"council,omitempty"` // the council's UUID
+}
+
+// DecisionInfo is a recorded decision with its ref.
+type DecisionInfo struct {
+	domain.Decision
+	Ref string `json:"ref"` // DEC-9
+	// Assumptions are the refs of the assumptions the decision rests on.
+	Assumptions []string `json:"assumptions"`
 }

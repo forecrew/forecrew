@@ -74,6 +74,10 @@ func (s *Server) Handler() http.Handler {
 		route("GET /api/v1/artifacts/{id}", http.HandlerFunc(s.artifact))
 	}
 
+	route("GET /api/v1/assumptions", serve(s, http.StatusOK, listAssumptionsInput, list(t.ListAssumptions)))
+	route("POST /api/v1/assumptions/{assumption}/resolve", serve(s, http.StatusOK, resolveAssumptionInput, t.ResolveAssumption))
+	route("GET /api/v1/decisions", serve(s, http.StatusOK, listDecisionsInput, list(t.ListDecisions)))
+
 	route("GET /api/v1/workers", serve(s, http.StatusOK, noInput, list(noArg(t.ListWorkers))))
 
 	route("GET /api/v1/gates", serve(s, http.StatusOK, gateFilterInput, list(t.ListPendingGates)))
@@ -212,6 +216,30 @@ func gateDecisionInput(r *http.Request) (mcp.GateDecisionInput, error) {
 		}
 	}
 	return mcp.GateDecisionInput{Gate: r.PathValue("gate"), Feedback: body.Feedback}, nil
+}
+
+func listAssumptionsInput(r *http.Request) (mcp.ListAssumptionsInput, error) {
+	q := r.URL.Query()
+	return mcp.ListAssumptionsInput{
+		Project: q.Get("project"), Goal: q.Get("goal"), Task: q.Get("task"), Status: domain.AssumptionStatus(q.Get("status")),
+		Impact: domain.Level(q.Get("impact")), VerifyBy: domain.VerifyBy(q.Get("verify_by")),
+	}, nil
+}
+
+func resolveAssumptionInput(r *http.Request) (mcp.ResolveAssumptionInput, error) {
+	var body struct {
+		Status   domain.AssumptionStatus `json:"status"`
+		Evidence string                  `json:"evidence"`
+	}
+	if err := decode(r, &body); err != nil {
+		return mcp.ResolveAssumptionInput{}, err
+	}
+	return mcp.ResolveAssumptionInput{Assumption: r.PathValue("assumption"), Status: body.Status, Evidence: body.Evidence}, nil
+}
+
+func listDecisionsInput(r *http.Request) (mcp.ListDecisionsInput, error) {
+	q := r.URL.Query()
+	return mcp.ListDecisionsInput{Project: q.Get("project"), Goal: q.Get("goal"), Council: q.Get("council")}, nil
 }
 
 func intParam(v, name string) (int64, error) {

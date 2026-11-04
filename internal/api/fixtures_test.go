@@ -114,7 +114,14 @@ func fixtureEnv(t *testing.T) *env {
 				{Task: task, Ref: "TASK-12", URL: "https://github.com/acme/app/issues/6", Needs: []string{"GATE-9"}, Changes: []mcp.ChangeInfo{{Change: change, Checks: "failure"}}, Iterations: 2, CostUSD: 0.75},
 				{Task: open, Ref: "TASK-13", Needs: []string{}, Changes: []mcp.ChangeInfo{}},
 			},
-			Gates:   []mcp.GateInfo{gates[0], {Gate: specGate, Ref: "GATE-8", Project: "app", GoalRef: "GOAL-3", URL: "https://github.com/acme/app/issues/5"}},
+			Gates: []mcp.GateInfo{gates[0], {Gate: specGate, Ref: "GATE-8", Project: "app", GoalRef: "GOAL-3", URL: "https://github.com/acme/app/issues/5"}},
+			Assumptions: []mcp.AssumptionInfo{{
+				ID: fid(90), AccountID: acc.ID, ProjectID: fid(10), Number: 4, GoalID: fid(20), MadeBy: "architect", JobID: fid(70),
+				Statement: "Links are sent by the existing mailer.", Confidence: domain.LevelMedium, Impact: domain.LevelHigh, VerifyBy: domain.VerifyByTest,
+				Status: domain.AssumptionUnverified, Dependents: []domain.Dependent{{Kind: domain.DependentGoal, ID: "GOAL-3"}, {Kind: domain.DependentTask, ID: "TASK-12"}},
+				CreatedAt: at(-240), UpdatedAt: at(-240),
+				Ref: "A-4", Source: "JOB-41",
+			}},
 			CostUSD: 1.75,
 		}, nil
 	}

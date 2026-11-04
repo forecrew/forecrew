@@ -190,6 +190,9 @@ func (s *Service) GetGoal(ctx context.Context, by domain.Actor, in mcp.GoalRefIn
 	if d.Gates, err = s.gateInfos(ctx, by.AccountID, mine); err != nil {
 		return mcp.GoalDetail{}, fmt.Errorf("gates of %s: %w", g.Ref(), err)
 	}
+	if d.Assumptions, err = s.goalAssumptions(ctx, g); err != nil {
+		return mcp.GoalDetail{}, err
+	}
 	jobs, err := st.Jobs().List(ctx, by.AccountID, store.JobFilter{GoalID: g.ID})
 	if err != nil {
 		return mcp.GoalDetail{}, fmt.Errorf("jobs of %s: %w", g.Ref(), err)

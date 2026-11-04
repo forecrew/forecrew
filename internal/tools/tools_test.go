@@ -17,6 +17,7 @@ import (
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
@@ -32,6 +33,7 @@ type fixture struct {
 	creator   *testkit.JobCreator
 	playbooks *testkit.Playbooks
 	gates     *gates.Keeper
+	regs      *registers.Service
 	jobs      *jobs.Service
 	svc       *tools.Service
 	ev        *testkit.Evidence
@@ -58,8 +60,10 @@ func newFixture(t *testing.T) *fixture {
 	f.creator = &testkit.JobCreator{Store: st}
 	f.gates = gates.New(st, bus, clock.Now)
 	f.jobs = jobs.New(st, bus, nil, logger, clock.Now)
+	f.regs = registers.New(st, bus, clock.Now)
 	f.svc = tools.New(tools.Config{
 		Store: st, Gates: f.gates, Jobs: f.jobs, Creator: f.creator, Playbooks: f.playbooks, GitHub: f.tracker, Evidence: f.ev, Logger: logger,
+		Registers: f.regs,
 		Roles: testkit.Roles{
 			"reviewer":  {Name: "reviewer"},
 			"developer": {Name: "developer", WritePaths: []string{"src/**"}},
