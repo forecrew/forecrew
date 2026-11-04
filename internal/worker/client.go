@@ -125,9 +125,10 @@ type Beat struct {
 	Attach []Attachment `json:"attach"`
 }
 
-// Attachment is a file of the work tree to upload as an artifact.
+// Attachment is a file of the work tree or of the job's scratch directory to
+// upload as an artifact.
 type Attachment struct {
-	Path string `json:"path"` // relative to the repo root
+	Path string `json:"path"` // relative to the repo root, or "evidence:<rel>" under the scratch directory
 	Name string `json:"name"` // artifact name
 }
 

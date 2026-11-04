@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/runtime"
 )
 
 // uploadEvidence uploads the files the agent marked with the job MCP tool
@@ -26,7 +27,7 @@ func (r *jobRun) uploadEvidence(ctx context.Context) error {
 		return cause
 	}
 	for _, a := range r.attachments() {
-		file, err := evidenceFile(r.dir, a.Path)
+		file, err := evidenceFile(r.dir, r.scratch, a.Path)
 		if err == nil {
 			_, err = r.w.cfg.Client.UploadArtifact(ctx, r.spec.JobID, a.Name, file)
 		}
@@ -43,19 +44,27 @@ func (r *jobRun) uploadEvidence(ctx context.Context) error {
 }
 
 // errNotEvidence means a marked path is not a regular file inside the work
-// tree.
-var errNotEvidence = errors.New("not a regular file inside the work tree")
+// tree or the scratch directory.
+var errNotEvidence = errors.New("not a regular file inside the work tree or scratch directory")
 
-// evidenceFile returns the file of the work tree dir at rel, a slash path
-// relative to its root: no absolute path, no "..", nothing under .git, and
-// no symlink anywhere on the way.
-func evidenceFile(dir, rel string) (string, error) {
-	if rel == "" || path.IsAbs(rel) || strings.Contains(rel, "\\") || path.Clean(rel) != rel ||
-		rel == ".." || strings.HasPrefix(rel, "../") || rel == ".git" || strings.HasPrefix(rel, ".git/") {
+// evidenceFile returns the file a marked path names: a slash path relative
+// to the work tree dir, or "evidence:" and a slash path relative to the
+// scratch directory. Either way: no absolute path, no "..", and no symlink
+// anywhere on the way; nothing under .git in the work tree.
+func evidenceFile(dir, scratch, rel string) (string, error) {
+	root, p := dir, rel
+	if q, ok := strings.CutPrefix(rel, runtime.EvidencePrefix); ok {
+		root, p = scratch, q
+	}
+	if root == "" || p == "" || path.IsAbs(p) || strings.Contains(p, "\\") || path.Clean(p) != p ||
+		p == ".." || strings.HasPrefix(p, "../") || p == ".git" || strings.HasPrefix(p, ".git/") {
 		return "", fmt.Errorf("%q: %w", rel, errNotEvidence)
 	}
-	cur := dir
-	parts := strings.Split(rel, "/")
+	if info, err := os.Lstat(root); err != nil || !info.IsDir() {
+		return "", fmt.Errorf("%q: %w", rel, errNotEvidence)
+	}
+	cur := root
+	parts := strings.Split(p, "/")
 	for i, part := range parts {
 		cur = filepath.Join(cur, part)
 		info, err := os.Lstat(cur)

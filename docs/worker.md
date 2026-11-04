@@ -94,11 +94,17 @@ roles and job kinds each pool runs and which credentials its jobs receive:
   answered `cancel` or `409 lease_lost` stops the agent, which ends any call
   in flight, `ask_human` included (the worker's heartbeats keep the lease
   while it waits).
+- Every agent job gets a scratch directory for evidence (a screenshot, a log)
+  next to its checkout, outside it (`<work_dir>/jobs/<job id>.evidence`), in
+  `FORECREW_EVIDENCE_DIR`. It is removed with the job's work dir, and since
+  it is not part of the checkout, a read-only role writing there does not
+  trip the "changed the checkout" check. Mark its files with
+  `evidence_attach` as `evidence:<relative path>`.
 - Files the agent marks with `evidence_attach` arrive in heartbeat answers
   (`attach`) until the worker acknowledges them in its next heartbeat. After
   the runtime exits it sends one more heartbeat for the last ones, then uploads each as an artifact of the job
   (`PUT .../artifacts/{name}`) before checking and pushing the work tree. A
-  file must be a regular file inside the work tree, reached without
+  file must be a regular file inside the work tree or the scratch directory, reached without
   symlinks, not under `.git`; one that is not, or fails to upload, is
   reported as an `error` event and skipped. forecrewd enforces the size cap.
 - `SIGTERM` stops polling and lets running jobs finish for the grace period
@@ -161,8 +167,9 @@ The repo token is used only by the worker's own `git ls-remote`, `fetch` and
 a remote URL or a file, and it is redacted from events and logs. The agent
 does not inherit `FORECREW_*` variables, so it never sees the worker token.
 The agent does not inherit `GIT_*` variables either. The only `FORECREW_*`
-variable an agent sees is `FORECREW_JOB_MCP_TOKEN`, its own job's gateway
-token, also redacted from events and logs.
+variables an agent sees are `FORECREW_JOB_MCP_TOKEN`, its own job's gateway
+token (also redacted from events and logs), and `FORECREW_EVIDENCE_DIR`, the
+path of its scratch directory.
 
 A command job gets an allowlist instead: `PATH`, `HOME`, `USER`, `LOGNAME`,
 `LANG`, `LC_*`, `TZ`, `TMPDIR`, `TEMP`, `TMP` and, for Windows, `SystemRoot`,
