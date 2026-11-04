@@ -12,6 +12,7 @@ import (
 // openPR opens a PR in the tracker and stores it as a change.
 func (e *env) openPR() domain.Change {
 	e.t.Helper()
+	must(e.t, e.tracker.AddBranch(repo, "agent/task-1"))
 	pr, err := e.tracker.CreatePR(e.t.Context(), repo, github.PRInput{Title: "x", Head: "agent/task-1", Base: "main"})
 	must(e.t, err)
 	return e.addChange(pr.Number, pr.HeadSHA)
@@ -179,6 +180,7 @@ func TestPollerRun(t *testing.T) {
 // The profile PR is not a stored change; a missed merge must still resolve its gate.
 func TestReconcileGateOfUnstoredPR(t *testing.T) {
 	e := newEnv(t)
+	must(t, e.tracker.AddBranch(repo, "agent/onboard"))
 	pr, err := e.tracker.CreatePR(t.Context(), repo, github.PRInput{Title: "profile", Head: "agent/onboard", Base: "main"})
 	must(t, err)
 	profile := e.openGate(domain.GateProfileApproval, pr.Number)
@@ -204,6 +206,7 @@ func TestReconcileGateOfUnstoredPR(t *testing.T) {
 
 func TestReconcileGateOfOpenOrMissingPR(t *testing.T) {
 	e := newEnv(t)
+	must(t, e.tracker.AddBranch(repo, "h"))
 	open, err := e.tracker.CreatePR(t.Context(), repo, github.PRInput{Title: "x", Head: "h", Base: "main"})
 	must(t, err)
 	g := e.openGate(domain.GateProfileApproval, open.Number)

@@ -123,6 +123,7 @@ func TestLoopsRun(t *testing.T) {
 	tracker.Install("acme/app")
 	giveHead(tracker, "acme/app")
 	openChange := func(branch string) domain.Change {
+		must(t, tracker.AddBranch("acme/app", branch))
 		pr, err := tracker.CreatePR(ctx, "acme/app", github.PRInput{Title: "x", Head: branch, Base: "main"})
 		must(t, err)
 		c := domain.Change{

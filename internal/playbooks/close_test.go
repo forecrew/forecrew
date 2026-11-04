@@ -270,6 +270,7 @@ func TestGoalSettleKeepsMergedTasks(t *testing.T) {
 	_, err := p.tracker.MergePR(t.Context(), "acme/app", pr.Number, github.MergeInput{})
 	must(t, err)
 	change(tasks[1], pr.Number, domain.ChangeOpen)
+	must(t, p.tracker.AddBranch("acme/app", "other"))
 	open, err := p.tracker.CreatePR(t.Context(), "acme/app", github.PRInput{Title: "t", Head: "other", Base: "main"})
 	must(t, err)
 	change(tasks[2], open.Number, domain.ChangeOpen)

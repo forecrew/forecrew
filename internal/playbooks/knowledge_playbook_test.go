@@ -1,13 +1,16 @@
 package playbooks_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/workflow"
 )
 
 // seedEnv is an onboarding of a repo at commit head1 with files, indexed by
@@ -102,4 +105,41 @@ func TestSeedIsQuietWithoutAKnowledgeBaseOrARepo(t *testing.T) {
 	if m := toMap(t, out); err != nil || m["error"] == "" || len(m["curate"].([]any)) != 0 {
 		t.Errorf("unreadable repo: %v, %v", m, err)
 	}
+}
+
+// A curator that finds nothing to write leaves no commit: the run goes on
+// without a PR or a gate instead of failing on a branch that is not there.
+func TestSeedWithNothingToWriteOpensNoPR(t *testing.T) {
+	o := seedEnv(t, map[string]string{"README.md": "# App\n"})
+	o.approveProfile(t)
+	w := o.waitStep(t, "curate/0/write", domain.StepWaiting)
+	o.finishJob(t, w.JobID, []byte(`{"summary":"Nothing to add.","entries":[],"skipped":[{"section":"testing","reason":"no source"}],"assumptions":[]}`), "", 0)
+	if r := o.waitRun(t, domain.RunSucceeded); r.Error != "" {
+		t.Errorf("run error = %q", r.Error)
+	}
+	if _, err := o.tracker.FindPR(t.Context(), "acme/app", "agent/kb-seed"); !errors.Is(err, github.ErrNotFound) {
+		t.Errorf("a PR was opened: %v", err)
+	}
+	if gs, _ := o.gates.ListPending(t.Context(), o.account, o.project.ID); len(gs) != 0 {
+		t.Errorf("pending gates: %+v", gs)
+	}
+}
+
+func TestIfPushed(t *testing.T) {
+	v := newEnv(t)
+	for sha, want := range map[string]int{"": 0, "abc": 1} {
+		out, err := v.call(t, "job.if_pushed", map[string]any{"head_sha": sha})
+		must(t, err)
+		if got := toMap(t, out)["if_pushed"].([]any); len(got) != want {
+			t.Errorf("head %q: if_pushed = %v", sha, got)
+		}
+	}
+}
+
+// The action itself refuses a branch GitHub does not have, as GitHub does.
+func TestOpenPRWithoutABranchFails(t *testing.T) {
+	v := newEnv(t)
+	run := domain.WorkflowRun{ID: domain.NewID(), AccountID: v.account, ProjectID: v.project.ID, Playbook: "onboarding"}
+	_, err := v.actions["github.open_or_update_pr"](t.Context(), workflow.ActionCall{Key: "k", Run: run, With: prWith(nil)})
+	wantErr(t, err, "head branch does not exist")
 }

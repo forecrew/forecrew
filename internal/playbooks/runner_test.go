@@ -67,6 +67,9 @@ func (r *runner) finishJob(t *testing.T, id uuid.UUID, output []byte, sha string
 	if r.register != nil {
 		must(t, r.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error { return r.register.JobCompleted(ctx, tx, done) }))
 	}
+	if sha != "" && leased.Spec.Branch != "" { // the worker pushed the branch
+		must(t, r.tracker.AddBranch(leased.Spec.Repo, leased.Spec.Branch))
+	}
 	r.publish(t, &domain.JobCompleted{JobID: leased.ID, Status: domain.JobSucceeded})
 }
 
