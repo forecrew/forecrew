@@ -77,9 +77,20 @@ has the coding conventions they refer to.
 - Agent branches are `agent/<lowercase ref>[-<slug>]`, e.g. `agent/task-12`
   or `agent/goal-3-spec`. Workers push only branches starting with `agent/`.
 - Tokens are random 32 bytes, base64url without padding, with a prefix:
-  `fcw_` worker tokens, `fcm_` MCP/API tokens, `fcj_` job MCP tokens
-  (job-mcp.md; bound to one lease, never stored in clear). Only their SHA-256 is stored;
+  `fcw_` worker tokens, `fcm_` MCP/API tokens (personal and service account
+  tokens), `fcj_` job MCP tokens (job-mcp.md; bound to one lease, never
+  stored in clear), and the identity tokens of identity.md (`fcs_`
+  sessions, `fci_` invitations, `fco_`/`fca_`/`fcr_` OAuth codes, access
+  and refresh tokens, `fcscim_` SCIM). Only their SHA-256 is stored;
   they are shown once. Compare hashes, not tokens.
+- Organizations are stored as accounts (`account_id`); code and storage say
+  account, the API, UI, CLI and docs say organization (identity.md).
+- Actors are `kind:name` (`domain.Actor.String()`): `user:<user id>`,
+  `service_account:<id>`, `github:<login>`, `worker:<name>`,
+  `system:<name>`, and `mcp:<token name>` for tokens without an owner. The
+  credential a user or service account used goes into the audit log next
+  to it (`session:<id>`, `token:<id>`, `oauth_grant:<id>`), never the
+  secret.
 
 ## Time
 
@@ -156,12 +167,8 @@ included, has `origin` `playbook`.
 `domain.GateKind.AllowsDecision`); every entry point uses it. A resolved gate
 is final and publishes `gate.resolved`; a new review round opens a new gate.
 
-The 18 MCP tools are listed by `mcp.Tools()` (docs/mcp.md also lists the
-planned Phase 3 tools, which join it as they are built): `onboard_project`,
-`create_goal`, `job_status`, `job_logs`, `list_workers`,
-`list_pending_gates`, `approve`, `request_changes`, `reject`,
-`dispatch_job`, `list_projects`, `get_project`, `list_goals`, `get_goal`,
-`list_jobs`, `cancel_job`, `list_tokens`, `revoke_token`.
+The MCP tools are listed by `mcp.Tools()` and described in docs/mcp.md, which
+also lists the planned Phase 3 tools that join them as they are built.
 
 ## Canceling jobs and revoking tokens
 
