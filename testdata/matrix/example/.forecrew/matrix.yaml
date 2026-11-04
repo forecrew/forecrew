@@ -1,0 +1,21 @@
+# The example matrix of the design doc, in the format of matrix.schema.json.
+version: 1
+axes:
+  os: [ubuntu-lts, windows-11, macos-latest]
+  runtime: [lts, latest]
+  database: [postgres-previous, postgres-latest]
+exclude:
+  - {os: windows-11, database: postgres-previous}
+environments:
+  - match: {os: windows-11}
+    environment: windows-11
+  - match: {os: macos-latest}
+    environment: macos
+  - match: {}
+    environment: linux
+suites:
+  - name: unit
+    command: [make, test]
+    level: unit
+    reports: [reports/unit.xml]
+    artifacts: [coverage.out]

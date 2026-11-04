@@ -1,0 +1,410 @@
+[
+  {
+    "key": "database=postgres-previous,os=ubuntu-lts,runtime=lts",
+    "cell": {
+      "database": "postgres-previous",
+      "os": "ubuntu-lts",
+      "runtime": "lts"
+    },
+    "environment": {
+      "name": "linux",
+      "provider": "docker",
+      "image": "node:24-bookworm",
+      "services": {
+        "postgres": {
+          "image": "postgres:18",
+          "ports": [
+            5432
+          ]
+        }
+      }
+    },
+    "pool": "build",
+    "needs": [
+      "ubuntu-lts"
+    ],
+    "suites": [
+      {
+        "name": "unit",
+        "command": {
+          "argv": [
+            "make",
+            "test"
+          ]
+        },
+        "level": "unit",
+        "reports": [
+          "reports/unit.xml"
+        ],
+        "artifacts": [
+          "coverage.out"
+        ]
+      }
+    ]
+  },
+  {
+    "key": "database=postgres-previous,os=ubuntu-lts,runtime=latest",
+    "cell": {
+      "database": "postgres-previous",
+      "os": "ubuntu-lts",
+      "runtime": "latest"
+    },
+    "environment": {
+      "name": "linux",
+      "provider": "docker",
+      "image": "node:24-bookworm",
+      "services": {
+        "postgres": {
+          "image": "postgres:18",
+          "ports": [
+            5432
+          ]
+        }
+      }
+    },
+    "pool": "build",
+    "needs": [
+      "ubuntu-lts"
+    ],
+    "suites": [
+      {
+        "name": "unit",
+        "command": {
+          "argv": [
+            "make",
+            "test"
+          ]
+        },
+        "level": "unit",
+        "reports": [
+          "reports/unit.xml"
+        ],
+        "artifacts": [
+          "coverage.out"
+        ]
+      }
+    ]
+  },
+  {
+    "key": "database=postgres-previous,os=macos-latest,runtime=lts",
+    "cell": {
+      "database": "postgres-previous",
+      "os": "macos-latest",
+      "runtime": "lts"
+    },
+    "environment": {
+      "name": "macos",
+      "provider": "machine",
+      "needs": [
+        "macos"
+      ]
+    },
+    "pool": "build",
+    "needs": [
+      "macos",
+      "macos-latest"
+    ],
+    "suites": [
+      {
+        "name": "unit",
+        "command": {
+          "argv": [
+            "make",
+            "test"
+          ]
+        },
+        "level": "unit",
+        "reports": [
+          "reports/unit.xml"
+        ],
+        "artifacts": [
+          "coverage.out"
+        ]
+      }
+    ]
+  },
+  {
+    "key": "database=postgres-previous,os=macos-latest,runtime=latest",
+    "cell": {
+      "database": "postgres-previous",
+      "os": "macos-latest",
+      "runtime": "latest"
+    },
+    "environment": {
+      "name": "macos",
+      "provider": "machine",
+      "needs": [
+        "macos"
+      ]
+    },
+    "pool": "build",
+    "needs": [
+      "macos",
+      "macos-latest"
+    ],
+    "suites": [
+      {
+        "name": "unit",
+        "command": {
+          "argv": [
+            "make",
+            "test"
+          ]
+        },
+        "level": "unit",
+        "reports": [
+          "reports/unit.xml"
+        ],
+        "artifacts": [
+          "coverage.out"
+        ]
+      }
+    ]
+  },
+  {
+    "key": "database=postgres-latest,os=ubuntu-lts,runtime=lts",
+    "cell": {
+      "database": "postgres-latest",
+      "os": "ubuntu-lts",
+      "runtime": "lts"
+    },
+    "environment": {
+      "name": "linux",
+      "provider": "docker",
+      "image": "node:24-bookworm",
+      "services": {
+        "postgres": {
+          "image": "postgres:18",
+          "ports": [
+            5432
+          ]
+        }
+      }
+    },
+    "pool": "build",
+    "needs": [
+      "ubuntu-lts"
+    ],
+    "suites": [
+      {
+        "name": "unit",
+        "command": {
+          "argv": [
+            "make",
+            "test"
+          ]
+        },
+        "level": "unit",
+        "reports": [
+          "reports/unit.xml"
+        ],
+        "artifacts": [
+          "coverage.out"
+        ]
+      }
+    ]
+  },
+  {
+    "key": "database=postgres-latest,os=ubuntu-lts,runtime=latest",
+    "cell": {
+      "database": "postgres-latest",
+      "os": "ubuntu-lts",
+      "runtime": "latest"
+    },
+    "environment": {
+      "name": "linux",
+      "provider": "docker",
+      "image": "node:24-bookworm",
+      "services": {
+        "postgres": {
+          "image": "postgres:18",
+          "ports": [
+            5432
+          ]
+        }
+      }
+    },
+    "pool": "build",
+    "needs": [
+      "ubuntu-lts"
+    ],
+    "suites": [
+      {
+        "name": "unit",
+        "command": {
+          "argv": [
+            "make",
+            "test"
+          ]
+        },
+        "level": "unit",
+        "reports": [
+          "reports/unit.xml"
+        ],
+        "artifacts": [
+          "coverage.out"
+        ]
+      }
+    ]
+  },
+  {
+    "key": "database=postgres-latest,os=windows-11,runtime=lts",
+    "cell": {
+      "database": "postgres-latest",
+      "os": "windows-11",
+      "runtime": "lts"
+    },
+    "environment": {
+      "name": "windows-11",
+      "provider": "machine",
+      "needs": [
+        "node",
+        "runtime",
+        "windows"
+      ]
+    },
+    "pool": "build",
+    "needs": [
+      "node",
+      "runtime",
+      "windows",
+      "windows-11"
+    ],
+    "suites": [
+      {
+        "name": "unit",
+        "command": {
+          "argv": [
+            "make",
+            "test"
+          ]
+        },
+        "level": "unit",
+        "reports": [
+          "reports/unit.xml"
+        ],
+        "artifacts": [
+          "coverage.out"
+        ]
+      }
+    ]
+  },
+  {
+    "key": "database=postgres-latest,os=windows-11,runtime=latest",
+    "cell": {
+      "database": "postgres-latest",
+      "os": "windows-11",
+      "runtime": "latest"
+    },
+    "environment": {
+      "name": "windows-11",
+      "provider": "machine",
+      "needs": [
+        "node",
+        "runtime",
+        "windows"
+      ]
+    },
+    "pool": "build",
+    "needs": [
+      "node",
+      "runtime",
+      "windows",
+      "windows-11"
+    ],
+    "suites": [
+      {
+        "name": "unit",
+        "command": {
+          "argv": [
+            "make",
+            "test"
+          ]
+        },
+        "level": "unit",
+        "reports": [
+          "reports/unit.xml"
+        ],
+        "artifacts": [
+          "coverage.out"
+        ]
+      }
+    ]
+  },
+  {
+    "key": "database=postgres-latest,os=macos-latest,runtime=lts",
+    "cell": {
+      "database": "postgres-latest",
+      "os": "macos-latest",
+      "runtime": "lts"
+    },
+    "environment": {
+      "name": "macos",
+      "provider": "machine",
+      "needs": [
+        "macos"
+      ]
+    },
+    "pool": "build",
+    "needs": [
+      "macos",
+      "macos-latest"
+    ],
+    "suites": [
+      {
+        "name": "unit",
+        "command": {
+          "argv": [
+            "make",
+            "test"
+          ]
+        },
+        "level": "unit",
+        "reports": [
+          "reports/unit.xml"
+        ],
+        "artifacts": [
+          "coverage.out"
+        ]
+      }
+    ]
+  },
+  {
+    "key": "database=postgres-latest,os=macos-latest,runtime=latest",
+    "cell": {
+      "database": "postgres-latest",
+      "os": "macos-latest",
+      "runtime": "latest"
+    },
+    "environment": {
+      "name": "macos",
+      "provider": "machine",
+      "needs": [
+        "macos"
+      ]
+    },
+    "pool": "build",
+    "needs": [
+      "macos",
+      "macos-latest"
+    ],
+    "suites": [
+      {
+        "name": "unit",
+        "command": {
+          "argv": [
+            "make",
+            "test"
+          ]
+        },
+        "level": "unit",
+        "reports": [
+          "reports/unit.xml"
+        ],
+        "artifacts": [
+          "coverage.out"
+        ]
+      }
+    ]
+  }
+]
