@@ -118,6 +118,9 @@ func (a *actions) goalSpec(ctx context.Context, call workflow.ActionCall) (any, 
 			return nil, fmt.Errorf("store the spec of %s: %w", g.Ref(), err)
 		}
 	}
+	if err := a.regs.LinkSpec(ctx, g.AccountID, with.JobID, spec); err != nil {
+		return nil, err
+	}
 	p, err := a.Store.Projects().Get(ctx, g.AccountID, g.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)

@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -33,8 +36,14 @@ type assessOutput struct {
 // or none, which means the repo has no checks), and with.review, the
 // reviewer's output, decide: failing checks or a request for changes give
 // the rework feedback, anything else opens the merge gate, with a summary of
-// the checks, the verdict, the criteria and the high-impact assumptions of
-// with.result (the developer's output) and the review, for commit with.sha.
+// the checks, the verdict, the criteria and the assumptions of the task, for
+// commit with.sha.
+//
+// The assumption register can keep the merge gate closed: while a
+// high-impact assumption the task (with.task_id) rests on is unverified, or
+// one it rests on was invalidated after the developer job with.job_id
+// finished, the round is not done and the feedback says which assumptions.
+// Without with.task_id the register is not read.
 func (a *actions) assess(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		Repo   string          `json:"repo"`
@@ -45,6 +54,9 @@ func (a *actions) assess(ctx context.Context, call workflow.ActionCall) (any, er
 		// SHA is the commit the developer pushed, the one the checks and the
 		// review are about.
 		SHA string `json:"sha"`
+		// TaskID and JobID are the task and the developer job of the round.
+		TaskID uuid.UUID `json:"task_id"`
+		JobID  uuid.UUID `json:"job_id"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -72,10 +84,133 @@ func (a *actions) assess(ctx context.Context, call workflow.ActionCall) (any, er
 	default:
 		return nil, fmt.Errorf("with: checks %q must be success, failure or none", with.Checks)
 	}
+	var feedback []string
 	if with.Checks == "failure" || review.Verdict != "approve" {
-		return assessOutput{IfReady: []int{}, Feedback: reworkFeedback(pr.URL, with.Checks, review)}, nil
+		feedback = append(feedback, reworkFeedback(pr.URL, with.Checks, review))
 	}
-	return assessOutput{Done: true, IfReady: []int{pr.Number}, GateSummary: gateSummary(pr.URL, with.SHA, with.Checks, review, result)}, nil
+	var rests []domain.Assumption
+	if with.TaskID != uuid.Nil() {
+		var held string
+		if rests, held, err = a.assumptionFeedback(ctx, call.Run, with.TaskID, with.JobID); err != nil {
+			return nil, err
+		}
+		if held != "" {
+			feedback = append(feedback, held)
+		}
+	}
+	if len(feedback) > 0 {
+		return assessOutput{IfReady: []int{}, Feedback: strings.Join(feedback, "\n\n")}, nil
+	}
+	return assessOutput{Done: true, IfReady: []int{pr.Number}, GateSummary: gateSummary(pr.URL, with.SHA, with.Checks, review, result, rests)}, nil
+}
+
+// assumptionFeedback returns the assumptions the task rests on and, when
+// they keep its merge gate closed, the feedback that says which: the
+// high-impact ones still unverified, and the ones invalidated since the
+// developer job jobID finished.
+func (a *actions) assumptionFeedback(ctx context.Context, run domain.WorkflowRun, taskID, jobID uuid.UUID) ([]domain.Assumption, string, error) {
+	t, err := a.loadTask(ctx, run, taskID)
+	if err != nil {
+		return nil, "", err
+	}
+	rests, err := a.regs.OfTask(ctx, t.AccountID, t)
+	if err != nil {
+		return nil, "", err
+	}
+	// What was invalidated since the job was created is not in what the
+	// developer was told, whether before it started or while it ran: compare
+	// with its creation, not its start or end.
+	var since time.Time
+	if jobID != uuid.Nil() {
+		j, err := a.Store.Jobs().Get(ctx, t.AccountID, jobID)
+		if err != nil {
+			return nil, "", fmt.Errorf("get job %s: %w", jobID, err)
+		}
+		since = j.CreatedAt
+	}
+	blocking := registers.Blocking(rests)
+	asked, err := a.regs.AskedFor(ctx, t.AccountID, t.ProjectID, blocking)
+	if err != nil {
+		return nil, "", err
+	}
+	var b strings.Builder
+	var open []string
+	for _, as := range blocking {
+		item := fmt.Sprintf("%s (verify by %s):\n%s", as.Ref(), as.VerifyBy, contextpack.WrapUntrusted("assumption "+as.Ref(), as.Statement))
+		if f := asked[as.Number]; f != "" {
+			item += "\nA human asked for this: " + f
+		}
+		open = append(open, item)
+	}
+	section(&b, "High-impact assumptions are not resolved, so the merge gate stays closed. Check each one if you can (a test that proves it) and say what you found; a human accepts or verifies it", open, "- ")
+	var invalidated []string
+	for _, as := range rests {
+		if as.Status == domain.AssumptionInvalidated && as.ResolvedAt.After(since) {
+			invalidated = append(invalidated, fmt.Sprintf("%s was invalidated. Evidence:\n%s%s", as.Ref(), contextpack.WrapUntrusted("evidence "+as.Ref(), as.Evidence), contextpack.WrapUntrusted("assumption "+as.Ref(), as.Statement)))
+		}
+	}
+	section(&b, "Assumptions your change rests on were invalidated since your last run: rework it without them", invalidated, "- ")
+	return rests, strings.TrimSpace(b.String()), nil
+}
+
+// holdOutput is the output of goal.hold.
+type holdOutput struct {
+	// Gates are the IDs of the pending assumption_review gates a human has
+	// to resolve before the task's merge gate opens, for a foreach of wait
+	// steps.
+	Gates       []uuid.UUID `json:"gates"`
+	Assumptions []string    `json:"assumptions"`
+	// Clear is set when there is nothing to wait for: no review is pending,
+	// or the pull request was merged or closed on GitHub, which goal.assess
+	// deals with.
+	Clear bool `json:"clear"`
+}
+
+// hold is the action goal.hold, run before goal.assess in a loop that ends
+// when it outputs clear. It outputs the pending assumption_review gates of
+// the high-impact assumptions with.task_id rests on that are still
+// unverified, so that the playbook waits for a human to accept or reject
+// them instead of spending rework rounds; a human who asks for changes
+// opens a new review, and the loop waits again. It is read-only.
+func (a *actions) hold(ctx context.Context, call workflow.ActionCall) (any, error) {
+	var with struct {
+		TaskID uuid.UUID `json:"task_id"`
+		Repo   string    `json:"repo"`
+		Number int       `json:"number"`
+	}
+	if err := workflow.DecodeWith(call.With, &with); err != nil {
+		return nil, err
+	}
+	t, err := a.loadTask(ctx, call.Run, with.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	pr, err := a.Tracker.GetPR(ctx, with.Repo, with.Number)
+	if err != nil {
+		return nil, fmt.Errorf("get pull request %s#%d: %w", with.Repo, with.Number, err)
+	}
+	out := holdOutput{Gates: []uuid.UUID{}, Assumptions: []string{}}
+	if pr.Merged || pr.State != "open" {
+		out.Clear = true
+		return out, nil
+	}
+	rests, err := a.regs.OfTask(ctx, t.AccountID, t)
+	if err != nil {
+		return nil, err
+	}
+	blocking := registers.Blocking(rests)
+	gs, err := a.regs.ReviewGates(ctx, t.AccountID, t.ProjectID, blocking)
+	if err != nil {
+		return nil, err
+	}
+	for _, g := range gs {
+		out.Gates = append(out.Gates, g.ID)
+	}
+	for _, as := range blocking {
+		out.Assumptions = append(out.Assumptions, as.Ref())
+	}
+	out.Clear = len(out.Gates) == 0
+	return out, nil
 }
 
 // reworkFeedback tells the developer what to fix: the failing checks and the
@@ -116,7 +251,7 @@ func commentLine(c reviewComment) string {
 }
 
 // gateSummary is the text of the merge_approval gate.
-func gateSummary(prURL, sha, checks string, review reviewDoc, result devResult) string {
+func gateSummary(prURL, sha, checks string, review reviewDoc, result devResult, rests []domain.Assumption) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s at %s.\n\n", prURL, sha)
 	if checks == "none" {
@@ -130,15 +265,34 @@ func gateSummary(prURL, sha, checks string, review reviewDoc, result devResult) 
 		checked = append(checked, c.line())
 	}
 	section(&b, "Criteria", checked, "- ")
-	var risky []domain.StatedAssumption
-	for _, as := range append(append([]domain.StatedAssumption{}, result.Assumptions...), review.Assumptions...) {
-		if as.Impact == domain.LevelHigh {
-			risky = append(risky, as)
+	var risky, open []string
+	for _, as := range rests {
+		switch {
+		case as.Impact == domain.LevelHigh:
+			risky = append(risky, registerLine(as))
+		case as.Impact == domain.LevelMedium && as.Status.Open():
+			open = append(open, registerLine(as))
 		}
 	}
-	section(&b, "High-impact assumptions", assumptionLines(risky), "- ")
+	if len(rests) == 0 {
+		var stated []domain.StatedAssumption
+		for _, as := range append(append([]domain.StatedAssumption{}, result.Assumptions...), review.Assumptions...) {
+			if as.Impact == domain.LevelHigh {
+				stated = append(stated, as)
+			}
+		}
+		risky = assumptionLines(stated)
+	}
+	section(&b, "High-impact assumptions", risky, "- ")
+	section(&b, "Open assumptions", open, "- ")
 	b.WriteString("\nApprove to squash-merge it. Merging it on GitHub approves, closing it rejects.")
 	return b.String()
+}
+
+// registerLine is a registered assumption in one line: its ref, status and
+// statement.
+func registerLine(a domain.Assumption) string {
+	return fmt.Sprintf("%s %s (impact %s): %s", a.Ref(), a.Status, a.Impact, contextpack.OneLine(a.Statement))
 }
 
 // ifApproved is the action goal.if_approved. It outputs if_approved: [number]

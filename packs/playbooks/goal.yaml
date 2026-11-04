@@ -171,6 +171,33 @@ steps:
                     type: action
                     action: goal.review_post
                     with: {repo: '${inputs.repo}', number: '${steps.pr.output.number}', review: '${steps.review.output}'}
+                  # A human accepts or rejects the high-impact assumptions the
+                  # task rests on before the round is assessed; the gates were
+                  # opened when the jobs that stated them finished. The loop
+                  # asks again after every decision, because a human who asks
+                  # for changes opens a new review; it ends when no review is
+                  # pending or the PR was merged or closed on GitHub (which
+                  # also sends back the task's reviews). A wait that nobody
+                  # answers opens a needs_you gate.
+                  - id: reviewed
+                    type: loop
+                    max_iterations: 10
+                    until: steps.hold.output.clear
+                    on_failure: escalate
+                    steps:
+                      - id: hold
+                        type: action
+                        action: goal.hold
+                        with: {task_id: '${steps.round.output.task_id}', repo: '${inputs.repo}', number: '${steps.pr.output.number}'}
+                      - id: waiting
+                        type: foreach
+                        items: '${steps.hold.output.gates}'
+                        steps:
+                          - id: assumption_wait
+                            type: wait
+                            timeout: 72h
+                            on_failure: escalate
+                            with: {signal: gate.resolved, gate_id: '${item}'}
               # Done when the PR is ready for the merge gate or merged on
               # GitHub; otherwise it outputs the feedback of the rework.
               - id: assess
@@ -183,6 +210,8 @@ steps:
                   review: '${steps.gated.output.0.review.output}'
                   result: '${steps.develop.output}'
                   sha: '${steps.develop.head_sha}'
+                  task_id: '${steps.round.output.task_id}'
+                  job_id: '${steps.develop.job_id}'
 
           # The merge gate, skipped when the PR was merged on GitHub meanwhile.
           # Merging it there approves; closing it rejects. Approving here

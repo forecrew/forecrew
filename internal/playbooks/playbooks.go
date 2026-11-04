@@ -9,6 +9,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
@@ -31,7 +32,7 @@ func Register(registry workflow.Actions, deps Deps) {
 	if deps.Now == nil {
 		deps.Now = func() time.Time { return time.Now().UTC() }
 	}
-	d := &actions{deps}
+	d := &actions{Deps: deps, regs: registers.New(deps.Store, deps.Signals, deps.Now)}
 	registry["project.register"] = d.registerProject
 	registry["github.open_or_update_pr"] = d.openOrUpdatePR
 	registry["github.merge_pr"] = d.mergePR
@@ -50,6 +51,7 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["goal.round"] = d.taskRound
 	registry["goal.pr_text"] = d.prText
 	registry["goal.review_post"] = d.postReview
+	registry["goal.hold"] = d.hold
 	registry["goal.assess"] = d.assess
 	registry["goal.if_approved"] = d.ifApproved
 	registry["goal.task_done"] = d.taskDone
@@ -61,4 +63,7 @@ func Register(registry workflow.Actions, deps Deps) {
 }
 
 // actions implements the actions on top of Deps.
-type actions struct{ Deps }
+type actions struct {
+	Deps
+	regs *registers.Service
+}

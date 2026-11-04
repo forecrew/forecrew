@@ -10,6 +10,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/forecrew/forecrew/internal/analyzer"
+	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -18,7 +19,7 @@ import (
 func assumptionLines(as []domain.StatedAssumption) []string {
 	var out []string
 	for _, a := range as {
-		out = append(out, fmt.Sprintf("%s (confidence %s, impact %s)", a.Statement, a.Confidence, a.Impact))
+		out = append(out, fmt.Sprintf("%s (confidence %s, impact %s)", contextpack.OneLine(a.Statement), a.Confidence, a.Impact))
 	}
 	return out
 }

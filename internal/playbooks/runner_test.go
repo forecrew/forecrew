@@ -10,6 +10,7 @@ import (
 	"github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/workflow"
@@ -24,6 +25,9 @@ type runner struct {
 	worker domain.Worker
 	human  domain.Actor
 	run    domain.WorkflowRun
+	// register, when set, is told of every job the test finishes, as the
+	// job service does (see withRegisters).
+	register *registers.Service
 }
 
 // startRun starts a run of playbook with req. The engine stops when the test
@@ -58,8 +62,11 @@ func (r *runner) finishJob(t *testing.T, id uuid.UUID, output []byte, sha string
 	must(t, err)
 	leased, err := r.st.Jobs().LeaseNext(ctx, r.account, r.worker.ID, j.RequiredLabels(), time.Hour)
 	must(t, err)
-	_, err = r.st.Jobs().Complete(ctx, r.account, leased.ID, r.worker.ID, store.JobResult{Status: domain.JobSucceeded, Output: output, HeadSHA: sha, CostUSD: cost})
+	done, err := r.st.Jobs().Complete(ctx, r.account, leased.ID, r.worker.ID, store.JobResult{Status: domain.JobSucceeded, Output: output, HeadSHA: sha, CostUSD: cost})
 	must(t, err)
+	if r.register != nil {
+		must(t, r.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error { return r.register.JobCompleted(ctx, tx, done) }))
+	}
 	r.publish(t, &domain.JobCompleted{JobID: leased.ID, Status: domain.JobSucceeded})
 }
 
