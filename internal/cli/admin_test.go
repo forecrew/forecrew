@@ -376,3 +376,22 @@ func TestTokenListAndRevoke(t *testing.T) {
 	}
 
 }
+
+// The name of the Actions provider's worker row cannot be added, and a row
+// of that name cannot be moved out of its pool.
+func TestProviderWorkerNameIsReserved(t *testing.T) {
+	e, cfg := poolEnv(t)
+	if out, errOut, code := e.run(t, "worker", "add", "forecrewd-actions"); code != 1 || out != "" || !strings.Contains(errOut, "is reserved") {
+		t.Errorf("add: code %d, %q, %q", code, out, errOut)
+	}
+	row := domain.Worker{AccountID: e.account.ID, Name: "forecrewd-actions", Pool: domain.PoolActions, TokenHash: []byte("x")}
+	if err := e.db.st.Workers().Create(t.Context(), &row); err != nil {
+		t.Fatal(err)
+	}
+	if _, errOut, code := e.run(t, "worker", "move", "forecrewd-actions", "--pool", "control", "--config", cfg); code != 1 || !strings.Contains(errOut, "is reserved") {
+		t.Errorf("move: code %d, %q", code, errOut)
+	}
+	if e.pool(t, "forecrewd-actions") != domain.PoolActions {
+		t.Error("the provider's worker was moved")
+	}
+}
