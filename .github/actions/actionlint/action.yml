@@ -1,0 +1,9 @@
+name: actionlint
+description: Install actionlint (Go must be set up first), for the workflow template test and its lint step
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+        echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
