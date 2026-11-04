@@ -212,7 +212,7 @@ func TestDownloadArtifactErrorsHideTheSignedURL(t *testing.T) {
 	e.handle("GET /repos/acme/app/actions/artifacts/9/zip", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "http://"+r.Host+"/storage/9?sig=SECRET-SIGNATURE", http.StatusFound)
 	})
-	e.handle("GET /storage/9", func(w http.ResponseWriter, r *http.Request) {
+	e.handle("GET /storage/9", func(w http.ResponseWriter, _ *http.Request) {
 		hj, _ := w.(http.Hijacker)
 		conn, _, _ := hj.Hijack()
 		_ = conn.Close() // the connection drops mid-request
