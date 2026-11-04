@@ -363,7 +363,10 @@ func TestShutdownCancelsTheRun(t *testing.T) {
 	e.gh.OnDispatch = func(testkit.Dispatch) *testkit.ActionsRun { return &testkit.ActionsRun{Polls: 1 << 20} }
 	ctx, cancel := contextWithCancel(t)
 	e.provider.Poll(ctx)
-	waitFor(t, "the dispatch", func() bool { return len(e.gh.Dispatches()) == 1 })
+	waitFor(t, "the run to be followed", func() bool {
+		evs, _ := e.st.JobEvents().List(t.Context(), e.account.ID, j.ID, 0, 100)
+		return slices.ContainsFunc(evs, func(ev domain.JobEvent) bool { return ev.Text == "running" })
+	})
 	cancel()
 	e.provider.Wait()
 	if c := e.gh.Canceled(); len(c) != 1 {
