@@ -83,6 +83,7 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["tests.base_check_request"] = d.testsBaseCheckRequest
 	registry["tests.base_check_result"] = d.testsBaseCheckResult
 	registry["knowledge.seed"] = d.seedKnowledge
+	registry["job.if_pushed"] = d.ifPushed
 }
 
 // actions implements the actions on top of Deps.

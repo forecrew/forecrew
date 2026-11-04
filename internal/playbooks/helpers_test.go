@@ -101,6 +101,9 @@ func (v *env) callKey(t *testing.T, name, key string, with map[string]any) (any,
 	if action == nil {
 		t.Fatalf("action %q is not registered", name)
 	}
+	if head, _ := with["head"].(string); name == "github.open_or_update_pr" && head != "" {
+		must(t, v.tracker.AddBranch("acme/app", head)) // the worker pushed it
+	}
 	run := domain.WorkflowRun{ID: domain.NewID(), AccountID: v.account, ProjectID: v.project.ID, Playbook: "onboarding"}
 	return action(context.Background(), workflow.ActionCall{Key: key, Run: run, With: with})
 }

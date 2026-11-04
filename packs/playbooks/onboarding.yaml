@@ -140,32 +140,42 @@ steps:
           base_ref: '${steps.register.output.default_branch}'
           feedback: '${steps.seed.output.text}'
         on_failure: escalate
-      - id: kbpr
+      # A curator with nothing to write leaves no commit and no branch:
+      # there is then no PR to open and nothing to approve.
+      - id: wrote
         type: action
-        action: github.open_or_update_pr
-        with:
-          repo: '${inputs.repo}'
-          title: 'Seed the knowledge base of ${inputs.project}'
-          body: '${steps.write.output.summary}'
-          head: agent/kb-seed
-          base: '${steps.register.output.default_branch}'
-      - id: kbreview
+        action: job.if_pushed
+        with: {head_sha: '${steps.write.head_sha}'}
+      - id: deliver
         type: foreach
-        items: '${steps.kbpr.output.if_open}'
+        items: '${steps.wrote.output.if_pushed}'
         steps:
-          - id: kbdecision
-            type: gate
-            with:
-              kind: knowledge_proposal
-              title: 'Approve the knowledge seed of ${inputs.project}'
-              summary: 'Review ${steps.kbpr.output.url}. Approving merges it; merging it on GitHub approves, closing it rejects.'
-              subject_repo: '${inputs.repo}'
-              subject_number: '${steps.kbpr.output.number}'
-          - id: kbmerge
+          - id: kbpr
             type: action
-            action: github.merge_pr
-            with: {repo: '${inputs.repo}', number: '${steps.kbpr.output.number}'}
-            on_failure: escalate
+            action: github.open_or_update_pr
+            with:
+              repo: '${inputs.repo}'
+              title: 'Seed the knowledge base of ${inputs.project}'
+              body: '${steps.write.output.summary}'
+              head: agent/kb-seed
+              base: '${steps.register.output.default_branch}'
+          - id: kbreview
+            type: foreach
+            items: '${steps.kbpr.output.if_open}'
+            steps:
+              - id: kbdecision
+                type: gate
+                with:
+                  kind: knowledge_proposal
+                  title: 'Approve the knowledge seed of ${inputs.project}'
+                  summary: 'Review ${steps.kbpr.output.url}. Approving merges it; merging it on GitHub approves, closing it rejects.'
+                  subject_repo: '${inputs.repo}'
+                  subject_number: '${steps.kbpr.output.number}'
+              - id: kbmerge
+                type: action
+                action: github.merge_pr
+                with: {repo: '${inputs.repo}', number: '${steps.kbpr.output.number}'}
+                on_failure: escalate
 
 # A rejected or failed onboarding puts the project back to registered.
 finally:

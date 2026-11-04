@@ -366,6 +366,10 @@ func (t *Tracker) RemoveLabel(_ context.Context, repo string, number int, label 
 func (t *Tracker) CreatePR(_ context.Context, repo string, in github.PRInput) (github.PullRequest, error) {
 	var out github.PullRequest
 	err := t.with(repo, func(r *fakeRepo) error {
+		// GitHub refuses a pull request from a branch that does not exist.
+		if _, inRemote := r.branchSHA(in.Head); !r.branches[in.Head] && !inRemote {
+			return fmt.Errorf("create pull request from %s: the head branch does not exist: %w", in.Head, github.ErrInvalid)
+		}
 		i := r.newIssue(repo, in.Title, in.Body, nil)
 		n := i.issue.Number
 		r.prs[n] = &github.PullRequest{

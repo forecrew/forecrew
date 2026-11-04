@@ -109,6 +109,7 @@ func TestTrackerIssues(t *testing.T) {
 func TestTrackerPullRequests(t *testing.T) {
 	tr, _ := newTracker(t)
 	ctx := t.Context()
+	must(t, tr.AddBranch("acme/app", "agent/task-1"))
 	pr, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "Add login", Head: "agent/task-1", Base: "main"})
 	if err != nil || pr.Number != 1 || pr.HeadSHA != "agent/task-1-1" {
 		t.Fatalf("pr = %+v, %v", pr, err)
@@ -173,6 +174,7 @@ func TestTrackerPullRequests(t *testing.T) {
 func TestTrackerFiles(t *testing.T) {
 	tr, _ := newTracker(t)
 	ctx := t.Context()
+	must(t, tr.AddBranch("acme/app", "agent/task-1"))
 	pr, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "x", Head: "agent/task-1", Base: "main"})
 	must(t, err)
 	must(t, tr.SetFile("acme/app", "agent/task-1", "a/b.txt", []byte("one")))
@@ -199,6 +201,7 @@ func TestTrackerFiles(t *testing.T) {
 func TestTrackerClosePR(t *testing.T) {
 	tr, _ := newTracker(t)
 	ctx := t.Context()
+	must(t, tr.AddBranch("acme/app", "agent/task-1"))
 	pr, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "x", Head: "agent/task-1", Base: "main"})
 	must(t, err)
 	must(t, tr.ClosePR("acme/app", pr.Number))
@@ -220,6 +223,7 @@ func TestTrackerBranchExists(t *testing.T) {
 	if err := tr.AddBranch("acme/app", "agent/task-1"); err != nil {
 		t.Fatal(err)
 	}
+	must(t, tr.AddBranch("acme/app", "agent/task-2"))
 	if _, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Head: "agent/task-2", Base: "main"}); err != nil {
 		t.Fatal(err)
 	}
@@ -241,6 +245,7 @@ func TestTrackerDiscoveryReads(t *testing.T) {
 		_, err := tr.CreateIssue(ctx, "acme/app", github.IssueInput{Title: "i"})
 		must(t, err)
 	}
+	must(t, tr.AddBranch("acme/app", "feature"))
 	_, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "p", Head: "feature", Base: "main"})
 	must(t, err)
 
@@ -377,5 +382,19 @@ func TestTrackerArchive(t *testing.T) {
 	}
 	if _, err := tr.Archive(t.Context(), "acme/app", "gone"); !errors.Is(err, github.ErrNotFound) {
 		t.Errorf("archive of an unknown ref: %v", err)
+	}
+}
+
+// Like GitHub, the fake refuses a pull request from a branch that is not there.
+func TestTrackerCreatePRNeedsTheBranch(t *testing.T) {
+	tr := NewTracker(nil)
+	tr.Install("acme/app")
+	if _, err := tr.CreatePR(t.Context(), "acme/app", github.PRInput{Title: "x", Head: "agent/none", Base: "main"}); !errors.Is(err, github.ErrInvalid) {
+		t.Fatalf("CreatePR without a branch = %v", err)
+	}
+	must(t, tr.AddBranch("acme/app", "agent/none"))
+	must(t, tr.AddBranch("acme/app", "agent/none"))
+	if _, err := tr.CreatePR(t.Context(), "acme/app", github.PRInput{Title: "x", Head: "agent/none", Base: "main"}); err != nil {
+		t.Errorf("CreatePR with a branch: %v", err)
 	}
 }

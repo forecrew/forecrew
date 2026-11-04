@@ -85,3 +85,29 @@ func seedText(p knowledge.Policy, missing []string) string {
 	}
 	return b.String()
 }
+
+// ifPushedOutput is the output of job.if_pushed.
+type ifPushedOutput struct {
+	// IfPushed holds the commit when the job left one on its branch and
+	// nothing when it changed nothing, so a foreach over it runs its steps
+	// only for a job that has something to deliver.
+	IfPushed []string `json:"if_pushed"`
+}
+
+// ifPushed is the action job.if_pushed. A job with nothing to write ends
+// without a commit (its head_sha is empty): the step after it, a pull
+// request, would fail on a branch that does not exist. Skipping the steps
+// is not an error. with.head_sha is the job step's head_sha.
+func (a *actions) ifPushed(_ context.Context, call workflow.ActionCall) (any, error) {
+	var with struct {
+		HeadSHA string `json:"head_sha"`
+	}
+	if err := workflow.DecodeWith(call.With, &with); err != nil {
+		return nil, err
+	}
+	out := ifPushedOutput{IfPushed: []string{}}
+	if with.HeadSHA != "" {
+		out.IfPushed = append(out.IfPushed, with.HeadSHA)
+	}
+	return out, nil
+}

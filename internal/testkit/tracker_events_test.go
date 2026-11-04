@@ -22,6 +22,7 @@ func TestTrackerEvents(t *testing.T) {
 	tr, _ := newTracker(t)
 	ctx := t.Context()
 	got := events(t, tr)
+	must(t, tr.AddBranch("acme/app", "agent/a"))
 	pr, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "A", Body: "body", Head: "agent/a", Base: "main"})
 	must(t, err)
 
@@ -38,6 +39,7 @@ func TestTrackerEvents(t *testing.T) {
 	must(t, err)
 	_, err = tr.MergePR(ctx, "acme/app", pr.Number, github.MergeInput{})
 	must(t, err)
+	must(t, tr.AddBranch("acme/app", "agent/b"))
 	closed, _ := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "B", Head: "agent/b", Base: "main"})
 	must(t, tr.ClosePR("acme/app", closed.Number))
 

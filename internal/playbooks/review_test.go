@@ -104,6 +104,7 @@ func reviewOutput(verdict string) map[string]any {
 
 func (p *planned) openPR(t *testing.T) github.PullRequest {
 	t.Helper()
+	must(t, p.tracker.AddBranch("acme/app", "agent/TASK-1"))
 	pr, err := p.tracker.CreatePR(t.Context(), "acme/app", github.PRInput{Title: "t", Body: "b", Head: "agent/TASK-1", Base: "main"})
 	must(t, err)
 	return pr

@@ -70,6 +70,7 @@ func TestTrackerRemoteHeads(t *testing.T) {
 	tr, remote := newGitTracker(t)
 	ctx := t.Context()
 	first := push(t, remote, "main", "agent/a", map[string]string{"a.txt": "a\n"})
+	must(t, tr.AddBranch("acme/app", "agent/a"))
 	pr, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "A", Head: "agent/a", Base: "main"})
 	must(t, err)
 	if pr.HeadSHA != first {
@@ -116,6 +117,7 @@ func TestTrackerRemoteMerge(t *testing.T) {
 	tr, remote := newGitTracker(t)
 	ctx := t.Context()
 	push(t, remote, "main", "agent/a", map[string]string{"a.txt": "a\n"})
+	must(t, tr.AddBranch("acme/app", "agent/a"))
 	pr, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "Add a", Head: "agent/a", Base: "main"})
 	must(t, err)
 	sha, err := tr.MergePR(ctx, "acme/app", pr.Number, github.MergeInput{Method: github.MergeSquash, SHA: pr.HeadSHA})
@@ -143,6 +145,7 @@ func TestTrackerRemoteMergeConflict(t *testing.T) {
 	tr, remote := newGitTracker(t)
 	ctx := t.Context()
 	push(t, remote, "main", "agent/a", map[string]string{"README.md": "from a\n"})
+	must(t, tr.AddBranch("acme/app", "agent/a"))
 	pr, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "A", Head: "agent/a", Base: "main"})
 	must(t, err)
 	push(t, remote, "main", "main", map[string]string{"README.md": "from main\n"})
@@ -152,6 +155,7 @@ func TestTrackerRemoteMergeConflict(t *testing.T) {
 		t.Errorf("PR state = %s", got.State)
 	}
 
+	must(t, tr.AddBranch("acme/app", "agent/a"))
 	other, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "B", Head: "agent/a", Base: "gone"})
 	must(t, err)
 	_, err = tr.MergePR(ctx, "acme/app", other.Number, github.MergeInput{})

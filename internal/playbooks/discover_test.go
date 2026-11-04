@@ -26,6 +26,7 @@ func discoverWithGitHubTools(t *testing.T) *env {
 	must(t, v.tracker.AddAutolink("acme/app", github.Autolink{KeyPrefix: "ENG-", URLTemplate: "https://acme.atlassian.net/browse/ENG-<num>"}))
 	_, err := v.tracker.CreateIssue(ctx, "acme/app", github.IssueInput{Title: "Crash", Body: "Errors: https://acme.sentry.io/issues/7"})
 	must(t, err)
+	must(t, v.tracker.AddBranch("acme/app", "agent/plan"))
 	_, err = v.tracker.CreatePR(ctx, "acme/app", github.PRInput{Title: "Plan", Body: "Spec: https://linear.app/acme/issue/ENG-1", Head: "agent/plan", Base: "main"})
 	must(t, err)
 	return v
