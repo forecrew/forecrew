@@ -18,6 +18,7 @@ import (
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -270,5 +271,17 @@ func TestJobMCPURL(t *testing.T) {
 	cfg.Server.PublicBaseURL = "https://forecrew.example.com"
 	if got := jobMCPURL(cfg); got != "https://forecrew.example.com/job-mcp" {
 		t.Errorf("jobMCPURL = %q", got)
+	}
+}
+
+func TestProviderOfPoolActions(t *testing.T) {
+	without := newFixture(t)
+	if without.app.provider != nil {
+		t.Error("a provider runs without GitHub's Actions calls")
+	}
+	fake := testkit.NewFakeActions(t, nil)
+	with := newFixture(t, func(d *Deps) { d.Actions = fake.Client })
+	if with.app.provider == nil {
+		t.Fatal("no provider with GitHub's Actions calls")
 	}
 }

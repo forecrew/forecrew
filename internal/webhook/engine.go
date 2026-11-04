@@ -24,6 +24,9 @@ type Deps struct {
 	// Allowed reports whether a GitHub login may command @forecrew.
 	Allowed func(login string) bool
 	Log     *slog.Logger
+	// RunChanged, when set, is told of every workflow_run event, so the
+	// GitHub Actions provider reads the run at once.
+	RunChanged func(runID int64)
 	// Now is the clock; it defaults to the real UTC time.
 	Now func() time.Time
 }
@@ -48,6 +51,10 @@ func (e *engine) handle(ctx context.Context, ev github.Event) error {
 		return e.comment(ctx, ev)
 	case "check_suite", "check_run", "status":
 		return e.checkEvent(ctx, ev)
+	case "workflow_run":
+		if e.RunChanged != nil {
+			e.RunChanged(ev.RunID)
+		}
 	}
 	return nil
 }

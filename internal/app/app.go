@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/forecrew/forecrew"
+	"github.com/forecrew/forecrew/internal/actionsprovider"
 	"github.com/forecrew/forecrew/internal/api"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/contextpack"
@@ -55,7 +56,11 @@ type Deps struct {
 	// Ping reports whether the database is reachable, for /healthz.
 	Ping   func(context.Context) error
 	GitHub github.Tracker
-	Logger *slog.Logger
+	// Actions is GitHub's Actions and file surface; with it forecrewd runs
+	// the jobs of pool actions and installs the workflow. Nil: pool actions
+	// has no provider and its jobs wait.
+	Actions github.Actions
+	Logger  *slog.Logger
 	// Version is reported to MCP clients.
 	Version string
 	// Files holds packs/ (role and playbook files); it defaults to the
@@ -86,6 +91,8 @@ type App struct {
 	// retention deletes expired artifacts and orphan objects; nil without
 	// evidence storage.
 	retention *evidence.Retention
+	// provider runs the jobs of pool actions; nil without Deps.Actions.
+	provider *actionsprovider.Provider
 	// runEngine runs the engine; tests replace it.
 	runEngine func(context.Context) error
 	webhooks  *webhook.Handler
@@ -112,7 +119,7 @@ func Open(ctx context.Context, cfg *config.Config, logger *slog.Logger, version 
 		pool.Close()
 		return nil, err
 	}
-	a, err := New(Deps{Config: cfg, Store: postgres.New(pool), Ping: pool.Ping, GitHub: gh, Logger: logger, Version: version})
+	a, err := New(Deps{Config: cfg, Store: postgres.New(pool), Ping: pool.Ping, GitHub: gh, Actions: gh, Logger: logger, Version: version})
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -172,7 +179,7 @@ func New(d Deps) (*App, error) {
 	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0), jobs: jobSvc}
 
 	actions := workflow.Actions{}
-	playbooks.Register(actions, playbooks.Deps{Store: st, Tracker: d.GitHub, Signals: bus, Sizing: cfg.Sizing, Roles: catalog, Now: d.Now})
+	playbooks.Register(actions, playbooks.Deps{Store: st, Tracker: d.GitHub, Signals: bus, Sizing: cfg.Sizing, Roles: catalog, Now: d.Now, Actions: d.Actions, Packs: d.Files})
 	engine, err := workflow.New(workflow.Config{
 		Store: st, Bus: bus, Jobs: creator, Gates: gateSvc, Actions: actions, Playbooks: books, Logger: log, Now: d.Now,
 	})
@@ -193,8 +200,16 @@ func New(d Deps) (*App, error) {
 		JobMCPURL: jobMCPURL(cfg), Attachments: jobGateway.Attachments(),
 	})
 
+	var provider *actionsprovider.Provider
+	if d.Actions != nil {
+		provider = actionsprovider.New(actionsprovider.Config{
+			Store: st, Jobs: jobSvc, GitHub: d.Actions, Evidence: ev, MaxInFlight: cfg.Actions.MaxInFlight,
+			MaxArtifactSize: evidenceMaxSize(cfg), Logger: log, Now: d.Now,
+		})
+		hooks.RunChanged = provider.Notify
+	}
 	a := &App{
-		d: d, jobs: jobSvc, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80",
+		provider: provider, d: d, jobs: jobSvc, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80",
 		webhooks: webhook.NewHandler([]byte(cfg.GitHub.WebhookSecret), hooks),
 		poller:   webhook.NewPoller(hooks),
 	}
@@ -312,6 +327,9 @@ func (a *App) Run(ctx context.Context) error {
 	wg.Go(func() { a.jobs.RunReaper(runCtx, a.d.ReapEvery) })
 	wg.Go(func() { a.webhooks.Run(runCtx) })
 	wg.Go(func() { a.poller.Run(runCtx) })
+	if a.provider != nil {
+		wg.Go(func() { a.provider.Run(runCtx) })
+	}
 	if a.retention != nil {
 		wg.Go(func() { a.retention.Run(runCtx, a.d.RetainEvery) })
 	}
