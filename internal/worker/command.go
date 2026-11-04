@@ -47,13 +47,6 @@ var (
 	maxWalkEntries       = 200_000
 )
 
-// Names of the results the worker adds when a suite has no usable report.
-const (
-	commandResult   = "(command)"
-	reportResult    = "(report)"
-	reportClassname = "forecrew"
-)
-
 // executeCommand runs a command job: clone, overlay, environment setup, the
 // command, then reports and artifacts. The job succeeds when the command ran
 // and its results were reported; it fails on the environment, timeout and
@@ -144,10 +137,13 @@ func cleanVersions(v map[string]string) map[string]string {
 
 // fillErrored makes run an errored run with one explanatory result.
 func (r *jobRun) fillErrored(run *TestRun, msg string) {
-	msg = cleanText(r.red.String(msg))
-	run.Status = domain.TestRunErrored
-	run.Counts = domain.TestCounts{Errored: 1}
-	run.Results = []testreport.Case{{Name: reportResult, Classname: reportClassname, Status: domain.TestErrored, Message: msg}}
+	r.fill(run, testreport.Errored(msg, r.red.String))
+}
+
+// fill sets the status, counts and results of run, with no report artifact
+// unless it has some.
+func (r *jobRun) fill(run *TestRun, o testreport.Outcome) {
+	run.Status, run.Counts, run.Results = o.Status, o.Counts, o.Results
 	if run.ReportArtifacts == nil {
 		run.ReportArtifacts = []string{}
 	}
@@ -500,12 +496,12 @@ func (r *jobRun) collect(ctx context.Context, run *TestRun, comp *Completion) (s
 			run.ReportArtifacts = append(run.ReportArtifacts, name)
 		}
 	}
-	cases, usable, problems, err := r.parseReports(reports)
+	collected, err := r.parseReports(reports)
 	if err != nil {
 		r.fillErrored(run, err.Error())
 		return false
 	}
-	r.fillRun(run, c.Reports, len(reports), cases, usable, problems)
+	r.fill(run, collected.Evaluate(testreport.Evaluation{Declared: c.Reports, Found: len(reports), ExitCode: run.ExitCode, Clean: r.red.String}))
 	return false
 }
 
@@ -525,26 +521,17 @@ func (r *jobRun) upload(ctx context.Context, name string) error {
 	return err
 }
 
-// parseReports parses the report files one by one. It returns their cases,
-// how many files parsed and why the others did not. It stops at the first
-// report that takes the cases past the limits of a run (testreport.MaxCases
-// and MaxTotalSize) and returns that as the error, so the memory a repo can
-// make the worker use is bounded by the limits, not by its number of files.
-func (r *jobRun) parseReports(reports []string) (cases []testreport.Case, usable int, problems []string, err error) {
-	size := 0
+// parseReports parses the report files one by one into a collector, which
+// stops at the first report that takes the cases past the limits of a run.
+func (r *jobRun) parseReports(reports []string) (*testreport.Collector, error) {
+	var c testreport.Collector
 	for _, name := range reports {
 		parsed, err := parseReport(filepath.Join(r.dir, filepath.FromSlash(name)))
-		if err != nil {
-			problems = append(problems, fmt.Sprintf("report %s: %v", name, err))
-			continue
+		if err := c.Add(name, parsed, err); err != nil {
+			return nil, err
 		}
-		size += testreport.Size(parsed)
-		if cases = append(cases, parsed...); len(cases) > testreport.MaxCases || size > testreport.MaxTotalSize {
-			return nil, 0, nil, fmt.Errorf("the reports hold too many test cases: %w", testreport.Check(cases))
-		}
-		usable++
 	}
-	return cases, usable, problems, nil
+	return &c, nil
 }
 
 // parseReport parses the JUnit file at p, which must be a regular file: a
@@ -630,40 +617,4 @@ func (r *jobRun) oversized(comp Completion) Completion {
 	}
 	comp.TestRuns = runs
 	return comp
-}
-
-// fillRun sets the status, counts and results of run from the parsed cases
-// of its reports: declared and found are the numbers of report globs and
-// files, usable the files that parsed, problems why the others did not.
-func (r *jobRun) fillRun(run *TestRun, declared []string, found int, cases []testreport.Case, usable int, problems []string) {
-	switch {
-	case len(declared) == 0:
-		r.fillErrored(run, "the command declares no reports")
-	case found == 0:
-		r.fillErrored(run, "no report file matched "+strings.Join(declared, ", "))
-	case usable == 0:
-		r.fillErrored(run, strings.Join(problems, "; "))
-	case len(cases) == 0:
-		r.fillErrored(run, "the reports hold no test cases")
-	default:
-		if err := testreport.Check(cases); err != nil {
-			r.fillErrored(run, err.Error())
-			return
-		}
-		for i := range cases {
-			cases[i].Name, cases[i].Classname, cases[i].Message = cleanText(cases[i].Name), cleanText(cases[i].Classname), cleanText(cases[i].Message)
-		}
-		for _, p := range problems {
-			cases = append(cases, testreport.Case{Name: reportResult, Classname: reportClassname, Status: domain.TestErrored, Message: r.red.String(p)})
-		}
-		if exit := run.ExitCode; exit != 0 {
-			// Tests that all passed under a failing command are not a pass.
-			if _, status := testreport.Summarize(cases); status == domain.TestRunPassed {
-				cases = append(cases, testreport.Case{Name: commandResult, Classname: reportClassname, Status: domain.TestErrored,
-					Message: fmt.Sprintf("the command exited with code %d although no test failed", exit)})
-			}
-		}
-		run.Counts, run.Status = testreport.Summarize(cases)
-		run.Results = cases
-	}
 }
