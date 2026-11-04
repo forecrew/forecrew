@@ -15,6 +15,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobmcp"
+	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/queue"
 	"github.com/forecrew/forecrew/internal/store"
 )
@@ -307,10 +308,66 @@ type completeRequest struct {
 	Error   string          `json:"error"`
 	Usage   domain.Usage    `json:"usage"`
 	CostUSD float64         `json:"cost_usd"`
+	// TestRuns is for command jobs (worker-api.md, complete).
+	TestRuns []testRunRequest `json:"test_runs"`
+}
+
+type testRunRequest struct {
+	Suite           string               `json:"suite"`
+	Status          domain.TestRunStatus `json:"status"`
+	Counts          domain.TestCounts    `json:"counts"`
+	DurationMS      int64                `json:"duration_ms"`
+	Results         []testResultRequest  `json:"results"`
+	ReportArtifacts []string             `json:"report_artifacts"`
+	Versions        map[string]string    `json:"versions"`
+	ExitCode        int                  `json:"exit_code"`
+}
+
+type testResultRequest struct {
+	Name       string            `json:"name"`
+	Classname  string            `json:"classname"`
+	Status     domain.TestStatus `json:"status"`
+	DurationMS int64             `json:"duration_ms"`
+	Message    string            `json:"message"`
+}
+
+// reports converts and checks the test runs of a request; the second
+// result is why they are invalid, or "".
+func (r completeRequest) reports() ([]store.TestRunReport, string) {
+	var out []store.TestRunReport
+	for i, tr := range r.TestRuns {
+		if !slices.Contains(domain.TestRunStatuses(), tr.Status) {
+			return nil, fmt.Sprintf("test_runs[%d]: unknown status %q", i, tr.Status)
+		}
+		if tr.DurationMS < 0 || tr.Counts.Passed < 0 || tr.Counts.Failed < 0 || tr.Counts.Skipped < 0 || tr.Counts.Errored < 0 {
+			return nil, fmt.Sprintf("test_runs[%d]: durations and counts must not be negative", i)
+		}
+		rep := store.TestRunReport{Run: domain.TestRun{
+			Suite: tr.Suite, Status: tr.Status, Counts: tr.Counts, DurationMS: tr.DurationMS,
+			ExitCode: tr.ExitCode, Versions: tr.Versions, ReportArtifacts: tr.ReportArtifacts,
+		}}
+		for j, res := range tr.Results {
+			if !slices.Contains(domain.TestStatuses(), res.Status) || res.Name == "" || res.DurationMS < 0 {
+				return nil, fmt.Sprintf("test_runs[%d].results[%d]: needs a name, a known status and a non-negative duration", i, j)
+			}
+			rep.Results = append(rep.Results, domain.TestResult{Name: res.Name, Classname: res.Classname, Status: res.Status, DurationMS: res.DurationMS, Message: res.Message})
+		}
+		out = append(out, rep)
+	}
+	return out, ""
 }
 
 type completeResponse struct {
 	Status domain.JobStatus `json:"status"`
+}
+
+// completeLimit is the body limit of complete: max_test_results_size for a
+// command job, which reports test results, 1 MiB for any other job.
+func (s *Server) completeLimit(ctx context.Context, w domain.Worker, id uuid.UUID) int64 {
+	if j, err := s.cfg.Store.Jobs().Get(ctx, w.AccountID, id); err == nil && j.Kind.OrDefault() == domain.JobKindCommand {
+		return s.cfg.MaxTestResultsSize
+	}
+	return MaxBodyBytes
 }
 
 func (s *Server) complete(rw http.ResponseWriter, r *http.Request) {
@@ -321,7 +378,7 @@ func (s *Server) complete(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req completeRequest
-	if !decode(rw, r, &req, false) {
+	if !decodeLimited(rw, r, &req, false, s.completeLimit(ctx, w, id)) {
 		return
 	}
 	if string(req.Output) == "null" {
@@ -336,13 +393,25 @@ func (s *Server) complete(rw http.ResponseWriter, r *http.Request) {
 	case req.Status != completeSucceeded && req.Error == "":
 		writeError(rw, http.StatusBadRequest, "bad_request", "error is required for status "+req.Status)
 		return
+	case req.Status == completeRetry && len(req.TestRuns) > 0:
+		writeError(rw, http.StatusBadRequest, "bad_request", "test_runs cannot be sent with status retry")
+		return
 	case req.Status == completeRetry:
 		j, err = s.cfg.Jobs.Release(ctx, w, id, req.Error)
 	default:
+		reports, bad := req.reports()
+		if bad != "" {
+			writeError(rw, http.StatusBadRequest, "bad_request", bad)
+			return
+		}
 		j, err = s.cfg.Jobs.Complete(ctx, w, id, store.JobResult{
 			Status: domain.JobStatus(req.Status), Output: req.Output, HeadSHA: req.HeadSHA,
-			Error: req.Error, Usage: req.Usage, CostUSD: req.CostUSD,
+			Error: req.Error, Usage: req.Usage, CostUSD: req.CostUSD, TestRuns: reports,
 		})
+	}
+	if errors.Is(err, jobs.ErrInvalid) {
+		writeError(rw, http.StatusBadRequest, "bad_request", err.Error())
+		return
 	}
 	if err != nil {
 		fail(ctx, rw, logger.With("job_id", id), "complete job", err)

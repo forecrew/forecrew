@@ -171,6 +171,9 @@ func (s *Service) Complete(ctx context.Context, w domain.Worker, jobID uuid.UUID
 		if j, err = queue.New(tx.Jobs()).Ack(ctx, w.AccountID, jobID, w.ID, r); err != nil {
 			return err
 		}
+		if err = storeTestRuns(ctx, tx, cur, j, r.TestRuns); err != nil {
+			return err
+		}
 		return audit(ctx, tx, workerActor(w), j, "job.completed", map[string]any{
 			"status": j.Status, "head_sha": j.HeadSHA, "error": j.Error, "usage": j.Usage, "cost_usd": j.CostUSD,
 		})
@@ -183,6 +186,48 @@ func (s *Service) Complete(ctx context.Context, w domain.Worker, jobID uuid.UUID
 	}
 	s.logger.InfoContext(ctx, "job completed", append(logAttrs(j), "status", j.Status, "worker_id", w.ID)...)
 	return j, s.completed(ctx, j)
+}
+
+// storeTestRuns stores the test runs a command job reported, linked to the
+// change whose head is the job's SHA. cur is the job before it was
+// completed, j after. Runs on an agent job, or without a head SHA, are
+// ErrInvalid.
+func storeTestRuns(ctx context.Context, tx store.Store, cur, j domain.Job, runs []store.TestRunReport) error {
+	if len(runs) == 0 {
+		return nil
+	}
+	if cur.Kind.OrDefault() != domain.JobKindCommand {
+		return fmt.Errorf("%w: test_runs are only for command jobs", ErrInvalid)
+	}
+	if j.HeadSHA == "" {
+		return fmt.Errorf("%w: test_runs need a head_sha", ErrInvalid)
+	}
+	var changeID uuid.UUID
+	cs, err := tx.Changes().List(ctx, j.AccountID, store.ChangeFilter{ProjectID: j.ProjectID, HeadSHA: j.HeadSHA})
+	if err != nil {
+		return fmt.Errorf("find change of %s: %w", j.HeadSHA, err)
+	}
+	for _, c := range cs { // prefer an open PR
+		if changeID == uuid.Nil() || c.State == domain.ChangeOpen {
+			changeID = c.ID
+		}
+	}
+	for _, rep := range runs {
+		run := rep.Run
+		run.AccountID, run.ProjectID, run.JobID, run.ChangeID = j.AccountID, j.ProjectID, j.ID, changeID
+		run.SHA, run.Attempt = j.HeadSHA, cur.Attempts+1
+		if run.Suite == "" {
+			run.Suite = cur.Spec.Suite
+		}
+		run.Cell = cur.Spec.Cell
+		if env := cur.Spec.Environment; env != nil {
+			run.Environment = env.Name
+		}
+		if err := tx.TestRuns().Create(ctx, &run, rep.Results); err != nil {
+			return fmt.Errorf("store test run %q: %w", run.Suite, err)
+		}
+	}
+	return nil
 }
 
 // leaseLost republishes job.completed for a finished job and returns err

@@ -76,7 +76,14 @@ type Config struct {
 	Evidence *Evidence `yaml:"evidence"`
 	// Sizing is the rule that gives goals their councils from their triage.
 	Sizing Sizing `yaml:"sizing"`
+	// MaxTestResultsSize is the largest request body (bytes) a worker may
+	// send to complete a command job with test runs; zero means
+	// DefaultMaxTestResultsSize.
+	MaxTestResultsSize int64 `yaml:"max_test_results_size"`
 }
+
+// DefaultMaxTestResultsSize is the default of Config.MaxTestResultsSize.
+const DefaultMaxTestResultsSize = 32 << 20 // 32 MiB
 
 // Server configures the HTTP listener.
 type Server struct {
@@ -182,6 +189,9 @@ func (c *Config) applyDefaults() {
 	if c.Server.TLSDomain != "" && c.Server.CertCacheDir == "" {
 		c.Server.CertCacheDir = DefaultCertCacheDir
 	}
+	if c.MaxTestResultsSize == 0 {
+		c.MaxTestResultsSize = DefaultMaxTestResultsSize
+	}
 	c.applyPoolDefaults()
 	c.applySizing()
 }
@@ -213,6 +223,9 @@ func (c *Config) Validate() error {
 	c.validatePools(&p)
 	c.validateEvidence(&p)
 	c.validateSizing(&p)
+	if c.MaxTestResultsSize < 0 {
+		p.addf("max_test_results_size must be positive")
+	}
 	return p.err()
 }
 

@@ -182,6 +182,15 @@ type JobResult struct {
 	Error   string
 	Usage   domain.Usage
 	CostUSD float64
+	// TestRuns are the test runs of a command job. JobRepo ignores them;
+	// jobs.Service.Complete stores them with the result.
+	TestRuns []TestRunReport
+}
+
+// TestRunReport is a test run with its results, as a worker reports it.
+type TestRunReport struct {
+	Run     domain.TestRun
+	Results []domain.TestResult
 }
 
 // JobRepo stores jobs and leases them to workers. Lease rules are those of
