@@ -177,6 +177,7 @@ func (r *remote) commands() []*cobra.Command {
 		assumptionsCommand(r),
 		decisionsCommand(r),
 		knowledgeCommand(r),
+		councilsCommand(r),
 	}
 }
 
@@ -289,6 +290,58 @@ func jobsCommand(r *remote) *cobra.Command {
 		},
 	})
 	return jobs
+}
+
+// councilsCommand starts and follows councils.
+func councilsCommand(r *remote) *cobra.Command {
+	councils := &cobra.Command{Use: "councils", Aliases: []string{"council"}, Short: "Run councils"}
+	var kind string
+	var roles, constraints []string
+	start := &cobra.Command{
+		Use:   "start <project> <question>",
+		Short: "Start a council of its own",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var c mcp.CouncilInfo
+			in := mcp.StartCouncilInput{Project: args[0], Question: args[1], Kind: kind, Roles: roles, Constraints: constraints}
+			if err := r.call(cmd.Context(), http.MethodPost, "/councils", in, &c); err != nil {
+				return err
+			}
+			cmd.Printf("%s started\n", c.Ref)
+			return nil
+		},
+	}
+	start.Flags().StringVar(&kind, "kind", "", "product, technical, test_design, incident or onboarding; default adhoc")
+	start.Flags().StringArrayVar(&roles, "role", nil, "a member instead of the kind's (repeatable)")
+	start.Flags().StringArrayVar(&constraints, "constraint", nil, "what every option must respect (repeatable)")
+	councils.AddCommand(start)
+	councils.AddCommand(&cobra.Command{
+		Use:   "show <council>",
+		Short: "Show a council (COUNCIL-2 or UUID)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var d mcp.CouncilDetail
+			if err := r.call(cmd.Context(), http.MethodGet, "/councils/"+url.PathEscape(args[0]), nil, &d); err != nil {
+				return err
+			}
+			printCouncil(cmd.OutOrStdout(), d)
+			return nil
+		},
+	})
+	councils.AddCommand(&cobra.Command{
+		Use:   "constrain <council> <constraint>",
+		Short: "Add a constraint to a running council; its next round sees it",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var c mcp.CouncilInfo
+			if err := r.call(cmd.Context(), http.MethodPost, "/councils/"+url.PathEscape(args[0])+"/constraints", map[string]string{"constraint": args[1]}, &c); err != nil {
+				return err
+			}
+			cmd.Printf("%s has %d constraints\n", c.Ref, len(c.Constraints))
+			return nil
+		},
+	})
+	return councils
 }
 
 // artifactCommand downloads artifacts.
@@ -426,6 +479,44 @@ func safeText(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// printCouncil shows a council. Everything but its ref and status may come
+// from agents, so it goes through safeText.
+func printCouncil(w io.Writer, d mcp.CouncilDetail) {
+	fmt.Fprintf(w, "%s (%s) is %s\n", d.Ref, d.Kind, d.Status)
+	fmt.Fprintf(w, "Question: %s\n", safeText(d.Question))
+	for _, c := range d.Constraints {
+		fmt.Fprintf(w, "Constraint: %s\n", safeText(c))
+	}
+	rows := [][]string{{"MEMBER", "STAGE", "ROUND", "SOURCES"}}
+	for _, k := range d.Contributions {
+		bad := 0
+		for _, s := range k.EvidenceCheck {
+			if s.Status != domain.SourceOK {
+				bad++
+			}
+		}
+		rows = append(rows, []string{safeText(k.Member), string(k.Stage), strconv.Itoa(k.Round), fmt.Sprintf("%d, %d failed", len(k.EvidenceCheck), bad)})
+	}
+	if len(d.Contributions) > 0 {
+		table(w, rows)
+	}
+	if b := d.Brief; b != nil {
+		fmt.Fprintf(w, "Recommendation: %s\n", safeText(b.Recommendation))
+		if b.BudgetExhausted {
+			fmt.Fprintln(w, "The budget ran out before the debate finished.")
+		}
+		for _, x := range b.Dissent {
+			fmt.Fprintf(w, "Dissent of %s: %s\n", safeText(x.Member), safeText(x.Position))
+		}
+	}
+	if d.Gate != nil {
+		fmt.Fprintf(w, "Gate: %s (%s)\n", d.Gate.Ref, d.Gate.Status)
+	}
+	if d.Decision != nil {
+		fmt.Fprintf(w, "Decision: %s by %s: %s\n", d.Decision.Ref(), safeText(d.Decision.DecidedBy), safeText(d.Decision.Choice))
+	}
 }
 
 func printTestRuns(w io.Writer, items []mcp.TestRunInfo) {

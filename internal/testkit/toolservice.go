@@ -47,6 +47,9 @@ type ToolService struct {
 	RevokeTokenFunc      func(context.Context, domain.Actor, mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error)
 	ListArtifactsFunc    func(context.Context, domain.Actor, mcp.JobRefInput) ([]domain.Artifact, error)
 	ListTestRunsFunc     func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error)
+	StartCouncilFunc     func(context.Context, domain.Actor, mcp.StartCouncilInput) (mcp.CouncilInfo, error)
+	GetCouncilFunc       func(context.Context, domain.Actor, mcp.CouncilRefInput) (mcp.CouncilDetail, error)
+	AddConstraintFunc    func(context.Context, domain.Actor, mcp.AddCouncilConstraintInput) (mcp.CouncilInfo, error)
 	OpenArtifactFunc     func(context.Context, domain.Actor, string) (domain.Artifact, io.ReadCloser, error)
 	SearchKnowledgeFunc  func(context.Context, domain.Actor, mcp.SearchKnowledgeInput) ([]knowledge.Result, error)
 	DeleteNoteFunc       func(context.Context, domain.Actor, mcp.DeleteNoteInput) (mcp.DeleteNoteOutput, error)
@@ -181,6 +184,21 @@ func (s *ToolService) RevokeToken(ctx context.Context, by domain.Actor, in mcp.R
 // ListArtifacts implements mcp.ToolService.
 func (s *ToolService) ListArtifacts(ctx context.Context, by domain.Actor, in mcp.JobRefInput) ([]domain.Artifact, error) {
 	return invoke(ctx, s, mcp.ToolListArtifacts, by, in, s.ListArtifactsFunc)
+}
+
+// StartCouncil implements mcp.ToolService.
+func (s *ToolService) StartCouncil(ctx context.Context, by domain.Actor, in mcp.StartCouncilInput) (mcp.CouncilInfo, error) {
+	return invoke(ctx, s, mcp.ToolStartCouncil, by, in, s.StartCouncilFunc)
+}
+
+// GetCouncil implements mcp.ToolService.
+func (s *ToolService) GetCouncil(ctx context.Context, by domain.Actor, in mcp.CouncilRefInput) (mcp.CouncilDetail, error) {
+	return invoke(ctx, s, mcp.ToolGetCouncil, by, in, s.GetCouncilFunc)
+}
+
+// AddCouncilConstraint implements mcp.ToolService.
+func (s *ToolService) AddCouncilConstraint(ctx context.Context, by domain.Actor, in mcp.AddCouncilConstraintInput) (mcp.CouncilInfo, error) {
+	return invoke(ctx, s, mcp.ToolAddConstraint, by, in, s.AddConstraintFunc)
 }
 
 // ListTestRuns implements mcp.ToolService.

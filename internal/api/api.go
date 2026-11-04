@@ -77,6 +77,10 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/jobs/{job}/cancel", serve(s, http.StatusOK, jobInput, t.CancelJob))
 	route("GET /api/v1/jobs/{job}/artifacts", serve(s, http.StatusOK, jobInput, list(t.ListArtifacts)))
 	route("GET /api/v1/test-runs", serve(s, http.StatusOK, listTestRunsInput, list(t.ListTestRuns)))
+
+	route("POST /api/v1/councils", serve(s, http.StatusAccepted, bodyOf[mcp.StartCouncilInput], t.StartCouncil))
+	route("GET /api/v1/councils/{council}", serve(s, http.StatusOK, councilInput, t.GetCouncil))
+	route("POST /api/v1/councils/{council}/constraints", serve(s, http.StatusOK, constraintInput, t.AddCouncilConstraint))
 	if s.cfg.Artifacts != nil {
 		route("GET /api/v1/artifacts/{id}", http.HandlerFunc(s.artifact))
 	}
@@ -139,8 +143,11 @@ func RouteAccess() map[string]mcp.Access {
 		"POST /api/v1/assumptions/{assumption}/resolve": tool[mcp.ToolResolveAssumption],
 		"GET /api/v1/decisions":                         tool[mcp.ToolListDecisions],
 
-		"GET /api/v1/knowledge":                 tool[mcp.ToolSearchKnowledge],
-		"DELETE /api/v1/knowledge/notes/{note}": tool[mcp.ToolDeleteNote],
+		"GET /api/v1/knowledge":                       tool[mcp.ToolSearchKnowledge],
+		"DELETE /api/v1/knowledge/notes/{note}":       tool[mcp.ToolDeleteNote],
+		"POST /api/v1/councils":                       tool[mcp.ToolStartCouncil],
+		"GET /api/v1/councils/{council}":              tool[mcp.ToolGetCouncil],
+		"POST /api/v1/councils/{council}/constraints": tool[mcp.ToolAddConstraint],
 
 		"GET /api/v1/workers": tool[mcp.ToolListWorkers],
 
@@ -221,6 +228,18 @@ func goalInput(r *http.Request) (mcp.GoalRefInput, error) {
 
 func jobInput(r *http.Request) (mcp.JobRefInput, error) {
 	return mcp.JobRefInput{Job: r.PathValue("job")}, nil
+}
+
+func councilInput(r *http.Request) (mcp.CouncilRefInput, error) {
+	return mcp.CouncilRefInput{Council: r.PathValue("council")}, nil
+}
+
+func constraintInput(r *http.Request) (mcp.AddCouncilConstraintInput, error) {
+	var body struct {
+		Constraint string `json:"constraint"`
+	}
+	err := decode(r, &body)
+	return mcp.AddCouncilConstraintInput{Council: r.PathValue("council"), Constraint: body.Constraint}, err
 }
 
 func tokenInput(r *http.Request) (mcp.RevokeTokenInput, error) {

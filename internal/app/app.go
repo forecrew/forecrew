@@ -224,7 +224,7 @@ func New(d Deps) (*App, error) {
 	}
 	toolSvc := tools.New(tools.Config{
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes,
-		Registers: regs, Logger: log,
+		Registers: regs, Councils: seats, Logger: log,
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
 	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Tracker: d.GitHub, Knowledge: syncs, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}

@@ -168,3 +168,58 @@ func TestJobTestsStripsControlCharacters(t *testing.T) {
 		t.Errorf("output lacks the text: %q", out)
 	}
 }
+
+func TestCouncilCommands(t *testing.T) {
+	e := newRemoteEnv(t)
+	e.svc.StartCouncilFunc = func(context.Context, domain.Actor, mcp.StartCouncilInput) (mcp.CouncilInfo, error) {
+		return mcp.CouncilInfo{Ref: "COUNCIL-2"}, nil
+	}
+	out, errOut, code := e.run(t, "councils", "start", "app", "Which queue?", "--kind", "technical", "--role", "ux", "--role", "architect", "--constraint", "Keep Postgres")
+	if code != 0 || errOut != "" || !strings.Contains(out, "COUNCIL-2 started") {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
+	}
+	in := e.svc.Calls()[0].Input.(mcp.StartCouncilInput)
+	if in.Project != "app" || in.Question != "Which queue?" || in.Kind != "technical" || len(in.Roles) != 2 || in.Constraints[0] != "Keep Postgres" {
+		t.Fatalf("input = %+v", in)
+	}
+
+	e.svc.GetCouncilFunc = func(context.Context, domain.Actor, mcp.CouncilRefInput) (mcp.CouncilDetail, error) {
+		return mcp.CouncilDetail{
+			Ref:  "COUNCIL-2",
+			Kind: domain.CouncilTechnical, Status: domain.CouncilDecided, Question: "Which\x1b[31m queue?", Constraints: []string{"Keep Postgres"},
+			Brief: &domain.CouncilBrief{Recommendation: "pg", BudgetExhausted: true, Dissent: []domain.BriefDissent{{Member: "ux@codex", Position: "No."}}},
+			Contributions: []mcp.ContributionInfo{{Member: "ux@codex",
+				Stage: domain.StageProposal, Round: 1, EvidenceCheck: []domain.SourceCheck{{Status: domain.SourceOK}, {Status: domain.SourceRefused}}}},
+			Gate:     &mcp.GateInfo{Ref: "GATE-7", Status: domain.GateApproved},
+			Decision: &domain.Decision{Number: 9, DecidedBy: "user:ana", Choice: "pg"},
+		}, nil
+	}
+	out, errOut, code = e.run(t, "council", "show", "COUNCIL-2")
+	if code != 0 || errOut != "" {
+		t.Fatalf("code %d, stderr %q", code, errOut)
+	}
+	for _, want := range []string{"COUNCIL-2 (technical) is decided", "Constraint: Keep Postgres", "ux@codex", "2, 1 failed", "Recommendation: pg", "budget ran out", "Dissent of ux@codex: No.", "Gate: GATE-7 (approved)", "Decision: DEC-9 by user:ana: pg"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("control characters reached the terminal: %q", out)
+	}
+
+	e.svc.AddConstraintFunc = func(context.Context, domain.Actor, mcp.AddCouncilConstraintInput) (mcp.CouncilInfo, error) {
+		return mcp.CouncilInfo{Ref: "COUNCIL-2", Constraints: []string{"a", "b"}}, nil
+	}
+	if out, _, code := e.run(t, "councils", "constrain", "COUNCIL-2", "Stay small"); code != 0 || !strings.Contains(out, "COUNCIL-2 has 2 constraints") {
+		t.Fatalf("code %d, stdout %q", code, out)
+	}
+	last := e.svc.Calls()[len(e.svc.Calls())-1]
+	if last.Input != (mcp.AddCouncilConstraintInput{Council: "COUNCIL-2", Constraint: "Stay small"}) {
+		t.Fatalf("input = %+v", last.Input)
+	}
+	for _, args := range [][]string{{"councils", "start", "app"}, {"councils", "show"}, {"councils", "constrain", "COUNCIL-2"}} {
+		if _, _, code := e.run(t, args...); code == 0 {
+			t.Errorf("%v accepted", args)
+		}
+	}
+}
