@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 	"uuid"
@@ -271,6 +272,47 @@ func TestPRClosedFailuresLeaveChangeOpen(t *testing.T) {
 			must(t, e.eng.handle(t.Context(), ev))
 			if e.change(7).State != domain.ChangeMerged || e.gate(g).Status != domain.GateApproved {
 				t.Fatal("retry did not finish")
+			}
+		})
+	}
+}
+
+// A PR merged or closed on GitHub sends back the pending assumption reviews
+// of its task, so that a run waiting for them goes on; the assumptions stay
+// unverified and no decision is made. Other tasks' reviews are left alone.
+func TestPullRequestEndsTheAssumptionReviewsOfItsTask(t *testing.T) {
+	for _, fixtureName := range []string{"pull_request_merged.json", "pull_request_closed.json"} {
+		t.Run(fixtureName, func(t *testing.T) {
+			e := newEnv(t)
+			ctx := t.Context()
+			goal := domain.Goal{AccountID: e.account, ProjectID: e.project.ID, Title: "g", Status: domain.GoalInProgress, CreatedBy: "user:me"}
+			must(t, e.st.Goals().Create(ctx, &goal))
+			spec := domain.Spec{AccountID: e.account, ProjectID: e.project.ID, GoalID: goal.ID, Revision: 1, Body: "s"}
+			must(t, e.st.Specs().Create(ctx, &spec))
+			mk := func(seq int) domain.Task {
+				task := domain.Task{AccountID: e.account, ProjectID: e.project.ID, GoalID: goal.ID, SpecID: spec.ID, Seq: seq, Title: "t", Status: domain.TaskInReview}
+				must(t, e.st.Tasks().Create(ctx, &task))
+				return task
+			}
+			mine, other := mk(1), mk(2)
+			c := e.addChange(7, "abc123")
+			c.TaskID = mine.ID
+			must(t, e.st.Changes().Upsert(ctx, &c))
+			review, theirs, goalLevel := e.openReview(3, "x", mine.ID), e.openReview(4, "y", other.ID), e.openReview(5, "z", uuid.Nil())
+
+			e.send("d1", "pull_request", fixture(t, fixtureName))
+
+			got := e.gate(review)
+			if got.Status != domain.GateChangesRequested || got.ResolvedBy != "system:forecrewd" || !strings.Contains(got.Feedback, "#7 was") {
+				t.Fatalf("review = %+v", got)
+			}
+			if len(e.signals(domain.GateKey(review.ID))) != 1 {
+				t.Fatal("no gate.resolved signal")
+			}
+			for _, g := range []domain.Gate{theirs, goalLevel} {
+				if e.gate(g).Status != domain.GatePending {
+					t.Fatalf("%s = %s, want pending", g.Ref(), e.gate(g).Status)
+				}
 			}
 		})
 	}

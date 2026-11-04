@@ -113,6 +113,9 @@ func (e *engine) prClosed(ctx context.Context, accountID, projectID uuid.UUID, r
 	if err := e.resolvePRGates(ctx, accountID, repo, number, merged); err != nil {
 		return err
 	}
+	if err := e.releaseReviews(ctx, accountID, repo, number, merged); err != nil {
+		return err
+	}
 	return e.setChangeState(ctx, accountID, repo, number, state)
 }
 
@@ -150,6 +153,37 @@ func (e *engine) resolvePRGates(ctx context.Context, accountID uuid.UUID, repo s
 			continue
 		}
 		errs = append(errs, e.resolve(ctx, by, g, decision, ""))
+	}
+	return errors.Join(errs...)
+}
+
+// releaseReviews sends back the pending assumption reviews of the task of a
+// PR that was merged or closed: a run waiting for them has nothing left to
+// wait for. forecrewd asks for changes, which leaves the assumptions
+// unverified and records no decision.
+func (e *engine) releaseReviews(ctx context.Context, accountID uuid.UUID, repo string, number int, merged bool) error {
+	c, err := e.Store.Changes().GetByPR(ctx, accountID, repo, number)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && c.TaskID == uuid.Nil()) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("get change %s#%d: %w", repo, number, err)
+	}
+	pending, err := e.Store.Gates().List(ctx, accountID, store.GateFilter{ProjectID: c.ProjectID, Kind: domain.GateAssumptionReview, Status: domain.GatePending})
+	if err != nil {
+		return fmt.Errorf("list assumption reviews: %w", err)
+	}
+	how := "closed"
+	if merged {
+		how = "merged"
+	}
+	feedback := fmt.Sprintf("%s#%d was %s on GitHub: this review is not waited for any more. The assumption stays unverified.", repo, number, how)
+	by := domain.SystemActor(accountID, domain.ForecrewdName)
+	var errs []error
+	for _, g := range pending {
+		if g.TaskID == c.TaskID {
+			errs = append(errs, e.resolve(ctx, by, g, domain.GateChangesRequested, feedback))
+		}
 	}
 	return errors.Join(errs...)
 }
