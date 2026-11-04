@@ -93,7 +93,16 @@ func (a *actions) prText(ctx context.Context, call workflow.ActionCall) (any, er
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(result.Summary) + "\n")
 	section(&b, "Task "+t.Ref()+": "+t.Title, []string{strings.TrimSpace(t.Body)}, "")
-	section(&b, "Assumptions", assumptionLines(result.Assumptions), "- ")
+	lines := assumptionLines(result.Assumptions)
+	if rests, err := a.regs.OfTask(ctx, t.AccountID, t); err != nil {
+		return nil, err
+	} else if len(rests) > 0 {
+		lines = lines[:0]
+		for _, as := range rests {
+			lines = append(lines, registerLine(as))
+		}
+	}
+	section(&b, "Assumptions", lines, "- ")
 	if t.IssueNumber > 0 {
 		fmt.Fprintf(&b, "\nCloses #%d\n", t.IssueNumber)
 	}

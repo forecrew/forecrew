@@ -90,5 +90,14 @@ func (a *actions) openOrUpdatePR(ctx context.Context, call workflow.ActionCall) 
 	if err := a.Store.Changes().Upsert(ctx, &c); err != nil {
 		return nil, fmt.Errorf("record pull request %s#%d: %w", with.Repo, pr.Number, err)
 	}
+	if c.TaskID != uuid.Nil() {
+		t, err := a.Store.Tasks().Get(ctx, c.AccountID, c.TaskID)
+		if err != nil {
+			return nil, fmt.Errorf("get task of %s#%d: %w", with.Repo, pr.Number, err)
+		}
+		if err := a.regs.LinkChange(ctx, c.AccountID, t, with.Repo, pr.Number); err != nil {
+			return nil, err
+		}
+	}
 	return prOutput{Number: pr.Number, URL: pr.URL, HeadSHA: pr.HeadSHA, IfOpen: []int{pr.Number}}, nil
 }
