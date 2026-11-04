@@ -57,6 +57,8 @@ type storeData struct {
 	decisions   table[domain.Decision]
 	deliveries  map[string]domain.WebhookDelivery
 	counters    map[counterKey]int64
+	knowledge   table[domain.KnowledgeEntry]
+	embeddings  map[uuid.UUID][]float32
 	// jobMCP holds the job MCP token hash of a job with the lease it was
 	// set for; a hash whose lease ended no longer matches (the Postgres
 	// trigger clears it).
@@ -95,6 +97,8 @@ func NewStore(now func() time.Time) *Store {
 		deliveries:  map[string]domain.WebhookDelivery{},
 		counters:    map[counterKey]int64{},
 		jobMCP:      map[uuid.UUID]jobMCPHash{},
+		knowledge:   table[domain.KnowledgeEntry]{key: func(r domain.KnowledgeEntry) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		embeddings:  map[uuid.UUID][]float32{},
 	}}}
 }
 
@@ -120,6 +124,8 @@ func (d *storeData) clone() *storeData {
 	c.testResult = d.testResult.clone()
 	c.assumptions = d.assumptions.clone()
 	c.decisions = d.decisions.clone()
+	c.knowledge = d.knowledge.clone()
+	c.embeddings = maps.Clone(d.embeddings)
 	c.deliveries = maps.Clone(d.deliveries)
 	c.counters = maps.Clone(d.counters)
 	c.jobMCP = maps.Clone(d.jobMCP)

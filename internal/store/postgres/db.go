@@ -60,18 +60,19 @@ type dbtx interface {
 
 // Store is the Postgres store.Store.
 type Store struct {
-	db dbtx
+	db  dbtx
+	vec *vectorColumn
 }
 
 var _ store.Store = (*Store)(nil)
 
 // New returns a store on pool. The schema must have been migrated.
-func New(pool *pgxpool.Pool) *Store { return &Store{db: pool} }
+func New(pool *pgxpool.Pool) *Store { return &Store{db: pool, vec: &vectorColumn{}} }
 
 // WithTx implements store.Store. Nested calls use savepoints.
 func (s *Store) WithTx(ctx context.Context, fn func(ctx context.Context, tx store.Store) error) error {
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
-		return fn(ctx, &Store{db: tx})
+		return fn(ctx, &Store{db: tx, vec: s.vec})
 	})
 }
 
@@ -180,3 +181,6 @@ func migrationsFS() fs.FS {
 	}
 	return sub
 }
+
+// Knowledge implements store.Store.
+func (s *Store) Knowledge() store.KnowledgeRepo { return knowledgeRepo{s.db, s.vec} }

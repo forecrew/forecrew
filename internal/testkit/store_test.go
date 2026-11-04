@@ -1031,4 +1031,10 @@ func TestAccountTokenCap(t *testing.T) {
 	if err := st.Accounts().SetMaxTokenTTL(t.Context(), domain.NewID(), time.Hour); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unknown account: %v", err)
 	}
+
+}
+
+func TestKnowledgeStore(t *testing.T) {
+	f := newFixture(t)
+	KnowledgeStoreSuite(t, f.st, f.account, f.project.ID, true)
 }
