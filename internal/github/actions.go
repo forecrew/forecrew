@@ -175,7 +175,16 @@ func (c *Client) DownloadArtifact(ctx context.Context, repo string, id, max int6
 	}
 	op := fmt.Sprintf("download artifact %d of %s", id, repo)
 	u, apiResp, err := g.Actions.DownloadArtifact(ctx, owner, name, id, maxArtifactRedirects)
-	if statusOf(err) == http.StatusGone || (err != nil && apiResp != nil && apiResp.StatusCode == http.StatusGone) {
+	if err != nil && apiResp != nil && apiResp.Response != nil {
+		// go-github reports any answer but the redirect as a plain error.
+		switch apiResp.StatusCode {
+		case http.StatusGone:
+			return nil, fmt.Errorf("%s: %w", op, ErrGone)
+		case http.StatusNotFound:
+			return nil, fmt.Errorf("%s: %w", op, ErrNotFound)
+		}
+	}
+	if statusOf(err) == http.StatusGone {
 		return nil, fmt.Errorf("%s: %w", op, ErrGone)
 	}
 	if err != nil {
