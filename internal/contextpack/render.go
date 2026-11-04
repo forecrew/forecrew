@@ -230,6 +230,22 @@ func WrapUntrusted(source, text string) string {
 		source, id, text, id)
 }
 
+// OneLine returns s with every run of white space, newlines included,
+// collapsed to one space, for text shown as a list item or a title: text an
+// agent wrote cannot start a line of its own there.
+func OneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// FirstLine returns the first line of s, trimmed and cut to at most limit
+// characters.
+func FirstLine(s string, limit int) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	line = strings.TrimSpace(line)
+	if r := []rune(line); len(r) > limit {
+		return string(r[:limit-1]) + "…"
+	}
+	return line
+}
+
 // fenced puts content in a fenced code block longer than any backtick run
 // in it.
 func fenced(lang, content string) string {
