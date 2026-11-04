@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/forecrew/forecrew/internal/gitsha"
 	"github.com/forecrew/forecrew/internal/roles"
 )
 
@@ -31,7 +32,6 @@ var (
 	criteriaHead  = regexp.MustCompile(`(?i)^#+\s.*acceptance criteria`)
 	headingLine   = regexp.MustCompile(`^#+\s`)
 	bulletLine    = regexp.MustCompile(`^(\s*)([-*+]|[0-9]+[.)])\s`)
-	shortSHA      = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 )
 
 // Text is a goal, spec, task or feedback quoted in the prompt. The zero
@@ -259,7 +259,7 @@ func fenced(lang, content string) string {
 // baseRev returns the git revision of the base in the checkout: the
 // remote-tracking branch, or the commit itself when the base is a SHA.
 func baseRev(baseRef string) string {
-	if shortSHA.MatchString(baseRef) {
+	if gitsha.LooksLikeCommit(baseRef) {
 		return baseRef
 	}
 	return "origin/" + baseRef

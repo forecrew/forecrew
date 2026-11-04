@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/forecrew/forecrew/internal/gitsha"
 )
 
 // Commit identity of the changes the worker commits.
@@ -36,7 +38,6 @@ var errRefused = errors.New("refused")
 
 var (
 	repoName = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
-	fullSHA  = regexp.MustCompile(`^([0-9a-f]{40}|[0-9a-f]{64})$`)
 	// refChars are the characters allowed in a branch name; git's rules are
 	// wider, ours are deliberately strict.
 	refChars = regexp.MustCompile(`^[A-Za-z0-9._/+@-]+$`)
@@ -339,7 +340,7 @@ func (g *gitClient) prepare(ctx context.Context, c checkout) (start string, remo
 		return "", false, err
 	}
 	baseRefspec, startRef := "+refs/heads/"+c.BaseRef+":"+remoteRefsBase+c.BaseRef, remoteRefsBase+c.BaseRef
-	if fullSHA.MatchString(c.BaseRef) {
+	if gitsha.IsFull(c.BaseRef) {
 		baseRefspec, startRef = c.BaseRef, c.BaseRef
 	}
 	refspecs := []string{baseRefspec}
@@ -479,7 +480,7 @@ func (g *gitClient) push(ctx context.Context, cache, url, token, sha, branch str
 	if err != nil {
 		return err
 	}
-	if !fullSHA.MatchString(sha) {
+	if !gitsha.IsFull(sha) {
 		return fmt.Errorf("push %q: not a full commit sha: %w", sha, errRefused)
 	}
 	unlock := g.lockRepo(cache)
@@ -503,7 +504,7 @@ var errOverlay = errors.New("cannot apply the overlay")
 // private. ref is a branch of the remote or a full SHA. Nothing of the job
 // has run yet, so the worktree is still the worker's own checkout.
 func (g *gitClient) overlay(ctx context.Context, c checkout, ref string, paths []string) error {
-	if !fullSHA.MatchString(ref) && !validBranch(ref) {
+	if !gitsha.IsFull(ref) && !validBranch(ref) {
 		return fmt.Errorf("invalid overlay ref %q: %w", ref, errRefused)
 	}
 	unlock := g.lockRepo(c.Cache)
@@ -512,7 +513,7 @@ func (g *gitClient) overlay(ctx context.Context, c checkout, ref string, paths [
 		return err
 	}
 	refspec, rev := ref, ref
-	if !fullSHA.MatchString(ref) {
+	if !gitsha.IsFull(ref) {
 		refspec, rev = "+refs/heads/"+ref+":"+remoteRefsBase+ref, remoteRefsBase+ref
 	}
 	if _, err := g.inCacheAuth(ctx, c.Cache, c.Token, "fetch", "--quiet", "--no-tags", c.URL, refspec); err != nil {

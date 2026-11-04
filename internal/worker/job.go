@@ -17,6 +17,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/gitsha"
 	"github.com/forecrew/forecrew/internal/runtime"
 )
 
@@ -322,7 +323,7 @@ func (r *jobRun) validate() error {
 	switch {
 	case !validRepo(s.Repo):
 		return fmt.Errorf("invalid repo %q", s.Repo)
-	case !fullSHA.MatchString(s.BaseRef) && !validBranch(s.BaseRef):
+	case !gitsha.IsFull(s.BaseRef) && !validBranch(s.BaseRef):
 		return fmt.Errorf("invalid base_ref %q", s.BaseRef)
 	case r.write:
 		if _, err := pushRef(s.Branch); err != nil {

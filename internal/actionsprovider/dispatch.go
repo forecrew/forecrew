@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/gitsha"
 )
 
 // maxInputBytes keeps the inputs of a dispatch below GitHub's limit of
@@ -26,11 +26,6 @@ type payload struct {
 	Workdir  string            `json:"workdir,omitempty"`
 	Versions map[string]string `json:"versions,omitempty"`
 }
-
-var (
-	fullSHA  = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
-	shortSHA = regexp.MustCompile(`^[0-9a-fA-F]{7,39}$`)
-)
 
 // dispatchPlan is how a job is dispatched.
 type dispatchPlan struct {
@@ -73,8 +68,8 @@ func plan(spec domain.JobSpec, defaultBranch string) (dispatchPlan, error) {
 	if checkout == "" {
 		checkout = spec.BaseRef
 	}
-	if shortSHA.MatchString(checkout) {
-		return dispatchPlan{}, fmt.Errorf("%w: %q looks like a short commit SHA, which cannot be told from a branch; use the full 40 characters", errNotRunnable, checkout)
+	if gitsha.IsShort(strings.ToLower(checkout)) {
+		return dispatchPlan{}, fmt.Errorf("%w: %q looks like a short commit SHA, which cannot be told from a branch; use the full commit ID", errNotRunnable, checkout)
 	}
 	pl := dispatchPlan{Ref: checkout}
 	in := map[string]string{
@@ -85,7 +80,7 @@ func plan(spec domain.JobSpec, defaultBranch string) (dispatchPlan, error) {
 		"artifacts":       strings.Join(c.Artifacts, "\n"),
 		"timeout_minutes": strconv.Itoa(timeoutMinutes(time.Duration(spec.Timeout))),
 	}
-	if fullSHA.MatchString(checkout) {
+	if gitsha.IsFull(strings.ToLower(checkout)) {
 		// workflow_dispatch takes a branch, not a commit: the default
 		// branch's workflow checks the commit out.
 		pl.Ref, pl.Commit = defaultBranch, strings.ToLower(checkout)
