@@ -132,6 +132,8 @@ type world struct {
 	hooks   chan testkit.Event
 	logs    *logBuffer
 	ci      *ciSim
+	// actions is the fake GitHub Actions the provider of pool actions talks to.
+	actions *testkit.FakeActions
 }
 
 // newWorld starts forecrewd. The project app is registered, and onboarded
@@ -161,13 +163,14 @@ func newWorldWith(t *testing.T, onboarded bool, files fs.FS) *world {
 	w.remote = newRemote(t)
 	w.tracker = testkit.NewTracker(w.clock.Now)
 	w.tracker.Install(repo)
+	w.actions = testkit.NewFakeActions(t, w.clock.Now)
 	must(t, w.tracker.UseRemote(repo, w.remote))
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	must(t, err)
 	w.url = "http://" + ln.Addr().String()
 	a, err := app.New(app.Deps{
-		Config: testConfig(), Files: files, Evidence: testkit.NewEvidence(), Store: w.st, Ping: pool.Ping, GitHub: w.tracker, Version: "e2e", Now: w.clock.Now, Listener: ln,
+		Config: testConfig(), Files: files, Evidence: testkit.NewEvidence(), Store: w.st, Ping: pool.Ping, GitHub: w.tracker, Actions: w.actions.Client, Version: "e2e", Now: w.clock.Now, Listener: ln,
 		Logger: slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug})), ReapEvery: 50 * time.Millisecond,
 	})
 	must(t, err)
