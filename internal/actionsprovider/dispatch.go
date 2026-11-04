@@ -52,9 +52,6 @@ func plan(spec domain.JobSpec, defaultBranch string) (dispatchPlan, error) {
 	if !spec.IsCommand() || env == nil || env.Provider != domain.ProviderActions || env.RunsOn == "" {
 		return dispatchPlan{}, fmt.Errorf("%w: it needs an environment with provider actions and runs_on", errNotRunnable)
 	}
-	if len(env.Services) > 0 {
-		return dispatchPlan{}, fmt.Errorf("%w: services are not supported on GitHub-hosted runners", errNotRunnable)
-	}
 	c := spec.Command
 	p := payload{Setup: env.Setup, Env: map[string]string{}, Argv: c.Argv, Shell: c.Shell, Workdir: c.Workdir, Versions: env.Versions}
 	for _, m := range []map[string]string{env.Env, c.Env} {
