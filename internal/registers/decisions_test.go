@@ -168,16 +168,66 @@ func TestAcceptRecommendation(t *testing.T) {
 	if got := w.auditActions(d.ID); !slices.Equal(got, []string{"decision.recorded"}) {
 		t.Fatalf("audit = %v", got)
 	}
-	// The same brief again finds the same assumption.
-	if _, err := w.regs.AcceptRecommendation(t.Context(), c); err != nil || len(w.assumptions()) != 1 {
-		t.Fatalf("second accept: %v, %d assumptions", err, len(w.assumptions()))
+	// A repeated call finds the decision and the assumption.
+	again, err := w.regs.AcceptRecommendation(t.Context(), c)
+	if err != nil || again.ID != d.ID || len(w.assumptions()) != 1 || len(w.decisions()) != 1 {
+		t.Fatalf("second accept: %+v, %v, %d assumptions, %d decisions", again, err, len(w.assumptions()), len(w.decisions()))
 	}
 	c.Brief = nil
 	if _, err := w.regs.AcceptRecommendation(t.Context(), c); err == nil {
 		t.Fatal("a council without a brief was accepted")
 	}
-	c.Brief = &domain.CouncilBrief{Question: "", Recommendation: "x"}
+	c.ID, c.Brief = domain.NewID(), &domain.CouncilBrief{Question: "", Recommendation: "x"}
 	if _, err := w.regs.AcceptRecommendation(t.Context(), c); err == nil {
 		t.Fatal("an invalid decision was recorded")
+	}
+}
+
+// councilGate stores a council whose gate is pending.
+func (w *world) councilGate() (domain.Council, domain.Gate) {
+	w.t.Helper()
+	g := w.gate(domain.GateCouncilDecision, "COUNCIL-1: Which queue?", domain.Task{})
+	c := domain.Council{AccountID: w.account, ProjectID: w.project.ID, GoalID: w.goal.ID, Kind: domain.CouncilTechnical, Question: "Which queue?", GateID: g.ID,
+		Brief: &domain.CouncilBrief{
+			Question: "Which store?", Recommendation: "postgres", Options: []domain.BriefOption{{Name: "postgres", Summary: "SKIP LOCKED"}},
+			Votes:       []domain.BriefVote{{Member: "architect@codex", Option: "postgres", Reason: "simple"}},
+			Assumptions: []domain.StatedAssumption{stated("Under 100 jobs a second", domain.LevelMedium)},
+		}}
+	must(w.t, w.st.Councils().Create(w.t.Context(), &c))
+	return c, g
+}
+
+// TestCouncilGateDecision: the decision on a council's gate names the council,
+// and an approval is the decision for its recommendation.
+func TestCouncilGateDecision(t *testing.T) {
+	by := func(w *world) domain.Actor {
+		return domain.Actor{AccountID: w.account, Kind: domain.ActorUser, Name: "gian"}
+	}
+	t.Run("approved", func(t *testing.T) {
+		w := newWorld(t)
+		c, g := w.councilGate()
+		_, err := w.gates.Resolve(t.Context(), by(w), g.ID, domain.GateApproved, "go")
+		must(t, err)
+		ds := w.decisions()
+		if len(ds) != 1 {
+			t.Fatalf("decisions = %+v", ds)
+		}
+		d := ds[0]
+		if d.CouncilID != c.ID || d.GateID != g.ID || d.Choice != "postgres" || d.Question != "Which store?" || d.DecidedBy != "user:gian" ||
+			d.Reasons != "go\narchitect@codex: simple" || len(d.Options) != 1 || len(d.Assumptions) != 1 {
+			t.Fatalf("decision = %+v", d)
+		}
+	})
+	for _, status := range []domain.GateStatus{domain.GateChangesRequested, domain.GateRejected} {
+		t.Run(string(status), func(t *testing.T) {
+			w := newWorld(t)
+			c, g := w.councilGate()
+			_, err := w.gates.Resolve(t.Context(), by(w), g.ID, status, "no")
+			must(t, err)
+			ds := w.decisions()
+			if len(ds) != 1 || ds[0].CouncilID != c.ID || ds[0].Choice != string(status) || ds[0].Reasons != "no" || len(w.assumptions()) != 0 {
+				t.Fatalf("decisions = %+v", ds)
+			}
+		})
 	}
 }

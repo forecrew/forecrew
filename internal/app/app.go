@@ -28,6 +28,7 @@ import (
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/councils"
+	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/evidence"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
@@ -209,8 +210,13 @@ func New(d Deps) (*App, error) {
 	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0), jobs: jobSvc, knowledge: syncer, councils: seats, models: cfg.ModelOn}
 
 	actions := workflow.Actions{}
-	playbooks.Register(actions, playbooks.Deps{Store: st, Tracker: d.GitHub, Signals: bus, Sizing: cfg.Sizing, Roles: catalog, Knowledge: syncer, Now: d.Now, Actions: d.Actions, Packs: d.Files})
-	engine, err := workflow.New(workflow.Config{
+	var engine *workflow.Engine
+	playbooks.Register(actions, playbooks.Deps{
+		Store: st, Tracker: d.GitHub, Signals: bus, Sizing: cfg.Sizing, Roles: catalog, Knowledge: syncer, Now: d.Now, Actions: d.Actions, Packs: d.Files,
+		Config: cfg, Councils: seats, Gates: gateSvc, Evidence: ev, Logger: log,
+		Runs: lateStarter(func() *workflow.Engine { return engine }),
+	})
+	engine, err = workflow.New(workflow.Config{
 		Store: st, Bus: bus, Jobs: creator, Gates: gateSvc, Actions: actions, Playbooks: books, Logger: log, Now: d.Now,
 	})
 	if err != nil {
@@ -254,6 +260,15 @@ func New(d Deps) (*App, error) {
 		mcp.NewHandler(toolSvc, st.MCPTokens(), d.Version, log),
 		api.New(api.Config{Tools: toolSvc, Artifacts: toolSvc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: log}).Handler())
 	return a, nil
+}
+
+// lateStarter starts runs on the engine, which is built after the actions
+// that use it.
+type lateStarter func() *workflow.Engine
+
+// Start implements councils.Starter.
+func (s lateStarter) Start(ctx context.Context, playbook string, req workflow.StartRequest) (domain.WorkflowRun, error) {
+	return s().Start(ctx, playbook, req)
 }
 
 // openEvidence returns the evidence storage of d: the given one, the S3

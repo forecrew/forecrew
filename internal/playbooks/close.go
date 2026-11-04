@@ -138,6 +138,9 @@ func (a *actions) settleGoal(ctx context.Context, call workflow.ActionCall) (any
 	if g.Status == domain.GoalDone {
 		return map[string]string{"status": string(g.Status)}, nil
 	}
+	if err := a.cancelCouncils(ctx, g); err != nil {
+		return nil, err
+	}
 	p, err := a.Store.Projects().Get(ctx, g.AccountID, g.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)

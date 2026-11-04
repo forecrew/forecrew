@@ -27,7 +27,11 @@ func human(by domain.Actor) bool {
 // GateResolved implements gates.Recorder. A gate of kind spec_approval,
 // merge_approval, council_decision or assumption_review that a human
 // resolved becomes a decision: the question is the gate's title, the choice
-// its decision and the reasons the feedback. A resolved assumption_review
+// its decision and the reasons the feedback. The decision on the gate of a
+// council names the council, and an approval is that of its recommendation
+// (accepted), with the feedback first among the reasons; that is the one
+// record of a human's decision, so the council runner records none. A
+// resolved assumption_review
 // gate also resolves its assumption: approved accepts it, rejected
 // invalidates it (the feedback is the evidence), changes requested leaves it
 // unverified and opens a new review. The returned function, to run after the commit, publishes the
@@ -47,8 +51,38 @@ func (s *Service) GateResolved(ctx context.Context, tx store.Store, by domain.Ac
 		AccountID: g.AccountID, ProjectID: g.ProjectID, GoalID: g.GoalID, Question: g.Title, Choice: string(g.Status),
 		Reasons: g.Feedback, DecidedBy: by.String(), GateID: g.ID, Assumptions: rests,
 	}
+	if d, err = s.ofCouncil(ctx, tx, g, d); err != nil {
+		return then, err
+	}
 	_, err = s.createDecision(ctx, tx, by, d)
 	return then, err
+}
+
+// ofCouncil returns d, the decision on g, as the decision on a council when
+// g is the gate of one.
+func (s *Service) ofCouncil(ctx context.Context, tx store.Store, g domain.Gate, d domain.Decision) (domain.Decision, error) {
+	if g.Kind != domain.GateCouncilDecision {
+		return d, nil
+	}
+	found, err := tx.Councils().List(ctx, g.AccountID, store.CouncilFilter{GateID: g.ID})
+	if err != nil {
+		return d, fmt.Errorf("find the council of %s: %w", g.Ref(), err)
+	}
+	if len(found) == 0 {
+		return d, nil
+	}
+	c := found[0]
+	d.CouncilID = c.ID
+	if g.Status != domain.GateApproved || c.Brief == nil {
+		return d, nil
+	}
+	a, err := s.accepted(ctx, tx, c)
+	if err != nil {
+		return d, err
+	}
+	a.DecidedBy, a.GateID = d.DecidedBy, g.ID
+	a.Reasons = strings.TrimSpace(d.Reasons + "\n" + a.Reasons)
+	return a, nil
 }
 
 // restsOn returns the assumptions the decision on g rests on: the reviewed
@@ -152,44 +186,63 @@ func (s *Service) createDecision(ctx context.Context, tx store.Store, by domain.
 }
 
 // AcceptRecommendation records the decision of the autonomy policy to accept
-// the recommendation of a decided council (T33 calls it): the brief's
-// question and options, the recommended option as the choice, the votes for
-// it as reasons, the dissent, and the brief's assumptions, registered (or
-// found, when the facilitator's job registered them already) with the
-// council as source.
+// the recommendation of a council (T33 calls it, before the council moves to
+// decided): the brief's question and options, the recommended option as the
+// choice, the votes for it as reasons, the dissent, and the brief's
+// assumptions, registered (or found, when the facilitator's job registered
+// them already) with the council as source. A council has one such decision:
+// a repeated call, after a crash for example, returns it.
 func (s *Service) AcceptRecommendation(ctx context.Context, c domain.Council) (domain.Decision, error) {
 	if c.Brief == nil {
 		return domain.Decision{}, fmt.Errorf("%s has no brief: %w", c.Ref(), domain.ErrInvalidRecord)
 	}
 	var out domain.Decision
 	err := s.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
-		b := c.Brief
-		as, err := s.record(ctx, tx, c.AccountID, c.ProjectID, Source{MadeBy: "council " + c.Ref(), GoalID: c.GoalID, CouncilID: c.ID}, b.Assumptions)
+		all, err := tx.Decisions().List(ctx, c.AccountID, store.DecisionFilter{CouncilID: c.ID})
+		if err != nil {
+			return fmt.Errorf("list the decisions of %s: %w", c.Ref(), err)
+		}
+		if i := slices.IndexFunc(all, func(d domain.Decision) bool { return d.DecidedBy == domain.DecidedByPolicy }); i >= 0 {
+			out = all[i]
+			return nil
+		}
+		d, err := s.accepted(ctx, tx, c)
 		if err != nil {
 			return err
-		}
-		d := domain.Decision{
-			AccountID: c.AccountID, ProjectID: c.ProjectID, GoalID: c.GoalID, Question: b.Question, Choice: b.Recommendation,
-			DecidedBy: domain.DecidedByPolicy, CouncilID: c.ID, GateID: c.GateID, Assumptions: []uuid.UUID{},
-		}
-		for _, o := range b.Options {
-			d.Options = append(d.Options, domain.DecisionOption{Name: contextpack.OneLine(o.Name), Summary: contextpack.OneLine(o.Summary)})
-		}
-		var reasons, dissent []string
-		for _, v := range b.Votes {
-			if v.Option == b.Recommendation {
-				reasons = append(reasons, contextpack.OneLine(v.Member+": "+v.Reason))
-			}
-		}
-		for _, x := range b.Dissent {
-			dissent = append(dissent, contextpack.OneLine(x.Member+": "+x.Position))
-		}
-		d.Reasons, d.Dissent = strings.Join(reasons, "\n"), strings.Join(dissent, "\n")
-		for _, a := range as {
-			d.Assumptions = append(d.Assumptions, a.ID)
 		}
 		out, err = s.createDecision(ctx, tx, domain.SystemActor(c.AccountID, domain.ForecrewdName), d)
 		return err
 	})
 	return out, err
+}
+
+// accepted returns the decision to accept the recommendation of c, which has
+// a brief, by the policy; it registers the assumptions of the brief.
+func (s *Service) accepted(ctx context.Context, tx store.Store, c domain.Council) (domain.Decision, error) {
+	b := c.Brief
+	as, err := s.record(ctx, tx, c.AccountID, c.ProjectID, Source{MadeBy: "council " + c.Ref(), GoalID: c.GoalID, CouncilID: c.ID}, b.Assumptions)
+	if err != nil {
+		return domain.Decision{}, err
+	}
+	d := domain.Decision{
+		AccountID: c.AccountID, ProjectID: c.ProjectID, GoalID: c.GoalID, Question: b.Question, Choice: b.Recommendation,
+		DecidedBy: domain.DecidedByPolicy, CouncilID: c.ID, GateID: c.GateID, Assumptions: []uuid.UUID{},
+	}
+	for _, o := range b.Options {
+		d.Options = append(d.Options, domain.DecisionOption{Name: contextpack.OneLine(o.Name), Summary: contextpack.OneLine(o.Summary)})
+	}
+	var reasons, dissent []string
+	for _, v := range b.Votes {
+		if v.Option == b.Recommendation {
+			reasons = append(reasons, contextpack.OneLine(v.Member+": "+v.Reason))
+		}
+	}
+	for _, x := range b.Dissent {
+		dissent = append(dissent, contextpack.OneLine(x.Member+": "+x.Position))
+	}
+	d.Reasons, d.Dissent = strings.Join(reasons, "\n"), strings.Join(dissent, "\n")
+	for _, a := range as {
+		d.Assumptions = append(d.Assumptions, a.ID)
+	}
+	return d, nil
 }

@@ -314,6 +314,47 @@ func TestJobCreatorKnowledgeExcludes(t *testing.T) {
 	}
 }
 
+func (f *fixture) council(t *testing.T) domain.Council {
+	t.Helper()
+	c := domain.Council{AccountID: f.account.ID, ProjectID: f.project.ID, Kind: domain.CouncilTechnical, Question: "Which queue?", Constraints: []string{"Keep Postgres"}}
+	must(t, f.st.Councils().Create(t.Context(), &c))
+	return c
+}
+
+func (f *fixture) councilJob(t *testing.T, c domain.Council, role string, turn workflow.CouncilTurn) domain.Job {
+	t.Helper()
+	req := f.request(role)
+	turn.CouncilID = c.ID
+	req.ID, req.BaseRef, req.Council = domain.NewID(), "c0ffee", &turn
+	id, err := f.creator.Create(t.Context(), req)
+	must(t, err)
+	j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+	must(t, err)
+	return j
+}
+
+// TestCouncilJob: a member's job is the step's, on the runtime it is pinned
+// to, read-only and in its role's pool, with the council in its prompt.
+func TestCouncilJob(t *testing.T) {
+	f := newFixture(t)
+	c := f.council(t)
+	j := f.councilJob(t, c, "developer", workflow.CouncilTurn{
+		Step: "proposal", Round: 1, Priority: "cost", Runtime: config.AdapterCodex, Framing: []byte(`{"question":"Which store holds the queue?"}`),
+	})
+	s := j.Spec
+	if j.Runtime != config.AdapterCodex || s.Model != "gpt-strong" || len(s.WritePaths) != 0 || j.Pool != "build" || s.BaseRef != "c0ffee" {
+		t.Fatalf("job = %+v, spec = %+v", j, s)
+	}
+	if !slices.Contains(s.AllowedTools, "mcp__forecrew__council_read") || slices.Contains(s.AllowedTools, "Write") {
+		t.Fatalf("tools = %v", s.AllowedTools)
+	}
+	for _, want := range []string{"# Council step: proposal", "developer@codex", "# Council " + c.Ref(), "Question: Which queue?", "- Keep Postgres", "Which store holds the queue?", "<untrusted-data", "facilitator of " + c.Ref()} {
+		if !strings.Contains(s.Prompt, want) {
+			t.Errorf("prompt lacks %q", want)
+		}
+	}
+}
+
 // The shipped roles reach the knowledge tools of the job MCP gateway through
 // the real catalog: developers search and write notes, the curator only searches.
 func TestJobCreatorRolesGetKnowledgeTools(t *testing.T) {
@@ -365,5 +406,82 @@ func TestJobCreatorRefusesWritersWhenThePolicyCannotBeRead(t *testing.T) {
 		if got := errors.Is(err, knowledge.ErrPolicyUnknown); got != wantErr {
 			t.Errorf("%s: err = %v, want policy refusal %v", role, err, wantErr)
 		}
+	}
+}
+
+// TestCouncilFacilitatorJob: the facilitator is not pinned; a turn on the
+// role's own runtime keeps its model.
+func TestCouncilFacilitatorJob(t *testing.T) {
+	f := newFixture(t)
+	c := f.council(t)
+	j := f.councilJob(t, c, "facilitator", workflow.CouncilTurn{Step: "synthesis", Round: 1, BudgetExhausted: true})
+	if j.Runtime != config.AdapterClaudeCode || j.Pool != "control" || !strings.Contains(j.Spec.Prompt, "budget ran out") {
+		t.Fatalf("job = %+v", j)
+	}
+	if strings.Contains(j.Spec.Prompt, "framing\n") {
+		t.Fatalf("framing in a job that has none: %s", j.Spec.Prompt)
+	}
+}
+
+// TestCouncilProposalHoldsNoOtherProposal: a proposal job's prompt has
+// nothing of another member, also when others have finished.
+func TestCouncilProposalHoldsNoOtherProposal(t *testing.T) {
+	f := newFixture(t)
+	c := f.council(t)
+	other := domain.CouncilContribution{AccountID: f.account.ID, CouncilID: c.ID, Role: "developer", Runtime: config.AdapterClaudeCode,
+		Stage: domain.StageProposal, Round: 1, Content: []byte(`{"position":"SECRET-POSITION of the developer"}`)}
+	must(t, f.st.Councils().AddContribution(t.Context(), &other))
+	j := f.councilJob(t, c, "architect", workflow.CouncilTurn{Step: "proposal", Round: 1, Priority: "simplicity", Runtime: config.AdapterClaudeCode, Framing: []byte(`{"question":"q"}`)})
+	if strings.Contains(j.Spec.Prompt, "SECRET-POSITION") {
+		t.Fatalf("prompt holds another member's proposal:\n%s", j.Spec.Prompt)
+	}
+}
+
+// TestCouncilConstraintReachesTheNextRound: the prompt is built from the
+// council as it stands.
+func TestCouncilConstraintReachesTheNextRound(t *testing.T) {
+	f := newFixture(t)
+	c := f.council(t)
+	turn := workflow.CouncilTurn{Step: "revision", Round: 1, Priority: "simplicity", Runtime: config.AdapterClaudeCode}
+	if j := f.councilJob(t, c, "architect", turn); strings.Contains(j.Spec.Prompt, "No new services") {
+		t.Fatal("constraint before it was added")
+	}
+	c.Constraints = append(c.Constraints, "No new services")
+	must(t, f.st.Councils().Update(t.Context(), &c))
+	turn.Round = 2
+	if j := f.councilJob(t, c, "architect", turn); !strings.Contains(j.Spec.Prompt, "- No new services") {
+		t.Fatalf("prompt = %s", j.Spec.Prompt)
+	}
+}
+
+func TestCouncilJobRefused(t *testing.T) {
+	f := newFixture(t)
+	c := f.council(t)
+	other := domain.Project{AccountID: f.account.ID, Name: "other", Repo: "acme/other", DefaultBranch: "main"}
+	must(t, f.st.Projects().Create(t.Context(), &other))
+	foreign := domain.Council{AccountID: f.account.ID, ProjectID: other.ID, Kind: domain.CouncilAdhoc, Question: "q"}
+	must(t, f.st.Councils().Create(t.Context(), &foreign))
+	tests := []struct {
+		name, role string
+		turn       workflow.CouncilTurn
+		want       string
+	}{
+		{"unknown council", "architect", workflow.CouncilTurn{CouncilID: domain.NewID(), Step: "proposal", Round: 1}, "council"},
+		{"another project", "architect", workflow.CouncilTurn{CouncilID: foreign.ID, Step: "proposal", Round: 1}, "not a council of this project"},
+		{"no seat", "reviewer", workflow.CouncilTurn{CouncilID: c.ID, Step: "proposal", Round: 1, Priority: "cost", Runtime: config.AdapterCodex}, "no seat"},
+		{"no model", "architect", workflow.CouncilTurn{CouncilID: c.ID, Step: "proposal", Round: 1, Priority: "simplicity", Runtime: "other"}, "no runtime of adapter"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := f.request(tt.role)
+			req.Council = &tt.turn
+			if _, err := f.creator.Create(t.Context(), req); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want %q", err, tt.want)
+			}
+		})
+	}
+	req := workflow.JobRequest{AccountID: f.account.ID, ProjectID: f.project.ID, Kind: domain.JobKindCommand, Council: &workflow.CouncilTurn{}}
+	if _, err := f.creator.Create(t.Context(), req); !errors.Is(err, jobs.ErrInvalid) {
+		t.Fatalf("command job: %v", err)
 	}
 }
