@@ -80,6 +80,10 @@ person sets `FORECREW_TOKEN` in their environment:
 
 ## Tools
 
+Each tool needs one permission (or, for the gate tools, the permission of
+the gate's kind) on the project it is about:
+[contracts/permissions.md](contracts/permissions.md#what-every-entry-point-needs).
+
 Tools take refs (`GOAL-3`, `JOB-41`, `GATE-7`) or UUIDs, and projects by name
 or `owner/name`. Every result is a short text line plus structured content
 (a JSON object; lists are wrapped, for example `{"workers": [...]}`) with the
