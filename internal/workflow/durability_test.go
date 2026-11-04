@@ -231,6 +231,32 @@ steps:
 	}
 }
 
+// A wait for gate.resolved finds the gate resolved when the signal was lost.
+func TestLostGateSignalOfAWaitStep(t *testing.T) {
+	v := newEnv(t)
+	silent := gates.New(v.st, dropPublisher{}, v.clock.Now)
+	g, err := silent.Open(t.Context(), gates.OpenRequest{AccountID: v.account, ProjectID: v.project.ID, Kind: domain.GateAssumptionReview, Title: "Review A-1: x", SubjectRepo: "acme/app"})
+	must(t, err)
+	_, r := v.engine(t, `
+inputs: [gate]
+steps:
+  - {id: answer, type: wait, with: {signal: gate.resolved, gate_id: '${inputs.gate}'}}
+`, map[string]any{"gate": g.ID.String()})
+	s := v.waitStep(t, r.ID, "answer", 1, domain.StepWaiting)
+	if s.GateID != g.ID {
+		t.Fatalf("step = %+v", s)
+	}
+	_, err = silent.Resolve(t.Context(), v.human, g.ID, domain.GateChangesRequested, "check it")
+	if !errors.Is(err, errDropped) {
+		t.Fatalf("Resolve = %v", err)
+	}
+	v.waitRun(t, r.ID, domain.RunSucceeded)
+	done := v.waitStep(t, r.ID, "answer", 1, domain.StepSucceeded)
+	if out := output(t, done)["output"].(map[string]any); out["decision"] != "changes_requested" || out["feedback"] != "check it" {
+		t.Fatalf("output = %v", out)
+	}
+}
+
 var errDropped = errors.New("dropped")
 
 type dropPublisher struct{}
