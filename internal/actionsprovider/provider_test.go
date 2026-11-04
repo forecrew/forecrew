@@ -789,3 +789,17 @@ func TestAccountsShareTheSlots(t *testing.T) {
 	}
 	e.provider.Wait()
 }
+
+func TestWorkflowPhaseIsBounded(t *testing.T) {
+	e := newEnv(t)
+	j := e.newJob()
+	e.finishesWith(j, "success", map[string]string{ResultFile: `{"phase":"` + strings.Repeat("p", 5<<20) + `"}`})
+	e.poll()
+	runs := e.testRuns(j)
+	if len(runs) != 1 {
+		t.Fatalf("runs = %+v", runs)
+	}
+	if rs := e.results(runs[0]); len(rs) != 1 || len(rs[0]) > 300 {
+		t.Errorf("results = %d bytes: the phase was stored whole", len(strings.Join(rs, "")))
+	}
+}

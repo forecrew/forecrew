@@ -289,6 +289,7 @@ func (r *jobRun) finish(ctx context.Context, run github.WorkflowRun, fresh bool)
 		return false
 	}
 	res.Message = testreport.Clip(testreport.CleanText(res.Message), maxMessage)
+	res.Phase = testreport.Clip(testreport.CleanText(res.Phase), maxPhase)
 	files.Files = slices.DeleteFunc(files.Files, func(f file) bool { return f.Name == ResultFile || f.Name == RootMarker })
 	switch res.Phase {
 	case phaseSetup:
@@ -397,6 +398,7 @@ const (
 	maxVersions    = 64
 	maxVersionSize = 1024
 	maxMessage     = 1024
+	maxPhase       = 32
 )
 
 // versions returns the tool versions of the run, plus the runner image the
