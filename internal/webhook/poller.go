@@ -80,7 +80,7 @@ func (p *Poller) reconcileGates(ctx context.Context, accountID uuid.UUID, seen m
 	}
 	var errs []error
 	for _, g := range pending {
-		if (g.Kind != domain.GateProfileApproval && g.Kind != domain.GateMergeApproval) || g.SubjectRepo == "" || g.SubjectNumber < 1 {
+		if !prGate(g.Kind) || g.SubjectRepo == "" || g.SubjectNumber < 1 {
 			continue
 		}
 		key := domain.PRKey(g.SubjectRepo, g.SubjectNumber)

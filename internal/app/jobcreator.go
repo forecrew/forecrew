@@ -28,6 +28,34 @@ type jobCreator struct {
 	roles roles.Resolver
 	packs contextpack.Builder
 	jobs  *jobs.Service
+	// knowledge gives the paths of the project's curated knowledge; nil
+	// leaves the role's write paths as they are.
+	knowledge pathSource
+}
+
+// pathSource lists the repo paths of a project's curated knowledge, which
+// writing roles except the knowledge curator may not change: curated
+// knowledge changes only through proposals.
+type pathSource interface {
+	MappedPaths(p domain.Project) []string
+}
+
+// CuratorRole is the role that writes the fallback knowledge/** folder.
+const CuratorRole = "knowledge-curator"
+
+// writePaths returns the role's write paths with the project's knowledge
+// paths excluded, for every writing role but the curator.
+func (c *jobCreator) writePaths(role roles.Role, p domain.Project) []string {
+	if c.knowledge == nil || role.ReadOnly() || role.Name == CuratorRole {
+		return role.WritePaths
+	}
+	out := slices.Clone(role.WritePaths)
+	for _, g := range c.knowledge.MappedPaths(p) {
+		if ex := "!" + g; !slices.Contains(out, ex) {
+			out = append(out, ex)
+		}
+	}
+	return out
 }
 
 // Create implements workflow.JobCreator. The job gets req.ID when it is set
@@ -75,7 +103,7 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Pool: pool, Role: role.Name, Runtime: role.Runtime, Needs: req.Needs,
 		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID,
 		Spec: domain.JobSpec{
-			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, WritePaths: role.WritePaths, Model: role.Model,
+			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, WritePaths: c.writePaths(role, project), Model: role.Model,
 			Prompt: pack.Prompt, OutputSchema: role.OutputSchema, AllowedTools: role.AllowedTools, MaxTurns: role.MaxTurns,
 			Timeout: domain.Duration(role.Timeout), IncludeRepoFacts: req.IncludeRepoFacts, LockedPaths: req.LockedPaths,
 		},

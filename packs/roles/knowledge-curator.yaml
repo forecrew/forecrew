@@ -1,0 +1,17 @@
+role: knowledge-curator
+model: strong
+prompt: roles/knowledge-curator.md
+tools: [repo.read, repo.write, git.read, git.commit, assumption.record]
+write_paths: ["knowledge/**"]
+produces: [knowledge]
+output_schema: schemas/knowledge-seed.json
+definition_of_done:
+  - every entry is a Markdown file under knowledge/<section>/ for one of the sections you were asked to fill
+  - every entry has the frontmatter fields title, author_role, source and created
+  - every statement in an entry comes from a source file you name; nothing is invented
+  - no section that already has a location was touched
+  - the entries are committed on the job branch
+escalate_when:
+  - the sources contradict each other and you cannot tell which one is right
+max_turns: 60
+timeout: 30m

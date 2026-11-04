@@ -33,7 +33,7 @@ List every assumption you made explicitly. Then end your answer with exactly one
 - Changes on the branch: `git diff origin/main...HEAD`
 - Access: commit your work on the branch; Forecrew pushes it.
 - You may change only: `**`
-- Never change: `.github/workflows/**`, `.forecrew/**`
+- Never change: `.github/workflows/**`, `.forecrew/**`, `knowledge/**`
 
 ## Definition of done
 

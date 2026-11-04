@@ -5,16 +5,26 @@
 package playbooks
 
 import (
+	"context"
 	"io/fs"
 	"time"
 
 	"github.com/forecrew/forecrew/internal/config"
+	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
+
+// KnowledgeSeeder indexes a project and says how its knowledge is mapped;
+// *knowledge.Syncer implements it.
+type KnowledgeSeeder interface {
+	Sync(ctx context.Context, p domain.Project, before, head string) (knowledge.SyncResult, error)
+	Policy(p domain.Project) knowledge.Policy
+}
 
 // Deps are the dependencies of the actions.
 type Deps struct {
@@ -30,7 +40,10 @@ type Deps struct {
 	Sizing config.Sizing
 	// Roles resolves the roles whose write paths the actions check.
 	Roles roles.Resolver
-	Now   func() time.Time // defaults to the real UTC time
+	// Knowledge indexes a project's repo for knowledge.seed; nil makes the
+	// action do nothing.
+	Knowledge KnowledgeSeeder
+	Now       func() time.Time // defaults to the real UTC time
 }
 
 // Register adds every action of the package to registry, by name.
@@ -69,6 +82,7 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["tests.locked_paths"] = d.testsLockedPaths
 	registry["tests.base_check_request"] = d.testsBaseCheckRequest
 	registry["tests.base_check_result"] = d.testsBaseCheckResult
+	registry["knowledge.seed"] = d.seedKnowledge
 }
 
 // actions implements the actions on top of Deps.

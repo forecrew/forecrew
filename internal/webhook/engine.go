@@ -154,7 +154,13 @@ func (e *engine) publish(ctx context.Context, accountID, projectID uuid.UUID, pa
 	return isNew, nil
 }
 
-// resolvePRGates decides the profile and merge approval gates whose subject
+// prGate reports whether a gate of this kind is decided by its PR being
+// merged or closed.
+func prGate(k domain.GateKind) bool {
+	return k == domain.GateProfileApproval || k == domain.GateMergeApproval || k == domain.GateKnowledgeProposal
+}
+
+// resolvePRGates decides the profile, merge and knowledge approval gates whose subject
 // is the PR: merged approves them, closed rejects them.
 func (e *engine) resolvePRGates(ctx context.Context, accountID uuid.UUID, repo string, number int, merged bool) error {
 	pending, err := e.Store.Gates().ListPendingBySubject(ctx, accountID, repo, number)
@@ -168,7 +174,7 @@ func (e *engine) resolvePRGates(ctx context.Context, accountID uuid.UUID, repo s
 	by := domain.Actor{AccountID: accountID, Kind: domain.ActorGitHub, Name: "github"}
 	var errs []error
 	for _, g := range pending {
-		if g.Kind != domain.GateProfileApproval && g.Kind != domain.GateMergeApproval {
+		if !prGate(g.Kind) {
 			continue
 		}
 		errs = append(errs, e.resolve(ctx, by, g, decision, ""))
