@@ -790,6 +790,59 @@ func TestAccountsShareTheSlots(t *testing.T) {
 	e.provider.Wait()
 }
 
+// A run is adopted only if it is the App's dispatch of our workflow on the
+// job's branch: a run anyone else made, with the job's id in its title, must
+// not become the job's result.
+func TestForgedRunsAreNotAdopted(t *testing.T) {
+	const evilSHA = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	tests := []struct {
+		name string
+		edit func(r *testkit.ActionsRun)
+	}{
+		{"another branch", func(r *testkit.ActionsRun) { r.HeadBranch = "evil-branch" }},
+		{"another actor", func(r *testkit.ActionsRun) { r.Actor = "mallory" }},
+		{"no actor", func(r *testkit.ActionsRun) { r.Actor = "" }},
+		{"another event", func(r *testkit.ActionsRun) { r.Event = "push" }},
+		{"no event", func(r *testkit.ActionsRun) { r.Event = "" }},
+		{"another workflow", func(r *testkit.ActionsRun) { r.Path = ".github/workflows/evil.yml" }},
+		{"no workflow", func(r *testkit.ActionsRun) { r.Path = "" }},
+		{"no branch", func(r *testkit.ActionsRun) { r.HeadBranch = "" }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			j := e.newJob(func(j *domain.Job) { j.Attempts = 1 }) // a re-leased job looks for its run
+			forged := testkit.ActionsRun{
+				Title: "forecrew-matrix " + j.ID.String(), Conclusion: "success", HeadSHA: evilSHA,
+				Event: "workflow_dispatch", Path: WorkflowPath, Actor: testkit.FakeBot, HeadBranch: "agent/task-1",
+				ArtifactName: ArtifactPrefix + j.ID.String(),
+				Artifact:     testkit.Zip(map[string]string{ResultFile: strings.Replace(resultJSON(0), head, evilSHA, 1), "reports/a.xml": `<testsuite><testcase name="forged"/></testsuite>`}),
+			}
+			tt.edit(&forged)
+			e.gh.AddRun(forged)
+			e.finishesWith(j, "success", map[string]string{ResultFile: resultJSON(0), "reports/a.xml": `<testsuite><testcase name="real"/></testsuite>`})
+			e.poll()
+			if n := len(e.gh.Dispatches()); n != 1 {
+				t.Fatalf("%d dispatches, want a fresh run of our own", n)
+			}
+			runs := e.testRuns(j)
+			if got := e.job(j); got.Status != domain.JobSucceeded || len(runs) != 1 || runs[0].SHA != head || e.results(runs[0])[0] != " real passed " {
+				t.Errorf("job %s head %q runs %+v: the forged run was used", got.Status, got.HeadSHA, runs)
+			}
+		})
+	}
+}
+
+func TestAnUnknownBotReleases(t *testing.T) {
+	e := newEnv(t)
+	j := e.newJob(func(j *domain.Job) { j.Attempts = 1 })
+	e.gh.AppStatus = 500
+	e.poll()
+	if got := e.job(j); got.Status != domain.JobQueued || len(e.gh.Dispatches()) != 0 {
+		t.Errorf("job = %s, dispatches %d", got.Status, len(e.gh.Dispatches()))
+	}
+}
+
 func TestWorkflowPhaseIsBounded(t *testing.T) {
 	e := newEnv(t)
 	j := e.newJob()
