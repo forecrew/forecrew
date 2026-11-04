@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="unit" tests="2">
+    <testcase classname="a" name="TestA" time="0.1"/>
+    <testcase classname="a" name="TestB" time="0.1">
+      <failure message="boom">

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="4" failures="1" errors="0" time="0.045">
+	<testsuite tests="4" failures="1" errors="0" id="0" name="example.com/app/internal/auth" time="0.045" timestamp="2026-11-04T10:00:00Z">
+		<properties>
+			<property name="go.version" value="go1.27.1 linux/amd64"></property>
+		</properties>
+		<testcase classname="example.com/app/internal/auth" name="TestLogin" time="0.012"></testcase>
+		<testcase classname="example.com/app/internal/auth" name="TestLogout" time="0.030">
+			<failure message="Failed" type="">=== RUN   TestLogout&#xA;    logout_test.go:21: want 204, got 500&#xA;--- FAIL: TestLogout (0.03s)&#xA;</failure>
+		</testcase>
+		<testcase classname="example.com/app/internal/auth" name="TestLogin/with_otp" time="0.001"></testcase>
+		<testcase classname="example.com/app/internal/auth" name="TestRefresh" time="0.002">
+			<skipped message="refresh_test.go:9: needs redis"></skipped>
+		</testcase>
+	</testsuite>
+</testsuites>

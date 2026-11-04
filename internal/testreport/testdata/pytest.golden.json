@@ -1,0 +1,30 @@
+[
+  {
+    "name": "test_create",
+    "classname": "tests.test_orders",
+    "status": "passed",
+    "duration_ms": 3,
+    "message": ""
+  },
+  {
+    "name": "test_total",
+    "classname": "tests.test_orders",
+    "status": "failed",
+    "duration_ms": 4,
+    "message": "assert 3 == 4\ndef test_total():\n\u003e       assert total([1, 2]) == 4\nE       assert 3 == 4\n\ntests/test_orders.py:12: AssertionError"
+  },
+  {
+    "name": "test_db",
+    "classname": "tests.test_orders",
+    "status": "errored",
+    "duration_ms": 1,
+    "message": "failed on setup with \"ConnectionRefusedError: [Errno 111] Connection refused\"\nconftest.py:7: ConnectionRefusedError"
+  },
+  {
+    "name": "test_later",
+    "classname": "tests.test_orders",
+    "status": "skipped",
+    "duration_ms": 0,
+    "message": "not implemented yet\ntests/test_orders.py:30: not implemented yet"
+  }
+]

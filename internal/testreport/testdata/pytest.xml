@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="1" skipped="1" tests="4" time="0.087" timestamp="2026-11-04T10:00:00.123456" hostname="ci"><testcase classname="tests.test_orders" name="test_create" time="0.003" /><testcase classname="tests.test_orders" name="test_total" time="0.004"><failure message="assert 3 == 4">def test_total():
+&gt;       assert total([1, 2]) == 4
+E       assert 3 == 4
+
+tests/test_orders.py:12: AssertionError</failure></testcase><testcase classname="tests.test_orders" name="test_db" time="0.001"><error message="failed on setup with &quot;ConnectionRefusedError: [Errno 111] Connection refused&quot;">conftest.py:7: ConnectionRefusedError</error></testcase><testcase classname="tests.test_orders" name="test_later" time="0.000"><skipped type="pytest.skip" message="not implemented yet">tests/test_orders.py:30: not implemented yet</skipped></testcase></testsuite></testsuites>

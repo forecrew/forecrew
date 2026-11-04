@@ -1,0 +1,30 @@
+[
+  {
+    "name": "TestLogin",
+    "classname": "example.com/app/internal/auth",
+    "status": "passed",
+    "duration_ms": 12,
+    "message": ""
+  },
+  {
+    "name": "TestLogout",
+    "classname": "example.com/app/internal/auth",
+    "status": "failed",
+    "duration_ms": 30,
+    "message": "Failed\n=== RUN   TestLogout\n    logout_test.go:21: want 204, got 500\n--- FAIL: TestLogout (0.03s)"
+  },
+  {
+    "name": "TestLogin/with_otp",
+    "classname": "example.com/app/internal/auth",
+    "status": "passed",
+    "duration_ms": 1,
+    "message": ""
+  },
+  {
+    "name": "TestRefresh",
+    "classname": "example.com/app/internal/auth",
+    "status": "skipped",
+    "duration_ms": 2,
+    "message": "refresh_test.go:9: needs redis"
+  }
+]
