@@ -33,8 +33,15 @@ var codeownersPaths = []string{"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWN
 // and the CODEOWNERS file the checkout has. A .adr-dir file names an ADR
 // folder (adr-tools); a target outside the repo is ignored.
 func knowledgeSources(root string, files []string) ([]KnowledgeSource, error) {
+	return KnowledgeSourcesOf(files, func(name string) ([]byte, error) { return readRepoFile(root, name) })
+}
+
+// KnowledgeSourcesOf is knowledgeSources for a repo that is not checked
+// out: files are its paths and read returns one of them. forecrewd uses it
+// on the file list of a GitHub tree.
+func KnowledgeSourcesOf(files []string, read func(name string) ([]byte, error)) ([]KnowledgeSource, error) {
 	var out []KnowledgeSource
-	adrs, err := adrFolders(root, files)
+	adrs, err := adrFolders(files, read)
 	if err != nil {
 		return nil, err
 	}
@@ -55,10 +62,10 @@ func knowledgeSources(root string, files []string) ([]KnowledgeSource, error) {
 
 // adrFolders returns the ADR folders that hold at least one file: the folder
 // .adr-dir names first, then the defaults, each once.
-func adrFolders(root string, files []string) ([]string, error) {
+func adrFolders(files []string, read func(name string) ([]byte, error)) ([]string, error) {
 	candidates := adrDefaults
 	if slices.Contains(files, ".adr-dir") {
-		data, err := readRepoFile(root, ".adr-dir")
+		data, err := read(".adr-dir")
 		if err != nil {
 			return nil, err
 		}
