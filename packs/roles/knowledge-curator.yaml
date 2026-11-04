@@ -1,7 +1,7 @@
 role: knowledge-curator
 model: strong
 prompt: roles/knowledge-curator.md
-tools: [repo.read, repo.write, git.read, git.commit, assumption.record]
+tools: [repo.read, repo.write, git.read, git.commit, assumption.record, kb.search]
 write_paths: ["knowledge/**"]
 produces: [knowledge]
 output_schema: schemas/knowledge-seed.json

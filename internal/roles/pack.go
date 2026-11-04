@@ -54,6 +54,14 @@ func RegisterTool(name string, runtimeTools ...string) {
 	tools[name] = slices.Clone(runtimeTools)
 }
 
+// HasTool reports whether name is a valid role tool, built in or registered.
+// Tests of packages that cannot import the gateway use it to register the
+// gateway's role tools once.
+func HasTool(name string) bool {
+	_, ok := tools[name]
+	return ok
+}
+
 // writeTools need write paths, and write paths need repo.write.
 var writeTools = []string{"repo.write", "git.commit"}
 
