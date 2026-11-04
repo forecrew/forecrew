@@ -102,6 +102,8 @@ type FakeActions struct {
 	NoRunDetails bool
 	// ContentsStatus, when not 0, answers every read of a file with it.
 	ContentsStatus int
+	// ListStatus, when not 0, answers every listing of runs with it.
+	ListStatus int
 	// GetRunStatus, when not 0, answers every read of a run with it.
 	GetRunStatus int
 
@@ -156,6 +158,16 @@ func (f *FakeActions) SetFile(repo, path string, content []byte) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.files[repo+":"+path] = content
+}
+
+// Update changes a run under the fake's lock, for a test that moves a run
+// on while the provider is not looking.
+func (f *FakeActions) Update(id int64, change func(*ActionsRun)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r, ok := f.runs[id]; ok {
+		change(r)
+	}
 }
 
 // Run returns a copy of a run.
@@ -219,11 +231,15 @@ func runID(r *http.Request) int64 {
 func (f *FakeActions) listRuns(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.ListStatus != 0 {
+		writeJSON(w, f.ListStatus, map[string]string{"message": "broken"})
+		return
+	}
 	repo := r.PathValue("owner") + "/" + r.PathValue("repo")
 	runs := []map[string]any{}
 	for _, id := range slices.Backward(slices.Sorted(maps.Keys(f.runs))) {
 		if run := f.runs[id]; run.Repo == repo {
-			runs = append(runs, run.json("in_progress"))
+			runs = append(runs, run.json(f.status(run)))
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(runs), "workflow_runs": runs})
@@ -361,12 +377,18 @@ func (f *FakeActions) getRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
 		return
 	}
-	status := "completed"
-	if f.gets[id]++; f.gets[id] <= run.Polls && !run.Cancelled {
-		status = "in_progress"
-	}
+	f.gets[id]++
 	if run.Cancelled {
 		run.Conclusion = "cancelled"
 	}
-	writeJSON(w, http.StatusOK, run.json(status))
+	writeJSON(w, http.StatusOK, run.json(f.status(run)))
+}
+
+// status is in_progress for the first Polls reads of a run, then completed;
+// a cancelled run is completed. The caller holds the lock.
+func (f *FakeActions) status(run *ActionsRun) string {
+	if f.gets[run.ID] <= run.Polls && !run.Cancelled {
+		return "in_progress"
+	}
+	return "completed"
 }

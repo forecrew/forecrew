@@ -427,26 +427,6 @@ func TestCancelCancelsTheRun(t *testing.T) {
 	}
 }
 
-func TestShutdownCancelsTheRun(t *testing.T) {
-	e := newEnv(t)
-	j := e.newJob()
-	e.gh.OnDispatch = func(testkit.Dispatch) *testkit.ActionsRun { return &testkit.ActionsRun{Polls: 1 << 20} }
-	ctx, cancel := contextWithCancel(t)
-	e.provider.Poll(ctx)
-	waitFor(t, "the run to be followed", func() bool {
-		evs, _ := e.st.JobEvents().List(t.Context(), e.account.ID, j.ID, 0, 100)
-		return slices.ContainsFunc(evs, func(ev domain.JobEvent) bool { return ev.Text == "running" })
-	})
-	cancel()
-	e.provider.Wait()
-	if c := e.gh.Canceled(); len(c) != 1 {
-		t.Errorf("canceled runs = %v", c)
-	}
-	if got := e.job(j); got.Status != domain.JobRunning {
-		t.Errorf("job = %s, want it left to its lease", got.Status)
-	}
-}
-
 func TestTimeout(t *testing.T) {
 	e := newEnv(t)
 	j := e.newJob(withSpec(func(s *domain.JobSpec) { s.Timeout = domain.Duration(30 * time.Millisecond) }))
@@ -538,6 +518,139 @@ func TestNotifyWakesTheRun(t *testing.T) {
 	e.provider.Wait()
 	if got := e.job(j); got.Status != domain.JobSucceeded {
 		t.Errorf("job = %s %q", got.Status, got.Error)
+	}
+}
+
+// finishing returns a hook for a run that stays in progress until moved on.
+func (e *env) inProgress() (*atomic.Int64, func(testkit.Dispatch) *testkit.ActionsRun) {
+	n := new(atomic.Int64)
+	return n, func(testkit.Dispatch) *testkit.ActionsRun {
+		n.Add(1)
+		return &testkit.ActionsRun{HeadSHA: head, Polls: 1 << 20}
+	}
+}
+
+// restart ends the first provider the way a shutdown does, expires the lease
+// and requeues the job: what a restart of forecrewd looks like.
+func (e *env) restart(ctx context.Context, cancel context.CancelFunc) {
+	e.t.Helper()
+	cancel()
+	e.provider.Wait()
+	e.clock.Advance(domain.LeaseDuration + time.Minute)
+	if _, err := e.jobs.Reap(e.t.Context()); err != nil {
+		e.t.Fatal(err)
+	}
+	_ = ctx
+}
+
+// A restart does not dispatch a second run: the shutdown leaves the run
+// going and the job's next attempt picks it up again.
+func TestRestartResumesTheRun(t *testing.T) {
+	e := newEnv(t)
+	j := e.newJob(withSpec(func(s *domain.JobSpec) { s.Timeout = domain.Duration(time.Hour) }))
+	dispatched, hook := e.inProgress()
+	e.gh.OnDispatch = hook
+	ctx, cancel := contextWithCancel(t)
+	e.provider.Poll(ctx)
+	waitFor(t, "the dispatch", func() bool { return dispatched.Load() == 1 })
+	e.restart(ctx, cancel)
+	if c := e.gh.Canceled(); len(c) != 0 {
+		t.Fatalf("shutdown cancelled the runs %v", c)
+	}
+	if got := e.job(j); got.Status != domain.JobQueued || got.Attempts != 1 {
+		t.Fatalf("job = %s attempts %d, want queued again", got.Status, got.Attempts)
+	}
+
+	// The run ends while forecrewd is down.
+	e.gh.Update(1001, func(r *testkit.ActionsRun) {
+		r.Polls, r.Conclusion = 0, "failure"
+		r.Artifact, r.ArtifactName = testkit.Zip(map[string]string{ResultFile: resultJSON(1), "reports/unit.xml": reportXML}), ArtifactPrefix+j.ID.String()
+	})
+	e.poll()
+	if dispatched.Load() != 1 {
+		t.Errorf("%d runs were dispatched.Load(), want the one", dispatched.Load())
+	}
+	if got := e.job(j); got.Status != domain.JobSucceeded || len(e.testRuns(j)) != 1 {
+		t.Errorf("job = %s %q", got.Status, got.Error)
+	}
+}
+
+func TestRestartFollowsARunStillGoing(t *testing.T) {
+	e := newEnv(t)
+	j := e.newJob(withSpec(func(s *domain.JobSpec) { s.Timeout = domain.Duration(time.Hour) }))
+	dispatched, hook := e.inProgress()
+	e.gh.OnDispatch = hook
+	ctx, cancel := contextWithCancel(t)
+	e.provider.Poll(ctx)
+	waitFor(t, "the dispatch", func() bool { return dispatched.Load() == 1 })
+	e.restart(ctx, cancel)
+
+	e.provider.Poll(t.Context()) // resumes the run, which is still going
+	waitFor(t, "the lease", func() bool { return e.job(j).Status == domain.JobRunning })
+	e.gh.Update(1001, func(r *testkit.ActionsRun) {
+		r.Polls, r.Conclusion = 0, "success"
+		r.Artifact, r.ArtifactName = testkit.Zip(map[string]string{ResultFile: resultJSON(0), "reports/unit.xml": `<testsuite><testcase name="a"/></testsuite>`}), ArtifactPrefix+j.ID.String()
+	})
+	e.provider.Wait()
+	if dispatched.Load() != 1 || e.job(j).Status != domain.JobSucceeded {
+		t.Errorf("dispatched %d, job %s", dispatched.Load(), e.job(j).Status)
+	}
+}
+
+// A run that ended without a usable result is not resumed: the job gets a
+// new one, once.
+func TestEndedRunWithoutResultGetsAFreshRun(t *testing.T) {
+	e := newEnv(t)
+	j := e.newJob()
+	var n atomic.Int64
+	e.gh.OnDispatch = func(d testkit.Dispatch) *testkit.ActionsRun {
+		if n.Add(1) == 1 { // the runner died before the command
+			return &testkit.ActionsRun{Conclusion: "failure", HeadSHA: head}
+		}
+		return &testkit.ActionsRun{Conclusion: "success", HeadSHA: head, ArtifactName: ArtifactPrefix + d.Inputs["job_id"],
+			Artifact: testkit.Zip(map[string]string{ResultFile: resultJSON(0), "reports/a.xml": `<testsuite><testcase name="a"/></testsuite>`})}
+	}
+	e.poll()
+	if got := e.job(j); got.Status != domain.JobQueued || got.Attempts != 1 {
+		t.Fatalf("job = %s attempts %d", got.Status, got.Attempts)
+	}
+	e.clock.Advance(time.Hour) // the retry backoff
+	e.poll()
+	if n.Load() != 2 || e.job(j).Status != domain.JobSucceeded {
+		t.Errorf("dispatched %d, job %s %q", n.Load(), e.job(j).Status, e.job(j).Error)
+	}
+}
+
+// Releases do not leave a second run behind either.
+func TestReleaseDoesNotDuplicateTheRun(t *testing.T) {
+	e := newEnv(t)
+	j := e.newJob(withSpec(func(s *domain.JobSpec) { s.Timeout = domain.Duration(time.Hour) }))
+	dispatched, hook := e.inProgress()
+	e.gh.OnDispatch = hook
+	e.gh.GetRunStatus = 500 // GitHub fails to answer for a while
+	e.poll()
+	if got := e.job(j); got.Status != domain.JobQueued {
+		t.Fatalf("job = %s", got.Status)
+	}
+	e.gh.GetRunStatus = 0
+	e.gh.Update(1001, func(r *testkit.ActionsRun) {
+		r.Polls, r.Conclusion = 0, "success"
+		r.Artifact, r.ArtifactName = testkit.Zip(map[string]string{ResultFile: resultJSON(0), "reports/a.xml": `<testsuite><testcase name="a"/></testsuite>`}), ArtifactPrefix+j.ID.String()
+	})
+	e.clock.Advance(time.Hour)
+	e.poll()
+	if dispatched.Load() != 1 || e.job(j).Status != domain.JobSucceeded {
+		t.Errorf("dispatched %d, job %s %q", dispatched.Load(), e.job(j).Status, e.job(j).Error)
+	}
+}
+
+func TestResumeLookupFailureReleases(t *testing.T) {
+	e := newEnv(t)
+	j := e.newJob(func(j *domain.Job) { j.Attempts = 1 })
+	e.gh.ListStatus = 500
+	e.poll()
+	if got := e.job(j); got.Status != domain.JobQueued || len(e.gh.Dispatches()) != 0 {
+		t.Errorf("job = %s, dispatches %d", got.Status, len(e.gh.Dispatches()))
 	}
 }
 
@@ -675,14 +788,4 @@ func TestAccountsShareTheSlots(t *testing.T) {
 		}
 	}
 	e.provider.Wait()
-}
-
-// inProgress returns a hook for a run that stays in progress until moved on,
-// and the count of dispatches it saw.
-func (e *env) inProgress() (*atomic.Int64, func(testkit.Dispatch) *testkit.ActionsRun) {
-	n := new(atomic.Int64)
-	return n, func(testkit.Dispatch) *testkit.ActionsRun {
-		n.Add(1)
-		return &testkit.ActionsRun{HeadSHA: head, Polls: 1 << 20}
-	}
 }
