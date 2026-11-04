@@ -69,6 +69,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/jobs/{job}/logs", serve(s, http.StatusOK, jobLogsInput, t.JobLogs))
 	route("POST /api/v1/jobs/{job}/cancel", serve(s, http.StatusOK, jobInput, t.CancelJob))
 	route("GET /api/v1/jobs/{job}/artifacts", serve(s, http.StatusOK, jobInput, list(t.ListArtifacts)))
+	route("GET /api/v1/test-runs", serve(s, http.StatusOK, listTestRunsInput, list(t.ListTestRuns)))
 	if s.cfg.Artifacts != nil {
 		route("GET /api/v1/artifacts/{id}", http.HandlerFunc(s.artifact))
 	}
@@ -176,6 +177,18 @@ func listJobsInput(r *http.Request) (mcp.ListJobsInput, error) {
 	limit, err := intParam(q.Get("limit"), "limit")
 	return mcp.ListJobsInput{
 		Project: q.Get("project"), Goal: q.Get("goal"), Status: domain.JobStatus(q.Get("status")), Limit: int(limit),
+	}, err
+}
+
+func listTestRunsInput(r *http.Request) (mcp.ListTestRunsInput, error) {
+	q := r.URL.Query()
+	limit, err := intParam(q.Get("limit"), "limit")
+	if err != nil {
+		return mcp.ListTestRunsInput{}, err
+	}
+	change, err := intParam(q.Get("change"), "change")
+	return mcp.ListTestRunsInput{
+		Job: q.Get("job"), Project: q.Get("project"), Change: int(change), SHA: q.Get("sha"), Limit: int(limit),
 	}, err
 }
 

@@ -144,6 +144,8 @@ func TestEndpoints(t *testing.T) {
 		{"POST", "/api/v1/jobs/JOB-41/cancel", "", 200, mcp.ToolCancelJob, mcp.JobRefInput{Job: "JOB-41"}},
 		{"GET", "/api/v1/tokens", "", 200, mcp.ToolListTokens, nil},
 		{"GET", "/api/v1/jobs/JOB-41/artifacts", "", 200, mcp.ToolListArtifacts, mcp.JobRefInput{Job: "JOB-41"}},
+		{"GET", "/api/v1/test-runs?job=JOB-41&project=app&change=7&sha=abc&limit=5", "", 200, mcp.ToolListTestRuns,
+			mcp.ListTestRunsInput{Job: "JOB-41", Project: "app", Change: 7, SHA: "abc", Limit: 5}},
 		{"POST", "/api/v1/tokens/old-laptop/revoke", "", 200, mcp.ToolRevokeToken, mcp.RevokeTokenInput{Token: "old-laptop"}},
 	}
 	seen := map[string]bool{}
@@ -171,7 +173,7 @@ func TestEndpoints(t *testing.T) {
 
 func TestListsAreArrays(t *testing.T) {
 	e := newEnv(t)
-	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts"} {
+	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts", "/api/v1/test-runs?sha=abc"} {
 		if r := e.do(t, "GET", path, "", "bearer"); strings.TrimSpace(r.body) != "[]" {
 			t.Errorf("GET %s = %q, want []", path, r.body)
 		}
@@ -237,6 +239,8 @@ func TestBadRequests(t *testing.T) {
 		{"wrong type", "POST", "/api/v1/goals", `{"project":1}`, 400, "bad_request"},
 		{"gate field in body", "POST", "/api/v1/gates/GATE-1/approve", `{"gate":"GATE-2"}`, 400, "bad_request"},
 		{"bad limit", "GET", "/api/v1/jobs?limit=ten", "", 400, "bad_request"},
+		{"bad test-runs limit", "GET", "/api/v1/test-runs?limit=x", "", 400, "bad_request"},
+		{"bad test-runs change", "GET", "/api/v1/test-runs?change=x", "", 400, "bad_request"},
 		{"bad after_seq", "GET", "/api/v1/jobs/JOB-1/logs?after_seq=x", "", 400, "bad_request"},
 		{"bad logs limit", "GET", "/api/v1/jobs/JOB-1/logs?limit=x", "", 400, "bad_request"},
 		{"too large", "POST", "/api/v1/goals", `{"project":"` + strings.Repeat("a", api.MaxBodyBytes) + `"}`, 413, "too_large"},

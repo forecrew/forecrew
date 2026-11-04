@@ -38,6 +38,7 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.ListTokens(ctx, by); return err },
 		func() error { _, err := s.RevokeToken(ctx, by, mcp.RevokeTokenInput{}); return err },
 		func() error { _, err := s.ListArtifacts(ctx, by, mcp.JobRefInput{}); return err },
+		func() error { _, err := s.ListTestRuns(ctx, by, mcp.ListTestRunsInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())
