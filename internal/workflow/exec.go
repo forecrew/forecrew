@@ -502,6 +502,7 @@ func startWait(sr *domain.StepRun, with map[string]any) error {
 		key, missing = domain.JobKey(w.JobID), empty("job_id", w.JobID)
 	case domain.SignalGateResolved:
 		key, missing = domain.GateKey(w.GateID), empty("gate_id", w.GateID)
+		sr.GateID = w.GateID // for the lost-signal fallback of await
 	case domain.SignalPRMerged, domain.SignalPRClosed:
 		key, missing = domain.PRKey(w.Repo, w.Number), empty("repo", w.Repo)+empty("number", w.Number)
 	default: // checks.completed; playbooks are validated
@@ -545,6 +546,17 @@ func (x *exec) await(ctx context.Context, s Step, sr *domain.StepRun) error {
 			return x.jobDone(ctx, sr, job, job.Status)
 		}
 	case StepGate:
+		g, err := x.e.cfg.Gates.Get(ctx, x.run.AccountID, sr.GateID)
+		if err != nil {
+			return err
+		}
+		if g.Status.Terminal() {
+			return x.finish(ctx, sr, gateValue(g.ID.String(), g.Status, g.Feedback), "")
+		}
+	case StepWait:
+		if sr.GateID == uuid.Nil() {
+			break // not a wait for a gate
+		}
 		g, err := x.e.cfg.Gates.Get(ctx, x.run.AccountID, sr.GateID)
 		if err != nil {
 			return err
