@@ -33,6 +33,11 @@ on:
         description: Runner label, e.g. ubuntu-24.04
         required: true
         type: string
+      timeout_minutes:
+        description: Minutes after which GitHub stops the job, as a number
+        required: false
+        default: "360"
+        type: string
       payload:
         description: "JSON: setup (list of commands), env, argv or shell, workdir, versions"
         required: true
@@ -55,6 +60,7 @@ jobs:
   run:
     name: command
     runs-on: ${{ inputs.runs_on }}
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes) }}
     steps:
       - name: Check out
         id: checkout

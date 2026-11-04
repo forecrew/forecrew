@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -104,5 +105,13 @@ func TestPlanCommit(t *testing.T) {
 	s.BaseRef = "0123456789ABCDEF0123456789abcdef01234567"
 	if p, _ := plan(s, "trunk"); p.Commit != "0123456789abcdef0123456789abcdef01234567" {
 		t.Errorf("commit = %q", p.Commit)
+	}
+}
+
+func TestTimeoutMinutes(t *testing.T) {
+	for d, want := range map[time.Duration]int{0: 360, time.Second: 2, time.Minute: 2, 61 * time.Second: 3, 45 * time.Minute: 46, 24 * time.Hour: 360} {
+		if got := timeoutMinutes(d); got != want {
+			t.Errorf("timeoutMinutes(%v) = %d, want %d", d, got, want)
+		}
 	}
 }
