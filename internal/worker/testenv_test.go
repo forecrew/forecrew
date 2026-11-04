@@ -68,6 +68,13 @@ type fakeAPI struct {
 	// uploads holds the uploaded artifacts by name.
 	attach  map[uuid.UUID][]Attachment
 	uploads map[string]upload
+	// artifactStatus, when set, answers every upload with that status.
+	artifactStatus int
+	// maxCompleteBytes, when set, refuses larger complete bodies with 413
+	// (they are still recorded in completions, as attempts).
+	maxCompleteBytes int
+	// onUpload, when set, runs when an artifact arrives.
+	onUpload func(name string)
 }
 
 // upload is an artifact the fake API received.
@@ -162,8 +169,22 @@ func (a *fakeAPI) beat(w http.ResponseWriter, r *http.Request) {
 func (a *fakeAPI) upload(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	a.mu.Lock()
-	a.uploads[r.PathValue("name")] = upload{body: body, count: a.uploads[r.PathValue("name")].count + 1}
+	hook, status := a.onUpload, a.artifactStatus
+	if status == 0 {
+		a.uploads[r.PathValue("name")] = upload{body: body, count: a.uploads[r.PathValue("name")].count + 1}
+	}
 	a.mu.Unlock()
+	if hook != nil {
+		hook(r.PathValue("name"))
+	}
+	if status != 0 {
+		code := "x"
+		if status == http.StatusServiceUnavailable {
+			code = "unavailable"
+		}
+		writeErr(w, status, code, "scripted answer")
+		return
+	}
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(map[string]any{"id": domain.NewID(), "name": r.PathValue("name"), "size": len(body)})
 }
@@ -187,13 +208,30 @@ func (a *fakeAPI) sendEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// uploaded returns the content of the uploaded artifacts by name.
+func (a *fakeAPI) uploaded() map[string]string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := map[string]string{}
+	for k, v := range a.uploads {
+		out[k] = string(v.body)
+	}
+	return out
+}
+
 func (a *fakeAPI) complete(w http.ResponseWriter, r *http.Request) {
 	id, _ := uuid.Parse(r.PathValue("id"))
 	var c Completion
-	_ = json.NewDecoder(r.Body).Decode(&c)
+	body, _ := io.ReadAll(r.Body)
+	_ = json.Unmarshal(body, &c)
 	a.mu.Lock()
 	a.completions[id] = append(a.completions[id], c)
+	limit := a.maxCompleteBytes
 	a.mu.Unlock()
+	if limit > 0 && len(body) > limit {
+		writeErr(w, http.StatusRequestEntityTooLarge, "too_large", "scripted answer")
+		return
+	}
 	a.completed <- id
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": c.Status})
 }
