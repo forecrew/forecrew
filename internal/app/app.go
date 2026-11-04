@@ -108,7 +108,9 @@ type App struct {
 	webhooks  *webhook.Handler
 	poller    *webhook.Poller
 	// notes sweeps expired agent notes daily.
-	notes   *knowledge.Notes
+	notes *knowledge.Notes
+	// syncs reindexes projects' knowledge off the webhook goroutine.
+	syncs   *knowledge.Scheduler
 	certs   *certManager
 	closers []func()
 	// httpAddr is where the ACME challenge and redirect listen when TLS is on.
@@ -213,7 +215,8 @@ func New(d Deps) (*App, error) {
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes,
 		Registers: regs, Logger: log,
 	})
-	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Tracker: d.GitHub, Knowledge: syncer, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
+	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
+	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Tracker: d.GitHub, Knowledge: syncs, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
 	jobGateway := jobmcp.New(jobmcp.Config{
 		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Search: search, Notes: notes, Logger: log, Version: d.Version, Now: d.Now,
 	})
@@ -232,7 +235,7 @@ func New(d Deps) (*App, error) {
 		hooks.RunChanged = provider.Notify
 	}
 	a := &App{
-		provider: provider, d: d, jobs: jobSvc, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
+		syncs: syncs, provider: provider, d: d, jobs: jobSvc, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
 		webhooks: webhook.NewHandler([]byte(cfg.GitHub.WebhookSecret), hooks),
 		poller:   webhook.NewPoller(hooks),
 	}
@@ -354,6 +357,7 @@ func (a *App) Run(ctx context.Context) error {
 		wg.Go(func() { a.provider.Run(runCtx) })
 	}
 	wg.Go(func() { a.notes.RunSweep(runCtx, knowledge.SweepEvery) })
+	wg.Go(func() { a.syncs.Run(runCtx) })
 	if a.retention != nil {
 		wg.Go(func() { a.retention.Run(runCtx, a.d.RetainEvery) })
 	}
