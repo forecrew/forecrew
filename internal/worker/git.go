@@ -492,3 +492,44 @@ func (g *gitClient) push(ctx context.Context, cache, url, token, sha, branch str
 	}
 	return nil
 }
+
+// errOverlay means the overlay could not be applied: the ref has no such
+// paths. That is the job's doing, not an infrastructure failure.
+var errOverlay = errors.New("cannot apply the overlay")
+
+// overlay checks out paths (git pathspecs with glob syntax, relative to the
+// repo root) from ref on top of the worktree dir, without touching the
+// worktree's own git state: the cache is the git dir and the index is
+// private. ref is a branch of the remote or a full SHA. Nothing of the job
+// has run yet, so the worktree is still the worker's own checkout.
+func (g *gitClient) overlay(ctx context.Context, c checkout, ref string, paths []string) error {
+	if !fullSHA.MatchString(ref) && !validBranch(ref) {
+		return fmt.Errorf("invalid overlay ref %q: %w", ref, errRefused)
+	}
+	unlock := g.lockRepo(c.Cache)
+	defer unlock()
+	if err := g.prepareCache(ctx, c.Cache); err != nil {
+		return err
+	}
+	refspec, rev := ref, ref
+	if !fullSHA.MatchString(ref) {
+		refspec, rev = "+refs/heads/"+ref+":"+remoteRefsBase+ref, remoteRefsBase+ref
+	}
+	if _, err := g.inCacheAuth(ctx, c.Cache, c.Token, "fetch", "--quiet", "--no-tags", c.URL, refspec); err != nil {
+		return fmt.Errorf("fetch overlay ref: %w", err)
+	}
+	out, err := g.inCache(ctx, c.Cache, "rev-parse", "--verify", rev+"^{commit}")
+	if err != nil {
+		return fmt.Errorf("resolve overlay ref: %w", err)
+	}
+	idx := indexPath(c.Dir)
+	defer func() { _ = os.Remove(idx) }()
+	args := []string{"--git-dir=" + c.Cache, "--work-tree=" + c.Dir, "checkout", "--quiet", strings.TrimSpace(out), "--"}
+	for _, p := range paths {
+		args = append(args, ":(glob)"+p)
+	}
+	if _, err := g.run(ctx, c.Dir, g.env("", "GIT_INDEX_FILE="+idx), g.bin, args...); err != nil {
+		return fmt.Errorf("%w: %w", errOverlay, err)
+	}
+	return nil
+}
