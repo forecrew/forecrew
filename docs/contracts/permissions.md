@@ -221,6 +221,8 @@ no permission and other people's need the one named; "the gate's" means
 | `list_assumptions` | `GET /api/v1/assumptions` | `project.read` |
 | `resolve_assumption` | `POST /api/v1/assumptions/{assumption}/resolve` | `assumption.resolve` |
 | `list_decisions` | `GET /api/v1/decisions` | `project.read` |
+| `search_knowledge` | `GET /api/v1/knowledge` | `project.read` |
+| `delete_note` | `DELETE /api/v1/knowledge/notes/{note}` | `knowledge.propose`, the closest write permission: deleting an agent note curates knowledge, and the catalog has no narrower one |
 | `list_workers` | `GET /api/v1/workers` | `worker.read` |
 | `list_pending_gates` | `GET /api/v1/gates` | `gate.read`; each gate says whether the caller may resolve it |
 | `approve` | `POST /api/v1/gates/{gate}/approve` | the gate's |
@@ -243,7 +245,7 @@ audited as `user:<operator>`.
 
 **Planned tools** ([mcp.md](../mcp.md#planned-tools)) need, when their task
 builds them: `start_council` and council constraints `council.start`;
-`get_council`, `search_knowledge` and `list_proposals` `project.read`;
+`get_council` and `list_proposals` `project.read`;
 `propose_knowledge` `knowledge.propose` (and, for a protected section the
 caller approves, `gate.approve.knowledge_protected`); `report_bug`
 `goal.create`; `decide_proposal` `proposal.decide`.

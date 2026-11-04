@@ -146,6 +146,9 @@ func TestEndpoints(t *testing.T) {
 		{"GET", "/api/v1/jobs/JOB-41/artifacts", "", 200, mcp.ToolListArtifacts, mcp.JobRefInput{Job: "JOB-41"}},
 		{"GET", "/api/v1/test-runs?job=JOB-41&project=app&change=7&sha=abc&limit=5", "", 200, mcp.ToolListTestRuns,
 			mcp.ListTestRunsInput{Job: "JOB-41", Project: "app", Change: 7, SHA: "abc", Limit: 5}},
+		{"GET", "/api/v1/knowledge?project=app&q=queue&section=architecture&kind=note&provider=repo&limit=3", "", 200, mcp.ToolSearchKnowledge,
+			mcp.SearchKnowledgeInput{Project: "app", Query: "queue", Section: "architecture", Kind: "note", Provider: "repo", Limit: 3}},
+		{"DELETE", "/api/v1/knowledge/notes/4bf2c2f4-0000-7000-8000-000000000001", "", 200, mcp.ToolDeleteNote, mcp.DeleteNoteInput{Note: "4bf2c2f4-0000-7000-8000-000000000001"}},
 		{"POST", "/api/v1/tokens/old-laptop/revoke", "", 200, mcp.ToolRevokeToken, mcp.RevokeTokenInput{Token: "old-laptop"}},
 		{"GET", "/api/v1/assumptions?project=app&goal=GOAL-1&task=TASK-2&status=unverified&impact=high&verify_by=test", "", 200, mcp.ToolListAssumptions,
 			mcp.ListAssumptionsInput{Project: "app", Goal: "GOAL-1", Task: "TASK-2", Status: "unverified", Impact: "high", VerifyBy: "test"}},
@@ -179,7 +182,7 @@ func TestEndpoints(t *testing.T) {
 
 func TestListsAreArrays(t *testing.T) {
 	e := newEnv(t)
-	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts", "/api/v1/test-runs?sha=abc", "/api/v1/assumptions?project=app", "/api/v1/decisions?project=app"} {
+	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts", "/api/v1/test-runs?sha=abc", "/api/v1/assumptions?project=app", "/api/v1/decisions?project=app", "/api/v1/knowledge?project=app&q=x"} {
 		if r := e.do(t, "GET", path, "", "bearer"); strings.TrimSpace(r.body) != "[]" {
 			t.Errorf("GET %s = %q, want []", path, r.body)
 		}

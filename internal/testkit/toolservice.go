@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/mcp"
 )
 
@@ -47,6 +48,8 @@ type ToolService struct {
 	ListArtifactsFunc    func(context.Context, domain.Actor, mcp.JobRefInput) ([]domain.Artifact, error)
 	ListTestRunsFunc     func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error)
 	OpenArtifactFunc     func(context.Context, domain.Actor, string) (domain.Artifact, io.ReadCloser, error)
+	SearchKnowledgeFunc  func(context.Context, domain.Actor, mcp.SearchKnowledgeInput) ([]knowledge.Result, error)
+	DeleteNoteFunc       func(context.Context, domain.Actor, mcp.DeleteNoteInput) (mcp.DeleteNoteOutput, error)
 
 	ListAssumptionsFunc   func(context.Context, domain.Actor, mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error)
 	ResolveAssumptionFunc func(context.Context, domain.Actor, mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error)
@@ -198,6 +201,16 @@ func (s *ToolService) ResolveAssumption(ctx context.Context, by domain.Actor, in
 // ListDecisions implements mcp.ToolService.
 func (s *ToolService) ListDecisions(ctx context.Context, by domain.Actor, in mcp.ListDecisionsInput) ([]mcp.DecisionInfo, error) {
 	return invoke(ctx, s, mcp.ToolListDecisions, by, in, s.ListDecisionsFunc)
+}
+
+// SearchKnowledge implements mcp.ToolService.
+func (s *ToolService) SearchKnowledge(ctx context.Context, by domain.Actor, in mcp.SearchKnowledgeInput) ([]knowledge.Result, error) {
+	return invoke(ctx, s, mcp.ToolSearchKnowledge, by, in, s.SearchKnowledgeFunc)
+}
+
+// DeleteNote implements mcp.ToolService.
+func (s *ToolService) DeleteNote(ctx context.Context, by domain.Actor, in mcp.DeleteNoteInput) (mcp.DeleteNoteOutput, error) {
+	return invoke(ctx, s, mcp.ToolDeleteNote, by, in, s.DeleteNoteFunc)
 }
 
 // OpenArtifact implements api.ArtifactOpener. It records no call; without
