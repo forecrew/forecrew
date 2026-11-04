@@ -105,6 +105,8 @@ type FakeActions struct {
 	// NoRunDetails answers a dispatch with 204 and no run id, as GitHub
 	// Enterprise Server does.
 	NoRunDetails bool
+	// ContentsStatus, when not 0, answers every read of a file with it.
+	ContentsStatus int
 	// GetRunStatus, when not 0, answers every read of a run with it.
 	GetRunStatus int
 
@@ -268,6 +270,10 @@ func (f *FakeActions) routes() http.Handler {
 	mux.HandleFunc("GET /repos/{owner}/{repo}/contents/{path...}", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		if f.ContentsStatus != 0 {
+			writeJSON(w, f.ContentsStatus, map[string]string{"message": "refused"})
+			return
+		}
 		b, ok := f.files[r.PathValue("owner")+"/"+r.PathValue("repo")+":"+r.PathValue("path")]
 		if !ok {
 			writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})

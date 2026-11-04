@@ -5,6 +5,7 @@
 package playbooks
 
 import (
+	"io/fs"
 	"time"
 
 	"github.com/forecrew/forecrew/internal/config"
@@ -19,6 +20,11 @@ import (
 type Deps struct {
 	Store   store.Store
 	Tracker github.Tracker
+	// Actions and Packs are what actions.install_workflow needs: GitHub's
+	// file and Actions calls, and the packs holding the workflow template.
+	// Without them the action is not registered.
+	Actions github.Actions
+	Packs   fs.FS
 	Signals workflow.SignalBus
 	// Sizing is the rule goal.size applies to a triage (forecrew.yaml sizing).
 	Sizing config.Sizing
@@ -38,6 +44,9 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["github.merge_pr"] = d.mergePR
 	registry["discover.github"] = d.discoverGitHub
 	registry["matrix.plan"] = d.matrixPlan
+	if d.Actions != nil && d.Packs != nil {
+		registry["actions.install_workflow"] = d.installWorkflow
+	}
 	registry["profile.validate"] = d.validateProfile
 	registry["profile.feedback"] = d.profileFeedback
 	registry["onboarding.proposal"] = d.onboardingProposal

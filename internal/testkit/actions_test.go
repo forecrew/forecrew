@@ -123,6 +123,10 @@ func TestFakeActionsFiles(t *testing.T) {
 	if changed, err = c.WriteFile(ctx, "acme/app", "main", "g.yml", []byte("new"), "Update g"); err != nil || !changed {
 		t.Errorf("update = %v, %v", changed, err)
 	}
+	f.ContentsStatus = 403
+	if _, err = c.WriteFile(ctx, "acme/app", "main", "g.yml", nil, "m"); !errors.Is(err, github.ErrForbidden) {
+		t.Errorf("refused write = %v", err)
+	}
 	if _, ok := f.File("acme/app", "missing"); ok {
 		t.Error("missing file found")
 	}
