@@ -16,6 +16,7 @@ import (
 )
 
 type syncEnv struct {
+	clock   *testkit.Clock
 	tr      *testkit.Tracker
 	st      *testkit.Store
 	emb     *testkit.Embedder
@@ -35,7 +36,7 @@ func newSyncEnv(t *testing.T) *syncEnv {
 	tr.Install("acme/app")
 	emb := &testkit.Embedder{}
 	idx := &knowledge.Index{Store: st, Embedder: emb}
-	return &syncEnv{tr: tr, st: st, emb: emb, project: p, syncer: &knowledge.Syncer{
+	return &syncEnv{clock: clock, tr: tr, st: st, emb: emb, project: p, syncer: &knowledge.Syncer{
 		Store: st, Index: idx, API: tr, Now: clock.Now,
 		Snapshots: knowledge.ArchiveSnapshots{Archiver: tr, Analyzer: analyzer.Local{}, TempDir: t.TempDir()},
 	}}
@@ -259,3 +260,5 @@ func TestGeneratedTakesNoProposals(t *testing.T) {
 		t.Errorf("a proposal to the generated section: %v", err)
 	}
 }
+
+var errTest = errors.New("boom")
