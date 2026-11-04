@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,6 +53,38 @@ func newDockerCLI(bin, workDir string, environ []string) *dockerCLI {
 			return commandEnvNames[n] || strings.HasPrefix(n, "DOCKER_") || n == "XDG_RUNTIME_DIR"
 		}),
 	}
+}
+
+// isolate makes the client use an empty Docker config at configDir instead of
+// the user's: image names come from repos, and a pull or build must not send
+// the operator's registry credentials. The user's DOCKER_CONFIG,
+// DOCKER_AUTH_CONFIG and DOCKER_CONTEXT are dropped; host, the daemon the
+// user's current context names, is kept as DOCKER_HOST unless the
+// environment sets one.
+func (d *dockerCLI) isolate(configDir, host string) {
+	_ = os.MkdirAll(configDir, 0o700)
+	hasHost := false
+	d.env = slices.DeleteFunc(d.env, func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		switch strings.ToUpper(name) {
+		case "DOCKER_HOST":
+			hasHost = true
+			return false
+		case "DOCKER_CONFIG", "DOCKER_AUTH_CONFIG", "DOCKER_CONTEXT":
+			return true
+		}
+		return false
+	})
+	d.env = append(d.env, "DOCKER_CONFIG="+configDir)
+	if host != "" && !hasHost {
+		d.env = append(d.env, "DOCKER_HOST="+host)
+	}
+}
+
+// host returns the daemon endpoint of the user's current Docker context.
+func (d *dockerCLI) host(ctx context.Context) string {
+	h, _ := d.output(ctx, "context", "inspect", "--format", "{{.Endpoints.docker.Host}}")
+	return h
 }
 
 // exec runs docker with args, streaming output lines to onOut and onErr.

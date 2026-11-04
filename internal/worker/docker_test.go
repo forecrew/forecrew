@@ -141,3 +141,45 @@ func TestDockerClientEnvironment(t *testing.T) {
 		t.Errorf("env = %v, want %v", d.env, want)
 	}
 }
+
+func TestDockerRegistryCredentialsAreIsolated(t *testing.T) {
+	// ps fails with the client's view of the registry settings.
+	bin, _ := fakeDocker(t, `ps) echo "cfg=$DOCKER_CONFIG auth=$DOCKER_AUTH_CONFIG ctx=$DOCKER_CONTEXT host=$DOCKER_HOST" >&2; exit 1;;
+context) echo unix:///run/ctx.sock;;`)
+	environ := []string{"PATH=/bin", "HOME=/h", "DOCKER_CONFIG=/h/.docker", "DOCKER_AUTH_CONFIG=secret-login", "DOCKER_CONTEXT=remote"}
+	seen := func(registryAuth bool, env []string) string {
+		w := New(Config{WorkDir: t.TempDir(), DockerBin: bin, Environ: env, RegistryAuth: registryAuth, DockerHost: "unix:///run/ctx.sock"})
+		err := w.docker.removeJob(t.Context(), "j")
+		if err == nil {
+			t.Fatal("ps did not fail")
+		}
+		return err.Error() + "|" + w.cfg.WorkDir
+	}
+
+	got := seen(false, environ)
+	work := got[strings.LastIndex(got, "|")+1:]
+	for _, want := range []string{"cfg=" + filepath.Join(work, "docker-config"), "auth= ", "ctx= ", "host=unix:///run/ctx.sock"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("isolated client saw %q, missing %q", got, want)
+		}
+	}
+	if st, err := os.Stat(filepath.Join(work, "docker-config")); err != nil || !st.IsDir() {
+		t.Errorf("config dir: %v", err)
+	}
+	// An explicit DOCKER_HOST wins over the context's.
+	if got := seen(false, append(slices.Clone(environ), "DOCKER_HOST=tcp://127.0.0.1:2375")); !strings.Contains(got, "host=tcp://127.0.0.1:2375") {
+		t.Errorf("DOCKER_HOST was replaced: %q", got)
+	}
+	// With registry_auth the operator's settings stay.
+	got = seen(true, environ)
+	for _, want := range []string{"cfg=/h/.docker", "auth=secret-login", "ctx=remote"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("client with registry_auth saw %q, missing %q", got, want)
+		}
+	}
+
+	d := newDockerCLI(bin, t.TempDir(), nil)
+	if h := d.host(t.Context()); h != "unix:///run/ctx.sock" {
+		t.Errorf("host = %q", h)
+	}
+}

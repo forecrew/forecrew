@@ -159,8 +159,8 @@ configured, only costs the artifact: the results are still reported. No test
 case is left out of the report; if forecrewd refuses the results as larger
 than its `max_test_results_size`, the worker completes again with errored
 runs saying so. A job of an `actions` environment is never leased by a worker.
-Services next to a `machine` environment are not run: such a job fails; use
-provider `docker` for services.
+Services need provider `docker`; an environment with another provider and
+`services` is refused when it is validated.
 
 A command is not isolated from the worker (see below): it runs as the
 worker's user and can read what that user can.
@@ -190,6 +190,14 @@ reused: the second job with the same inputs neither pulls nor builds. `setup`
 commands run as `RUN` steps in a layer on top of the image (as root; they see
 no environment variables and no secrets). A build is not a place for secrets:
 the worker passes no build arguments, no SSH agent and no credentials to it.
+Image names come from repos, so by default every Docker call of the worker
+(pull, build, service images) runs with an empty Docker config
+(`DOCKER_CONFIG=<work_dir>/docker-config`; the worker's `DOCKER_CONFIG`,
+`DOCKER_AUTH_CONFIG` and `DOCKER_CONTEXT` are dropped, the daemon of the
+current context is kept) and so cannot use the operator's registry logins:
+private images fail to pull. Set `registry_auth: true` in `worker.yaml` to use
+the worker user's logins, only on a worker whose repos you trust with every
+registry that user is logged in to.
 Images not used for `image_prune_days` (worker.yaml, default 14) are removed
 at start and then daily.
 
@@ -235,9 +243,12 @@ worker label, before it takes a job.
   host network or PID namespace, publishes no port and mounts nothing but the
   work tree. A Dockerfile, an image or a service of the repo is therefore code
   that runs in a container of the daemon, as the repo's code does on a
-  `machine`; it cannot ask the daemon for anything. Build steps can still use
-  the network (the default bridge), so they and the job can reach the internet
-  and the machine's LAN. Use a network policy where that matters.
+  `machine`; it cannot ask the daemon for anything.
+- Build steps and job containers use the default bridge network: they can
+  reach the internet and the machine's LAN (and, through the host's address,
+  services bound to it). Workers on sensitive networks should not take
+  untrusted repos. Network isolation comes with the fleet microVM provider
+  (T61).
 - Whoever can start containers is root on the machine: give the worker user
   access to the daemon only on a machine you dedicate to this, or use rootless
   Docker. A rootless daemon maps the container's uids differently; the
