@@ -20,8 +20,11 @@ test-integration:
 test-docker:
 	go test -race -count=1 -tags docker ./internal/worker/
 
+# actionlint checks the workflow Forecrew installs in projects; it is skipped
+# where it is not installed (CI installs it).
 lint: web-lint
 	golangci-lint run ./...
+	@if command -v actionlint >/dev/null; then actionlint packs/workflows/*.yml; else echo "actionlint not installed, workflow template not linted"; fi
 
 # The Postgres store counts towards coverage only through its integration
 # tests, so cover needs the same database as test-integration.
