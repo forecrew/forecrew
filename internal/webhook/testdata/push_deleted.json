@@ -1,0 +1,10 @@
+{
+  "ref": "refs/heads/main",
+  "before": "before1",
+  "after": "0000000000000000000000000000000000000000",
+  "created": false,
+  "deleted": true,
+  "forced": false,
+  "repository": {"full_name": "Acme/App", "default_branch": "main"},
+  "sender": {"login": "octocat", "type": "User"}
+}

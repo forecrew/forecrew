@@ -66,6 +66,7 @@ func (p *Poller) Reconcile(ctx context.Context) error {
 			}
 		}
 		errs = append(errs, p.reconcileGates(ctx, a.ID, seen))
+		errs = append(errs, p.reconcileKnowledge(ctx, a.ID))
 	}
 	return errors.Join(errs...)
 }
@@ -115,4 +116,28 @@ func (p *Poller) reconcileChange(ctx context.Context, c domain.Change) error {
 		}
 	}
 	return e.checkChange(ctx, c)
+}
+
+// reconcileKnowledge indexes the default branch of the account's onboarded
+// projects, so a push the webhook missed still reaches the index (changed
+// files by blob SHA, deleted ones removed, the generated section rebuilt).
+// Drift needs the push's previous commit, so a missed push is not flagged.
+func (p *Poller) reconcileKnowledge(ctx context.Context, accountID uuid.UUID) error {
+	if p.e.Knowledge == nil {
+		return nil
+	}
+	projects, err := p.e.Store.Projects().List(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("list projects: %w", err)
+	}
+	var errs []error
+	for _, pr := range projects {
+		if pr.Status != domain.ProjectOnboarded {
+			continue
+		}
+		if _, err := p.e.Knowledge.Sync(ctx, pr, "", ""); err != nil {
+			errs = append(errs, fmt.Errorf("%s: sync knowledge: %w", pr.Name, err))
+		}
+	}
+	return errors.Join(errs...)
 }

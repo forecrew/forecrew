@@ -58,7 +58,7 @@ func newEnv(t *testing.T) *env {
 	acc := domain.Account{Name: "default"}
 	must(t, st.Accounts().Create(t.Context(), &acc))
 	e.account = acc.ID
-	e.project = domain.Project{AccountID: acc.ID, Name: "app", Repo: "Acme/App", DefaultBranch: "main"}
+	e.project = domain.Project{AccountID: acc.ID, Name: "app", Repo: "Acme/App", DefaultBranch: "main", Status: domain.ProjectRegistered}
 	must(t, st.Projects().Create(t.Context(), &e.project))
 	e.h = NewHandler(secret, e.deps())
 	e.eng = e.h.e

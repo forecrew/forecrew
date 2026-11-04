@@ -11,6 +11,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -21,6 +22,9 @@ type Deps struct {
 	Signals workflow.SignalBus
 	Gates   gates.Service
 	Tracker github.Tracker
+	// Knowledge keeps the knowledge index in step with the default branch;
+	// nil leaves push events and the poller's knowledge pass out.
+	Knowledge KnowledgeSyncer
 	// Allowed reports whether a GitHub login may command @forecrew.
 	Allowed func(login string) bool
 	Log     *slog.Logger
@@ -29,6 +33,12 @@ type Deps struct {
 	RunChanged func(runID int64)
 	// Now is the clock; it defaults to the real UTC time.
 	Now func() time.Time
+}
+
+// KnowledgeSyncer indexes a project's default branch; *knowledge.Syncer
+// implements it.
+type KnowledgeSyncer interface {
+	Sync(ctx context.Context, p domain.Project, before, head string) (knowledge.SyncResult, error)
 }
 
 type engine struct {
@@ -55,6 +65,8 @@ func (e *engine) handle(ctx context.Context, ev github.Event) error {
 		if e.RunChanged != nil {
 			e.RunChanged(ev.RunID)
 		}
+	case "push":
+		return e.push(ctx, ev)
 	}
 	return nil
 }
@@ -227,4 +239,26 @@ func (e *engine) setChangeState(ctx context.Context, accountID uuid.UUID, repo s
 		return fmt.Errorf("update change %s#%d: %w", repo, number, err)
 	}
 	return nil
+}
+
+// push reindexes the knowledge of the projects whose default branch was
+// pushed to (docs/knowledge.md): changed entries, drift and the generated
+// section. Pushes to other branches and projects that are not onboarded are
+// ignored.
+func (e *engine) push(ctx context.Context, ev github.Event) error {
+	if e.Knowledge == nil || ev.Action != "pushed" {
+		return nil
+	}
+	return e.eachProject(ctx, ev.Repo, func(p domain.Project) error {
+		if p.Status != domain.ProjectOnboarded || ev.Ref != "refs/heads/"+p.DefaultBranch {
+			return nil
+		}
+		res, err := e.Knowledge.Sync(ctx, p, ev.Before, ev.SHA)
+		if err != nil {
+			return fmt.Errorf("sync knowledge of %s: %w", p.Name, err)
+		}
+		e.Log.Info("knowledge synced", "account_id", p.AccountID, "project_id", p.ID, "head", ev.SHA,
+			"indexed", res.Indexed, "removed", res.Removed, "flagged", res.Flagged, "generated", res.Generated)
+		return nil
+	})
 }
