@@ -18,6 +18,7 @@ import (
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobs"
+	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
@@ -74,7 +75,11 @@ type Config struct {
 	// Registers is the assumption and decision register; the tools that
 	// read or resolve it answer unavailable without one.
 	Registers *registers.Service
-	Logger    *slog.Logger // defaults to discarding
+	// Search and Notes serve search_knowledge and delete_note; nil answers
+	// unavailable.
+	Search *knowledge.Search
+	Notes  *knowledge.Notes
+	Logger *slog.Logger // defaults to discarding
 }
 
 // Service is the mcp.ToolService.

@@ -176,6 +176,7 @@ func (r *remote) commands() []*cobra.Command {
 		artifactCommand(r),
 		assumptionsCommand(r),
 		decisionsCommand(r),
+		knowledgeCommand(r),
 	}
 }
 

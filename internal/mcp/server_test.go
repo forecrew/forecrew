@@ -202,6 +202,8 @@ func TestCallEachTool(t *testing.T) {
 			mcp.ListAssumptionsInput{Project: "app", Task: "TASK-1", Status: "unverified", Impact: "high", VerifyBy: "test"}},
 		{mcp.ToolResolveAssumption, map[string]any{"assumption": "A-42", "status": "accepted"}, mcp.ResolveAssumptionInput{Assumption: "A-42", Status: "accepted"}},
 		{mcp.ToolListDecisions, map[string]any{"project": "app", "goal": "GOAL-1"}, mcp.ListDecisionsInput{Project: "app", Goal: "GOAL-1"}},
+		{mcp.ToolSearchKnowledge, map[string]any{"project": "app", "query": "queue", "kind": "note", "limit": 3}, mcp.SearchKnowledgeInput{Project: "app", Query: "queue", Kind: "note", Limit: 3, WrapUntrusted: true}},
+		{mcp.ToolDeleteNote, map[string]any{"note": "4bf2c2f4-0000-7000-8000-000000000001"}, mcp.DeleteNoteInput{Note: "4bf2c2f4-0000-7000-8000-000000000001"}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))

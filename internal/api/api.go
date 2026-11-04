@@ -84,6 +84,8 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/assumptions", serve(s, http.StatusOK, listAssumptionsInput, list(t.ListAssumptions)))
 	route("POST /api/v1/assumptions/{assumption}/resolve", serve(s, http.StatusOK, resolveAssumptionInput, t.ResolveAssumption))
 	route("GET /api/v1/decisions", serve(s, http.StatusOK, listDecisionsInput, list(t.ListDecisions)))
+	route("GET /api/v1/knowledge", serve(s, http.StatusOK, searchKnowledgeInput, list(t.SearchKnowledge)))
+	route("DELETE /api/v1/knowledge/notes/{note}", serve(s, http.StatusOK, noteInput, t.DeleteNote))
 
 	route("GET /api/v1/workers", serve(s, http.StatusOK, noInput, list(noArg(t.ListWorkers))))
 
@@ -136,6 +138,9 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/assumptions":                       tool[mcp.ToolListAssumptions],
 		"POST /api/v1/assumptions/{assumption}/resolve": tool[mcp.ToolResolveAssumption],
 		"GET /api/v1/decisions":                         tool[mcp.ToolListDecisions],
+
+		"GET /api/v1/knowledge":                 tool[mcp.ToolSearchKnowledge],
+		"DELETE /api/v1/knowledge/notes/{note}": tool[mcp.ToolDeleteNote],
 
 		"GET /api/v1/workers": tool[mcp.ToolListWorkers],
 
@@ -220,6 +225,19 @@ func jobInput(r *http.Request) (mcp.JobRefInput, error) {
 
 func tokenInput(r *http.Request) (mcp.RevokeTokenInput, error) {
 	return mcp.RevokeTokenInput{Token: r.PathValue("token")}, nil
+}
+
+func noteInput(r *http.Request) (mcp.DeleteNoteInput, error) {
+	return mcp.DeleteNoteInput{Note: r.PathValue("note")}, nil
+}
+
+func searchKnowledgeInput(r *http.Request) (mcp.SearchKnowledgeInput, error) {
+	q := r.URL.Query()
+	limit, err := intParam(q.Get("limit"), "limit")
+	return mcp.SearchKnowledgeInput{
+		Project: q.Get("project"), Query: q.Get("q"), Section: q.Get("section"), Kind: domain.KnowledgeKind(q.Get("kind")),
+		Provider: q.Get("provider"), Limit: int(limit),
+	}, err
 }
 
 func gateFilterInput(r *http.Request) (mcp.ProjectFilterInput, error) {

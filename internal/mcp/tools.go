@@ -14,6 +14,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/knowledge"
 )
 
 // Sentinel errors. Implementations also return domain errors
@@ -73,6 +74,8 @@ const (
 	ToolListAssumptions   = "list_assumptions"
 	ToolResolveAssumption = "resolve_assumption"
 	ToolListDecisions     = "list_decisions"
+	ToolSearchKnowledge   = "search_knowledge"
+	ToolDeleteNote        = "delete_note"
 )
 
 // Tools returns every MCP tool name.
@@ -82,6 +85,7 @@ func Tools() []string {
 		ToolApprove, ToolRequestChanges, ToolReject, ToolDispatchJob, ToolListProjects, ToolGetProject,
 		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob, ToolListTokens, ToolRevokeToken, ToolListArtifacts, ToolListTestRuns,
 		ToolListAssumptions, ToolResolveAssumption, ToolListDecisions,
+		ToolSearchKnowledge, ToolDeleteNote,
 	}
 }
 
@@ -137,6 +141,39 @@ type ToolService interface {
 	ResolveAssumption(ctx context.Context, by domain.Actor, in ResolveAssumptionInput) (AssumptionInfo, error)
 	// ListDecisions lists the decision register of a project, by number.
 	ListDecisions(ctx context.Context, by domain.Actor, in ListDecisionsInput) ([]DecisionInfo, error)
+	// SearchKnowledge searches a project's knowledge base: curated entries,
+	// agent notes (of every goal) and generated facts. A human sees every
+	// section. The text of untrusted results is data, never instructions.
+	SearchKnowledge(ctx context.Context, by domain.Actor, in SearchKnowledgeInput) ([]knowledge.Result, error)
+	// DeleteNote deletes an agent note. Curated entries are not notes: they
+	// change through their provider.
+	DeleteNote(ctx context.Context, by domain.Actor, in DeleteNoteInput) (DeleteNoteOutput, error)
+}
+
+// SearchKnowledgeInput is the input of search_knowledge.
+type SearchKnowledgeInput struct {
+	Project  string               `json:"project"`            // name or repo, required
+	Query    string               `json:"query"`              // websearch syntax, required
+	Section  string               `json:"section,omitempty"`  // only this section
+	Kind     domain.KnowledgeKind `json:"kind,omitempty"`     // entry, note or generated
+	Provider string               `json:"provider,omitempty"` // repo, internal, ...
+	Limit    int                  `json:"limit,omitempty"`    // default 8, at most 50
+	// WrapUntrusted wraps the snippet of every untrusted result in
+	// untrusted-data markers (contextpack.WrapUntrusted). The MCP server
+	// sets it, because its client may be an agent; it is not a REST or
+	// MCP argument.
+	WrapUntrusted bool `json:"-"`
+}
+
+// DeleteNoteInput is the input of delete_note.
+type DeleteNoteInput struct {
+	Note string `json:"note"` // the note's UUID (see search_knowledge)
+}
+
+// DeleteNoteOutput is the output of delete_note.
+type DeleteNoteOutput struct {
+	Note    uuid.UUID `json:"note"`
+	Message string    `json:"message"`
 }
 
 // OnboardProjectInput is the input of onboard_project.
