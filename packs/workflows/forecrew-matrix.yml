@@ -97,11 +97,11 @@ jobs:
           image() {
             versions_json=${3:-}
             [ -n "$versions_json" ] || versions_json='{}'
-            jq -n --arg phase "$1" --argjson code "$2" --argjson ms "$(((SECONDS - started) * 1000))" \
+            jq -n --arg phase "$1" --arg head "$(git rev-parse HEAD 2>/dev/null || true)" --argjson code "$2" --argjson ms "$(((SECONDS - started) * 1000))" \
               --argjson versions "$versions_json" --arg msg "${4:-}" \
               --arg image_os "${ImageOS:-}" --arg image_version "${ImageVersion:-}" \
               --arg runner_os "${RUNNER_OS:-}" --arg runner_arch "${RUNNER_ARCH:-}" \
-              '{phase: $phase, exit_code: $code, duration_ms: $ms, versions: $versions, message: $msg,
+              '{phase: $phase, head_sha: $head, exit_code: $code, duration_ms: $ms, versions: $versions, message: $msg,
                 image_os: $image_os, image_version: $image_version, runner_os: $runner_os, runner_arch: $runner_arch}' \
               > "$out/result.json"
           }

@@ -1,0 +1,94 @@
+package actionsprovider
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
+	"regexp"
+	"strings"
+
+	"github.com/forecrew/forecrew/internal/domain"
+)
+
+// maxInputBytes keeps the inputs of a dispatch below GitHub's limit of
+// 65535 characters for all of them.
+const maxInputBytes = 60_000
+
+// payload is the JSON input of the workflow: what to set up and run.
+type payload struct {
+	Setup    []string          `json:"setup,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	Argv     []string          `json:"argv,omitempty"`
+	Shell    string            `json:"shell,omitempty"`
+	Workdir  string            `json:"workdir,omitempty"`
+	Versions map[string]string `json:"versions,omitempty"`
+}
+
+var commitSHA = regexp.MustCompile(`^[0-9a-fA-F]{7,40}$`)
+
+// dispatchPlan is how a job is dispatched.
+type dispatchPlan struct {
+	// Ref is the branch the workflow is dispatched on (workflow_dispatch
+	// takes a branch or tag, never a commit).
+	Ref    string
+	Inputs map[string]string
+}
+
+// errNotRunnable means the job cannot run on Actions; the job fails with
+// the error's text.
+var errNotRunnable = errors.New("job cannot run on GitHub Actions")
+
+// plan builds the dispatch of a command job. defaultBranch is where the
+// workflow is dispatched when the job names only a commit.
+func plan(spec domain.JobSpec, defaultBranch string) (dispatchPlan, error) {
+	if err := spec.Validate(); err != nil {
+		return dispatchPlan{}, fmt.Errorf("%w: %w", errNotRunnable, err)
+	}
+	env := spec.Environment
+	if !spec.IsCommand() || env == nil || env.Provider != domain.ProviderActions || env.RunsOn == "" {
+		return dispatchPlan{}, fmt.Errorf("%w: it needs an environment with provider actions and runs_on", errNotRunnable)
+	}
+	if len(env.Services) > 0 {
+		return dispatchPlan{}, fmt.Errorf("%w: services are not supported on GitHub-hosted runners", errNotRunnable)
+	}
+	c := spec.Command
+	p := payload{Setup: env.Setup, Env: map[string]string{}, Argv: c.Argv, Shell: c.Shell, Workdir: c.Workdir, Versions: env.Versions}
+	for _, m := range []map[string]string{env.Env, c.Env} {
+		maps.Copy(p.Env, m)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		return dispatchPlan{}, fmt.Errorf("%w: %w", errNotRunnable, err)
+	}
+	checkout := spec.Branch
+	if checkout == "" {
+		checkout = spec.BaseRef
+	}
+	in := map[string]string{
+		"job_id":    spec.JobID.String(),
+		"ref":       checkout,
+		"runs_on":   env.RunsOn,
+		"payload":   string(raw),
+		"reports":   strings.Join(c.Reports, "\n"),
+		"artifacts": strings.Join(c.Artifacts, "\n"),
+	}
+	if o := spec.Overlay; o != nil {
+		in["overlay_ref"], in["overlay_paths"] = o.Ref, strings.Join(o.Paths, "\n")
+	}
+	size := 0
+	for k, v := range in {
+		if strings.Contains(v, "\x00") {
+			return dispatchPlan{}, fmt.Errorf("%w: input %s holds a NUL byte", errNotRunnable, k)
+		}
+		size += len(k) + len(v)
+	}
+	if size > maxInputBytes {
+		return dispatchPlan{}, fmt.Errorf("%w: the command and its environment are %d bytes, over the %d GitHub accepts as workflow inputs", errNotRunnable, size, maxInputBytes)
+	}
+	ref := checkout
+	if commitSHA.MatchString(ref) {
+		ref = defaultBranch
+	}
+	return dispatchPlan{Ref: ref, Inputs: in}, nil
+}
