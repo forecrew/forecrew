@@ -88,6 +88,9 @@ func (c *Client) HeadSHA(ctx context.Context, repo, branch string) (string, erro
 		return "", err
 	}
 	ref, _, err := g.Git.GetRef(ctx, owner, name, "heads/"+branch)
+	if statusOf(err) == http.StatusConflict {
+		return "", fmt.Errorf("get branch %q of %s: %w: %w", branch, repo, ErrEmptyRepo, err)
+	}
 	if err != nil {
 		return "", wrap(fmt.Sprintf("get branch %q of %s", branch, repo), err)
 	}

@@ -89,3 +89,12 @@ the first runs and note the result next to the report:
    `codex exec` with `approval_policy="never"` and
    `default_tools_approval_mode="approve"` runs the gateway tool rather than
    canceling or declining the call (`mcp_tool_call` in `job logs`).
+5. **Empty repo.** The knowledge policy treats a repo without commits as
+   having no policy file, on the belief that GitHub answers `409 Git
+   Repository is empty` on `GET /repos/{owner}/{repo}/git/ref/heads/{branch}`
+   (`github.ErrEmptyRepo`; a missing branch is a `404`, `ErrNotFound`). Check
+   both against a real repo with no commit and one without the default branch:
+   `gh api repos/OWNER/REPO/git/ref/heads/main` should answer 409 and 404, and
+   onboarding the empty repo should queue the `onboarding-analyst` job. Any
+   other answer, or a refusal with "the knowledge policy of the project is
+   unknown", means the mapping is wrong.

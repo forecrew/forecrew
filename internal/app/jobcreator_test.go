@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/roles"
@@ -328,14 +330,34 @@ func TestJobCreatorRolesGetKnowledgeTools(t *testing.T) {
 	}
 }
 
-// Without the knowledge policy the curated paths cannot be excluded: a
-// writing role's job is refused, while roles that write no curated path
-// (the curator) or nothing at all still run.
-func TestJobCreatorRefusesWritersWithoutThePolicy(t *testing.T) {
+// A repo without a commit has no policy file and nothing to protect: its
+// project can onboard, so the analyst's job is created.
+func TestJobCreatorAllowsWritersInAnEmptyRepo(t *testing.T) {
 	f := newFixture(t)
-	p := domain.Project{AccountID: f.account.ID, Name: "nohead", Repo: "acme/nohead", DefaultBranch: "main", Status: domain.ProjectOnboarded}
+	p := domain.Project{AccountID: f.account.ID, Name: "empty", Repo: "acme/empty", DefaultBranch: "main", Status: domain.ProjectRegistered}
 	must(t, f.st.Projects().Create(t.Context(), &p))
-	f.tracker.Install("acme/nohead")
+	f.tracker.Install("acme/empty") // no commit, so no branch
+	for _, role := range []string{"developer", "knowledge-curator", "reviewer"} {
+		if _, err := f.creator.Create(t.Context(), workflow.JobRequest{AccountID: f.account.ID, ProjectID: p.ID, Role: role}); err != nil {
+			t.Errorf("%s: %v", role, err)
+		}
+	}
+}
+
+// headFails makes the read of a branch head fail like a GitHub outage.
+type headFails struct{ github.Tracker }
+
+func (headFails) HeadSHA(context.Context, string, string) (string, error) {
+	return "", errors.New("github: 502 bad gateway")
+}
+
+// When the policy cannot be read (not: when there is no repo content), the
+// curated paths cannot be excluded: a writing role's job is refused, while
+// roles that write no curated path or nothing at all still run.
+func TestJobCreatorRefusesWritersWhenThePolicyCannotBeRead(t *testing.T) {
+	f := newFixture(t, func(d *Deps) { d.GitHub = headFails{d.GitHub} })
+	p := domain.Project{AccountID: f.account.ID, Name: "broken", Repo: "acme/broken", DefaultBranch: "main", Status: domain.ProjectOnboarded}
+	must(t, f.st.Projects().Create(t.Context(), &p))
 	req := workflow.JobRequest{AccountID: f.account.ID, ProjectID: p.ID}
 	for role, wantErr := range map[string]bool{"developer": true, "reviewer": false, "knowledge-curator": false} {
 		req.Role = role

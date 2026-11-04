@@ -110,6 +110,17 @@ func TestHeadSHA(t *testing.T) {
 	wantErr(t, err, github.ErrInvalid)
 }
 
+// A repo without commits answers 409 on the ref endpoint.
+func TestHeadSHAOfAnEmptyRepo(t *testing.T) {
+	e := newEnv(t)
+	e.handle("GET /repos/acme/app/git/ref/heads/main", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"message":"Git Repository is empty."}`))
+	})
+	_, err := e.client.HeadSHA(t.Context(), "acme/app", "main")
+	wantErr(t, err, github.ErrEmptyRepo)
+}
+
 func TestArchive(t *testing.T) {
 	e := newEnv(t)
 	e.handle("GET /repos/acme/app/tarball/main", func(w http.ResponseWriter, r *http.Request) {
