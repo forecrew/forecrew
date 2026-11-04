@@ -111,6 +111,8 @@ token or RPC secret.
 delete artifacts older than that once a day, from storage and database, and
 write each deletion to the audit log. Deleting an artifact that a verification
 report points at keeps the report and clears its link to the rendered copy.
+The same pass deletes objects under `jobs/` that no artifact points at and that
+are over 24 hours old, whatever `retention_days` is.
 
 Without an `evidence` section artifacts are not stored: uploads get
 `503 unavailable` and workers finish their jobs without them. To use another
