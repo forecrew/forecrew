@@ -41,6 +41,17 @@ type workflow struct {
 	} `yaml:"jobs"`
 }
 
+// skipOrFail skips a test that needs a tool, but where CI is set (GitHub
+// Actions sets it) a missing tool is a failure: the check must not vanish
+// silently from the pipeline.
+func skipOrFail(t *testing.T, why string) {
+	t.Helper()
+	if os.Getenv("CI") != "" {
+		t.Fatal(why + " (required in CI)")
+	}
+	t.Skip(why)
+}
+
 // TestTemplateIsSafe: every action is pinned by commit, the token is read
 // only, no secret is used and no input reaches a shell script.
 func TestTemplateIsSafe(t *testing.T) {
@@ -76,11 +87,9 @@ func TestTemplateLint(t *testing.T) {
 	bin, err := exec.LookPath("actionlint")
 	if err != nil {
 		home, _ := os.UserHomeDir()
-		if bin = filepath.Join(home, "go", "bin", "actionlint"); home == "" {
-			t.Skip("actionlint is not installed")
-		}
-		if _, err := os.Stat(bin); err != nil {
-			t.Skip("actionlint is not installed")
+		bin = filepath.Join(home, "go", "bin", "actionlint")
+		if _, err := os.Stat(bin); home == "" || err != nil {
+			skipOrFail(t, "actionlint is not installed")
 		}
 	}
 	file := filepath.Join(t.TempDir(), "forecrew-matrix.yml")
