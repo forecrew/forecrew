@@ -94,6 +94,44 @@ func (x *exec) finally(ctx context.Context) error {
 	return nil
 }
 
+// stopJobs cancels the jobs still in flight when a run ends, which only the
+// other items of a parallel foreach can have, and fails their steps. A job
+// that had finished gives its step its real outcome. A step run's ID is its
+// job's, so a job created just before a crash is found too; other unfinished
+// steps have no job. Finally steps are not touched: they run after this and
+// continue after a restart.
+func (x *exec) stopJobs(ctx context.Context) error {
+	for k, sr := range x.steps {
+		if (sr.Status != domain.StepRunning && sr.Status != domain.StepWaiting) || strings.HasPrefix(k.id, "finally/") {
+			continue
+		}
+		err := x.e.cfg.Jobs.Cancel(ctx, x.run.AccountID, sr.ID)
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			continue
+		case errors.Is(err, domain.ErrInvalidTransition):
+			err = x.recordFinished(ctx, &sr)
+		case err != nil:
+			err = fmt.Errorf("cancel job of step %s: %w", k.id, err)
+		default:
+			err = x.finish(ctx, &sr, nil, "canceled: the run ended")
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// recordFinished records the outcome of a job step whose job has finished.
+func (x *exec) recordFinished(ctx context.Context, sr *domain.StepRun) error {
+	job, err := x.e.cfg.Store.Jobs().Get(ctx, x.run.AccountID, sr.ID)
+	if err != nil {
+		return err
+	}
+	return x.jobDone(ctx, sr, job, job.Status)
+}
+
 // seq runs steps in order, recording each value in sc.
 func (x *exec) seq(ctx context.Context, steps []Step, prefix string, sc *scope) error {
 	for _, s := range steps {
@@ -188,20 +226,82 @@ func (x *exec) foreach(ctx context.Context, s Step, path string, sc *scope) (any
 	if !ok {
 		return nil, &runEnd{domain.RunFailed, fmt.Sprintf("step %s: items %s is not a list", path, s.Items)}
 	}
+	if s.Parallel > 0 {
+		return x.parallel(ctx, s, path, sc, items)
+	}
 	outs := make([]any, 0, len(items))
 	for i, item := range items {
-		c := sc.child()
-		c.vars["item"], c.vars["index"] = item, i
-		if err := x.seq(ctx, s.Steps, fmt.Sprintf("%s/%d/", path, i), c); err != nil {
+		round, err := x.item(ctx, s, path, sc, i, item)
+		if err != nil {
 			return nil, err
-		}
-		round := map[string]any{}
-		for _, b := range s.Steps {
-			round[b.ID] = c.steps[b.ID]
 		}
 		outs = append(outs, round)
 	}
 	return map[string]any{"output": outs}, nil
+}
+
+// parallel drives every item of a foreach as far as it goes, with at most
+// s.Parallel of them unfinished. It starts no goroutines: a job, gate or wait
+// only waits for its signal, so one pass over the items keeps them all going,
+// and each signal replays the run and starts the next items. Items start in
+// order, so the started ones always come first, and what is in flight follows
+// from the recorded step runs after a restart too. A failed item ends the
+// foreach once every item has finished; a canceled run ends it at once.
+func (x *exec) parallel(ctx context.Context, s Step, path string, sc *scope, items []any) (any, error) {
+	outs := make([]any, len(items))
+	inFlight := 0
+	var failed *runEnd
+	for i, item := range items {
+		if inFlight >= s.Parallel && !x.started(itemPrefix(path, i)) {
+			break
+		}
+		round, err := x.item(ctx, s, path, sc, i, item)
+		var end *runEnd
+		switch {
+		case err == nil:
+			outs[i] = round
+		case errors.Is(err, errWaiting):
+			inFlight++
+		case errors.As(err, &end) && end.status == domain.RunFailed:
+			failed = cmp.Or(failed, end)
+		default:
+			return nil, err
+		}
+	}
+	switch {
+	case inFlight > 0:
+		return nil, errWaiting
+	case failed != nil:
+		return nil, failed
+	}
+	return map[string]any{"output": outs}, nil
+}
+
+// started reports whether a step run with the path prefix is recorded.
+func (x *exec) started(prefix string) bool {
+	for k := range x.steps {
+		if strings.HasPrefix(k.id, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func itemPrefix(path string, i int) string { return fmt.Sprintf("%s/%d/", path, i) }
+
+// item runs the body of a foreach for one item and returns the values of its
+// steps.
+func (x *exec) item(ctx context.Context, s Step, path string, sc *scope, i int, item any) (map[string]any, error) {
+	c := sc.child()
+	c.vars["item"], c.vars["index"] = item, i
+	if err := x.seq(ctx, s.Steps, itemPrefix(path, i), c); err != nil {
+		return nil, err
+	}
+	round := map[string]any{}
+	for _, b := range s.Steps {
+		round[b.ID] = c.steps[b.ID]
+	}
+	return round, nil
 }
 
 func (x *exec) loop(ctx context.Context, s Step, path string, sc *scope) (any, error) {
@@ -255,6 +355,7 @@ func (x *exec) leaf(ctx context.Context, s Step, key stepKey, sc *scope, feedbac
 		}
 		x.steps[key] = sr
 	}
+	defer func() { x.steps[key] = sr }()
 	if sr.Status == domain.StepRunning {
 		if err := x.start(ctx, s, &sr, sc, feedback); err != nil {
 			return nil, err
@@ -265,7 +366,6 @@ func (x *exec) leaf(ctx context.Context, s Step, key stepKey, sc *scope, feedbac
 			return nil, err
 		}
 	}
-	x.steps[key] = sr
 	if sr.Status == domain.StepFailed {
 		return nil, &stepFailed{sr.Error}
 	}

@@ -29,7 +29,7 @@ const (
 	StepAction  StepType = "action"  // call a registered Go action
 	StepGate    StepType = "gate"    // open a gate and wait for gate.resolved
 	StepWait    StepType = "wait"    // wait for a signal
-	StepForeach StepType = "foreach" // run steps once per item, in order
+	StepForeach StepType = "foreach" // run steps once per item, in order or in parallel
 	StepLoop    StepType = "loop"    // repeat steps until a condition holds
 )
 
@@ -73,6 +73,7 @@ type Step struct {
 
 	Action        string          `yaml:"action"`         // action: registered name
 	Items         string          `yaml:"items"`          // foreach: a reference to a list
+	Parallel      int             `yaml:"parallel"`       // foreach: items in flight at most; 0 runs them one after the other
 	Steps         []Step          `yaml:"steps"`          // foreach and loop: the body
 	MaxIterations int             `yaml:"max_iterations"` // loop: rounds before on_failure applies
 	Until         string          `yaml:"until"`          // loop: <ref> [== | != <value>], checked after each round
@@ -240,6 +241,7 @@ func (s Step) checkFields() error {
 		{"with", s.With != nil, !compound},
 		{"action", s.Action != "", s.Type == StepAction},
 		{"items", s.Items != "", s.Type == StepForeach},
+		{"parallel", s.Parallel != 0, s.Type == StepForeach},
 		{"steps", len(s.Steps) > 0, compound},
 		{"max_iterations", s.MaxIterations != 0, s.Type == StepLoop},
 		{"until", s.Until != "", s.Type == StepLoop},
@@ -256,6 +258,9 @@ func (s Step) checkFields() error {
 	}
 	if s.Timeout < 0 {
 		return errors.New("timeout must not be negative")
+	}
+	if s.Parallel < 0 {
+		return errors.New("parallel must not be negative")
 	}
 	switch s.OnFailure {
 	case "", FailRun, Escalate:
