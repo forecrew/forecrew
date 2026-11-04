@@ -232,6 +232,7 @@ func (r *jobRun) finish(ctx context.Context, run github.WorkflowRun) {
 		r.errored(ctx, run, "the artifact's "+ResultFile+" is not valid: "+err.Error())
 		return
 	}
+	res.Message = testreport.Clip(testreport.CleanText(res.Message), maxMessage)
 	files.Files = slices.Delete(files.Files, i, i+1)
 	switch res.Phase {
 	case phaseSetup:
@@ -328,6 +329,7 @@ type result struct {
 const (
 	maxVersions    = 64
 	maxVersionSize = 1024
+	maxMessage     = 1024
 )
 
 // versions returns the tool versions of the run, plus the runner image the
@@ -336,24 +338,17 @@ func (res result) versions() map[string]string {
 	out := map[string]string{}
 	for _, k := range slices.Sorted(maps.Keys(res.Versions)) {
 		if len(out) < maxVersions && k != "" {
-			out[testreport.CleanText(clip(k, maxVersionSize))] = testreport.CleanText(clip(res.Versions[k], maxVersionSize))
+			out[testreport.CleanText(testreport.Clip(k, maxVersionSize))] = testreport.CleanText(testreport.Clip(res.Versions[k], maxVersionSize))
 		}
 	}
 	if res.ImageOS != "" {
-		out["runner_image"] = testreport.CleanText(clip(res.ImageOS, maxVersionSize))
-		out["runner_image_version"] = testreport.CleanText(clip(res.ImageVersion, maxVersionSize))
+		out["runner_image"] = testreport.CleanText(testreport.Clip(res.ImageOS, maxVersionSize))
+		out["runner_image_version"] = testreport.CleanText(testreport.Clip(res.ImageVersion, maxVersionSize))
 	}
 	if res.RunnerOS != "" {
-		out["runner_os"] = testreport.CleanText(clip(res.RunnerOS+" "+res.RunnerArch, maxVersionSize))
+		out["runner_os"] = testreport.CleanText(testreport.Clip(res.RunnerOS+" "+res.RunnerArch, maxVersionSize))
 	}
 	return out
-}
-
-func clip(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
-	}
-	return s
 }
 
 // report builds the test run from the files of a command that ran, stores
