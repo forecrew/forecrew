@@ -105,6 +105,15 @@ deletion in the audit log (`artifact.deleted` by `system:forecrewd`). A
 verification report that points at a deleted artifact keeps its data and loses
 only the link to the rendered copy (`artifact_id` becomes null).
 
+The same daily pass removes orphans, with or without retention: objects under
+`jobs/` that no artifact row points at (left by forecrewd crashing between
+storing an object and writing its row, or by a failed delete of a replaced
+object) and that are older than 24 hours, so an upload in flight is never
+touched. Each is recorded as `artifact.orphan_deleted` (account from the key;
+data: `key`, `size`, `last_modified`). A pass looks at up to 20000 objects
+and continues where it stopped on the next one. Objects outside `jobs/` are
+never touched.
+
 ### Planned endpoints
 
 Contract only (T31), with the planned MCP tools of [mcp.md](mcp.md#planned-tools),

@@ -150,3 +150,9 @@ request fails:
   `.env` must be the keys it imported.
 - **A listed artifact answers `404` on download.** Retention deleted it
   (`evidence.retention_days`), or the object is gone from storage.
+- **The bucket holds objects no artifact lists.** After a forecrewd crash
+  during an upload or a failed delete of a replaced file. The daily pass
+  deletes them once they are 24 hours old and writes `artifact.orphan_deleted`
+  to the audit log; nothing to do. The log line `orphan object with an
+  unexpected key kept` names an object under `jobs/` whose key has no
+  account: remove it by hand.
