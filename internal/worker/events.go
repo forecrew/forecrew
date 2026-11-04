@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/runtime"
+	"github.com/forecrew/forecrew/internal/testreport"
 )
 
 // Batch limits of the events endpoint: 500 events and 1 MiB per request.
@@ -113,8 +113,5 @@ func (b *eventBuffer) run(ctx context.Context, interval time.Duration, onStop fu
 	}
 }
 
-// cleanText removes what Postgres refuses in text: NUL bytes and invalid
-// UTF-8.
-func cleanText(s string) string {
-	return strings.ToValidUTF8(strings.ReplaceAll(s, "\x00", ""), "")
-}
+// cleanText removes what Postgres refuses in text.
+func cleanText(s string) string { return testreport.CleanText(s) }
