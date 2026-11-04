@@ -420,3 +420,90 @@ func TestRequeueExpiredWaitsForLockedRow(t *testing.T) {
 		t.Fatalf("requeue = %+v, %v; a locked expired lease must not be skipped", got, err)
 	}
 }
+
+// TestJobMCPTokenLookup: the hash is set only on the lease it names and is
+// found only while that lease runs; the gate origin round-trips.
+func TestJobMCPTokenLookup(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	jobs := f.st.Jobs()
+	w := f.newWorker(t, "w", "runtime:claude-code")
+	other := f.newWorker(t, "other", "runtime:claude-code")
+	hash := make([]byte, 32)
+	hash[0] = 7
+
+	queued := f.newJob(t)
+	wantErr(t, jobs.SetJobMCPTokenHash(ctx, f.account, queued.ID, w.ID, 0, hash), store.ErrLeaseLost)
+	j, err := jobs.LeaseNext(ctx, f.account, w.ID, []string{"runtime:claude-code"}, time.Minute)
+	must(t, err)
+	wantErr(t, jobs.SetJobMCPTokenHash(ctx, f.account, j.ID, other.ID, j.Attempts, hash), store.ErrLeaseLost)
+	wantErr(t, jobs.SetJobMCPTokenHash(ctx, f.account, j.ID, w.ID, j.Attempts+1, hash), store.ErrLeaseLost)
+	must(t, jobs.SetJobMCPTokenHash(ctx, f.account, j.ID, w.ID, j.Attempts, hash))
+	got, err := jobs.GetByJobMCPTokenHash(ctx, hash)
+	if err != nil || got.ID != j.ID || got.WorkerID != w.ID {
+		t.Fatalf("lookup = %+v, %v", got, err)
+	}
+	_, err = jobs.GetByJobMCPTokenHash(ctx, make([]byte, 32))
+	wantErr(t, err, store.ErrNotFound)
+
+	// Extending the lease keeps the token; releasing it kills the token.
+	_, err = jobs.ExtendLease(ctx, f.account, j.ID, w.ID, time.Minute)
+	must(t, err)
+	_, err = jobs.GetByJobMCPTokenHash(ctx, hash)
+	must(t, err)
+	_, err = jobs.Release(ctx, f.account, j.ID, w.ID, "retry")
+	must(t, err)
+	_, err = jobs.GetByJobMCPTokenHash(ctx, hash)
+	wantErr(t, err, store.ErrNotFound)
+
+	// A running job whose lease expired is leased again, by the same worker
+	// or another one: the token of the old lease stays dead, and a hash for
+	// the old attempt is refused.
+	for _, next := range []domain.Worker{w, other} {
+		f.newJob(t)
+		cur, err := jobs.LeaseNext(ctx, f.account, next.ID, []string{"runtime:claude-code"}, time.Minute)
+		must(t, err)
+		old := make([]byte, 32)
+		old[0], old[1] = 9, byte(next.Name[0])
+		must(t, jobs.SetJobMCPTokenHash(ctx, f.account, cur.ID, next.ID, cur.Attempts, old))
+		must(t, exec(f.pool, `UPDATE jobs SET lease_expires_at = now() - interval '1 second' WHERE id = $1`, cur.ID))
+		expired, err := jobs.GetByJobMCPTokenHash(ctx, old) // the caller checks the expiry
+		if err != nil || expired.LeaseExpiresAt.After(time.Now()) {
+			t.Fatalf("expired lease = %+v, %v", expired, err)
+		}
+		requeued, err := jobs.RequeueExpired(ctx, f.account)
+		if err != nil || len(requeued) != 1 {
+			t.Fatalf("requeued = %+v, %v", requeued, err)
+		}
+		must(t, exec(f.pool, `UPDATE jobs SET run_after = NULL WHERE id = $1`, cur.ID))
+		again, err := jobs.LeaseNext(ctx, f.account, next.ID, []string{"runtime:claude-code"}, time.Minute)
+		must(t, err)
+		if again.ID != cur.ID || again.Attempts != cur.Attempts+1 {
+			t.Fatalf("leased again = %+v after %+v", again, cur)
+		}
+		_, err = jobs.GetByJobMCPTokenHash(ctx, old)
+		wantErr(t, err, store.ErrNotFound)
+		wantErr(t, jobs.SetJobMCPTokenHash(ctx, f.account, cur.ID, next.ID, cur.Attempts, hash), store.ErrLeaseLost)
+		fresh := make([]byte, 32)
+		fresh[0], fresh[1] = 8, byte(next.Name[0])
+		must(t, jobs.SetJobMCPTokenHash(ctx, f.account, cur.ID, next.ID, again.Attempts, fresh))
+		_, err = jobs.Release(ctx, f.account, cur.ID, next.ID, "next case")
+		must(t, err)
+	}
+
+	gate := domain.Gate{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.GateNeedsYou, Origin: domain.GateFromAskHuman,
+		Title: "JOB-1 asks: which?", SubjectRepo: "acme/forecrew", JobID: j.ID}
+	must(t, f.st.Gates().Create(ctx, &gate))
+	if g, err := f.st.Gates().Get(ctx, f.account, gate.ID); err != nil || !g.AsksHuman() {
+		t.Fatalf("ask_human gate = %+v, %v", g, err)
+	}
+	playbook := domain.Gate{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.GateNeedsYou, Title: "stuck", SubjectRepo: "acme/forecrew"}
+	must(t, f.st.Gates().Create(ctx, &playbook))
+	if g, err := f.st.Gates().Get(ctx, f.account, playbook.ID); err != nil || g.Origin != domain.GateFromPlaybook {
+		t.Fatalf("playbook gate = %+v, %v", g, err)
+	}
+	bad := domain.Gate{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.GateNeedsYou, Origin: domain.GateFromAskHuman, Title: "x", SubjectRepo: "acme/forecrew"}
+	if err := f.st.Gates().Create(ctx, &bad); err == nil {
+		t.Fatal("ask_human gate without a job accepted")
+	}
+}

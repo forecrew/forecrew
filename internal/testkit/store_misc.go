@@ -3,6 +3,7 @@ package testkit
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -27,6 +28,10 @@ func (r gateRepo) Create(_ context.Context, g *domain.Gate) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
 		if err := firstErr(foreign(&d.projects, g.AccountID, g.ProjectID), foreign(&d.goals, g.AccountID, g.GoalID), foreign(&d.specs, g.AccountID, g.SpecID), foreign(&d.tasks, g.AccountID, g.TaskID), foreign(&d.jobs, g.AccountID, g.JobID)); err != nil {
 			return err
+		}
+		g.Origin = g.Origin.OrDefault()
+		if g.AsksHuman() && (g.Kind != domain.GateNeedsYou || g.JobID == uuid.Nil()) {
+			return errors.New("gates_ask_human_check: an ask_human gate is a needs_you gate of a job")
 		}
 		g.ID = newID(g.ID)
 		g.Number = d.nextNumber(g.AccountID, domain.RefGate)
