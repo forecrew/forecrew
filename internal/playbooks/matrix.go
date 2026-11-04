@@ -38,13 +38,7 @@ func (a *actions) matrixPlan(ctx context.Context, call workflow.ActionCall) (any
 		return nil, errors.New("matrix.plan needs repo and ref")
 	}
 	scope := matrix.Scope{Set: with.Scope, Suites: with.Suites}
-	m, envs, err := matrix.Load(func(name string) ([]byte, error) {
-		data, err := a.Tracker.GetFile(ctx, with.Repo, with.Ref, name)
-		if errors.Is(err, github.ErrNotFound) {
-			return nil, fmt.Errorf("%s at %s: %w", name, with.Ref, fs.ErrNotExist)
-		}
-		return data, err
-	})
+	m, envs, err := matrix.Load(a.repoReader(ctx, with.Repo, with.Ref))
 	if err == nil {
 		err = scope.Check(m)
 	}
@@ -63,4 +57,16 @@ func (a *actions) matrixPlan(ctx context.Context, call workflow.ActionCall) (any
 		out.Jobs = append(out.Jobs, c.Jobs()...)
 	}
 	return out, nil
+}
+
+// repoReader reads the files of repo at ref through the tracker; a missing
+// file wraps fs.ErrNotExist.
+func (a *actions) repoReader(ctx context.Context, repo, ref string) matrix.ReadFile {
+	return func(name string) ([]byte, error) {
+		data, err := a.Tracker.GetFile(ctx, repo, ref, name)
+		if errors.Is(err, github.ErrNotFound) {
+			return nil, fmt.Errorf("%s at %s: %w", name, ref, fs.ErrNotExist)
+		}
+		return data, err
+	}
 }
