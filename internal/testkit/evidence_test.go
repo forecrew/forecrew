@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/forecrew/forecrew/internal/evidence"
 )
@@ -54,5 +55,28 @@ func TestEvidenceAfterPut(t *testing.T) {
 	must(t, e.Put(t.Context(), "k", strings.NewReader("x"), 1, ""))
 	if len(seen) != 1 || seen[0] != "k" {
 		t.Fatalf("hook saw %v", seen)
+	}
+}
+
+func TestEvidenceList(t *testing.T) {
+	e := NewEvidence()
+	ctx := t.Context()
+	for _, k := range []string{"jobs/b", "jobs/a", "jobs/c", "x/a"} {
+		must(t, e.Put(ctx, k, strings.NewReader("12"), 2, ""))
+	}
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	e.SetModified("jobs/a", at)
+	got, err := e.List(ctx, "jobs/", "", 2)
+	must(t, err)
+	if len(got) != 2 || got[0].Key != "jobs/a" || got[0].Size != 2 || !got[0].LastModified.Equal(at) || got[1].Key != "jobs/b" {
+		t.Fatalf("first page = %+v", got)
+	}
+	got, err = e.List(ctx, "jobs/", "jobs/b", 5)
+	if err != nil || len(got) != 1 || got[0].Key != "jobs/c" {
+		t.Fatalf("second page = %+v, %v", got, err)
+	}
+	e.ListErr = errors.New("boom")
+	if _, err := e.List(ctx, "", "", 1); err == nil {
+		t.Fatal("injected list error not returned")
 	}
 }

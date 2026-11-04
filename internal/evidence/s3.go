@@ -89,3 +89,25 @@ func (s *S3) Delete(ctx context.Context, key string) error {
 	}
 	return nil
 }
+
+// List implements Store.
+func (s *S3) List(ctx context.Context, prefix, after string, limit int) ([]Object, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel() // stops the listing once limit objects are read
+	out := []Object{}
+	if limit <= 0 {
+		return out, nil
+	}
+	for o := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
+		Prefix: prefix, Recursive: true, StartAfter: after, MaxKeys: limit,
+	}) {
+		if o.Err != nil {
+			return nil, fmt.Errorf("list evidence: %w", o.Err)
+		}
+		out = append(out, Object{Key: o.Key, Size: o.Size, LastModified: o.LastModified.UTC()})
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, nil
+}

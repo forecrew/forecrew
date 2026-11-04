@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -30,6 +31,17 @@ type Store interface {
 	Get(ctx context.Context, key string) (io.ReadCloser, error)
 	// Delete removes the object at key; a missing object is not an error.
 	Delete(ctx context.Context, key string) error
+	// List returns up to limit objects whose key starts with prefix and
+	// sorts after the key after ("" starts at the beginning), in key order.
+	// Fewer than limit objects mean the listing is complete.
+	List(ctx context.Context, prefix, after string, limit int) ([]Object, error)
+}
+
+// Object is the listing entry of a stored object.
+type Object struct {
+	Key          string
+	Size         int64
+	LastModified time.Time
 }
 
 // JobKey is the object key prefix of the artifact name of a job. Names are
