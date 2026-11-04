@@ -12,6 +12,8 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew"
+	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
@@ -60,9 +62,18 @@ func newFixture(t *testing.T) *fixture {
 	f.creator = &testkit.JobCreator{Store: st}
 	f.gates = gates.New(st, bus, clock.Now)
 	f.jobs = jobs.New(st, bus, nil, logger, clock.Now)
+	defs, err := roles.Load(forecrew.Files)
+	must(t, err)
+	seats, err := councils.Load(forecrew.Files, func(name string) (roles.Definition, error) {
+		if d, ok := defs[name]; ok {
+			return d, nil
+		}
+		return roles.Definition{}, roles.ErrUnknownRole
+	})
+	must(t, err)
 	f.regs = registers.New(st, bus, clock.Now)
 	f.svc = tools.New(tools.Config{
-		Store: st, Gates: f.gates, Jobs: f.jobs, Creator: f.creator, Playbooks: f.playbooks, GitHub: f.tracker, Evidence: f.ev, Logger: logger,
+		Store: st, Gates: f.gates, Jobs: f.jobs, Creator: f.creator, Playbooks: f.playbooks, GitHub: f.tracker, Evidence: f.ev, Logger: logger, Councils: seats,
 		Registers: f.regs,
 		Roles: testkit.Roles{
 			"reviewer":  {Name: "reviewer"},

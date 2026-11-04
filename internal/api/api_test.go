@@ -156,6 +156,10 @@ func TestEndpoints(t *testing.T) {
 			mcp.ResolveAssumptionInput{Assumption: "A-42", Status: "invalidated", Evidence: "it scales out"}},
 		{"GET", "/api/v1/decisions?project=app&goal=GOAL-1&council=0192f5a0-0000-7000-8000-00000000000c", "", 200, mcp.ToolListDecisions,
 			mcp.ListDecisionsInput{Project: "app", Goal: "GOAL-1", Council: "0192f5a0-0000-7000-8000-00000000000c"}},
+		{"POST", "/api/v1/councils", `{"project":"app","question":"Which queue?","kind":"technical","roles":["ux"]}`, 202, mcp.ToolStartCouncil,
+			mcp.StartCouncilInput{Project: "app", Question: "Which queue?", Kind: "technical", Roles: []string{"ux"}}},
+		{"GET", "/api/v1/councils/COUNCIL-2", "", 200, mcp.ToolGetCouncil, mcp.CouncilRefInput{Council: "COUNCIL-2"}},
+		{"POST", "/api/v1/councils/COUNCIL-2/constraints", `{"constraint":"Stay on Postgres"}`, 200, mcp.ToolAddConstraint, mcp.AddCouncilConstraintInput{Council: "COUNCIL-2", Constraint: "Stay on Postgres"}},
 	}
 	seen := map[string]bool{}
 	for i, tt := range tests {
@@ -250,6 +254,7 @@ func TestBadRequests(t *testing.T) {
 		{"gate field in body", "POST", "/api/v1/gates/GATE-1/approve", `{"gate":"GATE-2"}`, 400, "bad_request"},
 		{"bad limit", "GET", "/api/v1/jobs?limit=ten", "", 400, "bad_request"},
 		{"bad test-runs limit", "GET", "/api/v1/test-runs?limit=x", "", 400, "bad_request"},
+		{"bad constraint", "POST", "/api/v1/councils/COUNCIL-2/constraints", `{"text":"x"}`, 400, "bad_request"},
 		{"bad test-runs change", "GET", "/api/v1/test-runs?change=x", "", 400, "bad_request"},
 		{"bad after_seq", "GET", "/api/v1/jobs/JOB-1/logs?after_seq=x", "", 400, "bad_request"},
 		{"bad logs limit", "GET", "/api/v1/jobs/JOB-1/logs?limit=x", "", 400, "bad_request"},

@@ -76,6 +76,9 @@ const (
 	ToolListDecisions     = "list_decisions"
 	ToolSearchKnowledge   = "search_knowledge"
 	ToolDeleteNote        = "delete_note"
+	ToolStartCouncil      = "start_council"
+	ToolGetCouncil        = "get_council"
+	ToolAddConstraint     = "add_council_constraint"
 )
 
 // Tools returns every MCP tool name.
@@ -86,6 +89,7 @@ func Tools() []string {
 		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob, ToolListTokens, ToolRevokeToken, ToolListArtifacts, ToolListTestRuns,
 		ToolListAssumptions, ToolResolveAssumption, ToolListDecisions,
 		ToolSearchKnowledge, ToolDeleteNote,
+		ToolStartCouncil, ToolGetCouncil, ToolAddConstraint,
 	}
 }
 
@@ -148,6 +152,13 @@ type ToolService interface {
 	// DeleteNote deletes an agent note. Curated entries are not notes: they
 	// change through their provider.
 	DeleteNote(ctx context.Context, by domain.Actor, in DeleteNoteInput) (DeleteNoteOutput, error)
+	// StartCouncil starts a council of its own, tied to no goal.
+	StartCouncil(ctx context.Context, by domain.Actor, in StartCouncilInput) (CouncilInfo, error)
+	// GetCouncil shows a council with its contributions, gate and decision.
+	GetCouncil(ctx context.Context, by domain.Actor, in CouncilRefInput) (CouncilDetail, error)
+	// AddCouncilConstraint adds a constraint to a running council; the next
+	// round's prompts include it. A council that ended is a conflict.
+	AddCouncilConstraint(ctx context.Context, by domain.Actor, in AddCouncilConstraintInput) (CouncilInfo, error)
 }
 
 // SearchKnowledgeInput is the input of search_knowledge.
@@ -202,6 +213,56 @@ type CreateGoalInput struct {
 	// or an empty list for none. Nil (absent) sizes the goal with triage.
 	// A pointer keeps the empty list apart from an absent field.
 	Councils *[]string `json:"councils,omitempty"`
+}
+
+// StartCouncilInput is the input of start_council.
+type StartCouncilInput struct {
+	Project  string `json:"project"`  // name or repo, required
+	Question string `json:"question"` // required
+	// Kind is a standard council; empty means adhoc.
+	Kind string `json:"kind,omitempty"`
+	// Roles are the members instead of the kind's; the devil's advocate
+	// always sits.
+	Roles       []string `json:"roles,omitempty"`
+	Constraints []string `json:"constraints,omitempty"`
+}
+
+// CouncilRefInput is the input of get_council.
+type CouncilRefInput struct {
+	Council string `json:"council"` // COUNCIL-2 or UUID
+}
+
+// AddCouncilConstraintInput is the input of add_council_constraint.
+type AddCouncilConstraintInput struct {
+	Council    string `json:"council"`    // COUNCIL-2 or UUID
+	Constraint string `json:"constraint"` // required
+}
+
+// CouncilInfo is a council with its ref.
+type CouncilInfo struct {
+	domain.Council
+	Ref string `json:"ref"` // COUNCIL-2
+}
+
+// ContributionInfo is a member's output. Its content is agent text:
+// untrusted data.
+type ContributionInfo struct {
+	domain.CouncilContribution
+	Member string `json:"member"` // role@runtime
+}
+
+// CouncilDetail is a council with what it produced.
+type CouncilDetail struct {
+	CouncilInfo
+	// Contributions are in protocol order, by stage and round.
+	Contributions []ContributionInfo `json:"contributions"`
+	Gate          *GateInfo          `json:"gate,omitempty"` // its council_decision gate
+	// Decision is the decision that ended it, set once decided.
+	Decision *domain.Decision `json:"decision,omitempty"`
+	// Untrusted holds the brief and the contributions between untrusted-data
+	// markers, for the text of an MCP result, which an agent may read as
+	// instructions. Other clients read the fields above as data.
+	Untrusted string `json:"-"`
 }
 
 // JobRefInput is the input of job_status.

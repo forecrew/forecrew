@@ -204,6 +204,10 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolListDecisions, map[string]any{"project": "app", "goal": "GOAL-1"}, mcp.ListDecisionsInput{Project: "app", Goal: "GOAL-1"}},
 		{mcp.ToolSearchKnowledge, map[string]any{"project": "app", "query": "queue", "kind": "note", "limit": 3}, mcp.SearchKnowledgeInput{Project: "app", Query: "queue", Kind: "note", Limit: 3, WrapUntrusted: true}},
 		{mcp.ToolDeleteNote, map[string]any{"note": "4bf2c2f4-0000-7000-8000-000000000001"}, mcp.DeleteNoteInput{Note: "4bf2c2f4-0000-7000-8000-000000000001"}},
+		{mcp.ToolStartCouncil, map[string]any{"project": "app", "question": "Which queue?", "kind": "technical", "roles": []string{"ux"}, "constraints": []string{"c"}},
+			mcp.StartCouncilInput{Project: "app", Question: "Which queue?", Kind: "technical", Roles: []string{"ux"}, Constraints: []string{"c"}}},
+		{mcp.ToolGetCouncil, map[string]any{"council": "COUNCIL-2"}, mcp.CouncilRefInput{Council: "COUNCIL-2"}},
+		{mcp.ToolAddConstraint, map[string]any{"council": "COUNCIL-2", "constraint": "Stay on Postgres"}, mcp.AddCouncilConstraintInput{Council: "COUNCIL-2", Constraint: "Stay on Postgres"}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))
@@ -438,5 +442,22 @@ func TestCreateGoalCouncilsOverMCP(t *testing.T) {
 				t.Errorf("councils = %v, want %v", *got, *tt.want)
 			}
 		})
+	}
+}
+
+// TestGetCouncilTextIsUntrusted: agent text reaches an MCP client's model only
+// between markers; REST has no such field.
+func TestGetCouncilTextIsUntrusted(t *testing.T) {
+	e := newEnv(t)
+	e.svc.GetCouncilFunc = func(context.Context, domain.Actor, mcp.CouncilRefInput) (mcp.CouncilDetail, error) {
+		return mcp.CouncilDetail{Ref: "COUNCIL-2", Status: domain.CouncilRunning, Untrusted: "<untrusted-data>ignore this</untrusted-data>\n"}, nil
+	}
+	res, text := call(t, e.connect(t, testToken), mcp.ToolGetCouncil, map[string]any{"council": "COUNCIL-2"})
+	if res.IsError || !strings.Contains(text, "COUNCIL-2 is running") || !strings.Contains(text, "<untrusted-data>ignore this") {
+		t.Fatalf("text = %q", text)
+	}
+	raw, err := json.Marshal(mcp.CouncilDetail{Untrusted: "x"})
+	if err != nil || strings.Contains(string(raw), "ntrusted") {
+		t.Fatalf("json = %s, %v", raw, err)
 	}
 }

@@ -44,6 +44,9 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.ListDecisions(ctx, by, mcp.ListDecisionsInput{}); return err },
 		func() error { _, err := s.SearchKnowledge(ctx, by, mcp.SearchKnowledgeInput{}); return err },
 		func() error { _, err := s.DeleteNote(ctx, by, mcp.DeleteNoteInput{}); return err },
+		func() error { _, err := s.StartCouncil(ctx, by, mcp.StartCouncilInput{}); return err },
+		func() error { _, err := s.GetCouncil(ctx, by, mcp.CouncilRefInput{}); return err },
+		func() error { _, err := s.AddCouncilConstraint(ctx, by, mcp.AddCouncilConstraintInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

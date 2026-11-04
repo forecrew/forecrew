@@ -129,10 +129,11 @@ func (s *Service) ListDecisions(ctx context.Context, by domain.Actor, in mcp.Lis
 		f.GoalID = g.ID
 	}
 	if in.Council != "" {
-		// Council refs need the council register (T33); a UUID works now.
-		if f.CouncilID, err = uuid.Parse(in.Council); err != nil {
-			return nil, fmt.Errorf("council %q must be a UUID: %w", in.Council, mcp.ErrInvalidInput)
+		c, err := s.council(ctx, by.AccountID, in.Council)
+		if err != nil {
+			return nil, err
 		}
+		f.CouncilID = c.ID
 	}
 	ds, err := s.cfg.Store.Decisions().List(ctx, by.AccountID, f)
 	if err != nil {

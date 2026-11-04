@@ -13,6 +13,7 @@ import (
 	"strings"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/evidence"
 	"github.com/forecrew/forecrew/internal/gates"
@@ -69,6 +70,8 @@ type Config struct {
 	Playbooks Starter
 	Roles     roles.Resolver
 	GitHub    Checker
+	// Councils holds the council packs.
+	Councils *councils.Set
 	// Evidence serves artifact content; nil when no evidence storage is
 	// configured.
 	Evidence evidence.Store
