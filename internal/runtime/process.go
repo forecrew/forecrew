@@ -92,6 +92,46 @@ func startEnv(base []string, extra map[string]string) []string {
 // tail. The error is nil for exit 0; ErrNotInstalled, ErrTimeout, the
 // context error, or ErrRunFailed otherwise.
 func execute(ctx context.Context, r cliRun, onLine func([]byte)) (string, error) {
+	x, err := run(ctx, r, onLine, nil)
+	return x.Stderr, err
+}
+
+// Process is a command for Exec.
+type Process struct {
+	Path string   // program, looked up in PATH when it has no separator
+	Args []string // arguments, without the program
+	Dir  string
+	// Env is the whole environment of the process; a nil Env is an empty
+	// one, never the caller's.
+	Env     []string
+	Timeout time.Duration // zero means none
+}
+
+// Exit is how a process ended.
+type Exit struct {
+	// Code is the exit code, or -1 when the process did not exit by itself
+	// (killed on timeout or cancellation, or never started).
+	Code int
+	// Stderr is the last part of what the process wrote to stderr.
+	Stderr string
+}
+
+// Exec runs a command like the CLI adapters run theirs: in its own process
+// group that is killed on timeout, cancellation and after the command ends,
+// with the pipes drained for a bounded time. onStdout and onStderr, when
+// set, get every non-empty line. The error is nil for exit 0; ErrNotInstalled,
+// ErrTimeout, the context error, or ErrRunFailed (a non-zero exit, Exit.Code
+// is then set) otherwise.
+func Exec(ctx context.Context, p Process, onStdout, onStderr func([]byte)) (Exit, error) {
+	env := p.Env
+	if env == nil {
+		env = []string{}
+	}
+	return run(ctx, cliRun{binary: p.Path, args: p.Args, dir: p.Dir, env: env, timeout: p.Timeout}, onStdout, onStderr)
+}
+
+func run(ctx context.Context, r cliRun, onOut, onErr func([]byte)) (Exit, error) {
+	none := Exit{Code: -1}
 	runCtx := ctx
 	if r.timeout > 0 {
 		var cancel context.CancelFunc
@@ -109,12 +149,12 @@ func execute(ctx context.Context, r cliRun, onLine func([]byte)) (string, error)
 	// cannot hold the run up after the CLI itself has exited.
 	outR, outW, err := os.Pipe()
 	if err != nil {
-		return "", fmt.Errorf("pipe %s stdout: %w", r.binary, err)
+		return none, fmt.Errorf("pipe %s stdout: %w", r.binary, err)
 	}
 	errR, errW, err := os.Pipe()
 	if err != nil {
 		closeAll(outR, outW)
-		return "", fmt.Errorf("pipe %s stderr: %w", r.binary, err)
+		return none, fmt.Errorf("pipe %s stderr: %w", r.binary, err)
 	}
 	cmd.Stdout, cmd.Stderr = outW, errW
 	err = cmd.Start()
@@ -122,15 +162,27 @@ func execute(ctx context.Context, r cliRun, onLine func([]byte)) (string, error)
 	if err != nil {
 		closeAll(outR, errR)
 		if isNotFound(err) {
-			return "", fmt.Errorf("%s: %w", r.binary, ErrNotInstalled)
+			return none, fmt.Errorf("%s: %w", r.binary, ErrNotInstalled)
 		}
-		return "", fmt.Errorf("start %s: %w", r.binary, err)
+		return none, fmt.Errorf("start %s: %w", r.binary, err)
 	}
 	var stderr tailBuffer
 	var draining atomic.Bool
 	var wg sync.WaitGroup
-	wg.Go(func() { readLines(&idleReader{f: outR, draining: &draining}, onLine) })
-	wg.Go(func() { _, _ = io.Copy(&stderr, &idleReader{f: errR, draining: &draining}) })
+	wg.Go(func() {
+		if onOut == nil {
+			onOut = func([]byte) {}
+		}
+		readLines(&idleReader{f: outR, draining: &draining}, onOut)
+	})
+	wg.Go(func() {
+		errIn := &idleReader{f: errR, draining: &draining}
+		if onErr == nil {
+			_, _ = io.Copy(&stderr, errIn)
+			return
+		}
+		readLines(io.TeeReader(errIn, &stderr), onErr)
+	})
 	waitErr := cmd.Wait()
 	// Leftover children (a dev server the agent started) die with the run.
 	killGroup(cmd)
@@ -146,15 +198,18 @@ func execute(ctx context.Context, r cliRun, onLine func([]byte)) (string, error)
 	wg.Wait()
 	capTimer.Stop()
 	closeAll(outR, errR)
+	exit := Exit{Code: cmd.ProcessState.ExitCode(), Stderr: stderr.String()}
 	switch {
 	case ctx.Err() != nil:
-		return stderr.String(), ctx.Err()
+		exit.Code = -1
+		return exit, ctx.Err()
 	case runCtx.Err() != nil:
-		return stderr.String(), fmt.Errorf("%w after %s", ErrTimeout, r.timeout)
+		exit.Code = -1
+		return exit, fmt.Errorf("%w after %s", ErrTimeout, r.timeout)
 	case waitErr != nil:
-		return stderr.String(), fmt.Errorf("%w: %s", ErrRunFailed, waitErr)
+		return exit, fmt.Errorf("%w: %s", ErrRunFailed, waitErr)
 	}
-	return stderr.String(), nil
+	return exit, nil
 }
 
 func closeAll(files ...*os.File) {
@@ -178,14 +233,29 @@ func (r *idleReader) Read(p []byte) (int, error) {
 	return r.f.Read(p)
 }
 
-// readLines calls onLine with each non-empty line of rd, without the newline.
+// maxLine is the longest line readLines passes on; the rest of a longer one
+// is read and dropped, so a process that never prints a newline cannot grow
+// the worker's memory.
+const maxLine = 8 << 20
+
+// readLines calls onLine with each non-empty line of rd, without the newline
+// and cut to maxLine bytes.
 func readLines(rd io.Reader, onLine func([]byte)) {
-	br := bufio.NewReader(rd)
+	br := bufio.NewReaderSize(rd, 64<<10)
+	var line []byte
 	for {
-		line, err := br.ReadBytes('\n')
-		if line = bytes.TrimSpace(line); len(line) > 0 {
-			onLine(line)
+		chunk, err := br.ReadSlice('\n')
+		if room := maxLine - len(line); len(chunk) > room {
+			chunk = chunk[:room]
 		}
+		line = append(line, chunk...)
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		if t := bytes.TrimSpace(line); len(t) > 0 {
+			onLine(t)
+		}
+		line = nil // onLine may keep what it got
 		if err != nil {
 			return
 		}
