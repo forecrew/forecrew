@@ -90,6 +90,12 @@ func (s *Syncer) Policy(ctx context.Context, p domain.Project) (Policy, error) {
 		return v.(Policy), nil
 	}
 	head, err := s.API.HeadSHA(ctx, p.Repo, p.DefaultBranch)
+	if errors.Is(err, github.ErrEmptyRepo) || errors.Is(err, github.ErrNotFound) {
+		// No commit or no such branch: there is no policy file and no
+		// file to protect, so the default policy holds. It is not kept,
+		// because the first commit may bring a policy.
+		return DefaultPolicy(nil, nil), nil
+	}
 	if err != nil {
 		return Policy{}, fmt.Errorf("%w: %w", ErrPolicyUnknown, err)
 	}

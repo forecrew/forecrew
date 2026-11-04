@@ -268,6 +268,33 @@ func TestGeneratedTakesNoProposals(t *testing.T) {
 
 var errTest = errors.New("boom")
 
+// An empty repo or a missing branch has no policy file and nothing to
+// protect, so the default policy holds (and is not kept); only a read error
+// leaves the policy unknown.
+func TestPolicyOfAnEmptyRepo(t *testing.T) {
+	e := newSyncEnv(t) // the fake has no branch yet
+	for _, err := range []error{github.ErrEmptyRepo, github.ErrNotFound} {
+		api := &headErr{SyncAPI: e.tr, err: err}
+		s := &knowledge.Syncer{Store: e.st, Index: &knowledge.Index{Store: e.st}, API: api, Now: e.clock.Now}
+		pol, perr := s.Policy(t.Context(), e.project)
+		if perr != nil || len(knowledge.MissingSections(pol)) != len(knowledge.SeedSections) {
+			t.Errorf("%v: policy = %+v, %v", err, pol, perr)
+		}
+	}
+	api := &headErr{SyncAPI: e.tr, err: errors.New("502")}
+	s := &knowledge.Syncer{Store: e.st, Index: &knowledge.Index{Store: e.st}, API: api, Now: e.clock.Now}
+	if _, err := s.Policy(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+		t.Errorf("a read error: %v", err)
+	}
+}
+
+type headErr struct {
+	knowledge.SyncAPI
+	err error
+}
+
+func (h *headErr) HeadSHA(context.Context, string, string) (string, error) { return "", h.err }
+
 // failingAPI makes the reads of a SyncAPI fail while down is set.
 type failingAPI struct {
 	knowledge.SyncAPI

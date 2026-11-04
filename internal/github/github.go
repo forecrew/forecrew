@@ -27,6 +27,12 @@ var (
 	// ErrForbidden means the App may not do this: a permission it was not
 	// granted (HTTP 403).
 	ErrForbidden = errors.New("github: forbidden")
+	// ErrConflict means GitHub answered 409: the request conflicts with the
+	// state of the resource.
+	ErrConflict = errors.New("github: conflict")
+	// ErrEmptyRepo means the repo has no commits, so no branch exists yet
+	// (HTTP 409 "Git Repository is empty" on the ref endpoint).
+	ErrEmptyRepo = errors.New("github: repository is empty")
 )
 
 // TreeEntry is a file (blob) of a repo tree.

@@ -71,7 +71,9 @@ The policy (`.forecrew/knowledge-policy.yaml`, or the default mapping) decides
 who reads which section and which paths writing roles may not change. It is
 kept in memory per project and read again from the default branch when a sync
 runs. After a restart nothing is in memory: the first search or job reads it
-from GitHub. When that is impossible (GitHub down, a policy file that does not
+from GitHub. A repo without commits, or without the default branch, has no
+policy file and nothing to protect: the default policy holds, so its project
+can onboard. When the read fails otherwise (GitHub down, a policy file that does not
 parse) everything that needs it refuses: `kb_search` and `search_knowledge`
 answer `unavailable` and a writing role's job is not created. There is no
 default policy to fall back to, because the default would allow what a policy
