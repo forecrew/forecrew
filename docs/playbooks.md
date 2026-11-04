@@ -226,6 +226,7 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `goal.settle` | `goal_id` | `{status}`. Cancels a goal that is not done, closes its unmerged tasks and their issues and the goal's with a comment (once). A task whose PR is merged, as the change or GitHub say, becomes `merged`, not `closed`: merged PRs stay merged. |
 | `profile.validate` | `profile` and/or `repo` and `ref`, `attempt`, `attempts` | `{valid, errors}`: checks the profile value and/or the profile file of `repo` at `ref`. Fails on the last attempt. |
 | `discover.github` | `repo` | `{integrations, notes, text}`. Reads, with the App's token, the repo's autolinks and the link hosts in the bodies of its 100 most recent issues and pull requests, and outputs the integrations found (confidence and evidence as in the profile). It never contacts the hosts it finds. A read the App may not do is a note, not a failure; `text` is what the analyst is told, empty when nothing was found. Read-only, so idempotent. Use `on_failure: escalate`. |
+| `matrix.plan` | `repo`, `ref`, `scope`, `suites` | `{cells, jobs, errors}`. Reads `.forecrew/matrix.yaml` and the environments its rules name at `ref` and expands them (see [Running a matrix](#running-a-matrix)). Invalid files, a scope that does not fit the matrix, or a matrix over the plan's limits give `errors` as text and empty `cells` and `jobs`, for the playbook to act on; only a read that fails fails the step. Read-only, so idempotent. |
 | `profile.feedback` | `human`, `errors`, `discovery` | The feedback text of an analyst job: the reviewer's feedback, the validator's errors and the `discovery` text, each when not empty. |
 | `onboarding.proposal` | `profile`, `summary`, `assumptions` | `{title, body}`: the profile PR text. |
 | `onboarding.settle` | none | Puts a project still onboarding back to registered. |
@@ -240,6 +241,54 @@ a command without an agent. Its `with` keys are `kind`, `command` (`argv` or
 (default 30m) and the goal, spec and task refs. `role`, `pool`, `prompt` and
 `feedback` are refused: the pool follows from the environment. Its output is
 empty; the results are the job's test runs (`list_test_runs`).
+
+`from`, one `${...}` reference to an object, fills `cell`, `suite`,
+`environment`, `needs` and `command` from that object, and `command` is then
+not required in `with`. Other keys of the object are ignored and the `with`'s
+own keys win. `kind: command` must be literal.
+
+### Running a matrix
+
+`matrix.plan` turns the test matrix into a list a parallel foreach runs, with
+no step type of its own:
+
+```yaml
+- id: plan
+  type: action
+  action: matrix.plan
+  with: {repo: '${inputs.repo}', ref: '${inputs.sha}', scope: required, suites: '${steps.tests.output.suites}'}
+- id: cells
+  type: foreach
+  parallel: 8
+  items: '${steps.plan.output.jobs}'
+  steps:
+    - {id: run, type: job, with: {kind: command, repo: '${inputs.repo}', base_ref: '${inputs.sha}', from: '${item}'}}
+```
+
+`scope` selects `all` (every suite in every cell it applies to), `required`
+(required suites in the cells of the matrix's `required`) or `quirks` (suites
+with `quirks: true`). `suites` adds those suites in every cell they apply to;
+without `scope` only they run. A cell with no suite in scope is left out.
+
+- `cells` has one `{key, cell, environment, pool, needs, suites}` per cell:
+  `key` is the axis values as text (`database=pg18,os=linux`), `environment`
+  the whole environment, `suites` the matrix's suites. Cells follow the axes
+  sorted by name, the last one changing fastest and values in file order, then
+  the `include` cells; `exclude` is applied before `include`.
+- `jobs` has one `{key, cell, suite, environment, needs, command}` per suite of
+  each cell, in the same order, since a command job runs one suite. `key` is
+  `<cell key>/<suite>` and `command` carries the suite's `reports` and
+  `artifacts`.
+- `pool` is `actions` for environments with provider `actions`, otherwise
+  `build`. `needs` are the `runs_on` label for `actions`, otherwise the
+  environment's `needs` and the cell's `os` axis value, unless it has spaces.
+  The job creator adds `docker` for the environments that need it.
+- A cell that no environment rule matches, or an environment file that is
+  missing or invalid, is an error of the plan.
+- A plan has limits, because the matrix file comes from the repo: the axes
+  multiplied together, before `exclude`, plus the `include` entries may give
+  at most 256 cells, and one plan at most 256 jobs (`matrix.MaxCells`,
+  `matrix.MaxJobs`). Above them the plan has `errors` and no cells.
 
 ## Roles
 
