@@ -592,6 +592,13 @@ type KnowledgeRepo interface {
 	// SetEmbedding stores an entry's embedding. It fails with
 	// errors.ErrUnsupported when the database has no pgvector.
 	SetEmbedding(ctx context.Context, accountID, id uuid.UUID, embedding []float32) error
+	// SupportsEmbeddings reports whether the database keeps embeddings
+	// (pgvector). Callers send no text to an embeddings provider when not.
+	SupportsEmbeddings(ctx context.Context) (bool, error)
+	// WithoutEmbedding returns up to limit entries of the project that
+	// have no embedding, oldest first; none without pgvector. Their
+	// embedding failed or was never tried, and is retried later.
+	WithoutEmbedding(ctx context.Context, accountID, projectID uuid.UUID, limit int) ([]domain.KnowledgeEntry, error)
 	// MarkReverify sets needs_reverify with the reason on the entries.
 	MarkReverify(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID, reason string) error
 	// DeleteExpired deletes the notes whose ExpiresAt is before t and

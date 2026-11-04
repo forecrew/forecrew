@@ -152,7 +152,15 @@ func (s *knowledgeSuite) embeddings(supported bool) {
 	t, ctx := s.t, s.t.Context()
 	vec := make([]float32, 1536)
 	vec[0] = 1
-	err := s.repo.SetEmbedding(ctx, s.account, s.adr.ID, vec)
+	has, err := s.repo.SupportsEmbeddings(ctx)
+	if err != nil || has != supported {
+		t.Fatalf("SupportsEmbeddings = %v, %v; want %v", has, err, supported)
+	}
+	without, err := s.repo.WithoutEmbedding(ctx, s.account, s.project, 100)
+	if err != nil || len(without) != 0 && !supported || supported && len(without) != 6 {
+		t.Fatalf("WithoutEmbedding = %d entries, %v", len(without), err)
+	}
+	err = s.repo.SetEmbedding(ctx, s.account, s.adr.ID, vec)
 	if !supported {
 		if !errors.Is(err, errors.ErrUnsupported) {
 			t.Fatalf("SetEmbedding without pgvector = %v, want ErrUnsupported", err)
@@ -160,6 +168,9 @@ func (s *knowledgeSuite) embeddings(supported bool) {
 		return
 	}
 	mustT(t, err)
+	if without, err = s.repo.WithoutEmbedding(ctx, s.account, s.project, 100); err != nil || len(without) != 5 {
+		t.Errorf("WithoutEmbedding after one embedding = %d, %v", len(without), err)
+	}
 	semantic := store.KnowledgeQuery{ProjectID: s.project, Text: "unrelatedwordzzz", Embedding: vec}
 	if hits, err := s.repo.Search(ctx, s.account, semantic); err != nil || len(hits) != 1 || hits[0].Entry.Path != s.adr.Path {
 		t.Errorf("semantic-only search = %+v, %v", hits, err)
