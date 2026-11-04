@@ -112,7 +112,7 @@ func TestLoopsRun(t *testing.T) {
 	pool := testkit.NewDatabase(t)
 	must(t, postgres.Migrate(ctx, pool))
 	st := postgres.New(pool)
-	acc := domain.Account{Name: "default"}
+	acc := domain.Account{Name: "loops"}
 	must(t, st.Accounts().Create(ctx, &acc))
 	project := domain.Project{AccountID: acc.ID, Name: "app", Repo: "acme/app", DefaultBranch: "main", Status: domain.ProjectOnboarded}
 	must(t, st.Projects().Create(ctx, &project))

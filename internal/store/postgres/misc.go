@@ -378,18 +378,24 @@ func (r webhookRepo) Record(ctx context.Context, d domain.WebhookDelivery) (bool
 
 type mcpTokenRepo struct{ db dbtx }
 
-var tokenCols = `id, account_id, name, token_hash, ` + ctime("last_used_at") + `, ` + ctime("revoked_at") + `, created_at`
+var tokenCols = `id, account_id, name, token_hash, ` + ctext("owner_kind") + `, ` + cuuid("owner_id") + `, scopes, ` +
+	ctime("expires_at") + `, ` + ctime("last_used_at") + `, ` + ctime("revoked_at") + `, created_at`
 
 func scanToken(row pgx.Row) (t domain.MCPToken, err error) {
-	err = row.Scan(&t.ID, &t.AccountID, &t.Name, &t.TokenHash, &t.LastUsedAt, &t.RevokedAt, &t.CreatedAt)
-	utc(&t.LastUsedAt, &t.RevokedAt, &t.CreatedAt)
+	var scopes []string
+	err = row.Scan(&t.ID, &t.AccountID, &t.Name, &t.TokenHash, &t.OwnerKind, &t.OwnerID, &scopes,
+		&t.ExpiresAt, &t.LastUsedAt, &t.RevokedAt, &t.CreatedAt)
+	t.Scopes = fromStrings[domain.Scope](scopes)
+	utc(&t.ExpiresAt, &t.LastUsedAt, &t.RevokedAt, &t.CreatedAt)
 	return t, err
 }
 
 func (r mcpTokenRepo) Create(ctx context.Context, t *domain.MCPToken) error {
 	t.ID = newID(t.ID)
-	return mapErr(r.db.QueryRow(ctx, `INSERT INTO mcp_tokens (id, account_id, name, token_hash) VALUES ($1, $2, $3, $4) RETURNING created_at`,
-		t.ID, t.AccountID, t.Name, t.TokenHash).Scan(&t.CreatedAt))
+	t.Scopes = t.ScopesOrLegacy()
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO mcp_tokens (id, account_id, name, token_hash, owner_kind, owner_id, scopes, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING created_at`,
+		t.ID, t.AccountID, t.Name, t.TokenHash, opt(t.OwnerKind), opt(t.OwnerID), toStrings(t.Scopes), opt(t.ExpiresAt)).Scan(&t.CreatedAt))
 }
 
 func (r mcpTokenRepo) GetByTokenHash(ctx context.Context, hash []byte) (domain.MCPToken, error) {
@@ -412,11 +418,11 @@ func (r mcpTokenRepo) Revoke(ctx context.Context, accountID, id uuid.UUID) error
 
 type auditRepo struct{ db dbtx }
 
-var auditCols = `id, account_id, ` + cuuid("project_id") + `, actor, action, subject_type, ` + cuuid("subject_id") + `, data, created_at`
+var auditCols = `id, account_id, ` + cuuid("project_id") + `, actor, ` + ctext("credential") + `, action, subject_type, ` + cuuid("subject_id") + `, data, created_at`
 
 func scanAudit(row pgx.Row) (e domain.AuditEntry, err error) {
 	var data []byte
-	err = row.Scan(&e.ID, &e.AccountID, &e.ProjectID, &e.Actor, &e.Action, &e.SubjectType, &e.SubjectID, &data, &e.CreatedAt)
+	err = row.Scan(&e.ID, &e.AccountID, &e.ProjectID, &e.Actor, &e.Credential, &e.Action, &e.SubjectType, &e.SubjectID, &data, &e.CreatedAt)
 	e.Data = data
 	utc(&e.CreatedAt)
 	return e, err
@@ -427,9 +433,9 @@ func (r auditRepo) Append(ctx context.Context, e *domain.AuditEntry) error {
 	if err := owned(ctx, r.db, e.AccountID, ref{"projects", e.ProjectID}); err != nil {
 		return err
 	}
-	return mapErr(r.db.QueryRow(ctx, `INSERT INTO audit_log (id, account_id, project_id, actor, action, subject_type, subject_id, data)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING created_at`,
-		e.ID, e.AccountID, opt(e.ProjectID), e.Actor, e.Action, e.SubjectType, opt(e.SubjectID), optJSON(e.Data)).Scan(&e.CreatedAt))
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO audit_log (id, account_id, project_id, actor, credential, action, subject_type, subject_id, data)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING created_at`,
+		e.ID, e.AccountID, opt(e.ProjectID), e.Actor, opt(e.Credential), e.Action, e.SubjectType, opt(e.SubjectID), optJSON(e.Data)).Scan(&e.CreatedAt))
 }
 
 func (r auditRepo) List(ctx context.Context, accountID uuid.UUID, f store.AuditFilter) ([]domain.AuditEntry, error) {

@@ -173,3 +173,21 @@ func owned(ctx context.Context, db dbtx, accountID uuid.UUID, refs ...ref) error
 	}
 	return nil
 }
+
+// toStrings converts a slice of string-like values for a text[] column.
+func toStrings[S ~string](v []S) []string {
+	out := make([]string, len(v))
+	for i, s := range v {
+		out[i] = string(s)
+	}
+	return out
+}
+
+// fromStrings converts a scanned text[] column back.
+func fromStrings[S ~string](v []string) []S {
+	out := make([]S, len(v))
+	for i, s := range v {
+		out[i] = S(s)
+	}
+	return out
+}

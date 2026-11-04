@@ -23,12 +23,21 @@ type accountRepo struct{ s *Store }
 func (r accountRepo) Create(_ context.Context, a *domain.Account) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
 		a.ID = newID(a.ID)
-		if a.Slug == "" {
-			a.Slug = domain.Slugify(a.Name)
+		taken := func(slug string) bool {
+			return d.accounts.exists(func(x domain.Account) bool { return x.Slug == slug })
 		}
-		if d.accounts.exists(func(x domain.Account) bool { return x.ID == a.ID || x.Slug == a.Slug }) {
+		slug := a.Slug
+		if slug == "" {
+			base := domain.Slugify(a.Name)
+			slug = base
+			for n := 2; taken(slug); n++ {
+				slug = domain.SlugCandidate(base, n)
+			}
+		}
+		if taken(slug) || d.accounts.exists(func(x domain.Account) bool { return x.ID == a.ID }) {
 			return fmt.Errorf("account %s: %w", a.ID, store.ErrConflict)
 		}
+		a.Slug = slug
 		a.CreatedAt = now
 		d.accounts.insert(*a)
 		return nil
@@ -41,6 +50,13 @@ func (r accountRepo) Get(_ context.Context, id uuid.UUID) (domain.Account, error
 
 func (r accountRepo) List(context.Context) ([]domain.Account, error) {
 	return listRows(r.s, accountsT, 0, func(domain.Account) bool { return true })
+}
+
+func (r accountRepo) SetMaxTokenTTL(_ context.Context, id uuid.UUID, ttl time.Duration) error {
+	return update(r.s, accountsT, id, id, func(a *domain.Account, _ time.Time) error {
+		a.MaxTokenTTL = domain.Duration(ttl)
+		return nil
+	})
 }
 
 // Projects implements store.Store.

@@ -3,7 +3,9 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
@@ -23,18 +25,45 @@ func newID(id uuid.UUID) uuid.UUID {
 
 type accountRepo struct{ db dbtx }
 
-const accountCols = `id, name, created_at`
+var accountCols = `id, name, slug, ` + ctext("created_by") + `, COALESCE(max_token_ttl, '0'), created_at`
 
 func scanAccount(row pgx.Row) (a domain.Account, err error) {
-	err = row.Scan(&a.ID, &a.Name, &a.CreatedAt)
+	var ttl time.Duration
+	err = row.Scan(&a.ID, &a.Name, &a.Slug, &a.CreatedBy, &ttl, &a.CreatedAt)
+	a.MaxTokenTTL = domain.Duration(ttl)
 	utc(&a.CreatedAt)
 	return a, err
 }
 
+const insertAccount = `INSERT INTO accounts (id, name, slug, created_by, max_token_ttl) VALUES ($1, $2, $3, $4, $5)`
+
+// Create stores the account. ON CONFLICT rather than catching the unique
+// violation, which would abort a surrounding transaction, and so that
+// concurrent creates of one name each get their own slug.
 func (r accountRepo) Create(ctx context.Context, a *domain.Account) error {
 	a.ID = newID(a.ID)
-	return mapErr(r.db.QueryRow(ctx, `INSERT INTO accounts (id, name) VALUES ($1, $2) RETURNING created_at`,
-		a.ID, a.Name).Scan(&a.CreatedAt))
+	insert := func(sql, slug string) error {
+		return r.db.QueryRow(ctx, sql, a.ID, a.Name, slug, opt(a.CreatedBy), opt(time.Duration(a.MaxTokenTTL))).Scan(&a.CreatedAt)
+	}
+	if a.Slug != "" {
+		return mapErr(insert(insertAccount+` RETURNING created_at`, a.Slug))
+	}
+	base := domain.Slugify(a.Name)
+	for n := 1; ; n++ {
+		slug := domain.SlugCandidate(base, n)
+		err := insert(insertAccount+` ON CONFLICT (slug) DO NOTHING RETURNING created_at`, slug)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err == nil {
+			a.Slug = slug
+		}
+		return mapErr(err)
+	}
+}
+
+func (r accountRepo) SetMaxTokenTTL(ctx context.Context, id uuid.UUID, ttl time.Duration) error {
+	return mustUpdate(ctx, r.db, `UPDATE accounts SET max_token_ttl = $2 WHERE id = $1`, id, opt(ttl))
 }
 
 func (r accountRepo) Get(ctx context.Context, id uuid.UUID) (domain.Account, error) {

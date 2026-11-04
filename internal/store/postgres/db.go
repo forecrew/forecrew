@@ -133,7 +133,12 @@ func (s *Store) TestRuns() store.TestRunRepo { return testRunRepo{s.db} }
 const (
 	codeUnique     = "23505"
 	codeForeignKey = "23503"
+	codeCheck      = "23514"
 )
+
+// lastOwnerConstraint is the constraint name the owner triggers of
+// migration 00005 raise.
+const lastOwnerConstraint = "last_owner"
 
 // mapErr converts driver errors into the store sentinels.
 func mapErr(err error) error {
@@ -149,6 +154,10 @@ func mapErr(err error) error {
 			return fmt.Errorf("%w: %s", store.ErrConflict, pg.ConstraintName)
 		case codeForeignKey:
 			return fmt.Errorf("%w: %s", store.ErrNotFound, pg.ConstraintName)
+		case codeCheck:
+			if pg.ConstraintName == lastOwnerConstraint {
+				return store.ErrLastOwner
+			}
 		}
 	}
 	return err

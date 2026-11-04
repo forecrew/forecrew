@@ -39,6 +39,11 @@ var (
 	ErrNoJob = errors.New("no job available")
 	// ErrLeaseLost means the job is not running under the caller's lease.
 	ErrLeaseLost = errors.New("lease lost")
+	// ErrLastOwner means a change would leave an organization that has an
+	// active Owner without one (docs/contracts/identity.md): removing or
+	// demoting the last Owner, suspending or removing their membership, or
+	// disabling the user.
+	ErrLastOwner = errors.New("an organization must keep an active owner")
 )
 
 // Store gives access to every repository.
@@ -71,9 +76,14 @@ type Store interface {
 
 // AccountRepo stores accounts.
 type AccountRepo interface {
+	// Create stores the account. An empty Slug is derived from the name
+	// (domain.Slugify) with the first free -2, -3, ...; a Slug that is
+	// given and taken fails with ErrConflict.
 	Create(ctx context.Context, a *domain.Account) error
 	Get(ctx context.Context, id uuid.UUID) (domain.Account, error)
 	List(ctx context.Context) ([]domain.Account, error)
+	// SetMaxTokenTTL sets the organization's token cap; zero removes it.
+	SetMaxTokenTTL(ctx context.Context, id uuid.UUID, ttl time.Duration) error
 }
 
 // ProjectRepo stores projects. Name and Repo are unique per account

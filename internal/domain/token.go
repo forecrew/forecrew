@@ -32,6 +32,16 @@ func (t MCPToken) Usable(now time.Time) bool {
 	return t.RevokedAt.IsZero() && (t.ExpiresAt.IsZero() || now.Before(t.ExpiresAt))
 }
 
+// ScopesOrLegacy returns Scopes, or [admin] for an ownerless token without
+// scopes: a legacy token, as the server CLI's forecrew token create makes
+// them until personal tokens replace it.
+func (t MCPToken) ScopesOrLegacy() []Scope {
+	if len(t.Scopes) == 0 && t.OwnerKind == "" {
+		return []Scope{ScopeAdmin}
+	}
+	return t.Scopes
+}
+
 // Validate checks the owner (both or neither of kind and ID; a user or a
 // service account), at least one known scope, and the hash.
 func (t MCPToken) Validate() error {
