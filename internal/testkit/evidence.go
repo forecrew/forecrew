@@ -7,7 +7,9 @@ import (
 	"io"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/forecrew/forecrew/internal/evidence"
 )
@@ -18,6 +20,9 @@ var _ evidence.Store = (*Evidence)(nil)
 type StoredObject struct {
 	Data        []byte
 	ContentType string
+	// Modified is when the object was stored (the real time unless a test
+	// sets it with SetModified).
+	Modified time.Time
 }
 
 // Evidence is an in-memory evidence.Store. Like S3, a Put whose reader
@@ -26,7 +31,7 @@ type Evidence struct {
 	mu      sync.Mutex
 	objects map[string]StoredObject
 	// PutErr, GetErr and DeleteErr, when set, make the call fail.
-	PutErr, GetErr, DeleteErr error
+	PutErr, GetErr, DeleteErr, ListErr error
 	// AfterPut, when set, runs after each successful Put, to let a test
 	// change the world while an upload is in flight.
 	AfterPut func()
@@ -48,7 +53,7 @@ func (e *Evidence) Put(_ context.Context, key string, r io.Reader, size int64, c
 		return fmt.Errorf("body is %d bytes, declared %d", len(data), size)
 	}
 	e.mu.Lock()
-	e.objects[key] = StoredObject{Data: data, ContentType: contentType}
+	e.objects[key] = StoredObject{Data: data, ContentType: contentType, Modified: time.Now().UTC()}
 	e.mu.Unlock()
 	if e.AfterPut != nil {
 		e.AfterPut()
@@ -94,4 +99,33 @@ func (e *Evidence) Keys() []string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return slices.Sorted(maps.Keys(e.objects))
+}
+
+// SetModified sets the last-modified time of the object at key.
+func (e *Evidence) SetModified(key string, t time.Time) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	o := e.objects[key]
+	o.Modified = t
+	e.objects[key] = o
+}
+
+// List implements evidence.Store.
+func (e *Evidence) List(_ context.Context, prefix, after string, limit int) ([]evidence.Object, error) {
+	if e.ListErr != nil {
+		return nil, e.ListErr
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := []evidence.Object{}
+	for _, k := range slices.Sorted(maps.Keys(e.objects)) {
+		if len(out) >= limit {
+			break
+		}
+		if k > after && strings.HasPrefix(k, prefix) {
+			o := e.objects[k]
+			out = append(out, evidence.Object{Key: k, Size: int64(len(o.Data)), LastModified: o.Modified})
+		}
+	}
+	return out, nil
 }
