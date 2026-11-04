@@ -35,7 +35,7 @@ rejected.
 
 | Type | Fields | What it does |
 |------|--------|--------------|
-| `job` | `with`, `on_failure` | Creates a job through `workflow.JobCreator`, then waits for its `job.completed`. `with` takes the json keys of `workflow.JobRequest` (`role` required; `account_id`, `project_id` are set by the engine; `goal_id` and `task_id` default to the run's; `pool` picks the worker pool and defaults to the role pack's `pool`, and a pool whose policy does not run the role fails the step (docs/worker.md, Pools); `prompt` adds instructions to the job's prompt and must be literal text written in the playbook: a `${...}` reference in it is refused when the playbook loads, because the prompt is rendered as trusted instructions). Fails when the job fails or is canceled. |
+| `job` | `with`, `on_failure` | Creates a job through `workflow.JobCreator`, then waits for its `job.completed`. `with` takes the json keys of `workflow.JobRequest` (`role` required; `account_id`, `project_id` are set by the engine; `goal_id` and `task_id` default to the run's; `pool` picks the worker pool and defaults to the role pack's `pool`, and a pool whose policy does not run the role fails the step (docs/worker.md, Pools); `prompt` adds instructions to the job's prompt and must be literal text written in the playbook: a `${...}` reference in it is refused when the playbook loads, because the prompt is rendered as trusted instructions; `locked_paths`, a list of globs, goes into the job spec and the prompt: the job fails if it changes a matching file, see Locked tests). Fails when the job fails or is canceled. |
 | `action` | `action`, `with`, `on_failure` | Calls the Go function registered under `action` in `workflow.Actions` with the resolved `with`. Its result is the step output; an error fails the step. |
 | `gate` | `with`, `on_failure` | Opens a gate and waits for `gate.resolved`. `with` takes the json keys of `gates.OpenRequest`: `kind`, `title`, `subject_repo` (required), `summary`, `subject_number`, `goal_id`, `spec_id`, `task_id`, `job_id`. |
 | `wait` | `with`, `timeout`, `on_failure` | Waits for a signal. `with.signal` is the kind and the remaining keys build its key with the `domain` helpers: `checks.completed` (`repo`, `sha`), `pr.merged` / `pr.closed` (`repo`, `number`), `job.completed` (`job_id`), `gate.resolved` (`gate_id`). The first signal stored under the key completes the step, so for a PR either merged or closed does (the output's `signal` says which). On `job.completed` the step follows the job-step rules: it outputs the job's values and fails when the job did not succeed. On `gate.resolved` it outputs the gate's values but does not apply the gate-decision rules below. Unlike job and gate steps, a wait has no lost-signal fallback. `timeout` (Go duration, e.g. `30m`) fails the step after that long; zero waits forever. |
@@ -224,6 +224,9 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `goal.task_done` | `task_id`, `repo`, `number`, `feedback` | `{done, merged, sha, feedback}`. A merged PR moves the task to `merged` (`done`); otherwise it outputs the human's `feedback` for the next delivery; closed without merging fails. |
 | `goal.close` | `goal_id` | `{tasks, cost_usd}`. Needs every task merged. Comments the summary (tasks, PRs, developer runs, cost of every job of the goal) on the goal issue, closes it and moves the goal to `done`. |
 | `goal.settle` | `goal_id` | `{status}`. Cancels a goal that is not done, closes its unmerged tasks and their issues and the goal's with a comment (once). A task whose PR is merged, as the change or GitHub say, becomes `merged`, not `closed`: merged PRs stay merged. |
+| `tests.locked_paths` | `task_id` | `{locked_paths}`. The files of every successful `test-engineer` job of the task (`files` and the `file` of every test in its `test-map.json` output; a retry lists only what it changed itself, so all jobs count), as globs that match exactly those paths (`[`, `*`, `?`, `{`, `}` become one-character classes), sorted; `[]` when the task has no such job. Fails for a file name with a backslash or starting with `!`. Pass it as `with.locked_paths` of the developer's `job` step; the JobCreator refuses control characters and backticks in it. |
+| `tests.base_check_request` | `repo`, `base`, `head`, `tests`, optional `files` | `{requests}`. `tests` are the `tests` entries of the test map (`suite`, `id`, `file`). Reads `.forecrew/matrix.yaml` and the environment files at `head`. For every suite the tests belong to and every environment its cells run in, one command job request (the first cell that maps to that environment) that runs the suite on `base` with `overlay` = `head` and the files of `files` and of `tests` together. Only test files may be overlaid: a path the `test-engineer` role may not write (`Makefile`, `go.mod`, `.forecrew/**`, scripts) fails the action. Fails when `head` has no valid matrix or environment, or names no such suite. Use the requests as the `items` of a `foreach` of `kind: command` job steps. |
+| `tests.base_check_result` | `runs`, `tests` | `{new_tests: [{id, failed_on_base}], ok}`. `runs` are the base check's jobs: job IDs, the outputs of job steps (`job_id`), or the rounds of a `foreach` over a job step (`{<step id>: {job_id, ...}}`); an element without a job ID fails the action. `tests` are the same entries as for the request. Reads the test runs the jobs stored. A test failed on base when, in every run of its suite, it has a result and all its results (a repeated id has several) are `failed` or `errored`, or it has no result and the command really failed: `exit_code` above 0 and the run is `errored`, has a `(command)` result, or is not `passed` (a compile error of one package next to an unrelated failing test counts). It does not count when the exit code is 0 (wrong report path, unreadable or empty report), -1 (timeout or not started), or the run is an oversized one (`max_test_results_size`). A test that passed or was skipped, and one whose suite has no run, did not fail on base. `ok` is true when every new test failed on base. |
 | `profile.validate` | `profile` and/or `repo` and `ref`, `attempt`, `attempts` | `{valid, errors}`: checks the profile value and/or the profile file of `repo` at `ref`. Fails on the last attempt. |
 | `discover.github` | `repo` | `{integrations, notes, text}`. Reads, with the App's token, the repo's autolinks and the link hosts in the bodies of its 100 most recent issues and pull requests, and outputs the integrations found (confidence and evidence as in the profile). It never contacts the hosts it finds. A read the App may not do is a note, not a failure; `text` is what the analyst is told, empty when nothing was found. Read-only, so idempotent. Use `on_failure: escalate`. |
 | `matrix.plan` | `repo`, `ref`, `scope`, `suites` | `{cells, jobs, errors}`. Reads `.forecrew/matrix.yaml` and the environments its rules name at `ref` and expands them (see [Running a matrix](#running-a-matrix)). Invalid files, a scope that does not fit the matrix, or a matrix over the plan's limits give `errors` as text and empty `cells` and `jobs`, for the playbook to act on; only a read that fails fails the step. Read-only, so idempotent. |
@@ -289,6 +292,29 @@ without `scope` only they run. A cell with no suite in scope is left out.
   multiplied together, before `exclude`, plus the `include` entries may give
   at most 256 cells, and one plan at most 256 jobs (`matrix.MaxCells`,
   `matrix.MaxJobs`). Above them the plan has `errors` and no cells.
+
+### Locked tests
+
+The tests a test engineer wrote from the spec are locked while the developer
+works: `tests.locked_paths` gives the globs, and the developer's `job` step
+passes them as `with.locked_paths`. The worker fails the job, pushing nothing,
+when a changed file matches (the error names the files), and the prompt lists
+them. A developer that believes a locked test is wrong escalates with the
+test and the reason (its `escalation`) instead of changing it. That
+escalation opens a `needs_you` gate; when a human approves it, the developer
+runs again with `locked_paths` empty for that round (the playbook passes `[]`
+for the round the gate decision allows), and the lock is back in the next
+rounds. Without approval the lock stays. The goal playbook wires this (T29).
+
+Limit: the lock covers the files the test engineer wrote. A locked test can
+still be neutralised without touching it, for example by a new `conftest.py`
+or a change of the runner's configuration. The goal playbook must therefore
+treat a new test that is missing from the results at `head` as a failure
+(T29), and the reviewer sees the diff.
+
+The fail-on-base check shows every new test fails without the change: the new
+test files from `head` are run on `base` (`tests.base_check_request`) and
+`tests.base_check_result` reads the stored runs.
 
 ## Roles
 
