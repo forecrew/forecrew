@@ -112,6 +112,7 @@ type jobRun struct {
 
 	// deadline ends the timeout budget of a command job; zero means none.
 	deadline time.Time
+	docker   *dockerJob // the container of a docker environment; nil on the host
 	logMu    sync.Mutex // guards logBytes and logCut
 	logBytes int64      // log text of the command so far
 	logCut   bool       // the log limit was reached

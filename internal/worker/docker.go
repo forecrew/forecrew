@@ -56,7 +56,9 @@ func newDockerCLI(bin, workDir string, environ []string) *dockerCLI {
 
 // exec runs docker with args, streaming output lines to onOut and onErr.
 func (d *dockerCLI) exec(ctx context.Context, timeout time.Duration, onOut, onErr func([]byte), args ...string) (runtime.Exit, error) {
-	return runtime.Exec(ctx, runtime.Process{Path: d.bin, Args: args, Env: d.env, Timeout: timeout}, onOut, onErr)
+	p := d.process(args...)
+	p.Timeout = timeout
+	return runtime.Exec(ctx, p, onOut, onErr)
 }
 
 // output runs docker with args and returns its standard output, trimmed. An
@@ -161,4 +163,9 @@ func (d *dockerCLI) pruneImages(ctx context.Context, m imageMarkers, maxAge time
 		}
 	}
 	return removed, errors.Join(errs...)
+}
+
+// process is the docker client run with args.
+func (d *dockerCLI) process(args ...string) runtime.Process {
+	return runtime.Process{Path: d.bin, Args: args, Env: d.env}
 }

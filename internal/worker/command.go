@@ -63,8 +63,12 @@ func (r *jobRun) executeCommand(ctx context.Context) Completion {
 	if err := spec.Validate(); err != nil {
 		return r.failed("%v", err)
 	}
-	if env := spec.Environment; env != nil && env.Provider != domain.ProviderMachine {
-		return r.failed("environment provider %s is not supported by this worker", env.Provider)
+	env := spec.Environment
+	switch {
+	case env != nil && env.Provider == domain.ProviderActions:
+		return r.failed("environment provider %s is not run by workers", env.Provider)
+	case env != nil && env.Provider == domain.ProviderMachine && len(env.Services) > 0:
+		return r.failed("services need provider docker; environment %s runs on the machine", env.Name)
 	}
 	start, workdir, done := r.prepareCommand(ctx)
 	defer r.w.git.remove(context.WithoutCancel(ctx), r.cache, r.dir)
@@ -73,26 +77,36 @@ func (r *jobRun) executeCommand(ctx context.Context) Completion {
 	}
 
 	mark := spec.JobID.String()
-	env := r.commandEnv(mark)
 	if t := time.Duration(spec.Timeout); t > 0 {
-		r.deadline = time.Now().Add(t) // setup and the command share it
+		r.deadline = time.Now().Add(t) // build, setup and the command share it
 	}
 	r.w.reaper.agentStarted()
 	sweep := sync.OnceFunc(func() {
 		if n := r.w.reaper.agentDone(mark); n > 0 {
 			r.log.Warn("killed processes the command left running", "count", n)
 		}
+		if r.docker != nil {
+			r.docker.cleanup(ctx) // the containers and services die with it
+		}
 	})
 	defer sweep()
 
-	if done := r.setup(ctx, env); done != nil {
+	if env != nil && env.Provider == domain.ProviderDocker {
+		dj, done := r.startDocker(ctx, mark)
+		r.docker = dj
+		if done != nil {
+			return *done
+		}
+	}
+	cmdEnv := r.commandEnv(mark)
+	if done := r.setup(ctx, cmdEnv); done != nil {
 		return *done
 	}
-	versions := r.versions(ctx, env)
+	versions := r.versions(ctx, cmdEnv)
 
 	r.ev.text(domain.EventStatus, "running")
 	began := time.Now()
-	exit, runErr := r.exec(ctx, r.commandProcess(workdir, env))
+	exit, runErr := r.exec(ctx, r.commandProcess(workdir, cmdEnv))
 	elapsed := time.Since(began)
 	if ctx.Err() != nil {
 		return Completion{}
@@ -191,9 +205,22 @@ func (r *jobRun) logLine(s string) {
 func (r *jobRun) commandProcess(dir string, env []string) runtime.Process {
 	c := r.spec.Command
 	if c.Shell != "" {
-		return shellProcess(c.Shell, dir, env, 0)
+		return r.shell(c.Shell, dir, env, 0)
 	}
-	return runtime.Process{Path: c.Argv[0], Args: c.Argv[1:], Dir: dir, Env: env}
+	p := runtime.Process{Path: c.Argv[0], Args: c.Argv[1:], Dir: dir, Env: env}
+	if r.docker != nil {
+		return r.docker.contain(p)
+	}
+	return p
+}
+
+// shell builds the process that runs a shell script on the host, or in the
+// job container of a docker environment.
+func (r *jobRun) shell(script, dir string, env []string, timeout time.Duration) runtime.Process {
+	if r.docker != nil {
+		return r.docker.contain(runtime.Process{Path: "sh", Args: []string{"-c", script}, Dir: dir, Env: env, Timeout: timeout})
+	}
+	return shellProcess(script, dir, env, timeout)
 }
 
 func shellProcess(script, dir string, env []string, timeout time.Duration) runtime.Process {
@@ -214,51 +241,82 @@ var commandEnvNames = map[string]bool{
 	"USERPROFILE": true, "APPDATA": true, "LOCALAPPDATA": true, "PROGRAMDATA": true,
 }
 
+// containerEnvNames are the variables of the worker's environment a docker
+// environment's container inherits (LC_* too): the locale and time zone.
+// Paths and users of the host would only break the image.
+var containerEnvNames = map[string]bool{"LANG": true, "TZ": true}
+
+// containerHome is the HOME of the job container: its user may have no entry
+// in the image's passwd file, and / is not writable.
+const containerHome = "/tmp"
+
 // commandEnv is the environment of the command: the allowlisted part of the
 // worker's own, then the environment's variables and the command's. It
 // holds no secret of the job or the worker.
 func (r *jobRun) commandEnv(mark string) []string {
+	names := commandEnvNames
+	if r.docker != nil {
+		names = containerEnvNames // the host's PATH or HOME mean nothing in the container
+	}
 	env := filterEnv(r.w.cfg.Environ, func(name string) bool {
 		n := strings.ToUpper(name)
-		return commandEnvNames[n] || strings.HasPrefix(n, "LC_")
+		return names[n] || strings.HasPrefix(n, "LC_")
 	})
+	if r.docker != nil {
+		env = append(env, "HOME="+containerHome)
+	}
 	add := func(m map[string]string) {
 		for _, k := range slices.Sorted(maps.Keys(m)) {
 			env = append(env, k+"="+m[k])
 		}
 	}
+	if r.docker != nil {
+		add(r.docker.env)
+	}
 	if e := r.spec.Environment; e != nil {
 		add(e.Env)
 	}
 	add(r.spec.Command.Env)
+	if r.docker != nil {
+		return env // the container's processes are not the worker's children
+	}
 	return append(env, markEnv+"="+mark)
 }
 
 // versions runs the environment's version commands and returns the first
-// line of each output; a failing command is recorded as its error.
+// line of each output; a failing command is recorded as its error. A docker
+// environment adds the image digest and the operating system, which a
+// version command of the same name replaces.
 func (r *jobRun) versions(ctx context.Context, env []string) map[string]string {
 	out := map[string]string{}
 	e := r.spec.Environment
 	if e == nil {
 		return out
 	}
+	if r.docker != nil {
+		maps.Copy(out, r.docker.facts(ctx, env))
+	}
 	for _, tool := range slices.Sorted(maps.Keys(e.Versions)) {
-		var lines []string
-		p := shellProcess(e.Versions[tool], r.dir, env, versionTimeout)
-		if left, ok := r.left(); ok && left > 0 && left < versionTimeout {
-			p.Timeout = left
-		}
-		_, err := runtime.Exec(ctx, p, func(b []byte) { lines = append(lines, string(b)) }, nil)
-		switch {
-		case err != nil:
-			out[tool] = r.red.String("unavailable: " + err.Error())
-		case len(lines) > 0:
-			out[tool] = r.red.String(lines[0])
-		default:
-			out[tool] = ""
-		}
+		out[tool] = r.firstLine(ctx, r.shell(e.Versions[tool], r.dir, env, versionTimeout))
 	}
 	return out
+}
+
+// firstLine runs a version command and returns the first line of its output,
+// or why it failed.
+func (r *jobRun) firstLine(ctx context.Context, p runtime.Process) string {
+	var lines []string
+	if left, ok := r.left(); ok && left > 0 && left < versionTimeout {
+		p.Timeout = left
+	}
+	_, err := runtime.Exec(ctx, p, func(b []byte) { lines = append(lines, string(b)) }, nil)
+	switch {
+	case err != nil:
+		return r.red.String("unavailable: " + err.Error())
+	case len(lines) > 0:
+		return r.red.String(lines[0])
+	}
+	return ""
 }
 
 // workdir returns the directory the command runs in: the spec's workdir
@@ -507,11 +565,12 @@ func (r *jobRun) prepareCommand(ctx context.Context) (start, workdir string, don
 	return start, workdir, nil
 }
 
-// setup runs the setup commands of a machine environment on the host. It
+// setup runs the setup commands of a machine environment on the host. A docker
+// environment ran them in the build of its image. It
 // returns the completion that ends the job, or nil to go on.
 func (r *jobRun) setup(ctx context.Context, env []string) *Completion {
 	e := r.spec.Environment
-	if e == nil {
+	if e == nil || e.Provider != domain.ProviderMachine { // docker runs it in the image build
 		return nil
 	}
 	for _, line := range e.Setup {
