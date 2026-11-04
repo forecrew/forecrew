@@ -16,21 +16,12 @@ import (
 
 	"github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/roles"
+	"github.com/forecrew/forecrew/internal/runtime"
 )
 
 // ServerName is the name of the gateway in the runtimes' MCP configuration;
 // Claude Code names its tools mcp__<ServerName>__<tool>.
-const ServerName = "forecrew"
-
-// RuntimeTool returns the runtime tool name of a gateway tool, the form
-// role tools map to in a job's allowed tools: mcp__forecrew__<tool>.
-func RuntimeTool(tool string) string { return "mcp__" + ServerName + "__" + tool }
-
-// ToolOf returns the gateway tool of a runtime tool name, or false when it
-// is not one.
-func ToolOf(runtimeTool string) (string, bool) {
-	return strings.CutPrefix(runtimeTool, "mcp__"+ServerName+"__")
-}
+const ServerName = runtime.JobMCPServer
 
 // Handler runs a tool call. in is the call's arguments, already valid
 // against the tool's input schema. It returns the structured output, or a
@@ -86,7 +77,7 @@ func Register(t Tool) {
 		panic("jobmcp: input schema of " + t.Name + " must be a JSON object schema")
 	}
 	registry[t.Name] = t
-	roles.RegisterTool(t.RoleTool, RuntimeTool(t.Name))
+	roles.RegisterTool(t.RoleTool, runtime.JobMCPTool(t.Name))
 }
 
 // Tools returns the registered tools, by name.
@@ -99,7 +90,7 @@ func Tools() []Tool {
 func offered(allowedTools []string) []Tool {
 	var out []Tool
 	for _, t := range Tools() {
-		if slices.Contains(allowedTools, RuntimeTool(t.Name)) {
+		if slices.Contains(allowedTools, runtime.JobMCPTool(t.Name)) {
 			out = append(out, t)
 		}
 	}

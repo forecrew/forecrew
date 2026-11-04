@@ -20,6 +20,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/jobmcp"
+	"github.com/forecrew/forecrew/internal/runtime"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 )
@@ -93,7 +94,7 @@ func (e *env) RecordAssumption(_ context.Context, _ domain.Job, a domain.StatedA
 	return "A-1", nil
 }
 
-var allTools = []string{"Read", jobmcp.RuntimeTool("report_progress"), jobmcp.RuntimeTool("evidence_attach"), jobmcp.RuntimeTool("ask_human")}
+var allTools = []string{"Read", runtime.JobMCPTool("report_progress"), runtime.JobMCPTool("evidence_attach"), runtime.JobMCPTool("ask_human")}
 
 // lease creates an agent job with the given allowed tools, leases it to w
 // and issues its token.
@@ -276,7 +277,7 @@ func TestTooLarge(t *testing.T) {
 
 func TestOnlyTheRolesToolsAreOffered(t *testing.T) {
 	e := newEnv(t)
-	j, tok := e.lease(t, e.w, "Read", jobmcp.RuntimeTool("report_progress"))
+	j, tok := e.lease(t, e.w, "Read", runtime.JobMCPTool("report_progress"))
 	cs := e.connect(t, tok, nil)
 	list, err := cs.ListTools(t.Context(), nil)
 	must(t, err)
@@ -389,7 +390,7 @@ func TestRateLimits(t *testing.T) {
 // answered as ever, but past the limit they share one summary row.
 func TestDeniedCallsCannotFillTheAuditLog(t *testing.T) {
 	e := newEnv(t)
-	j, tok := e.lease(t, e.w, jobmcp.RuntimeTool("report_progress"))
+	j, tok := e.lease(t, e.w, runtime.JobMCPTool("report_progress"))
 	cs := e.connect(t, tok, nil)
 	for range jobmcp.MaxDeniedAudits + 5 {
 		if _, err := cs.CallTool(t.Context(), &sdk.CallToolParams{Name: "ask_human", Arguments: map[string]any{}}); err == nil {
@@ -451,9 +452,6 @@ func TestRegisterRefusesBadTools(t *testing.T) {
 	if tools := jobmcp.Tools(); len(tools) < 3 {
 		t.Fatalf("tools = %d", len(tools))
 	}
-	if name, ok := jobmcp.ToolOf(jobmcp.RuntimeTool("ask_human")); !ok || name != "ask_human" {
-		t.Fatalf("ToolOf = %q %v", name, ok)
-	}
 }
 
 // failTool fails like a tool whose backend broke.
@@ -467,7 +465,7 @@ func init() {
 
 func TestInternalErrorsStayInTheLog(t *testing.T) {
 	e := newEnv(t)
-	j, tok := e.lease(t, e.w, jobmcp.RuntimeTool("test_fail"))
+	j, tok := e.lease(t, e.w, runtime.JobMCPTool("test_fail"))
 	res, err := e.connect(t, tok, nil).CallTool(t.Context(), &sdk.CallToolParams{Name: "test_fail", Arguments: map[string]any{}})
 	must(t, err)
 	text := res.Content[0].(*sdk.TextContent).Text

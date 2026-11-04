@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -47,7 +48,29 @@ func codexArgs(spec RunSpec) []string {
 	if spec.Model != "" {
 		args = append(args, "--model", spec.Model)
 	}
+	if spec.JobMCP != nil {
+		args = append(args, codexMCPConfig(spec.JobMCP.URL, jobMCPTools(spec.AllowedTools))...)
+	}
 	return append(args, "-")
+}
+
+// codexMCPConfig returns the -c overrides that add the job MCP gateway as a
+// streamable HTTP server: the token comes from its environment variable
+// (bearer_token_env_var), only the allowed gateway tools are enabled, they
+// run without approval and may take longer than ask_human's 30 minutes.
+func codexMCPConfig(url string, tools []string) []string {
+	quoted := make([]string, len(tools))
+	for i, t := range tools {
+		quoted[i] = strconv.Quote(t)
+	}
+	server := "mcp_servers." + JobMCPServer + "."
+	return []string{
+		"-c", server + "url=" + strconv.Quote(url),
+		"-c", server + "bearer_token_env_var=" + strconv.Quote(JobMCPTokenEnv),
+		"-c", server + "enabled_tools=[" + strings.Join(quoted, ",") + "]",
+		"-c", server + `default_tools_approval_mode="approve"`,
+		"-c", server + "tool_timeout_sec=" + strconv.Itoa(int(jobMCPToolTimeout.Seconds())),
+	}
 }
 
 func (c *codexCLI) Run(ctx context.Context, spec RunSpec, emit func(domain.JobEvent)) (Result, error) {

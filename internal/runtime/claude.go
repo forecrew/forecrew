@@ -38,19 +38,32 @@ func (c *claudeCode) Detect(ctx context.Context) (string, error) {
 // AllowedTools is a hard limit: --tools restricts the built-in tools to the
 // base names, --allowedTools pre-approves the rules (for example
 // Bash(git log *)), and --permission-mode dontAsk denies everything else
-// instead of prompting. MCP tools are disabled and only user settings are
-// loaded, so the checked-out repo cannot add allow rules or servers (Run also
-// isolates the user config dir).
+// instead of prompting. Only user settings are loaded, so the checked-out
+// repo cannot add allow rules or servers (Run also isolates the user config
+// dir). MCP tools are disabled, except, with a job MCP gateway, the
+// gateway's: --strict-mcp-config loads only the server given here, and its
+// allowed tools (mcp__forecrew__<tool>) are pre-approved like the others.
 // --allowedTools is last because it takes a variable number of values.
 func claudeArgs(spec RunSpec) []string {
 	tools := spec.AllowedTools
 	if len(tools) == 0 {
 		tools = readOnlyClaudeTools
 	}
+	var builtin []string
+	for _, t := range tools {
+		if !strings.HasPrefix(t, "mcp__") {
+			builtin = append(builtin, t)
+		}
+	}
 	args := []string{
 		"-p", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
 		"--permission-mode", "dontAsk", "--setting-sources", "user",
-		"--tools", strings.Join(baseToolNames(tools), ","), "--disallowedTools", "mcp__*",
+		"--tools", strings.Join(baseToolNames(builtin), ","),
+	}
+	if spec.JobMCP != nil {
+		args = append(args, "--mcp-config", claudeMCPConfig(spec.JobMCP.URL), "--strict-mcp-config")
+	} else {
+		args = append(args, "--disallowedTools", "mcp__*")
 	}
 	if spec.Model != "" {
 		args = append(args, "--model", spec.Model)
@@ -59,6 +72,19 @@ func claudeArgs(spec RunSpec) []string {
 		args = append(args, "--max-turns", fmt.Sprint(spec.MaxTurns))
 	}
 	return append(args, append([]string{"--allowedTools"}, tools...)...)
+}
+
+// claudeMCPConfig is the --mcp-config of the job MCP gateway. The header
+// refers to the token's environment variable, which Claude Code expands, so
+// the token is not in argv.
+func claudeMCPConfig(url string) string {
+	cfg := map[string]any{"mcpServers": map[string]any{JobMCPServer: map[string]any{
+		"type": "http", "url": url,
+		"headers": map[string]string{"Authorization": "Bearer ${" + JobMCPTokenEnv + "}"},
+		"timeout": jobMCPToolTimeout.Milliseconds(),
+	}}}
+	b, _ := json.Marshal(cfg) // strings and numbers always marshal
+	return string(b)
 }
 
 // baseToolNames returns the tool names of permission rules such as
