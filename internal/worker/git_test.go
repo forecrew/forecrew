@@ -457,3 +457,79 @@ func TestExecRunnerError(t *testing.T) {
 		t.Error("bare git succeeded")
 	}
 }
+
+func TestOverlay(t *testing.T) {
+	remote := newRemote(t)
+	seed := t.TempDir()
+	runGit(t, seed, "clone", "--quiet", remote, ".")
+	runGit(t, seed, "switch", "--quiet", "-c", "agent/feature")
+	writeFile(t, seed, "tests/new_test.txt", "new\n")
+	writeFile(t, seed, "tests/other.txt", "other\n")
+	writeFile(t, seed, "README.md", "changed\n")
+	runGit(t, seed, "add", "--all")
+	runGit(t, seed, "commit", "--quiet", "-m", "feature")
+	runGit(t, seed, "push", "--quiet", "origin", "agent/feature")
+	sha := remoteSHA(t, remote, "agent/feature")
+
+	g := newTestGit(t)
+	tests := []struct {
+		name, ref string
+		paths     []string
+		present   []string
+		absent    []string
+		wantErr   error
+	}{
+		{name: "glob from a branch", ref: "agent/feature", paths: []string{"tests/new_*.txt"}, present: []string{"tests/new_test.txt"}, absent: []string{"tests/other.txt"}},
+		{name: "two paths by sha", ref: sha, paths: []string{"tests/other.txt", "README.md"}, present: []string{"tests/other.txt", "README.md"}},
+		{name: "no match", ref: "agent/feature", paths: []string{"missing/**"}, wantErr: errOverlay},
+		{name: "ref that is an option", ref: "--upload-pack=x", paths: []string{"a"}, wantErr: errRefused},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			work := t.TempDir()
+			c := checkout{URL: remote, Cache: filepath.Join(work, "cache"), Dir: filepath.Join(work, "job"), BaseRef: "main"}
+			if _, _, err := g.prepare(t.Context(), c); err != nil {
+				t.Fatal(err)
+			}
+			err := g.overlay(t.Context(), c, tt.ref, tt.paths)
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("err = %v, want %v", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertFiles(t, c.Dir, tt.present, tt.absent)
+			if _, err := os.Stat(indexPath(c.Dir)); err == nil {
+				t.Error("the private index was left behind")
+			}
+		})
+	}
+	// An unknown branch is an infrastructure problem, not the job's.
+	work := t.TempDir()
+	c := checkout{URL: remote, Cache: filepath.Join(work, "cache"), Dir: filepath.Join(work, "job"), BaseRef: "main"}
+	if _, _, err := g.prepare(t.Context(), c); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.overlay(t.Context(), c, "agent/nope", []string{"a"}); err == nil || errors.Is(err, errOverlay) || errors.Is(err, errRefused) {
+		t.Errorf("unknown ref: err = %v", err)
+	}
+}
+
+// assertFiles checks that the files of present exist below dir and the files
+// of absent do not.
+func assertFiles(t *testing.T, dir string, present, absent []string) {
+	t.Helper()
+	for _, p := range present {
+		if _, err := os.Stat(filepath.Join(dir, p)); err != nil {
+			t.Errorf("%s is missing", p)
+		}
+	}
+	for _, p := range absent {
+		if _, err := os.Stat(filepath.Join(dir, p)); err == nil {
+			t.Errorf("%s is there but was not asked for", p)
+		}
+	}
+}
