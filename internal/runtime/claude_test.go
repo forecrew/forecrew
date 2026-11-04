@@ -74,6 +74,13 @@ func TestClaudeSuccess(t *testing.T) {
 	assertClaudeInvocation(t, readRecord(t, rec), spec)
 }
 
+func TestClaudeEvidenceDir(t *testing.T) {
+	args := claudeArgs(RunSpec{EvidenceDir: "/scratch"})
+	if i := slices.Index(args, "--add-dir"); i < 0 || args[i+1] != "/scratch" {
+		t.Errorf("args = %q", args)
+	}
+}
+
 func assertClaudeInvocation(t *testing.T, r fakeRecord, spec RunSpec) {
 	t.Helper()
 	if r.Stdin != "do the work" || r.APIKey != "sk-ant-test-SECRETSECRET" || r.Dir != spec.WorkDir {

@@ -65,6 +65,9 @@ func claudeArgs(spec RunSpec) []string {
 	} else {
 		args = append(args, "--disallowedTools", "mcp__*")
 	}
+	if spec.EvidenceDir != "" {
+		args = append(args, "--add-dir", spec.EvidenceDir)
+	}
 	if spec.Model != "" {
 		args = append(args, "--model", spec.Model)
 	}

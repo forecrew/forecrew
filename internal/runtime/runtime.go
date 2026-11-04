@@ -39,7 +39,17 @@ type RunSpec struct {
 	// token is Env[JobMCPTokenEnv], which the runtime's MCP configuration
 	// refers to, so it never appears in argv or a file.
 	JobMCP *JobMCP
+	// EvidenceDir is a scratch directory outside the checkout the agent may
+	// write evidence files to (also in Env[EvidenceDirEnv]); empty means none.
+	EvidenceDir string
 }
+
+// EvidenceDirEnv is the environment variable holding the scratch directory.
+const EvidenceDirEnv = "FORECREW_EVIDENCE_DIR"
+
+// EvidencePrefix marks an evidence_attach path as relative to the scratch
+// directory instead of the work tree.
+const EvidencePrefix = "evidence:"
 
 // JobMCPTokenEnv is the environment variable holding the job MCP token.
 const JobMCPTokenEnv = "FORECREW_JOB_MCP_TOKEN" // #nosec G101 -- a variable name, not a secret
