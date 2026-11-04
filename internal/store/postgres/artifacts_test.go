@@ -195,3 +195,19 @@ func TestArtifactsPutLeasedWaitsForTheJobLock(t *testing.T) {
 		t.Fatalf("rows = %+v", rows)
 	}
 }
+
+func TestArtifactsExistingKeys(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Artifacts()
+	job := f.newJob(t)
+	a := f.artifact(job.ID, "a.txt")
+	must(t, repo.Put(ctx, &a))
+	got, err := repo.ExistingKeys(ctx, []string{a.StorageKey, "jobs/none"})
+	if err != nil || len(got) != 1 || got[0] != a.StorageKey {
+		t.Fatalf("ExistingKeys = %v, %v", got, err)
+	}
+	if got, err := repo.ExistingKeys(ctx, nil); err != nil || len(got) != 0 {
+		t.Fatalf("ExistingKeys(nil) = %v, %v", got, err)
+	}
+}

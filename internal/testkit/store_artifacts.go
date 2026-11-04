@@ -92,3 +92,12 @@ func (r artifactRepo) Delete(_ context.Context, accountID, id uuid.UUID) error {
 		return nil
 	})
 }
+
+func (r artifactRepo) ExistingKeys(_ context.Context, keys []string) ([]string, error) {
+	rows, err := listRows(r.s, artifactsT, 0, func(a domain.Artifact) bool { return slices.Contains(keys, a.StorageKey) })
+	out := make([]string, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, a.StorageKey)
+	}
+	return out, err
+}

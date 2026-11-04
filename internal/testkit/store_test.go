@@ -695,3 +695,20 @@ func TestStoreGoalSize(t *testing.T) {
 	}
 	wantErr(t, f.st.Goals().SetSize(ctx, f.account, domain.NewID(), low), store.ErrNotFound)
 }
+
+func TestStoreArtifactsExistingKeys(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Artifacts()
+	job := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Role: "developer"}
+	must(t, f.st.Jobs().Create(ctx, &job))
+	a := domain.Artifact{AccountID: f.account, ProjectID: f.project.ID, JobID: job.ID, Name: "a.txt", Size: 1, StorageKey: "k/a"}
+	must(t, repo.Put(ctx, &a))
+	got, err := repo.ExistingKeys(ctx, []string{"k/a", "k/missing"})
+	if err != nil || len(got) != 1 || got[0] != "k/a" {
+		t.Fatalf("ExistingKeys = %v, %v", got, err)
+	}
+	if got, err := repo.ExistingKeys(ctx, nil); err != nil || len(got) != 0 {
+		t.Fatalf("ExistingKeys(nil) = %v, %v", got, err)
+	}
+}

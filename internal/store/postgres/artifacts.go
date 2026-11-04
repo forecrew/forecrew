@@ -78,3 +78,14 @@ func (r artifactRepo) Delete(ctx context.Context, accountID, id uuid.UUID) error
 		return mustUpdate(ctx, tx, `DELETE FROM artifacts WHERE account_id = $1 AND id = $2`, accountID, id)
 	})
 }
+
+func (r artifactRepo) ExistingKeys(ctx context.Context, keys []string) ([]string, error) {
+	if len(keys) == 0 {
+		return []string{}, nil
+	}
+	return many(ctx, r.db, func(row pgx.Row) (string, error) {
+		var k string
+		err := row.Scan(&k)
+		return k, err
+	}, `SELECT storage_key FROM artifacts WHERE storage_key = ANY($1)`, keys)
+}
