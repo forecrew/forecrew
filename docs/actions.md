@@ -71,7 +71,7 @@ and the artifacts as the artifact `forecrew-<job_id>` (kept for one day).
   through `env:` or `with:`, never through `${{ inputs.* }}` inside a `run:`
   script (a test enforces it), and the variables of the environment are
   exported only when their names are valid identifiers.
-- The template is linted with `actionlint` (`make lint`, and in CI).
+- The template is linted with `actionlint` by `make lint` (skipped where it is not installed) and by a test that runs it when present.
 
 ## Limits of the artifact
 
