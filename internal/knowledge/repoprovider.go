@@ -126,6 +126,13 @@ func (p *RepoClient) gitProvenance(ctx context.Context, file string, pv *domain.
 // Changes implements ProviderClient: with an empty cursor every entry, else
 // the entries that changed between the commit cursor and Ref. Renamed
 // files are a deletion and a change. next is Ref.
+//
+// The Syncer does not call it: it compares the tree's blob SHAs with the
+// index, which stays right when a push was missed. It stays because
+// ProviderClient is the contract every provider implements
+// (docs/contracts/knowledge.md) and the repo provider is its reference, so
+// the contract and its tests keep one working example for providers that
+// have no tree to compare (4.19).
 func (p *RepoClient) Changes(ctx context.Context, locations []string, cursor string) ([]Change, string, error) {
 	if cursor == "" {
 		refs, err := p.List(ctx, locations)

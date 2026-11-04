@@ -185,6 +185,7 @@ get no council. A goal created with councils (create_goal) is not triaged.
 | each `runtimes.*.credential_env` entry | yes | Runtime credentials, e.g. `ANTHROPIC_API_KEY`, `CODEX_API_KEY`. |
 | `FORECREW_EVIDENCE_ACCESS_KEY_ID` | when `evidence` is set | Access key of the evidence bucket. |
 | `FORECREW_EVIDENCE_SECRET_ACCESS_KEY` | when `evidence` is set | Secret key of the evidence bucket. Never logged. |
+| `FORECREW_EMBEDDINGS_API_KEY` | no | OpenAI API key for knowledge embeddings (`text-embedding-3-small`, 1536 dimensions). Without it knowledge search ranks by words only. When set, and only where the database has pgvector, the text of knowledge entries and notes and every search query are sent to OpenAI (docs/knowledge.md). Never logged. |
 | each `auth.connections.*.client_secret_ref` `env:NAME` | yes | Client secret of the connection, e.g. `FORECREW_GITHUB_CLIENT_SECRET`. Read when used, kept in memory only, never logged. |
 
 forecrewd takes the config path from `--config` (default `forecrew.yaml`).
