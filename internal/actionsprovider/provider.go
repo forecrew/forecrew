@@ -72,8 +72,9 @@ type Provider struct {
 	freed    chan struct{}
 	wg       sync.WaitGroup
 
-	mu     sync.Mutex
-	wakers map[int64]chan struct{}
+	mu      sync.Mutex
+	wakers  map[int64]chan struct{}
+	botName string
 }
 
 // New returns a Provider.
@@ -267,4 +268,20 @@ func (p *Provider) watch(runID int64) (<-chan struct{}, func()) {
 		delete(p.wakers, runID)
 		p.mu.Unlock()
 	}
+}
+
+// bot returns the login of the App's bot, the actor of the runs it
+// dispatches, looked up once.
+func (p *Provider) bot(ctx context.Context) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.botName != "" {
+		return p.botName, nil
+	}
+	name, err := p.cfg.GitHub.Bot(ctx)
+	if err != nil {
+		return "", fmt.Errorf("look up the GitHub App's bot: %w", err)
+	}
+	p.botName = name
+	return name, nil
 }

@@ -37,6 +37,8 @@ type jobRun struct {
 	// commit is the full SHA the job asked for, "" when it asked for a
 	// branch (the run's own head is the commit then).
 	commit string
+	// ref is the branch (or tag) the workflow is dispatched on.
+	ref string
 }
 
 // runJob dispatches the workflow for a leased job and follows it to the
@@ -56,7 +58,7 @@ func (p *Provider) runJob(ctx context.Context, w domain.Worker, j domain.Job) {
 		r.fail(ctx, "%v", err)
 		return
 	}
-	r.commit = pl.Commit
+	r.commit, r.ref = pl.Commit, pl.Ref
 	if j.Attempts > 0 && r.resume(ctx) {
 		return
 	}
@@ -87,15 +89,33 @@ func (p *Provider) runJob(ctx context.Context, w domain.Worker, j domain.Job) {
 	r.follow(ctx, runID)
 }
 
-// lookup returns the newest run in runs whose title names the job and that
+// ours reports whether run is one this provider dispatched for the job. A
+// run title is whatever its workflow says, so it proves nothing alone: the
+// run must come from workflow_dispatch of our workflow file, triggered by
+// the App's bot, on the branch the job is dispatched on, and carry the job's
+// id. A field GitHub did not give fails the check.
+func (r *jobRun) ours(run github.WorkflowRun, bot string) bool {
+	return run.Event == "workflow_dispatch" && run.Path == WorkflowPath && bot != "" && strings.EqualFold(run.Actor, bot) &&
+		run.HeadBranch != "" && run.HeadBranch == r.ref && strings.Contains(run.Title, r.j.ID.String())
+}
+
+// lookup returns the newest run of the job's workflow runs that is ours and
 // was created after since (zero: any time).
-func (r *jobRun) lookup(runs []github.WorkflowRun, since time.Time) (github.WorkflowRun, bool) {
+func (r *jobRun) lookup(ctx context.Context, since time.Time) (github.WorkflowRun, bool, error) {
+	bot, err := r.p.bot(ctx)
+	if err != nil {
+		return github.WorkflowRun{}, false, err
+	}
+	runs, err := r.p.cfg.GitHub.ListWorkflowRuns(ctx, r.spec.Repo, WorkflowFile, r.ref)
+	if err != nil {
+		return github.WorkflowRun{}, false, err
+	}
 	for _, run := range runs { // newest first
-		if run.CreatedAt.After(since) && strings.Contains(run.Title, r.j.ID.String()) {
-			return run, true
+		if run.CreatedAt.After(since) && r.ours(run, bot) {
+			return run, true, nil
 		}
 	}
-	return github.WorkflowRun{}, false
+	return github.WorkflowRun{}, false, nil
 }
 
 // find looks for the run a dispatch started, for a GitHub that did not
@@ -108,12 +128,12 @@ func (r *jobRun) find(ctx context.Context, id *int64) bool {
 			return false
 		case <-time.After(r.p.cfg.FindDelay):
 		}
-		runs, err := r.p.cfg.GitHub.ListWorkflowRuns(ctx, r.spec.Repo, WorkflowFile, "")
+		run, ok, err := r.lookup(ctx, r.start.Add(-time.Minute))
 		if err != nil {
-			r.log.WarnContext(ctx, "list workflow runs", "error", err)
+			r.log.WarnContext(ctx, "look for the workflow run", "error", err)
 			continue
 		}
-		if run, ok := r.lookup(runs, r.start.Add(-time.Minute)); ok {
+		if ok {
 			*id = run.ID
 			return true
 		}
@@ -128,14 +148,13 @@ func (r *jobRun) find(ctx context.Context, id *int64) bool {
 // dispatch. A run that already ended without a usable result is not resumed:
 // the job gets a fresh run, so retry-once holds.
 func (r *jobRun) resume(ctx context.Context) bool {
-	runs, err := r.p.cfg.GitHub.ListWorkflowRuns(ctx, r.spec.Repo, WorkflowFile, "")
+	run, ok, err := r.lookup(ctx, time.Time{})
 	if err != nil {
 		if ctx.Err() == nil {
 			r.release(ctx, "look for an earlier workflow run: %v", err)
 		}
 		return true
 	}
-	run, ok := r.lookup(runs, time.Time{})
 	if !ok {
 		return false
 	}
