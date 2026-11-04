@@ -621,3 +621,294 @@ type ProposalRepo interface {
 	// compare-and-set of the status from from.
 	Update(ctx context.Context, p *domain.Proposal, from domain.ProposalStatus) error
 }
+
+// The repositories below belong to identity and access (migration 00005,
+// docs/contracts/identity.md). Like the team's, they are contracts only,
+// added to Store with the Postgres implementation and the testkit fake by
+// the task that first uses them: UserRepo, IdentityRepo, MembershipRepo,
+// InvitationRepo, ConnectionRepo, SessionRepo and PersonalTokenRepo by T52;
+// TeamRepo, ServiceAccountRepo, RoleRepo and RoleBindingRepo by T53;
+// OAuthRepo by T55; VerifiedDomainRepo and SCIMTokenRepo by T56. Lookups
+// that discover who is signing in (by token hash, by provider subject, by
+// verified email or domain) are unscoped; every other call takes the
+// organization. Calls that may leave an organization without an active
+// Owner fail with ErrLastOwner and change nothing.
+
+// UserRepo stores users, who are global.
+type UserRepo interface {
+	// Create fails with ErrConflict when Email is verified and another
+	// user has it verified (ignoring case).
+	Create(ctx context.Context, u *domain.User) error
+	Get(ctx context.Context, id uuid.UUID) (domain.User, error)
+	// ListByIDs returns the users with these IDs, in no particular order;
+	// unknown IDs are left out.
+	ListByIDs(ctx context.Context, ids []uuid.UUID) ([]domain.User, error)
+	// GetByVerifiedEmail is unscoped: it finds the user whose verified
+	// email is email, ignoring case.
+	GetByVerifiedEmail(ctx context.Context, email string) (domain.User, error)
+	// ListByEmail is unscoped: it returns every user whose primary email is
+	// email, verified or not, ignoring case. Only a verified one proves who
+	// a person is, and several users may share an unverified one.
+	ListByEmail(ctx context.Context, email string) ([]domain.User, error)
+	// Update writes Name, Email, EmailVerified and InstanceAdmin.
+	Update(ctx context.Context, u *domain.User) error
+	Seen(ctx context.Context, id uuid.UUID) error // LastSeenAt = now
+	// SetDisabled disables (DisabledAt = now) or enables a user.
+	SetDisabled(ctx context.Context, id uuid.UUID, disabled bool) error
+}
+
+// IdentityRepo stores users' identities at their providers.
+// (connection, subject) is unique; a duplicate fails with ErrConflict.
+type IdentityRepo interface {
+	Create(ctx context.Context, i *domain.Identity) error
+	// GetBySubject is unscoped: a sign-in finds the identity of the
+	// provider's subject.
+	GetBySubject(ctx context.Context, connectionID uuid.UUID, subject string) (domain.Identity, error)
+	// ListByLogin returns the identities of a connection with the login,
+	// ignoring case (GitHub commands find the commenting user).
+	ListByLogin(ctx context.Context, connectionID uuid.UUID, login string) ([]domain.Identity, error)
+	ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Identity, error)
+	// Seen records a sign-in: LastUsedAt = now, Login and Email as the
+	// provider reported them.
+	Seen(ctx context.Context, id uuid.UUID, login, email string) error
+	Delete(ctx context.Context, userID, id uuid.UUID) error
+}
+
+// MembershipFilter selects memberships; zero fields match everything.
+type MembershipFilter struct {
+	Status domain.MembershipStatus
+	Limit  int
+}
+
+// MembershipRepo stores memberships. (account, user) is unique.
+type MembershipRepo interface {
+	Create(ctx context.Context, m *domain.Membership) error
+	Get(ctx context.Context, accountID, userID uuid.UUID) (domain.Membership, error)
+	GetByExternalID(ctx context.Context, accountID uuid.UUID, externalID string) (domain.Membership, error)
+	List(ctx context.Context, accountID uuid.UUID, f MembershipFilter) ([]domain.Membership, error)
+	// ListByUser returns the user's memberships in every organization.
+	ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Membership, error)
+	// SetStatus moves a membership to status; ErrLastOwner when it would
+	// suspend the last Owner. Suspending a member who holds a role needs
+	// every permission of that role, which the caller checks first
+	// (permissions.md, No escalation). Ending their sessions and OAuth
+	// grants and revoking their tokens are separate calls (SessionRepo,
+	// OAuthRepo, PersonalTokenRepo) the caller makes in the same WithTx.
+	SetStatus(ctx context.Context, accountID, userID uuid.UUID, status domain.MembershipStatus) error
+	SetExternalID(ctx context.Context, accountID, userID uuid.UUID, externalID string) error
+	// Remove deletes the membership with the user's team memberships and
+	// role bindings in the organization, in one transaction. Removing a
+	// member who holds a role needs every permission of that role, which
+	// the caller checks first (permissions.md, No escalation). Ending their
+	// sessions and OAuth grants and revoking their tokens are separate calls
+	// (SessionRepo, OAuthRepo, PersonalTokenRepo) the caller makes in the
+	// same WithTx.
+	Remove(ctx context.Context, accountID, userID uuid.UUID) error
+}
+
+// InvitationRepo stores invitations.
+type InvitationRepo interface {
+	Create(ctx context.Context, i *domain.Invitation) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Invitation, error)
+	// GetByTokenHash is unscoped: the invitation link identifies the
+	// organization.
+	GetByTokenHash(ctx context.Context, hash []byte) (domain.Invitation, error)
+	// List returns the organization's invitations, newest first.
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.Invitation, error)
+	// Accept records userID's acceptance (AcceptedBy, AcceptedAt = now) of
+	// an invitation that is pending (domain.Invitation.Pending);
+	// ErrConflict otherwise. The caller creates the membership and the
+	// bindings in the same transaction.
+	Accept(ctx context.Context, accountID, id, userID uuid.UUID) (domain.Invitation, error)
+	Revoke(ctx context.Context, accountID, id uuid.UUID) error
+}
+
+// TeamRepo stores teams and their members. Slug and ExternalID are unique
+// per organization.
+type TeamRepo interface {
+	Create(ctx context.Context, t *domain.Team) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Team, error)
+	GetBySlug(ctx context.Context, accountID uuid.UUID, slug string) (domain.Team, error)
+	GetByExternalID(ctx context.Context, accountID uuid.UUID, externalID string) (domain.Team, error)
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.Team, error)
+	// Update writes Name, Slug and ExternalID.
+	Update(ctx context.Context, t *domain.Team) error
+	// Delete removes the team with its members and role bindings.
+	Delete(ctx context.Context, accountID, id uuid.UUID) error
+	// AddMember adds or, for an existing member, keeps the member; the user
+	// must be a member of the organization (ErrNotFound otherwise).
+	AddMember(ctx context.Context, m *domain.TeamMember) error
+	RemoveMember(ctx context.Context, accountID, teamID, userID uuid.UUID) error
+	Members(ctx context.Context, accountID, teamID uuid.UUID) ([]domain.TeamMember, error)
+	// TeamsOf returns the teams a user is in.
+	TeamsOf(ctx context.Context, accountID, userID uuid.UUID) ([]domain.Team, error)
+}
+
+// ServiceAccountRepo stores service accounts. Name is unique per
+// organization.
+type ServiceAccountRepo interface {
+	Create(ctx context.Context, s *domain.ServiceAccount) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.ServiceAccount, error)
+	GetByName(ctx context.Context, accountID uuid.UUID, name string) (domain.ServiceAccount, error)
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.ServiceAccount, error)
+	// Update writes Name and Description.
+	Update(ctx context.Context, s *domain.ServiceAccount) error
+	SetDisabled(ctx context.Context, accountID, id uuid.UUID, disabled bool) error
+}
+
+// RoleRepo reads the built-in roles and stores custom roles. A call with
+// an organization sees the built-in roles and that organization's custom
+// roles only.
+type RoleRepo interface {
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Role, error)
+	GetByName(ctx context.Context, accountID uuid.UUID, scope domain.RoleScope, name string) (domain.Role, error)
+	// List returns the built-in roles, then the organization's custom ones.
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.Role, error)
+	// Create, Update and Delete work on custom roles only (built-in ones
+	// are ErrNotFound). Update writes Name, Description and Permissions;
+	// Delete fails with ErrConflict while a binding uses the role.
+	Create(ctx context.Context, r *domain.Role) error
+	Update(ctx context.Context, r *domain.Role) error
+	Delete(ctx context.Context, accountID, id uuid.UUID) error
+}
+
+// RoleBindingFilter selects role bindings; zero fields match everything.
+// ProjectID matches bindings on that project only, OrganizationOnly the
+// organization-scope ones only.
+type RoleBindingFilter struct {
+	SubjectKind      domain.SubjectKind
+	SubjectID        uuid.UUID
+	RoleID           uuid.UUID
+	ProjectID        uuid.UUID
+	OrganizationOnly bool
+}
+
+// BoundRole is a binding with its role.
+type BoundRole struct {
+	Binding domain.RoleBinding
+	Role    domain.Role
+}
+
+// RoleBindingRepo stores role bindings. A duplicate fails with
+// ErrConflict; a subject, role or project outside the organization with
+// ErrNotFound.
+type RoleBindingRepo interface {
+	Create(ctx context.Context, b *domain.RoleBinding) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.RoleBinding, error)
+	List(ctx context.Context, accountID uuid.UUID, f RoleBindingFilter) ([]domain.RoleBinding, error)
+	// Delete removes a binding; ErrLastOwner for the last Owner's.
+	Delete(ctx context.Context, accountID, id uuid.UUID) error
+	// Effective returns every binding that applies to a subject, with its
+	// role: for a user its own and those of every team it is in; for a
+	// service account its own. Only active members and enabled users and
+	// service accounts have any; the others get none.
+	Effective(ctx context.Context, accountID uuid.UUID, kind domain.SubjectKind, id uuid.UUID) ([]BoundRole, error)
+}
+
+// ConnectionRepo stores sign-in connections and their group mappings.
+type ConnectionRepo interface {
+	// Create stores an organization's connection; domain.Connection.Validate
+	// must pass.
+	Create(ctx context.Context, c *domain.Connection) error
+	// Get is unscoped: sign-in routes name the connection by ID.
+	Get(ctx context.Context, id uuid.UUID) (domain.Connection, error)
+	// List returns an organization's own connections, or the
+	// instance-level ones for the zero ID.
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.Connection, error)
+	// UpsertInstance stores an instance-level connection from config by
+	// name, writing ID and timestamps back.
+	UpsertInstance(ctx context.Context, c *domain.Connection) error
+	// Update writes Name, Issuer, ClientID, ClientSecretRef, JIT,
+	// GroupClaim and Enabled.
+	Update(ctx context.Context, c *domain.Connection) error
+	AddGroupMapping(ctx context.Context, m *domain.GroupMapping) error
+	RemoveGroupMapping(ctx context.Context, accountID, id uuid.UUID) error
+	// GroupMappings returns the mappings of a connection in every
+	// organization (sign-in applies each organization's own).
+	GroupMappings(ctx context.Context, connectionID uuid.UUID) ([]domain.GroupMapping, error)
+}
+
+// VerifiedDomainRepo stores organizations' email domains.
+type VerifiedDomainRepo interface {
+	Create(ctx context.Context, d *domain.VerifiedDomain) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.VerifiedDomain, error)
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.VerifiedDomain, error)
+	// GetVerified is unscoped: email-first sign-in finds the organization
+	// that verified the domain.
+	GetVerified(ctx context.Context, name string) (domain.VerifiedDomain, error)
+	// SetVerified marks the domain verified (VerifiedAt = now; ErrConflict
+	// when another organization verified it) or unverified, which also
+	// ends EnforceSSO.
+	SetVerified(ctx context.Context, accountID, id uuid.UUID, verified bool) error
+	SetEnforcement(ctx context.Context, accountID, id uuid.UUID, enforce bool, connectionID uuid.UUID) error
+	Delete(ctx context.Context, accountID, id uuid.UUID) error
+}
+
+// SessionRepo stores browser sessions.
+type SessionRepo interface {
+	Create(ctx context.Context, s *domain.Session) error
+	// GetByTokenHash is unscoped: the cookie identifies the user. Revoked
+	// and expired sessions are returned too; callers check Active.
+	GetByTokenHash(ctx context.Context, hash []byte) (domain.Session, error)
+	ListByUser(ctx context.Context, userID uuid.UUID) ([]domain.Session, error)
+	// Touch records a request: LastSeenAt = now, IdleExpiresAt as given
+	// (never past ExpiresAt).
+	Touch(ctx context.Context, id uuid.UUID, idleExpiresAt time.Time) error
+	// SetAccount switches the session's current organization.
+	SetAccount(ctx context.Context, id, accountID uuid.UUID) error
+	Revoke(ctx context.Context, userID, id uuid.UUID) error
+	// RevokeByUser ends the user's sessions, or only those whose current
+	// organization is accountID when it is not zero.
+	RevokeByUser(ctx context.Context, userID, accountID uuid.UUID) error
+	// DeleteExpired deletes the sessions that ended before t.
+	DeleteExpired(ctx context.Context, t time.Time) (int, error)
+}
+
+// PersonalTokenRepo is MCPTokenRepo with owners; T52 makes it the type of
+// Store.MCPTokens.
+type PersonalTokenRepo interface {
+	MCPTokenRepo
+	ListByOwner(ctx context.Context, accountID uuid.UUID, kind domain.SubjectKind, ownerID uuid.UUID) ([]domain.MCPToken, error)
+	// AssignOwner gives every ownerless token of the organization to the
+	// owner and returns how many. A token whose name the owner already uses
+	// takes the first free -2, -3, ..., so none is left ownerless.
+	AssignOwner(ctx context.Context, accountID uuid.UUID, kind domain.SubjectKind, ownerID uuid.UUID) (int, error)
+	// RevokeByOwner revokes the owner's active tokens.
+	RevokeByOwner(ctx context.Context, accountID uuid.UUID, kind domain.SubjectKind, ownerID uuid.UUID) error
+}
+
+// OAuthRepo stores the OAuth clients and grants of MCP clients.
+type OAuthRepo interface {
+	CreateClient(ctx context.Context, c *domain.OAuthClient) error
+	// GetClient finds a client by its public client_id.
+	GetClient(ctx context.Context, clientID string) (domain.OAuthClient, error)
+	TouchClient(ctx context.Context, id uuid.UUID) error
+	// DeleteUnusedClients deletes clients without grants that were not
+	// used since t.
+	DeleteUnusedClients(ctx context.Context, t time.Time) (int, error)
+	CreateGrant(ctx context.Context, g *domain.OAuthGrant) error
+	// GetGrantByTokenHash is unscoped: the token identifies the user and
+	// organization. Used, revoked and expired grants are returned too.
+	GetGrantByTokenHash(ctx context.Context, hash []byte) (domain.OAuthGrant, error)
+	// UseGrant sets UsedAt of an unused code or refresh token;
+	// ErrConflict when it was used already (reuse: the caller revokes the
+	// family).
+	UseGrant(ctx context.Context, id uuid.UUID) error
+	RevokeFamily(ctx context.Context, familyID uuid.UUID) error
+	// ListFamilies returns one grant per active family of the user in the
+	// organization (the connected apps), newest first.
+	ListFamilies(ctx context.Context, accountID, userID uuid.UUID) ([]domain.OAuthGrant, error)
+	// RevokeByUser revokes the user's grants in the organization.
+	RevokeByUser(ctx context.Context, accountID, userID uuid.UUID) error
+}
+
+// SCIMTokenRepo stores SCIM bearer tokens. Name is unique per
+// organization.
+type SCIMTokenRepo interface {
+	Create(ctx context.Context, t *domain.SCIMToken) error
+	// GetByTokenHash is unscoped; revoked tokens are returned too.
+	GetByTokenHash(ctx context.Context, hash []byte) (domain.SCIMToken, error)
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.SCIMToken, error)
+	Touch(ctx context.Context, accountID, id uuid.UUID) error
+	Revoke(ctx context.Context, accountID, id uuid.UUID) error
+}
