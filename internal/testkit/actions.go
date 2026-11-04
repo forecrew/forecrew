@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -84,7 +85,15 @@ type ActionsRun struct {
 	Expired   bool
 	Cancelled bool
 	Created   time.Time
+	// Event, Path, Actor and HeadBranch are what GitHub records of how the
+	// run started. A dispatch fills them in as the App's dispatch would
+	// (event workflow_dispatch, the workflow's path, FakeBot, the ref);
+	// AddRun keeps what the test gives, to plant a run the App did not make.
+	Event, Path, Actor, HeadBranch string
 }
+
+// FakeBot is the login of the fake GitHub App's bot.
+const FakeBot = "forecrew-test[bot]"
 
 // FakeActions is an httptest GitHub with the Actions, contents and App
 // endpoints of internal/github's Actions, and a Client pointed at it. Every
@@ -102,6 +111,8 @@ type FakeActions struct {
 	NoRunDetails bool
 	// ContentsStatus, when not 0, answers every read of a file with it.
 	ContentsStatus int
+	// AppStatus, when not 0, answers the lookup of the App with it.
+	AppStatus int
 	// ListStatus, when not 0, answers every listing of runs with it.
 	ListStatus int
 	// GetRunStatus, when not 0, answers every read of a run with it.
@@ -160,6 +171,23 @@ func (f *FakeActions) SetFile(repo, path string, content []byte) {
 	f.files[repo+":"+path] = content
 }
 
+// AddRun plants a run as given (Repo, ID and Created are filled in when
+// empty) and returns its id.
+func (f *FakeActions) AddRun(run ActionsRun) int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	run.ID = f.nextID
+	if run.Repo == "" {
+		run.Repo = "acme/app"
+	}
+	if run.Created.IsZero() {
+		run.Created = f.now()
+	}
+	f.runs[run.ID] = &run
+	return run.ID
+}
+
 // Update changes a run under the fake's lock, for a test that moves a run
 // on while the provider is not looking.
 func (f *FakeActions) Update(id int64, change func(*ActionsRun)) {
@@ -191,6 +219,10 @@ func (r *ActionsRun) json(status string) map[string]any {
 	m := map[string]any{
 		"id": r.ID, "display_title": r.Title, "status": status, "head_sha": r.HeadSHA, "run_attempt": max(r.Attempt, 1),
 		"html_url": fmt.Sprintf("https://github.com/%s/actions/runs/%d", r.Repo, r.ID), "created_at": r.Created.Format(time.RFC3339),
+		"event": r.Event, "path": r.Path + "@refs/heads/" + r.HeadBranch, "head_branch": r.HeadBranch,
+	}
+	if r.Actor != "" {
+		m["triggering_actor"] = map[string]any{"login": r.Actor}
 	}
 	if status == "completed" {
 		m["conclusion"] = r.Conclusion
@@ -206,6 +238,13 @@ func (f *FakeActions) routes() http.Handler {
 	mux.HandleFunc("POST /app/installations/42/access_tokens", func(w http.ResponseWriter, _ *http.Request) {
 		// #nosec G101 -- a fake token
 		writeJSON(w, http.StatusCreated, map[string]any{"token": "ghs_fake_actions", "expires_at": f.now().Add(time.Hour).Format(time.RFC3339)})
+	})
+	mux.HandleFunc("GET /app", func(w http.ResponseWriter, _ *http.Request) {
+		if f.AppStatus != 0 {
+			writeJSON(w, f.AppStatus, map[string]string{"message": "broken"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"slug": strings.TrimSuffix(FakeBot, "[bot]"), "id": 1})
 	})
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/workflows/{file}/dispatches", f.dispatch)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/workflows/{file}/runs", f.listRuns)
@@ -235,10 +274,10 @@ func (f *FakeActions) listRuns(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, f.ListStatus, map[string]string{"message": "broken"})
 		return
 	}
-	repo := r.PathValue("owner") + "/" + r.PathValue("repo")
+	repo, branch := r.PathValue("owner")+"/"+r.PathValue("repo"), r.URL.Query().Get("branch")
 	runs := []map[string]any{}
 	for _, id := range slices.Backward(slices.Sorted(maps.Keys(f.runs))) {
-		if run := f.runs[id]; run.Repo == repo {
+		if run := f.runs[id]; run.Repo == repo && (branch == "" || run.HeadBranch == branch) {
 			runs = append(runs, run.json(f.status(run)))
 		}
 	}
@@ -352,6 +391,7 @@ func (f *FakeActions) dispatch(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.nextID++
 	run.ID, run.Repo, run.Created = f.nextID, d.Repo, f.now()
+	run.Event, run.Path, run.Actor, run.HeadBranch = "workflow_dispatch", ".github/workflows/"+d.File, FakeBot, d.Ref
 	if run.Title == "" {
 		run.Title = "forecrew-matrix " + d.Inputs["job_id"]
 	}

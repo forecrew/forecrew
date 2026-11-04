@@ -108,7 +108,7 @@ func (r *jobRun) find(ctx context.Context, id *int64) bool {
 			return false
 		case <-time.After(r.p.cfg.FindDelay):
 		}
-		runs, err := r.p.cfg.GitHub.ListWorkflowRuns(ctx, r.spec.Repo, WorkflowFile)
+		runs, err := r.p.cfg.GitHub.ListWorkflowRuns(ctx, r.spec.Repo, WorkflowFile, "")
 		if err != nil {
 			r.log.WarnContext(ctx, "list workflow runs", "error", err)
 			continue
@@ -128,7 +128,7 @@ func (r *jobRun) find(ctx context.Context, id *int64) bool {
 // dispatch. A run that already ended without a usable result is not resumed:
 // the job gets a fresh run, so retry-once holds.
 func (r *jobRun) resume(ctx context.Context) bool {
-	runs, err := r.p.cfg.GitHub.ListWorkflowRuns(ctx, r.spec.Repo, WorkflowFile)
+	runs, err := r.p.cfg.GitHub.ListWorkflowRuns(ctx, r.spec.Repo, WorkflowFile, "")
 	if err != nil {
 		if ctx.Err() == nil {
 			r.release(ctx, "look for an earlier workflow run: %v", err)

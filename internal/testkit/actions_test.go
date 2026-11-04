@@ -36,7 +36,7 @@ func TestFakeActionsRuns(t *testing.T) {
 	if ds := f.Dispatches(); len(ds) != 1 || ds[0].Inputs["job_id"] != "j1" || ds[0].Ref != "main" {
 		t.Errorf("dispatches = %+v", ds)
 	}
-	runs, err := c.ListWorkflowRuns(ctx, "acme/app", "f.yml")
+	runs, err := c.ListWorkflowRuns(ctx, "acme/app", "f.yml", "")
 	if err != nil || len(runs) != 1 || runs[0].Title != "forecrew-matrix j1" {
 		t.Errorf("runs = %+v, %v", runs, err)
 	}

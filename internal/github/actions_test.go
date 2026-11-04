@@ -41,12 +41,13 @@ func TestDispatchWorkflowErrors(t *testing.T) {
 	wantErr(t, err, github.ErrInvalid)
 }
 
-const runJSON = `{"id": 5, "display_title": "forecrew-matrix j1", "status": "completed", "conclusion": "success", "head_sha": "abc", "run_attempt": 2, "html_url": "https://x/5", "created_at": "2026-03-01T12:00:00Z"}`
+const runJSON = `{"id": 5, "display_title": "forecrew-matrix j1", "status": "completed", "conclusion": "success", "head_sha": "abc", "run_attempt": 2, "html_url": "https://x/5", "created_at": "2026-03-01T12:00:00Z",
+	"event": "workflow_dispatch", "path": ".github/workflows/forecrew-matrix.yml@refs/heads/main", "triggering_actor": {"login": "forecrew[bot]"}, "head_branch": "agent/x"}`
 
 func TestWorkflowRuns(t *testing.T) {
 	e := newEnv(t)
 	e.handle("GET /repos/acme/app/actions/workflows/forecrew-matrix.yml/runs", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("event") != "workflow_dispatch" {
+		if r.URL.Query().Get("event") != "workflow_dispatch" || r.URL.Query().Get("branch") != "agent/x" {
 			t.Errorf("query = %s", r.URL.RawQuery)
 		}
 		fmt.Fprintf(w, `{"total_count": 1, "workflow_runs": [%s]}`, runJSON)
@@ -54,9 +55,10 @@ func TestWorkflowRuns(t *testing.T) {
 	e.handle("GET /repos/acme/app/actions/runs/5", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, runJSON) })
 	e.handle("GET /repos/acme/app/actions/runs/6", func(w http.ResponseWriter, _ *http.Request) { http.NotFound(w, nil) })
 
-	runs, err := e.client.ListWorkflowRuns(t.Context(), "acme/app", "forecrew-matrix.yml")
+	runs, err := e.client.ListWorkflowRuns(t.Context(), "acme/app", "forecrew-matrix.yml", "agent/x")
 	noErr(t, err)
-	want := github.WorkflowRun{ID: 5, Title: "forecrew-matrix j1", Status: "completed", Conclusion: "success", HeadSHA: "abc", Attempt: 2, URL: "https://x/5", CreatedAt: t0}
+	want := github.WorkflowRun{ID: 5, Title: "forecrew-matrix j1", Status: "completed", Conclusion: "success", HeadSHA: "abc", Attempt: 2, URL: "https://x/5", CreatedAt: t0,
+		Event: "workflow_dispatch", Path: ".github/workflows/forecrew-matrix.yml", Actor: "forecrew[bot]", HeadBranch: "agent/x"}
 	if len(runs) != 1 || runs[0] != want || !runs[0].Completed() {
 		t.Errorf("runs = %+v", runs)
 	}
@@ -67,7 +69,7 @@ func TestWorkflowRuns(t *testing.T) {
 	}
 	_, err = e.client.GetWorkflowRun(t.Context(), "acme/app", 6)
 	wantErr(t, err, github.ErrNotFound)
-	_, err = e.client.ListWorkflowRuns(t.Context(), "acme/other", "forecrew-matrix.yml")
+	_, err = e.client.ListWorkflowRuns(t.Context(), "acme/other", "forecrew-matrix.yml", "")
 	wantErr(t, err, github.ErrNotInstalled)
 }
 
@@ -220,5 +222,47 @@ func TestDownloadArtifactErrorsHideTheSignedURL(t *testing.T) {
 	_, err := e.client.DownloadArtifact(t.Context(), "acme/app", 9, 10)
 	if err == nil || strings.Contains(err.Error(), "SECRET-SIGNATURE") || strings.Contains(err.Error(), "/storage/") {
 		t.Errorf("err = %v, want one without the URL", err)
+	}
+}
+
+func TestListWorkflowRunsPages(t *testing.T) {
+	e := newEnv(t)
+	pages := 0
+	e.handle("GET /repos/acme/app/actions/workflows/f.yml/runs", func(w http.ResponseWriter, r *http.Request) {
+		pages++
+		page := r.URL.Query().Get("page")
+		if page == "" {
+			page = "1"
+		}
+		if page != "3" {
+			next := map[string]string{"1": "2", "2": "3"}[page]
+			w.Header().Set("Link", fmt.Sprintf(`<http://%s/repos/acme/app/actions/workflows/f.yml/runs?page=%s>; rel="next"`, r.Host, next))
+		}
+		fmt.Fprintf(w, `{"total_count": 3, "workflow_runs": [{"id": %s}]}`, page)
+	})
+	runs, err := e.client.ListWorkflowRuns(t.Context(), "acme/app", "f.yml", "")
+	noErr(t, err)
+	if len(runs) != 3 || pages != 3 || runs[2].ID != 3 {
+		t.Errorf("runs = %+v after %d pages", runs, pages)
+	}
+}
+
+func TestBot(t *testing.T) {
+	e := newEnv(t)
+	e.handle("GET /app", func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ey") {
+			http.Error(w, "need jwt", http.StatusUnauthorized)
+			return
+		}
+		fmt.Fprint(w, `{"slug": "forecrew", "id": 1}`)
+	})
+	got, err := e.client.Bot(t.Context())
+	noErr(t, err)
+	if got != "forecrew[bot]" {
+		t.Errorf("bot = %q", got)
+	}
+	e = newEnv(t)
+	if _, err = e.client.Bot(t.Context()); err == nil {
+		t.Error("no error without the endpoint")
 	}
 }
