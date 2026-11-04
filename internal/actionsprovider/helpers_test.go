@@ -193,7 +193,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	}
 }
 
-func context_WithCancel(t *testing.T) (context.Context, context.CancelFunc) {
+func contextWithCancel(t *testing.T) (context.Context, context.CancelFunc) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
