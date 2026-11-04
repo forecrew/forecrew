@@ -1,0 +1,12 @@
+id: A-2
+statement: 'Logs are UTF-8: "always"'
+made_by: architect
+source: JOB-1
+confidence: high
+impact: low
+status: verified
+verify_by: research
+evidence: grep finds no other encoding
+resolved_by: user:gian
+resolved_at: "2026-03-01T13:00:00Z"
+dependents: [GOAL-1, TASK-1, acme/app#9]
