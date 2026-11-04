@@ -20,10 +20,7 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
-      - name: Install actionlint
-        run: |
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/actionlint
       - name: Lint the workflow template
         run: actionlint packs/workflows/*.yml
 
@@ -35,10 +32,7 @@ jobs:
         with:
           go-version: "1.27.x"
           check-latest: true
-      - name: Install actionlint
-        run: |
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/actionlint
       - uses: ./.github/actions/web-setup
       - run: make build
       - run: make test
@@ -67,10 +61,7 @@ jobs:
         with:
           go-version: "1.27.x"
           check-latest: true
-      - name: Install actionlint
-        run: |
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/actionlint
       - uses: ./.github/actions/web-setup
       - run: make test-integration
       - run: make test-docker
