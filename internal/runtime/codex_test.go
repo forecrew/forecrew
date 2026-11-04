@@ -204,3 +204,44 @@ func TestCodexUsageIsRunningTotal(t *testing.T) {
 		t.Errorf("usage = %+v turns %d, want %+v", res.Usage, res.Turns, want)
 	}
 }
+
+func TestCodexIsolatesHome(t *testing.T) {
+	// The worker account's own config and login must not be what the CLI sees.
+	t.Setenv("CODEX_HOME", "/home/worker/.codex")
+	rec := filepath.Join(t.TempDir(), "rec.json")
+	a := newFakeCodex("CODEX_HOME=/home/worker/.codex", "FAKE_STREAM="+stream("codex_success.jsonl"), "FAKE_RECORD="+rec)
+	spec := codexSpec()
+	spec.Env["API_KEY"] = "sk-test-codexsecretvalue123456"
+	if _, _, err := collect(t, a, spec); err != nil {
+		t.Fatal(err)
+	}
+	r := readRecord(t, rec)
+	if r.CodexHome == "" || r.CodexHome == "/home/worker/.codex" || r.CodexEntries != 0 {
+		t.Errorf("codex home = %q with %d entries, want a fresh empty dir", r.CodexHome, r.CodexEntries)
+	}
+	if _, err := os.Stat(r.CodexHome); !os.IsNotExist(err) {
+		t.Errorf("codex home %s was not removed: %v", r.CodexHome, err)
+	}
+	if r.APIKey == "" {
+		t.Error("credentials must still reach the CLI through the env")
+	}
+}
+
+func TestCodexNeedsItsKey(t *testing.T) {
+	rec := filepath.Join(t.TempDir(), "rec.json")
+	a := newFakeCodex("FAKE_STREAM="+stream("codex_success.jsonl"), "FAKE_RECORD="+rec)
+	spec := codexSpec()
+	delete(spec.Env, "CODEX_API_KEY")
+	_, _, err := collect(t, a, spec)
+	if !errors.Is(err, ErrRunFailed) || !strings.Contains(err.Error(), "CODEX_API_KEY") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Stat(rec); err == nil {
+		t.Fatal("the CLI ran without a key")
+	}
+	// The worker's own environment is as good as the job's.
+	a = newFakeCodex("CODEX_API_KEY=sk-from-the-worker", "FAKE_STREAM="+stream("codex_success.jsonl"))
+	if _, _, err := collect(t, a, spec); err != nil {
+		t.Fatal(err)
+	}
+}

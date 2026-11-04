@@ -190,3 +190,11 @@ and run `sudo systemctl restart forecrew-worker`, or run the script with
 
    Windows: `.\install.ps1 -Uninstall [-Purge]`. A custom `--work-dir` stays;
    delete it yourself.
+
+## Runtime keys
+
+forecrewd normally sends each job its runtime's key (`credential_env`). A
+runtime with an empty `credential_env` needs the key in the worker's
+environment instead: `ANTHROPIC_API_KEY` for Claude Code, `CODEX_API_KEY` for
+Codex. A `claude` or `codex` login on the machine is not used, because each
+run gets an isolated config dir.

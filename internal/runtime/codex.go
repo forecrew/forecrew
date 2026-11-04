@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,6 +15,9 @@ import (
 
 // Codex is the adapter name of the Codex CLI.
 const Codex = "codex"
+
+// codexKeyEnv is the variable codex exec takes its API key from.
+const codexKeyEnv = "CODEX_API_KEY" // #nosec G101 -- a variable name, not a secret
 
 // editingTools are the allowed tools that make a run need a writable sandbox.
 var editingTools = []string{"Edit", "Write", "MultiEdit", "NotebookEdit"}
@@ -74,7 +79,22 @@ func codexMCPConfig(url string, tools []string) []string {
 }
 
 func (c *codexCLI) Run(ctx context.Context, spec RunSpec, emit func(domain.JobEvent)) (Result, error) {
-	r := cliRun{binary: c.cfg.binary("codex"), args: codexArgs(spec), stdin: spec.Prompt}
+	// Each run gets an empty CODEX_HOME, so the worker account's own
+	// ~/.codex (config, MCP servers, login) cannot change what the job was
+	// given. Credentials come from CODEX_API_KEY, which codex exec reads
+	// directly; there is no login to fall back on.
+	if !slices.ContainsFunc(startEnv(c.cfg.Env, spec.Env), func(kv string) bool {
+		v, ok := strings.CutPrefix(kv, codexKeyEnv+"=")
+		return ok && v != ""
+	}) {
+		return Result{}, fmt.Errorf("%w: %s is not set: add it to the runtime's credential_env or the worker's environment", ErrRunFailed, codexKeyEnv)
+	}
+	home, err := os.MkdirTemp("", "forecrew-codex-")
+	if err != nil {
+		return Result{}, fmt.Errorf("create codex home: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(home) }()
+	r := cliRun{binary: c.cfg.binary("codex"), args: codexArgs(spec), stdin: spec.Prompt, env: []string{"CODEX_HOME=" + home}}
 	return runCLI(ctx, c.cfg, spec, r, &codexParser{started: map[string]bool{}}, emit)
 }
 

@@ -32,7 +32,7 @@ runtimes:
   codex:
     adapter: codex
     vendor: openai
-    credential_env: [OPENAI_API_KEY]
+    credential_env: [CODEX_API_KEY]
 
 model_tiers:
   fast:   {anthropic: claude-haiku-4-5, openai: gpt-5-mini}
@@ -99,7 +99,7 @@ Model names above are examples; use the ones your vendors offer.
 | `runtimes` | map name → runtime | yes, ≥1 | | Agent runtimes. Names match `^[a-z0-9][a-z0-9-]*$` and are referenced by `roles`. |
 | `runtimes.<name>.adapter` | `claude-code` \| `codex` | yes | | Runtime adapter. Workers advertise `runtime:<adapter>` and jobs require it. |
 | `runtimes.<name>.vendor` | string | yes | | Model vendor; selects the model in `model_tiers`. |
-| `runtimes.<name>.credential_env` | list of strings | no | empty | Names of env vars forecrewd reads at startup and passes to the worker in the job spec `env`. Each must be set. Empty means the worker machine provides credentials itself. |
+| `runtimes.<name>.credential_env` | list of strings | no | empty | Names of env vars forecrewd reads at startup and passes to the worker in the job spec `env`. Each must be set. Empty means the key must be in the worker's own environment (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`). A login on the worker machine is not used by either runtime: every run gets an isolated config dir (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`). A Codex job with no `CODEX_API_KEY` from either place fails with an error naming it. |
 | `model_tiers` | map tier → vendor → model | yes for every (tier, vendor) a role uses | | Tiers are `fast`, `strong`, `best`. |
 | `roles` | map role → `{runtime, tier}` | no | empty | Runtime and tier per role. Role definitions (prompts, write paths, schemas) live in `packs/roles`. |
 | `policy.allow_same_vendor_review` | bool | no | `false` | When false, `reviewer` and `developer` must use runtimes of different vendors. |
@@ -147,7 +147,7 @@ get no council. A goal created with councils (create_goal) is not triaged.
 | `FORECREW_DATABASE_URL` | yes | Postgres URL, e.g. `postgres://forecrew:...@db:5432/forecrew?sslmode=require`. |
 | `FORECREW_GITHUB_PRIVATE_KEY` | yes | GitHub App private key, PEM. |
 | `FORECREW_GITHUB_WEBHOOK_SECRET` | yes | GitHub App webhook secret. |
-| each `runtimes.*.credential_env` entry | yes | Runtime credentials, e.g. `ANTHROPIC_API_KEY`. |
+| each `runtimes.*.credential_env` entry | yes | Runtime credentials, e.g. `ANTHROPIC_API_KEY`, `CODEX_API_KEY`. |
 | `FORECREW_EVIDENCE_ACCESS_KEY_ID` | when `evidence` is set | Access key of the evidence bucket. |
 | `FORECREW_EVIDENCE_SECRET_ACCESS_KEY` | when `evidence` is set | Secret key of the evidence bucket. Never logged. |
 
