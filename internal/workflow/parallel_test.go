@@ -462,3 +462,45 @@ func TestParallelCancelRetries(t *testing.T) {
 		t.Fatalf("canceled jobs = %d", got)
 	}
 }
+
+const fromItem = `
+inputs: [xs]
+steps:
+  - id: each
+    type: foreach
+    parallel: 2
+    items: '${inputs.xs}'
+    steps:
+      - id: run
+        type: job
+        with: {kind: command, repo: acme/app, base_ref: main, timeout: 5m, from: '${item}', needs: [lab]}
+`
+
+// A command job step takes its cell, suite, environment and command from the
+// item; its own keys win and the rest of the item is ignored.
+func TestCommandJobFromItem(t *testing.T) {
+	v := newEnv(t)
+	item := map[string]any{
+		"key": "os=linux/unit", "cell": map[string]any{"os": "linux"}, "suite": "unit", "needs": []any{"linux"}, "role": "developer",
+		"environment": map[string]any{"name": "host", "provider": "machine"},
+		"command":     map[string]any{"argv": []any{"make", "test"}, "reports": []any{"r.xml"}},
+	}
+	_, r := v.engine(t, fromItem, map[string]any{"xs": []any{item}})
+	s, req := v.waitJob(t, r.ID, "each/0/run", 1)
+	if req.Kind != domain.JobKindCommand || req.Suite != "unit" || req.Cell["os"] != "linux" || req.Environment.Name != "host" ||
+		!slices.Equal(req.Command.Argv, []string{"make", "test"}) || !slices.Equal(req.Command.Reports, []string{"r.xml"}) ||
+		!slices.Equal(req.Needs, []string{"lab"}) || req.Role != "" || req.BaseRef != "main" || time.Duration(req.Timeout) != 5*time.Minute {
+		t.Fatalf("request = %+v", req)
+	}
+	v.finishJob(t, s.JobID, domain.JobSucceeded, `{}`, "")
+	v.waitRun(t, r.ID, domain.RunSucceeded)
+}
+
+func TestCommandJobFromNotAnObject(t *testing.T) {
+	v := newEnv(t)
+	_, r := v.engine(t, fromItem, items("text"))
+	done := v.waitRun(t, r.ID, domain.RunFailed)
+	if !strings.Contains(done.Error, "from is not an object") {
+		t.Fatalf("error = %q", done.Error)
+	}
+}
