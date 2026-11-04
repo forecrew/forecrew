@@ -14,6 +14,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
+	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/schema"
 	"github.com/forecrew/forecrew/internal/store"
@@ -57,9 +58,13 @@ type Config struct {
 	// Assumptions registers the assumption of an unanswered ask_human; nil
 	// leaves it in the job log only.
 	Assumptions AssumptionRecorder
-	Logger      *slog.Logger
-	Version     string
-	Now         func() time.Time
+	// Search and Notes serve kb_search and notes_write; nil makes those
+	// tools answer unavailable.
+	Search  *knowledge.Search
+	Notes   *knowledge.Notes
+	Logger  *slog.Logger
+	Version string
+	Now     func() time.Time
 	// After returns a channel that fires after d (time.After); tests
 	// replace it to drive ask_human timeouts.
 	After func(d time.Duration) <-chan time.Time
