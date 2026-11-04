@@ -485,7 +485,7 @@ func TestCommandJobResultsTooLargeForTheServer(t *testing.T) {
 	c := comps[1]
 	run := onlyRun(t, c)
 	if c.Status != StatusSucceeded || run.Status != domain.TestRunErrored || len(run.Results) != 1 ||
-		!strings.Contains(run.Results[0].Message, "max_test_results_size") || run.Counts.Errored != 1 {
+		run.Results[0].Name != testreport.OversizedResult || !strings.Contains(run.Results[0].Message, "max_test_results_size") || run.Counts.Errored != 1 {
 		t.Errorf("completion = %+v", c)
 	}
 }

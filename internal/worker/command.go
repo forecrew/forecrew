@@ -539,6 +539,7 @@ func (r *jobRun) oversized(comp Completion) Completion {
 		run := runs[i]
 		run.Status, run.Counts = domain.TestRunErrored, domain.TestCounts{}
 		r.fillErrored(&run, fmt.Sprintf("the %d test results are larger than forecrewd accepts (max_test_results_size)", len(run.Results)))
+		run.Results[0].Name = testreport.OversizedResult
 		runs[i] = run
 	}
 	comp.TestRuns = runs

@@ -17,6 +17,11 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 )
 
+// OversizedResult names the only result of a run whose results forecrewd
+// refused as too large. Readers of stored runs match this name, not the
+// message.
+const OversizedResult = "(oversized)"
+
 // Limits of a report.
 const (
 	// MaxReportSize is the largest report that is parsed.
