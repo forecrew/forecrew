@@ -39,6 +39,19 @@ type JobRequest struct {
 	// Prompt is extra instructions for the job, added to its prompt (ad-hoc
 	// jobs from dispatch_job).
 	Prompt string `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+
+	// Kind is agent (the default) or command. A command job has no role,
+	// prompt or context pack: it runs Command, optionally in Environment,
+	// for one matrix Cell and Suite, with Overlay applied on top of
+	// BaseRef. Its pool follows from its environment, and Pool must be empty.
+	Kind        domain.JobKind      `json:"kind,omitempty" yaml:"kind,omitempty"`
+	Command     *domain.CommandSpec `json:"command,omitempty" yaml:"command,omitempty"`
+	Environment *domain.Environment `json:"environment,omitempty" yaml:"environment,omitempty"`
+	Cell        map[string]string   `json:"cell,omitempty" yaml:"cell,omitempty"`
+	Suite       string              `json:"suite,omitempty" yaml:"suite,omitempty"`
+	Overlay     *domain.Overlay     `json:"overlay,omitempty" yaml:"overlay,omitempty"`
+	// Timeout bounds a command job; zero means the creator's default.
+	Timeout domain.Duration `json:"timeout,omitempty" yaml:"timeout,omitempty"`
 }
 
 // JobCreator creates jobs. The implementation resolves the role, builds the

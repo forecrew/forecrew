@@ -40,7 +40,11 @@ func (c *JobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID,
 		Spec: domain.JobSpec{
 			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, Role: req.Role, IncludeRepoFacts: req.IncludeRepoFacts,
+			Command: req.Command, Environment: req.Environment, Cell: req.Cell, Suite: req.Suite, Overlay: req.Overlay,
 		},
+	}
+	if req.Kind == domain.JobKindCommand {
+		j.Kind, j.Spec.Kind = req.Kind, req.Kind
 	}
 	if err := c.Store.Jobs().Create(ctx, &j); err != nil {
 		return uuid.Nil(), err

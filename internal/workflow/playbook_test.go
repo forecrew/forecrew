@@ -56,6 +56,8 @@ func TestParsePlaybookInvalid(t *testing.T) {
 		{"nested duplicate", "steps:\n- {id: a, type: action, action: x}\n- {id: l, type: loop, max_iterations: 1, until: iteration, steps: [{id: a, type: action, action: x}]}", `step "a": duplicate id`},
 		{"unknown type", "steps:\n- {id: a, type: sleep}", `step "a": invalid playbook: unknown type "sleep"`},
 		{"job without role", "steps:\n- {id: a, type: job, with: {repo: x}}", `step "a": invalid playbook: with: role is required`},
+		{"command job without command", "steps:\n- {id: a, type: job, with: {kind: command, suite: unit}}", `step "a": invalid playbook: with: command is required`},
+		{"command job unknown key", "steps:\n- {id: a, type: job, with: {kind: command, command: {shell: x}, colour: red}}", `unknown key "colour"`},
 		{"job unknown key", "steps:\n- {id: a, type: job, with: {role: dev, colour: red}}", `step "a": invalid playbook: with: unknown key "colour"`},
 		{"job account", "steps:\n- {id: a, type: job, with: {role: dev, account_id: x}}", `unknown key "account_id"`},
 		{"prompt reference", "inputs: [x]\nsteps:\n- {id: a, type: job, with: {role: dev, prompt: '${inputs.x}'}}", `step "a": invalid playbook: with: prompt must be literal text`},
@@ -125,6 +127,27 @@ steps:
           - {id: a, type: action, action: x, with: {m: '${item} ${index} ${iteration}'}}
 `))
 	if err != nil || p.Name != "x" || len(p.Steps) != 3 || len(p.Finally) != 0 {
+		t.Fatalf("ParsePlaybook = %+v, %v", p, err)
+	}
+}
+
+func TestParsePlaybookCommandJob(t *testing.T) {
+	p, err := workflow.ParsePlaybook("x", []byte(`
+inputs: [suites]
+steps:
+  - id: each
+    type: foreach
+    items: ${inputs.suites}
+    steps:
+      - id: run
+        type: job
+        with:
+          kind: command
+          suite: '${item}'
+          command: {argv: [go, test, ./...], reports: [reports/unit.xml]}
+          overlay: {ref: agent/x, paths: [a_test.go]}
+`))
+	if err != nil || len(p.Steps) != 1 {
 		t.Fatalf("ParsePlaybook = %+v, %v", p, err)
 	}
 }
