@@ -27,6 +27,7 @@ import (
 	"github.com/forecrew/forecrew/internal/api"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/contextpack"
+	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/evidence"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
@@ -178,6 +179,10 @@ func New(d Deps) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load roles: %w", err)
 	}
+	seats, err := councils.Load(d.Files, catalog.Definition)
+	if err != nil {
+		return nil, fmt.Errorf("load councils: %w", err)
+	}
 	books, err := workflow.LoadPlaybooks(d.Files, playbooksDir)
 	if err != nil {
 		return nil, err
@@ -201,7 +206,7 @@ func New(d Deps) (*App, error) {
 	}
 	notes := &knowledge.Notes{Store: st, Index: index, Now: d.Now, Log: log}
 	search := &knowledge.Search{Index: index, Policy: syncer.Policy}
-	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0), jobs: jobSvc, knowledge: syncer}
+	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0), jobs: jobSvc, knowledge: syncer, councils: seats, models: cfg.ModelOn}
 
 	actions := workflow.Actions{}
 	playbooks.Register(actions, playbooks.Deps{Store: st, Tracker: d.GitHub, Signals: bus, Sizing: cfg.Sizing, Roles: catalog, Knowledge: syncer, Now: d.Now, Actions: d.Actions, Packs: d.Files})

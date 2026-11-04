@@ -166,7 +166,7 @@ func TestJobInvalid(t *testing.T) {
 		runtime string // overrides the resolved role's
 		want    string
 	}{
-		{"unknown kind", Turn{Kind: domain.CouncilAdhoc, Step: StepProposal, Round: 1, Seat: arch}, "architect", "", `no council pack "adhoc"`},
+		{"unknown kind", Turn{Kind: domain.CouncilKind("debate"), Step: StepProposal, Round: 1, Seat: arch}, "architect", "", `no council pack "debate"`},
 		{"unknown step", Turn{Kind: domain.CouncilTechnical, Step: "vote", Round: 1, Seat: arch}, "architect", "", `unknown step "vote"`},
 		{"round 0", Turn{Kind: domain.CouncilTechnical, Step: StepProposal, Seat: arch}, "architect", "", "must be from 1 to 1, got 0"},
 		{"fourth revision", Turn{Kind: domain.CouncilTechnical, Step: StepRevision, Round: 4, Seat: arch}, "architect", "", "from 1 to 3, got 4"},
