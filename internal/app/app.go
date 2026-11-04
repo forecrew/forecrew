@@ -31,6 +31,7 @@ import (
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/playbooks"
+	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/store/postgres"
@@ -165,8 +166,9 @@ func New(d Deps) (*App, error) {
 	}
 
 	bus := workflow.NewBus(st.Signals())
-	jobSvc := jobs.New(st, bus, cfg.Pools, log, d.Now)
-	gateSvc := gates.New(st, bus, d.Now)
+	regs := registers.New(st, bus, d.Now)
+	jobSvc := jobs.New(st, bus, cfg.Pools, log, d.Now).WithRegistrar(regs)
+	gateSvc := gates.New(st, bus, d.Now).WithRecorder(regs)
 	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0), jobs: jobSvc}
 
 	actions := workflow.Actions{}
@@ -178,11 +180,12 @@ func New(d Deps) (*App, error) {
 		return nil, fmt.Errorf("start workflow engine: %w", err)
 	}
 	toolSvc := tools.New(tools.Config{
-		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Logger: log,
+		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev,
+		Registers: regs, Logger: log,
 	})
 	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Tracker: d.GitHub, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
 	jobGateway := jobmcp.New(jobmcp.Config{
-		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Logger: log, Version: d.Version, Now: d.Now,
+		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Logger: log, Version: d.Version, Now: d.Now,
 	})
 	workers := workerapi.New(workerapi.Config{
 		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Pools: cfg.Pools, Logger: log,
