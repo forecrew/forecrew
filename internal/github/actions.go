@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	gh "github.com/google/go-github/v93/github"
@@ -193,11 +194,11 @@ func (c *Client) DownloadArtifact(ctx context.Context, repo string, id, max int6
 	// The URL is a short-lived one on GitHub's storage: no credentials.
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
+		return nil, fmt.Errorf("%s: %w", op, withoutURL(err))
 	}
 	resp, err := c.http.Do(req) // #nosec G107 G704 -- the URL is the one GitHub's API redirected to
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
+		return nil, fmt.Errorf("%s: %w", op, withoutURL(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
@@ -205,7 +206,7 @@ func (c *Client) DownloadArtifact(ctx context.Context, repo string, id, max int6
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", op, err)
+		return nil, fmt.Errorf("%s: %w", op, withoutURL(err))
 	}
 	if int64(len(data)) > max {
 		return nil, fmt.Errorf("%s: %w: over %d bytes", op, ErrTooLarge, max)
@@ -242,4 +243,14 @@ func (c *Client) WriteFile(ctx context.Context, repo, branch, path string, conte
 		return false, wrap(op, err)
 	}
 	return true, nil
+}
+
+// withoutURL drops the URL from an error of the download: it is a signed
+// link, a credential for as long as it lives, and errors end up in logs and
+// on the job.
+func withoutURL(err error) error {
+	if ue, ok := errors.AsType[*url.Error](err); ok {
+		return fmt.Errorf("%s: %w", ue.Op, ue.Err)
+	}
+	return err
 }

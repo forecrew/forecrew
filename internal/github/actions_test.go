@@ -205,3 +205,20 @@ func TestWriteFileErrors(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// A failed download must not leak the signed URL GitHub redirected to.
+func TestDownloadArtifactErrorsHideTheSignedURL(t *testing.T) {
+	e := newEnv(t)
+	e.handle("GET /repos/acme/app/actions/artifacts/9/zip", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://"+r.Host+"/storage/9?sig=SECRET-SIGNATURE", http.StatusFound)
+	})
+	e.handle("GET /storage/9", func(w http.ResponseWriter, r *http.Request) {
+		hj, _ := w.(http.Hijacker)
+		conn, _, _ := hj.Hijack()
+		_ = conn.Close() // the connection drops mid-request
+	})
+	_, err := e.client.DownloadArtifact(t.Context(), "acme/app", 9, 10)
+	if err == nil || strings.Contains(err.Error(), "SECRET-SIGNATURE") || strings.Contains(err.Error(), "/storage/") {
+		t.Errorf("err = %v, want one without the URL", err)
+	}
+}
