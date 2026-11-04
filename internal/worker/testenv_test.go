@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -25,6 +27,7 @@ const (
 	testRepoToken = "ghs_0123456789abcdefghijklmnopqrstuvwxyz"
 	testAPIKey    = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz"
 	testWorkerTok = "fcw_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefg"
+	testJobMCPTok = "fcj_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG"
 )
 
 // lockedBuffer is a bytes.Buffer safe for concurrent writers.
@@ -61,6 +64,16 @@ type fakeAPI struct {
 	eventStatus int
 	longPoll    time.Duration
 	tokens      []string // Authorization headers seen
+	// attach is handed out by every heartbeat of a job until acknowledged;
+	// uploads holds the uploaded artifacts by name.
+	attach  map[uuid.UUID][]Attachment
+	uploads map[string]upload
+}
+
+// upload is an artifact the fake API received.
+type upload struct {
+	body  []byte
+	count int
 }
 
 func newFakeAPI(t *testing.T) *fakeAPI {
@@ -68,12 +81,14 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 	a := &fakeAPI{
 		events: map[uuid.UUID][]domain.JobEvent{}, completions: map[uuid.UUID][]Completion{},
 		completed: make(chan uuid.UUID, 64), heartbeats: map[uuid.UUID]int{}, longPoll: 10 * time.Millisecond,
+		attach: map[uuid.UUID][]Attachment{}, uploads: map[string]upload{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /worker/v1/poll", a.poll)
 	mux.HandleFunc("POST /worker/v1/jobs/{id}/heartbeat", a.beat)
 	mux.HandleFunc("POST /worker/v1/jobs/{id}/events", a.sendEvents)
 	mux.HandleFunc("POST /worker/v1/jobs/{id}/complete", a.complete)
+	mux.HandleFunc("PUT /worker/v1/jobs/{id}/artifacts/{name...}", a.upload)
 	a.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		a.tokens = append(a.tokens, r.Header.Get("Authorization"))
@@ -121,6 +136,10 @@ func (a *fakeAPI) poll(w http.ResponseWriter, r *http.Request) {
 
 func (a *fakeAPI) beat(w http.ResponseWriter, r *http.Request) {
 	id, _ := uuid.Parse(r.PathValue("id"))
+	var body struct {
+		Received []Attachment `json:"attach_received"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
 	a.mu.Lock()
 	a.heartbeats[id]++
 	n, fn := a.heartbeats[id], a.heartbeat
@@ -133,7 +152,20 @@ func (a *fakeAPI) beat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, "x", "scripted answer")
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]string{"action": action})
+	a.mu.Lock()
+	a.attach[id] = slices.DeleteFunc(a.attach[id], func(f Attachment) bool { return slices.Contains(body.Received, f) })
+	attach := slices.Clone(a.attach[id])
+	a.mu.Unlock()
+	_ = json.NewEncoder(w).Encode(map[string]any{"action": action, "attach": attach})
+}
+
+func (a *fakeAPI) upload(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	a.mu.Lock()
+	a.uploads[r.PathValue("name")] = upload{body: body, count: a.uploads[r.PathValue("name")].count + 1}
+	a.mu.Unlock()
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]any{"id": domain.NewID(), "name": r.PathValue("name"), "size": len(body)})
 }
 
 func (a *fakeAPI) sendEvents(w http.ResponseWriter, r *http.Request) {
@@ -290,7 +322,7 @@ func (e *testEnv) doComplete(s domain.JobSpec) Completion {
 // the requests' bodies or any file of the work dir.
 func (e *testEnv) noSecrets() {
 	e.t.Helper()
-	secrets := []string{testRepoToken, testAPIKey, authHeader(testRepoToken)}
+	secrets := []string{testRepoToken, testAPIKey, authHeader(testRepoToken), testJobMCPTok}
 	e.api.mu.Lock()
 	b, _ := json.Marshal([]any{e.api.events, e.api.completions})
 	e.api.mu.Unlock()

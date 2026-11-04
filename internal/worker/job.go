@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -103,6 +104,9 @@ type jobRun struct {
 	dir   string // job worktree
 	lease *leaseClock
 	stop  context.CancelCauseFunc
+
+	attachMu sync.Mutex
+	attach   []Attachment // marked by the agent, one per artifact name
 }
 
 // handleJob runs a leased job to its end and reports the result. ctx is the
@@ -116,6 +120,9 @@ func (w *Worker) handleJob(ctx context.Context, lease *Lease) {
 	}
 	for k, v := range spec.Env {
 		secrets["env_"+k] = v
+	}
+	if spec.JobMCP != nil {
+		secrets["job_mcp_token"] = spec.JobMCP.Token
 	}
 	red := runtime.NewRedactor(secrets)
 	r := &jobRun{
@@ -192,9 +199,10 @@ func (r *jobRun) heartbeats(ctx context.Context, interval time.Duration, stop co
 		case <-t.C:
 		}
 		sent := r.w.cfg.Now()
-		action, expires, err := r.w.cfg.Client.Heartbeat(ctx, r.spec.JobID)
-		if err == nil && action == ActionContinue {
-			r.lease.set(leaseEnd(sent, expires))
+		b, err := r.w.cfg.Client.Heartbeat(ctx, r.spec.JobID, r.attachments())
+		if err == nil && b.Action == ActionContinue {
+			r.lease.set(leaseEnd(sent, b.LeaseExpiresAt))
+			r.marked(b.Attach)
 		}
 		switch {
 		case ctx.Err() != nil:
@@ -204,7 +212,7 @@ func (r *jobRun) heartbeats(ctx context.Context, interval time.Duration, stop co
 			return
 		case err != nil:
 			r.log.Warn("heartbeat failed", "error", err)
-		case action == ActionCancel:
+		case b.Action == ActionCancel:
 			stop(errJobCanceled)
 			return
 		}
@@ -216,18 +224,39 @@ func (r *jobRun) heartbeats(ctx context.Context, interval time.Duration, stop co
 // tolerated: the lease clock still guards the push.
 func (r *jobRun) beat(ctx context.Context) error {
 	sent := r.w.cfg.Now()
-	action, expires, err := r.w.cfg.Client.Heartbeat(ctx, r.spec.JobID)
+	b, err := r.w.cfg.Client.Heartbeat(ctx, r.spec.JobID, r.attachments())
 	switch {
 	case stopsJob(err):
 		return err
 	case err != nil:
-		r.log.Warn("heartbeat before push failed", "error", err)
-	case action == ActionCancel:
+		r.log.Warn("extra heartbeat failed", "error", err)
+	case b.Action == ActionCancel:
 		return errJobCanceled
 	default:
-		r.lease.set(leaseEnd(sent, expires))
+		r.lease.set(leaseEnd(sent, b.LeaseExpiresAt))
+		r.marked(b.Attach)
 	}
 	return nil
+}
+
+// marked records the files a heartbeat answer says the agent marked. They
+// come again until acknowledged, and a later mark of a name replaces the
+// earlier one.
+func (r *jobRun) marked(files []Attachment) {
+	r.attachMu.Lock()
+	defer r.attachMu.Unlock()
+	for _, f := range files {
+		r.attach = slices.DeleteFunc(r.attach, func(a Attachment) bool { return a.Name == f.Name })
+		r.attach = append(r.attach, f)
+	}
+}
+
+// attachments returns the files marked so far: what the next heartbeat
+// acknowledges, and what is uploaded after the run.
+func (r *jobRun) attachments() []Attachment {
+	r.attachMu.Lock()
+	defer r.attachMu.Unlock()
+	return slices.Clone(r.attach)
 }
 
 // watchLease stops the job when its lease ends without a successful
@@ -311,6 +340,10 @@ func (r *jobRun) execute(ctx context.Context) Completion {
 
 	r.ev.text(domain.EventStatus, "running")
 	res, err := r.runAgent(ctx, prompt)
+	if cause := r.uploadEvidence(ctx); cause != nil {
+		r.stop(cause)
+		return Completion{}
+	}
 	comp := Completion{Usage: res.Usage, CostUSD: res.CostUSD}
 	if err != nil {
 		comp.Status, comp.Error = StatusFailed, r.red.String(err.Error())
@@ -380,11 +413,18 @@ func (r *jobRun) runAgent(ctx context.Context, prompt string) (runtime.Result, e
 	}
 	mark := r.spec.JobID.String()
 	env[markEnv] = mark
+	var gateway *runtime.JobMCP
+	if m := r.spec.JobMCP; m != nil {
+		// The token goes in the environment only; the runtime's MCP
+		// configuration refers to the variable.
+		env[runtime.JobMCPTokenEnv] = m.Token
+		gateway = &runtime.JobMCP{URL: r.w.cfg.Client.JobMCPURL()}
+	}
 	r.w.reaper.agentStarted()
 	res, err := adapter.Run(ctx, runtime.RunSpec{
 		WorkDir: r.dir, Model: r.spec.Model, Prompt: prompt, OutputSchema: r.spec.OutputSchema,
 		AllowedTools: r.spec.AllowedTools, MaxTurns: r.spec.MaxTurns,
-		Timeout: time.Duration(r.spec.Timeout), Env: env,
+		Timeout: time.Duration(r.spec.Timeout), Env: env, JobMCP: gateway,
 	}, r.ev.add)
 	if n := r.w.reaper.agentDone(mark); n > 0 {
 		r.log.Warn("killed processes the agent left running", "count", n)
