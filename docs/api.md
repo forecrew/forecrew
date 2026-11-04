@@ -12,6 +12,13 @@ Goals, jobs, tasks and gates are named by human ref (`GOAL-3`, `JOB-41`,
 
 ## Authentication
 
+Organizations, people, sessions and tokens are described in
+[contracts/identity.md](contracts/identity.md); what each endpoint needs is
+in [contracts/permissions.md](contracts/permissions.md#what-every-entry-point-needs).
+The organization is stored as an account, so answers name it `account`
+(with its `slug`). Sign-in through connections and server-side sessions
+replace the token login below in T52.
+
 Send an MCP/API token (`fcm_...`, see [mcp.md](mcp.md)) as
 `Authorization: Bearer <token>`, or, in a browser, log in once and let the
 session cookie carry it.
@@ -157,7 +164,7 @@ the job goes on either way. Gate decisions follow the rules in
 The session, returned by login and `me`:
 
 ```json
-{"token": "laptop", "account": {"id": "uuid", "name": "default", "created_at": "..."}}
+{"token": "laptop", "account": {"id": "uuid", "name": "default", "slug": "default", "created_at": "..."}}
 ```
 
 `GET /api/v1/goals/{goal}` returns:
