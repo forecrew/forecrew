@@ -50,6 +50,9 @@ func codexArgs(spec RunSpec) []string {
 	if spec.WorkDir != "" {
 		args = append(args, "--cd", spec.WorkDir)
 	}
+	if spec.EvidenceDir != "" {
+		args = append(args, "--add-dir", spec.EvidenceDir)
+	}
 	if spec.Model != "" {
 		args = append(args, "--model", spec.Model)
 	}

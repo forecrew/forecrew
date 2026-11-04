@@ -105,6 +105,13 @@ func TestCodexSandbox(t *testing.T) {
 	}
 }
 
+func TestCodexEvidenceDir(t *testing.T) {
+	args := codexArgs(RunSpec{EvidenceDir: "/scratch"})
+	if i := slices.Index(args, "--add-dir"); i < 0 || args[i+1] != "/scratch" {
+		t.Errorf("args = %q", args)
+	}
+}
+
 func TestCodexMalformedLine(t *testing.T) {
 	a := newFakeCodex("FAKE_STREAM=" + stream("codex_malformed.jsonl"))
 	events, res, err := collect(t, a, codexSpec())

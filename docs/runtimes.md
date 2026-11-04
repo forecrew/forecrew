@@ -130,6 +130,18 @@ server `forecrew`).
 Not yet verified against the real CLIs: see the live checks in
 [runbooks/smoke-live.md](runbooks/smoke-live.md).
 
+## Evidence scratch directory
+
+`RunSpec.EvidenceDir` is a per-job directory outside the checkout, also in
+`FORECREW_EVIDENCE_DIR`. claude-code gets it with `--add-dir`; codex gets
+`--add-dir` too, which makes it writable only in the `workspace-write` sandbox.
+
+Limitations: codex keeps the `read-only` sandbox for every role without an
+editing tool, and that sandbox lets it write nowhere. So no read-only role on
+codex can create scratch files, whatever other tools it has; a role that needs
+evidence should run on claude-code. On any runtime, a read-only role with
+neither `Write` nor `Bash` has no way to create a file either.
+
 ## scripted
 
 `NewScripted(path, cfg)` replays a JSON script (`runtime.Script`) on every
