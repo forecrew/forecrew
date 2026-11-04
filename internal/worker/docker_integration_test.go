@@ -3,6 +3,7 @@
 package worker
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,8 +28,9 @@ func dockerWorker(t *testing.T) *testEnv {
 	e := newCommandEnv(t)
 	e.cfg.DockerBin = "docker"
 	e.rebuild()
-	t.Cleanup(func() { // whatever a failed test leaves behind
-		_ = e.w.docker.removeLeftovers(t.Context())
+	t.Cleanup(func() { // whatever the test leaves behind
+		_ = e.w.docker.removeLeftovers(context.Background())
+		removeEnvImages(e)
 	})
 	return e
 }
@@ -84,7 +86,8 @@ func TestDockerImageEnvironment(t *testing.T) {
 
 func TestDockerfileEnvironmentIsCached(t *testing.T) {
 	e := dockerWorker(t)
-	pushFile(t, e.remote, "ci/Dockerfile", "FROM alpine:latest\nRUN echo built > /marker\n")
+	// A comment unique to this run, so that the first job builds.
+	pushFile(t, e.remote, "ci/Dockerfile", "FROM alpine:latest\n# "+domain.NewID().String()+"\nRUN echo built > /marker\n")
 	env := &domain.Environment{Name: "built", Provider: domain.ProviderDocker, Dockerfile: "ci/Dockerfile", Context: "ci", Setup: []string{"echo setup >> /marker"}}
 	run := func() domain.JobSpec {
 		s := dockerSpec(e, "cat /marker; "+writeJUnit("reports/unit.xml"), env, func(s *domain.JobSpec) { s.Timeout = domain.Duration(5 * time.Minute) })
@@ -178,5 +181,16 @@ func TestLeftoversOfACrashedWorkerAreRemoved(t *testing.T) {
 	}
 	if left, _ := exec.Command("docker", "ps", "-aq", "--filter", "label="+jobLabelKey+"="+id).Output(); strings.TrimSpace(string(left)) != "" { //nolint:gosec // test command
 		t.Errorf("container still there: %s", left)
+	}
+}
+
+// removeEnvImages removes the environment images the worker of e used, which
+// its markers name; images of other workers on the same daemon stay.
+func removeEnvImages(e *testEnv) {
+	marks, _ := os.ReadDir(string(e.w.imageMarkers()))
+	for _, m := range marks {
+		for _, suffix := range []string{"", "-base"} {
+			_ = exec.Command("docker", "image", "rm", envImageRepo+":"+m.Name()+suffix).Run() //nolint:gosec // test command
+		}
 	}
 }
