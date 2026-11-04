@@ -80,6 +80,27 @@ func TestAllowedTools(t *testing.T) {
 	}
 }
 
+func TestRegisterTool(t *testing.T) {
+	RegisterTool("test.only", "mcp__forecrew__test_only")
+	t.Cleanup(func() { delete(tools, "test.only") })
+	d := Definition{Tools: []string{"repo.read", "test.only"}}
+	want := []string{"Glob", "Grep", "Read", "mcp__forecrew__test_only"}
+	if got := d.AllowedTools(); !slices.Equal(got, want) {
+		t.Errorf("AllowedTools = %v, want %v", got, want)
+	}
+	var p []string
+	file{Role: "dev", Tools: []string{"test.only"}}.check("packs/roles/dev.yaml", &p)
+	if slices.ContainsFunc(p, func(s string) bool { return strings.Contains(s, "unknown tool") }) {
+		t.Errorf("registered tool refused: %v", p)
+	}
+	defer func() {
+		if recover() == nil {
+			t.Error("registering a tool twice did not panic")
+		}
+	}()
+	RegisterTool("repo.read")
+}
+
 const validRole = `role: dev
 model: strong
 prompt: roles/dev.md

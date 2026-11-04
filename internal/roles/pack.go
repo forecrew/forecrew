@@ -43,6 +43,17 @@ var tools = map[string][]string{
 	"run.tests": {"Bash"},
 }
 
+// RegisterTool makes name a valid role tool that allows runtimeTools. The
+// job MCP gateway (internal/jobmcp) registers its tools this way, so a role
+// may list them once their tool exists. Call it from an init function; a
+// name registered twice panics.
+func RegisterTool(name string, runtimeTools ...string) {
+	if _, ok := tools[name]; ok {
+		panic("roles: tool " + name + " registered twice")
+	}
+	tools[name] = slices.Clone(runtimeTools)
+}
+
 // writeTools need write paths, and write paths need repo.write.
 var writeTools = []string{"repo.write", "git.commit"}
 
