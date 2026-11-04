@@ -885,3 +885,106 @@ func TestStoreTestRunFailures(t *testing.T) {
 		t.Fatalf("foreign Failures = %+v", fails)
 	}
 }
+
+func TestStoreRegisters(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Title: "Ship", CreatedBy: "user:me"}
+	must(t, f.st.Goals().Create(ctx, &g))
+	repo := f.st.Assumptions()
+	a := domain.Assumption{AccountID: f.account, ProjectID: f.project.ID, GoalID: g.ID, MadeBy: "architect",
+		Statement: "s", Confidence: domain.LevelLow, Impact: domain.LevelHigh, VerifyBy: domain.VerifyByTest}
+	must(t, repo.Create(ctx, &a))
+	b := a
+	b.ID, b.GoalID, b.Impact = uuid.Nil(), uuid.Nil(), domain.LevelLow
+	must(t, repo.Create(ctx, &b))
+	if a.Number != 1 || b.Number != 2 || a.Status != domain.AssumptionUnverified || a.Dependents == nil {
+		t.Fatalf("created = %+v %+v", a, b)
+	}
+	if got, err := repo.GetByNumber(ctx, f.account, 2); err != nil || got.ID != b.ID {
+		t.Fatalf("by number = %+v, %v", got, err)
+	}
+	if got, err := repo.Get(ctx, f.account, a.ID); err != nil || got.Number != 1 {
+		t.Fatalf("get = %+v, %v", got, err)
+	}
+	list, err := repo.List(ctx, f.account, store.AssumptionFilter{GoalID: g.ID, Impact: domain.LevelHigh, VerifyBy: domain.VerifyByTest})
+	if err != nil || len(list) != 1 || list[0].ID != a.ID {
+		t.Fatalf("list = %+v, %v", list, err)
+	}
+	dep := []domain.Dependent{{Kind: domain.DependentTask, ID: "TASK-1"}}
+	must(t, repo.AddDependents(ctx, f.account, a.ID, dep))
+	must(t, repo.AddDependents(ctx, f.account, a.ID, dep))
+	if got, _ := repo.Get(ctx, f.account, a.ID); len(got.Dependents) != 1 {
+		t.Fatalf("dependents = %+v", got.Dependents)
+	}
+	wantErr(t, repo.AddDependents(ctx, f.account, domain.NewID(), dep), store.ErrNotFound)
+
+	by := domain.Actor{Kind: domain.ActorUser, Name: "me"}
+	cur, _ := repo.Get(ctx, f.account, a.ID)
+	stale := cur
+	must(t, cur.Resolve(by, domain.AssumptionAccepted, "", t0))
+	must(t, repo.Resolve(ctx, &cur, domain.AssumptionUnverified))
+	must(t, stale.Resolve(by, domain.AssumptionVerified, "test", t0))
+	wantErr(t, repo.Resolve(ctx, &stale, domain.AssumptionUnverified), store.ErrConflict)
+	bad := cur
+	bad.Status = domain.AssumptionUnverified
+	wantErr(t, repo.Resolve(ctx, &bad, domain.AssumptionAccepted), domain.ErrInvalidTransition)
+	if got, _ := repo.Get(ctx, f.account, a.ID); got.Status != domain.AssumptionAccepted || got.ResolvedBy != "user:me" {
+		t.Fatalf("resolved = %+v", got)
+	}
+
+	dec := f.st.Decisions()
+	d := domain.Decision{AccountID: f.account, ProjectID: f.project.ID, GoalID: g.ID, Question: "Q", Choice: "c", DecidedBy: "user:me", Assumptions: []uuid.UUID{a.ID}}
+	must(t, dec.Create(ctx, &d))
+	e := domain.Decision{AccountID: f.account, ProjectID: f.project.ID, Question: "Q2", Choice: "c", DecidedBy: "user:me"}
+	must(t, dec.Create(ctx, &e))
+	if d.Number != 1 || e.Number != 2 || e.Options == nil || e.Assumptions == nil {
+		t.Fatalf("decisions = %+v %+v", d, e)
+	}
+	if got, err := dec.GetByNumber(ctx, f.account, 1); err != nil || got.ID != d.ID {
+		t.Fatalf("by number = %+v, %v", got, err)
+	}
+	if got, err := dec.Get(ctx, f.account, e.ID); err != nil || got.Question != "Q2" {
+		t.Fatalf("get = %+v, %v", got, err)
+	}
+	if l, err := dec.List(ctx, f.account, store.DecisionFilter{GoalID: g.ID}); err != nil || len(l) != 1 {
+		t.Fatalf("list = %+v, %v", l, err)
+	}
+	other := domain.Account{Name: "other"}
+	must(t, f.st.Accounts().Create(ctx, &other))
+	_, err = dec.Get(ctx, other.ID, d.ID)
+	wantErr(t, err, store.ErrNotFound)
+	foreign := domain.Decision{AccountID: other.ID, ProjectID: f.project.ID, Question: "Q", Choice: "c", DecidedBy: "user:x"}
+	wantErr(t, dec.Create(ctx, &foreign), store.ErrNotFound)
+	foreignA := domain.Assumption{AccountID: other.ID, ProjectID: f.project.ID, MadeBy: "x", StatedAssumption: a.StatedAssumption}
+	wantErr(t, repo.Create(ctx, &foreignA), store.ErrNotFound)
+}
+
+func TestStoreAssumptionRaiseImpactAndLock(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Assumptions()
+	g := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Title: "Ship", CreatedBy: "user:me"}
+	must(t, f.st.Goals().Create(ctx, &g))
+	a := domain.Assumption{AccountID: f.account, ProjectID: f.project.ID, GoalID: g.ID, MadeBy: "architect",
+		StatedAssumption: domain.StatedAssumption{Statement: "s", Confidence: domain.LevelLow, Impact: domain.LevelHigh, VerifyBy: domain.VerifyByTest}}
+	must(t, repo.Create(ctx, &a))
+	lo := a
+	lo.ID, lo.Impact = uuid.Nil(), domain.LevelLow
+	must(t, repo.Create(ctx, &lo))
+
+	// The impact only goes up.
+	must(t, repo.RaiseImpact(ctx, f.account, a.ID, domain.LevelLow))
+	if got, _ := repo.Get(ctx, f.account, a.ID); got.Impact != domain.LevelHigh {
+		t.Fatalf("impact lowered: %+v", got)
+	}
+	for _, to := range []domain.Level{domain.LevelMedium, domain.LevelMedium, domain.LevelHigh} {
+		must(t, repo.RaiseImpact(ctx, f.account, lo.ID, to))
+		if got, _ := repo.Get(ctx, f.account, lo.ID); got.Impact != to {
+			t.Fatalf("impact = %+v, want %s", got, to)
+		}
+	}
+	wantErr(t, repo.RaiseImpact(ctx, f.account, domain.NewID(), domain.LevelHigh), store.ErrNotFound)
+	must(t, repo.Lock(ctx, f.account, f.project.ID, g.ID))
+	must(t, repo.Lock(ctx, f.account, f.project.ID, uuid.Nil()))
+}
