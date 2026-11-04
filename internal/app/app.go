@@ -81,7 +81,8 @@ type App struct {
 	creator *jobCreator
 	tools   *tools.Service
 	engine  *workflow.Engine
-	// retention deletes expired artifacts; nil when they are kept forever.
+	// retention deletes expired artifacts and orphan objects; nil without
+	// evidence storage.
 	retention *evidence.Retention
 	// runEngine runs the engine; tests replace it.
 	runEngine func(context.Context) error
@@ -189,7 +190,7 @@ func New(d Deps) (*App, error) {
 		webhooks: webhook.NewHandler([]byte(cfg.GitHub.WebhookSecret), hooks),
 		poller:   webhook.NewPoller(hooks),
 	}
-	if ev != nil && cfg.Evidence != nil && cfg.Evidence.RetentionDays > 0 {
+	if ev != nil && cfg.Evidence != nil {
 		a.retention = &evidence.Retention{Store: st, Evidence: ev, Days: cfg.Evidence.RetentionDays, Logger: log, Now: d.Now}
 	}
 	if cfg.Server.TLSDomain != "" {

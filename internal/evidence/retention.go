@@ -28,16 +28,21 @@ const (
 // Retention deletes artifacts older than Days from storage and from the
 // database. A verification report that points at a deleted artifact keeps
 // its data and loses only the link to the rendered copy (store.ArtifactRepo
-// Delete). Every deletion is recorded in the audit log.
+// Delete). Every deletion is recorded in the audit log. Reconcile, which Run
+// also calls, additionally removes objects no artifact points at; it does so
+// whatever Days is.
 type Retention struct {
 	Store    store.Store
 	Evidence Store
 	// Days is the age in days from which artifacts are deleted; 0 keeps
-	// them forever, so Sweep and Run do nothing.
+	// them forever, so Sweep does nothing.
 	Days   int
 	Logger *slog.Logger
 	// Now defaults to the real UTC time.
 	Now func() time.Time
+
+	// cursor is where the next Reconcile pass continues.
+	cursor string
 }
 
 // Sweep deletes the expired artifacts of every account and returns how many
@@ -54,11 +59,7 @@ func (r *Retention) Sweep(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("retention: list accounts: %w", err)
 	}
-	now := time.Now().UTC
-	if r.Now != nil {
-		now = r.Now
-	}
-	cutoff := now().AddDate(0, 0, -r.Days)
+	cutoff := r.now().AddDate(0, 0, -r.Days)
 	var deleted int
 	var errs []error
 	for _, acc := range accounts {
@@ -126,6 +127,13 @@ func (r *Retention) delete(ctx context.Context, a domain.Artifact) error {
 	return nil
 }
 
+func (r *Retention) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now().UTC()
+}
+
 func (r *Retention) logger() *slog.Logger {
 	if r.Logger == nil {
 		return slog.New(slog.DiscardHandler)
@@ -133,12 +141,9 @@ func (r *Retention) logger() *slog.Logger {
 	return r.Logger
 }
 
-// Run sweeps now and then every interval until ctx ends. Errors
-// are logged. It returns at once when Days is 0.
+// Run sweeps and reconciles now and then every interval until ctx ends. Errors
+// are logged. With Days 0 it only reconciles.
 func (r *Retention) Run(ctx context.Context, interval time.Duration) {
-	if r.Days <= 0 {
-		return
-	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -147,6 +152,12 @@ func (r *Retention) Run(ctx context.Context, interval time.Duration) {
 			r.logger().ErrorContext(ctx, "artifact retention sweep failed", "deleted", n, "error", err)
 		} else if n > 0 {
 			r.logger().InfoContext(ctx, "expired artifacts deleted", "deleted", n, "retention_days", r.Days)
+		}
+		o, err := r.Reconcile(ctx)
+		if err != nil {
+			r.logger().ErrorContext(ctx, "orphan reconciliation failed", "deleted", o, "error", err)
+		} else if o > 0 {
+			r.logger().InfoContext(ctx, "orphan objects deleted", "deleted", o)
 		}
 		select {
 		case <-ctx.Done():
