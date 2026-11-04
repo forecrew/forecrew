@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os/exec"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -43,9 +44,10 @@ func filterEnv(environ []string, keep func(name string) bool) []string {
 // newFromConfig builds the Worker of a worker.yaml: labels from the config and the
 // machine, the runtime adapters found on PATH and the local analyzer.
 // environ is the process environment (os.Environ()).
-func newFromConfig(cfg *config.Worker, environ []string, version string, logger *slog.Logger) *Worker {
-	labels := DetectLabels(cfg.Labels, goruntime.GOOS, exec.LookPath)
+func newFromConfig(ctx context.Context, cfg *config.Worker, environ []string, version string, logger *slog.Logger) *Worker {
+	labels, dockerBin, _ := detectLabels(ctx, cfg, environ)
 	return New(Config{
+		DockerBin: dockerBin, ImageMaxAge: time.Duration(cfg.ImagePruneDays) * 24 * time.Hour,
 		Client: NewClient(cfg.ServerURL, cfg.Token, nil), Labels: labels, Version: version,
 		WorkDir: cfg.WorkDir, MaxJobs: cfg.MaxJobs,
 		Runtimes: runtime.DefaultRegistry(AgentEnv(environ), nil), Analyzer: analyzer.Local{},
@@ -59,7 +61,7 @@ func Run(ctx context.Context, cfg *config.Worker, environ []string, version stri
 	if _, err := newGitClient("git", nil, environ, "").version(ctx); err != nil {
 		return fmt.Errorf("git is required: %w", err)
 	}
-	w := newFromConfig(cfg, environ, version, logger)
+	w := newFromConfig(ctx, cfg, environ, version, logger)
 	logger.Info("forecrew-worker started", "version", version, "name", cfg.Name, "server_url", cfg.ServerURL,
 		"labels", w.cfg.Labels, "max_jobs", cfg.MaxJobs, "work_dir", cfg.WorkDir)
 	if cfg.MaxJobs > 1 {
@@ -81,8 +83,13 @@ var ErrCheckFailed = errors.New("check failed")
 // CLI is reported but is not a failure; a missing git or an unreachable
 // server is.
 func Check(ctx context.Context, cfg *config.Worker, environ []string, version string, out io.Writer) error {
-	labels := DetectLabels(cfg.Labels, goruntime.GOOS, exec.LookPath)
+	labels, dockerBin, dockerInfo := detectLabels(ctx, cfg, environ)
 	fmt.Fprintf(out, "forecrew-worker %s\nlabels: %s\n", version, strings.Join(labels, ", "))
+	if dockerBin != "" {
+		fmt.Fprintf(out, "docker: engine %s\n", dockerInfo)
+	} else {
+		fmt.Fprintf(out, "docker: not available (%s)\n", dockerInfo)
+	}
 	failed := false
 
 	stepCtx, cancel := context.WithTimeout(ctx, checkTimeout)
@@ -126,4 +133,27 @@ func Check(ctx context.Context, cfg *config.Worker, environ []string, version st
 		return ErrCheckFailed
 	}
 	return nil
+}
+
+// detectLabels returns the labels of the worker of cfg, with docker when the
+// engine answers, and what detectDocker found.
+func detectLabels(ctx context.Context, cfg *config.Worker, environ []string) (labels []string, dockerBin, dockerInfo string) {
+	dockerBin, dockerInfo = detectDocker(ctx, cfg.WorkDir, environ)
+	configured := cfg.Labels
+	if dockerBin != "" {
+		configured = append(slices.Clone(configured), dockerLabel)
+	}
+	return DetectLabels(configured, goruntime.GOOS, exec.LookPath), dockerBin, dockerInfo
+}
+
+// detectDocker returns the docker client binary when the Docker engine
+// answers `docker version`, and the answer or the reason it did not.
+func detectDocker(ctx context.Context, workDir string, environ []string) (bin, info string) {
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
+	v, err := newDockerCLI("docker", workDir, environ).version(ctx)
+	if err != nil {
+		return "", err.Error()
+	}
+	return "docker", v
 }
