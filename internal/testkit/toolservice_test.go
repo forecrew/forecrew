@@ -39,6 +39,9 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.RevokeToken(ctx, by, mcp.RevokeTokenInput{}); return err },
 		func() error { _, err := s.ListArtifacts(ctx, by, mcp.JobRefInput{}); return err },
 		func() error { _, err := s.ListTestRuns(ctx, by, mcp.ListTestRunsInput{}); return err },
+		func() error { _, err := s.ListAssumptions(ctx, by, mcp.ListAssumptionsInput{}); return err },
+		func() error { _, err := s.ResolveAssumption(ctx, by, mcp.ResolveAssumptionInput{}); return err },
+		func() error { _, err := s.ListDecisions(ctx, by, mcp.ListDecisionsInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

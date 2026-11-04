@@ -147,6 +147,12 @@ func TestEndpoints(t *testing.T) {
 		{"GET", "/api/v1/test-runs?job=JOB-41&project=app&change=7&sha=abc&limit=5", "", 200, mcp.ToolListTestRuns,
 			mcp.ListTestRunsInput{Job: "JOB-41", Project: "app", Change: 7, SHA: "abc", Limit: 5}},
 		{"POST", "/api/v1/tokens/old-laptop/revoke", "", 200, mcp.ToolRevokeToken, mcp.RevokeTokenInput{Token: "old-laptop"}},
+		{"GET", "/api/v1/assumptions?project=app&goal=GOAL-1&task=TASK-2&status=unverified&impact=high&verify_by=test", "", 200, mcp.ToolListAssumptions,
+			mcp.ListAssumptionsInput{Project: "app", Goal: "GOAL-1", Task: "TASK-2", Status: "unverified", Impact: "high", VerifyBy: "test"}},
+		{"POST", "/api/v1/assumptions/A-42/resolve", `{"status":"invalidated","evidence":"it scales out"}`, 200, mcp.ToolResolveAssumption,
+			mcp.ResolveAssumptionInput{Assumption: "A-42", Status: "invalidated", Evidence: "it scales out"}},
+		{"GET", "/api/v1/decisions?project=app&goal=GOAL-1&council=0192f5a0-0000-7000-8000-00000000000c", "", 200, mcp.ToolListDecisions,
+			mcp.ListDecisionsInput{Project: "app", Goal: "GOAL-1", Council: "0192f5a0-0000-7000-8000-00000000000c"}},
 	}
 	seen := map[string]bool{}
 	for i, tt := range tests {
@@ -173,7 +179,7 @@ func TestEndpoints(t *testing.T) {
 
 func TestListsAreArrays(t *testing.T) {
 	e := newEnv(t)
-	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts", "/api/v1/test-runs?sha=abc"} {
+	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts", "/api/v1/test-runs?sha=abc", "/api/v1/assumptions?project=app", "/api/v1/decisions?project=app"} {
 		if r := e.do(t, "GET", path, "", "bearer"); strings.TrimSpace(r.body) != "[]" {
 			t.Errorf("GET %s = %q, want []", path, r.body)
 		}
@@ -237,6 +243,7 @@ func TestBadRequests(t *testing.T) {
 		{"unknown field", "POST", "/api/v1/goals", `{"project":"a","title":"t","extra":1}`, 400, "bad_request"},
 		{"trailing data", "POST", "/api/v1/projects", `{"repo":"a/b"} {}`, 400, "bad_request"},
 		{"wrong type", "POST", "/api/v1/goals", `{"project":1}`, 400, "bad_request"},
+		{"resolve with a body field for the path", "POST", "/api/v1/assumptions/A-1/resolve", `{"assumption":"A-2"}`, 400, "bad_request"},
 		{"gate field in body", "POST", "/api/v1/gates/GATE-1/approve", `{"gate":"GATE-2"}`, 400, "bad_request"},
 		{"bad limit", "GET", "/api/v1/jobs?limit=ten", "", 400, "bad_request"},
 		{"bad test-runs limit", "GET", "/api/v1/test-runs?limit=x", "", 400, "bad_request"},

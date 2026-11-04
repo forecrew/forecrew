@@ -48,6 +48,10 @@ type ToolService struct {
 	ListTestRunsFunc     func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error)
 	OpenArtifactFunc     func(context.Context, domain.Actor, string) (domain.Artifact, io.ReadCloser, error)
 
+	ListAssumptionsFunc   func(context.Context, domain.Actor, mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error)
+	ResolveAssumptionFunc func(context.Context, domain.Actor, mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error)
+	ListDecisionsFunc     func(context.Context, domain.Actor, mcp.ListDecisionsInput) ([]mcp.DecisionInfo, error)
+
 	mu    sync.Mutex
 	calls []ToolCall
 }
@@ -179,6 +183,21 @@ func (s *ToolService) ListArtifacts(ctx context.Context, by domain.Actor, in mcp
 // ListTestRuns implements mcp.ToolService.
 func (s *ToolService) ListTestRuns(ctx context.Context, by domain.Actor, in mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error) {
 	return invoke(ctx, s, mcp.ToolListTestRuns, by, in, s.ListTestRunsFunc)
+}
+
+// ListAssumptions implements mcp.ToolService.
+func (s *ToolService) ListAssumptions(ctx context.Context, by domain.Actor, in mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error) {
+	return invoke(ctx, s, mcp.ToolListAssumptions, by, in, s.ListAssumptionsFunc)
+}
+
+// ResolveAssumption implements mcp.ToolService.
+func (s *ToolService) ResolveAssumption(ctx context.Context, by domain.Actor, in mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error) {
+	return invoke(ctx, s, mcp.ToolResolveAssumption, by, in, s.ResolveAssumptionFunc)
+}
+
+// ListDecisions implements mcp.ToolService.
+func (s *ToolService) ListDecisions(ctx context.Context, by domain.Actor, in mcp.ListDecisionsInput) ([]mcp.DecisionInfo, error) {
+	return invoke(ctx, s, mcp.ToolListDecisions, by, in, s.ListDecisionsFunc)
 }
 
 // OpenArtifact implements api.ArtifactOpener. It records no call; without

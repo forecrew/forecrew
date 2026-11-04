@@ -115,6 +115,18 @@ data: `key`, `size`, `last_modified`). A pass looks at up to 20000 objects
 and continues where it stopped on the next one. Objects outside `jobs/` are
 never touched.
 
+### Registers
+
+| Method and path | Tool | Request | Response |
+|-----------------|------|---------|----------|
+| `GET /api/v1/assumptions?project=&goal=&task=&status=&impact=&verify_by=` | `list_assumptions` | `project` required | `200` assumptions, by number |
+| `POST /api/v1/assumptions/{assumption}/resolve` | `resolve_assumption` | `{"status", "evidence"}` | `200` assumption |
+| `GET /api/v1/decisions?project=&goal=&council=` | `list_decisions` | `project` required | `200` decisions, by number |
+
+Assumptions and decisions are named by ref (`A-42`, `DEC-9`) or UUID; see
+[mcp.md](mcp.md#assumption-and-decision-registers) for what they hold.
+`GET /api/v1/goals/{goal}` has the goal's assumptions as `assumptions`.
+
 ### Planned endpoints
 
 Contract only (T31), with the planned MCP tools of [mcp.md](mcp.md#planned-tools),
@@ -126,17 +138,14 @@ the CLI command listed there.
 | `POST /api/v1/councils` | `start_council` | `{"project", "question", "kind", "roles": []}` | `202` council |
 | `GET /api/v1/councils/{council}` | `get_council` | | `200` council with brief, contributions, gate, decision |
 | `POST /api/v1/councils/{council}/constraints` | | `{"constraint": "..."}` | `200` council; the next round's prompts include it (T33) |
-| `GET /api/v1/assumptions?project=&status=&impact=` | `list_assumptions` | `project` required | `200` assumptions |
-| `POST /api/v1/assumptions/{assumption}/resolve` | `resolve_assumption` | `{"status", "evidence"}` | `200` assumption |
-| `GET /api/v1/decisions?project=&goal=&council=` | `list_decisions` | `project` required | `200` decisions |
 | `GET /api/v1/knowledge?project=&q=&section=&kind=&provider=` | `search_knowledge` | `project` and `q` required | `200` results |
 | `POST /api/v1/knowledge/proposals` | `propose_knowledge` | `{"project", "section", "path", "body", "reason", "action"}` | `201` knowledge proposal |
 | `POST /api/v1/bugs` | `report_bug` | `{"project", "title", "body", "platforms": []}` | `201` goal of kind `bug` |
 | `GET /api/v1/proposals?project=&status=&category=` | `list_proposals` | `project` required | `200` proposals |
 | `POST /api/v1/proposals/{proposal}/decide` | `decide_proposal` | `{"decision", "reason", "until"}` | `200` proposal |
 
-Councils, assumptions, decisions, knowledge proposals and proposals are
-named by ref (`COUNCIL-2`, `A-42`, `DEC-9`, `KB-5`, `PROP-3`) or UUID.
+Councils, knowledge proposals and proposals are named by ref
+(`COUNCIL-2`, `KB-5`, `PROP-3`) or UUID.
 
 On a `needs_you` gate, `approve` retries the stuck work and `reject` stops
 it. A gate with `"origin": "ask_human"` is instead a question a running job
@@ -167,6 +176,7 @@ The session, returned by login and `me`:
     "iterations": 2, "cost_usd": 0.75, "...": "..."
   }],
   "gates": [{"ref": "GATE-9", "kind": "merge_approval", "status": "pending", "task_ref": "TASK-12", "url": "...", "...": "..."}],
+  "assumptions": [{"ref": "A-4", "statement": "...", "impact": "high", "status": "unverified", "source": "JOB-41", "...": "..."}],
   "cost_usd": 1.75
 }
 ```

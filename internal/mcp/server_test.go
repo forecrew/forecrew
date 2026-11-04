@@ -198,6 +198,10 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolRevokeToken, map[string]any{"token": "old-laptop"}, mcp.RevokeTokenInput{Token: "old-laptop"}},
 		{mcp.ToolListArtifacts, map[string]any{"job": "JOB-1"}, mcp.JobRefInput{Job: "JOB-1"}},
 		{mcp.ToolListTestRuns, map[string]any{"job": "JOB-1", "sha": "abc"}, mcp.ListTestRunsInput{Job: "JOB-1", SHA: "abc"}},
+		{mcp.ToolListAssumptions, map[string]any{"project": "app", "task": "TASK-1", "status": "unverified", "impact": "high", "verify_by": "test"},
+			mcp.ListAssumptionsInput{Project: "app", Task: "TASK-1", Status: "unverified", Impact: "high", VerifyBy: "test"}},
+		{mcp.ToolResolveAssumption, map[string]any{"assumption": "A-42", "status": "accepted"}, mcp.ResolveAssumptionInput{Assumption: "A-42", Status: "accepted"}},
+		{mcp.ToolListDecisions, map[string]any{"project": "app", "goal": "GOAL-1"}, mcp.ListDecisionsInput{Project: "app", Goal: "GOAL-1"}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))

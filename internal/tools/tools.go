@@ -19,6 +19,7 @@ import (
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
@@ -70,7 +71,10 @@ type Config struct {
 	// Evidence serves artifact content; nil when no evidence storage is
 	// configured.
 	Evidence evidence.Store
-	Logger   *slog.Logger // defaults to discarding
+	// Registers is the assumption and decision register; the tools that
+	// read or resolve it answer unavailable without one.
+	Registers *registers.Service
+	Logger    *slog.Logger // defaults to discarding
 }
 
 // Service is the mcp.ToolService.

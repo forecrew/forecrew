@@ -107,10 +107,10 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 			g, err := svc.ListGoals(ctx, by, in)
 			return list("goals", g, "%d goals.", len(g)), err
 		})
-	register(r, ToolGetGoal, "Show a goal with its latest spec, tasks (state, issue and PR links, check status, iterations, cost), gates with their decisions and total cost.",
+	register(r, ToolGetGoal, "Show a goal with its latest spec, tasks (state, issue and PR links, check status, iterations, cost), gates with their decisions, its assumptions and total cost.",
 		fieldDocs{"goal": goal}, func(ctx context.Context, by domain.Actor, in GoalRefInput) (toolResult, error) {
 			d, err := svc.GetGoal(ctx, by, in)
-			d.Tasks, d.Gates = NonNil(d.Tasks), NonNil(d.Gates)
+			d.Tasks, d.Gates, d.Assumptions = NonNil(d.Tasks), NonNil(d.Gates), NonNil(d.Assumptions)
 			return result(d, "%s %s is %s: %d tasks, $%.2f.", d.Ref, d.Goal.Title, d.Goal.Status, len(d.Tasks), d.CostUSD), err
 		})
 	register(r, ToolListJobs, "List recent jobs, newest first, optionally for one project, goal and status.",
@@ -151,6 +151,30 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 		func(ctx context.Context, by domain.Actor, in ListTestRunsInput) (toolResult, error) {
 			runs, err := svc.ListTestRuns(ctx, by, in)
 			return list("test_runs", runs, "%d test runs.", len(runs)), err
+		})
+	register(r, ToolListAssumptions, "List the assumptions agents made on a project: statement, who made it, where it came from, confidence, impact, how to verify it, status and what depends on it. High-impact ones are reviewed through a gate before dependent work merges.",
+		fieldDocs{"project": project, "goal": goal, "task": "Task ref (TASK-12) or UUID: only the assumptions the task rests on.", "status": "unverified, verified, invalidated or accepted.", "impact": "low, medium or high.", "verify_by": "test, ask-human or research."},
+		func(ctx context.Context, by domain.Actor, in ListAssumptionsInput) (toolResult, error) {
+			a, err := svc.ListAssumptions(ctx, by, in)
+			open := 0
+			for _, x := range a {
+				if x.Status.Open() {
+					open++
+				}
+			}
+			return list("assumptions", a, "%d assumptions, %d unverified.", len(a), open), err
+		})
+	register(r, ToolResolveAssumption, "Verify, invalidate or accept an assumption. Verified and invalidated need evidence. Invalidating flags everything that depends on it: tasks not merged go back with the evidence as feedback and merged work gets a draft goal to re-evaluate it.",
+		fieldDocs{"assumption": "Assumption ref (A-42) or UUID.", "status": "verified, invalidated or accepted.", "evidence": "How you checked it. Required for verified and invalidated."},
+		func(ctx context.Context, by domain.Actor, in ResolveAssumptionInput) (toolResult, error) {
+			a, err := svc.ResolveAssumption(ctx, by, in)
+			return result(a, "%s is %s.", a.Ref, a.Status), err
+		})
+	register(r, ToolListDecisions, "List the decisions recorded on a project, by number: the question, the options, the choice, the reasons, any dissent, who decided and the assumptions it rests on.",
+		fieldDocs{"project": project, "goal": goal, "council": "Council UUID."},
+		func(ctx context.Context, by domain.Actor, in ListDecisionsInput) (toolResult, error) {
+			d, err := svc.ListDecisions(ctx, by, in)
+			return list("decisions", d, "%d decisions.", len(d)), err
 		})
 }
 
