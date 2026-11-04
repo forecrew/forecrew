@@ -67,6 +67,16 @@ type Publisher interface {
 	Publish(ctx context.Context, s domain.Signal) (bool, error)
 }
 
+// Recorder is told of every gate a Keeper resolves, in the transaction that
+// resolves it (the assumption and decision registers).
+type Recorder interface {
+	// GateResolved records what the resolution of g by by means. The
+	// function it returns, if any, runs after the transaction has committed
+	// and the gate.resolved signal is published; its error is returned by
+	// Resolve, the gate being resolved all the same.
+	GateResolved(ctx context.Context, tx store.Store, by domain.Actor, g domain.Gate) (func(ctx context.Context) error, error)
+}
+
 var _ Service = (*Keeper)(nil)
 
 // Keeper is the Service on top of a store and a signal publisher.
@@ -74,6 +84,7 @@ type Keeper struct {
 	st  store.Store
 	pub Publisher
 	now func() time.Time
+	rec Recorder
 }
 
 // New returns a gate service. now defaults to the real UTC time.
@@ -82,6 +93,12 @@ func New(st store.Store, pub Publisher, now func() time.Time) *Keeper {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &Keeper{st: st, pub: pub, now: now}
+}
+
+// WithRecorder makes the keeper tell r of every gate it resolves.
+func (k *Keeper) WithRecorder(r Recorder) *Keeper {
+	k.rec = r
+	return k
 }
 
 // Open implements Service.
@@ -121,6 +138,7 @@ func (k *Keeper) Open(ctx context.Context, req OpenRequest) (domain.Gate, error)
 func (k *Keeper) Resolve(ctx context.Context, by domain.Actor, gateID uuid.UUID, decision domain.GateStatus, feedback string) (domain.Gate, error) {
 	now := k.now()
 	var g domain.Gate
+	var then func(context.Context) error
 	err := k.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		var err error
 		if g, err = get(ctx, tx, by.AccountID, gateID); err != nil {
@@ -132,7 +150,16 @@ func (k *Keeper) Resolve(ctx context.Context, by domain.Actor, gateID uuid.UUID,
 		if err := tx.Gates().Resolve(ctx, &g); err != nil {
 			return err
 		}
-		return audit(ctx, tx, by, "gate.resolved", g, map[string]string{"decision": string(decision), "feedback": feedback})
+		if err := audit(ctx, tx, by, "gate.resolved", g, map[string]string{"decision": string(decision), "feedback": feedback}); err != nil {
+			return err
+		}
+		if k.rec == nil {
+			return nil
+		}
+		if then, err = k.rec.GateResolved(ctx, tx, by, g); err != nil {
+			return fmt.Errorf("record %s: %w", g.Ref(), err)
+		}
+		return nil
 	})
 	if err != nil {
 		return domain.Gate{}, fmt.Errorf("resolve gate: %w", err)
@@ -143,6 +170,11 @@ func (k *Keeper) Resolve(ctx context.Context, by domain.Actor, gateID uuid.UUID,
 	}
 	if err != nil {
 		return g, fmt.Errorf("publish %s resolution: %w", g.Ref(), err)
+	}
+	if then != nil {
+		if err := then(ctx); err != nil {
+			return g, fmt.Errorf("follow up %s: %w", g.Ref(), err)
+		}
 	}
 	return g, nil
 }
