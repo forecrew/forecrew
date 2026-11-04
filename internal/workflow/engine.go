@@ -36,7 +36,8 @@ type Action func(ctx context.Context, call ActionCall) (any, error)
 
 // ActionCall is the input of an action.
 type ActionCall struct {
-	Key  string // idempotency key: the step run ID
+	Key string // idempotency key: the step run ID
+	// Run is the run; in a finally step its Status is how it is ending.
 	Run  domain.WorkflowRun
 	With map[string]any // the step's with, references resolved
 }
@@ -109,6 +110,9 @@ func checkActions(steps []Step, actions Actions) error {
 
 // StartRequest starts a run.
 type StartRequest struct {
+	// ID, when set, is the run's ID and makes Start idempotent: starting an
+	// existing ID returns that run.
+	ID        uuid.UUID
 	AccountID uuid.UUID
 	ProjectID uuid.UUID
 	GoalID    uuid.UUID
@@ -132,8 +136,17 @@ func (e *Engine) Start(ctx context.Context, playbook string, req StartRequest) (
 	if err != nil {
 		return domain.WorkflowRun{}, fmt.Errorf("start %q: inputs: %w", playbook, err)
 	}
+	if req.ID != uuid.Nil() {
+		run, err := e.cfg.Store.WorkflowRuns().Get(ctx, req.AccountID, req.ID)
+		if err == nil {
+			return run, nil
+		}
+		if !errors.Is(err, store.ErrNotFound) {
+			return domain.WorkflowRun{}, fmt.Errorf("start %q: %w", playbook, err)
+		}
+	}
 	run := domain.WorkflowRun{
-		AccountID: req.AccountID, ProjectID: req.ProjectID, GoalID: req.GoalID, TaskID: req.TaskID,
+		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, GoalID: req.GoalID, TaskID: req.TaskID,
 		Playbook: playbook, Status: domain.RunRunning, Inputs: inputs,
 	}
 	if err := e.cfg.Store.WorkflowRuns().Create(ctx, &run); err != nil {
@@ -237,7 +250,7 @@ func (e *Engine) advance(ctx context.Context, k runKey) error {
 		if err := x.stopJobs(ctx); err != nil {
 			return err
 		}
-		if err := x.finally(ctx); err != nil {
+		if err := x.finally(ctx, end.status); err != nil {
 			return err
 		}
 	}
