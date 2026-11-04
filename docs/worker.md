@@ -198,12 +198,28 @@ current context is kept) and so cannot use the operator's registry logins:
 private images fail to pull. Set `registry_auth: true` in `worker.yaml` to use
 the worker user's logins, only on a worker whose repos you trust with every
 registry that user is logged in to.
-Images not used for `image_prune_days` (worker.yaml, default 14) are removed
-at start and then daily.
 
-**Services.** For an environment with `services` the worker creates the
-network `forecrew-<job id>` and starts each service on it with its `env` and
-the network alias equal to its key (the container itself is named
+**Pruning.** The worker records each image it builds (`forecrew-env:*`) or
+pulls (the `image`, the images the FROM lines of a Dockerfile name, service
+images) in `<work_dir>/env-images`, with the time of its last use. At start
+and then daily it removes the images unused for `image_prune_days`
+(worker.yaml, default 14). What stays: images that were on the daemon before
+the worker needed them (they are the operator's), images a container still
+uses (tried again next time), layers shared with an image that is kept, the
+build cache (`docker builder prune` is the operator's), and images a
+Dockerfile names through an `ARG` or only inside a multi-stage `COPY --from`.
+
+**Network.** Every docker job gets its own bridge network
+`forecrew-<job id>`, whether it has services or not, so concurrent jobs cannot
+see each other on the default bridge. It is removed with the containers as
+soon as the command ends. Docker allocates a subnet per network from its
+address pools (about 30 /16 networks by default): a worker with a high
+`max_jobs` should configure smaller pools in the daemon (`default-address-pools`
+with `size: 24` in daemon.json). Build steps run on the default bridge.
+
+**Services.** For an environment with `services` the worker pulls each
+service image (unless the daemon has it; the output is in the job log) and
+starts it on the network with its `env` and the network alias equal to its key (the container itself is named
 `forecrew-<job id>-<key>`, so jobs on one daemon do not clash). It then waits
 for `health` (`interval` and `retries` as in the schema), or, without
 `health` and with `ports`, until every port accepts a connection (probed in
@@ -212,12 +228,18 @@ needs a `health` command). A service that exits, or is not ready in time, or
 the job's timeout, fails the job, with the end of the service's log in the job
 log. Ports are never published. The job container gets `<NAME>_HOST` (the
 key) and, with `ports`, `<NAME>_PORT` (the first port) for each service; NAME is
-the key in upper case with every other character turned into `_`.
+the key in upper case with every other character turned into `_`; two keys
+that give the same NAME (`my-db` and `my_db`) are refused. Building the
+image, pulling, starting and waiting for the services all count against the
+job's `timeout`.
 
 **Job container.** The work tree is mounted read-write at `/work`, which is
 also the working directory (`command.workdir` below it). The command runs as
-the worker user's uid and gid with no entrypoint of the image, `--init`, all
-capabilities dropped and `no-new-privileges`. Its environment is exactly:
+the worker user's uid and gid (the job fails if that is 0: run the worker as
+a dedicated user) with no entrypoint of the image, `--init`, all capabilities
+dropped, `no-new-privileges` and at most 4096 processes (`--pids-limit`), so a
+fork bomb stays in the container. There is no memory limit: the environment
+spec has no field for it. Its environment is exactly:
 `LANG`, `LC_*` and `TZ` of the worker, `HOME=/tmp`, the devcontainer's
 `containerEnv`, the service variables, the environment's `env` and the
 command's `env`. `PATH`, the user's name and every other variable of the worker
@@ -225,6 +247,12 @@ stay out. Reports and artifacts are read from the work tree on the host
 afterwards, exactly as for the host (same limits, symlinks refused). `setup`
 and `timeout` share one budget: building the image, starting the services and
 the command all count.
+
+`git` does not work in the container: the work tree's `.git` file points to the
+worker's repo cache on the host. A job that needs the history reads it from
+files, or runs on a `machine` environment. If `docker run` itself fails (exit
+code 125: the daemon could not start the container) the job is given back
+(`retry`) instead of reporting 125 as the command's exit code.
 
 **Versions.** Besides the output of the `versions` commands (run in the job
 container), the test run records `image` (the registry digest, or the image
@@ -244,11 +272,15 @@ worker label, before it takes a job.
   work tree. A Dockerfile, an image or a service of the repo is therefore code
   that runs in a container of the daemon, as the repo's code does on a
   `machine`; it cannot ask the daemon for anything.
-- Build steps and job containers use the default bridge network: they can
-  reach the internet and the machine's LAN (and, through the host's address,
+- Build steps use the default bridge network and job containers their own
+  network; both can reach the internet, the machine's LAN (and, through the host's address,
   services bound to it). Workers on sensitive networks should not take
   untrusted repos. Network isolation comes with the fleet microVM provider
   (T61).
+- A repo can run any image already on the daemon (and any it can pull from a
+  registry the worker may reach), including images the operator built or
+  pulled for other things. Keep nothing in that daemon's image store that
+  must stay private from the repos this worker takes.
 - Whoever can start containers is root on the machine: give the worker user
   access to the daemon only on a machine you dedicate to this, or use rootless
   Docker. A rootless daemon maps the container's uids differently; the
@@ -261,6 +293,9 @@ worker label, before it takes a job.
 - Environment variables of the spec are visible in the process list of the
   host while a container starts (`docker run -e`), which is why they are
   non-secret by contract.
+- An `image` or service image that starts with `-` or contains white space is
+  refused (it would be read as a flag), and the worker passes `--` before
+  image names where the Docker client supports it.
 - A `devcontainer` or `dockerfile` path that leaves the repo or crosses a
   symlink fails the job, and so does a name that looks like a secret in
   `containerEnv`.
