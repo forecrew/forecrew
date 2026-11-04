@@ -68,6 +68,7 @@ type Store interface {
 	TestRuns() TestRunRepo
 	Assumptions() AssumptionRepo
 	Decisions() DecisionRepo
+	Knowledge() KnowledgeRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
 	// must use the ctx passed to fn.
@@ -543,10 +544,32 @@ type KnowledgeQuery struct {
 	// GoalID is the searching job's goal: goal notes of other goals are
 	// never returned. Nil returns project notes only.
 	GoalID uuid.UUID
+	// AllNotes returns the notes of every goal (for humans); GoalID is
+	// then ignored.
+	AllNotes bool
 	// Embedding of Text, mixed into the ranking where the embedding column
 	// exists; ignored otherwise.
 	Embedding []float32
 	Limit     int
+}
+
+// Ranking of a knowledge search that has an embedding (knowledge.md, Search):
+// rank = (1-SemanticWeight)*ts_rank(search, query, 32) + SemanticWeight*cosine
+// similarity, for the entries that have an embedding (the others rank by
+// ts_rank alone). An entry that text search does not match is still a hit
+// when its cosine similarity is at least SemanticFloor.
+const (
+	SemanticWeight = 0.5
+	SemanticFloor  = 0.45
+)
+
+// KnowledgeFilter selects index rows; zero fields match everything.
+type KnowledgeFilter struct {
+	ProjectID     uuid.UUID
+	Provider      string
+	Section       string
+	NeedsReverify bool
+	Limit         int
 }
 
 // KnowledgeHit is one search result.
@@ -574,6 +597,12 @@ type KnowledgeRepo interface {
 	// DeleteExpired deletes the notes whose ExpiresAt is before t and
 	// returns how many.
 	DeleteExpired(ctx context.Context, accountID uuid.UUID, t time.Time) (int, error)
+	// List returns the rows that match f, ordered by section and path.
+	List(ctx context.Context, accountID uuid.UUID, f KnowledgeFilter) ([]domain.KnowledgeEntry, error)
+	// ExpireGoalNotes gives the goal notes without an expiry whose goal is
+	// done or canceled the expiry grace after the goal's last change, and
+	// returns how many it stamped.
+	ExpireGoalNotes(ctx context.Context, accountID uuid.UUID, grace time.Duration) (int, error)
 }
 
 // KnowledgeProposalFilter selects knowledge proposals; zero fields match
