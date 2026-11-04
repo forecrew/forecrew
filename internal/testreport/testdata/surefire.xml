@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report.xsd" version="3.0" name="com.acme.OrderServiceTest" time="1,234.567" tests="3" errors="1" skipped="1" failures="0">
+  <properties>
+    <property name="java.version" value="21.0.4"/>
+    <property name="sun.java.command" value="surefirebooter.jar"/>
+  </properties>
+  <testcase name="createsOrder" classname="com.acme.OrderServiceTest" time="0.021"/>
+  <testcase name="rejectsEmptyOrder" classname="com.acme.OrderServiceTest" time="0.005">
+    <error message="Order must not be empty" type="java.lang.IllegalStateException">java.lang.IllegalStateException: Order must not be empty
+	at com.acme.OrderService.create(OrderService.java:41)
+	at com.acme.OrderServiceTest.rejectsEmptyOrder(OrderServiceTest.java:30)
+</error>
+    <system-out><![CDATA[creating order
+]]></system-out>
+  </testcase>
+  <testcase name="appliesDiscount" classname="com.acme.OrderServiceTest" time="0">
+    <skipped message="Disabled until DISC-12"/>
+  </testcase>
+</testsuite>

@@ -1,0 +1,30 @@
+[
+  {
+    "name": "Cart adds an item",
+    "classname": "Cart adds an item",
+    "status": "passed",
+    "duration_ms": 4,
+    "message": ""
+  },
+  {
+    "name": "Cart removes an item",
+    "classname": "Cart removes an item",
+    "status": "failed",
+    "duration_ms": 12,
+    "message": "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: 0\nReceived: 1\n    at Object.\u003canonymous\u003e (src/cart.test.ts:20:23)"
+  },
+  {
+    "name": "Cart applies a coupon",
+    "classname": "Cart applies a coupon",
+    "status": "skipped",
+    "duration_ms": 0,
+    "message": ""
+  },
+  {
+    "name": "Totals sums prices",
+    "classname": "Totals sums prices",
+    "status": "passed",
+    "duration_ms": 2,
+    "message": ""
+  }
+]

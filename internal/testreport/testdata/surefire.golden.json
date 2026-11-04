@@ -1,0 +1,23 @@
+[
+  {
+    "name": "createsOrder",
+    "classname": "com.acme.OrderServiceTest",
+    "status": "passed",
+    "duration_ms": 21,
+    "message": ""
+  },
+  {
+    "name": "rejectsEmptyOrder",
+    "classname": "com.acme.OrderServiceTest",
+    "status": "errored",
+    "duration_ms": 5,
+    "message": "Order must not be empty\njava.lang.IllegalStateException: Order must not be empty\n\tat com.acme.OrderService.create(OrderService.java:41)\n\tat com.acme.OrderServiceTest.rejectsEmptyOrder(OrderServiceTest.java:30)"
+  },
+  {
+    "name": "appliesDiscount",
+    "classname": "com.acme.OrderServiceTest",
+    "status": "skipped",
+    "duration_ms": 0,
+    "message": "Disabled until DISC-12"
+  }
+]
