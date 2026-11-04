@@ -35,10 +35,10 @@ type fakeRepo struct {
 	reviews   map[int][]github.Review
 	commentID int64
 	branches  map[string]bool
-	files     map[string][]byte // by ref and path, see fileKey
-	heads     map[string]string // branch to commit, see SetHeadOfBranch
+	files     map[string][]byte        // by ref and path, see fileKey
+	heads     map[string]string        // branch to commit, see SetHeadOfBranch
 	commits   map[string]github.Commit // by path, see SetLastCommit
-	remote    string            // bare git repository, see UseRemote
+	remote    string                   // bare git repository, see UseRemote
 	autolinks []github.Autolink
 	forbidden bool // the discovery reads fail with github.ErrForbidden
 }
