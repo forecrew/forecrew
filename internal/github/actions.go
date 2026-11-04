@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	gh "github.com/google/go-github/v93/github"
@@ -33,6 +34,15 @@ type WorkflowRun struct {
 	Attempt    int       `json:"attempt"`
 	URL        string    `json:"url"`
 	CreatedAt  time.Time `json:"created_at"`
+	// Event is what started the run (workflow_dispatch), Path the workflow
+	// file (.github/workflows/<file>, without the ref GitHub may append),
+	// Actor the login that triggered it and HeadBranch the branch or tag it
+	// ran on. Who a run belongs to is decided from these, never from its
+	// title, which any workflow can set.
+	Event      string `json:"event"`
+	Path       string `json:"path"`
+	Actor      string `json:"actor"`
+	HeadBranch string `json:"head_branch"`
 }
 
 // Completed reports whether the run has finished, however it ended.
@@ -56,8 +66,12 @@ type Actions interface {
 	// exist; ErrInvalid: it does not accept workflow_dispatch or the inputs.
 	DispatchWorkflow(ctx context.Context, repo, file, ref string, inputs map[string]string) (int64, error)
 	// ListWorkflowRuns returns the newest runs of the workflow file started
-	// by workflow_dispatch, newest first (one page, up to 100).
-	ListWorkflowRuns(ctx context.Context, repo, file string) ([]WorkflowRun, error)
+	// by workflow_dispatch on branch (any branch when empty), newest first,
+	// up to MaxListedRuns.
+	ListWorkflowRuns(ctx context.Context, repo, file, branch string) ([]WorkflowRun, error)
+	// Bot returns the login of the GitHub App's bot ("<slug>[bot]"), the
+	// actor of the runs the App dispatches.
+	Bot(ctx context.Context) (string, error)
 	GetWorkflowRun(ctx context.Context, repo string, id int64) (WorkflowRun, error)
 	// CancelWorkflowRun cancels a run; one that already finished is not an
 	// error.
@@ -93,28 +107,52 @@ func (c *Client) DispatchWorkflow(ctx context.Context, repo, file, ref string, i
 }
 
 func newRun(r *gh.WorkflowRun) WorkflowRun {
+	path, _, _ := strings.Cut(r.GetPath(), "@") // "<file>@refs/heads/<branch>" on some runs
 	return WorkflowRun{
 		ID: r.GetID(), Title: r.GetDisplayTitle(), Status: r.GetStatus(), Conclusion: r.GetConclusion(),
 		HeadSHA: r.GetHeadSHA(), Attempt: r.GetRunAttempt(), URL: r.GetHTMLURL(), CreatedAt: r.GetCreatedAt().UTC(),
+		Event: r.GetEvent(), Path: path, Actor: r.GetTriggeringActor().GetLogin(), HeadBranch: r.GetHeadBranch(),
 	}
 }
 
+// MaxListedRuns is the most runs ListWorkflowRuns returns (five pages).
+const MaxListedRuns = 500
+
 // ListWorkflowRuns implements Actions.
-func (c *Client) ListWorkflowRuns(ctx context.Context, repo, file string) ([]WorkflowRun, error) {
+func (c *Client) ListWorkflowRuns(ctx context.Context, repo, file, branch string) ([]WorkflowRun, error) {
 	g, owner, name, err := c.repoClient(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
-	opts := &gh.ListWorkflowRunsOptions{Event: "workflow_dispatch", PerPage: 100}
-	runs, _, err := g.Actions.ListWorkflowRunsByFileName(ctx, owner, name, file, opts)
-	if err != nil {
-		return nil, wrap(fmt.Sprintf("list runs of %s in %s", file, repo), err)
-	}
-	out := make([]WorkflowRun, 0, len(runs.WorkflowRuns))
-	for _, r := range runs.WorkflowRuns {
-		out = append(out, newRun(r))
+	opts := &gh.ListWorkflowRunsOptions{Event: "workflow_dispatch", Branch: branch, ListOptions: gh.ListOptions{PerPage: 100}}
+	var out []WorkflowRun
+	for len(out) < MaxListedRuns {
+		runs, resp, err := g.Actions.ListWorkflowRunsByFileName(ctx, owner, name, file, opts)
+		if err != nil {
+			return nil, wrap(fmt.Sprintf("list runs of %s in %s", file, repo), err)
+		}
+		for _, r := range runs.WorkflowRuns {
+			out = append(out, newRun(r))
+		}
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
 	}
 	return out, nil
+}
+
+// Bot implements Actions.
+func (c *Client) Bot(ctx context.Context) (string, error) {
+	app, err := c.appAPI()
+	if err != nil {
+		return "", err
+	}
+	a, _, err := app.Apps.Get(ctx, "")
+	if err != nil {
+		return "", wrap("get the GitHub App", err)
+	}
+	return a.GetSlug() + "[bot]", nil
 }
 
 // GetWorkflowRun implements Actions.
