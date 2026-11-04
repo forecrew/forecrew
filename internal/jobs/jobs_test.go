@@ -225,6 +225,23 @@ func TestCreatePools(t *testing.T) {
 	}
 }
 
+// A job of pool actions has no labels to need: its needs are dropped, so no
+// worker label can keep it queued for ever.
+func TestCreateActionsJobDropsNeeds(t *testing.T) {
+	f := newFixture(t)
+	job := func(provider domain.EnvironmentProvider) domain.Job {
+		return domain.Job{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.JobKindCommand, Needs: []string{"linux", "docker"},
+			Spec: domain.JobSpec{Repo: "acme/app", Command: &domain.CommandSpec{Shell: "make test"}, Environment: &domain.Environment{Name: "e", Provider: provider}}}
+	}
+	for provider, want := range map[domain.EnvironmentProvider]int{domain.ProviderActions: 0, domain.ProviderMachine: 2} {
+		j, err := f.svc.Create(t.Context(), system, job(provider))
+		must(t, err)
+		if len(j.Needs) != want {
+			t.Errorf("provider %s: needs = %v, want %d", provider, j.Needs, want)
+		}
+	}
+}
+
 func TestCancel(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
