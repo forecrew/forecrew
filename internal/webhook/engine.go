@@ -11,7 +11,6 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
-	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -35,10 +34,11 @@ type Deps struct {
 	Now func() time.Time
 }
 
-// KnowledgeSyncer indexes a project's default branch; *knowledge.Syncer
-// implements it.
+// KnowledgeSyncer queues the reindexing of a project's default branch;
+// *knowledge.Scheduler implements it. Request must not wait for GitHub: it
+// runs on the goroutine that handles webhooks.
 type KnowledgeSyncer interface {
-	Sync(ctx context.Context, p domain.Project, before, head string) (knowledge.SyncResult, error)
+	Request(p domain.Project, before, head string)
 }
 
 type engine struct {
@@ -247,7 +247,7 @@ func (e *engine) setChangeState(ctx context.Context, accountID uuid.UUID, repo s
 	return nil
 }
 
-// push reindexes the knowledge of the projects whose default branch was
+// push queues the reindexing of the knowledge of the projects whose default branch was
 // pushed to (docs/knowledge.md): changed entries, drift and the generated
 // section. Pushes to other branches and projects that are not onboarded are
 // ignored.
@@ -259,12 +259,7 @@ func (e *engine) push(ctx context.Context, ev github.Event) error {
 		if p.Status != domain.ProjectOnboarded || ev.Ref != "refs/heads/"+p.DefaultBranch {
 			return nil
 		}
-		res, err := e.Knowledge.Sync(ctx, p, ev.Before, ev.SHA)
-		if err != nil {
-			return fmt.Errorf("sync knowledge of %s: %w", p.Name, err)
-		}
-		e.Log.Info("knowledge synced", "account_id", p.AccountID, "project_id", p.ID, "head", ev.SHA,
-			"indexed", res.Indexed, "removed", res.Removed, "flagged", res.Flagged, "generated", res.Generated)
+		e.Knowledge.Request(p, ev.Before, ev.SHA)
 		return nil
 	})
 }

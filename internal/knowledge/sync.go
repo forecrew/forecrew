@@ -40,7 +40,7 @@ type SyncResult struct {
 const zeroSHA = "0000000000000000000000000000000000000000"
 
 // Syncer keeps the repo provider's entries and the generated section of
-// projects in step with their default branch. Calls are serialized.
+// projects in step with their default branch. Calls for one project are serialized.
 type Syncer struct {
 	Store store.Store
 	Index *Index
@@ -51,7 +51,7 @@ type Syncer struct {
 	Log       *slog.Logger
 	Now       func() time.Time
 
-	mu       sync.Mutex
+	locks    sync.Map   // project ID to *sync.Mutex: one Sync of a project at a time
 	pmu      sync.Mutex // serializes loading a policy that is not known
 	policies sync.Map   // project ID to Policy, as of the last Sync
 	synced   sync.Map   // project ID to the head of the last Sync that succeeded
@@ -109,8 +109,9 @@ func (s *Syncer) Policy(ctx context.Context, p domain.Project) (Policy, error) {
 // An entry that cannot be read is skipped and reported; a failure
 // of one part does not stop the others, and the errors are joined.
 func (s *Syncer) Sync(ctx context.Context, p domain.Project, before, head string) (SyncResult, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	lock, _ := s.locks.LoadOrStore(p.ID, &sync.Mutex{})
+	lock.(*sync.Mutex).Lock()
+	defer lock.(*sync.Mutex).Unlock()
 	if head == "" {
 		var err error
 		if head, err = s.API.HeadSHA(ctx, p.Repo, p.DefaultBranch); err != nil {
