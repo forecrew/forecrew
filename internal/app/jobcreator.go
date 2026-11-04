@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/contextpack"
@@ -63,13 +64,20 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	if pool == "" {
 		pool = role.Pool
 	}
+	for _, l := range req.LockedPaths {
+		// They come from model output and are shown in the prompt: no
+		// control characters or backticks.
+		if strings.HasPrefix(l, "!") || !domain.RelativePath(l) || strings.ContainsFunc(l, func(r rune) bool { return unicode.IsControl(r) || r == '`' }) {
+			return uuid.Nil(), fmt.Errorf("create %s job: locked_paths: %q must be a glob relative to the repo root, without !, control characters or backticks: %w", req.Role, l, jobs.ErrInvalid)
+		}
+	}
 	j, err := c.jobs.Create(ctx, domain.SystemActor(req.AccountID, domain.ForecrewdName), domain.Job{
 		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Pool: pool, Role: role.Name, Runtime: role.Runtime, Needs: req.Needs,
 		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID,
 		Spec: domain.JobSpec{
 			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, WritePaths: role.WritePaths, Model: role.Model,
 			Prompt: pack.Prompt, OutputSchema: role.OutputSchema, AllowedTools: role.AllowedTools, MaxTurns: role.MaxTurns,
-			Timeout: domain.Duration(role.Timeout), IncludeRepoFacts: req.IncludeRepoFacts,
+			Timeout: domain.Duration(role.Timeout), IncludeRepoFacts: req.IncludeRepoFacts, LockedPaths: req.LockedPaths,
 		},
 	})
 	if err != nil {
@@ -97,8 +105,8 @@ func (c *jobCreator) createCommand(ctx context.Context, req workflow.JobRequest)
 	if req.Repo != "" && !strings.EqualFold(req.Repo, project.Repo) {
 		return uuid.Nil(), fmt.Errorf("create command job: repo %s is not the repo of project %s: %w", req.Repo, project.Name, jobs.ErrInvalid)
 	}
-	if req.Role != "" || req.Pool != "" || req.Prompt != "" || req.Feedback != "" {
-		return uuid.Nil(), fmt.Errorf("create command job: role, pool, prompt and feedback are not for command jobs: %w", jobs.ErrInvalid)
+	if req.Role != "" || req.Pool != "" || req.Prompt != "" || req.Feedback != "" || len(req.LockedPaths) > 0 {
+		return uuid.Nil(), fmt.Errorf("create command job: role, pool, prompt, feedback and locked_paths are not for command jobs: %w", jobs.ErrInvalid)
 	}
 	if req.BaseRef == "" {
 		req.BaseRef = project.DefaultBranch
