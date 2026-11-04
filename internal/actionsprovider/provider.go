@@ -121,7 +121,9 @@ func (p *Provider) Run(ctx context.Context) {
 }
 
 // Poll leases queued jobs of pool actions, in every account, while fewer
-// than MaxInFlight runs are followed, and starts following them.
+// than MaxInFlight runs are followed, and starts following them. Accounts
+// take turns, one job each, so one account cannot fill every slot while
+// another waits.
 func (p *Provider) Poll(ctx context.Context) {
 	accounts, err := p.cfg.Store.Accounts().List(ctx)
 	if err != nil {
@@ -130,6 +132,7 @@ func (p *Provider) Poll(ctx context.Context) {
 		}
 		return
 	}
+	var ready []domain.Worker
 	for _, a := range accounts {
 		w, err := p.worker(ctx, a.ID)
 		if err != nil {
@@ -138,36 +141,55 @@ func (p *Provider) Poll(ctx context.Context) {
 			}
 			continue
 		}
-		p.leaseFor(ctx, a.ID, w)
+		ready = append(ready, w)
+	}
+	for progress := true; progress && p.room(); {
+		progress = false
+		for _, w := range ready {
+			if p.room() && p.leaseOne(ctx, w) {
+				progress = true
+			}
+		}
 	}
 }
 
-// leaseFor leases queued jobs of the account while there is room, and starts
-// following them.
-func (p *Provider) leaseFor(ctx context.Context, account uuid.UUID, w domain.Worker) {
-	for p.inflight.Load() < int64(p.cfg.MaxInFlight) {
-		j, err := queue.New(p.cfg.Store.Jobs()).Lease(ctx, account, w.ID, nil)
-		if errors.Is(err, store.ErrNoJob) {
-			return
-		}
-		if err != nil {
-			if ctx.Err() == nil {
-				p.cfg.Logger.ErrorContext(ctx, "lease job", "account_id", account, "error", err)
-			}
-			return
-		}
-		p.inflight.Add(1)
-		p.wg.Go(func() {
-			defer func() {
-				p.inflight.Add(-1)
-				select {
-				case p.freed <- struct{}{}:
-				default:
-				}
-			}()
-			p.runJob(ctx, w, j)
-		})
+// room reports whether another run may be followed.
+func (p *Provider) room() bool { return p.inflight.Load() < int64(p.cfg.MaxInFlight) }
+
+// leaseOne leases the oldest queued job of w's account and starts following
+// it. It reports whether it did.
+func (p *Provider) leaseOne(ctx context.Context, w domain.Worker) bool {
+	j, err := queue.New(p.cfg.Store.Jobs()).Lease(ctx, w.AccountID, w.ID, nil)
+	if errors.Is(err, store.ErrNoJob) {
+		return false
 	}
+	if err != nil {
+		if ctx.Err() == nil {
+			p.cfg.Logger.ErrorContext(ctx, "lease job", "account_id", w.AccountID, "error", err)
+		}
+		return false
+	}
+	if j.Pool != domain.PoolActions || j.Kind.OrDefault() != domain.JobKindCommand {
+		// The store leases by the worker's pool as it is in the database;
+		// never run what is not ours.
+		p.cfg.Logger.ErrorContext(ctx, "leased a job of another pool, giving it back", "job_id", j.ID, "pool", j.Pool, "kind", j.Kind)
+		if _, err := p.cfg.Jobs.Release(context.WithoutCancel(ctx), w, j.ID, "leased by the Actions provider by mistake"); err != nil {
+			p.cfg.Logger.ErrorContext(ctx, "release job", "job_id", j.ID, "error", err)
+		}
+		return false
+	}
+	p.inflight.Add(1)
+	p.wg.Go(func() {
+		defer func() {
+			p.inflight.Add(-1)
+			select {
+			case p.freed <- struct{}{}:
+			default:
+			}
+		}()
+		p.runJob(ctx, w, j)
+	})
+	return true
 }
 
 // Wait blocks until every run being followed has ended; Poll starts no new
