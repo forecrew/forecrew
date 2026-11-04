@@ -9,6 +9,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -20,7 +21,9 @@ type Deps struct {
 	Signals workflow.SignalBus
 	// Sizing is the rule goal.size applies to a triage (forecrew.yaml sizing).
 	Sizing config.Sizing
-	Now    func() time.Time // defaults to the real UTC time
+	// Roles resolves the roles whose write paths the actions check.
+	Roles roles.Resolver
+	Now   func() time.Time // defaults to the real UTC time
 }
 
 // Register adds every action of the package to registry, by name.
@@ -52,6 +55,7 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["goal.task_done"] = d.taskDone
 	registry["goal.close"] = d.closeGoal
 	registry["goal.settle"] = d.settleGoal
+	registry["tests.locked_paths"] = d.testsLockedPaths
 }
 
 // actions implements the actions on top of Deps.
