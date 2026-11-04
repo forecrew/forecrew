@@ -88,7 +88,7 @@ func TestDockerfileEnvironmentIsCached(t *testing.T) {
 	e := dockerWorker(t)
 	// A comment unique to this run, so that the first job builds.
 	pushFile(t, e.remote, "ci/Dockerfile", "FROM alpine:latest\n# "+domain.NewID().String()+"\nRUN echo built > /marker\n")
-	env := &domain.Environment{Name: "built", Provider: domain.ProviderDocker, Dockerfile: "ci/Dockerfile", Context: "ci", Setup: []string{"echo setup >> /marker"}}
+	env := &domain.Environment{Name: "built", Provider: domain.ProviderDocker, Dockerfile: "ci/Dockerfile", Setup: []string{"echo setup >> /marker"}}
 	run := func() domain.JobSpec {
 		s := dockerSpec(e, "cat /marker; "+writeJUnit("reports/unit.xml"), env, func(s *domain.JobSpec) { s.Timeout = domain.Duration(5 * time.Minute) })
 		if c := e.doComplete(s); c.Status != StatusSucceeded {
@@ -156,7 +156,7 @@ func TestCanceledDockerJobIsCleanedUp(t *testing.T) {
 
 func TestDockerSocketIsNotReachable(t *testing.T) {
 	e := dockerWorker(t)
-	script := `ls -l /var/run/docker.sock /run/docker.sock; which docker; test "$(id -u)" != 0 && echo not-root; ` + writeJUnit("reports/unit.xml") + `ls -l /var/run/docker.sock`
+	script := `ls -l /var/run/docker.sock /run/docker.sock; which docker; cat /sys/fs/cgroup/pids.max; test "$(id -u)" != 0 && echo not-root; ` + writeJUnit("reports/unit.xml") + `ls -l /var/run/docker.sock`
 	s := dockerSpec(e, script, &domain.Environment{Name: "a", Provider: domain.ProviderDocker, Image: "alpine:latest"})
 	c := e.doComplete(s)
 	if c.Status != StatusSucceeded {
@@ -164,7 +164,7 @@ func TestDockerSocketIsNotReachable(t *testing.T) {
 	}
 	run := onlyRun(t, c)
 	logs := strings.Join(logsOf(e, s.JobID), "\n")
-	if run.ExitCode == 0 || !strings.Contains(logs, "No such file") || strings.Contains(logs, "srw") || !strings.Contains(logs, "not-root") {
+	if run.ExitCode == 0 || !strings.Contains(logs, "No such file") || strings.Contains(logs, "srw") || !strings.Contains(logs, "not-root") || !strings.Contains(logs, "4096") {
 		t.Errorf("exit code %d, logs:\n%s", run.ExitCode, logs)
 	}
 }
@@ -189,8 +189,9 @@ func TestLeftoversOfACrashedWorkerAreRemoved(t *testing.T) {
 func removeEnvImages(e *testEnv) {
 	marks, _ := os.ReadDir(string(e.w.imageMarkers()))
 	for _, m := range marks {
-		for _, suffix := range []string{"", "-base"} {
-			_ = exec.Command("docker", "image", "rm", envImageRepo+":"+m.Name()+suffix).Run() //nolint:gosec // test command
+		ref, _ := os.ReadFile(filepath.Join(string(e.w.imageMarkers()), m.Name())) //nolint:gosec // test path
+		if strings.HasPrefix(string(ref), envImageRepo+":") {
+			_ = exec.Command("docker", "image", "rm", "--", string(ref)).Run() //nolint:gosec // test command
 		}
 	}
 }
