@@ -13,6 +13,10 @@ const EnvWorkerToken = "FORECREW_WORKER_TOKEN"
 // DefaultMaxJobs is the number of jobs a worker runs at once by default.
 const DefaultMaxJobs = 1
 
+// DefaultImagePruneDays is how long an environment image stays on a worker
+// after its last use by default.
+const DefaultImagePruneDays = 14
+
 // Worker is forecrew-worker's configuration (worker.yaml).
 type Worker struct {
 	ServerURL string `yaml:"server_url"` // forecrewd public_base_url
@@ -23,6 +27,9 @@ type Worker struct {
 	Labels  []string `yaml:"labels"`
 	WorkDir string   `yaml:"work_dir"` // defaults to <user cache dir>/forecrew-worker
 	MaxJobs int      `yaml:"max_jobs"`
+	// ImagePruneDays removes the Docker images built for environments
+	// (forecrew-env:*) that no job used for that many days.
+	ImagePruneDays int `yaml:"image_prune_days"`
 	// Token comes from FORECREW_WORKER_TOKEN.
 	Token string `yaml:"-"`
 }
@@ -57,6 +64,9 @@ func (w *Worker) applyDefaults() error {
 	if w.MaxJobs == 0 {
 		w.MaxJobs = DefaultMaxJobs
 	}
+	if w.ImagePruneDays == 0 {
+		w.ImagePruneDays = DefaultImagePruneDays
+	}
 	if w.Name == "" {
 		host, err := os.Hostname()
 		if err != nil {
@@ -83,6 +93,9 @@ func (w *Worker) Validate() error {
 	}
 	if w.MaxJobs < 1 {
 		p.addf("max_jobs must be at least 1, got %d", w.MaxJobs)
+	}
+	if w.ImagePruneDays < 1 {
+		p.addf("image_prune_days must be at least 1, got %d", w.ImagePruneDays)
 	}
 	if w.Token == "" {
 		p.addf("%s is not set", EnvWorkerToken)

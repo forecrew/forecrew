@@ -24,12 +24,13 @@ name: build-1
 labels: [go, node]
 work_dir: /srv/forecrew
 max_jobs: 2
+image_prune_days: 3
 `
 	w, err := ParseWorker([]byte(y), workerEnv("fcw_token"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w.Name != "build-1" || w.WorkDir != "/srv/forecrew" || w.MaxJobs != 2 || w.Token != "fcw_token" || len(w.Labels) != 2 {
+	if w.Name != "build-1" || w.WorkDir != "/srv/forecrew" || w.MaxJobs != 2 || w.ImagePruneDays != 3 || w.Token != "fcw_token" || len(w.Labels) != 2 {
 		t.Fatalf("worker = %+v", w)
 	}
 }
@@ -40,7 +41,7 @@ func TestParseWorkerDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	host, _ := os.Hostname()
-	if w.MaxJobs != DefaultMaxJobs || w.Name != host || !strings.HasSuffix(w.WorkDir, "forecrew-worker") {
+	if w.MaxJobs != DefaultMaxJobs || w.ImagePruneDays != DefaultImagePruneDays || w.Name != host || !strings.HasSuffix(w.WorkDir, "forecrew-worker") {
 		t.Fatalf("worker = %+v", w)
 	}
 }
@@ -55,6 +56,7 @@ func TestParseWorkerInvalid(t *testing.T) {
 		{name: "no token", yaml: "server_url: https://x.example.com\n", want: EnvWorkerToken},
 		{name: "no server", yaml: "name: a\n", token: "t", want: "server_url"},
 		{name: "bad max jobs", yaml: "server_url: https://x.example.com\nmax_jobs: -1\n", token: "t", want: "max_jobs"},
+		{name: "bad prune days", yaml: "server_url: https://x.example.com\nimage_prune_days: -2\n", token: "t", want: "image_prune_days"},
 		{name: "token in file", yaml: "server_url: https://x.example.com\ntoken: t\n", token: "t", want: "field token not found"},
 	}
 	for _, tt := range tests {

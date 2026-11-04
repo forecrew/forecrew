@@ -184,12 +184,14 @@ max_jobs: 2
 | `labels` | list of strings | no | empty | Toolchains and anything else jobs may `need`. Compared case-insensitively. |
 | `work_dir` | path | no | `<user cache dir>/forecrew-worker` | Where per-job workspaces are created and removed. |
 | `max_jobs` | integer ≥ 1 | no | `1` | Jobs run at once. |
+| `image_prune_days` | integer ≥ 1 | no | `14` | Days after which a worker with the `docker` label removes the environment images (`forecrew-env:*`) no job used. |
 
 On top of `labels` the worker adds, when polling:
 
 - its OS label: `linux`, `darwin` or `windows` (Go's `GOOS`; macOS also gets `macos`);
 - `runtime:<adapter>` for each runtime CLI it finds (`runtime:claude-code`,
-  `runtime:codex`).
+  `runtime:codex`);
+- `docker` when the Docker engine answers `docker version`.
 
 | Variable | Required | Meaning |
 |----------|----------|---------|
