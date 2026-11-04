@@ -42,6 +42,8 @@ type fakeRecord struct {
 	// in it, as seen by the CLI.
 	ConfigDir     string `json:"config_dir"`
 	ConfigEntries int    `json:"config_entries"`
+	// JobMCPToken is the job MCP token variable as seen by the CLI.
+	JobMCPToken string `json:"job_mcp_token"`
 }
 
 func fakeCLI() {
@@ -57,7 +59,7 @@ func fakeCLI() {
 		entries, _ := os.ReadDir(cfgDir)
 		b, _ := json.Marshal(fakeRecord{
 			Args: args, Stdin: stdin, APIKey: os.Getenv("API_KEY"), Dir: dir,
-			ConfigDir: cfgDir, ConfigEntries: len(entries),
+			ConfigDir: cfgDir, ConfigEntries: len(entries), JobMCPToken: os.Getenv(JobMCPTokenEnv),
 		})
 		_ = os.WriteFile(rec, b, 0o600)
 	}

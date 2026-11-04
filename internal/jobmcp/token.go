@@ -6,10 +6,11 @@ import (
 	"strings"
 
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/runtime"
 )
 
 // Path is where forecrewd serves the gateway.
-const Path = "/job-mcp"
+const Path = runtime.JobMCPPath
 
 // TokenPrefix starts every job MCP token.
 const TokenPrefix = "fcj_"
