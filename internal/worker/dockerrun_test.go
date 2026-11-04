@@ -10,6 +10,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/runtime"
 )
 
 // engine is a fake Docker engine for the job tests: image, network and
@@ -37,6 +38,7 @@ ps) echo c1;;
 network) if [ "$2" = ls ]; then echo n1; fi;;
 run)
   if [ "$2" = -d ]; then echo cid; exit 0; fi
+  if [ -e ` + state + `/run125 ]; then echo "docker: daemon boom" >&2; exit 125; fi
   shift; prev=; src=; wd=/work
   while [ $# -gt 0 ]; do
     case "$prev" in -v) src=${1%%:*};; -w) wd=$1;; -e) export "$1";; esac
@@ -121,12 +123,12 @@ func TestDockerJobRunsInTheContainer(t *testing.T) {
 	got := calls(t, g.log)
 	id := s.JobID.String()
 	for _, parts := range [][]string{
-		{"pull golang:1.27"},
+		{"pull -- golang:1.27"},
 		{"build --tag forecrew-env:", "--file", "Dockerfile"},
 		{"network create", "--label forecrew.job=" + id, "forecrew-" + id},
-		{"run -d --name forecrew-" + id + "-main-db", "--network forecrew-" + id, "--network-alias main-db", "no-new-privileges", "-e POSTGRES_DB=t", "postgres:17"},
+		{"run -d --name forecrew-" + id + "-main-db", "--pids-limit 4096", "-- postgres:17", "--network forecrew-" + id, "--network-alias main-db", "no-new-privileges", "-e POSTGRES_DB=t", "postgres:17"},
 		{"exec forecrew-" + id + "-main-db sh -c pg_isready"},
-		{"run --rm --init", "--user", "--cap-drop ALL", "--security-opt no-new-privileges", "--entrypoint ", "--network forecrew-" + id, "-w /work", "-e MAIN_DB_HOST=main-db", "-e HOME=/tmp"},
+		{"run --rm --init", "--pids-limit 4096", "-- forecrew-env:", "--user", "--cap-drop ALL", "--security-opt no-new-privileges", "--entrypoint ", "--network forecrew-" + id, "-w /work", "-e MAIN_DB_HOST=main-db", "-e HOME=/tmp"},
 		{"rm -f -v c1"},
 		{"network rm n1"},
 	} {
@@ -136,8 +138,8 @@ func TestDockerJobRunsInTheContainer(t *testing.T) {
 	}
 	assertContained(t, got)
 	// The image use is recorded for pruning.
-	if ents, err := os.ReadDir(filepath.Join(e.workDir, "env-images")); err != nil || len(ents) != 1 {
-		t.Errorf("image markers = %v, %v", ents, err)
+	if ents, err := os.ReadDir(filepath.Join(e.workDir, "env-images")); err != nil || len(ents) < 2 {
+		t.Errorf("image markers = %v, %v (want the environment image and the pulled one)", ents, err)
 	}
 	e.noSecrets()
 }
@@ -254,14 +256,6 @@ func TestDockerJobCancelRemovesContainers(t *testing.T) {
 	}
 }
 
-func TestServiceVar(t *testing.T) {
-	for in, want := range map[string]string{"db": "DB", "main-db": "MAIN_DB", "pg.1_x": "PG_1_X"} {
-		if got := serviceVar(in); got != want {
-			t.Errorf("serviceVar(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestPortProbe(t *testing.T) {
 	got := portProbe([]int{5432, 80})
 	for _, want := range []string{"nc -z localhost 5432", "/dev/tcp/localhost/5432", "nc -z localhost 80", "&&"} {
@@ -313,7 +307,7 @@ func assertContained(t *testing.T, got []string) {
 	t.Helper()
 	mounts := 0
 	for _, c := range got {
-		for _, bad := range []string{"--privileged", "docker.sock", "--network host", "--net host", "--pid", "--ipc", "--publish", testAPIKey} {
+		for _, bad := range []string{"--privileged", "docker.sock", "--network host", "--net host", "--pid host", "--pid=host", "--ipc", "--publish", testAPIKey} {
 			if strings.Contains(c, bad) {
 				t.Errorf("call %q contains %q", c, bad)
 			}
@@ -324,5 +318,119 @@ func assertContained(t *testing.T, got []string) {
 	}
 	if mounts < 3 { // the command, the version commands and the os query
 		t.Errorf("the work tree was mounted %d times", mounts)
+	}
+}
+
+func TestDockerJobRefusesRoot(t *testing.T) {
+	e, g := dockerEnv(t)
+	old := hostIDs
+	hostIDs = func() (int, int) { return 0, 0 }
+	defer func() { hostIDs = old }()
+	c := e.doComplete(dockerSpec(e, "true", &domain.Environment{Name: "d", Provider: domain.ProviderDocker, Image: "x:1"}))
+	if c.Status != StatusFailed || !strings.Contains(c.Error, "refuse uid 0") {
+		t.Errorf("completion = %+v", c)
+	}
+	if hasCall(calls(t, g.log), "run") {
+		t.Error("a container ran as root")
+	}
+	hostIDs = func() (int, int) { return -1, -1 } // Windows
+	if c := e.doComplete(dockerSpec(e, "true", &domain.Environment{Name: "d", Provider: domain.ProviderDocker, Image: "x:1"},
+		func(s *domain.JobSpec) { s.Command.Reports = []string{"none"} })); c.Status != StatusSucceeded {
+		t.Errorf("without a uid: completion = %+v", c)
+	}
+	if !hasCall(calls(t, g.log), "--user 1000:1000") {
+		t.Error("no fallback user")
+	}
+}
+
+func TestDockerRunFailureIsGivenBack(t *testing.T) {
+	e, g := dockerEnv(t)
+	g.set(t, "run125")
+	c := e.doComplete(dockerSpec(e, "true", &domain.Environment{Name: "d", Provider: domain.ProviderDocker, Image: "x:1"}))
+	if c.Status != StatusRetry || !strings.Contains(c.Error, "daemon boom") || len(c.TestRuns) != 0 {
+		t.Errorf("completion = %+v, want a retry", c)
+	}
+}
+
+func TestCommandExitingWith125IsTheCommands(t *testing.T) {
+	e, _ := dockerEnv(t)
+	s := dockerSpec(e, "exit 125", &domain.Environment{Name: "d", Provider: domain.ProviderDocker, Image: "x:1"})
+	if c := e.doComplete(s); c.Status != StatusSucceeded || onlyRun(t, c).ExitCode != 125 {
+		t.Errorf("completion = %+v, want the command's exit code 125", c)
+	}
+}
+
+func TestDockerNetworkFailureIsGivenBack(t *testing.T) {
+	e := newCommandEnv(t)
+	bin, _ := fakeDocker(t, `network) echo "docker: pool exhausted" >&2; exit 1;;`)
+	e.cfg.DockerBin = bin
+	e.rebuild()
+	c := e.doComplete(dockerSpec(e, "true", &domain.Environment{Name: "d", Provider: domain.ProviderDocker, Image: "x:1"}))
+	if c.Status != StatusRetry || !strings.Contains(c.Error, "pool exhausted") {
+		t.Errorf("completion = %+v, want a retry", c)
+	}
+}
+
+func TestDockerFromRefOfAFailedBuildIsNotRecorded(t *testing.T) {
+	e, g := dockerEnv(t)
+	g.set(t, "fail-build")
+	red := runtime.NewRedactor(nil)
+	dir := t.TempDir()
+	writeFile(t, dir, "Dockerfile", "FROM late:1\n")
+	r := &jobRun{w: e.w, dir: dir, red: red, ev: &eventBuffer{jobID: domain.NewID(), client: e.cfg.Client, red: red, now: e.w.cfg.Now, log: e.cfg.Logger}}
+	dj := &dockerJob{r: r, d: e.w.docker}
+	r.docker = dj
+	src := envSource{Dockerfile: "Dockerfile", Context: "."}
+	if err := dj.build(t.Context(), src, "forecrew-env:x"); err == nil {
+		t.Fatal("the build did not fail")
+	}
+	if e.w.imageMarkers().tracked("late:1") {
+		t.Error("the base of a failed build was recorded for pruning")
+	}
+	// After a successful build that pulled it, it is recorded.
+	_ = os.Remove(filepath.Join(g.state, "fail-build"))
+	if err := dj.build(t.Context(), src, "forecrew-env:x"); err != nil {
+		t.Fatal(err)
+	}
+	if !e.w.imageMarkers().tracked("late:1") {
+		t.Error("the base pulled by a build was not recorded")
+	}
+}
+
+func TestDockerPullTracksOnlyWhatTheWorkerPulled(t *testing.T) {
+	e, g := dockerEnv(t)
+	red := runtime.NewRedactor(nil)
+	r := &jobRun{w: e.w, red: red, ev: &eventBuffer{jobID: domain.NewID(), client: e.cfg.Client, red: red, now: e.w.cfg.Now, log: e.cfg.Logger}}
+	dj := &dockerJob{r: r, d: e.w.docker}
+	r.docker = dj
+	markers := e.w.imageMarkers()
+
+	// Missing on the daemon: pulled and recorded.
+	if err := dj.pull(t.Context(), "svc:1"); err != nil {
+		t.Fatal(err)
+	}
+	if !hasCall(calls(t, g.log), "pull -- svc:1") || !markers.tracked("svc:1") {
+		t.Errorf("not pulled or recorded: %q", calls(t, g.log))
+	}
+	// Present, recorded: not pulled again, use recorded.
+	before := len(calls(t, g.log))
+	if err := dj.pull(t.Context(), "svc:1"); err != nil {
+		t.Fatal(err)
+	}
+	if hasCall(calls(t, g.log)[before:], "pull") {
+		t.Error("pulled an image the daemon has")
+	}
+	// Present and not recorded: the operator's, left alone.
+	if err := dj.pull(t.Context(), "mine:1"); err != nil {
+		t.Fatal(err)
+	}
+	if markers.tracked("mine:1") {
+		t.Error("an image of the operator was recorded for pruning")
+	}
+	// A failing pull is an error.
+	_ = os.Remove(filepath.Join(g.state, "built"))
+	g.set(t, "fail-pull")
+	if err := dj.pull(t.Context(), "other:1"); err == nil {
+		t.Error("a failing pull succeeded")
 	}
 }

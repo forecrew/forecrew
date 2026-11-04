@@ -24,7 +24,14 @@ const (
 	healthTryTimeout      = 30 * time.Second
 	// workMount is where the work tree is mounted in the job container.
 	workMount = "/work"
+	// containerPidsLimit bounds the processes of a container, so that a fork
+	// bomb does not exhaust the host's.
+	containerPidsLimit = "4096"
 )
+
+// hostIDs returns the uid and gid the job runs as: the worker's own. A
+// variable for the tests.
+var hostIDs = func() (uid, gid int) { return os.Getuid(), os.Getgid() }
 
 // dockerJob is what a command job of provider docker runs in: the image, the
 // private network and the service containers. Every container and network
@@ -33,8 +40,8 @@ type dockerJob struct {
 	r       *jobRun
 	d       *dockerCLI
 	id      string
-	tag     string            // the environment image
-	network string            // empty without services
+	tag     string // the environment image
+	network string
 	env     map[string]string // devcontainer and service variables of the job container
 	user    string            // uid:gid of the worker user
 	mark    string
@@ -48,13 +55,24 @@ func (dj *dockerJob) labels() []string {
 	return []string{"--label", jobLabelKey + "=" + dj.id, "--label", workerLabelKey + "=" + dj.d.worker}
 }
 
-// startDocker prepares the docker environment of the job: the image, then
-// the network and the services. The returned dockerJob, when not nil, must
-// be cleaned up. done is the completion that ends the job, or nil.
-func (r *jobRun) startDocker(ctx context.Context, mark string) (dj *dockerJob, done *Completion) {
+// startDocker prepares the docker environment of the job: the image, the
+// private network and the services, within the job's timeout. The returned
+// dockerJob, when not nil, must be cleaned up. done is the completion that
+// ends the job, or nil.
+func (r *jobRun) startDocker(parent context.Context, mark string) (dj *dockerJob, done *Completion) {
+	ctx := parent
+	if !r.deadline.IsZero() {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(parent, r.deadline)
+		defer cancel()
+	}
 	fail := func(format string, args ...any) *Completion {
-		if ctx.Err() != nil {
+		switch {
+		case parent.Err() != nil: // canceled, or the lease is gone
 			return &Completion{}
+		case ctx.Err() != nil:
+			c := r.failed("the timeout of the job ran out while the environment was prepared (%s)", fmt.Sprintf(format, args...))
+			return &c
 		}
 		c := r.failed(format, args...)
 		return &c
@@ -66,7 +84,10 @@ func (r *jobRun) startDocker(ctx context.Context, mark string) (dj *dockerJob, d
 	if err != nil {
 		return nil, fail("%v", err)
 	}
-	uid, gid := os.Getuid(), os.Getgid()
+	uid, gid := hostIDs()
+	if uid == 0 {
+		return nil, fail("the worker runs as root; Docker environments run jobs as the worker's user and refuse uid 0, run the worker as a dedicated user")
+	}
 	if uid < 0 { // Windows
 		uid, gid = 1000, 1000
 	}
@@ -76,6 +97,13 @@ func (r *jobRun) startDocker(ctx context.Context, mark string) (dj *dockerJob, d
 	}
 	if dj.tag, err = dj.image(ctx, src); err != nil {
 		return dj, fail("%v", err)
+	}
+	if err := dj.startNetwork(ctx); err != nil {
+		if parent.Err() != nil {
+			return dj, fail("%v", err)
+		}
+		c := r.retry("create the job network: %v", err) // the daemon's problem, not the repo's
+		return dj, &c
 	}
 	if err := dj.startServices(ctx); err != nil {
 		return dj, fail("%v", err)
@@ -95,22 +123,17 @@ func (dj *dockerJob) cleanup(ctx context.Context) {
 	})
 }
 
-// serviceVar turns a service name into the prefix of its environment
-// variables: db-main becomes DB_MAIN.
-func serviceVar(name string) string {
-	return strings.Map(func(c rune) rune {
-		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' {
-			return c
-		}
-		if c >= 'A' && c <= 'Z' {
-			return c
-		}
-		return '_'
-	}, strings.ToUpper(name))
+// startNetwork creates the job's private network, so that concurrent jobs do
+// not see each other on the default bridge. It is removed with the job's
+// containers, as soon as the command ends.
+func (dj *dockerJob) startNetwork(ctx context.Context) error {
+	dj.network = "forecrew-" + dj.id
+	_, err := dj.d.output(ctx, append(append([]string{"network", "create"}, dj.labels()...), "--", dj.network)...)
+	return err
 }
 
-// startServices creates the network and starts each service on it, waiting
-// for its health check. The job gets <NAME>_HOST and <NAME>_PORT (the first
+// startServices starts each service on the network, waiting for its health
+// check. The job gets <NAME>_HOST and <NAME>_PORT (the first
 // port) of each.
 func (dj *dockerJob) startServices(ctx context.Context) error {
 	services := dj.r.spec.Environment.Services
@@ -118,26 +141,25 @@ func (dj *dockerJob) startServices(ctx context.Context) error {
 		return nil
 	}
 	dj.r.ev.text(domain.EventStatus, "starting services")
-	dj.network = "forecrew-" + dj.id
-	if _, err := dj.d.output(ctx, append(append([]string{"network", "create"}, dj.labels()...), dj.network)...); err != nil {
-		return err
-	}
 	names := slices.Sorted(maps.Keys(services))
 	for _, name := range names {
 		s := services[name]
 		ctr := "forecrew-" + dj.id + "-" + name
+		if err := dj.pull(ctx, s.Image); err != nil {
+			return fmt.Errorf("service %s: %w", name, err)
+		}
 		args := append([]string{"run", "-d", "--name", ctr, "--network", dj.network, "--network-alias", name,
-			"--security-opt", "no-new-privileges"}, dj.labels()...)
+			"--security-opt", "no-new-privileges", "--pids-limit", containerPidsLimit}, dj.labels()...)
 		for _, k := range slices.Sorted(maps.Keys(s.Env)) {
 			args = append(args, "-e", k+"="+s.Env[k])
 		}
-		if _, err := dj.d.output(ctx, append(args, s.Image)...); err != nil {
+		if _, err := dj.d.output(ctx, append(args, "--", s.Image)...); err != nil {
 			return fmt.Errorf("service %s: %w", name, err)
 		}
 		if err := dj.waitHealthy(ctx, ctr, s); err != nil {
 			return fmt.Errorf("service %s: %w", name, err)
 		}
-		prefix := serviceVar(name)
+		prefix := domain.ServiceVar(name)
 		dj.env[prefix+"_HOST"] = name
 		if len(s.Ports) > 0 {
 			dj.env[prefix+"_PORT"] = strconv.Itoa(s.Ports[0])
@@ -193,8 +215,8 @@ func (dj *dockerJob) waitHealthy(ctx context.Context, ctr string, s domain.Servi
 		if check == "" {
 			return nil
 		}
-		var out []string
-		_, last = dj.d.exec(ctx, healthTryTimeout, func(b []byte) { out = append(out, string(b)) }, nil, "exec", ctr, "sh", "-c", check)
+		// The output is not read: a health command may print without end.
+		_, last = dj.d.exec(ctx, healthTryTimeout, nil, nil, "exec", ctr, "sh", "-c", check)
 		if last == nil {
 			return nil
 		}
@@ -226,7 +248,7 @@ func (dj *dockerJob) logTail(ctx context.Context, ctr string) string {
 		return ""
 	}
 	for line := range strings.SplitSeq(out, "\n") {
-		dj.r.logLine("service log: " + line)
+		dj.r.logLine("service log: " + line[:min(len(line), maxLogLine)])
 	}
 	return " (see the service log in the job log)"
 }
@@ -239,10 +261,7 @@ func (dj *dockerJob) contain(p runtime.Process) runtime.Process {
 	args := []string{"run", "--rm", "--init", "--name", fmt.Sprintf("forecrew-%s-run%d", dj.id, dj.seq.Add(1))}
 	args = append(args, dj.labels()...)
 	args = append(args, "--user", dj.user, "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-		"--entrypoint", "", "-v", dj.r.dir+":"+workMount)
-	if dj.network != "" {
-		args = append(args, "--network", dj.network)
-	}
+		"--pids-limit", containerPidsLimit, "--entrypoint", "", "-v", dj.r.dir+":"+workMount, "--network", dj.network)
 	wd := workMount
 	if rel, err := filepath.Rel(dj.r.dir, p.Dir); err == nil && rel != "." && p.Dir != "" {
 		wd += "/" + filepath.ToSlash(rel)
@@ -251,7 +270,7 @@ func (dj *dockerJob) contain(p runtime.Process) runtime.Process {
 	for _, kv := range p.Env {
 		args = append(args, "-e", kv)
 	}
-	args = append(args, dj.tag, p.Path)
+	args = append(args, "--", dj.tag, p.Path)
 	args = append(args, p.Args...)
 	out := dj.d.process(args...)
 	out.Dir = dj.r.dir

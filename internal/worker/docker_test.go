@@ -105,29 +105,39 @@ func TestRemoveLabeled(t *testing.T) {
 }
 
 func TestPruneImages(t *testing.T) {
-	bin, log := fakeDocker(t, `image) if [ "$2" = ls ]; then printf 'forecrew-env:old\nforecrew-env:old-base\nforecrew-env:fresh\nforecrew-env:unknown\n'; fi;;`)
+	bin, log := fakeDocker(t, `image) case "$2" in
+  ls) printf 'forecrew-env:old\nforecrew-env:unknown\n';;
+  rm) case "$4" in gone:1) echo "Error: No such image: gone:1" >&2; exit 1;; busy:1) echo "image is being used by container" >&2; exit 1;; esac;;
+esac;;`)
 	d := newDockerCLI(bin, "/work", nil)
 	m := imageMarkers(filepath.Join(t.TempDir(), "env-images"))
 	now := time.Now()
-	m.touch("old", now.Add(-20*24*time.Hour))
-	m.touch("fresh", now.Add(-time.Hour))
+	old, week := now.Add(-20*24*time.Hour), now.Add(-time.Hour)
+	for _, ref := range []string{"forecrew-env:old", "postgres:18", "gone:1", "busy:1"} {
+		m.touch(ref, old)
+	}
+	m.touch("redis:7", week)
 
 	removed, err := d.pruneImages(t.Context(), m, 14*24*time.Hour, now)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.Contains(err.Error(), "being used") {
+		t.Errorf("err = %v, want the image in use reported", err)
 	}
-	if want := []string{"forecrew-env:old", "forecrew-env:old-base"}; !slices.Equal(removed, want) {
+	slices.Sort(removed)
+	if want := []string{"forecrew-env:old", "postgres:18"}; !slices.Equal(removed, want) {
 		t.Errorf("removed = %v, want %v (calls %q)", removed, want, calls(t, log))
 	}
-	// An image without a marker starts its clock now.
-	if _, err := os.Stat(filepath.Join(string(m), "unknown")); err != nil {
-		t.Errorf("unknown image was not marked: %v", err)
+	for ref, want := range map[string]bool{
+		"forecrew-env:old": false, "postgres:18": false, // removed
+		"gone:1":               false, // already gone: forgotten
+		"busy:1":               true,  // kept, tried again
+		"redis:7":              true,  // recent
+		"forecrew-env:unknown": true,  // untracked environment images start their clock
+	} {
+		if m.tracked(ref) != want {
+			t.Errorf("tracked(%q) = %v, want %v", ref, !want, want)
+		}
 	}
 
-	failing, _ := fakeDocker(t, `image) if [ "$2" = ls ]; then echo forecrew-env:old; else echo busy >&2; exit 1; fi;;`)
-	if _, err := newDockerCLI(failing, "/work", nil).pruneImages(t.Context(), m, time.Hour, now); err == nil || !strings.Contains(err.Error(), "busy") {
-		t.Errorf("err = %v, want the failed removal", err)
-	}
 	down, _ := fakeDocker(t, `image) echo down >&2; exit 1;;`)
 	if _, err := newDockerCLI(down, "/work", nil).pruneImages(t.Context(), m, time.Hour, now); err == nil {
 		t.Error("a failing listing was not reported")
@@ -181,5 +191,17 @@ context) echo unix:///run/ctx.sock;;`)
 	d := newDockerCLI(bin, t.TempDir(), nil)
 	if h := d.host(t.Context()); h != "unix:///run/ctx.sock" {
 		t.Errorf("host = %q", h)
+	}
+}
+
+func TestRootWorkerDoesNotAdvertiseDocker(t *testing.T) {
+	bin, _ := fakeDocker(t, `version) echo 29.1.0;;`)
+	t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	old := hostIDs
+	hostIDs = func() (int, int) { return 0, 0 }
+	defer func() { hostIDs = old }()
+	labels, dockerBin, info := detectLabels(t.Context(), &config.Worker{WorkDir: t.TempDir()}, os.Environ())
+	if slices.Contains(labels, "docker") || dockerBin != "" || !strings.Contains(info, "root") {
+		t.Errorf("labels = %v, bin = %q, info = %q", labels, dockerBin, info)
 	}
 }

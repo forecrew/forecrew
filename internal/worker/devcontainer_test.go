@@ -74,6 +74,7 @@ func TestResolveSource(t *testing.T) {
 	write(".devcontainer/empty.json", `{}`)
 	write(".devcontainer/secret.json", `{"image": "x", "containerEnv": {"API_KEY": "v"}}`)
 	write(".devcontainer/badimage.json", `{"image": "x y"}`)
+	write(".devcontainer/flag.json", `{"image": "--privileged"}`)
 	write(".devcontainer/badcmd.json", `{"image": "x", "postCreateCommand": 3}`)
 	write(".devcontainer/broken.json", `{`)
 	write("ci/Dockerfile", "FROM x")
@@ -99,6 +100,7 @@ func TestResolveSource(t *testing.T) {
 		{"devcontainer empty", dev("empty"), envSource{}, "neither image"},
 		{"devcontainer secret", dev("secret"), envSource{}, "looks like a secret"},
 		{"devcontainer bad image", dev("badimage"), envSource{}, "not a valid image"},
+		{"devcontainer image flag", dev("flag"), envSource{}, "not a valid image"},
 		{"devcontainer bad command", dev("badcmd"), envSource{}, "postCreateCommand"},
 		{"devcontainer broken", dev("broken"), envSource{}, "invalid JSON"},
 		{"devcontainer missing", dev("missing"), envSource{}, "no such file"},
