@@ -274,6 +274,25 @@ func TestRenderWritePaths(t *testing.T) {
 	}
 }
 
+func TestRenderLockedPaths(t *testing.T) {
+	role := roles.Role{Name: "developer", WritePaths: []string{"**"}}
+	pack, err := Render(role, Input{Branch: "agent/task-1", Locked: []string{"internal/*_test.go", "testdata/**"}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "- Locked, never change (the tests written from the spec): \"internal/*_test.go\", \"testdata/**\"\n"; !strings.Contains(pack.Prompt, want) {
+		t.Errorf("job section lacks the locked paths:\n%s", pack.Prompt)
+	}
+	pack, err = Render(role, Input{Branch: "agent/task-1", Locked: []string{"a\n# Injected"}}, 0)
+	if err != nil || strings.Contains(pack.Prompt, "\n# Injected") {
+		t.Errorf("err = %v, a locked path broke out of its line:\n%s", err, pack.Prompt)
+	}
+	pack, err = Render(role, Input{Branch: "agent/task-1"}, 0)
+	if err != nil || strings.Contains(pack.Prompt, "Locked") {
+		t.Errorf("err = %v, prompt mentions locked paths:\n%s", err, pack.Prompt)
+	}
+}
+
 func TestCut(t *testing.T) {
 	keepAC := criteria
 	long := strings.Repeat("x", 100)

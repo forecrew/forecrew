@@ -69,7 +69,7 @@ func (b *StoreBuilder) input(ctx context.Context, req workflow.JobRequest, role 
 	if err != nil {
 		return Input{}, fmt.Errorf("load project %s: %w", req.ProjectID, err)
 	}
-	in := Input{Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, Profile: project.Profile}
+	in := Input{Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, Locked: req.LockedPaths, Profile: project.Profile}
 	if in.Repo == "" {
 		in.Repo = project.Repo
 	}

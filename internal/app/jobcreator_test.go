@@ -65,6 +65,30 @@ func TestJobCreatorWritingRole(t *testing.T) {
 	}
 }
 
+func TestJobCreatorLockedPaths(t *testing.T) {
+	f := newFixture(t)
+	req := f.request("developer")
+	req.Branch, req.LockedPaths = "agent/task-1", []string{"internal/*_test.go", "testdata/**"}
+	id, err := f.creator.Create(t.Context(), req)
+	must(t, err)
+	j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+	must(t, err)
+	if !slices.Equal(j.Spec.LockedPaths, req.LockedPaths) {
+		t.Errorf("locked_paths = %v", j.Spec.LockedPaths)
+	}
+	for _, bad := range []string{"!a_test.go", "/abs_test.go", "a\n# injected", "a`b", "a\x00b"} {
+		req.LockedPaths = []string{bad}
+		if _, err := f.creator.Create(t.Context(), req); !errors.Is(err, jobs.ErrInvalid) {
+			t.Errorf("%q: err = %v, want ErrInvalid", bad, err)
+		}
+	}
+	// Escaped glob characters and a bracketed directory are valid.
+	req.LockedPaths = []string{"web/src/routes/[[]id]/a.test.ts", "[*]x_test.go"}
+	if _, err := f.creator.Create(t.Context(), req); err != nil {
+		t.Errorf("escaped paths: %v", err)
+	}
+}
+
 func TestJobCreatorReadOnlyBranchAndOverrides(t *testing.T) {
 	f := newFixture(t)
 	req := f.request("reviewer")
@@ -226,6 +250,7 @@ func TestJobCreatorCommandErrors(t *testing.T) {
 		"prompt":         func(r *workflow.JobRequest) { r.Prompt = "hi" },
 		"role":           func(r *workflow.JobRequest) { r.Role = "developer" },
 		"pool":           func(r *workflow.JobRequest) { r.Pool = domain.PoolControl },
+		"locked paths":   func(r *workflow.JobRequest) { r.LockedPaths = []string{"a_test.go"} },
 		"another repo":   func(r *workflow.JobRequest) { r.Repo = "acme/other" },
 		"secret env":     func(r *workflow.JobRequest) { r.Command.Env = map[string]string{"API_TOKEN": "x"} },
 	}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -51,6 +52,9 @@ type Input struct {
 	Repo    string // owner/name
 	BaseRef string
 	Branch  string // empty for read-only roles
+	// Locked are the globs the job may not change even where its role may
+	// write: the tests written from the spec.
+	Locked []string
 	// Profile is the approved project profile (JSON); empty before onboarding.
 	Profile json.RawMessage
 	// TestPlan holds the repo's test matrix, test strategy and environments,
@@ -145,6 +149,13 @@ func render(role roles.Role, in Input, profile Text, schema string) string {
 		fmt.Fprintf(&b, "- You may change only: %s\n", include)
 		if exclude != "" {
 			fmt.Fprintf(&b, "- Never change: %s\n", exclude)
+		}
+		if len(in.Locked) > 0 {
+			quoted := make([]string, len(in.Locked))
+			for i, l := range in.Locked {
+				quoted[i] = strconv.Quote(l) // data, never markup
+			}
+			fmt.Fprintf(&b, "- Locked, never change (the tests written from the spec): %s\n", strings.Join(quoted, ", "))
 		}
 	}
 	list(&b, "Definition of done", role.DefinitionOfDone)

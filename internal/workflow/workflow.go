@@ -39,6 +39,10 @@ type JobRequest struct {
 	// Prompt is extra instructions for the job, added to its prompt (ad-hoc
 	// jobs from dispatch_job).
 	Prompt string `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	// LockedPaths are globs an agent job may not change even when its role's
+	// write paths allow it (the tests written from the spec). They are put
+	// in the job spec.
+	LockedPaths []string `json:"locked_paths,omitempty" yaml:"locked_paths,omitempty"`
 
 	// Kind is agent (the default) or command. A command job has no role,
 	// prompt or context pack: it runs Command, optionally in Environment,

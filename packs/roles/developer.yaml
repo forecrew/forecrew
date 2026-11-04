@@ -14,5 +14,6 @@ escalate_when:
   - a criterion is ambiguous
   - the environment is missing a tool, service or credential the task needs
   - the task needs a change to a path you may not write
+  - a locked test is wrong or contradicts the task (name the test and the reason)
 max_turns: 120
 timeout: 60m
