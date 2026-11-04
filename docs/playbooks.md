@@ -247,6 +247,7 @@ a command without an agent. Its `with` keys are `kind`, `command` (`argv` or
 (default 30m) and the goal, spec and task refs. `role`, `pool`, `prompt` and
 `feedback` are refused: the pool follows from the environment. Its output is
 empty; the results are the job's test runs (`list_test_runs`).
+| `job.if_pushed` | `head_sha` | `{if_pushed}`: the commit when the job step left one, `[]` when it changed nothing. A `foreach` over it skips the steps that need the job's branch, such as a pull request. |
 
 `from`, one `${...}` reference to an object, fills `cell`, `suite`,
 `environment`, `needs` and `command` from that object, and `command` is then
@@ -388,7 +389,9 @@ section has no location, a `knowledge-curator` job on `agent/kb-seed` that
 proposes entries for those sections from `CLAUDE.md`, `AGENTS.md`, the README
 and `docs/`, a PR, and a `knowledge_proposal` gate on that PR. Approving it
 merges the PR; merging it on GitHub approves it and closing it rejects it
-(which ends the run failed; the project stays onboarded). The curator role needs
+(which ends the run failed; the project stays onboarded). A curator that
+writes nothing leaves no commit: `job.if_pushed` then skips the PR and the gate
+and the run succeeds. The curator role needs
 an entry under `roles` in forecrew.yaml; without one the job fails and a
 `needs_you` gate opens.
 
