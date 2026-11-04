@@ -137,6 +137,11 @@ func (s *Service) place(j *domain.Job) error {
 		j.Pool = domain.CommandPool(j.Spec.Environment)
 	}
 	j.Pool = domain.OrDefaultPool(j.Pool)
+	if j.Pool == domain.PoolActions && j.Kind == domain.JobKindCommand {
+		// forecrewd serves this pool and has no labels, so a need would keep
+		// the job queued for ever.
+		j.Needs = nil
+	}
 	p, ok := s.pools[j.Pool]
 	if !ok {
 		return fmt.Errorf("pool %s is not configured: %w", j.Pool, config.ErrNotAllowed)

@@ -172,7 +172,7 @@ func (o outcome) message() string {
 	case text != "" && text != msg:
 		msg += "\n" + text
 	}
-	return clip(msg, MaxMessageSize)
+	return Clip(msg, MaxMessageSize)
 }
 
 // readCase reads one <testcase> whose start element was just read.
@@ -181,9 +181,9 @@ func readCase(dec *xml.Decoder, start xml.StartElement) (Case, error) {
 	for _, a := range start.Attr {
 		switch a.Name.Local {
 		case "name":
-			c.Name = clip(a.Value, MaxNameSize)
+			c.Name = Clip(a.Value, MaxNameSize)
 		case "classname":
-			c.Classname = clip(a.Value, MaxNameSize)
+			c.Classname = Clip(a.Value, MaxNameSize)
 		case "time":
 			c.DurationMS = millis(a.Value)
 		}
@@ -240,8 +240,8 @@ func millis(s string) int64 {
 	return int64(min(math.Round(f*1000), maxDurationMS))
 }
 
-// clip cuts s to max bytes at a rune boundary.
-func clip(s string, max int) string {
+// Clip cuts s to max bytes at a rune boundary.
+func Clip(s string, max int) string {
 	if len(s) <= max {
 		return s
 	}
