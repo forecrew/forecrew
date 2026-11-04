@@ -353,6 +353,9 @@ type ArtifactRepo interface {
 	// its data and loses the link (ArtifactID becomes zero). Unknown IDs are
 	// ErrNotFound.
 	Delete(ctx context.Context, accountID, id uuid.UUID) error
+	// ExistingKeys returns those of keys that are the storage key of some
+	// artifact, of any account, in one query.
+	ExistingKeys(ctx context.Context, keys []string) ([]string, error)
 }
 
 // The repositories below belong to the testing system
