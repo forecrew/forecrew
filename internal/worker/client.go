@@ -16,6 +16,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/runtime"
+	"github.com/forecrew/forecrew/internal/testreport"
 )
 
 // Errors of the worker API client.
@@ -165,6 +166,22 @@ type Completion struct {
 	Error   string          `json:"error,omitempty"`
 	Usage   domain.Usage    `json:"usage"`
 	CostUSD float64         `json:"cost_usd"`
+	// TestRuns are reported by command jobs.
+	TestRuns []TestRun `json:"test_runs,omitempty"`
+}
+
+// TestRun is the result of the suite a command job ran (worker-api.md,
+// complete). Results holds one entry per test case; Counts always counts
+// every case, also the ones Results had to leave out.
+type TestRun struct {
+	Suite           string               `json:"suite"`
+	Status          domain.TestRunStatus `json:"status"`
+	Counts          domain.TestCounts    `json:"counts"`
+	DurationMS      int64                `json:"duration_ms"`
+	Results         []testreport.Case    `json:"results"`
+	ReportArtifacts []string             `json:"report_artifacts"`
+	Versions        map[string]string    `json:"versions"`
+	ExitCode        int                  `json:"exit_code"`
 }
 
 // Completion statuses.

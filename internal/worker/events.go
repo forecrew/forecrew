@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 	"uuid"
@@ -39,7 +40,7 @@ func (b *eventBuffer) add(ev domain.JobEvent) {
 		ev.Time = b.now()
 	}
 	ev.Time = ev.Time.UTC()
-	ev.Text = b.red.String(ev.Text)
+	ev.Text = cleanText(b.red.String(ev.Text))
 	if len(ev.Data) > 0 {
 		data := json.RawMessage(b.red.String(string(ev.Data)))
 		if json.Valid(data) {
@@ -110,4 +111,10 @@ func (b *eventBuffer) run(ctx context.Context, interval time.Duration, onStop fu
 			}
 		}
 	}
+}
+
+// cleanText removes what Postgres refuses in text: NUL bytes and invalid
+// UTF-8.
+func cleanText(s string) string {
+	return strings.ToValidUTF8(strings.ReplaceAll(s, "\x00", ""), "")
 }

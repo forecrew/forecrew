@@ -23,9 +23,17 @@ const checkTimeout = 15 * time.Second
 // own, without FORECREW_ variables (the worker token) and GIT_ variables
 // (they could point the agent's git at another repo or turn on tracing).
 func AgentEnv(environ []string) []string {
+	return filterEnv(environ, func(name string) bool {
+		return !strings.HasPrefix(name, "FORECREW_") && !strings.HasPrefix(name, "GIT_")
+	})
+}
+
+// filterEnv returns the entries of environ whose variable name keep accepts.
+func filterEnv(environ []string, keep func(name string) bool) []string {
 	out := make([]string, 0, len(environ))
 	for _, kv := range environ {
-		if !strings.HasPrefix(kv, "FORECREW_") && !strings.HasPrefix(kv, "GIT_") {
+		name, _, _ := strings.Cut(kv, "=")
+		if keep(name) {
 			out = append(out, kv)
 		}
 	}

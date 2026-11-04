@@ -107,6 +107,12 @@ type jobRun struct {
 
 	attachMu sync.Mutex
 	attach   []Attachment // marked by the agent, one per artifact name
+
+	// deadline ends the timeout budget of a command job; zero means none.
+	deadline time.Time
+	logMu    sync.Mutex // guards logBytes and logCut
+	logBytes int64      // log text of the command so far
+	logCut   bool       // the log limit was reached
 }
 
 // handleJob runs a leased job to its end and reports the result. ctx is the
@@ -167,6 +173,11 @@ func (w *Worker) handleJob(ctx context.Context, lease *Lease) {
 		return
 	}
 	status, err := w.cfg.Client.Complete(final, spec.JobID, comp)
+	if errors.Is(err, ErrTooLarge) && len(comp.TestRuns) > 0 {
+		log.Warn("test results too large for forecrewd, reporting errored runs instead")
+		comp = r.oversized(comp)
+		status, err = w.cfg.Client.Complete(final, spec.JobID, comp)
+	}
 	switch {
 	case errors.Is(err, ErrLeaseLost):
 		log.Warn("result dropped, lease lost")
@@ -281,11 +292,11 @@ func (r *jobRun) watchLease(ctx context.Context, stop context.CancelCauseFunc) {
 
 // failed and retry build the completion of a job that did not succeed.
 func (r *jobRun) failed(format string, args ...any) Completion {
-	return Completion{Status: StatusFailed, Error: r.red.String(fmt.Sprintf(format, args...))}
+	return Completion{Status: StatusFailed, Error: cleanText(r.red.String(fmt.Sprintf(format, args...)))}
 }
 
 func (r *jobRun) retry(format string, args ...any) Completion {
-	return Completion{Status: StatusRetry, Error: r.red.String(fmt.Sprintf(format, args...))}
+	return Completion{Status: StatusRetry, Error: cleanText(r.red.String(fmt.Sprintf(format, args...)))}
 }
 
 // validate checks the parts of the spec the worker passes to git.
@@ -318,6 +329,9 @@ func (r *jobRun) validate() error {
 func (r *jobRun) execute(ctx context.Context) Completion {
 	if err := r.validate(); err != nil {
 		return r.failed("%v", err)
+	}
+	if r.spec.IsCommand() {
+		return r.executeCommand(ctx)
 	}
 	r.ev.text(domain.EventStatus, "cloning")
 	g := r.w.git
