@@ -14,7 +14,8 @@ forecrew-worker version
 
 The configured labels, the os (`linux`, `windows`; a macOS worker advertises
 both `darwin`, the `GOOS` value of conventions.md, and `macos`, the name repo profiles use) and `runtime:claude-code` / `runtime:codex` for each of `claude`
-and `codex` found on `PATH`.
+and `codex` found on `PATH`, and `docker` when the Docker engine answers
+`docker version` (see Environments).
 
 ## Pools
 
@@ -157,11 +158,101 @@ a file forecrewd refuses as too large, or an evidence store that is not
 configured, only costs the artifact: the results are still reported. No test
 case is left out of the report; if forecrewd refuses the results as larger
 than its `max_test_results_size`, the worker completes again with errored
-runs saying so. Docker environments and services are not run by this worker
-yet: such a job fails.
+runs saying so. A job of an `actions` environment is never leased by a worker.
+Services next to a `machine` environment are not run: such a job fails; use
+provider `docker` for services.
 
 A command is not isolated from the worker (see below): it runs as the
 worker's user and can read what that user can.
+
+## Environments
+
+A command job whose environment has provider `docker` (environment.schema.json)
+runs in a container on a worker with the `docker` label. The worker adds the
+label when `docker version` answers at start, and keeps working without it
+(`forecrew-worker check` says which). The daemon must run on the worker's
+machine: the work tree is bind-mounted. The worker uses the `docker` command
+line client through `os/exec`, not the Engine API client: it needs a dozen
+calls, the operator already configures the CLI (contexts, `DOCKER_HOST`,
+registry logins), and it adds no dependency.
+
+**Image.** `image` is pulled; `dockerfile` (with `context`, default the repo
+root) and `devcontainer` are built from the job's checkout. Of a
+`devcontainer.json` (comments and trailing commas are allowed) the worker uses
+only `image`, `build.dockerfile`, `build.context` (both relative to the file),
+`containerEnv` and `postCreateCommand`; mounts, `runArgs`, `privileged`,
+features and every other key are ignored. The result is tagged
+`forecrew-env:<hash>`; the hash covers the image reference, the `setup`
+commands, the Dockerfile's path and contents, and, for a build, the path, type,
+mode and contents of every file of the build context (`.git` excluded; there
+is no `.dockerignore` handling, so keep `context` small). An existing tag is
+reused: the second job with the same inputs neither pulls nor builds. `setup`
+commands run as `RUN` steps in a layer on top of the image (as root; they see
+no environment variables and no secrets). A build is not a place for secrets:
+the worker passes no build arguments, no SSH agent and no credentials to it.
+Images not used for `image_prune_days` (worker.yaml, default 14) are removed
+at start and then daily.
+
+**Services.** For an environment with `services` the worker creates the
+network `forecrew-<job id>` and starts each service on it with its `env` and
+the network alias equal to its key (the container itself is named
+`forecrew-<job id>-<key>`, so jobs on one daemon do not clash). It then waits
+for `health` (`interval` and `retries` as in the schema), or, without
+`health` and with `ports`, until every port accepts a connection (probed in
+the service container with `nc`, or bash's `/dev/tcp`; an image with neither
+needs a `health` command). A service that exits, or is not ready in time, or
+the job's timeout, fails the job, with the end of the service's log in the job
+log. Ports are never published. The job container gets `<NAME>_HOST` (the
+key) and, with `ports`, `<NAME>_PORT` (the first port) for each service; NAME is
+the key in upper case with every other character turned into `_`.
+
+**Job container.** The work tree is mounted read-write at `/work`, which is
+also the working directory (`command.workdir` below it). The command runs as
+the worker user's uid and gid with no entrypoint of the image, `--init`, all
+capabilities dropped and `no-new-privileges`. Its environment is exactly:
+`LANG`, `LC_*` and `TZ` of the worker, `HOME=/tmp`, the devcontainer's
+`containerEnv`, the service variables, the environment's `env` and the
+command's `env`. `PATH`, the user's name and every other variable of the worker
+stay out. Reports and artifacts are read from the work tree on the host
+afterwards, exactly as for the host (same limits, symlinks refused). `setup`
+and `timeout` share one budget: building the image, starting the services and
+the command all count.
+
+**Versions.** Besides the output of the `versions` commands (run in the job
+container), the test run records `image` (the registry digest, or the image
+id for a build) and `os-release` (`PRETTY_NAME` of `/etc/os-release`).
+
+**Cleanup.** Every container and network carries the labels
+`forecrew.job=<job id>` and `forecrew.worker=<id of the work dir>`. They are
+removed (`docker rm -f -v`, `docker network rm`) before the results are read,
+and again whatever the outcome: success, failure, timeout, cancel, lease lost.
+When the worker starts it removes the leftovers of its own earlier run, by the
+worker label, before it takes a job.
+
+**Security notes.**
+
+- The job container has no Docker socket, is not privileged, does not use the
+  host network or PID namespace, publishes no port and mounts nothing but the
+  work tree. A Dockerfile, an image or a service of the repo is therefore code
+  that runs in a container of the daemon, as the repo's code does on a
+  `machine`; it cannot ask the daemon for anything. Build steps can still use
+  the network (the default bridge), so they and the job can reach the internet
+  and the machine's LAN. Use a network policy where that matters.
+- Whoever can start containers is root on the machine: give the worker user
+  access to the daemon only on a machine you dedicate to this, or use rootless
+  Docker. A rootless daemon maps the container's uids differently; the
+  work tree must stay writable by the job's user.
+- A bind mount needs the work dir to be visible to the daemon (Docker Desktop
+  shares `/Users` and `/home` only; SELinux hosts may need the volume to be
+  relabeled).
+- Mutable image tags are pulled once per hash: pin tags or digests, as the
+  schema asks.
+- Environment variables of the spec are visible in the process list of the
+  host while a container starts (`docker run -e`), which is why they are
+  non-secret by contract.
+- A `devcontainer` or `dockerfile` path that leaves the repo or crosses a
+  symlink fails the job, and so does a name that looks like a secret in
+  `containerEnv`.
 
 ## Secrets
 
