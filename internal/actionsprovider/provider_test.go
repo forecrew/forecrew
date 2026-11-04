@@ -470,3 +470,15 @@ func TestNotifyWakesTheRun(t *testing.T) {
 		t.Errorf("job = %s %q", got.Status, got.Error)
 	}
 }
+
+func TestWorkflowMessageIsBounded(t *testing.T) {
+	e := newEnv(t)
+	j := e.newJob()
+	res := `{"phase":"setup","message":"` + strings.Repeat("x", 100_000) + `"}`
+	e.finishesWith(j, "failure", map[string]string{ResultFile: res})
+	e.poll()
+	got := e.job(j)
+	if got.Status != domain.JobFailed || len(got.Error) > maxReason+64 || !strings.Contains(got.Error, "[truncated]") {
+		t.Errorf("job = %s error of %d bytes", got.Status, len(got.Error))
+	}
+}

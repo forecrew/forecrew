@@ -32,7 +32,7 @@ func (r *jobRun) complete(ctx context.Context, res store.JobResult) {
 
 // fail ends the job as failed.
 func (r *jobRun) fail(ctx context.Context, format string, args ...any) {
-	r.complete(ctx, store.JobResult{Status: domain.JobFailed, Error: testreport.CleanText(fmt.Sprintf(format, args...))})
+	r.complete(ctx, store.JobResult{Status: domain.JobFailed, Error: reason(format, args...)})
 }
 
 // release gives the attempt up: the job is queued again, or failed when its
@@ -40,8 +40,7 @@ func (r *jobRun) fail(ctx context.Context, format string, args ...any) {
 func (r *jobRun) release(ctx context.Context, format string, args ...any) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), endTimeout)
 	defer cancel()
-	reason := testreport.CleanText(fmt.Sprintf(format, args...))
-	if _, err := r.p.cfg.Jobs.Release(ctx, r.w, r.j.ID, reason); err != nil && !errors.Is(err, store.ErrLeaseLost) {
+	if _, err := r.p.cfg.Jobs.Release(ctx, r.w, r.j.ID, reason(format, args...)); err != nil && !errors.Is(err, store.ErrLeaseLost) {
 		r.log.ErrorContext(ctx, "release job", "error", err)
 	}
 }
@@ -52,4 +51,13 @@ func (r *jobRun) event(ctx context.Context, typ domain.JobEventType, text string
 	if _, err := r.p.cfg.Store.JobEvents().AppendLeased(ctx, r.j.AccountID, r.j.ID, r.w.ID, []domain.JobEvent{ev}); err != nil && ctx.Err() == nil {
 		r.log.WarnContext(ctx, "append job event", "error", err)
 	}
+}
+
+// maxReason bounds what the job record and the audit trail keep of a failure.
+const maxReason = 2048
+
+// reason formats the error or release reason of a job: clean, and bounded
+// because it may quote what the repo's workflow reported.
+func reason(format string, args ...any) string {
+	return testreport.Clip(testreport.CleanText(fmt.Sprintf(format, args...)), maxReason)
 }
