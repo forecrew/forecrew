@@ -46,8 +46,8 @@ type Config struct {
 	Store  store.Store
 	Jobs   *jobs.Service
 	GitHub github.Actions
-	// Evidence stores the artifacts of a run; nil: they are not stored and
-	// the job log says so.
+	// Evidence stores the artifacts of a run; nil: they are not stored (the
+	// test runs are reported without report artifacts).
 	Evidence evidence.Store
 	// MaxInFlight is the most runs followed at once (actions.max_in_flight);
 	// it defaults to config.DefaultActionsMaxInFlight.
@@ -99,9 +99,9 @@ func New(cfg Config) *Provider {
 	return &Provider{cfg: cfg, freed: make(chan struct{}, 1), wakers: map[int64]chan struct{}{}}
 }
 
-// Run leases and follows jobs until ctx ends, then cancels the runs it still
-// follows (their jobs go back to the queue when their lease expires) and
-// returns.
+// Run leases and follows jobs until ctx ends, then stops following and
+// returns. The runs it followed keep going on GitHub: their jobs are queued
+// again when their leases expire, and the next attempt resumes the run.
 func (p *Provider) Run(ctx context.Context) {
 	for {
 		wake := p.cfg.Jobs.Wait() // before leasing, so no new job is missed
@@ -192,8 +192,8 @@ func (p *Provider) leaseOne(ctx context.Context, w domain.Worker) bool {
 	return true
 }
 
-// Wait blocks until every run being followed has ended; Poll starts no new
-// ones meanwhile only if its context is done.
+// Wait blocks until every run being followed has ended or its context is
+// done.
 func (p *Provider) Wait() { p.wg.Wait() }
 
 // providerVersion marks the worker row the provider created; no worker API
