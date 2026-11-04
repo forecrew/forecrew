@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"maps"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/forecrew/forecrew/internal/domain"
 )
@@ -76,11 +78,12 @@ func plan(spec domain.JobSpec, defaultBranch string) (dispatchPlan, error) {
 	}
 	pl := dispatchPlan{Ref: checkout}
 	in := map[string]string{
-		"job_id":    spec.JobID.String(),
-		"runs_on":   env.RunsOn,
-		"payload":   string(raw),
-		"reports":   strings.Join(c.Reports, "\n"),
-		"artifacts": strings.Join(c.Artifacts, "\n"),
+		"job_id":          spec.JobID.String(),
+		"runs_on":         env.RunsOn,
+		"payload":         string(raw),
+		"reports":         strings.Join(c.Reports, "\n"),
+		"artifacts":       strings.Join(c.Artifacts, "\n"),
+		"timeout_minutes": strconv.Itoa(timeoutMinutes(time.Duration(spec.Timeout))),
 	}
 	if fullSHA.MatchString(checkout) {
 		// workflow_dispatch takes a branch, not a commit: the default
@@ -107,3 +110,16 @@ func plan(spec domain.JobSpec, defaultBranch string) (dispatchPlan, error) {
 	pl.Inputs = in
 	return pl, nil
 }
+
+// timeoutMinutes is the timeout-minutes of the workflow's job: the job's
+// timeout rounded up plus a minute of slack, at most GitHub's 360. It
+// bounds the run when forecrewd is not there to cancel it.
+func timeoutMinutes(d time.Duration) int {
+	if d <= 0 {
+		return maxRunMinutes
+	}
+	return min(int((d+time.Minute-1)/time.Minute)+1, maxRunMinutes)
+}
+
+// maxRunMinutes is GitHub's limit for a job on a hosted runner.
+const maxRunMinutes = 360
