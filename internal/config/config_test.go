@@ -180,3 +180,20 @@ func TestSameVendorReview(t *testing.T) {
 		t.Error("missing reviewer reported")
 	}
 }
+
+func TestParseActions(t *testing.T) {
+	c, err := Parse([]byte(validYAML), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Actions.MaxInFlight != DefaultActionsMaxInFlight {
+		t.Errorf("default max_in_flight = %d", c.Actions.MaxInFlight)
+	}
+	c, err = Parse([]byte(validYAML+"actions:\n  max_in_flight: 3\n"), env(nil))
+	if err != nil || c.Actions.MaxInFlight != 3 {
+		t.Errorf("max_in_flight = %d, %v", c.Actions.MaxInFlight, err)
+	}
+	if _, err = Parse([]byte(validYAML+"actions:\n  max_in_flight: -1\n"), env(nil)); !errors.Is(err, ErrInvalid) {
+		t.Errorf("negative max_in_flight: %v", err)
+	}
+}

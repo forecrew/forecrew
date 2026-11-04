@@ -81,7 +81,21 @@ type Config struct {
 	// DefaultMaxTestResultsSize.
 	MaxTestResultsSize int64 `yaml:"max_test_results_size"`
 	Auth               Auth  `yaml:"auth"`
+	// Actions limits the GitHub Actions provider that serves pool actions.
+	Actions Actions `yaml:"actions"`
 }
+
+// Actions configures the provider that runs the command jobs of pool
+// actions on GitHub-hosted runners.
+type Actions struct {
+	// MaxInFlight is the most workflow runs the provider keeps running at
+	// once; the other jobs wait queued. It bounds the Actions minutes
+	// forecrewd can spend; zero means DefaultActionsMaxInFlight.
+	MaxInFlight int `yaml:"max_in_flight"`
+}
+
+// DefaultActionsMaxInFlight is the default of Actions.MaxInFlight.
+const DefaultActionsMaxInFlight = 10
 
 // DefaultMaxTestResultsSize is the default of Config.MaxTestResultsSize.
 const DefaultMaxTestResultsSize = 32 << 20 // 32 MiB
@@ -194,6 +208,9 @@ func (c *Config) applyDefaults() {
 	if c.MaxTestResultsSize == 0 {
 		c.MaxTestResultsSize = DefaultMaxTestResultsSize
 	}
+	if c.Actions.MaxInFlight == 0 {
+		c.Actions.MaxInFlight = DefaultActionsMaxInFlight
+	}
 	c.applyPoolDefaults()
 	c.applySizing()
 	c.applyAuthDefaults()
@@ -230,6 +247,9 @@ func (c *Config) Validate() error {
 		p.addf("max_test_results_size must be positive")
 	}
 	c.validateAuth(&p)
+	if c.Actions.MaxInFlight < 0 {
+		p.addf("actions.max_in_flight must be positive")
+	}
 	return p.err()
 }
 
