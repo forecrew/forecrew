@@ -156,43 +156,67 @@ func (d *dockerCLI) removeLabeled(ctx context.Context, filter string) error {
 	return errors.Join(errs...)
 }
 
-// imageMarkers remembers when each environment image was last used, as the
-// modification time of an empty file per image hash. It lives next to the
-// job workspaces and survives restarts.
+// imageMarkers remembers the images the worker pulled or built and when a job
+// last used them, as one small file per image reference (named by the hash of
+// the reference, holding the reference) whose modification time is the last
+// use. It lives next to the job workspaces and survives restarts.
 type imageMarkers string
 
-func (m imageMarkers) touch(hash string, now time.Time) {
-	p := filepath.Join(string(m), hash)
+func (m imageMarkers) path(ref string) string {
+	sum := sha256.Sum256([]byte(ref))
+	return filepath.Join(string(m), hex.EncodeToString(sum[:16]))
+}
+
+// tracked reports whether ref has a marker.
+func (m imageMarkers) tracked(ref string) bool {
+	_, err := os.Stat(m.path(ref))
+	return err == nil
+}
+
+// touch records a use of ref at now.
+func (m imageMarkers) touch(ref string, now time.Time) {
 	if err := os.MkdirAll(string(m), 0o750); err != nil {
 		return
 	}
-	if err := os.WriteFile(p, nil, 0o600); err == nil {
+	p := m.path(ref)
+	if err := os.WriteFile(p, []byte(ref), 0o600); err == nil {
 		_ = os.Chtimes(p, now, now)
 	}
 }
 
-// pruneImages removes the environment images that were not used for maxAge.
-// An image without a marker (built before markers, or by hand) starts its
-// clock now. Images in use by a container are kept by Docker itself.
+// pruneImages removes the images no job used for maxAge: the environment
+// images (forecrew-env:*) and the images the worker pulled for them, for
+// services or as the base of a build. An environment image without a marker
+// (built by hand, or before markers) starts its clock now. An image still
+// used by a container, or that Docker refuses to remove, keeps its marker and
+// is tried again; layers shared with an image still in use stay.
 func (d *dockerCLI) pruneImages(ctx context.Context, m imageMarkers, maxAge time.Duration, now time.Time) (removed []string, err error) {
 	out, err := d.output(ctx, "image", "ls", "--filter", "reference="+envImageRepo, "--format", "{{.Repository}}:{{.Tag}}")
 	if err != nil {
 		return nil, err
 	}
-	var errs []error
 	for ref := range strings.FieldsSeq(out) {
-		tag := strings.TrimPrefix(ref, envImageRepo+":")
-		hash := strings.TrimSuffix(tag, "-base")
-		info, serr := os.Stat(filepath.Join(string(m), hash))
-		switch {
-		case serr != nil:
-			m.touch(hash, now)
-		case now.Sub(info.ModTime()) > maxAge:
-			if _, err := d.output(ctx, "image", "rm", ref); err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			removed = append(removed, ref)
+		if !m.tracked(ref) {
+			m.touch(ref, now)
+		}
+	}
+	entries, _ := os.ReadDir(string(m))
+	var errs []error
+	for _, e := range entries {
+		p := filepath.Join(string(m), e.Name())
+		info, serr := e.Info()
+		ref, rerr := os.ReadFile(p) // #nosec G304 -- the worker's own marker directory
+		if serr != nil || rerr != nil || now.Sub(info.ModTime()) <= maxAge {
+			continue
+		}
+		switch _, err := d.output(ctx, "image", "rm", "--", string(ref)); {
+		case err == nil:
+			removed = append(removed, string(ref))
+			_ = os.Remove(p)
+		case strings.Contains(err.Error(), "No such image"):
+			_ = os.Remove(p)
+		default:
+			errs = append(errs, err)
 		}
 	}
 	return removed, errors.Join(errs...)

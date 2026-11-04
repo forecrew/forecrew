@@ -120,22 +120,26 @@ func ServiceVar(name string) string {
 	}, strings.ToUpper(name))
 }
 
+func (e Environment) checkDocker(sources int, p *problems) {
+	if e.Image != "" && !ValidImageRef(e.Image) {
+		p.addf("image %q must not contain white space or start with '-'", e.Image)
+	}
+	if sources != 1 {
+		p.addf("docker needs exactly one of image, dockerfile or devcontainer")
+	}
+	if e.Context != "" && e.Dockerfile == "" {
+		p.addf("context needs dockerfile")
+	}
+	if e.RunsOn != "" {
+		p.addf("runs_on is only for provider actions")
+	}
+}
+
 func (e Environment) checkProvider(p *problems) {
 	sources := len(nonEmpty(e.Image)) + len(nonEmpty(e.Dockerfile)) + len(nonEmpty(e.Devcontainer))
 	switch e.Provider {
 	case ProviderDocker:
-		if e.Image != "" && !ValidImageRef(e.Image) {
-			p.addf("image %q must not contain white space or start with '-'", e.Image)
-		}
-		if sources != 1 {
-			p.addf("docker needs exactly one of image, dockerfile or devcontainer")
-		}
-		if e.Context != "" && e.Dockerfile == "" {
-			p.addf("context needs dockerfile")
-		}
-		if e.RunsOn != "" {
-			p.addf("runs_on is only for provider actions")
-		}
+		e.checkDocker(sources, p)
 	case ProviderMachine, ProviderActions:
 		if sources > 0 || e.Context != "" {
 			p.addf("image, dockerfile, context and devcontainer are only for provider docker")

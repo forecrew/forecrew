@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -119,5 +120,41 @@ func TestImageHashRefusals(t *testing.T) {
 	cancel()
 	if _, err := imageHash(ctx, root, envSource{Dockerfile: "ci/Dockerfile", Context: "."}); err == nil {
 		t.Error("a canceled hash succeeded")
+	}
+}
+
+func TestImageHashIgnoresTheWorktreeGitFile(t *testing.T) {
+	// In a job's checkout .git is a file naming a path of that job.
+	root := t.TempDir()
+	writeFile(t, root, "Dockerfile", "FROM alpine\n")
+	writeFile(t, root, "src/main.go", "package main\n")
+	src := envSource{Dockerfile: "Dockerfile", Context: "."}
+	hash := func(gitfile string) string {
+		writeFile(t, root, ".git", gitfile)
+		h, err := imageHash(context.Background(), root, src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return h
+	}
+	if a, b := hash("gitdir: /work/jobs/one/.git\n"), hash("gitdir: /work/jobs/two/.git\n"); a != b {
+		t.Error("the .git file of the worktree changes the hash")
+	}
+}
+
+func TestFromRefs(t *testing.T) {
+	df := `# syntax=docker/dockerfile:1
+ARG V=1
+FROM --platform=linux/amd64 golang:1.27 AS build
+from node:22
+FROM build AS test
+FROM scratch
+FROM base:$V
+FROM golang:1.27
+FROM
+COPY --from=build /a /b
+`
+	if got, want := fromRefs(df), []string{"golang:1.27", "node:22"}; !slices.Equal(got, want) {
+		t.Errorf("fromRefs = %v, want %v", got, want)
 	}
 }

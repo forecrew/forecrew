@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/forecrew/forecrew/internal/analyzer"
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/runtime"
 )
 
@@ -15,7 +16,7 @@ const DefaultGracePeriod = 10 * time.Minute
 
 // DefaultImageMaxAge is how long an environment image is kept after its last
 // use.
-const DefaultImageMaxAge = 14 * 24 * time.Hour
+const DefaultImageMaxAge = config.DefaultImagePruneDays * 24 * time.Hour
 
 // Runtimes looks runtime adapters up by name; *runtime.Registry implements
 // it.
@@ -51,16 +52,16 @@ type Config struct {
 	FlushInterval time.Duration
 	Now           func() time.Time
 	// DockerBin is the docker client to use; empty means this worker has no
-	// Docker (it does not advertise the docker label), see DetectDocker.
+	// Docker (it does not advertise the docker label), see newFromConfig.
 	DockerBin string
 	// ImageMaxAge is how long an environment image is kept after its last
-	// use; zero means 14 days.
+	// use; zero means config.DefaultImagePruneDays days.
 	ImageMaxAge time.Duration
 	// RegistryAuth lets Docker use the operator's registry logins; without
 	// it Docker runs with an empty config in work_dir/docker-config.
 	RegistryAuth bool
 	// DockerHost is the daemon endpoint of the operator's Docker context,
-	// kept when the config is replaced; see DetectDocker.
+	// kept when the config is replaced; see newFromConfig.
 	DockerHost string
 }
 

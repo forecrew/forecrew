@@ -154,6 +154,9 @@ func detectLabels(ctx context.Context, cfg *config.Worker, environ []string) (la
 // detectDocker returns the docker client binary when the Docker engine
 // answers `docker version`, and the answer or the reason it did not.
 func detectDocker(ctx context.Context, workDir string, environ []string) (bin, info string) {
+	if uid, _ := hostIDs(); uid == 0 {
+		return "", "the worker runs as root, which Docker environments refuse"
+	}
 	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
 	v, err := newDockerCLI("docker", workDir, environ).version(ctx)

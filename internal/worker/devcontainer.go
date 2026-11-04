@@ -70,20 +70,29 @@ func resolveSource(root string, e *domain.Environment) (envSource, error) {
 	if src.Dockerfile != "" && src.Context == "" {
 		src.Context = "."
 	}
+	if err := src.check(); err != nil {
+		return envSource{}, err
+	}
+	return src, nil
+}
+
+// check refuses paths that leave the repo, secret-looking variable names and
+// image names a Docker client would read as flags.
+func (src envSource) check() error {
 	for _, p := range []string{src.Dockerfile, src.Context} {
 		if p != "" && !domain.RelativePath(path.Clean(p)) {
-			return envSource{}, fmt.Errorf("path %q must stay inside the repo", p)
+			return fmt.Errorf("path %q must stay inside the repo", p)
 		}
 	}
 	for k := range src.Env {
 		if domain.SecretLikeName(k) {
-			return envSource{}, fmt.Errorf("containerEnv %s looks like a secret; secrets never go in repo files", k)
+			return fmt.Errorf("containerEnv %s looks like a secret; secrets never go in repo files", k)
 		}
 	}
-	if strings.ContainsAny(src.Image, " \t\r\n") {
-		return envSource{}, fmt.Errorf("image %q is not a valid image reference", src.Image)
+	if src.Image != "" && !domain.ValidImageRef(src.Image) {
+		return fmt.Errorf("image %q is not a valid image reference", src.Image)
 	}
-	return src, nil
+	return nil
 }
 
 // readDevcontainer reads and decodes the devcontainer.json at rel below root,

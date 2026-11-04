@@ -88,12 +88,8 @@ func (r *jobRun) executeCommand(ctx context.Context) Completion {
 	})
 	defer sweep()
 
-	if env != nil && env.Provider == domain.ProviderDocker {
-		dj, done := r.startDocker(ctx, mark)
-		r.docker = dj
-		if done != nil {
-			return *done
-		}
+	if done := r.prepareDocker(ctx, mark); done != nil {
+		return *done
 	}
 	cmdEnv := r.commandEnv(mark)
 	if done := r.setup(ctx, cmdEnv); done != nil {
@@ -107,6 +103,11 @@ func (r *jobRun) executeCommand(ctx context.Context) Completion {
 	elapsed := time.Since(began)
 	if ctx.Err() != nil {
 		return Completion{}
+	}
+	if r.docker != nil && exit.Code == dockerFailed && dockerSaid(exit.Stderr) {
+		// docker run itself failed (daemon error, a name in use): not the
+		// command's result, so give the job back.
+		return r.retry("docker could not run the job container: %s", strings.TrimSpace(exit.Stderr))
 	}
 	// Nothing the command left behind may change files while they are checked
 	// and uploaded.
@@ -211,6 +212,17 @@ func (r *jobRun) commandProcess(dir string, env []string) runtime.Process {
 	return p
 }
 
+// prepareDocker starts the environment of a docker job; it returns the
+// completion that ends the job, or nil.
+func (r *jobRun) prepareDocker(ctx context.Context, mark string) *Completion {
+	if e := r.spec.Environment; e == nil || e.Provider != domain.ProviderDocker {
+		return nil
+	}
+	dj, done := r.startDocker(ctx, mark)
+	r.docker = dj
+	return done
+}
+
 // shell builds the process that runs a shell script on the host, or in the
 // job container of a docker environment.
 func (r *jobRun) shell(script, dir string, env []string, timeout time.Duration) runtime.Process {
@@ -242,6 +254,22 @@ var commandEnvNames = map[string]bool{
 // environment's container inherits (LC_* too): the locale and time zone.
 // Paths and users of the host would only break the image.
 var containerEnvNames = map[string]bool{"LANG": true, "TZ": true}
+
+// dockerFailed is the exit code of `docker run` when the daemon could not run
+// the container; the container's own exit codes are the command's.
+const dockerFailed = 125
+
+// dockerSaid reports whether stderr holds an error of the docker client
+// itself ("docker: ..."), which tells a failed `docker run` from a command
+// that exits with 125.
+func dockerSaid(stderr string) bool {
+	for line := range strings.SplitSeq(stderr, "\n") {
+		if strings.HasPrefix(line, "docker: ") {
+			return true
+		}
+	}
+	return false
+}
 
 // containerHome is the HOME of the job container: its user may have no entry
 // in the image's passwd file, and / is not writable.
@@ -302,18 +330,20 @@ func (r *jobRun) versions(ctx context.Context, env []string) map[string]string {
 // firstLine runs a version command and returns the first line of its output,
 // or why it failed.
 func (r *jobRun) firstLine(ctx context.Context, p runtime.Process) string {
-	var lines []string
+	var first string
+	seen := false // only the first line is kept: a command may print without end
 	if left, ok := r.left(); ok && left > 0 && left < versionTimeout {
 		p.Timeout = left
 	}
-	_, err := runtime.Exec(ctx, p, func(b []byte) { lines = append(lines, string(b)) }, nil)
-	switch {
-	case err != nil:
+	_, err := runtime.Exec(ctx, p, func(b []byte) {
+		if !seen {
+			first, seen = string(b), true
+		}
+	}, nil)
+	if err != nil {
 		return r.red.String("unavailable: " + err.Error())
-	case len(lines) > 0:
-		return r.red.String(lines[0])
 	}
-	return ""
+	return r.red.String(first)
 }
 
 // workdir returns the directory the command runs in: the spec's workdir
