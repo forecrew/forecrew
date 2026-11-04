@@ -3,6 +3,7 @@ package testkit
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 	"uuid"
@@ -165,6 +166,46 @@ func (r jobRepo) Cancel(_ context.Context, accountID, jobID uuid.UUID) (domain.J
 		return nil
 	})
 	return out, err
+}
+
+func (r jobRepo) SetJobMCPTokenHash(_ context.Context, accountID, jobID, workerID uuid.UUID, attempts int, hash []byte) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		j, err := d.jobs.get(accountID, jobID)
+		if err != nil || j.Status != domain.JobRunning || j.WorkerID != workerID || j.Attempts != attempts {
+			return fmt.Errorf("job %s: %w", jobID, store.ErrLeaseLost)
+		}
+		if len(hash) != 32 {
+			return errors.New("jobs_job_mcp_token_hash_check: a SHA-256 is 32 bytes")
+		}
+		for id, h := range d.jobMCP {
+			if id != jobID && bytes.Equal(h.hash, hash) && d.jobMCPLive(id, h) {
+				return fmt.Errorf("%w: jobs_job_mcp_token", store.ErrConflict)
+			}
+		}
+		d.jobMCP[jobID] = jobMCPHash{hash: bytes.Clone(hash), worker: workerID, attempts: attempts}
+		return nil
+	})
+}
+
+func (r jobRepo) GetByJobMCPTokenHash(_ context.Context, hash []byte) (domain.Job, error) {
+	return read(r.s, func(d *storeData) (domain.Job, error) {
+		for id, h := range d.jobMCP {
+			if bytes.Equal(h.hash, hash) && d.jobMCPLive(id, h) {
+				j, err := d.jobs.find(func(j domain.Job) bool { return j.ID == id })
+				if err != nil {
+					return domain.Job{}, err
+				}
+				return *j, nil
+			}
+		}
+		return domain.Job{}, store.ErrNotFound
+	})
+}
+
+// jobMCPLive reports whether the job still runs the lease h was set for.
+func (d *storeData) jobMCPLive(jobID uuid.UUID, h jobMCPHash) bool {
+	j, err := d.jobs.find(func(j domain.Job) bool { return j.ID == jobID })
+	return err == nil && j.Status == domain.JobRunning && j.WorkerID == h.worker && j.Attempts == h.attempts
 }
 
 // JobEvents implements store.Store.

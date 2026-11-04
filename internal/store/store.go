@@ -5,8 +5,8 @@
 // Rules shared by every repository:
 //   - Every project-scoped call takes the account ID and only sees rows of
 //     that account. The only unscoped lookups are the ones that discover the
-//     account: Projects.ListByRepo (webhooks), Workers.GetByTokenHash and
-//     MCPTokens.GetByTokenHash.
+//     account: Projects.ListByRepo (webhooks), Workers.GetByTokenHash,
+//     MCPTokens.GetByTokenHash and Jobs.GetByJobMCPTokenHash.
 //   - Create fills ID (a new UUIDv7 when nil), Number (next human ref
 //     number of the account for entities that have one), CreatedAt and
 //     UpdatedAt, and writes them back into the argument.
@@ -214,6 +214,16 @@ type JobRepo interface {
 	Release(ctx context.Context, accountID, jobID, workerID uuid.UUID, reason string) (domain.Job, error)
 	// Cancel moves a queued or running job to canceled.
 	Cancel(ctx context.Context, accountID, jobID uuid.UUID) (domain.Job, error)
+	// SetJobMCPTokenHash stores the SHA-256 of the job MCP token of the
+	// job's current lease (docs/contracts/job-mcp.md): the job must be
+	// running under workerID in attempt attempts (Job.Attempts when it was
+	// leased), ErrLeaseLost otherwise. The hash dies with the lease: when
+	// the job stops running or is leased again it no longer matches.
+	SetJobMCPTokenHash(ctx context.Context, accountID, jobID, workerID uuid.UUID, attempts int, hash []byte) error
+	// GetByJobMCPTokenHash is unscoped: the token identifies the account. It
+	// returns the job whose current lease holds the token, ErrNotFound when
+	// none does. Callers still check the lease expiry.
+	GetByJobMCPTokenHash(ctx context.Context, hash []byte) (domain.Job, error)
 }
 
 // JobEventRepo stores job logs.
@@ -404,9 +414,9 @@ type VerificationReportRepo interface {
 // T36, KnowledgeProposalRepo by T37 and ProposalRepo by T50, each with the
 // Postgres implementation and the testkit fake. goals.kind and goals.size
 // are read and written by GoalRepo from T35 (Size) and T41 (Kind),
-// jobs.context_manifest by JobRepo from T38, and gates.origin and
-// jobs.job_mcp_token_hash from T47; until then they keep their defaults
-// (feature, NULL, playbook, NULL).
+// and jobs.context_manifest by JobRepo from T38; until then they keep their
+// defaults (feature, NULL). gates.origin and jobs.job_mcp_token_hash are
+// read and written by GateRepo and JobRepo (T47).
 
 // CouncilFilter selects councils; zero fields match everything.
 type CouncilFilter struct {

@@ -53,6 +53,16 @@ type storeData struct {
 	artifacts  table[domain.Artifact]
 	deliveries map[string]domain.WebhookDelivery
 	counters   map[counterKey]int64
+	// jobMCP holds the job MCP token hash of a job with the lease it was
+	// set for; a hash whose lease ended no longer matches (the Postgres
+	// trigger clears it).
+	jobMCP map[uuid.UUID]jobMCPHash
+}
+
+type jobMCPHash struct {
+	hash     []byte
+	worker   uuid.UUID
+	attempts int
 }
 
 // NewStore returns an empty store. now defaults to the real UTC time.
@@ -76,6 +86,7 @@ func NewStore(now func() time.Time) *Store {
 		artifacts:  table[domain.Artifact]{key: func(r domain.Artifact) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		deliveries: map[string]domain.WebhookDelivery{},
 		counters:   map[counterKey]int64{},
+		jobMCP:     map[uuid.UUID]jobMCPHash{},
 	}}}
 }
 
@@ -99,6 +110,7 @@ func (d *storeData) clone() *storeData {
 	c.artifacts = d.artifacts.clone()
 	c.deliveries = maps.Clone(d.deliveries)
 	c.counters = maps.Clone(d.counters)
+	c.jobMCP = maps.Clone(d.jobMCP)
 	return &c
 }
 

@@ -712,3 +712,53 @@ func TestStoreArtifactsExistingKeys(t *testing.T) {
 		t.Fatalf("ExistingKeys(nil) = %v, %v", got, err)
 	}
 }
+
+func TestStoreJobMCPTokenHash(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	jobs := f.st.Jobs()
+	j, k := newJob(f), newJob(f)
+	must(t, jobs.Create(ctx, &j))
+	must(t, jobs.Create(ctx, &k))
+	worker := domain.NewID()
+	hash := make([]byte, 32)
+	hash[0] = 1
+	wantErr(t, jobs.SetJobMCPTokenHash(ctx, f.account, j.ID, worker, 0, hash), store.ErrLeaseLost)
+	leased, err := jobs.LeaseNext(ctx, f.account, worker, []string{"runtime:claude-code"}, time.Minute)
+	must(t, err)
+	if err := jobs.SetJobMCPTokenHash(ctx, f.account, leased.ID, worker, leased.Attempts, hash[:3]); err == nil {
+		t.Fatal("short hash accepted")
+	}
+	wantErr(t, jobs.SetJobMCPTokenHash(ctx, f.account, leased.ID, domain.NewID(), leased.Attempts, hash), store.ErrLeaseLost)
+	must(t, jobs.SetJobMCPTokenHash(ctx, f.account, leased.ID, worker, leased.Attempts, hash))
+	second, err := jobs.LeaseNext(ctx, f.account, worker, []string{"runtime:claude-code"}, time.Minute)
+	must(t, err)
+	wantErr(t, jobs.SetJobMCPTokenHash(ctx, f.account, second.ID, worker, second.Attempts, hash), store.ErrConflict)
+	if got, err := jobs.GetByJobMCPTokenHash(ctx, hash); err != nil || got.ID != leased.ID {
+		t.Fatalf("lookup = %+v, %v", got, err)
+	}
+	_, err = jobs.Release(ctx, f.account, leased.ID, worker, "retry")
+	must(t, err)
+	_, err = jobs.GetByJobMCPTokenHash(ctx, hash)
+	wantErr(t, err, store.ErrNotFound)
+	_, err = jobs.GetByJobMCPTokenHash(ctx, make([]byte, 32))
+	wantErr(t, err, store.ErrNotFound)
+}
+
+func TestStoreGateOrigin(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	j := newJob(f)
+	must(t, f.st.Jobs().Create(ctx, &j))
+	ask := domain.Gate{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.GateNeedsYou, Origin: domain.GateFromAskHuman, Title: "q", SubjectRepo: "acme/app", JobID: j.ID}
+	must(t, f.st.Gates().Create(ctx, &ask))
+	plain := domain.Gate{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.GateNeedsYou, Title: "q", SubjectRepo: "acme/app"}
+	must(t, f.st.Gates().Create(ctx, &plain))
+	if !ask.AsksHuman() || plain.Origin != domain.GateFromPlaybook {
+		t.Fatalf("origins = %q %q", ask.Origin, plain.Origin)
+	}
+	bad := domain.Gate{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.GateSpecApproval, Origin: domain.GateFromAskHuman, Title: "q", SubjectRepo: "acme/app", JobID: j.ID}
+	if err := f.st.Gates().Create(ctx, &bad); err == nil {
+		t.Fatal("ask_human spec gate accepted")
+	}
+}

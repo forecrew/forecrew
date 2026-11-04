@@ -256,3 +256,19 @@ func lockLeased(ctx context.Context, tx dbtx, accountID, jobID, workerID uuid.UU
 	}
 	return nil
 }
+
+func (r jobRepo) SetJobMCPTokenHash(ctx context.Context, accountID, jobID, workerID uuid.UUID, attempts int, hash []byte) error {
+	err := mustUpdate(ctx, r.db, `UPDATE jobs SET job_mcp_token_hash = $5
+		WHERE account_id = $1 AND id = $2 AND worker_id = $3 AND attempts = $4 AND status = 'running'`,
+		accountID, jobID, workerID, attempts, hash)
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("job %s: %w", jobID, store.ErrLeaseLost)
+	}
+	return err
+}
+
+func (r jobRepo) GetByJobMCPTokenHash(ctx context.Context, hash []byte) (domain.Job, error) {
+	// The CHECK and the trigger keep the hash on running jobs of their
+	// current lease only; the status test is belt and braces.
+	return one(ctx, r.db, scanJob, `SELECT `+jobCols+` FROM jobs WHERE job_mcp_token_hash = $1 AND status = 'running'`, hash)
+}

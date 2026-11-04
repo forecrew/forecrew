@@ -82,12 +82,12 @@ func (r jobEventRepo) List(ctx context.Context, accountID, jobID uuid.UUID, afte
 
 type gateRepo struct{ db dbtx }
 
-var gateCols = `id, account_id, project_id, number, kind, status, title, summary, subject_repo, ` + cint("subject_number") + `, ` +
+var gateCols = `id, account_id, project_id, number, kind, origin, status, title, summary, subject_repo, ` + cint("subject_number") + `, ` +
 	cuuid("goal_id") + `, ` + cuuid("spec_id") + `, ` + cuuid("task_id") + `, ` + cuuid("job_id") + `, ` +
 	ctext("resolved_by") + `, ` + ctext("feedback") + `, ` + ctime("resolved_at") + `, created_at`
 
 func scanGate(row pgx.Row) (g domain.Gate, err error) {
-	err = row.Scan(&g.ID, &g.AccountID, &g.ProjectID, &g.Number, &g.Kind, &g.Status, &g.Title, &g.Summary, &g.SubjectRepo, &g.SubjectNumber,
+	err = row.Scan(&g.ID, &g.AccountID, &g.ProjectID, &g.Number, &g.Kind, &g.Origin, &g.Status, &g.Title, &g.Summary, &g.SubjectRepo, &g.SubjectNumber,
 		&g.GoalID, &g.SpecID, &g.TaskID, &g.JobID, &g.ResolvedBy, &g.Feedback, &g.ResolvedAt, &g.CreatedAt)
 	utc(&g.ResolvedAt, &g.CreatedAt)
 	return g, err
@@ -96,6 +96,7 @@ func scanGate(row pgx.Row) (g domain.Gate, err error) {
 func (r gateRepo) Create(ctx context.Context, g *domain.Gate) error {
 	g.ID = newID(g.ID)
 	g.Status = domain.GatePending
+	g.Origin = g.Origin.OrDefault()
 	return inTx(ctx, r.db, func(tx dbtx) error {
 		err := owned(ctx, tx, g.AccountID, ref{"projects", g.ProjectID}, ref{"goals", g.GoalID}, ref{"specs", g.SpecID},
 			ref{"tasks", g.TaskID}, ref{"jobs", g.JobID})
@@ -108,10 +109,10 @@ func (r gateRepo) Create(ctx context.Context, g *domain.Gate) error {
 		}
 		g.Number = n
 		return mapErr(tx.QueryRow(ctx, `INSERT INTO gates (id, account_id, project_id, number, kind, status, title, summary, subject_repo, subject_number,
-				goal_id, spec_id, task_id, job_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING created_at`,
+				goal_id, spec_id, task_id, job_id, origin)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING created_at`,
 			g.ID, g.AccountID, g.ProjectID, g.Number, string(g.Kind), string(g.Status), g.Title, g.Summary, g.SubjectRepo, opt(g.SubjectNumber),
-			opt(g.GoalID), opt(g.SpecID), opt(g.TaskID), opt(g.JobID)).Scan(&g.CreatedAt))
+			opt(g.GoalID), opt(g.SpecID), opt(g.TaskID), opt(g.JobID), string(g.Origin)).Scan(&g.CreatedAt))
 	})
 }
 
