@@ -154,11 +154,13 @@ func TestCommandJobOverlay(t *testing.T) {
 	c := e.doComplete(s)
 	var out []string
 	for _, ev := range e.api.eventsOf(s.JobID) {
-		if ev.Type == domain.EventLog {
+		// Stdout and stderr are separate pipes: their lines may interleave
+		// in any order, so only stdout is compared in order.
+		if ev.Type == domain.EventLog && !strings.HasPrefix(ev.Text, "stderr: ") {
 			out = append(out, ev.Text)
 		}
 	}
-	if !slices.Equal(out[:3], []string{"new test", "hello", "new_test.txt"}) || !slices.Contains(out, "no-other") {
+	if len(out) < 3 || !slices.Equal(out[:3], []string{"new test", "hello", "new_test.txt"}) || !slices.Contains(out, "no-other") {
 		t.Errorf("output = %q: want the overlaid file on top of the base, nothing else", out)
 	}
 	if c.Status != StatusSucceeded || c.HeadSHA != main {
