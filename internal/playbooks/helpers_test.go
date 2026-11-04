@@ -39,9 +39,11 @@ type env struct {
 	tracker *testkit.Tracker
 	// wrapped, when set, is the tracker the actions use instead of tracker.
 	wrapped github.Tracker
-	actions workflow.Actions
-	account uuid.UUID
-	project domain.Project
+	// knowledge, when set, is what knowledge.seed indexes with.
+	knowledge playbooks.KnowledgeSeeder
+	actions   workflow.Actions
+	account   uuid.UUID
+	project   domain.Project
 }
 
 // newEnv returns an env whose project has status (registered by default).
@@ -73,7 +75,7 @@ func (v *env) register() {
 		tr = v.wrapped
 	}
 	playbooks.Register(v.actions, playbooks.Deps{
-		Store: v.st, Tracker: tr, Signals: v.bus, Sizing: config.DefaultSizing(), Roles: testRoles(), Now: v.clock.Now,
+		Store: v.st, Tracker: tr, Signals: v.bus, Sizing: config.DefaultSizing(), Roles: testRoles(), Knowledge: v.knowledge, Now: v.clock.Now,
 	})
 }
 

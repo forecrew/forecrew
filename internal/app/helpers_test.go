@@ -43,6 +43,7 @@ func testConfig() *config.Config {
 			"architect":          {Runtime: "claude", Tier: config.TierBest},
 			"developer":          {Runtime: "claude", Tier: config.TierStrong},
 			"reviewer":           {Runtime: "codex", Tier: config.TierBest},
+			"knowledge-curator":  {Runtime: "claude", Tier: config.TierStrong},
 		},
 	}
 }

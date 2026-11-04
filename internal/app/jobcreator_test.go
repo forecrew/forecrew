@@ -49,8 +49,11 @@ func TestJobCreatorWritingRole(t *testing.T) {
 		s.Model != "claude-strong" || s.Runtime != "claude-code" || !s.IncludeRepoFacts {
 		t.Errorf("spec = %+v", s)
 	}
-	if !slices.Equal(s.WritePaths, role.WritePaths) || len(s.WritePaths) == 0 {
-		t.Errorf("write_paths = %v, want the role's %v", s.WritePaths, role.WritePaths)
+	// The role's paths, then the project's curated knowledge excluded: it
+	// changes only through proposals.
+	wantPaths := append(slices.Clone(role.WritePaths), "!.forecrew/knowledge-policy.yaml", "!knowledge/security/**", "!knowledge/vision/**")
+	if !slices.Equal(s.WritePaths, wantPaths) || !slices.Contains(s.WritePaths, "!knowledge/**") {
+		t.Errorf("write_paths = %v, want %v", s.WritePaths, wantPaths)
 	}
 	if !slices.Equal(s.AllowedTools, role.AllowedTools) || s.MaxTurns != role.MaxTurns || time.Duration(s.Timeout) != role.Timeout {
 		t.Errorf("limits = %v %d %v", s.AllowedTools, s.MaxTurns, s.Timeout)
@@ -289,5 +292,20 @@ func TestJobCreatorCancel(t *testing.T) {
 	}
 	if err := f.creator.Cancel(t.Context(), f.account.ID, domain.NewID()); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("cancel an unknown job: %v", err)
+	}
+}
+
+// The knowledge curator is the one writing role that may write knowledge/**,
+// and a read-only role stays read-only.
+func TestJobCreatorKnowledgeExcludes(t *testing.T) {
+	f := newFixture(t)
+	for role, want := range map[string][]string{"knowledge-curator": {"knowledge/**"}, "reviewer": nil} {
+		id, err := f.creator.Create(t.Context(), f.request(role))
+		must(t, err)
+		j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+		must(t, err)
+		if !slices.Equal(j.Spec.WritePaths, want) && len(j.Spec.WritePaths)+len(want) != 0 {
+			t.Errorf("%s: write_paths = %v, want %v", role, j.Spec.WritePaths, want)
+		}
 	}
 }

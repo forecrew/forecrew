@@ -13,6 +13,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/actionsprovider"
+	"github.com/forecrew/forecrew/internal/analyzer"
 	"github.com/forecrew/forecrew/internal/api"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/contextpack"
@@ -30,6 +32,7 @@ import (
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobmcp"
 	"github.com/forecrew/forecrew/internal/jobs"
+	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/playbooks"
 	"github.com/forecrew/forecrew/internal/registers"
@@ -77,7 +80,14 @@ type Deps struct {
 	// RetainEvery is how often expired artifacts are swept
 	// (evidence.SweepInterval).
 	RetainEvery time.Duration
+	// Embedder adds semantic similarity to knowledge search; it defaults
+	// to OpenAI when EnvEmbeddingsKey is set, and nil without either.
+	Embedder knowledge.Embedder
 }
+
+// EnvEmbeddingsKey is the OpenAI API key of the knowledge embeddings
+// (docs/knowledge.md). It is optional: search works on words without it.
+const EnvEmbeddingsKey = "FORECREW_EMBEDDINGS_API_KEY" // #nosec G101 -- variable name, not a secret
 
 // App is a forecrewd, ready to run.
 type App struct {
@@ -97,8 +107,10 @@ type App struct {
 	runEngine func(context.Context) error
 	webhooks  *webhook.Handler
 	poller    *webhook.Poller
-	certs     *certManager
-	closers   []func()
+	// notes sweeps expired agent notes daily.
+	notes   *knowledge.Notes
+	certs   *certManager
+	closers []func()
 	// httpAddr is where the ACME challenge and redirect listen when TLS is on.
 	httpAddr string
 }
@@ -176,10 +188,21 @@ func New(d Deps) (*App, error) {
 	regs := registers.New(st, bus, d.Now)
 	jobSvc := jobs.New(st, bus, cfg.Pools, log, d.Now).WithRegistrar(regs)
 	gateSvc := gates.New(st, bus, d.Now).WithRecorder(regs)
-	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0), jobs: jobSvc}
+	emb := d.Embedder
+	if emb == nil && os.Getenv(EnvEmbeddingsKey) != "" {
+		emb = &knowledge.OpenAI{Key: os.Getenv(EnvEmbeddingsKey)}
+	}
+	index := &knowledge.Index{Store: st, Embedder: emb, Log: log}
+	syncer := &knowledge.Syncer{
+		Store: st, Index: index, API: d.GitHub, Log: log, Now: d.Now,
+		Snapshots: knowledge.ArchiveSnapshots{Archiver: d.GitHub, Analyzer: analyzer.Local{}},
+	}
+	notes := &knowledge.Notes{Store: st, Index: index, Now: d.Now, Log: log}
+	search := &knowledge.Search{Index: index, Policy: syncer.Policy}
+	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0), jobs: jobSvc, knowledge: syncer}
 
 	actions := workflow.Actions{}
-	playbooks.Register(actions, playbooks.Deps{Store: st, Tracker: d.GitHub, Signals: bus, Sizing: cfg.Sizing, Roles: catalog, Now: d.Now, Actions: d.Actions, Packs: d.Files})
+	playbooks.Register(actions, playbooks.Deps{Store: st, Tracker: d.GitHub, Signals: bus, Sizing: cfg.Sizing, Roles: catalog, Knowledge: syncer, Now: d.Now, Actions: d.Actions, Packs: d.Files})
 	engine, err := workflow.New(workflow.Config{
 		Store: st, Bus: bus, Jobs: creator, Gates: gateSvc, Actions: actions, Playbooks: books, Logger: log, Now: d.Now,
 	})
@@ -187,12 +210,12 @@ func New(d Deps) (*App, error) {
 		return nil, fmt.Errorf("start workflow engine: %w", err)
 	}
 	toolSvc := tools.New(tools.Config{
-		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev,
+		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes,
 		Registers: regs, Logger: log,
 	})
-	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Tracker: d.GitHub, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
+	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Tracker: d.GitHub, Knowledge: syncer, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
 	jobGateway := jobmcp.New(jobmcp.Config{
-		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Logger: log, Version: d.Version, Now: d.Now,
+		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Search: search, Notes: notes, Logger: log, Version: d.Version, Now: d.Now,
 	})
 	workers := workerapi.New(workerapi.Config{
 		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Pools: cfg.Pools, Logger: log,
@@ -209,7 +232,7 @@ func New(d Deps) (*App, error) {
 		hooks.RunChanged = provider.Notify
 	}
 	a := &App{
-		provider: provider, d: d, jobs: jobSvc, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80",
+		provider: provider, d: d, jobs: jobSvc, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
 		webhooks: webhook.NewHandler([]byte(cfg.GitHub.WebhookSecret), hooks),
 		poller:   webhook.NewPoller(hooks),
 	}
@@ -330,6 +353,7 @@ func (a *App) Run(ctx context.Context) error {
 	if a.provider != nil {
 		wg.Go(func() { a.provider.Run(runCtx) })
 	}
+	wg.Go(func() { a.notes.RunSweep(runCtx, knowledge.SweepEvery) })
 	if a.retention != nil {
 		wg.Go(func() { a.retention.Run(runCtx, a.d.RetainEvery) })
 	}

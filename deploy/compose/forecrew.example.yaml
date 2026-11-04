@@ -53,6 +53,7 @@ roles:
   security-reviewer:    {runtime: claude, tier: strong}
   ux:                   {runtime: claude, tier: strong}
   triage:               {runtime: claude, tier: fast}
+  knowledge-curator:    {runtime: claude, tier: strong}
 
 policy:
   allow_same_vendor_review: false

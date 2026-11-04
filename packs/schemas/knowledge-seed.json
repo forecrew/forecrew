@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Knowledge seed",
+  "description": "Output of the knowledge-curator role: the entries it wrote under knowledge/ and the sections it left empty because the sources said nothing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "entries", "skipped", "assumptions"],
+  "properties": {
+    "summary": {"$ref": "common.json#/$defs/text", "description": "What you added and from which sources, in a few sentences; it becomes the pull request description."},
+    "entries": {
+      "description": "Every file you wrote.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "section", "title", "sources"],
+        "properties": {
+          "path": {"$ref": "common.json#/$defs/text", "description": "Relative to the repo root, under knowledge/<section>/."},
+          "section": {"$ref": "common.json#/$defs/text", "description": "The knowledge section, for example architecture."},
+          "title": {"$ref": "common.json#/$defs/text"},
+          "sources": {"description": "The files the entry was taken from.", "type": "array", "minItems": 1, "items": {"$ref": "common.json#/$defs/text"}}
+        }
+      }
+    },
+    "skipped": {
+      "description": "Sections you were asked to fill and wrote nothing for, with the reason.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["section", "reason"],
+        "properties": {
+          "section": {"$ref": "common.json#/$defs/text"},
+          "reason": {"$ref": "common.json#/$defs/text"}
+        }
+      }
+    },
+    "assumptions": {"$ref": "common.json#/$defs/assumptions"}
+  }
+}

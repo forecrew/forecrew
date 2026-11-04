@@ -2,7 +2,7 @@ role: developer
 model: strong
 prompt: roles/developer.md
 tools: [repo.read, repo.write, git.read, git.commit, run.tests, assumption.record]
-write_paths: ["**", "!.github/workflows/**", "!.forecrew/**"]
+write_paths: ["**", "!.github/workflows/**", "!.forecrew/**", "!knowledge/**"]
 produces: [code, tests]
 output_schema: schemas/developer-result.json
 definition_of_done:
