@@ -76,6 +76,10 @@ roles and job kinds each pool runs and which credentials its jobs receive:
 - Files git refuses to stage (unreadable files, reserved names such as
   `.GIT/config`) fail the job; they are not retried. A `write_paths` pattern
   that is not valid doublestar syntax fails the job before anything runs.
+- A changed path that matches the spec's `locked_paths` fails the job, like
+  one outside `write_paths`: the error names the paths and nothing is pushed.
+  A `locked_paths` pattern that is not valid doublestar syntax fails the job
+  before anything runs.
 - Git is run with no `GIT_*` variable, no user or system config
   (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`), no replace
   objects, `--git-dir`/`--work-tree` named explicitly and a ceiling above the

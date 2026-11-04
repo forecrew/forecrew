@@ -26,3 +26,22 @@ func TestWithoutWrites(t *testing.T) {
 		t.Errorf("WithoutWrites changed the original: %v", r.AllowedTools)
 	}
 }
+
+func TestPathAllowed(t *testing.T) {
+	dev := []string{"**", "!.github/**"}
+	for _, tt := range []struct {
+		patterns []string
+		file     string
+		want     bool
+	}{
+		{dev, "a/b.go", true},
+		{dev, ".github/ci.yml", false},
+		{nil, "a.go", false},
+		{[]string{"!a.go"}, "b.go", false},
+		{[]string{"[a"}, "a", false},
+	} {
+		if got := PathAllowed(tt.patterns, tt.file); got != tt.want {
+			t.Errorf("PathAllowed(%v, %q) = %v, want %v", tt.patterns, tt.file, got, tt.want)
+		}
+	}
+}

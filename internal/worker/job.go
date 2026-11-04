@@ -312,6 +312,12 @@ func (r *jobRun) validate() error {
 			return fmt.Errorf("invalid write_paths pattern %q", p)
 		}
 	}
+	for _, p := range s.LockedPaths {
+		// An exclude would lock nothing.
+		if strings.HasPrefix(p, "!") || !doublestar.ValidatePattern(p) {
+			return fmt.Errorf("invalid locked_paths pattern %q", p)
+		}
+	}
 	switch {
 	case !validRepo(s.Repo):
 		return fmt.Errorf("invalid repo %q", s.Repo)
@@ -495,6 +501,10 @@ func (r *jobRun) publish(ctx context.Context, start, tree string, changes []chan
 	}
 	if bad := outsideWritePaths(r.spec.WritePaths, paths(changes)); len(bad) > 0 {
 		c := r.failed("changed files outside write_paths, nothing pushed: %s", listPaths(bad))
+		return "", &c
+	}
+	if bad := lockedPaths(r.spec.LockedPaths, paths(changes)); len(bad) > 0 {
+		c := r.failed("changed locked files, nothing pushed: %s", listPaths(bad))
 		return "", &c
 	}
 	head, err := g.commitTree(ctx, r.cache, tree, start)

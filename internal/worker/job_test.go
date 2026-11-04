@@ -94,6 +94,52 @@ func TestJobWriteViolations(t *testing.T) {
 	}
 }
 
+func TestJobLockedPaths(t *testing.T) {
+	tests := []struct {
+		name   string
+		edits  []runtime.ScriptEdit
+		locked []string
+		want   string
+	}{
+		{"edit", []runtime.ScriptEdit{edit("src/a.go", "x"), edit("src/a_test.go", "x")}, []string{"src/*_test.go"}, "src/a_test.go"},
+		{"fixture", []runtime.ScriptEdit{edit("testdata/f.json", "x")}, []string{"src/*_test.go", "testdata/**"}, "testdata/f.json"},
+		{"delete", []runtime.ScriptEdit{{Path: "docs/guide.md", Delete: true}}, []string{"docs/guide.md"}, "docs/guide.md"},
+		// A rename is a delete and a create: either side is caught.
+		{"rename away", []runtime.ScriptEdit{{Path: "docs/guide.md", Delete: true}, edit("docs/guide2.md", "x")}, []string{"docs/guide.md"}, "docs/guide.md"},
+		{"rename in", []runtime.ScriptEdit{{Path: "docs/guide.md", Delete: true}, edit("src/a_test.go", "x")}, []string{"src/*_test.go"}, "src/a_test.go"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t, scriptAdapter(t, runtime.Script{Edits: tt.edits}))
+			c := e.doComplete(e.spec(func(s *domain.JobSpec) { s.LockedPaths = tt.locked }))
+			if c.Status != StatusFailed || !strings.Contains(c.Error, tt.want) || !strings.Contains(c.Error, "locked") || c.HeadSHA != "" {
+				t.Errorf("completion = %+v", c)
+			}
+			if got := remoteSHA(t, e.remote, "agent/task-1"); got != "" {
+				t.Errorf("branch was pushed: %s", got)
+			}
+		})
+	}
+}
+
+func TestJobLockedPathsAllowOthers(t *testing.T) {
+	e := newEnv(t, scriptAdapter(t, runtime.Script{Edits: []runtime.ScriptEdit{edit("src/a.go", "x")}}))
+	c := e.doComplete(e.spec(func(s *domain.JobSpec) { s.LockedPaths = []string{"src/*_test.go"} }))
+	if c.Status != StatusSucceeded || c.HeadSHA == "" {
+		t.Errorf("completion = %+v", c)
+	}
+}
+
+func TestJobInvalidLockedPaths(t *testing.T) {
+	for _, pattern := range []string{"[a", "!src/**"} {
+		e := newEnv(t, scriptAdapter(t, runtime.Script{}))
+		c := e.doComplete(e.spec(func(s *domain.JobSpec) { s.LockedPaths = []string{pattern} }))
+		if c.Status != StatusFailed || !strings.Contains(c.Error, "invalid locked_paths pattern") {
+			t.Errorf("%q: completion = %+v", pattern, c)
+		}
+	}
+}
+
 func TestJobRefusesNonAgentBranchBeforeGit(t *testing.T) {
 	for _, branch := range []string{"main", "refs/heads/main", "agent/../main", "", "release/1", "-x"} {
 		t.Run(branch, func(t *testing.T) {

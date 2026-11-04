@@ -8,8 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 	"uuid"
+
+	"github.com/bmatcuk/doublestar/v4"
 
 	"github.com/forecrew/forecrew/internal/domain"
 )
@@ -63,4 +66,24 @@ func (r Role) WithoutWrites() Role {
 	r.WritePaths = nil
 	r.AllowedTools = slices.DeleteFunc(slices.Clone(r.AllowedTools), func(t string) bool { return drop[t] })
 	return r
+}
+
+// PathAllowed reports whether file (relative to the repo root, "/"
+// separated) may be changed under write path patterns: it matches at least
+// one include pattern and no "!" exclude pattern. Empty patterns allow
+// nothing. The worker's write-path check and the locked test checks share it.
+func PathAllowed(patterns []string, file string) bool {
+	ok := false
+	for _, p := range patterns {
+		if ex, isEx := strings.CutPrefix(p, "!"); isEx {
+			if m, _ := doublestar.Match(ex, file); m {
+				return false
+			}
+			continue
+		}
+		if m, _ := doublestar.Match(p, file); m {
+			ok = true
+		}
+	}
+	return ok
 }

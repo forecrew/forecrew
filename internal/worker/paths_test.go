@@ -11,7 +11,7 @@ import (
 	"github.com/forecrew/forecrew/internal/roles"
 )
 
-func TestWritable(t *testing.T) {
+func TestPathAllowed(t *testing.T) {
 	dev := []string{"**", "!.github/**", "!.forecrew/**"}
 	docs := []string{"docs/**", "*.md"}
 	tests := []struct {
@@ -33,8 +33,8 @@ func TestWritable(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := writable(tt.patterns, tt.file); got != tt.want {
-				t.Errorf("writable(%v, %q) = %v, want %v", tt.patterns, tt.file, got, tt.want)
+			if got := roles.PathAllowed(tt.patterns, tt.file); got != tt.want {
+				t.Errorf("roles.PathAllowed(%v, %q) = %v, want %v", tt.patterns, tt.file, got, tt.want)
 			}
 		})
 	}
@@ -109,14 +109,24 @@ func TestTestRoleWritePaths(t *testing.T) {
 			t.Fatalf("Resolve %s: %v", name, err)
 		}
 		for _, f := range tt.allowed {
-			if !writable(r.WritePaths, f) {
+			if !roles.PathAllowed(r.WritePaths, f) {
 				t.Errorf("%s may not write %s", name, f)
 			}
 		}
 		for _, f := range tt.denied {
-			if writable(r.WritePaths, f) {
+			if roles.PathAllowed(r.WritePaths, f) {
 				t.Errorf("%s may write %s", name, f)
 			}
 		}
+	}
+}
+
+func TestLockedPaths(t *testing.T) {
+	got := lockedPaths([]string{"src/*_test.go", "testdata/**"}, []string{"src/a.go", "src/a_test.go", "testdata/x/y.json"})
+	if want := []string{"src/a_test.go", "testdata/x/y.json"}; !slices.Equal(got, want) {
+		t.Errorf("lockedPaths() = %v, want %v", got, want)
+	}
+	if got := lockedPaths(nil, []string{"a"}); len(got) != 0 {
+		t.Errorf("lockedPaths(nil) = %v, want none", got)
 	}
 }
