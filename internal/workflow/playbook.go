@@ -192,10 +192,7 @@ func (v validator) step(s Step, vars []string) error {
 	}
 	switch s.Type {
 	case StepJob:
-		if s.With["kind"] == string(domain.JobKindCommand) {
-			return checkWith(s.With, keysOf(JobRequest{}), "command")
-		}
-		return checkWith(s.With, keysOf(JobRequest{}), "role")
+		return checkJob(s.With)
 	case StepGate:
 		return checkGate(s.With)
 	case StepWait:
@@ -282,6 +279,24 @@ func checkWith(with map[string]any, known []string, required ...string) error {
 		}
 	}
 	return nil
+}
+
+// checkJob checks the with of a job step. A command job takes its command
+// from with or from a value named by from.
+func checkJob(with map[string]any) error {
+	known := keysOf(JobRequest{})
+	if with["kind"] != string(domain.JobKindCommand) {
+		return checkWith(with, known, "role")
+	}
+	from, ok := with[withFrom]
+	if !ok {
+		return checkWith(with, known, "command")
+	}
+	ref, _ := from.(string)
+	if _, ok := singleRef(ref); !ok {
+		return fmt.Errorf("with: from must be one ${...} reference")
+	}
+	return checkWith(with, append(known, withFrom))
 }
 
 // checkPrompt requires a job's prompt to be literal text from the playbook

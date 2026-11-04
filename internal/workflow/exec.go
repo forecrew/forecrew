@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 	"uuid"
@@ -405,7 +406,40 @@ func (x *exec) start(ctx context.Context, s Step, sr *domain.StepRun, sc *scope,
 	return x.finish(ctx, sr, nil, err.Error())
 }
 
+// withFrom is the with key of a command job step that names a value, usually
+// ${item}, to take fromKeys from. The with's own keys win.
+const withFrom = "from"
+
+// fromKeys are the keys a job step takes from its from value: an element of
+// matrix.plan's jobs. Others, such as the element's key, are ignored.
+var fromKeys = []string{"cell", "suite", "environment", "needs", "command"}
+
+// expandFrom returns with with the keys of its from value filled in.
+func expandFrom(with map[string]any) (map[string]any, error) {
+	v, ok := with[withFrom]
+	if !ok {
+		return with, nil
+	}
+	from, ok := v.(map[string]any)
+	if !ok {
+		return nil, errors.New("with: from is not an object")
+	}
+	out := map[string]any{}
+	for _, k := range fromKeys {
+		if e, ok := from[k]; ok {
+			out[k] = e
+		}
+	}
+	maps.Copy(out, with)
+	delete(out, withFrom)
+	return out, nil
+}
+
 func (x *exec) startJob(ctx context.Context, sr *domain.StepRun, with map[string]any, feedback string) error {
+	with, err := expandFrom(with)
+	if err != nil {
+		return err
+	}
 	var req JobRequest
 	if err := DecodeWith(with, &req); err != nil {
 		return err
@@ -416,7 +450,7 @@ func (x *exec) startJob(ctx context.Context, sr *domain.StepRun, with map[string
 	if feedback != "" {
 		req.Feedback = strings.TrimSpace(req.Feedback + "\n\n" + feedback)
 	}
-	_, err := x.e.cfg.Store.Jobs().Get(ctx, x.run.AccountID, sr.ID)
+	_, err = x.e.cfg.Store.Jobs().Get(ctx, x.run.AccountID, sr.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		var id uuid.UUID
 		id, err = x.e.cfg.Jobs.Create(ctx, req)
