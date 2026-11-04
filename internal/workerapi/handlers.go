@@ -44,6 +44,10 @@ func (s *Server) poll(rw http.ResponseWriter, r *http.Request) {
 	}
 	labels := domain.NormalizeLabels(req.Labels)
 	if err := s.cfg.Store.Workers().Seen(ctx, w.AccountID, w.ID, labels, req.Version); err != nil {
+		if clientGone(ctx, err) {
+			rw.WriteHeader(http.StatusNoContent)
+			return
+		}
 		fail(ctx, rw, logger, "record worker seen", err)
 		return
 	}
