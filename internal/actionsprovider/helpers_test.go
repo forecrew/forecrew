@@ -40,6 +40,7 @@ func (s *syncBuffer) String() string {
 
 type env struct {
 	t        *testing.T
+	clock    *testkit.Clock
 	st       *testkit.Store
 	account  domain.Account
 	project  domain.Project
@@ -54,7 +55,8 @@ type option func(*Config)
 
 func newEnv(t *testing.T, opts ...option) *env {
 	t.Helper()
-	st := testkit.NewStore(nil)
+	clock := testkit.NewClock(time.Now().UTC())
+	st := testkit.NewStore(clock.Now)
 	acc := domain.Account{Name: "default"}
 	if err := st.Accounts().Create(t.Context(), &acc); err != nil {
 		t.Fatal(err)
@@ -65,11 +67,11 @@ func newEnv(t *testing.T, opts ...option) *env {
 	}
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	e := &env{t: t, st: st, account: acc, project: p, gh: testkit.NewFakeActions(t, nil), ev: testkit.NewEvidence(), logs: logs}
-	e.jobs = jobs.New(st, testkit.NewSignalBus(st), config.DefaultPools(), logger, func() time.Time { return time.Now().UTC() })
+	e := &env{t: t, clock: clock, st: st, account: acc, project: p, gh: testkit.NewFakeActions(t, clock.Now), ev: testkit.NewEvidence(), logs: logs}
+	e.jobs = jobs.New(st, testkit.NewSignalBus(st), config.DefaultPools(), logger, clock.Now)
 	cfg := Config{
 		Store: st, Jobs: e.jobs, GitHub: e.gh.Client, Evidence: e.ev, Logger: logger,
-		PollInterval: 5 * time.Millisecond, FindDelay: time.Millisecond,
+		PollInterval: 5 * time.Millisecond, FindDelay: time.Millisecond, Now: clock.Now,
 	}
 	for _, o := range opts {
 		o(&cfg)

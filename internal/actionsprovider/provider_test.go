@@ -380,7 +380,10 @@ func TestShutdownCancelsTheRun(t *testing.T) {
 func TestTimeout(t *testing.T) {
 	e := newEnv(t)
 	j := e.newJob(withSpec(func(s *domain.JobSpec) { s.Timeout = domain.Duration(30 * time.Millisecond) }))
-	e.gh.OnDispatch = func(testkit.Dispatch) *testkit.ActionsRun { return &testkit.ActionsRun{HeadSHA: head, Polls: 1 << 20} }
+	e.gh.OnDispatch = func(testkit.Dispatch) *testkit.ActionsRun {
+		e.clock.Advance(time.Hour) // the run takes longer than the timeout
+		return &testkit.ActionsRun{HeadSHA: head, Polls: 1 << 20}
+	}
 	e.poll()
 	got := e.job(j)
 	if got.Status != domain.JobFailed || !strings.Contains(got.Error, "did not finish within the timeout") {
