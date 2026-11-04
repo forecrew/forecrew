@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -36,8 +37,9 @@ type Config struct {
 
 // Server is the /api/v1 handler.
 type Server struct {
-	cfg  Config
-	auth func(http.Handler) http.Handler
+	cfg    Config
+	auth   func(http.Handler) http.Handler
+	routes []string // patterns registered by Handler
 }
 
 // New returns the API, to be mounted at /api/v1/.
@@ -49,12 +51,17 @@ func New(cfg Config) *Server {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	t := s.cfg.Tools
+	s.routes = nil
+	handle := func(pattern string, h http.Handler) {
+		s.routes = append(s.routes, pattern)
+		mux.Handle(pattern, h)
+	}
 
-	mux.HandleFunc("POST /api/v1/session", s.login)
-	mux.HandleFunc("DELETE /api/v1/session", s.logout)
-	mux.Handle("GET /api/v1/me", s.protect(http.HandlerFunc(s.me)))
+	handle("POST /api/v1/session", http.HandlerFunc(s.login))
+	handle("DELETE /api/v1/session", http.HandlerFunc(s.logout))
+	handle("GET /api/v1/me", s.protect(http.HandlerFunc(s.me)))
 
-	route := func(pattern string, h http.Handler) { mux.Handle(pattern, s.protect(h)) }
+	route := func(pattern string, h http.Handler) { handle(pattern, s.protect(h)) }
 	route("POST /api/v1/projects", serve(s, http.StatusAccepted, bodyOf[mcp.OnboardProjectInput], t.OnboardProject))
 	route("GET /api/v1/projects", serve(s, http.StatusOK, noInput, list(noArg(t.ListProjects))))
 	route("GET /api/v1/projects/{project...}", serve(s, http.StatusOK, projectInput, t.GetProject))
@@ -92,6 +99,54 @@ func (s *Server) Handler() http.Handler {
 		s.fail(w, r, errors.New("no such endpoint"), http.StatusNotFound, "not_found")
 	})
 	return mux
+}
+
+// Routes returns the patterns the last Handler call registered, the
+// catch-all for unknown endpoints aside.
+func (s *Server) Routes() []string { return slices.Clone(s.routes) }
+
+// RouteAccess returns what each /api/v1 route needs
+// (docs/contracts/permissions.md), by pattern. Routes that serve a tool
+// need what the tool needs. Every route Handler registers has an entry; a
+// task adding a route adds its entry.
+func RouteAccess() map[string]mcp.Access {
+	tool := mcp.ToolAccess()
+	return map[string]mcp.Access{
+		"POST /api/v1/session":   {Public: true},
+		"DELETE /api/v1/session": {Public: true},
+		"GET /api/v1/me":         {},
+
+		"POST /api/v1/projects":             tool[mcp.ToolOnboardProject],
+		"GET /api/v1/projects":              tool[mcp.ToolListProjects],
+		"GET /api/v1/projects/{project...}": tool[mcp.ToolGetProject],
+
+		"POST /api/v1/goals":       tool[mcp.ToolCreateGoal],
+		"GET /api/v1/goals":        tool[mcp.ToolListGoals],
+		"GET /api/v1/goals/{goal}": tool[mcp.ToolGetGoal],
+
+		"POST /api/v1/jobs":                tool[mcp.ToolDispatchJob],
+		"GET /api/v1/jobs":                 tool[mcp.ToolListJobs],
+		"GET /api/v1/jobs/{job}":           tool[mcp.ToolJobStatus],
+		"GET /api/v1/jobs/{job}/logs":      tool[mcp.ToolJobLogs],
+		"POST /api/v1/jobs/{job}/cancel":   tool[mcp.ToolCancelJob],
+		"GET /api/v1/jobs/{job}/artifacts": tool[mcp.ToolListArtifacts],
+		"GET /api/v1/artifacts/{id}":       {Permission: domain.PermJobRead},
+		"GET /api/v1/test-runs":            tool[mcp.ToolListTestRuns],
+
+		"GET /api/v1/assumptions":                       tool[mcp.ToolListAssumptions],
+		"POST /api/v1/assumptions/{assumption}/resolve": tool[mcp.ToolResolveAssumption],
+		"GET /api/v1/decisions":                         tool[mcp.ToolListDecisions],
+
+		"GET /api/v1/workers": tool[mcp.ToolListWorkers],
+
+		"GET /api/v1/gates":                         tool[mcp.ToolListPendingGates],
+		"POST /api/v1/gates/{gate}/approve":         tool[mcp.ToolApprove],
+		"POST /api/v1/gates/{gate}/request-changes": tool[mcp.ToolRequestChanges],
+		"POST /api/v1/gates/{gate}/reject":          tool[mcp.ToolReject],
+
+		"GET /api/v1/tokens":                 tool[mcp.ToolListTokens],
+		"POST /api/v1/tokens/{token}/revoke": tool[mcp.ToolRevokeToken],
+	}
 }
 
 // serve adapts a tool method to a handler: in decodes the request into the
