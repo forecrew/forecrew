@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -137,6 +138,13 @@ type world struct {
 // when onboarded is set.
 func newWorld(t *testing.T, onboarded bool) *world {
 	t.Helper()
+	return newWorldWith(t, onboarded, nil)
+}
+
+// newWorldWith is newWorld with the packs forecrewd loads (nil: the
+// embedded ones), to run a playbook of the test's own.
+func newWorldWith(t *testing.T, onboarded bool, files fs.FS) *world {
+	t.Helper()
 	pool := testkit.NewDatabase(t)
 	must(t, postgres.Migrate(t.Context(), pool))
 	w := &world{t: t, pool: pool, st: postgres.New(pool), clock: &shiftClock{}, ag: &agents{scriptDir: t.TempDir()}, hooks: make(chan testkit.Event, 1024), logs: &logBuffer{}}
@@ -159,7 +167,7 @@ func newWorld(t *testing.T, onboarded bool) *world {
 	must(t, err)
 	w.url = "http://" + ln.Addr().String()
 	a, err := app.New(app.Deps{
-		Config: testConfig(), Store: w.st, Ping: pool.Ping, GitHub: w.tracker, Version: "e2e", Now: w.clock.Now, Listener: ln,
+		Config: testConfig(), Files: files, Evidence: testkit.NewEvidence(), Store: w.st, Ping: pool.Ping, GitHub: w.tracker, Version: "e2e", Now: w.clock.Now, Listener: ln,
 		Logger: slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug})), ReapEvery: 50 * time.Millisecond,
 	})
 	must(t, err)
