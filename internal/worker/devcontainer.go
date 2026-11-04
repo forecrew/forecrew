@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"errors"
@@ -144,12 +145,39 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// skipComment returns the index after the // or /* */ comment starting at
+// in[i], and whether there is one. An unterminated block comment runs to the
+// end.
+func skipComment(in []byte, i int) (next int, ok bool) {
+	if in[i] != '/' || i+1 >= len(in) {
+		return i, false
+	}
+	switch in[i+1] {
+	case '/':
+		for i < len(in) && in[i] != '\n' {
+			i++
+		}
+		return i, true
+	case '*':
+		if end := bytes.Index(in[i+2:], []byte("*/")); end >= 0 {
+			return i + 2 + end + 2, true
+		}
+		return len(in), true
+	}
+	return i, false
+}
+
 // jsoncToJSON removes the // and /* */ comments and the trailing commas that
 // devcontainer.json allows and JSON does not, leaving strings alone.
 func jsoncToJSON(in []byte) []byte {
 	out := make([]byte, 0, len(in))
-	for i := 0; i < len(in); i++ {
+	for i := 0; i < len(in); {
 		c := in[i]
+		if next, ok := skipComment(in, i); ok {
+			out = append(out, ' ')
+			i = next
+			continue
+		}
 		switch {
 		case c == '"':
 			j := i + 1
@@ -159,23 +187,15 @@ func jsoncToJSON(in []byte) []byte {
 				}
 				j++
 			}
-			out = append(out, in[i:min(j+1, len(in))]...)
+			j = min(j+1, len(in))
+			out = append(out, in[i:j]...)
 			i = j
-		case c == '/' && i+1 < len(in) && in[i+1] == '/':
-			for i < len(in) && in[i] != '\n' {
-				i++
-			}
-			out = append(out, '\n')
-		case c == '/' && i+1 < len(in) && in[i+1] == '*':
-			end := strings.Index(string(in[i+2:]), "*/")
-			if end < 0 {
-				return out
-			}
-			i += end + 3
+			continue
 		case c == ',' && nextIsClose(in[i+1:]):
 		default:
 			out = append(out, c)
 		}
+		i++
 	}
 	return out
 }
@@ -183,22 +203,15 @@ func jsoncToJSON(in []byte) []byte {
 // nextIsClose reports whether the next token of rest, after white space and
 // comments, closes an object or array.
 func nextIsClose(rest []byte) bool {
-	for i := 0; i < len(rest); i++ {
-		switch c := rest[i]; {
-		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
-		case c == '/' && i+1 < len(rest) && rest[i+1] == '/':
-			for i < len(rest) && rest[i] != '\n' {
-				i++
-			}
-		case c == '/' && i+1 < len(rest) && rest[i+1] == '*':
-			end := strings.Index(string(rest[i+2:]), "*/")
-			if end < 0 {
-				return false
-			}
-			i += end + 3
-		default:
+	for i := 0; i < len(rest); {
+		if next, ok := skipComment(rest, i); ok {
+			i = next
+			continue
+		}
+		if c := rest[i]; c != ' ' && c != '\t' && c != '\r' && c != '\n' {
 			return c == '}' || c == ']'
 		}
+		i++
 	}
 	return false
 }

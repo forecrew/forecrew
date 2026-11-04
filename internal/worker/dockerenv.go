@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -65,6 +66,17 @@ func hashRegular(h io.Writer, root, rel string) error {
 	return err
 }
 
+// contextHash walks a build context for hashContext.
+type contextHash struct {
+	ctx     context.Context
+	h       io.Writer
+	root    string // the work tree
+	rel     string // the context, relative to root
+	base    string
+	entries int
+	total   int64
+}
+
 // hashContext writes the entries of the context directory to h in path
 // order. Symlinks are hashed as their target text and never followed.
 func hashContext(ctx context.Context, h io.Writer, root, rel string) error {
@@ -73,48 +85,48 @@ func hashContext(ctx context.Context, h io.Writer, root, rel string) error {
 			return err
 		}
 	}
-	base := filepath.Join(root, filepath.FromSlash(rel))
-	var entries int
-	var total int64
-	return filepath.WalkDir(base, func(p string, d fs.DirEntry, err error) error {
+	c := &contextHash{ctx: ctx, h: h, root: root, rel: rel, base: filepath.Join(root, filepath.FromSlash(rel))}
+	return filepath.WalkDir(c.base, c.visit)
+}
+
+func (c *contextHash) visit(p string, d fs.DirEntry, err error) error {
+	if err != nil {
+		return err
+	}
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
+	if c.entries++; c.entries > maxWalkEntries {
+		return errWalkLimit
+	}
+	if d.IsDir() && d.Name() == ".git" {
+		return filepath.SkipDir
+	}
+	info, err := d.Info()
+	if err != nil {
+		return err
+	}
+	sub, _ := filepath.Rel(c.base, p)
+	sub = filepath.ToSlash(sub)
+	switch mode := info.Mode(); {
+	case mode.IsDir():
+		fmt.Fprintf(c.h, "d %q\n", sub)
+	case mode&fs.ModeSymlink != 0:
+		target, err := os.Readlink(p)
 		if err != nil {
 			return err
 		}
-		if err := ctx.Err(); err != nil {
-			return err
+		fmt.Fprintf(c.h, "l %q %q\n", sub, target)
+	case mode.IsRegular():
+		if c.total += info.Size(); c.total > maxContextBytes {
+			return fmt.Errorf("larger than %d MiB; set context to a smaller directory", maxContextBytes>>20)
 		}
-		if entries++; entries > maxWalkEntries {
-			return errWalkLimit
-		}
-		sub, _ := filepath.Rel(base, p)
-		sub = filepath.ToSlash(sub)
-		if d.IsDir() && d.Name() == ".git" {
-			return filepath.SkipDir
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		switch mode := info.Mode(); {
-		case mode.IsDir():
-			fmt.Fprintf(h, "d %q\n", sub)
-		case mode&fs.ModeSymlink != 0:
-			target, err := os.Readlink(p)
-			if err != nil {
-				return err
-			}
-			fmt.Fprintf(h, "l %q %q\n", sub, target)
-		case mode.IsRegular():
-			if total += info.Size(); total > maxContextBytes {
-				return fmt.Errorf("larger than %d MiB; set context to a smaller directory", maxContextBytes>>20)
-			}
-			fmt.Fprintf(h, "f %q %d %o\n", sub, info.Size(), mode.Perm())
-			return hashRegular(h, root, filepath.ToSlash(filepath.Join(rel, sub)))
-		default:
-			fmt.Fprintf(h, "x %q\n", sub)
-		}
-		return nil
-	})
+		fmt.Fprintf(c.h, "f %q %d %o\n", sub, info.Size(), mode.Perm())
+		return hashRegular(c.h, c.root, path.Join(c.rel, sub))
+	default:
+		fmt.Fprintf(c.h, "x %q\n", sub)
+	}
+	return nil
 }
 
 // derivedDockerfile returns the Dockerfile that runs the setup commands on
