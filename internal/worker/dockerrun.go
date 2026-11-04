@@ -134,7 +134,7 @@ func (dj *dockerJob) startServices(ctx context.Context) error {
 		if _, err := dj.d.output(ctx, append(args, s.Image)...); err != nil {
 			return fmt.Errorf("service %s: %w", name, err)
 		}
-		if err := dj.waitHealthy(ctx, name, ctr, s); err != nil {
+		if err := dj.waitHealthy(ctx, ctr, s); err != nil {
 			return fmt.Errorf("service %s: %w", name, err)
 		}
 		prefix := serviceVar(name)
@@ -156,23 +156,30 @@ func portProbe(ports []int) string {
 	return strings.Join(parts, " && ") + " >/dev/null 2>&1"
 }
 
-// waitHealthy runs the service's health command (or probes its ports) until
-// it succeeds, as often as its retries say, within the job's timeout. It
-// stops early when the container exited.
-func (dj *dockerJob) waitHealthy(ctx context.Context, name, ctr string, s domain.Service) error {
-	interval, tries := defaultHealthInterval, defaultHealthRetries
-	check := ""
+// healthCheck returns the shell command that tells a service is ready (empty:
+// a running container is), the time between tries and the number of tries.
+func healthCheck(s domain.Service) (check string, interval time.Duration, tries int) {
+	interval, tries = defaultHealthInterval, defaultHealthRetries
 	if h := s.Health; h != nil {
-		check = h.Command
 		if h.Interval > 0 {
 			interval = time.Duration(h.Interval)
 		}
 		if h.Retries > 0 {
 			tries = h.Retries
 		}
-	} else if len(s.Ports) > 0 {
+		return h.Command, interval, tries
+	}
+	if len(s.Ports) > 0 {
 		check = portProbe(s.Ports)
 	}
+	return check, interval, tries
+}
+
+// waitHealthy runs the service's health command (or probes its ports) until
+// it succeeds, as often as its retries say, within the job's timeout. It
+// stops early when the container exited.
+func (dj *dockerJob) waitHealthy(ctx context.Context, ctr string, s domain.Service) error {
+	check, interval, tries := healthCheck(s)
 	var last error
 	for i := range tries {
 		if i > 0 {

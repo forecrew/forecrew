@@ -134,26 +134,7 @@ func TestDockerJobRunsInTheContainer(t *testing.T) {
 			t.Errorf("no call with %q in\n%s", parts, strings.Join(got, "\n"))
 		}
 	}
-	mounts := 0
-	for _, c := range got {
-		for _, bad := range []string{"--privileged", "docker.sock", "--network host", "--net host", "--pid", "--ipc", "--publish"} {
-			if strings.Contains(c, bad) {
-				t.Errorf("call %q contains %q", c, bad)
-			}
-		}
-		if strings.Contains(c, ":/work") {
-			mounts++
-		}
-	}
-	if mounts < 3 { // the command, the version commands and the os query
-		t.Errorf("the work tree was mounted %d times", mounts)
-	}
-	// The container only gets what the spec and the allowlist give it.
-	for _, c := range got {
-		if strings.Contains(c, testAPIKey) {
-			t.Errorf("a docker call carries the worker's key: %q", c)
-		}
-	}
+	assertContained(t, got)
 	// The image use is recorded for pruning.
 	if ents, err := os.ReadDir(filepath.Join(e.workDir, "env-images")); err != nil || len(ents) != 1 {
 		t.Errorf("image markers = %v, %v", ents, err)
@@ -324,5 +305,24 @@ func TestDerivedDockerfile(t *testing.T) {
 	want := "FROM golang:1.27\nRUN [\"sh\",\"-c\",\"go version\"]\nRUN [\"sh\",\"-c\",\"echo \\\"a\\\"\\nRUN evil\"]\n"
 	if got != want {
 		t.Errorf("Dockerfile = %q, want %q", got, want)
+	}
+}
+
+// assertContained checks that no docker call widens the container.
+func assertContained(t *testing.T, got []string) {
+	t.Helper()
+	mounts := 0
+	for _, c := range got {
+		for _, bad := range []string{"--privileged", "docker.sock", "--network host", "--net host", "--pid", "--ipc", "--publish", testAPIKey} {
+			if strings.Contains(c, bad) {
+				t.Errorf("call %q contains %q", c, bad)
+			}
+		}
+		if strings.Contains(c, ":/work") {
+			mounts++
+		}
+	}
+	if mounts < 3 { // the command, the version commands and the os query
+		t.Errorf("the work tree was mounted %d times", mounts)
 	}
 }
