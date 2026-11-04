@@ -3,6 +3,7 @@
 package workflow_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -87,4 +88,26 @@ steps:
 			t.Errorf("step %s = %s", s.StepID, s.Status)
 		}
 	}
+}
+
+// TestPostgresParallelCancel cancels a run with an item at its gate and an
+// item at its job: only the job is canceled, the gate step has none.
+func TestPostgresParallelCancel(t *testing.T) {
+	v := newPostgresEnv(t)
+	cfg := v.config(t, map[string]string{"pb": strings.Replace(reviewed, "parallel: 2", "parallel: 3", 1)})
+	e, _ := run(t, cfg)
+	r, err := e.Start(t.Context(), "pb", workflow.StartRequest{AccountID: v.account, ProjectID: v.project.ID, Inputs: items("a", "b", "c")})
+	must(t, err)
+	a, _ := v.waitJob(t, r.ID, buildStep("0"), 1)
+	b, _ := v.waitJob(t, r.ID, buildStep("1"), 1)
+	c, _ := v.waitJob(t, r.ID, buildStep("2"), 1)
+	v.finishJob(t, a.JobID, domain.JobSucceeded, `{}`, "")
+	v.finishJob(t, b.JobID, domain.JobSucceeded, `{}`, "")
+	v.waitStep(t, r.ID, "each/1/review", 1, domain.StepWaiting)
+	v.decide(t, r.ID, "each/0/review", 1, domain.GateRejected, "no")
+	v.waitRun(t, r.ID, domain.RunCanceled)
+	if got, err := v.st.Jobs().Get(t.Context(), v.account, c.JobID); err != nil || got.Status != domain.JobCanceled {
+		t.Fatalf("job = %+v, %v", got, err)
+	}
+	v.waitStep(t, r.ID, "each/1/review", 1, domain.StepWaiting)
 }
