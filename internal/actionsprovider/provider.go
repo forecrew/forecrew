@@ -138,29 +138,35 @@ func (p *Provider) Poll(ctx context.Context) {
 			}
 			continue
 		}
-		for p.inflight.Load() < int64(p.cfg.MaxInFlight) {
-			j, err := queue.New(p.cfg.Store.Jobs()).Lease(ctx, a.ID, w.ID, nil)
-			if errors.Is(err, store.ErrNoJob) {
-				break
-			}
-			if err != nil {
-				if ctx.Err() == nil {
-					p.cfg.Logger.ErrorContext(ctx, "lease job", "account_id", a.ID, "error", err)
-				}
-				break
-			}
-			p.inflight.Add(1)
-			p.wg.Go(func() {
-				defer func() {
-					p.inflight.Add(-1)
-					select {
-					case p.freed <- struct{}{}:
-					default:
-					}
-				}()
-				p.runJob(ctx, w, j)
-			})
+		p.leaseFor(ctx, a.ID, w)
+	}
+}
+
+// leaseFor leases queued jobs of the account while there is room, and starts
+// following them.
+func (p *Provider) leaseFor(ctx context.Context, account uuid.UUID, w domain.Worker) {
+	for p.inflight.Load() < int64(p.cfg.MaxInFlight) {
+		j, err := queue.New(p.cfg.Store.Jobs()).Lease(ctx, account, w.ID, nil)
+		if errors.Is(err, store.ErrNoJob) {
+			return
 		}
+		if err != nil {
+			if ctx.Err() == nil {
+				p.cfg.Logger.ErrorContext(ctx, "lease job", "account_id", account, "error", err)
+			}
+			return
+		}
+		p.inflight.Add(1)
+		p.wg.Go(func() {
+			defer func() {
+				p.inflight.Add(-1)
+				select {
+				case p.freed <- struct{}{}:
+				default:
+				}
+			}()
+			p.runJob(ctx, w, j)
+		})
 	}
 }
 

@@ -127,49 +127,59 @@ func TestRunArtifactsAndDownload(t *testing.T) {
 	wantErr(t, err, github.ErrInvalid)
 }
 
+// writeFileEnv fakes a file holding current (absent when empty) and returns
+// what the client wrote and by which call.
+func writeFileEnv(t *testing.T, current string) (e *env, wrote func() (map[string]any, string)) {
+	t.Helper()
+	e = newEnv(t)
+	var body map[string]any
+	method := ""
+	e.handle("GET /repos/acme/app/contents/.github/workflows/f.yml", func(w http.ResponseWriter, _ *http.Request) {
+		if current == "" {
+			http.Error(w, `{"message": "Not Found"}`, http.StatusNotFound)
+			return
+		}
+		fmt.Fprintf(w, `{"type": "file", "encoding": "base64", "sha": "s1", "content": %q}`, base64.StdEncoding.EncodeToString([]byte(current)))
+	})
+	e.handle("PUT /repos/acme/app/contents/.github/workflows/f.yml", func(w http.ResponseWriter, r *http.Request) {
+		body = readJSON(t, r)
+		method = "create"
+		if body["sha"] != nil {
+			method = "update"
+		}
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprint(w, `{"content": {}, "commit": {}}`)
+	})
+	return e, func() (map[string]any, string) { return body, method }
+}
+
 func TestWriteFile(t *testing.T) {
-	enc := func(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 	tests := []struct {
 		name    string
 		current string // empty: the file does not exist
 		method  string // the write expected, empty for none
-		changed bool
 	}{
-		{"new file", "", "create", true},
-		{"changed file", "old", "update", true},
-		{"same file", "new", "", false},
+		{"new file", "", "create"},
+		{"changed file", "old", "update"},
+		{"same file", "new", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := newEnv(t)
-			var wrote map[string]any
-			var method string
-			e.handle("GET /repos/acme/app/contents/.github/workflows/f.yml", func(w http.ResponseWriter, _ *http.Request) {
-				if tt.current == "" {
-					http.Error(w, `{"message": "Not Found"}`, http.StatusNotFound)
-					return
-				}
-				fmt.Fprintf(w, `{"type": "file", "encoding": "base64", "sha": "s1", "content": %q}`, enc(tt.current))
-			})
-			e.handle("PUT /repos/acme/app/contents/.github/workflows/f.yml", func(w http.ResponseWriter, r *http.Request) {
-				wrote = readJSON(t, r)
-				method = "create"
-				if wrote["sha"] != nil {
-					method = "update"
-				}
-				w.WriteHeader(http.StatusCreated)
-				fmt.Fprint(w, `{"content": {}, "commit": {}}`)
-			})
+			e, wrote := writeFileEnv(t, tt.current)
 			changed, err := e.client.WriteFile(t.Context(), "acme/app", "main", ".github/workflows/f.yml", []byte("new"), "Add f")
 			noErr(t, err)
-			if changed != tt.changed || method != tt.method {
+			body, method := wrote()
+			if changed != (tt.method != "") || method != tt.method {
 				t.Errorf("changed = %v, method = %q", changed, method)
 			}
-			if tt.method != "" && (wrote["branch"] != "main" || wrote["message"] != "Add f" || wrote["content"] != enc("new")) {
-				t.Errorf("body = %v", wrote)
+			if tt.method == "" {
+				return
 			}
-			if tt.method == "update" && wrote["sha"] != "s1" {
-				t.Errorf("sha = %v", wrote["sha"])
+			if body["branch"] != "main" || body["message"] != "Add f" || body["content"] != base64.StdEncoding.EncodeToString([]byte("new")) {
+				t.Errorf("body = %v", body)
+			}
+			if tt.method == "update" && body["sha"] != "s1" {
+				t.Errorf("sha = %v", body["sha"])
 			}
 		})
 	}
@@ -177,13 +187,15 @@ func TestWriteFile(t *testing.T) {
 
 func TestWriteFileErrors(t *testing.T) {
 	e := newEnv(t)
-	e.handle("GET /repos/acme/app/contents/a.yml", func(w http.ResponseWriter, _ *http.Request) { http.Error(w, `{"message": "x"}`, 403) })
+	e.handle("GET /repos/acme/app/contents/a.yml", func(w http.ResponseWriter, _ *http.Request) { http.Error(w, `{"message": "x"}`, http.StatusForbidden) })
 	_, err := e.client.WriteFile(t.Context(), "acme/app", "main", "a.yml", nil, "m")
 	wantErr(t, err, github.ErrForbidden)
 
 	e = newEnv(t)
 	e.handle("GET /repos/acme/app/contents/a.yml", func(w http.ResponseWriter, _ *http.Request) { http.NotFound(w, nil) })
-	e.handle("PUT /repos/acme/app/contents/a.yml", func(w http.ResponseWriter, _ *http.Request) { http.Error(w, `{"message": "x"}`, 422) })
+	e.handle("PUT /repos/acme/app/contents/a.yml", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message": "x"}`, http.StatusUnprocessableEntity)
+	})
 	_, err = e.client.WriteFile(t.Context(), "acme/app", "gone", "a.yml", nil, "m")
 	wantErr(t, err, github.ErrInvalid)
 

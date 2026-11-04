@@ -67,7 +67,7 @@ func unpack(data []byte, maxFile, budget int64) (unpacked, error) {
 		case seen[f.Name]:
 			out.Skipped = append(out.Skipped, f.Name+": duplicate")
 			continue
-		case int64(f.UncompressedSize64) > maxFile:
+		case f.UncompressedSize64 > uint64(maxFile): // #nosec G115 -- maxFile is a positive limit
 			out.Skipped = append(out.Skipped, f.Name+": over the artifact size limit")
 			continue
 		case len(out.Files) >= MaxFiles:

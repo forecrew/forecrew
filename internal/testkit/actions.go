@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -43,13 +44,7 @@ func appKey() []byte {
 func Zip(files map[string]string) []byte {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	for _, name := range slices.Sorted(func(yield func(string) bool) {
-		for n := range files {
-			if !yield(n) {
-				return
-			}
-		}
-	}) {
+	for _, name := range slices.Sorted(maps.Keys(files)) {
 		w, err := zw.Create(name)
 		if err == nil {
 			_, err = w.Write([]byte(files[name]))
@@ -197,104 +192,119 @@ func (f *FakeActions) routes() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]any{"id": 42})
 	})
 	mux.HandleFunc("POST /app/installations/42/access_tokens", func(w http.ResponseWriter, _ *http.Request) {
+		// #nosec G101 -- a fake token
 		writeJSON(w, http.StatusCreated, map[string]any{"token": "ghs_fake_actions", "expires_at": f.now().Add(time.Hour).Format(time.RFC3339)})
 	})
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/workflows/{file}/dispatches", f.dispatch)
-	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/workflows/{file}/runs", func(w http.ResponseWriter, r *http.Request) {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		runs := []map[string]any{}
-		for _, id := range slices.Backward(slices.Sorted(func(yield func(int64) bool) {
-			for id := range f.runs {
-				if !yield(id) {
-					return
-				}
-			}
-		})) {
-			if run := f.runs[id]; run.Repo == r.PathValue("owner")+"/"+r.PathValue("repo") {
-				runs = append(runs, run.json("in_progress"))
-			}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"total_count": len(runs), "workflow_runs": runs})
-	})
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/workflows/{file}/runs", f.listRuns)
 	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}", f.getRun)
-	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{id}/cancel", func(w http.ResponseWriter, r *http.Request) {
-		id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		run, ok := f.runs[id]
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		run.Cancelled = true
-		f.canceled = append(f.canceled, id)
-		writeJSON(w, http.StatusAccepted, map[string]any{})
-	})
-	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}/artifacts", func(w http.ResponseWriter, r *http.Request) {
-		id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		run, ok := f.runs[id]
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		list := []map[string]any{}
-		if run.Artifact != nil {
-			list = append(list, map[string]any{"id": id, "name": run.ArtifactName, "size_in_bytes": len(run.Artifact), "expired": false})
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"total_count": len(list), "artifacts": list})
-	})
-	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/artifacts/{id}/zip", func(w http.ResponseWriter, r *http.Request) {
-		id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
-		f.mu.Lock()
-		run, ok := f.runs[id]
-		expired := ok && run.Expired
-		f.mu.Unlock()
-		switch {
-		case !ok:
-			http.NotFound(w, r)
-		case expired:
-			w.WriteHeader(http.StatusGone)
-		default:
-			http.Redirect(w, r, fmt.Sprintf("http://%s/storage/%d", r.Host, id), http.StatusFound)
-		}
-	})
+	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/runs/{id}/cancel", f.cancelRun)
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/runs/{id}/artifacts", f.listArtifacts)
+	mux.HandleFunc("GET /repos/{owner}/{repo}/actions/artifacts/{id}/zip", f.artifactRedirect)
 	mux.HandleFunc("GET /storage/{id}", func(w http.ResponseWriter, r *http.Request) {
-		id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
 		f.mu.Lock()
 		defer f.mu.Unlock()
-		_, _ = w.Write(f.runs[id].Artifact)
+		_, _ = w.Write(f.runs[runID(r)].Artifact)
 	})
-	mux.HandleFunc("GET /repos/{owner}/{repo}/contents/{path...}", func(w http.ResponseWriter, r *http.Request) {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		if f.ContentsStatus != 0 {
-			writeJSON(w, f.ContentsStatus, map[string]string{"message": "refused"})
-			return
-		}
-		b, ok := f.files[r.PathValue("owner")+"/"+r.PathValue("repo")+":"+r.PathValue("path")]
-		if !ok {
-			writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"type": "file", "encoding": "base64", "sha": "sha1", "content": base64.StdEncoding.EncodeToString(b)})
-	})
-	mux.HandleFunc("PUT /repos/{owner}/{repo}/contents/{path...}", func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Content []byte `json:"content"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		f.files[r.PathValue("owner")+"/"+r.PathValue("repo")+":"+r.PathValue("path")] = body.Content
-		writeJSON(w, http.StatusCreated, map[string]any{"content": map[string]any{}, "commit": map[string]any{}})
-	})
+	mux.HandleFunc("GET /repos/{owner}/{repo}/contents/{path...}", f.getContents)
+	mux.HandleFunc("PUT /repos/{owner}/{repo}/contents/{path...}", f.putContents)
 	return mux
+}
+
+func runID(r *http.Request) int64 {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	return id
+}
+
+func (f *FakeActions) listRuns(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	repo := r.PathValue("owner") + "/" + r.PathValue("repo")
+	runs := []map[string]any{}
+	for _, id := range slices.Backward(slices.Sorted(maps.Keys(f.runs))) {
+		if run := f.runs[id]; run.Repo == repo {
+			runs = append(runs, run.json("in_progress"))
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(runs), "workflow_runs": runs})
+}
+
+func (f *FakeActions) cancelRun(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	run, ok := f.runs[runID(r)]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	run.Cancelled = true
+	f.canceled = append(f.canceled, run.ID)
+	writeJSON(w, http.StatusAccepted, map[string]any{})
+}
+
+func (f *FakeActions) listArtifacts(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	run, ok := f.runs[runID(r)]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	list := []map[string]any{}
+	if run.Artifact != nil {
+		list = append(list, map[string]any{"id": run.ID, "name": run.ArtifactName, "size_in_bytes": len(run.Artifact), "expired": false})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"total_count": len(list), "artifacts": list})
+}
+
+func (f *FakeActions) artifactRedirect(w http.ResponseWriter, r *http.Request) {
+	id := runID(r)
+	f.mu.Lock()
+	run, ok := f.runs[id]
+	expired := ok && run.Expired
+	f.mu.Unlock()
+	switch {
+	case !ok:
+		http.NotFound(w, r)
+	case expired:
+		w.WriteHeader(http.StatusGone)
+	default:
+		// #nosec G710 -- the fake redirects to its own storage path
+		http.Redirect(w, r, fmt.Sprintf("http://%s/storage/%d", r.Host, id), http.StatusFound)
+	}
+}
+
+func contentsKey(r *http.Request) string {
+	return r.PathValue("owner") + "/" + r.PathValue("repo") + ":" + r.PathValue("path")
+}
+
+func (f *FakeActions) getContents(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ContentsStatus != 0 {
+		writeJSON(w, f.ContentsStatus, map[string]string{"message": "refused"})
+		return
+	}
+	b, ok := f.files[contentsKey(r)]
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"type": "file", "encoding": "base64", "sha": "sha1", "content": base64.StdEncoding.EncodeToString(b)})
+}
+
+func (f *FakeActions) putContents(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Content []byte `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.files[contentsKey(r)] = body.Content
+	writeJSON(w, http.StatusCreated, map[string]any{"content": map[string]any{}, "commit": map[string]any{}})
 }
 
 func (f *FakeActions) dispatch(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +349,7 @@ func (f *FakeActions) dispatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *FakeActions) getRun(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	id := runID(r)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.GetRunStatus != 0 {

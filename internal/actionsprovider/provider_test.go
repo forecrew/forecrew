@@ -24,59 +24,9 @@ func TestJobRunsOnActions(t *testing.T) {
 	if got.Status != domain.JobSucceeded || got.HeadSHA != head || got.Pool != domain.PoolActions {
 		t.Fatalf("job = %s head %q pool %s error %q", got.Status, got.HeadSHA, got.Pool, got.Error)
 	}
-	runs := e.testRuns(j)
-	if len(runs) != 1 {
-		t.Fatalf("runs = %+v", runs)
-	}
-	r := runs[0]
-	if r.Suite != "unit" || r.Status != domain.TestRunFailed || r.ExitCode != 1 || r.DurationMS != 1500 || r.SHA != head || r.Environment != "linux-go" ||
-		r.Cell["os"] != "linux" || r.Counts != (domain.TestCounts{Passed: 1, Failed: 1, Skipped: 1}) ||
-		!slices.Equal(r.ReportArtifacts, []string{"reports/unit.xml"}) {
-		t.Errorf("run = %+v", r)
-	}
-	wantVersions := map[string]string{"go": "go version go1.27", "runner_image": "ubuntu24", "runner_image_version": "20260301.1.0", "runner_os": "Linux X64"}
-	for k, v := range wantVersions {
-		if r.Versions[k] != v {
-			t.Errorf("versions[%s] = %q, want %q (all: %v)", k, r.Versions[k], v, r.Versions)
-		}
-	}
-	want := []string{"app/auth TestLogin passed ", "app/auth TestLogout failed want 204, got 500", "app/auth TestRefresh skipped needs redis"}
-	if g := e.results(r); !slices.Equal(g, want) {
-		t.Errorf("results = %q", g)
-	}
-
-	arts, err := e.st.Artifacts().ListByJob(t.Context(), e.account.ID, j.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, a := range arts {
-		names = append(names, a.Name)
-	}
-	slices.Sort(names)
-	if !slices.Equal(names, []string{"coverage.out", "reports/unit.xml"}) {
-		t.Errorf("artifacts = %v", names)
-	}
-
-	ds := e.gh.Dispatches()
-	if len(ds) != 1 || ds[0].Repo != repo || ds[0].File != WorkflowFile || ds[0].Ref != "agent/task-1" {
-		t.Fatalf("dispatches = %+v", ds)
-	}
-	in := ds[0].Inputs
-	if in["job_id"] != j.ID.String() || in["ref"] != "agent/task-1" || in["runs_on"] != "ubuntu-24.04" || in["reports"] != "reports/*.xml" || in["artifacts"] != "coverage.out" {
-		t.Errorf("inputs = %v", in)
-	}
-	var p payload
-	if err := json.Unmarshal([]byte(in["payload"]), &p); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(p.Argv, []string{"go", "test", "./..."}) || p.Env["CGO_ENABLED"] != "0" || p.Env["GOFLAGS"] != "-mod=readonly" ||
-		!slices.Equal(p.Setup, []string{"go version"}) || p.Versions["go"] != "go version" {
-		t.Errorf("payload = %+v", p)
-	}
-	if !strings.Contains(e.logs.String(), "actions job completed") {
-		t.Error("completion is not logged")
-	}
+	e.checkTestRun(j)
+	e.checkArtifacts(j)
+	e.checkDispatch(j)
 	events, _ := e.st.JobEvents().List(t.Context(), e.account.ID, j.ID, 0, 100)
 	var texts []string
 	for _, ev := range events {
@@ -84,6 +34,66 @@ func TestJobRunsOnActions(t *testing.T) {
 	}
 	if !slices.Contains(texts, "running") || !slices.Contains(texts, "collecting") {
 		t.Errorf("job log = %q", texts)
+	}
+}
+
+func (e *env) checkTestRun(j domain.Job) {
+	e.t.Helper()
+	runs := e.testRuns(j)
+	if len(runs) != 1 {
+		e.t.Fatalf("runs = %+v", runs)
+	}
+	r := runs[0]
+	if r.Suite != "unit" || r.Status != domain.TestRunFailed || r.ExitCode != 1 || r.DurationMS != 1500 || r.SHA != head || r.Environment != "linux-go" ||
+		r.Cell["os"] != "linux" || r.Counts != (domain.TestCounts{Passed: 1, Failed: 1, Skipped: 1}) ||
+		!slices.Equal(r.ReportArtifacts, []string{"reports/unit.xml"}) {
+		e.t.Errorf("run = %+v", r)
+	}
+	wantVersions := map[string]string{"go": "go version go1.27", "runner_image": "ubuntu24", "runner_image_version": "20260301.1.0", "runner_os": "Linux X64"}
+	for k, v := range wantVersions {
+		if r.Versions[k] != v {
+			e.t.Errorf("versions[%s] = %q, want %q (all: %v)", k, r.Versions[k], v, r.Versions)
+		}
+	}
+	want := []string{"app/auth TestLogin passed ", "app/auth TestLogout failed want 204, got 500", "app/auth TestRefresh skipped needs redis"}
+	if g := e.results(r); !slices.Equal(g, want) {
+		e.t.Errorf("results = %q", g)
+	}
+}
+
+func (e *env) checkArtifacts(j domain.Job) {
+	e.t.Helper()
+	arts, err := e.st.Artifacts().ListByJob(e.t.Context(), e.account.ID, j.ID)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	var names []string
+	for _, a := range arts {
+		names = append(names, a.Name)
+	}
+	slices.Sort(names)
+	if !slices.Equal(names, []string{"coverage.out", "reports/unit.xml"}) {
+		e.t.Errorf("artifacts = %v", names)
+	}
+}
+
+func (e *env) checkDispatch(j domain.Job) {
+	e.t.Helper()
+	ds := e.gh.Dispatches()
+	if len(ds) != 1 || ds[0].Repo != repo || ds[0].File != WorkflowFile || ds[0].Ref != "agent/task-1" {
+		e.t.Fatalf("dispatches = %+v", ds)
+	}
+	in := ds[0].Inputs
+	if in["job_id"] != j.ID.String() || in["ref"] != "agent/task-1" || in["runs_on"] != "ubuntu-24.04" || in["reports"] != "reports/*.xml" || in["artifacts"] != "coverage.out" {
+		e.t.Errorf("inputs = %v", in)
+	}
+	var p payload
+	if err := json.Unmarshal([]byte(in["payload"]), &p); err != nil {
+		e.t.Fatal(err)
+	}
+	if !slices.Equal(p.Argv, []string{"go", "test", "./..."}) || p.Env["CGO_ENABLED"] != "0" || p.Env["GOFLAGS"] != "-mod=readonly" ||
+		!slices.Equal(p.Setup, []string{"go version"}) || p.Versions["go"] != "go version" {
+		e.t.Errorf("payload = %+v", p)
 	}
 }
 
@@ -351,7 +361,7 @@ func TestShutdownCancelsTheRun(t *testing.T) {
 	e := newEnv(t)
 	j := e.newJob()
 	e.gh.OnDispatch = func(testkit.Dispatch) *testkit.ActionsRun { return &testkit.ActionsRun{Polls: 1 << 20} }
-	ctx, cancel := context_WithCancel(t)
+	ctx, cancel := contextWithCancel(t)
 	e.provider.Poll(ctx)
 	waitFor(t, "the dispatch", func() bool { return len(e.gh.Dispatches()) == 1 })
 	cancel()
@@ -424,7 +434,7 @@ func TestMaxInFlight(t *testing.T) {
 
 func TestRunLoopAndNotify(t *testing.T) {
 	e := newEnv(t)
-	ctx, cancel := context_WithCancel(t)
+	ctx, cancel := contextWithCancel(t)
 	done := make(chan struct{})
 	go func() { e.provider.Run(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
