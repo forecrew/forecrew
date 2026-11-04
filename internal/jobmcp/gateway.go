@@ -35,8 +35,10 @@ type Subscriber interface {
 
 // AssumptionRecorder registers an assumption a job made (T32's register).
 type AssumptionRecorder interface {
-	// RecordAssumption registers a for job j and returns its ref (A-n).
-	RecordAssumption(ctx context.Context, j domain.Job, a domain.StatedAssumption) (string, error)
+	// RecordAssumption registers a for job j. It returns the item, the
+	// existing one when the goal had the statement already, and whether it
+	// was. An invalid assumption wraps domain.ErrInvalidRecord.
+	RecordAssumption(ctx context.Context, j domain.Job, a domain.StatedAssumption) (domain.Assumption, bool, error)
 }
 
 // Config holds what the gateway and its tools use.

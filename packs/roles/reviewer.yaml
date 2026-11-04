@@ -1,7 +1,7 @@
 role: reviewer
 model: strong
 prompt: roles/reviewer.md
-tools: [repo.read, git.read, run.tests]
+tools: [repo.read, git.read, run.tests, assumption.record]
 write_paths: []
 produces: [review]
 output_schema: schemas/review-verdict.json

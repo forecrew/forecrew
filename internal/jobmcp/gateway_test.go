@@ -87,14 +87,14 @@ func newEnv(t *testing.T, mod ...func(*jobmcp.Config)) *env {
 }
 
 // RecordAssumption implements jobmcp.AssumptionRecorder.
-func (e *env) RecordAssumption(_ context.Context, _ domain.Job, a domain.StatedAssumption) (string, error) {
+func (e *env) RecordAssumption(_ context.Context, _ domain.Job, a domain.StatedAssumption) (domain.Assumption, bool, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.records = append(e.records, a)
-	return "A-1", nil
+	return domain.Assumption{Number: 1, Status: domain.AssumptionUnverified}, false, nil
 }
 
-var allTools = []string{"Read", runtime.JobMCPTool("report_progress"), runtime.JobMCPTool("evidence_attach"), runtime.JobMCPTool("ask_human")}
+var allTools = []string{"Read", runtime.JobMCPTool("report_progress"), runtime.JobMCPTool("evidence_attach"), runtime.JobMCPTool("ask_human"), runtime.JobMCPTool("assumption_record")}
 
 // lease creates an agent job with the given allowed tools, leases it to w
 // and issues its token.

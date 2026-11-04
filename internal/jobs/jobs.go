@@ -34,10 +34,19 @@ type Publisher interface {
 	Publish(ctx context.Context, s domain.Signal) (bool, error)
 }
 
+// Registrar captures what a finished job states: the assumption register
+// registers the assumptions in its output.
+type Registrar interface {
+	// JobCompleted is called in the transaction that finishes j, with the job
+	// as stored. An error fails the completion, which the worker retries.
+	JobCompleted(ctx context.Context, tx store.Store, j domain.Job) error
+}
+
 // Service runs the job lifecycle. Safe for concurrent use.
 type Service struct {
 	st     store.Store
 	bus    Publisher
+	reg    Registrar
 	pools  map[string]config.Pool
 	logger *slog.Logger
 	now    func() time.Time
@@ -54,6 +63,12 @@ func New(st store.Store, bus Publisher, pools map[string]config.Pool, logger *sl
 		pools = config.DefaultPools()
 	}
 	return &Service{st: st, bus: bus, pools: pools, logger: logger, now: now, wake: make(chan struct{})}
+}
+
+// WithRegistrar makes the service tell r of every job that succeeds.
+func (s *Service) WithRegistrar(r Registrar) *Service {
+	s.reg = r
+	return s
 }
 
 // Wait returns a channel that is closed the next time a job may have become
@@ -173,6 +188,11 @@ func (s *Service) Complete(ctx context.Context, w domain.Worker, jobID uuid.UUID
 		}
 		if err = storeTestRuns(ctx, tx, cur, j, r.TestRuns); err != nil {
 			return err
+		}
+		if s.reg != nil && j.Status == domain.JobSucceeded {
+			if err := s.reg.JobCompleted(ctx, tx, j); err != nil {
+				return err
+			}
 		}
 		return audit(ctx, tx, workerActor(w), j, "job.completed", map[string]any{
 			"status": j.Status, "head_sha": j.HeadSHA, "error": j.Error, "usage": j.Usage, "cost_usd": j.CostUSD,

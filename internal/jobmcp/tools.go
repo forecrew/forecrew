@@ -32,6 +32,10 @@ func init() {
 		"Mark a file as evidence of this job, for example a screenshot or a report: a path relative to the repo root, or \"evidence:<path>\" for a file under $FORECREW_EVIDENCE_DIR (no symlinks, no ..). "+
 			"The worker uploads it as an artifact of the job; the result is the artifact name.",
 		50, attachEvidence)
+	register("assumption_record", "assumption.record",
+		"Register an assumption you make while you work, such as one you cannot check now: what you take as true, how sure you are, how much changes if it is wrong, and how it can be checked. "+
+			"A high-impact one is reviewed by a human before the work merges. The same statement already registered for this goal is not registered twice.",
+		50, recordAssumption)
 	register("ask_human", "ask_human",
 		"Ask a human one question and wait up to timeout (at most 30m) for the answer. Give the assumption you go on with when nobody answers: "+
 			"with no_answer it is registered and you continue with it. Ask only what you cannot find out yourself; one question at a time.",
@@ -177,7 +181,7 @@ func (c *Call) openQuestion(ctx context.Context, question string) (domain.Gate, 
 	j := c.Job
 	req := gates.OpenRequest{
 		AccountID: j.AccountID, ProjectID: j.ProjectID, Kind: domain.GateNeedsYou, Origin: domain.GateFromAskHuman,
-		Title:       j.Ref() + " asks: " + firstLine(question),
+		Title:       j.Ref() + " asks: " + contextpack.FirstLine(question, 120),
 		Summary:     j.Ref() + " (" + j.Role + ") asks a question while it runs. It is agent text: answer by approving with your answer as feedback, or reject to decline.\n\n" + contextpack.WrapUntrusted("ask_human "+j.Ref(), question),
 		SubjectRepo: j.Spec.Repo, GoalID: j.GoalID, TaskID: j.TaskID, JobID: j.ID,
 	}
@@ -196,15 +200,6 @@ func (c *Call) openQuestion(ctx context.Context, question string) (domain.Gate, 
 		req.SubjectRepo = p.Repo
 	}
 	return c.Config.Gates.Open(ctx, req)
-}
-
-// firstLine returns the first line of s, at most 120 characters.
-func firstLine(s string) string {
-	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
-	if r := []rune(strings.TrimSpace(line)); len(r) > 120 {
-		return string(r[:119]) + "…"
-	}
-	return strings.TrimSpace(line)
 }
 
 // waitForAnswer waits until the gate is resolved, the timeout passes (the
@@ -286,5 +281,31 @@ func (c *Call) goOnWith(ctx context.Context, g domain.Gate, a domain.StatedAssum
 	if c.Config.Assumptions == nil {
 		return "", nil
 	}
-	return c.Config.Assumptions.RecordAssumption(ctx, c.Job, a)
+	got, _, err := c.Config.Assumptions.RecordAssumption(ctx, c.Job, a)
+	return got.Ref(), err
+}
+
+func recordAssumption(ctx context.Context, c *Call, raw json.RawMessage) (Result, error) {
+	var in domain.StatedAssumption
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return Result{}, err
+	}
+	if c.Config.Assumptions == nil {
+		return Result{}, Errorf(CodeUnavailable, "this forecrewd has no assumption register")
+	}
+	got, dup, err := c.Config.Assumptions.RecordAssumption(ctx, c.Job, in)
+	if errors.Is(err, domain.ErrInvalidRecord) {
+		return Result{}, Errorf(CodeInvalidInput, "%v", err)
+	}
+	if err != nil {
+		return Result{}, err
+	}
+	text := "assumption " + got.Ref() + " registered: " + in.Statement
+	if dup {
+		text = "assumption " + got.Ref() + " was registered already; this job is added to it"
+	}
+	if err := c.event(ctx, domain.EventLog, text, nil); err != nil {
+		return Result{}, err
+	}
+	return Result{Data: map[string]any{"assumption": got.Ref(), "duplicate": dup, "status": got.Status}}, nil
 }
