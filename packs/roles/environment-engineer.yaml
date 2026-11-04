@@ -1,7 +1,7 @@
 role: environment-engineer
 model: strong
 prompt: roles/environment-engineer.md
-tools: [repo.read, repo.write, git.read, git.commit, run.tests, assumption.record]
+tools: [repo.read, repo.write, git.read, git.commit, run.tests, assumption.record, kb.search, notes.write]
 write_paths: [".forecrew/environments/**"]
 produces: [environments]
 output_schema: schemas/environments.json

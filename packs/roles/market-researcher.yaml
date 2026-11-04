@@ -1,7 +1,7 @@
 role: market-researcher
 model: strong
 prompt: roles/market-researcher.md
-tools: [repo.read, git.read, assumption.record]
+tools: [repo.read, git.read, assumption.record, kb.search]
 write_paths: []
 produces: [council-contribution, market-research]
 output_schema: schemas/council-proposal.json

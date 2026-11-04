@@ -13,6 +13,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/roles"
+	"github.com/forecrew/forecrew/internal/runtime"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -306,6 +307,22 @@ func TestJobCreatorKnowledgeExcludes(t *testing.T) {
 		must(t, err)
 		if !slices.Equal(j.Spec.WritePaths, want) && len(j.Spec.WritePaths)+len(want) != 0 {
 			t.Errorf("%s: write_paths = %v, want %v", role, j.Spec.WritePaths, want)
+		}
+	}
+}
+
+// The shipped roles reach the knowledge tools of the job MCP gateway through
+// the real catalog: developers search and write notes, the curator only searches.
+func TestJobCreatorRolesGetKnowledgeTools(t *testing.T) {
+	f := newFixture(t)
+	search, notes := runtime.JobMCPTool("kb_search"), runtime.JobMCPTool("notes_write")
+	for role, wantNotes := range map[string]bool{"developer": true, "reviewer": true, "knowledge-curator": false} {
+		id, err := f.creator.Create(t.Context(), f.request(role))
+		must(t, err)
+		j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+		must(t, err)
+		if !slices.Contains(j.Spec.AllowedTools, search) || slices.Contains(j.Spec.AllowedTools, notes) != wantNotes {
+			t.Errorf("%s: allowed tools = %v", role, j.Spec.AllowedTools)
 		}
 	}
 }
