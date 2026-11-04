@@ -629,6 +629,17 @@ func TestWorkflowMessageIsBounded(t *testing.T) {
 	}
 }
 
+func TestRootMarkerIsNotAnArtifact(t *testing.T) {
+	e := newEnv(t)
+	j := e.newJob()
+	e.finishesWith(j, "success", map[string]string{ResultFile: resultJSON(0), RootMarker: "", "reports/a.xml": `<testsuite><testcase name="a"/></testsuite>`})
+	e.poll()
+	arts, _ := e.st.Artifacts().ListByJob(t.Context(), e.account.ID, j.ID)
+	if len(arts) != 1 || arts[0].Name != "reports/a.xml" {
+		t.Errorf("artifacts = %+v", arts)
+	}
+}
+
 // Accounts take turns for the slots.
 func TestAccountsShareTheSlots(t *testing.T) {
 	e := newEnv(t, func(c *Config) { c.MaxInFlight = 2 })

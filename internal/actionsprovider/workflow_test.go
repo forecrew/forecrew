@@ -186,6 +186,9 @@ func TestTemplateRunStep(t *testing.T) {
 	if !strings.Contains(out, "exit_code=3") {
 		t.Errorf("output = %q", out)
 	}
+	if _, err := os.Stat(filepath.Join(d, actionsprovider.RootMarker)); err != nil {
+		t.Errorf("the root marker is not written: %v", err)
+	}
 }
 
 func TestTemplateRunStepSetupFailure(t *testing.T) {
@@ -204,5 +207,18 @@ func TestTemplateRunStepShellAndWorkdir(t *testing.T) {
 	d, _ = runStep(t, `{"shell":"echo hi > hi.txt"}`)
 	if res := readResult(t, d); res["phase"] != "command" || res["exit_code"] != float64(0) {
 		t.Errorf("result = %v", res)
+	}
+}
+
+// The upload keeps the artifact rooted at the workspace: the marker file is
+// at the root and listed first, next to the result and the user's globs.
+func TestTemplateUploadRoot(t *testing.T) {
+	up := templateStep(t, "upload")
+	lines := strings.Split(strings.TrimSpace(up.With["path"]), "\n")
+	if len(lines) < 2 || lines[0] != actionsprovider.RootMarker || lines[1] != actionsprovider.ResultFile {
+		t.Errorf("upload paths = %q", lines)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(up.With["name"]), "${{ inputs.job_id }}") || !strings.HasPrefix(up.With["name"], actionsprovider.ArtifactPrefix) {
+		t.Errorf("artifact name = %q", up.With["name"])
 	}
 }

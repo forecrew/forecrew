@@ -23,6 +23,12 @@ const (
 	// ResultFile is the file in the run's artifact that says how the
 	// command went.
 	ResultFile = "forecrew-out/result.json"
+	// RootMarker is an empty file the workflow uploads next to the results.
+	// It sits at the workspace root, which pins the root of the artifact
+	// there (upload-artifact roots a multi-path upload at the least common
+	// ancestor of its paths), so every name in it is relative to the
+	// workspace whatever the reports and artifact globs are.
+	RootMarker = "forecrew-root.txt"
 )
 
 // Template returns the workflow to install, from the packs in files.
