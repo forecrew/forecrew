@@ -1,0 +1,274 @@
+# Permissions and roles
+
+What each person, team and service account may do (plan decision 26). The
+catalog and the built-in roles are code in `internal/domain`
+(`permission.go`: `domain.Permissions`, `domain.BuiltInRoles`,
+`domain.GatePermission`, `domain.ScopesAllow`); this file describes them, and
+a test keeps the seeded `roles` rows equal to `domain.BuiltInRoles`. The
+model (organizations, members, teams, bindings, tokens) is in
+[identity.md](identity.md). The authorization engine that enforces it is
+T53's `internal/authz`.
+
+## Rules
+
+- A **permission** is one action. A **role** is a set of permissions; a
+  **role binding** gives a role to a user, a team or a service account on
+  the organization or on one project.
+- **Effective permissions** of a subject on a project are the union of the
+  permissions of every binding that applies: its own bindings and, for a
+  user, those of every team it is in; on the organization and on that
+  project. There are no deny rules. Only active members, enabled users and
+  enabled service accounts have any.
+- Each permission is either **organization-wide** (only an organization
+  binding grants it) or **project-scoped** (an organization binding grants
+  it on every project, a project binding on that project).
+- An **organization role** is bound on the organization only. A **project
+  role** is bound on one project, or on the organization, where it applies
+  to every project. Project roles hold project-scoped permissions only.
+- **No escalation:** nobody gives a permission they lack, or acts on someone
+  who holds more than they do; see [No escalation](#no-escalation).
+- **Gates:** resolving a gate (`approve`, `request_changes` or `reject`,
+  from any entry point) needs `domain.GatePermission` of its kind on its
+  project. Agents never resolve gates.
+- **Lists** without a project filter return only the rows of the projects
+  where the caller has the list's permission.
+
+## No escalation
+
+Each of these needs the permission named and **every permission of the roles
+concerned, at their scope**. T53 checks them at every entry point; a
+repository does not.
+
+- **Granting or removing a role** (a binding, an invitation, JIT default
+  roles): `member.manage`, `team.manage` or `service_account.manage` for the
+  subject, `project.manage` for a project binding.
+- **Acting on a member who holds a role** (suspending, removing, changing
+  their roles): `member.manage`. The roles concerned are all those the member
+  holds, directly or through a team. So only an Owner acts on an Owner, and
+  an Admin, who lacks `billing.manage`, does not act on a Billing member.
+  The same goes for a service account that holds a role
+  (`service_account.manage`).
+- **Adding a member to a team:** `team.manage`. The roles concerned are the
+  team's, on the organization and on every project. Removing a member from a
+  team needs `team.manage` only.
+- **Group mappings:** `connection.manage`. The roles concerned are those of
+  the mapped team, because everyone in the group joins it at sign-in.
+- **Changing what a connection trusts** (its `issuer`, `client_id` or
+  `group_claim`): `connection.manage`. The roles concerned are the
+  connection's JIT default roles and those of the teams it is mapped to,
+  because the new provider decides who gets them.
+- **Creating a SCIM token:** `connection.manage`. The roles concerned are
+  those of every team with source `scim` and of every member with source
+  `scim`, because the token adds members to those teams and suspends those
+  members. A SCIM token acts on nothing else (identity.md, SCIM).
+- **Creating a token:** a token is limited to its owner's permissions, and
+  creating one for a service account (`token.manage`) concerns the roles of
+  that service account.
+
+Whoever later binds a role to a team that is mapped or has source `scim`
+grants it to the identity provider as well; the first rule applies to them.
+An ownerless token counts as holding every permission its scopes allow (see
+Scopes). The server-side commands are outside these rules (see What every
+entry point needs).
+
+## Scopes
+
+Tokens and OAuth grants carry scopes, an upper bound on top of the owner's
+current permissions: a request may use a permission when the owner has it
+**and** one of the scopes includes the permission's scope class
+(`domain.ScopesAllow`). Scopes are ordered: `admin` includes `write`,
+`write` includes `read`.
+
+| Scope | Allows |
+|-------|--------|
+| `read` | permissions of class read: reading projects, goals, jobs, gates, workers, the organization and the audit log |
+| `write` | also class write: creating goals, dispatching and canceling jobs, resolving gates, proposing knowledge, deciding proposals, onboarding projects |
+| `admin` | also class admin: every `*.manage` permission |
+
+An **ownerless token** has no owner's permissions to meet, so it is limited
+only by its scopes (`admin` on the rows from before migration 00005), in its
+organization, and acts as `mcp:<name>`. This is a migration state, not a
+feature: see identity.md, Tokens.
+
+## Catalog
+
+| Permission | Class | Granted on | Allows |
+|------------|-------|------------|--------|
+| `org.read` | read | organization | see the organization, its members, teams, roles and service accounts |
+| `org.manage` | admin | organization | rename the organization, change its slug and `max_token_ttl`, grant and remove the Owner role |
+| `billing.manage` | admin | organization | billing and plans (S.3) |
+| `member.manage` | admin | organization | invite, suspend and remove members, change their organization role bindings, within [No escalation](#no-escalation) |
+| `team.manage` | admin | organization | create, rename and delete teams, change their members and their bindings, within [No escalation](#no-escalation) |
+| `role.manage` | admin | organization | create, edit and delete custom roles (enterprise) |
+| `service_account.manage` | admin | organization | create, edit and disable service accounts and change their bindings |
+| `connection.manage` | admin | organization | sign-in connections, group mappings, verified domains, SSO enforcement, SCIM tokens, within [No escalation](#no-escalation) |
+| `token.manage` | admin | organization | create service account tokens; list and revoke other people's tokens |
+| `audit.read` | read | organization | read the audit log |
+| `worker.read` | read | organization | list workers |
+| `worker.manage` | admin | organization | add, move and revoke workers |
+| `pool.manage` | admin | organization | worker pools |
+| `project.create` | write | organization | onboard a repo as a project |
+| `project.read` | read | project | a project, its profile, councils, assumptions, decisions, knowledge and improvement proposals |
+| `project.manage` | admin | project | project settings and project role bindings |
+| `goal.create` | write | project | create goals and report bugs |
+| `goal.read` | read | project | goals, specs, tasks and changes |
+| `job.read` | read | project | jobs, their logs, test runs and artifacts |
+| `job.dispatch` | write | project | dispatch an ad-hoc job |
+| `job.cancel` | write | project | cancel a job |
+| `gate.read` | read | project | pending gates |
+| `council.start` | write | project | start a council, add a constraint to one |
+| `assumption.resolve` | write | project | resolve an assumption |
+| `knowledge.propose` | write | project | propose a knowledge change |
+| `proposal.decide` | write | project | accept, reject or snooze an improvement proposal |
+| `gate.approve.profile` | write | project | resolve `profile_approval` gates |
+| `gate.approve.spec` | write | project | resolve `spec_approval` gates |
+| `gate.approve.test_plan` | write | project | resolve `test_plan_approval` gates |
+| `gate.approve.merge` | write | project | resolve `merge_approval` gates |
+| `gate.approve.council` | write | project | resolve `council_decision` gates |
+| `gate.approve.assumption` | write | project | resolve `assumption_review` gates |
+| `gate.approve.knowledge` | write | project | resolve `knowledge_proposal` gates of sections that are not protected |
+| `gate.approve.knowledge_protected` | write | project | resolve `knowledge_proposal` gates of protected sections |
+| `gate.approve.access_request` | write | project | resolve `access_request` gates |
+| `gate.approve.improvement` | write | project | resolve `improvement_proposal` gates |
+| `gate.approve.needs_you` | write | project | resolve `needs_you` gates, playbook escalations and `ask_human` questions alike |
+
+## Built-in roles
+
+Organization roles: **Owner** (`owner`, everything), **Admin** (`admin`,
+everything but `org.manage` and `billing.manage`), **Billing** (`billing`),
+**Member** (`member`: reads every project, creates goals, proposes
+knowledge) and **Viewer** (`viewer`: reads every project). Project roles:
+**Project admin** (`project_admin`: every project-scoped permission),
+**Maintainer** (`maintainer`: runs the project and resolves every gate,
+without `project.manage`), **Contributor** (`contributor`: creates goals and
+jobs, starts councils, resolves spec, council, assumption, non-protected
+knowledge and `needs_you` gates, but not merges, profiles, test plans,
+protected knowledge, access requests or improvement proposals) and
+**Viewer** (`viewer`: reads the project).
+
+| Permission | Owner | Admin | Billing | Member | Viewer | Project admin | Maintainer | Contributor | Project viewer |
+|------------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| `assumption.resolve` | x | x |  |  |  | x | x |  |  |
+| `audit.read` | x | x |  |  |  |  |  |  |  |
+| `billing.manage` | x |  | x |  |  |  |  |  |  |
+| `connection.manage` | x | x |  |  |  |  |  |  |  |
+| `council.start` | x | x |  |  |  | x | x | x |  |
+| `gate.approve.access_request` | x | x |  |  |  | x | x |  |  |
+| `gate.approve.assumption` | x | x |  |  |  | x | x | x |  |
+| `gate.approve.council` | x | x |  |  |  | x | x | x |  |
+| `gate.approve.improvement` | x | x |  |  |  | x | x |  |  |
+| `gate.approve.knowledge` | x | x |  |  |  | x | x | x |  |
+| `gate.approve.knowledge_protected` | x | x |  |  |  | x | x |  |  |
+| `gate.approve.merge` | x | x |  |  |  | x | x |  |  |
+| `gate.approve.needs_you` | x | x |  |  |  | x | x | x |  |
+| `gate.approve.profile` | x | x |  |  |  | x | x |  |  |
+| `gate.approve.spec` | x | x |  |  |  | x | x | x |  |
+| `gate.approve.test_plan` | x | x |  |  |  | x | x |  |  |
+| `gate.read` | x | x |  | x | x | x | x | x | x |
+| `goal.create` | x | x |  | x |  | x | x | x |  |
+| `goal.read` | x | x |  | x | x | x | x | x | x |
+| `job.cancel` | x | x |  |  |  | x | x | x |  |
+| `job.dispatch` | x | x |  |  |  | x | x | x |  |
+| `job.read` | x | x |  | x | x | x | x | x | x |
+| `knowledge.propose` | x | x |  | x |  | x | x | x |  |
+| `member.manage` | x | x |  |  |  |  |  |  |  |
+| `org.manage` | x |  |  |  |  |  |  |  |  |
+| `org.read` | x | x | x | x | x |  |  |  |  |
+| `pool.manage` | x | x |  |  |  |  |  |  |  |
+| `project.create` | x | x |  |  |  |  |  |  |  |
+| `project.manage` | x | x |  |  |  | x |  |  |  |
+| `project.read` | x | x |  | x | x | x | x | x | x |
+| `proposal.decide` | x | x |  |  |  | x | x |  |  |
+| `role.manage` | x | x |  |  |  |  |  |  |  |
+| `service_account.manage` | x | x |  |  |  |  |  |  |  |
+| `team.manage` | x | x |  |  |  |  |  |  |  |
+| `token.manage` | x | x |  |  |  |  |  |  |  |
+| `worker.manage` | x | x |  |  |  |  |  |  |  |
+| `worker.read` | x | x |  | x | x |  |  |  |  |
+
+Built-in roles are the same in every organization and change only with a
+migration (and this table). Custom roles (enterprise, `role.manage`) are
+validated by `domain.Role.Validate`: permissions from the catalog only, and
+project-scoped ones only in a project role.
+
+## What every entry point needs
+
+Every `/api/v1` route (`api.RouteAccess`) and every MCP tool
+(`mcp.ToolAccess`) has one entry; tests fail when a route or a tool has
+none. "Signed in" means any active member, service account or token of the
+organization, with no permission; "own" means the caller's own records need
+no permission and other people's need the one named; "the gate's" means
+`domain.GatePermission` of the gate's kind on its project.
+
+| MCP tool | REST route | Needs |
+|----------|------------|-------|
+| | `POST /api/v1/session`, `DELETE /api/v1/session` | public |
+| | `GET /api/v1/me` | signed in |
+| `onboard_project` | `POST /api/v1/projects` | `project.create` |
+| `list_projects` | `GET /api/v1/projects` | `project.read` |
+| `get_project` | `GET /api/v1/projects/{project...}` | `project.read` |
+| `create_goal` | `POST /api/v1/goals` | `goal.create` |
+| `list_goals` | `GET /api/v1/goals` | `goal.read` |
+| `get_goal` | `GET /api/v1/goals/{goal}` | `goal.read` |
+| `dispatch_job` | `POST /api/v1/jobs` | `job.dispatch` |
+| `list_jobs` | `GET /api/v1/jobs` | `job.read` |
+| `job_status` | `GET /api/v1/jobs/{job}` | `job.read` |
+| `job_logs` | `GET /api/v1/jobs/{job}/logs` | `job.read` |
+| `cancel_job` | `POST /api/v1/jobs/{job}/cancel` | `job.cancel` |
+| `list_artifacts` | `GET /api/v1/jobs/{job}/artifacts` | `job.read` |
+| | `GET /api/v1/artifacts/{id}` | `job.read` on the artifact's job's project |
+| `list_test_runs` | `GET /api/v1/test-runs` | `job.read` |
+| `list_assumptions` | `GET /api/v1/assumptions` | `project.read` |
+| `resolve_assumption` | `POST /api/v1/assumptions/{assumption}/resolve` | `assumption.resolve` |
+| `list_decisions` | `GET /api/v1/decisions` | `project.read` |
+| `list_workers` | `GET /api/v1/workers` | `worker.read` |
+| `list_pending_gates` | `GET /api/v1/gates` | `gate.read`; each gate says whether the caller may resolve it |
+| `approve` | `POST /api/v1/gates/{gate}/approve` | the gate's |
+| `request_changes` | `POST /api/v1/gates/{gate}/request-changes` | the gate's |
+| `reject` | `POST /api/v1/gates/{gate}/reject` | the gate's |
+| `list_tokens` | `GET /api/v1/tokens` | own; `token.manage` for everyone's |
+| `revoke_token` | `POST /api/v1/tokens/{token}/revoke` | own; `token.manage` for another's |
+
+**GitHub commands** (`@forecrew` in issues and PRs) run as the user whose
+linked GitHub identity wrote the comment: `approve` and `changes` need the
+gate's permission, `status` needs `gate.read`. Without a linked user with
+the permission the command is refused with a reply.
+
+**The CLI** reaches the server through `/api/v1`, so a remote command needs
+what its route needs. The server-side commands (`forecrew migrate`,
+`config`, `token create|list|revoke`, `worker add|move|revoke` and T52's
+break-glass `user`, `org` and `session` commands) work on the database
+directly with the operator's server access and no permission; they are
+audited as `user:<operator>`.
+
+**Planned tools** ([mcp.md](../mcp.md#planned-tools)) need, when their task
+builds them: `start_council` and council constraints `council.start`;
+`get_council`, `search_knowledge` and `list_proposals` `project.read`;
+`propose_knowledge` `knowledge.propose` (and, for a protected section the
+caller approves, `gate.approve.knowledge_protected`); `report_bug`
+`goal.create`; `decide_proposal` `proposal.decide`.
+
+### Adding a tool or a route
+
+A task that adds an MCP tool or an `/api/v1` route adds its entry to
+`mcp.ToolAccess` or `api.RouteAccess` and to the table above, with an
+existing permission where one fits. A new permission goes into the catalog
+(`domain`, this file), and into the built-in roles that should have it with a
+migration that updates their `roles` rows; that is a contract change the
+task must name.
+
+## The job MCP gateway
+
+The job MCP gateway at `/job-mcp` ([job-mcp.md](job-mcp.md)) is not part of
+this catalog. It is authenticated by job tokens bound to one lease, not by
+people: a call is limited by the role's `tools`, the lease and the job's
+project, and audited as the job. Job tokens carry no permissions here, and
+human tokens are refused there. An `ask_human` question it opens is a
+`needs_you` gate that people resolve with `gate.approve.needs_you`.
+
+## Names for a policy engine
+
+Actions and resources are named like Cedar entities so a policy engine can
+take over attribute rules later (4.7): `Action::"gate.approve.merge"`,
+`Organization::"<id>"`, `Project::"<id>"`, `User::"<id>"`, `Team::"<id>"`,
+`ServiceAccount::"<id>"`. T53 documents the evaluator interface here.

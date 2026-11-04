@@ -1,6 +1,6 @@
 # Data model
 
-Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team). Each table maps to a
+Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access). Each table maps to a
 type in `internal/domain` and a repository in `store.Store`; JSON names in
 `domain` equal the column names. The DDL below is the contract; T02 may add
 indexes but not change columns, types or constraints without a contract
@@ -24,7 +24,14 @@ change.
 - Human refs: entities with a `number` get it from `ref_counters` in the same
   transaction as the insert, per account and kind, starting at 1.
 - Foreign keys use the default `ON DELETE NO ACTION`; nothing is deleted
-  except expired `webhook_deliveries` and, by retention, `artifacts`.
+  except expired `webhook_deliveries`, by retention `artifacts`, expired
+  `sessions` and `oauth_grants`, unused `oauth_clients`, and the
+  membership rows that removing a member, a team or a binding deletes
+  (identity.md).
+- `accounts` are organizations (identity.md): storage keeps `account` and
+  `account_id`, the API, UI, CLI and docs say organization. Users,
+  identities, OAuth clients and grants and sessions are global; every other
+  identity table has `account_id`.
 - `jobs.pool` and `workers.pool` hold pool names from config.md `pools`
   (no CHECK: pools are configuration); empty is stored as `build`.
 - `audit_log` is append-only: triggers reject `UPDATE`, `DELETE` and `TRUNCATE`.
@@ -41,11 +48,17 @@ change.
 ## Tables
 
 ```sql
+-- An organization (identity.md).
 CREATE TABLE accounts (
   id         uuid PRIMARY KEY DEFAULT uuidv7(),
   name       text NOT NULL,
+  slug       text NOT NULL UNIQUE CHECK (slug ~ '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'),  -- domain.ValidSlug
+  created_by text,                          -- domain.Actor.String(); NULL for the one created at install
+  max_token_ttl interval CHECK (max_token_ttl > interval '0'),  -- token cap under SSO enforcement (identity.md); NULL: no cap
   created_at timestamptz NOT NULL DEFAULT now()
 );
+-- Migration 00005 gave existing accounts domain.Slugify(name), oldest first,
+-- with the first free -2, -3, ... on a clash.
 
 -- Next human ref number per account and kind (domain.RefKinds).
 CREATE TABLE ref_counters (
@@ -319,22 +332,36 @@ CREATE TABLE webhook_deliveries (
 );
 CREATE INDEX webhook_deliveries_received ON webhook_deliveries (received_at);
 
+-- Personal and service account tokens (identity.md). Tokens from before
+-- migration 00005 have no owner and scope admin until T52 assigns them to
+-- the first Owner.
 CREATE TABLE mcp_tokens (
   id           uuid PRIMARY KEY DEFAULT uuidv7(),
-  account_id   uuid NOT NULL REFERENCES accounts(id),
+  account_id   uuid NOT NULL REFERENCES accounts(id),   -- the organization
   name         text NOT NULL,
   token_hash   bytea NOT NULL UNIQUE,       -- SHA-256 of the token
+  owner_kind   text CHECK (owner_kind IN ('user','service_account')),
+  owner_id     uuid,                        -- users.id or service_accounts.id
+  scopes       text[] NOT NULL CHECK (cardinality(scopes) > 0 AND scopes <@ ARRAY['read','write','admin']),
+  expires_at   timestamptz,                 -- NULL only on tokens from before 00005
   last_used_at timestamptz,
   revoked_at   timestamptz,
   created_at   timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (account_id, name)
+  CHECK ((owner_kind IS NULL) = (owner_id IS NULL))
 );
+CREATE UNIQUE INDEX mcp_tokens_owner_name ON mcp_tokens (account_id, owner_kind, owner_id, name) NULLS NOT DISTINCT;
+CREATE INDEX mcp_tokens_owner ON mcp_tokens (owner_kind, owner_id) WHERE owner_id IS NOT NULL;
+-- Trigger mcp_tokens_check_owner (migration 00005): an owner, when set, is a
+-- member or service account of the token's organization (foreign key
+-- violation otherwise, store.ErrNotFound). A later change to the membership
+-- leaves the row alone.
 
 CREATE TABLE audit_log (
   id           uuid PRIMARY KEY DEFAULT uuidv7(),
   account_id   uuid NOT NULL REFERENCES accounts(id),
   project_id   uuid REFERENCES projects(id),
-  actor        text NOT NULL,               -- domain.Actor.String(), e.g. github:octocat
+  actor        text NOT NULL,               -- domain.Actor.String(), e.g. github:octocat, user:<uuid>
+  credential   text,                        -- domain.Credential.String(): session:<id>, token:<id>, oauth_grant:<id>
   action       text NOT NULL,               -- <subject>.<verb>, e.g. gate.resolved
   subject_type text NOT NULL,               -- job, gate, goal, task, project, worker, token, ...
   subject_id   uuid,
@@ -343,6 +370,7 @@ CREATE TABLE audit_log (
 );
 CREATE INDEX audit_log_account ON audit_log (account_id, created_at DESC);
 CREATE INDEX audit_log_subject ON audit_log (account_id, subject_id, created_at DESC) WHERE subject_id IS NOT NULL;
+CREATE INDEX audit_log_actor ON audit_log (account_id, actor, created_at DESC);
 
 CREATE FUNCTION audit_log_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -637,6 +665,374 @@ CREATE TABLE proposals (
 CREATE UNIQUE INDEX proposals_dedupe ON proposals (account_id, project_id, dedupe_key)
   WHERE status IN ('proposed','accepted','snoozed');
 CREATE INDEX proposals_project ON proposals (account_id, project_id, status);
+
+-- Identity and access (migration 00005, identity.md, permissions.md).
+-- projects gets the key the composite foreign keys below need:
+CREATE UNIQUE INDEX projects_account_id ON projects (account_id, id);
+
+CREATE TABLE users (
+  id             uuid PRIMARY KEY DEFAULT uuidv7(),
+  name           text NOT NULL DEFAULT '',
+  email          text,                        -- primary email
+  email_verified boolean NOT NULL DEFAULT false,
+  instance_admin boolean NOT NULL DEFAULT false,
+  disabled_at    timestamptz,
+  last_seen_at   timestamptz,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  CHECK (email IS NOT NULL OR NOT email_verified)
+);
+CREATE UNIQUE INDEX users_verified_email ON users (lower(email)) WHERE email_verified;
+CREATE INDEX users_email ON users (lower(email));
+
+-- account_id NULL: an instance-level connection from forecrew.yaml
+-- (auth.connections), upserted by name at startup. The client secret is
+-- never stored, only where to read it.
+CREATE TABLE connections (
+  id                uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id        uuid REFERENCES accounts(id),
+  kind              text NOT NULL CHECK (kind IN ('github','google','microsoft','oidc')),
+  name              text NOT NULL CHECK (name ~ '^[a-z0-9][a-z0-9._-]{0,63}$'),
+  issuer            text NOT NULL DEFAULT '',
+  client_id         text NOT NULL CHECK (client_id <> ''),
+  client_secret_ref text NOT NULL,            -- connections_secret_ref below
+  jit               jsonb NOT NULL DEFAULT '{"enabled": false, "default_roles": []}'
+                      CHECK (jsonb_typeof(jit->'enabled') = 'boolean' AND jsonb_typeof(jit->'default_roles') = 'array'),
+  group_claim       text NOT NULL DEFAULT '',
+  enabled           boolean NOT NULL DEFAULT true,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE NULLS NOT DISTINCT (account_id, name),
+  -- an organization's connection only reaches the reserved namespace;
+  -- store: is the secret store's form (identity.md, Connections)
+  CONSTRAINT connections_secret_ref CHECK (client_secret_ref !~ '\.\.' AND client_secret_ref ~ CASE WHEN account_id IS NULL
+    THEN '^(env:[A-Z_][A-Z0-9_]{0,127}|secret:[a-z0-9][a-z0-9._/-]{0,127}|store:[a-z0-9][a-z0-9._/-]{0,127})$'
+    ELSE '^(env:FORECREW_CONN_[A-Z0-9_]{1,114}|secret:conn-[a-z0-9._/-]{1,123}|store:[a-z0-9][a-z0-9._/-]{0,127})$' END),
+  CHECK (CASE kind WHEN 'github' THEN issuer = ''
+                   WHEN 'google' THEN issuer IN ('', 'https://accounts.google.com')
+                   ELSE issuer ~ '^https://[^/?#]+' END),
+  CHECK (account_id IS NOT NULL OR (jit->>'enabled' = 'false' AND jit->'default_roles' = '[]'))
+);
+
+CREATE TABLE identities (
+  id            uuid PRIMARY KEY DEFAULT uuidv7(),
+  user_id       uuid NOT NULL REFERENCES users(id),
+  connection_id uuid NOT NULL REFERENCES connections(id),
+  subject       text NOT NULL CHECK (subject <> ''),   -- the provider's stable user ID
+  login         text NOT NULL DEFAULT '',              -- GitHub login or preferred username
+  email         text NOT NULL DEFAULT '',
+  last_used_at  timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (connection_id, subject)
+);
+CREATE INDEX identities_user ON identities (user_id);
+CREATE INDEX identities_login ON identities (connection_id, lower(login)) WHERE login <> '';
+
+CREATE TABLE memberships (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id  uuid NOT NULL REFERENCES accounts(id),
+  user_id     uuid NOT NULL REFERENCES users(id),
+  status      text NOT NULL CHECK (status IN ('active','invited','suspended')),
+  source      text NOT NULL CHECK (source IN ('manual','invitation','jit','scim')),
+  external_id text,                                    -- SCIM externalId
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, user_id)
+);
+CREATE UNIQUE INDEX memberships_external ON memberships (account_id, external_id) WHERE external_id IS NOT NULL;
+CREATE INDEX memberships_user ON memberships (user_id);
+
+CREATE TABLE invitations (
+  id           uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id   uuid NOT NULL REFERENCES accounts(id),
+  email        text,
+  github_login text,
+  roles        jsonb NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(roles) = 'array'),  -- [domain.Grant]
+  token_hash   bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
+  expires_at   timestamptz NOT NULL,
+  invited_by   text NOT NULL,                          -- domain.Actor.String()
+  accepted_by  uuid REFERENCES users(id),
+  accepted_at  timestamptz,
+  revoked_at   timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  CHECK ((email IS NULL) <> (github_login IS NULL)),
+  CHECK ((accepted_by IS NULL) = (accepted_at IS NULL))
+);
+CREATE INDEX invitations_account ON invitations (account_id, created_at);
+
+CREATE TABLE teams (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id  uuid NOT NULL REFERENCES accounts(id),
+  name        text NOT NULL,
+  slug        text NOT NULL CHECK (slug ~ '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'),
+  source      text NOT NULL CHECK (source IN ('manual','idp','scim')),
+  external_id text,                                    -- SCIM group externalId
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, slug),
+  UNIQUE (account_id, id)
+);
+CREATE UNIQUE INDEX teams_external ON teams (account_id, external_id) WHERE external_id IS NOT NULL;
+
+-- A team member must be a member of the team's organization.
+CREATE TABLE team_members (
+  team_id    uuid NOT NULL,
+  user_id    uuid NOT NULL,
+  account_id uuid NOT NULL,
+  source     text NOT NULL CHECK (source IN ('manual','idp','scim')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (team_id, user_id),
+  FOREIGN KEY (account_id, team_id) REFERENCES teams (account_id, id),
+  FOREIGN KEY (account_id, user_id) REFERENCES memberships (account_id, user_id)
+);
+CREATE INDEX team_members_user ON team_members (account_id, user_id);
+
+CREATE TABLE service_accounts (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id  uuid NOT NULL REFERENCES accounts(id),
+  name        text NOT NULL CHECK (name ~ '^[a-z0-9][a-z0-9._-]{0,63}$'),
+  description text NOT NULL DEFAULT '',
+  created_by  text NOT NULL,
+  disabled_at timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, name)
+);
+
+-- account_id NULL: a built-in role, the same in every organization and
+-- equal to domain.BuiltInRoles(). Built-in rows change only by migration,
+-- which disables the trigger roles_built_in_fixed around the change.
+CREATE TABLE roles (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id  uuid REFERENCES accounts(id),
+  name        text NOT NULL CHECK (name ~ '^[a-z0-9][a-z0-9._-]{0,63}$'),
+  description text NOT NULL DEFAULT '',
+  scope       text NOT NULL CHECK (scope IN ('organization','project')),
+  permissions text[] NOT NULL CHECK (cardinality(permissions) > 0),  -- domain.Permissions(), sorted
+  built_in    boolean NOT NULL,
+  custom      boolean NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE NULLS NOT DISTINCT (account_id, scope, name),
+  CHECK (built_in <> custom),
+  CHECK (built_in = (account_id IS NULL))
+);
+-- Migration 00005 seeds the built-in roles of domain.BuiltInRoles()
+-- (permissions.md, Built-in roles): owner, admin, billing, member, viewer
+-- (scope organization); project_admin, maintainer, contributor, viewer
+-- (scope project).
+CREATE FUNCTION roles_built_in_fixed() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF (TG_OP = 'INSERT' AND NEW.built_in) OR (TG_OP <> 'INSERT' AND OLD.built_in) THEN
+    RAISE EXCEPTION 'built-in roles change only by migration' USING ERRCODE = 'check_violation', CONSTRAINT = 'roles_built_in_fixed';
+  END IF;
+  RETURN CASE TG_OP WHEN 'DELETE' THEN OLD ELSE NEW END;
+END $$;
+CREATE TRIGGER roles_built_in_fixed BEFORE INSERT OR UPDATE OR DELETE ON roles
+  FOR EACH ROW EXECUTE FUNCTION roles_built_in_fixed();
+
+-- project_id NULL: organization scope.
+CREATE TABLE role_bindings (
+  id           uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id   uuid NOT NULL REFERENCES accounts(id),
+  subject_kind text NOT NULL CHECK (subject_kind IN ('user','team','service_account')),
+  subject_id   uuid NOT NULL,
+  role_id      uuid NOT NULL REFERENCES roles(id),
+  project_id   uuid,
+  created_by   text NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (account_id, project_id) REFERENCES projects (account_id, id),
+  UNIQUE NULLS NOT DISTINCT (account_id, subject_kind, subject_id, role_id, project_id)
+);
+CREATE INDEX role_bindings_subject ON role_bindings (account_id, subject_kind, subject_id);
+CREATE INDEX role_bindings_role ON role_bindings (role_id);
+
+-- The role of a binding is built in or of the binding's organization, an
+-- organization role is bound to the organization only, the Owner role only
+-- to users, and the subject exists in the organization.
+CREATE FUNCTION role_bindings_check() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  r roles%ROWTYPE;
+  found_subject boolean;
+BEGIN
+  SELECT * INTO r FROM roles WHERE id = NEW.role_id;
+  IF NOT r.built_in AND r.account_id <> NEW.account_id THEN
+    RAISE EXCEPTION 'role % belongs to another organization', r.name USING ERRCODE = 'foreign_key_violation', CONSTRAINT = 'role_bindings_role';
+  END IF;
+  IF r.scope = 'organization' AND NEW.project_id IS NOT NULL THEN
+    RAISE EXCEPTION 'organization role % cannot be bound to a project', r.name USING ERRCODE = 'check_violation', CONSTRAINT = 'role_bindings_scope';
+  END IF;
+  IF r.built_in AND r.scope = 'organization' AND r.name = 'owner' AND NEW.subject_kind <> 'user' THEN
+    RAISE EXCEPTION 'the owner role is only for users' USING ERRCODE = 'check_violation', CONSTRAINT = 'role_bindings_owner';
+  END IF;
+  found_subject := CASE NEW.subject_kind
+      WHEN 'user' THEN EXISTS (SELECT 1 FROM memberships WHERE account_id = NEW.account_id AND user_id = NEW.subject_id)
+      WHEN 'team' THEN EXISTS (SELECT 1 FROM teams WHERE account_id = NEW.account_id AND id = NEW.subject_id)
+      ELSE EXISTS (SELECT 1 FROM service_accounts WHERE account_id = NEW.account_id AND id = NEW.subject_id) END;
+  IF NOT found_subject THEN
+    RAISE EXCEPTION '% % is not in the organization', NEW.subject_kind, NEW.subject_id USING ERRCODE = 'foreign_key_violation', CONSTRAINT = 'role_bindings_subject';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER role_bindings_check BEFORE INSERT OR UPDATE ON role_bindings
+  FOR EACH ROW EXECUTE FUNCTION role_bindings_check();
+
+-- An organization that has an active Owner keeps one: a user with an
+-- active membership, not disabled, bound to the built-in owner role on the
+-- organization. Removing or demoting the last one, suspending or removing
+-- their membership, or disabling the user fails with check_violation on
+-- constraint last_owner (store.ErrLastOwner). The organization row is
+-- locked (FOR NO KEY UPDATE) so concurrent changes are checked one after
+-- the other; this relies on READ COMMITTED, the store's isolation level.
+CREATE FUNCTION is_active_owner(acc uuid, usr uuid) RETURNS boolean LANGUAGE sql STABLE AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM role_bindings b
+    JOIN roles r ON r.id = b.role_id AND r.built_in AND r.scope = 'organization' AND r.name = 'owner'
+    JOIN memberships m ON m.account_id = b.account_id AND m.user_id = b.subject_id AND m.status = 'active'
+    JOIN users u ON u.id = b.subject_id AND u.disabled_at IS NULL
+    WHERE b.account_id = acc AND b.subject_kind = 'user' AND b.project_id IS NULL
+      AND (usr IS NULL OR b.subject_id = usr))
+$$;
+CREATE FUNCTION keep_an_owner(acc uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM 1 FROM accounts WHERE id = acc FOR NO KEY UPDATE;
+  IF NOT is_active_owner(acc, NULL) THEN
+    RAISE EXCEPTION 'organization % must keep an active owner', acc USING ERRCODE = 'check_violation', CONSTRAINT = 'last_owner';
+  END IF;
+END $$;
+CREATE FUNCTION role_bindings_keep_owner() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.subject_kind = 'user' AND OLD.project_id IS NULL
+     AND EXISTS (SELECT 1 FROM roles WHERE id = OLD.role_id AND built_in AND scope = 'organization' AND name = 'owner')
+     AND EXISTS (SELECT 1 FROM memberships WHERE account_id = OLD.account_id AND user_id = OLD.subject_id AND status = 'active')
+     AND EXISTS (SELECT 1 FROM users WHERE id = OLD.subject_id AND disabled_at IS NULL) THEN
+    PERFORM keep_an_owner(OLD.account_id);
+  END IF;
+  RETURN NULL;
+END $$;
+CREATE TRIGGER role_bindings_keep_owner AFTER UPDATE OR DELETE ON role_bindings
+  FOR EACH ROW EXECUTE FUNCTION role_bindings_keep_owner();
+CREATE FUNCTION memberships_keep_owner() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD.status = 'active' AND (TG_OP = 'DELETE' OR NEW.status <> 'active' OR NEW.user_id <> OLD.user_id OR NEW.account_id <> OLD.account_id)
+     AND EXISTS (SELECT 1 FROM role_bindings b JOIN roles r ON r.id = b.role_id AND r.built_in AND r.scope = 'organization' AND r.name = 'owner'
+                 WHERE b.account_id = OLD.account_id AND b.subject_kind = 'user' AND b.subject_id = OLD.user_id AND b.project_id IS NULL)
+     AND EXISTS (SELECT 1 FROM users WHERE id = OLD.user_id AND disabled_at IS NULL) THEN
+    PERFORM keep_an_owner(OLD.account_id);
+  END IF;
+  RETURN NULL;
+END $$;
+CREATE TRIGGER memberships_keep_owner AFTER UPDATE OR DELETE ON memberships
+  FOR EACH ROW EXECUTE FUNCTION memberships_keep_owner();
+CREATE FUNCTION users_keep_owner() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  acc uuid;
+BEGIN
+  IF OLD.disabled_at IS NULL AND NEW.disabled_at IS NOT NULL THEN
+    FOR acc IN SELECT m.account_id FROM memberships m
+               JOIN role_bindings b ON b.account_id = m.account_id AND b.subject_kind = 'user' AND b.subject_id = m.user_id AND b.project_id IS NULL
+               JOIN roles r ON r.id = b.role_id AND r.built_in AND r.scope = 'organization' AND r.name = 'owner'
+               WHERE m.user_id = OLD.id AND m.status = 'active' LOOP
+      PERFORM keep_an_owner(acc);
+    END LOOP;
+  END IF;
+  RETURN NULL;
+END $$;
+CREATE TRIGGER users_keep_owner AFTER UPDATE OF disabled_at ON users
+  FOR EACH ROW EXECUTE FUNCTION users_keep_owner();
+
+CREATE TABLE group_mappings (
+  id             uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id     uuid NOT NULL REFERENCES accounts(id),
+  connection_id  uuid NOT NULL REFERENCES connections(id),
+  external_group text NOT NULL CHECK (external_group <> ''),
+  team_id        uuid NOT NULL,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (account_id, team_id) REFERENCES teams (account_id, id),
+  UNIQUE (account_id, connection_id, external_group, team_id)
+);
+
+-- Trigger group_mappings_check: the connection is instance-level or of the
+-- mapping's organization (store.ErrNotFound otherwise).
+
+-- A domain can be pending in several organizations but verified in one.
+CREATE TABLE verified_domains (
+  id                 uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id         uuid NOT NULL REFERENCES accounts(id),
+  domain             text NOT NULL CHECK (domain ~ '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$'),
+  verification_token text NOT NULL CHECK (verification_token <> ''),
+  verified_at        timestamptz,
+  enforce_sso        boolean NOT NULL DEFAULT false,
+  connection_id      uuid REFERENCES connections(id),
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, domain),
+  CHECK (NOT enforce_sso OR (verified_at IS NOT NULL AND connection_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX verified_domains_domain ON verified_domains (domain) WHERE verified_at IS NOT NULL;
+
+-- Server-side browser sessions; the cookie holds the token, the row its hash.
+CREATE TABLE sessions (
+  id              uuid PRIMARY KEY DEFAULT uuidv7(),
+  token_hash      bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
+  user_id         uuid NOT NULL REFERENCES users(id),
+  account_id      uuid REFERENCES accounts(id),        -- current organization
+  connection_id   uuid REFERENCES connections(id),     -- NULL: break-glass sign-in
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  last_seen_at    timestamptz NOT NULL DEFAULT now(),
+  idle_expires_at timestamptz NOT NULL,
+  expires_at      timestamptz NOT NULL,
+  user_agent      text NOT NULL DEFAULT '',
+  ip              inet,
+  revoked_at      timestamptz,
+  CHECK (idle_expires_at <= expires_at)
+);
+CREATE INDEX sessions_user ON sessions (user_id) WHERE revoked_at IS NULL;
+
+-- OAuth for MCP clients. Clients are instance-wide; every code, access and
+-- refresh token is a grant row with its hash, in one organization.
+CREATE TABLE oauth_clients (
+  id            uuid PRIMARY KEY DEFAULT uuidv7(),
+  client_id     text NOT NULL UNIQUE CHECK (client_id <> ''),
+  name          text NOT NULL,
+  redirect_uris text[] NOT NULL CHECK (cardinality(redirect_uris) > 0),
+  secret_hash   bytea CHECK (octet_length(secret_hash) = 32),
+  last_used_at  timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE oauth_grants (
+  id             uuid PRIMARY KEY DEFAULT uuidv7(),
+  kind           text NOT NULL CHECK (kind IN ('code','access','refresh')),
+  token_hash     bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
+  family_id      uuid NOT NULL,
+  client_id      uuid NOT NULL REFERENCES oauth_clients(id),
+  user_id        uuid NOT NULL REFERENCES users(id),
+  account_id     uuid NOT NULL REFERENCES accounts(id),
+  scopes         text[] NOT NULL CHECK (cardinality(scopes) > 0 AND scopes <@ ARRAY['read','write','admin']),
+  resource       text NOT NULL CHECK (resource <> ''),
+  redirect_uri   text NOT NULL DEFAULT '',
+  code_challenge text NOT NULL DEFAULT '',
+  expires_at     timestamptz NOT NULL,
+  used_at        timestamptz,
+  revoked_at     timestamptz,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  CHECK (kind <> 'code' OR (redirect_uri <> '' AND code_challenge <> '')),
+  CHECK (kind <> 'access' OR used_at IS NULL)
+);
+CREATE INDEX oauth_grants_family ON oauth_grants (family_id);
+CREATE INDEX oauth_grants_user ON oauth_grants (user_id, account_id) WHERE revoked_at IS NULL;
+
+CREATE TABLE scim_tokens (
+  id           uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id   uuid NOT NULL REFERENCES accounts(id),
+  name         text NOT NULL,
+  token_hash   bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
+  created_by   text NOT NULL,
+  last_used_at timestamptz,
+  revoked_at   timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, name)
+);
 ```
 
 ## Leasing query
@@ -691,7 +1087,7 @@ cap). `RequeueExpired` does not delay the job.
 | WorkflowRun | workflow_runs | `WorkflowRuns()` |
 | StepRun | step_runs | `StepRuns()` |
 | WebhookDelivery | webhook_deliveries | `WebhookDeliveries()` |
-| MCPToken | mcp_tokens | `MCPTokens()` |
+| MCPToken | mcp_tokens | `MCPTokens()`; `store.PersonalTokenRepo` from T52 |
 | AuditEntry | audit_log | `Audit()` |
 | Artifact | artifacts | `store.ArtifactRepo` (added to `Store` by T21) |
 | TestRun, TestResult | test_runs, test_results | `store.TestRunRepo` (added to `Store` by T22) |
@@ -703,4 +1099,18 @@ cap). `RequeueExpired` does not delay the job.
 | KnowledgeEntry, Provenance | knowledge_entries | `store.KnowledgeRepo` (added to `Store` by T36) |
 | KnowledgeProposal | knowledge_proposals | `store.KnowledgeProposalRepo` (added to `Store` by T37) |
 | Proposal | proposals | `store.ProposalRepo` (added to `Store` by T50) |
+| User | users | `store.UserRepo` (added to `Store` by T52) |
+| Identity | identities | `store.IdentityRepo` (T52) |
+| Membership | memberships | `store.MembershipRepo` (T52) |
+| Invitation, Grant | invitations | `store.InvitationRepo` (T52) |
+| Connection, JIT | connections | `store.ConnectionRepo` (T52) |
+| GroupMapping | group_mappings | `store.ConnectionRepo` (T56) |
+| Session | sessions | `store.SessionRepo` (T52) |
+| Team, TeamMember | teams, team_members | `store.TeamRepo` (added to `Store` by T53) |
+| ServiceAccount | service_accounts | `store.ServiceAccountRepo` (T53) |
+| Role | roles | `store.RoleRepo` (T53) |
+| RoleBinding | role_bindings | `store.RoleBindingRepo` (T53) |
+| OAuthClient, OAuthGrant | oauth_clients, oauth_grants | `store.OAuthRepo` (added to `Store` by T55) |
+| VerifiedDomain | verified_domains | `store.VerifiedDomainRepo` (added to `Store` by T56) |
+| SCIMToken | scim_tokens | `store.SCIMTokenRepo` (T56) |
 | (human ref numbers) | ref_counters | used by `Create` |
