@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/forecrew/forecrew/internal/actionsprovider"
 	"io"
 	"uuid"
 
@@ -194,6 +195,9 @@ func newWorkerAdminCommand(env Env) *cobra.Command {
 	var accountFlag, addPool, configPath string
 	add := issueCommand(env, &accountFlag, "add <name>", "Register a worker in a pool; its token is shown once", prefixWorkerToken, "worker",
 		func(ctx context.Context, st store.Store, accountID uuid.UUID, name string, hash []byte) error {
+			if name == actionsprovider.WorkerName {
+				return reservedWorkerError(name)
+			}
 			if err := checkWorkerPool(env, configPath, addPool); err != nil {
 				return err
 			}
@@ -287,6 +291,9 @@ func moveWorker(ctx context.Context, st store.Store, by domain.Actor, nameOrID, 
 		if err != nil {
 			return fmt.Errorf("worker %q does not exist or is revoked", nameOrID)
 		}
+		if w.Name == actionsprovider.WorkerName {
+			return reservedWorkerError(w.Name)
+		}
 		if err := tx.Workers().SetPool(ctx, by.AccountID, w.ID, pool); err != nil {
 			return fmt.Errorf("move worker %s: %w", nameOrID, err)
 		}
@@ -338,4 +345,11 @@ func createError(what, name string, err error) error {
 func printSecret(stdout, stderr io.Writer, secret, what, name string) {
 	fmt.Fprintf(stderr, "Created %s %s. Copy it now: it is not stored and cannot be shown again.\n", what, name)
 	fmt.Fprintln(stdout, secret)
+}
+
+// reservedWorkerError says why the worker of the Actions provider cannot be
+// created or moved by an admin: it holds the leases of pool actions, which
+// only forecrewd serves.
+func reservedWorkerError(name string) error {
+	return fmt.Errorf("worker name %s is reserved for the GitHub Actions provider of forecrewd and cannot be added or moved", name)
 }
