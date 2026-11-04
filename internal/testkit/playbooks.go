@@ -33,7 +33,7 @@ func (p *Playbooks) Start(_ context.Context, playbook string, req workflow.Start
 		return domain.WorkflowRun{}, p.Err
 	}
 	return domain.WorkflowRun{
-		ID: domain.NewID(), AccountID: req.AccountID, ProjectID: req.ProjectID, GoalID: req.GoalID, TaskID: req.TaskID,
+		ID: newID(req.ID), AccountID: req.AccountID, ProjectID: req.ProjectID, GoalID: req.GoalID, TaskID: req.TaskID,
 		Playbook: playbook, Status: domain.RunRunning,
 	}, nil
 }

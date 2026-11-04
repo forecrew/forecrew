@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"strings"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/schema"
@@ -39,4 +40,24 @@ func ParseBrief(data []byte) (domain.CouncilBrief, error) {
 		return domain.CouncilBrief{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	return b, nil
+}
+
+// Undisputed reports whether every member but the devil's advocate, whose
+// seat requires dissent, stands behind the brief's recommendation.
+func Undisputed(b domain.CouncilBrief) bool {
+	seated := func(member string) bool {
+		role, _, _ := strings.Cut(member, "@")
+		return role == DevilsAdvocate
+	}
+	for _, d := range b.Dissent {
+		if !seated(d.Member) {
+			return false
+		}
+	}
+	for _, v := range b.Votes {
+		if v.Option != b.Recommendation && !seated(v.Member) {
+			return false
+		}
+	}
+	return true
 }

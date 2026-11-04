@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/testkit"
 )
 
@@ -49,4 +50,24 @@ func read(t *testing.T, path ...string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestUndisputed(t *testing.T) {
+	advocate := domain.BriefDissent{Member: "devils-advocate@codex", Position: DevilsAdvocateDissent + "No."}
+	tests := []struct {
+		name string
+		b    domain.CouncilBrief
+		want bool
+	}{
+		{"nobody dissents", domain.CouncilBrief{Recommendation: "pg", Votes: []domain.BriefVote{{Member: "ux@codex", Option: "pg"}}}, true},
+		{"the mandated dissent", domain.CouncilBrief{Recommendation: "pg", Dissent: []domain.BriefDissent{advocate},
+			Votes: []domain.BriefVote{{Member: "devils-advocate@codex", Option: "nats"}}}, true},
+		{"a real dissent", domain.CouncilBrief{Recommendation: "pg", Dissent: []domain.BriefDissent{advocate, {Member: "ux@codex", Position: "No."}}}, false},
+		{"a vote against without a dissent", domain.CouncilBrief{Recommendation: "pg", Votes: []domain.BriefVote{{Member: "ux@codex", Option: "nats"}}}, false},
+	}
+	for _, tt := range tests {
+		if got := Undisputed(tt.b); got != tt.want {
+			t.Errorf("%s: Undisputed = %v", tt.name, got)
+		}
+	}
 }

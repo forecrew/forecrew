@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"sync"
@@ -47,6 +48,9 @@ func (c *JobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	}
 	if req.Kind == domain.JobKindCommand {
 		j.Kind, j.Spec.Kind = req.Kind, req.Kind
+	}
+	if req.Council != nil {
+		j.Runtime = cmp.Or(req.Council.Runtime, "claude-code") // a facilitator has no pinned runtime
 	}
 	if err := c.Store.Jobs().Create(ctx, &j); err != nil {
 		return uuid.Nil(), err
