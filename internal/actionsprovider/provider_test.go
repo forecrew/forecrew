@@ -1,14 +1,19 @@
 package actionsprovider
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 )
 
@@ -145,6 +150,43 @@ func TestWorkerRowIsNotAdopted(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A worker row that LeaseNext reads from another pool than the provider
+// expects never gets a job run.
+func TestLeasedJobOfAnotherPoolIsGivenBack(t *testing.T) {
+	e := newEnv(t)
+	j := e.newJob()
+	build := leaseOfPool{Store: e.st, pool: domain.PoolBuild}
+	e.provider = New(Config{Store: build, Jobs: e.jobs, GitHub: e.gh.Client, Logger: slog.New(slog.NewTextHandler(e.logs, nil))})
+	e.poll()
+	if len(e.gh.Dispatches()) != 0 {
+		t.Error("a job of another pool was dispatched")
+	}
+	if !strings.Contains(e.logs.String(), "leased a job of another pool") {
+		t.Errorf("logs: %s", e.logs)
+	}
+	_ = j
+}
+
+// leaseOfPool is a store whose LeaseNext returns the job with another pool,
+// as a store reading a stale worker row would.
+type leaseOfPool struct {
+	store.Store
+	pool string
+}
+
+func (l leaseOfPool) Jobs() store.JobRepo { return leaseRepo{l.Store.Jobs(), l.pool} }
+
+type leaseRepo struct {
+	store.JobRepo
+	pool string
+}
+
+func (l leaseRepo) LeaseNext(ctx context.Context, a, w uuid.UUID, labels []string, d time.Duration) (domain.Job, error) {
+	j, err := l.JobRepo.LeaseNext(ctx, a, w, labels, d)
+	j.Pool = l.pool
+	return j, err
 }
 
 // Failures of the dispatch itself.
@@ -508,5 +550,52 @@ func TestWorkflowMessageIsBounded(t *testing.T) {
 	got := e.job(j)
 	if got.Status != domain.JobFailed || len(got.Error) > maxReason+64 || !strings.Contains(got.Error, "[truncated]") {
 		t.Errorf("job = %s error of %d bytes", got.Status, len(got.Error))
+	}
+}
+
+// Accounts take turns for the slots.
+func TestAccountsShareTheSlots(t *testing.T) {
+	e := newEnv(t, func(c *Config) { c.MaxInFlight = 2 })
+	other := domain.Account{Name: "other"}
+	if err := e.st.Accounts().Create(t.Context(), &other); err != nil {
+		t.Fatal(err)
+	}
+	op := domain.Project{AccountID: other.ID, Name: "app", Repo: "o/app", DefaultBranch: "main", Status: domain.ProjectOnboarded}
+	if err := e.st.Projects().Create(t.Context(), &op); err != nil {
+		t.Fatal(err)
+	}
+	e.newJob()
+	e.newJob()
+	theirs, err := e.jobs.Create(t.Context(), system, domain.Job{AccountID: other.ID, ProjectID: op.ID, Kind: domain.JobKindCommand, Spec: func() domain.JobSpec {
+		s := spec()
+		s.Repo = "o/app"
+		return s
+	}()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, hook := e.inProgress()
+	e.gh.OnDispatch = hook
+	e.provider.Poll(t.Context())
+	waitFor(t, "two dispatches", func() bool { return len(e.gh.Dispatches()) == 2 })
+	if got, _ := e.st.Jobs().Get(t.Context(), other.ID, theirs.ID); got.Status != domain.JobRunning {
+		t.Errorf("the other account's job is %s, want it to hold a slot", got.Status)
+	}
+	for _, a := range []uuid.UUID{e.account.ID, other.ID} {
+		js, _ := e.st.Jobs().List(t.Context(), a, store.JobFilter{})
+		for _, j := range js {
+			_, _ = e.jobs.Cancel(t.Context(), system, a, j.ID)
+		}
+	}
+	e.provider.Wait()
+}
+
+// inProgress returns a hook for a run that stays in progress until moved on,
+// and the count of dispatches it saw.
+func (e *env) inProgress() (*atomic.Int64, func(testkit.Dispatch) *testkit.ActionsRun) {
+	n := new(atomic.Int64)
+	return n, func(testkit.Dispatch) *testkit.ActionsRun {
+		n.Add(1)
+		return &testkit.ActionsRun{HeadSHA: head, Polls: 1 << 20}
 	}
 }
