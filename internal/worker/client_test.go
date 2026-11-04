@@ -94,8 +94,8 @@ func TestClientJobCalls(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"status": "succeeded"})
 		}
 	})
-	if action, exp, err := c.Heartbeat(t.Context(), id); err != nil || action != ActionCancel || exp.Year() != 2026 {
-		t.Errorf("Heartbeat = %q, %v, %v", action, exp, err)
+	if b, err := c.Heartbeat(t.Context(), id, nil); err != nil || b.Action != ActionCancel || b.LeaseExpiresAt.Year() != 2026 {
+		t.Errorf("Heartbeat = %+v, %v", b, err)
 	}
 	if err := c.SendEvents(t.Context(), id, []domain.JobEvent{{Type: domain.EventLog, Text: "hi", Time: time.Now()}}); err != nil {
 		t.Errorf("SendEvents: %v", err)
@@ -129,7 +129,7 @@ func TestClientErrors(t *testing.T) {
 				calls.Add(1)
 				writeErr(w, tt.status, "x", "boom")
 			})
-			_, _, err := c.Heartbeat(t.Context(), uuid.New())
+			_, err := c.Heartbeat(t.Context(), uuid.New(), nil)
 			if err == nil {
 				t.Fatal("Heartbeat error = nil")
 			}

@@ -15,6 +15,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/runtime"
 )
 
 // Errors of the worker API client.
@@ -112,20 +113,41 @@ const (
 	ActionCancel   = "cancel"
 )
 
-// Heartbeat extends the lease of a job and returns the server's action. A
-// canceled job answers ActionCancel with a nil error; ErrLeaseLost means
-// the same. expires is the new end of the lease (zero when the server did not
-// say).
-func (c *Client) Heartbeat(ctx context.Context, jobID uuid.UUID) (action string, expires time.Time, err error) {
-	var resp struct {
-		Action         string    `json:"action"`
-		LeaseExpiresAt time.Time `json:"lease_expires_at"`
-	}
-	if err := c.retry(ctx, 3, jobPath(jobID, "heartbeat"), struct{}{}, &resp); err != nil {
-		return "", time.Time{}, err
-	}
-	return resp.Action, resp.LeaseExpiresAt, nil
+// Beat is the answer to a heartbeat.
+type Beat struct {
+	Action string `json:"action"`
+	// LeaseExpiresAt is the new end of the lease (zero when the server did
+	// not say).
+	LeaseExpiresAt time.Time `json:"lease_expires_at"`
+	// Attach are the files the agent marked as evidence (job MCP
+	// evidence_attach) that the worker has not acknowledged yet.
+	Attach []Attachment `json:"attach"`
 }
+
+// Attachment is a file of the work tree to upload as an artifact.
+type Attachment struct {
+	Path string `json:"path"` // relative to the repo root
+	Name string `json:"name"` // artifact name
+}
+
+// Heartbeat extends the lease of a job and returns the server's answer. A
+// canceled job answers ActionCancel with a nil error; ErrLeaseLost means
+// the same. received acknowledges the attachments the worker holds.
+func (c *Client) Heartbeat(ctx context.Context, jobID uuid.UUID, received []Attachment) (Beat, error) {
+	body := struct {
+		AttachReceived []Attachment `json:"attach_received,omitempty"`
+	}{received}
+	var b Beat
+	if err := c.retry(ctx, 3, jobPath(jobID, "heartbeat"), body, &b); err != nil {
+		return Beat{}, err
+	}
+	return b, nil
+}
+
+// JobMCPURL is the job MCP gateway of the forecrewd this client talks to.
+// Agents use it rather than the public URL in the job spec: a worker next
+// to forecrewd may only reach it at its own server URL.
+func (c *Client) JobMCPURL() string { return c.base + runtime.JobMCPPath }
 
 // SendEvents appends events to the job log.
 func (c *Client) SendEvents(ctx context.Context, jobID uuid.UUID, events []domain.JobEvent) error {
