@@ -12,7 +12,6 @@ import (
 	"maps"
 	"mime"
 	"path"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -35,6 +34,9 @@ type jobRun struct {
 	spec  domain.JobSpec
 	log   *slog.Logger
 	start time.Time
+	// commit is the full SHA the job asked for, "" when it asked for a
+	// branch (the run's own head is the commit then).
+	commit string
 }
 
 // runJob dispatches the workflow for a leased job and follows it to the
@@ -54,6 +56,7 @@ func (p *Provider) runJob(ctx context.Context, w domain.Worker, j domain.Job) {
 		r.fail(ctx, "%v", err)
 		return
 	}
+	r.commit = pl.Commit
 	r.event(ctx, domain.EventStatus, "dispatching")
 	runID, err := p.cfg.GitHub.DispatchWorkflow(ctx, r.spec.Repo, WorkflowFile, pl.Ref, pl.Inputs)
 	switch {
@@ -260,26 +263,38 @@ func (r *jobRun) noResult(ctx context.Context, run github.WorkflowRun, why strin
 	r.fail(ctx, "%s", msg)
 }
 
+// expected is the commit the run had to test: the one the job asked for by
+// SHA, else the head the run was dispatched on. The workflow's own report of
+// the commit is checked against it, never trusted instead of it.
+func (r *jobRun) expected(run github.WorkflowRun) string {
+	if r.commit != "" {
+		return r.commit
+	}
+	return strings.ToLower(run.HeadSHA)
+}
+
 // timedOut ends the job whose run did not finish within limit.
 func (r *jobRun) timedOut(ctx context.Context, run github.WorkflowRun, limit time.Duration) {
 	msg := fmt.Sprintf("the workflow run did not finish within the timeout of %s and was cancelled", limit)
 	res := store.JobResult{Status: domain.JobFailed, Error: msg}
-	if run.HeadSHA != "" {
-		res.HeadSHA = run.HeadSHA
+	if sha := r.expected(run); sha != "" {
+		res.HeadSHA = sha
 		res.TestRuns = []store.TestRunReport{r.erroredReport(msg, -1, 0, nil)}
 	}
 	r.complete(ctx, res)
 }
 
-// errored completes the job as succeeded with one errored test run, the
-// way a worker reports a command that left no usable report.
+// errored completes the job as succeeded with one errored test run on the
+// expected commit, the way a worker reports a command that left no usable
+// report.
 func (r *jobRun) errored(ctx context.Context, run github.WorkflowRun, why string) {
-	if run.HeadSHA == "" {
+	sha := r.expected(run)
+	if sha == "" {
 		r.fail(ctx, "%s", why)
 		return
 	}
 	r.complete(ctx, store.JobResult{
-		Status: domain.JobSucceeded, HeadSHA: run.HeadSHA,
+		Status: domain.JobSucceeded, HeadSHA: sha,
 		TestRuns: []store.TestRunReport{r.erroredReport(why, -1, 0, nil)},
 	})
 }
@@ -307,8 +322,6 @@ const (
 	phaseSetup   = "setup"
 	phaseCommand = "command"
 )
-
-var sha40 = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // result is the forecrew-out/result.json of the artifact, written by the
 // workflow. It is data of the repo's workflow: every field is bounded.
@@ -355,14 +368,16 @@ func (res result) versions() map[string]string {
 // them as artifacts and completes the job.
 func (r *jobRun) report(ctx context.Context, run github.WorkflowRun, res result, files []file) {
 	slices.SortFunc(files, func(a, b file) int { return strings.Compare(a.Name, b.Name) })
-	head := run.HeadSHA
-	if sha40.MatchString(res.HeadSHA) {
-		head = res.HeadSHA
-	}
-	if head == "" {
+	want := r.expected(run)
+	if want == "" {
 		r.fail(ctx, "GitHub did not report the commit the run tested")
 		return
 	}
+	if !strings.EqualFold(res.HeadSHA, want) {
+		r.errored(ctx, run, fmt.Sprintf("the run reports it tested commit %q, not the requested %s", testreport.Clip(res.HeadSHA, 64), want))
+		return
+	}
+	head := want
 	reports := []string{}
 	var c testreport.Collector
 	var limitErr error

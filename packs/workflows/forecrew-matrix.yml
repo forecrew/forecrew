@@ -15,8 +15,9 @@ on:
         required: true
         type: string
       ref:
-        description: Branch, tag or commit to test
-        required: true
+        description: Full commit SHA to test; empty tests the commit the workflow was dispatched on
+        required: false
+        default: ""
         type: string
       overlay_ref:
         description: Ref to take the overlay paths from, if any
@@ -56,6 +57,7 @@ jobs:
     runs-on: ${{ inputs.runs_on }}
     steps:
       - name: Check out
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
@@ -89,6 +91,9 @@ jobs:
         shell: bash
         env:
           PAYLOAD: ${{ inputs.payload }}
+          # The commit the checkout step put in the work tree, read before
+          # any code of the repo runs.
+          HEAD_SHA: ${{ steps.checkout.outputs.commit }}
         run: |
           set -u
           out=forecrew-out
@@ -97,7 +102,7 @@ jobs:
           image() {
             versions_json=${3:-}
             [ -n "$versions_json" ] || versions_json='{}'
-            jq -n --arg phase "$1" --arg head "$(git rev-parse HEAD 2>/dev/null || true)" --argjson code "$2" --argjson ms "$(((SECONDS - started) * 1000))" \
+            jq -n --arg phase "$1" --arg head "${HEAD_SHA:-}" --argjson code "$2" --argjson ms "$(((SECONDS - started) * 1000))" \
               --argjson versions "$versions_json" --arg msg "${4:-}" \
               --arg image_os "${ImageOS:-}" --arg image_version "${ImageVersion:-}" \
               --arg runner_os "${RUNNER_OS:-}" --arg runner_arch "${RUNNER_ARCH:-}" \
