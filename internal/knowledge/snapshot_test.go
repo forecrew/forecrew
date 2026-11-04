@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -147,5 +148,53 @@ func checkGenerated(t *testing.T, snap knowledge.Snapshot) {
 	empty := knowledge.BuildGenerated(acct, proj, "acme/app", "abc", knowledge.Snapshot{}, now)
 	if len(empty) != 2 || !strings.Contains(empty[0].Body, "No packages") || !strings.Contains(empty[1].Body, "No direct dependencies") {
 		t.Errorf("empty generated = %+v", empty)
+	}
+}
+
+// Every kind of entry counts against the limits, not only regular files: a
+// million folders or links is as bad as a million files.
+func TestExtractTarGzLimits(t *testing.T) {
+	many := func(typ byte, n int) *bytes.Buffer {
+		hs := make([]tar.Header, n)
+		for i := range hs {
+			hs[i] = tar.Header{Name: fmt.Sprintf("top/e%d", i), Typeflag: typ, Linkname: "x"}
+			if typ == tar.TypeDir {
+				hs[i].Name += "/"
+				hs[i].Linkname = ""
+			}
+			if typ == tar.TypeReg {
+				hs[i].Linkname = "x"
+			}
+		}
+		return tarball(t, hs...)
+	}
+	restore := knowledge.LowerArchiveLimits(5, 100, 50, 64<<10)
+	defer restore()
+	for name, in := range map[string]*bytes.Buffer{
+		"folders":  many(tar.TypeDir, 6),
+		"symlinks": many(tar.TypeSymlink, 6),
+		"files":    many(tar.TypeReg, 6),
+		"too many bytes": tarball(t,
+			tar.Header{Name: "top/a", Typeflag: tar.TypeReg, Linkname: strings.Repeat("x", 60)},
+			tar.Header{Name: "top/b", Typeflag: tar.TypeReg, Linkname: strings.Repeat("y", 60)}),
+		"long stream": tarball(t, tar.Header{Name: "top/a", Typeflag: tar.TypeReg, Linkname: strings.Repeat("z", 100<<10)}),
+	} {
+		if err := knowledge.ExtractTarGz(in, t.TempDir()); !errors.Is(err, knowledge.ErrArchive) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+	// Within the limits, a file over the single-file limit is only left out.
+	dir := t.TempDir()
+	err := knowledge.ExtractTarGz(tarball(t,
+		tar.Header{Name: "top/small", Typeflag: tar.TypeReg, Linkname: "ok"},
+		tar.Header{Name: "top/big", Typeflag: tar.TypeReg, Linkname: strings.Repeat("b", 60)}), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "small")); err != nil {
+		t.Errorf("small: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "big")); err == nil {
+		t.Error("a file over the single-file limit was written")
 	}
 }

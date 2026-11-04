@@ -21,12 +21,18 @@ import (
 )
 
 // Limits of a downloaded repo: forecrewd only reads it, to analyze it.
-const (
-	maxArchiveFiles = 100_000
-	maxArchiveBytes = 512 << 20
-	maxArchiveFile  = 8 << 20
-	maxPackages     = 300
-)
+const maxPackages = 300
+
+// archiveLimits bound an unpacked archive: entries of every kind (folders
+// and links cost inodes and time too), the bytes of regular files, the
+// largest file kept, and the decompressed stream, which also holds the tar
+// headers. A variable so tests can lower them.
+var archiveLimits = struct {
+	entries int
+	bytes   int64
+	file    int64
+	stream  int64
+}{entries: 100_000, bytes: 512 << 20, file: 8 << 20, stream: 512<<20 + 100_000*1024}
 
 // ErrArchive means a repo archive is unusable or over the limits above.
 var ErrArchive = errors.New("repo archive rejected")
@@ -103,7 +109,7 @@ func ExtractTarGz(r io.Reader, dir string) error {
 		return fmt.Errorf("%w: %w", ErrArchive, err)
 	}
 	defer func() { _ = gz.Close() }()
-	tr := tar.NewReader(gz)
+	tr := tar.NewReader(&limitedReader{r: gz, left: archiveLimits.stream})
 	var seen archiveTotals
 	for {
 		h, err := tr.Next()
@@ -120,12 +126,35 @@ func ExtractTarGz(r io.Reader, dir string) error {
 }
 
 type archiveTotals struct {
-	files int
-	bytes int64
+	entries int
+	bytes   int64
+}
+
+// limitedReader fails with ErrArchive, not a plain EOF, when the stream is
+// longer than its limit: a truncation must not look like a smaller archive.
+type limitedReader struct {
+	r    io.Reader
+	left int64
+}
+
+func (l *limitedReader) Read(p []byte) (int, error) {
+	if l.left <= 0 {
+		return 0, fmt.Errorf("%w: the unpacked archive is over %d bytes", ErrArchive, archiveLimits.stream)
+	}
+	if int64(len(p)) > l.left {
+		p = p[:l.left]
+	}
+	n, err := l.r.Read(p)
+	l.left -= int64(n)
+	return n, err
 }
 
 // extractEntry writes one tar entry under dir.
 func extractEntry(tr io.Reader, h *tar.Header, dir string, seen *archiveTotals) error {
+	// Every entry counts, whatever its type, before anything is written.
+	if seen.entries++; seen.entries > archiveLimits.entries {
+		return fmt.Errorf("%w: over %d entries", ErrArchive, archiveLimits.entries)
+	}
 	_, name, _ := strings.Cut(h.Name, "/")
 	if name == "" || h.Typeflag == tar.TypeXGlobalHeader {
 		return nil
@@ -139,12 +168,10 @@ func extractEntry(tr io.Reader, h *tar.Header, dir string, seen *archiveTotals) 
 	case tar.TypeDir:
 		return os.MkdirAll(dst, 0o750)
 	case tar.TypeReg:
-		seen.files++
-		seen.bytes += h.Size
-		if seen.files > maxArchiveFiles || seen.bytes > maxArchiveBytes {
-			return fmt.Errorf("%w: over %d files or %d bytes", ErrArchive, maxArchiveFiles, int64(maxArchiveBytes))
+		if seen.bytes += h.Size; seen.bytes > archiveLimits.bytes {
+			return fmt.Errorf("%w: over %d bytes", ErrArchive, archiveLimits.bytes)
 		}
-		if h.Size > maxArchiveFile {
+		if h.Size > archiveLimits.file {
 			return nil // too big to be a manifest or a doc
 		}
 		return writeFile(dst, io.LimitReader(tr, h.Size))
