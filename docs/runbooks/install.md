@@ -133,6 +133,10 @@ and the webhook secret from `.env`. Install it on the repositories Forecrew
 works on. Put its ID in `github.app_id` and the logins that may command
 `@forecrew` in `github.allowlist` (empty means nobody).
 
+To run command jobs on GitHub-hosted runners (pool `actions`), the App also
+needs the Actions, Contents and Workflows write permissions and the
+**Workflow runs** event; see [actions.md](../actions.md).
+
 ### Check it
 
 ```sh
