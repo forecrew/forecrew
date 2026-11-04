@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 
@@ -270,6 +272,19 @@ func jobsCommand(r *remote) *cobra.Command {
 			return nil
 		},
 	})
+	jobs.AddCommand(&cobra.Command{
+		Use:   "tests <job>",
+		Short: "Show the test runs of a command job and the tests that failed (JOB-41 or UUID)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var items []mcp.TestRunInfo
+			if err := r.call(cmd.Context(), http.MethodGet, "/test-runs?job="+url.QueryEscape(args[0]), nil, &items); err != nil {
+				return err
+			}
+			printTestRuns(cmd.OutOrStdout(), items)
+			return nil
+		},
+	})
 	return jobs
 }
 
@@ -389,10 +404,45 @@ func printJob(w io.Writer, j mcp.JobInfo) {
 		{"Cost:", fmt.Sprintf("$%.2f", j.CostUSD)},
 		{"Created:", j.CreatedAt.Format("2006-01-02 15:04:05 MST")},
 	}
+	if t := j.Tests; t != nil {
+		rows = append(rows, []string{"Tests:", fmt.Sprintf("%s: %d passed, %d failed, %d skipped, %d errored in %d runs", t.Status, t.Passed, t.Failed, t.Skipped, t.Errored, t.Runs)})
+	}
 	if !j.FinishedAt.IsZero() {
 		rows = append(rows, []string{"Finished:", j.FinishedAt.Format("2006-01-02 15:04:05 MST")})
 	}
 	table(w, rows)
+}
+
+// safeText replaces control characters, escape sequences included, with
+// spaces: test names and messages are written by the repo's tests and must
+// not drive the user's terminal.
+func safeText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
+func printTestRuns(w io.Writer, items []mcp.TestRunInfo) {
+	rows := [][]string{{"SUITE", "ENVIRONMENT", "CELL", "STATUS", "PASSED", "FAILED", "SKIPPED", "ERRORED", "EXIT", "SHA"}}
+	for _, r := range items {
+		cell := make([]string, 0, len(r.Cell))
+		for _, k := range slices.Sorted(maps.Keys(r.Cell)) {
+			cell = append(cell, k+"="+r.Cell[k])
+		}
+		rows = append(rows, []string{dash(safeText(r.Suite)), dash(safeText(r.Environment)), dash(safeText(strings.Join(cell, ","))), string(r.Status),
+			strconv.Itoa(r.Counts.Passed), strconv.Itoa(r.Counts.Failed), strconv.Itoa(r.Counts.Skipped), strconv.Itoa(r.Counts.Errored),
+			strconv.Itoa(r.ExitCode), r.SHA[:min(12, len(r.SHA))]})
+	}
+	table(w, rows)
+	for _, r := range items {
+		for _, f := range r.Failures {
+			msg, _, _ := strings.Cut(f.Message, "\n")
+			_, _ = fmt.Fprintf(w, "%s %s %s: %s\n", strings.ToUpper(string(f.Status)), safeText(r.Suite), safeText(strings.TrimSpace(f.Classname+" "+f.Name)), safeText(msg))
+		}
+	}
 }
 
 func printArtifacts(w io.Writer, items []domain.Artifact) {

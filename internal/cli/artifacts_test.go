@@ -105,3 +105,66 @@ func TestArtifactGetCutShort(t *testing.T) {
 		t.Errorf("a partial file was left behind: %v", err)
 	}
 }
+
+func TestJobTests(t *testing.T) {
+	e := newRemoteEnv(t)
+	e.svc.ListTestRunsFunc = func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error) {
+		return []mcp.TestRunInfo{
+			{Suite: "unit", Environment: "linux-go", Cell: map[string]string{"os": "linux", "go": "1.27"}, Status: domain.TestRunFailed,
+				Counts: domain.TestCounts{Passed: 40, Failed: 1, Skipped: 2}, ExitCode: 1, SHA: strings.Repeat("a", 40),
+				Failures: []domain.TestResult{{Name: "TestLogout", Classname: "auth", Status: domain.TestFailed, Message: "want 204, got 500\nstack"}}},
+			{Suite: "lint", Status: domain.TestRunPassed, SHA: "abc"},
+		}, nil
+	}
+	out, errOut, code := e.run(t, "job", "tests", "JOB-41")
+	if code != 0 || errOut != "" {
+		t.Fatalf("code %d, stderr %q", code, errOut)
+	}
+	for _, want := range []string{"SUITE", "unit   linux-go     go=1.27,os=linux  failed  40", "aaaaaaaaaaaa", "lint   -            -", "FAILED unit auth TestLogout: want 204, got 500\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "stack") {
+		t.Errorf("only the first line of a message is printed:\n%s", out)
+	}
+	if calls := e.svc.Calls(); len(calls) != 1 || calls[0].Tool != mcp.ToolListTestRuns || calls[0].Input != (mcp.ListTestRunsInput{Job: "JOB-41"}) {
+		t.Errorf("calls = %+v", calls)
+	}
+	e.svc.ListTestRunsFunc = nil
+	if out, _, _ := e.run(t, "job", "tests", "JOB-1"); strings.Count(out, "\n") != 1 {
+		t.Errorf("empty list prints only the header:\n%s", out)
+	}
+	e.svc.ListTestRunsFunc = func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error) {
+		return nil, fmt.Errorf("job JOB-9: %w", mcp.ErrNotFound)
+	}
+	if _, errOut, code := e.run(t, "job", "tests", "JOB-9"); code != 1 || !strings.Contains(errOut, "JOB-9: not found") {
+		t.Errorf("code %d, stderr %q", code, errOut)
+	}
+}
+
+func TestJobShowPrintsTestCounts(t *testing.T) {
+	e := newRemoteEnv(t)
+	e.svc.JobStatusFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
+		return mcp.JobInfo{Ref: "JOB-41", Tests: &mcp.TestSummary{Runs: 2, Status: domain.TestRunFailed, Passed: 3, Failed: 1}}, nil
+	}
+	out, _, code := e.run(t, "job", "show", "JOB-41")
+	if code != 0 || !strings.Contains(out, "Tests:") || !strings.Contains(out, "failed: 3 passed, 1 failed, 0 skipped, 0 errored in 2 runs") {
+		t.Errorf("code %d:\n%s", code, out)
+	}
+}
+
+func TestJobTestsStripsControlCharacters(t *testing.T) {
+	e := newRemoteEnv(t)
+	e.svc.ListTestRunsFunc = func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error) {
+		return []mcp.TestRunInfo{{TestRun: domain.TestRun{Suite: "un\x1b[2Jit", Status: domain.TestRunFailed, SHA: "abc"},
+			Failures: []domain.TestResult{{Name: "T\x07est\r", Classname: "c\x1b]0;title\x07", Status: domain.TestFailed, Message: "\x1b[31mred\x1b[0m\x00"}}}}, nil
+	}
+	out, _, code := e.run(t, "job", "tests", "JOB-1")
+	if code != 0 || strings.ContainsAny(out, "\x1b\x07\r\x00") {
+		t.Errorf("code %d, output has control characters: %q", code, out)
+	}
+	if !strings.Contains(out, "red") || !strings.Contains(out, "est") {
+		t.Errorf("output lacks the text: %q", out)
+	}
+}
