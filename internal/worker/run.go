@@ -24,6 +24,16 @@ func (w *Worker) Run(ctx context.Context) error {
 	runCtx, cancelRun := context.WithCancelCause(context.WithoutCancel(ctx))
 	defer cancelRun(nil)
 	var jobs sync.WaitGroup
+	if w.docker != nil {
+		// Before the first job: it would remove that job's containers too.
+		if err := w.docker.removeLeftovers(ctx); err != nil {
+			w.cfg.Logger.Warn("remove leftover containers", "error", err)
+		}
+		pruned := make(chan struct{})
+		go func() { defer close(pruned); w.pruneLoop(runCtx) }()
+		// Run must not return while the loop may still log.
+		defer func() { cancelRun(nil); <-pruned }()
+	}
 
 	err := w.pollLoop(ctx, runCtx, &jobs)
 	if err != nil {
@@ -93,4 +103,28 @@ func (w *Worker) cleanWorkDir() error {
 		return fmt.Errorf("create work dir: %w", err)
 	}
 	return nil
+}
+
+// pruneEvery is how often old environment images are looked for.
+const pruneEvery = 24 * time.Hour
+
+// pruneLoop prunes old environment images now and every day until ctx ends.
+func (w *Worker) pruneLoop(ctx context.Context) {
+	for {
+		removed, err := w.docker.pruneImages(ctx, w.imageMarkers(), w.cfg.ImageMaxAge, w.cfg.Now())
+		if err != nil {
+			w.cfg.Logger.Warn("prune environment images", "error", err)
+		}
+		if len(removed) > 0 {
+			w.cfg.Logger.Info("pruned environment images", "images", removed)
+		}
+		if sleep(ctx, pruneEvery) != nil {
+			return
+		}
+	}
+}
+
+// imageMarkers is where the use of environment images is recorded.
+func (w *Worker) imageMarkers() imageMarkers {
+	return imageMarkers(filepath.Join(w.cfg.WorkDir, "env-images"))
 }

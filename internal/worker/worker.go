@@ -13,6 +13,10 @@ import (
 // starts.
 const DefaultGracePeriod = 10 * time.Minute
 
+// DefaultImageMaxAge is how long an environment image is kept after its last
+// use.
+const DefaultImageMaxAge = 14 * 24 * time.Hour
+
 // Runtimes looks runtime adapters up by name; *runtime.Registry implements
 // it.
 type Runtimes interface {
@@ -46,6 +50,12 @@ type Config struct {
 	// FlushInterval is how often events are sent; zero means 2 s.
 	FlushInterval time.Duration
 	Now           func() time.Time
+	// DockerBin is the docker client to use; empty means this worker has no
+	// Docker (it does not advertise the docker label), see DetectDocker.
+	DockerBin string
+	// ImageMaxAge is how long an environment image is kept after its last
+	// use; zero means 14 days.
+	ImageMaxAge time.Duration
 }
 
 // Worker polls forecrewd and runs its jobs.
@@ -53,6 +63,7 @@ type Worker struct {
 	cfg    Config
 	git    *gitClient
 	reaper *reaper
+	docker *dockerCLI // nil without Docker
 }
 
 // New returns a Worker. Config.Client, Runtimes, Analyzer and Logger are
@@ -70,6 +81,9 @@ func New(cfg Config) *Worker {
 	if cfg.MaxJobs < 1 {
 		cfg.MaxJobs = 1
 	}
+	if cfg.ImageMaxAge <= 0 {
+		cfg.ImageMaxAge = DefaultImageMaxAge
+	}
 	if cfg.Now == nil {
 		cfg.Now = func() time.Time { return time.Now().UTC() }
 	}
@@ -78,5 +92,9 @@ func New(cfg Config) *Worker {
 	}
 	// Git never searches for a repo above the work dir's parent.
 	g := newGitClient("git", nil, cfg.Environ, filepath.Dir(cfg.WorkDir))
-	return &Worker{cfg: cfg, git: g, reaper: newReaper(g.runningPIDs, &g.gate)}
+	w := &Worker{cfg: cfg, git: g, reaper: newReaper(g.runningPIDs, &g.gate)}
+	if cfg.DockerBin != "" {
+		w.docker = newDockerCLI(cfg.DockerBin, cfg.WorkDir, cfg.Environ)
+	}
+	return w
 }

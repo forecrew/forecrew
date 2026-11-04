@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -276,5 +277,33 @@ func TestNewDefaults(t *testing.T) {
 		if got := w.heartbeatInterval(&Lease{HeartbeatInterval: tt.lease}); got != tt.want {
 			t.Errorf("heartbeatInterval(override %v, lease %d) = %v, want %v", tt.override, tt.lease, got, tt.want)
 		}
+	}
+}
+
+func TestRunCleansDockerLeftoversAndPrunes(t *testing.T) {
+	for name, cases := range map[string]string{
+		"working": `ps) echo c1;; image) if [ "$2" = ls ]; then echo forecrew-env:x; fi;;`,
+		"failing": `ps) echo down >&2; exit 1;; image) echo down >&2; exit 1;;`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t, scriptAdapter(t, runtime.Script{}))
+			bin, log := fakeDocker(t, cases)
+			e.cfg.DockerBin = bin
+			e.rebuild()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := e.start(ctx)
+			waitFor(t, "the image prune", func() bool {
+				return slices.ContainsFunc(calls(t, log), func(c string) bool { return strings.HasPrefix(c, "image ls") })
+			})
+			cancel()
+			if err := waitRun(t, done); err != nil {
+				t.Fatal(err)
+			}
+			got := calls(t, log)
+			if !strings.HasPrefix(got[0], "ps -aq --filter label=forecrew.worker=") {
+				t.Errorf("first docker call = %q, want the leftover cleanup before any job", got[0])
+			}
+		})
 	}
 }
