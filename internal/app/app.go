@@ -27,6 +27,7 @@ import (
 	"github.com/forecrew/forecrew/internal/evidence"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/jobmcp"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/playbooks"
@@ -180,9 +181,13 @@ func New(d Deps) (*App, error) {
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Logger: log,
 	})
 	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Tracker: d.GitHub, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
+	jobGateway := jobmcp.New(jobmcp.Config{
+		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Logger: log, Version: d.Version, Now: d.Now,
+	})
 	workers := workerapi.New(workerapi.Config{
 		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Pools: cfg.Pools, Logger: log,
 		Evidence: ev, MaxArtifactSize: evidenceMaxSize(cfg),
+		JobMCPURL: jobMCPURL(cfg), Attachments: jobGateway.Attachments(),
 	})
 
 	a := &App{
@@ -196,7 +201,7 @@ func New(d Deps) (*App, error) {
 	if cfg.Server.TLSDomain != "" {
 		a.certs = newCertManager(cfg.Server.TLSDomain, cfg.Server.CertCacheDir)
 	}
-	a.handler = a.routes(workers.Handler(),
+	a.handler = a.routes(workers.Handler(), jobGateway.Handler(),
 		mcp.NewHandler(toolSvc, st.MCPTokens(), d.Version, log),
 		api.New(api.Config{Tools: toolSvc, Artifacts: toolSvc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: log}).Handler())
 	return a, nil
@@ -215,6 +220,15 @@ func openEvidence(d Deps) (evidence.Store, error) {
 	d.Logger.Info("evidence storage configured", "endpoint", d.Config.Evidence.Endpoint, "bucket", d.Config.Evidence.Bucket,
 		"retention_days", d.Config.Evidence.RetentionDays)
 	return s3, nil
+}
+
+// jobMCPURL is the job MCP gateway on the public URL, "" without one. Job
+// specs carry it for information; workers use their own server URL.
+func jobMCPURL(cfg *config.Config) string {
+	if cfg.Server.PublicBaseURL == "" {
+		return ""
+	}
+	return cfg.Server.PublicBaseURL + jobmcp.Path
 }
 
 // evidenceMaxSize is the artifact size limit of the config, 0 (the default)
@@ -256,7 +270,7 @@ func checkRoles(books map[string]*workflow.Playbook, c *roles.Catalog) error {
 func (a *App) Handler() http.Handler { return a.handler }
 
 // routes mounts everything on one mux; "/" is the web UI.
-func (a *App) routes(workers, mcpHandler, apiHandler http.Handler) http.Handler {
+func (a *App) routes(workers, jobMCP, mcpHandler, apiHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if a.d.Ping != nil {
@@ -271,6 +285,8 @@ func (a *App) routes(workers, mcpHandler, apiHandler http.Handler) http.Handler 
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
+	// The job MCP gateway: agents of running jobs, with job tokens.
+	mux.Handle(jobmcp.Path, jobMCP)
 	mux.Handle("/webhooks/github", a.webhooks)
 	mux.Handle("/", webui.Handler())
 	return mux
