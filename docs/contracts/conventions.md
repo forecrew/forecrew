@@ -139,7 +139,7 @@ T37 and T50, which open them):
 
 | Kind | Opened for | `approve` | `request_changes` | `reject` |
 |------|------------|-----------|-------------------|----------|
-| `assumption_review` | a high-impact assumption | accepted (the human takes the risk) | the human's feedback is evidence to check; it stays unverified | invalidated: its dependents are flagged |
+| `assumption_review` | a high-impact assumption | accepted (the human takes the risk) | the human's feedback is evidence to check; it stays unverified and a new review opens | invalidated: its dependents are flagged |
 | `council_decision` | a council brief | the recommendation is the decision | the human's revision round with the feedback as a constraint, then a new synthesis and gate; once per council (`domain.MaxRevisionRounds`), after it the council runner refuses `request_changes` | the council fails |
 | `knowledge_proposal` | a change to a protected section, or to a provider without its own review | the change is applied (or, for a read-only provider, the human copied it across) | rejected, with the feedback kept for a new proposal | rejected |
 | `access_request` | an agent's request for knowledge access | a policy PR grants it (merged like any PR) | nothing is granted; the feedback says what narrower request would pass | nothing is granted |
