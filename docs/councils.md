@@ -5,9 +5,9 @@ with a decision brief (`docs/contracts/council-brief.schema.json`). The
 facilitator frames the question; members write proposals without seeing
 each other, critique each other from distinct priorities and revise while
 positions still move; the facilitator writes the brief. The data model is
-in `docs/contracts/data-model.md` (councils); the council runner (T33) runs
-the protocol. This page describes the packs that define the standard
-councils, the council roles and the jobs they run.
+in `docs/contracts/data-model.md` (councils); the `council` playbook runs
+the protocol (playbooks.md, Councils). This page describes the packs that
+define the standard councils, the council roles and the jobs they run.
 
 ## Council packs
 
@@ -73,6 +73,19 @@ architect and developer for QA.
 Every council has the `facilitator`. Members alternate their preferred
 runtimes, so neighbouring seats start on different vendors.
 
+An `adhoc` council has no pack of its own and follows the `technical` one.
+`start_council` may name `roles` instead of a kind's members
+(`councils.Set.Seated`): a role keeps its seat when the pack has one and
+otherwise gets a seat with its name as priority; the devil's advocate sits
+whether it is named or not, and a council has at least three members.
+
+When a council starts, each member is pinned to the first runtime it prefers
+that an online worker of the role's pool offers and forecrew.yaml has a model
+for, or its first one when none does, so its jobs wait for such a worker
+(`Pack.Assign`). If that leaves everyone on one runtime while another is
+offered to a seat, the last such seat moves there, so two vendors take part
+whenever the workers offer them. The facilitator runs on its role's runtime.
+
 ## Steps
 
 Each council job runs one step. The prompts are Go templates in
@@ -126,7 +139,8 @@ budget ran out):
   the council through its seat's priority and focus only: the checklists of
   its usual job are dropped.
 
-The pool stays the role's. `contextpack.Render` then adds the Job section
+Every council job also gets `council.read`, whatever its role lists; a role's
+ordinary jobs do not. The pool stays the role's. `contextpack.Render` then adds the Job section
 and the output schema as for any job. The runner adds a `Council` section
 with the question, the constraints and, from the proposal stage on, the
 facilitator's framing; members read the contributions their stage may see
@@ -156,8 +170,25 @@ against its step's schema and what the schema cannot say, wrapping
 - a synthesis goes through `councils.ParseBrief`, and only the devil's
   advocate's dissent starts with `Devil's advocate (mandated dissent): `.
 
-The runner then checks that every source exists (T33) and stores the result
-as the contribution's `evidence_check`.
+After each contribution the action `council.check_evidence` checks every
+source once and stores the result as the contribution's `evidence_check`,
+which `council.read` shows the members and the facilitator:
+
+| Kind | Check | Outcome |
+|------|-------|---------|
+| `path`, `kb` | The file exists in the repo at the council's commit, the head of the default branch when it started; lines are ignored. | `ok`, `missing` (a directory counts as missing), `unreachable` when GitHub could not be read |
+| `job` | The job exists in the project. | `ok`, `missing` |
+| `url` | forecrewd fetches it (`councils.Fetcher`) and archives it as an artifact of the citing job, named `council/url-<hash>`. | `ok`, `unreachable` (no answer, an error status, too slow or too large), `refused` |
+
+- A URL is fetched once per council. A contribution gets at most 10 new URLs
+  fetched and a council at most 40; the rest are `unreachable`.
+- Only plain http(s) URLs on public addresses are fetched: no credentials in
+  the URL, no proxy, at most 3 redirects, 5 MiB and 15 s. The host must resolve to
+  public addresses only, at the start and at every redirect, and the connection
+  is checked again as it is made, so a name that changes address reaches nothing
+  private. Anything else is `refused` without connecting.
+- Without evidence storage, or when it fails, a URL that answered is `ok` with a
+  `detail` saying it was not archived.
 
 ## Council roles
 
@@ -169,5 +200,5 @@ as the contribution's `evidence_check`.
 | `security-reviewer` | strong | build | repo.read, git.read, run.tests | Trust boundaries and exposure; runs the project's existing scanners, so it needs a build worker. |
 | `ux` | strong | control | repo.read, git.read | User value: what each option changes for the people who use the product. |
 
-All are read-only. Their prompts describe the seat and leave the step's
+All are read-only, and their council jobs also get `council.read`. Their prompts describe the seat and leave the step's
 rules to the step prompt.

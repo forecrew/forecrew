@@ -38,7 +38,7 @@ rejected.
 | `job` | `with`, `on_failure` | Creates a job through `workflow.JobCreator`, then waits for its `job.completed`. `with` takes the json keys of `workflow.JobRequest` (`role` required; `account_id`, `project_id` are set by the engine; `goal_id` and `task_id` default to the run's; `pool` picks the worker pool and defaults to the role pack's `pool`, and a pool whose policy does not run the role fails the step (docs/worker.md, Pools); `prompt` adds instructions to the job's prompt and must be literal text written in the playbook: a `${...}` reference in it is refused when the playbook loads, because the prompt is rendered as trusted instructions; `locked_paths`, a list of globs, goes into the job spec and the prompt: the job fails if it changes a matching file, see Locked tests). Fails when the job fails or is canceled. |
 | `action` | `action`, `with`, `on_failure` | Calls the Go function registered under `action` in `workflow.Actions` with the resolved `with`. Its result is the step output; an error fails the step. |
 | `gate` | `with`, `on_failure` | Opens a gate and waits for `gate.resolved`. `with` takes the json keys of `gates.OpenRequest`: `kind`, `title`, `subject_repo` (required), `summary`, `subject_number`, `goal_id`, `spec_id`, `task_id`, `job_id`. |
-| `wait` | `with`, `timeout`, `on_failure` | Waits for a signal. `with.signal` is the kind and the remaining keys build its key with the `domain` helpers: `checks.completed` (`repo`, `sha`), `pr.merged` / `pr.closed` (`repo`, `number`), `job.completed` (`job_id`), `gate.resolved` (`gate_id`). The first signal stored under the key completes the step, so for a PR either merged or closed does (the output's `signal` says which). On `job.completed` the step follows the job-step rules: it outputs the job's values and fails when the job did not succeed. On `gate.resolved` it outputs the gate's values but does not apply the gate-decision rules below. A wait for `gate.resolved` (like a gate step) finds the gate resolved when the signal was lost; the other waits have no lost-signal fallback. `timeout` (Go duration, e.g. `30m`) fails the step after that long; zero waits forever. |
+| `wait` | `with`, `timeout`, `on_failure` | Waits for a signal. `with.signal` is the kind and the remaining keys build its key with the `domain` helpers: `checks.completed` (`repo`, `sha`), `pr.merged` / `pr.closed` (`repo`, `number`), `job.completed` (`job_id`), `gate.resolved` (`gate_id`), `council.decided` (`council_id`). The first signal stored under the key completes the step, so for a PR either merged or closed does (the output's `signal` says which). On `job.completed` the step follows the job-step rules: it outputs the job's values and fails when the job did not succeed. On `gate.resolved` it outputs the gate's values but does not apply the gate-decision rules below. A wait for `gate.resolved` (like a gate step) finds the gate resolved when the signal was lost; the other waits have no lost-signal fallback. `timeout` (Go duration, e.g. `30m`) fails the step after that long; zero waits forever. |
 | `foreach` | `items`, `parallel`, `steps` | Runs `steps` once per element of the list `items` (a single `${...}`), in order, or with `parallel: <n>` at most n items at a time (see [Parallel foreach](#parallel-foreach)). Inside, `${item}` and `${index}` (from 0) are set. |
 | `loop` | `steps`, `max_iterations`, `until`, `on_failure` | Runs `steps` until `until` holds after a round, at most `max_iterations` rounds. Inside, `${iteration}` (from 1) is set. When the rounds run out, `on_failure` applies. |
 
@@ -54,7 +54,8 @@ Step values:
   the function's result; gate: `{decision, feedback}`; wait: the signal
   payload for `checks.completed`, `pr.merged` and `pr.closed`, the job's
   structured output for `job.completed`, `{decision, feedback}` for
-  `gate.resolved`; foreach: a list with one `{<body step id>: value}` per item;
+  `gate.resolved`, `{council_id, status, decision_id}` for `council.decided`;
+  foreach: a list with one `{<body step id>: value}` per item;
   loop: `{iterations}`);
 - job steps also `steps.<id>.job_id` and `steps.<id>.head_sha`; gate steps
   `steps.<id>.gate_id`; wait steps on `checks.completed`, `pr.merged` or
@@ -178,7 +179,8 @@ They are recorded as step runs `finally/<id>` like any step, so after a crash
 the recorded ones are not repeated and the rest continue (an action in
 flight at the crash is called again with the same `Key`, like any action). A
 failing one is logged and the next still runs. Use them to undo state the run
-changed, since a failed or canceled run stops where it is.
+changed, since a failed or canceled run stops where it is. An action reads how
+the run is ending from `ActionCall.Run.Status`.
 
 ## Durability and idempotency
 
@@ -198,8 +200,9 @@ crash continues where it stopped:
   issue, comment or PR they create already exists).
 
 If a job or gate step's job or gate finishes but its signal is lost, the
-engine reads the job or gate state when it next looks at the run. Wait steps
-have no such fallback: they finish only on a stored signal (or time out). Runs are woken at once by signals
+engine reads the job or gate state when it next looks at the run, and so does
+a wait for `gate.resolved`. Other wait steps have no such fallback: they finish
+only on a stored signal (or time out). Runs are woken at once by signals
 published in the same process and otherwise by the periodic sweep (30 s).
 
 ## Actions (`internal/playbooks`)
@@ -225,13 +228,21 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `goal.if_approved` | `decision`, `number` | `{if_approved}`: `[number]` for `approved`, else `[]`. |
 | `goal.task_done` | `task_id`, `repo`, `number`, `feedback` | `{done, merged, sha, feedback}`. A merged PR moves the task to `merged` (`done`); otherwise it outputs the human's `feedback` for the next delivery; closed without merging fails. |
 | `goal.close` | `goal_id` | `{tasks, cost_usd}`. Needs every task merged. Comments the summary (tasks, PRs, developer runs, cost of every job of the goal) on the goal issue, closes it and moves the goal to `done`. |
-| `goal.settle` | `goal_id` | `{status}`. Cancels a goal that is not done, closes its unmerged tasks and their issues and the goal's with a comment (once). A task whose PR is merged, as the change or GitHub say, becomes `merged`, not `closed`: merged PRs stay merged. |
+| `goal.settle` | `goal_id` | `{status}`. Cancels a goal that is not done and its running councils, closes its unmerged tasks and their issues and the goal's with a comment (once). A task whose PR is merged, as the change or GitHub say, becomes `merged`, not `closed`: merged PRs stay merged. |
 | `tests.locked_paths` | `task_id` | `{locked_paths}`. The files of every successful `test-engineer` job of the task (`files` and the `file` of every test in its `test-map.json` output; a retry lists only what it changed itself, so all jobs count), as globs that match exactly those paths (`[`, `*`, `?`, `{`, `}` become one-character classes), sorted; `[]` when the task has no such job. Fails for a file name with a backslash or starting with `!`. Pass it as `with.locked_paths` of the developer's `job` step; the JobCreator refuses control characters and backticks in it. |
 | `tests.base_check_request` | `repo`, `base`, `head`, `tests`, optional `files` | `{requests}`. `tests` are the `tests` entries of the test map (`suite`, `id`, `file`). Reads `.forecrew/matrix.yaml` and the environment files at `head`. For every suite the tests belong to and every environment its cells run in, one command job request (the first cell that maps to that environment) that runs the suite on `base` with `overlay` = `head` and the files of `files` and of `tests` together. Only test files may be overlaid: a path the `test-engineer` role may not write (`Makefile`, `go.mod`, `.forecrew/**`, scripts) fails the action. Fails when `head` has no valid matrix or environment, or names no such suite. Use the requests as the `items` of a `foreach` of `kind: command` job steps. |
 | `tests.base_check_result` | `runs`, `tests` | `{new_tests: [{id, failed_on_base}], ok}`. `runs` are the base check's jobs: job IDs, the outputs of job steps (`job_id`), or the rounds of a `foreach` over a job step (`{<step id>: {job_id, ...}}`); an element without a job ID fails the action. `tests` are the same entries as for the request. Reads the test runs the jobs stored. A test failed on base when, in every run of its suite, it has a result and all its results (a repeated id has several) are `failed` or `errored`, or it has no result and the command really failed: `exit_code` above 0 and the run is `errored`, has a `(command)` result, or is not `passed` (a compile error of one package next to an unrelated failing test counts). It does not count when the exit code is 0 (wrong report path, unreadable or empty report), -1 (timeout or not started), or the run is an oversized one (`max_test_results_size`). A test that passed or was skipped, and one whose suite has no run, did not fail on base. `ok` is true when every new test failed on base. |
 | `profile.validate` | `profile` and/or `repo` and `ref`, `attempt`, `attempts` | `{valid, errors}`: checks the profile value and/or the profile file of `repo` at `ref`. Fails on the last attempt. |
 | `discover.github` | `repo` | `{integrations, notes, text}`. Reads, with the App's token, the repo's autolinks and the link hosts in the bodies of its 100 most recent issues and pull requests, and outputs the integrations found (confidence and evidence as in the profile). It never contacts the hosts it finds. A read the App may not do is a note, not a failure; `text` is what the analyst is told, empty when nothing was found. Read-only, so idempotent. Use `on_failure: escalate`. |
 | `matrix.plan` | `repo`, `ref`, `scope`, `suites` | `{cells, jobs, errors}`. Reads `.forecrew/matrix.yaml` and the environments its rules name at `ref` and expands them (see [Running a matrix](#running-a-matrix)). Invalid files, a scope that does not fit the matrix, or a matrix over the plan's limits give `errors` as text and empty `cells` and `jobs`, for the playbook to act on; only a read that fails fails the step. Read-only, so idempotent. |
+| `council.run` | `kind`, `question`, optional `constraints`, `roles` | `{council_id, ref}`. Starts a council as a child run, with the run's goal; the council's ID is the call's key, and the run's ID the council's, so a repeated call finds both. Follow it with a `wait` on `council.decided` (see [Councils](#councils)). |
+| `council.start` | `council_id`, `roles` | `{facilitator, members: [{role, priority, runtime}], commit}`. First step of the `council` playbook: pins the members to runtimes and reads the head of the default branch, the council's commit. Read-only. |
+| `council.contribute` | `council_id`, `step`, `round`, `job_id`, `output`, optional `budget_exhausted` | `{valid, errors, contribution_id, moving, if_gate}`. Checks a council job's output (`councils.Set.CheckOutput`). Invalid gives `valid: false` and `errors` as feedback for a rerun (a check counts as positions not moving). Member stages and the synthesis are stored as contributions with the job's runtime, once per job. A synthesis also becomes the brief, `budget_exhausted` included whatever the facilitator wrote; `if_gate` is `[1]` unless the policy accepts it. |
+| `council.check_evidence` | `council_id`, `contribution_id`, `commit` | `{problems}`. Checks every cited source and stores `evidence_check` (see [Councils](#councils)). A checked contribution is left alone. |
+| `council.round_done` | `council_id`, `stage`, `round`, `moving`, `members` | `{exhausted, members, if_check, done, round}`. Ends a stage. `stage` is `proposal` (`members` run the critiques), `critique` (`if_check` is `[round]` within the pack's `max_rounds`), `check` (`members` revise when `moving`, otherwise `done`) or `synthesis` (`round` of the next brief). Once the budget ran out `members` and `if_check` are empty. Read-only. |
+| `council.open_gate` | `council_id`, `job_id` | `{gate_id}`. Opens the `council_decision` gate with the brief as summary, marked as agent text, and records it on the council in the gate's transaction, so its decision always finds the council. The gate's ID is the call's key. |
+| `council.decide` | `council_id`, `gate_id`, `decision`, `members` | `{done, members, round}`. No gate: refuses a `decision` and a recommendation the policy does not accept, and records the policy's decision (`registers.Service.AcceptRecommendation`). A gate must be the council's and have the status `decision` says; an empty or unknown value is refused. `approved`: finds the decision the register stored with the gate. Both move the council to `decided` and publish `council.decided`. `changes_requested`: adds the gate's feedback as a constraint and outputs the human's round. `rejected`: fails the council, publishes `council.decided` and fails the step. |
+| `council.settle` | `council_id` | `{status}`. The `finally` step: a running council fails, or is canceled when the run is, and `council.decided` is published. A decided council stays. |
 | `profile.feedback` | `human`, `errors`, `discovery` | The feedback text of an analyst job: the reviewer's feedback, the validator's errors and the `discovery` text, each when not empty. |
 | `onboarding.proposal` | `profile`, `summary`, `assumptions` | `{title, body}`: the profile PR text. |
 | `onboarding.settle` | none | Puts a project still onboarding back to registered. |
@@ -351,7 +362,7 @@ missing. The test roles are not used by a playbook yet.
 The council roles (`facilitator`, `devils-advocate`, `market-researcher`,
 `security-reviewer`, `ux`) and the council packs that seat them, with other
 roles in a council mode, are described in [councils.md](councils.md). They
-are not used by a playbook yet.
+run in the `council` playbook.
 
 ## The onboarding playbook
 
@@ -394,6 +405,63 @@ writes nothing leaves no commit: `job.if_pushed` then skips the PR and the gate
 and the run succeeds. The curator role needs
 an entry under `roles` in forecrew.yaml; without one the job fails and a
 `needs_you` gate opens.
+
+## Councils
+
+`packs/playbooks/council.yaml` takes `council_id` and `roles` (the members
+instead of the kind's, or `[]`) and runs the protocol of
+[councils.md](councils.md): framing, independent proposals, critiques, up to
+`max_rounds` of a check and revisions while positions move, the synthesis and
+the decision. `start_council` starts it for a council of its own.
+
+A goal playbook runs a council with an action and a wait:
+
+```yaml
+- {id: ask, type: action, action: council.run, with: {kind: technical, question: How should we build it?}}
+- {id: answer, type: wait, with: {signal: council.decided, council_id: '${steps.ask.output.council_id}'}}
+```
+
+There is no `council` step type: a council needs nothing the engine lacks,
+because a signal wakes any run waiting for its key, whichever run published it.
+A step type would add to the engine's replay what an action and a wait already
+do, and the crash between the two is covered by the IDs (`council.run`). The
+wait fails when the council fails or is canceled, so `on_failure` applies. When
+the goal's run ends, `goal.settle` cancels its running councils: the actions of
+the council's run then fail, so the jobs of the stage under way finish and no
+further job starts. They are not canceled, because a failed job escalates to a
+human. A council waiting at its gate stays there until the gate is resolved,
+spending nothing.
+
+- **Jobs.** Every job has the `council` key (`workflow.CouncilTurn`), which makes
+  it a step's job (`councils.Set.Job`) on the member's pinned runtime at the
+  council's commit. An invalid output reruns the job once with what is wrong as
+  feedback; after that a needs_you gate asks, and approving it gives one more try.
+  A job that fails also escalates. Rejecting either cancels the council.
+- **Step ids.** The job step ids and the loops `debate` and `decision` name the
+  stage and round `council_read` tells from a job's step run, since a job has no
+  field for its council. `internal/jobmcp` tests that the playbook keeps them.
+- **Budget.** The tokens (input and output) of every job of the run and the wall
+  time since the council started, checked between stages, so a stage that started
+  finishes. Once it ran out the rest of the debate is skipped and the facilitator
+  synthesizes. The wait for a human does not count as time, and the human's round
+  runs whatever the budget says.
+- **Decision.** `policy.accept_recommendations` (config.md) names the kinds whose
+  briefs are accepted without a human, recorded as `policy`, when the facilitator
+  calls the decision reversible and only the devil's advocate dissents; by default
+  every brief opens a `council_decision` gate. `council.decide` trusts none of its
+  inputs: it asks the policy again, or reads the gate, which must be the council's
+  and have the decision it was given. The gate is opened by an action and
+  followed by a wait for `gate.resolved`, because a rejection fails the council
+  instead of canceling the run and the council records its gate while it is open.
+  A brief written after a human's round always goes back to a gate, and that gate
+  refuses `request_changes`.
+- **Decisions.** Every decision is in the register once. A human's is stored by
+  the gate's resolution, in its transaction, with the council's ID: an approval
+  as the recommendation, `changes_requested` and `rejected` under those names, so
+  a council can have one per gate. The policy's is stored by
+  `AcceptRecommendation`, which finds it when called again. `council.decide` looks
+  the decision up first and moves the council afterwards, so after a crash a
+  repeated call records nothing, and a decided council always has its decision.
 
 ## The goal playbook
 
