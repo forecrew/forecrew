@@ -210,10 +210,13 @@ type tokenRepo struct{ s *Store }
 
 func (r tokenRepo) Create(_ context.Context, t *domain.MCPToken) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
-		if d.tokens.exists(func(x domain.MCPToken) bool { return x.AccountID == t.AccountID && x.Name == t.Name }) {
+		if d.tokens.exists(func(x domain.MCPToken) bool {
+			return x.AccountID == t.AccountID && x.OwnerKind == t.OwnerKind && x.OwnerID == t.OwnerID && x.Name == t.Name
+		}) {
 			return fmt.Errorf("token %s: %w", t.Name, store.ErrConflict)
 		}
 		t.ID = newID(t.ID)
+		t.Scopes = t.ScopesOrLegacy()
 		t.CreatedAt = now
 		d.tokens.insert(*t)
 		return nil

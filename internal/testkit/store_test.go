@@ -988,3 +988,47 @@ func TestStoreAssumptionRaiseImpactAndLock(t *testing.T) {
 	must(t, repo.Lock(ctx, f.account, f.project.ID, g.ID))
 	must(t, repo.Lock(ctx, f.account, f.project.ID, uuid.Nil()))
 }
+
+func TestAccountSlugs(t *testing.T) {
+	st := NewStore(time.Now)
+	ctx := t.Context()
+	var got []string
+	for range 3 {
+		a := domain.Account{Name: "Acme Labs"}
+		if err := st.Accounts().Create(ctx, &a); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, a.Slug)
+	}
+	if !slices.Equal(got, []string{"acme-labs", "acme-labs-2", "acme-labs-3"}) {
+		t.Fatalf("slugs = %v", got)
+	}
+	given := domain.Account{Name: "other", Slug: "acme-labs"}
+	if err := st.Accounts().Create(ctx, &given); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("taken slug: %v", err)
+	}
+	first := domain.Account{Name: "first"}
+	must(t, st.Accounts().Create(ctx, &first))
+	again := domain.Account{ID: first.ID, Name: "second"}
+	if err := st.Accounts().Create(ctx, &again); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("taken ID: %v", err)
+	}
+}
+
+func TestAccountTokenCap(t *testing.T) {
+	st := NewStore(time.Now)
+	a := domain.Account{Name: "acme"}
+	if err := st.Accounts().Create(t.Context(), &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Accounts().SetMaxTokenTTL(t.Context(), a.ID, time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Accounts().Get(t.Context(), a.ID)
+	if err != nil || time.Duration(got.MaxTokenTTL) != time.Hour {
+		t.Fatalf("account = %+v, %v", got, err)
+	}
+	if err := st.Accounts().SetMaxTokenTTL(t.Context(), domain.NewID(), time.Hour); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown account: %v", err)
+	}
+}

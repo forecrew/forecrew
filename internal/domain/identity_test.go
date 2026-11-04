@@ -463,6 +463,18 @@ func TestActors(t *testing.T) {
 	}
 }
 
+func TestScopesOrLegacy(t *testing.T) {
+	if got := (MCPToken{}).ScopesOrLegacy(); !slices.Equal(got, []Scope{ScopeAdmin}) {
+		t.Errorf("legacy: %v", got)
+	}
+	if got := (MCPToken{OwnerKind: SubjectUser}).ScopesOrLegacy(); got != nil {
+		t.Errorf("owned without scopes: %v", got)
+	}
+	if got := (MCPToken{Scopes: []Scope{ScopeRead}}).ScopesOrLegacy(); !slices.Equal(got, []Scope{ScopeRead}) {
+		t.Errorf("with scopes: %v", got)
+	}
+}
+
 func TestMaxTokenTTLJSON(t *testing.T) {
 	plain, err := json.Marshal(Account{Name: "a"})
 	if err != nil || strings.Contains(string(plain), "max_token_ttl") {
