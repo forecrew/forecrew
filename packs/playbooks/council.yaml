@@ -1,0 +1,236 @@
+description: Answer one question with a temporary group of agents. The facilitator frames it, members propose without seeing each other, critique every proposal and revise while positions still move, the facilitator writes the decision brief, and the policy or a human decides.
+inputs: [council_id, roles]
+steps:
+  # The members pinned to their runtimes, and the commit everyone works from.
+  - id: start
+    type: action
+    action: council.start
+    with: {council_id: '${inputs.council_id}', roles: '${inputs.roles}'}
+
+  # Each job below reruns once when its output is invalid, with what is wrong
+  # as feedback; after that a needs_you gate asks a human. The ids of the job
+  # steps name the council step: job_mcp's council_read reads them to tell the
+  # stage and round of the calling job (internal/jobmcp/council.go).
+  - id: framing
+    type: loop
+    max_iterations: 2
+    until: steps.framed.output.valid
+    on_failure: escalate
+    steps:
+      - id: frame
+        type: job
+        with:
+          role: '${steps.start.output.facilitator}'
+          base_ref: '${steps.start.output.commit}'
+          feedback: '${steps.framed.output.errors}'
+          council: {council_id: '${inputs.council_id}', step: frame, round: 1, roles: '${inputs.roles}'}
+        on_failure: escalate
+      - id: framed
+        type: action
+        action: council.contribute
+        with: {council_id: '${inputs.council_id}', step: frame, round: 1, job_id: '${steps.frame.job_id}', output: '${steps.frame.output}'}
+
+  # Independent proposals: a member's job holds the framing and no other
+  # member's text, and council.read returns nothing at this stage.
+  - id: proposals
+    type: foreach
+    parallel: 8
+    items: '${steps.start.output.members}'
+    steps:
+      - id: proposal_try
+        type: loop
+        max_iterations: 2
+        until: steps.proposed.output.valid
+        on_failure: escalate
+        steps:
+          - id: proposal
+            type: job
+            with:
+              role: '${item.role}'
+              base_ref: '${steps.start.output.commit}'
+              feedback: '${steps.proposed.output.errors}'
+              council: {council_id: '${inputs.council_id}', step: proposal, round: 1, priority: '${item.priority}', runtime: '${item.runtime}', roles: '${inputs.roles}', framing: '${steps.frame.output}'}
+            on_failure: escalate
+          - id: proposed
+            type: action
+            action: council.contribute
+            with: {council_id: '${inputs.council_id}', step: proposal, round: 1, job_id: '${steps.proposal.job_id}', output: '${steps.proposal.output}'}
+      - id: proposal_evidence
+        type: action
+        action: council.check_evidence
+        with: {contribution_id: '${steps.proposed.output.contribution_id}', council_id: '${inputs.council_id}', commit: '${steps.start.output.commit}'}
+
+  # members is empty once the budget ran out, which skips the stage.
+  - id: after_proposals
+    type: action
+    action: council.round_done
+    with: {council_id: '${inputs.council_id}', stage: proposal, members: '${steps.start.output.members}'}
+
+  - id: critiques
+    type: foreach
+    parallel: 8
+    items: '${steps.after_proposals.output.members}'
+    steps:
+      - id: critique_try
+        type: loop
+        max_iterations: 2
+        until: steps.critiqued.output.valid
+        on_failure: escalate
+        steps:
+          - id: critique
+            type: job
+            with:
+              role: '${item.role}'
+              base_ref: '${steps.start.output.commit}'
+              feedback: '${steps.critiqued.output.errors}'
+              council: {council_id: '${inputs.council_id}', step: critique, round: 1, priority: '${item.priority}', runtime: '${item.runtime}', roles: '${inputs.roles}', framing: '${steps.frame.output}'}
+            on_failure: escalate
+          - id: critiqued
+            type: action
+            action: council.contribute
+            with: {council_id: '${inputs.council_id}', step: critique, round: 1, job_id: '${steps.critique.job_id}', output: '${steps.critique.output}'}
+      - id: critique_evidence
+        type: action
+        action: council.check_evidence
+        with: {contribution_id: '${steps.critiqued.output.contribution_id}', council_id: '${inputs.council_id}', commit: '${steps.start.output.commit}'}
+
+  # One round per revision: the facilitator checks whether positions still
+  # move, and if they do the members revise. A pack allows at most two rounds,
+  # so the third iteration only ends the loop.
+  - id: debate
+    type: loop
+    max_iterations: 3
+    until: steps.settled.output.done
+    steps:
+      - id: gauge
+        type: action
+        action: council.round_done
+        with: {council_id: '${inputs.council_id}', stage: critique, round: '${iteration}'}
+      - id: checks
+        type: foreach
+        items: '${steps.gauge.output.if_check}'
+        steps:
+          - id: check
+            type: job
+            with:
+              role: '${steps.start.output.facilitator}'
+              base_ref: '${steps.start.output.commit}'
+              council: {council_id: '${inputs.council_id}', step: check, round: '${item}', roles: '${inputs.roles}', framing: '${steps.frame.output}'}
+            on_failure: escalate
+          - id: checked
+            type: action
+            action: council.contribute
+            with: {council_id: '${inputs.council_id}', step: check, round: '${item}', job_id: '${steps.check.job_id}', output: '${steps.check.output}'}
+      - id: settled
+        type: action
+        action: council.round_done
+        with: {council_id: '${inputs.council_id}', stage: check, round: '${iteration}', moving: '${steps.checks.output.0.checked.output.moving}', members: '${steps.start.output.members}'}
+      - id: revisions
+        type: foreach
+        parallel: 8
+        items: '${steps.settled.output.members}'
+        steps:
+          - id: revision_try
+            type: loop
+            max_iterations: 2
+            until: steps.revised.output.valid
+            on_failure: escalate
+            steps:
+              - id: revision
+                type: job
+                with:
+                  role: '${item.role}'
+                  base_ref: '${steps.start.output.commit}'
+                  feedback: '${steps.revised.output.errors}'
+                  council: {council_id: '${inputs.council_id}', step: revision, round: '${steps.settled.output.round}', priority: '${item.priority}', runtime: '${item.runtime}', roles: '${inputs.roles}', framing: '${steps.frame.output}'}
+                on_failure: escalate
+              - id: revised
+                type: action
+                action: council.contribute
+                with: {council_id: '${inputs.council_id}', step: revision, round: '${steps.settled.output.round}', job_id: '${steps.revision.job_id}', output: '${steps.revision.output}'}
+          - id: revision_evidence
+            type: action
+            action: council.check_evidence
+            with: {contribution_id: '${steps.revised.output.contribution_id}', council_id: '${inputs.council_id}', commit: '${steps.start.output.commit}'}
+
+  # One round per brief: the first, and the one after the human's round.
+  - id: decision
+    type: loop
+    max_iterations: 2
+    until: steps.decide.output.done
+    steps:
+      - id: closing
+        type: action
+        action: council.round_done
+        with: {council_id: '${inputs.council_id}', stage: synthesis}
+      - id: synthesis_try
+        type: loop
+        max_iterations: 2
+        until: steps.synthesized.output.valid
+        on_failure: escalate
+        steps:
+          - id: synthesis
+            type: job
+            with:
+              role: '${steps.start.output.facilitator}'
+              base_ref: '${steps.start.output.commit}'
+              feedback: '${steps.synthesized.output.errors}'
+              council: {council_id: '${inputs.council_id}', step: synthesis, round: '${steps.closing.output.round}', roles: '${inputs.roles}', framing: '${steps.frame.output}', budget_exhausted: '${steps.closing.output.exhausted}'}
+            on_failure: escalate
+          - id: synthesized
+            type: action
+            action: council.contribute
+            with: {council_id: '${inputs.council_id}', step: synthesis, round: '${steps.closing.output.round}', job_id: '${steps.synthesis.job_id}', output: '${steps.synthesis.output}', budget_exhausted: '${steps.closing.output.exhausted}'}
+      # if_gate is empty when the policy accepts the recommendation.
+      - id: gated
+        type: foreach
+        items: '${steps.synthesized.output.if_gate}'
+        steps:
+          - id: open_gate
+            type: action
+            action: council.open_gate
+            with: {council_id: '${inputs.council_id}', job_id: '${steps.synthesis.job_id}'}
+          - id: verdict
+            type: wait
+            with: {signal: gate.resolved, gate_id: '${steps.open_gate.output.gate_id}'}
+      # Approve and the policy decide; reject fails the council; changes
+      # requested add the feedback as a constraint and start the human's round.
+      - id: decide
+        type: action
+        action: council.decide
+        with:
+          council_id: '${inputs.council_id}'
+          gate_id: '${steps.gated.output.0.open_gate.output.gate_id}'
+          decision: '${steps.gated.output.0.verdict.output.decision}'
+          members: '${steps.start.output.members}'
+      - id: human_round
+        type: foreach
+        parallel: 8
+        items: '${steps.decide.output.members}'
+        steps:
+          - id: human_try
+            type: loop
+            max_iterations: 2
+            until: steps.human_revised.output.valid
+            on_failure: escalate
+            steps:
+              - id: human_revision
+                type: job
+                with:
+                  role: '${item.role}'
+                  base_ref: '${steps.start.output.commit}'
+                  feedback: '${steps.human_revised.output.errors}'
+                  council: {council_id: '${inputs.council_id}', step: revision, round: '${steps.decide.output.round}', priority: '${item.priority}', runtime: '${item.runtime}', roles: '${inputs.roles}', framing: '${steps.frame.output}'}
+                on_failure: escalate
+              - id: human_revised
+                type: action
+                action: council.contribute
+                with: {council_id: '${inputs.council_id}', step: revision, round: '${steps.decide.output.round}', job_id: '${steps.human_revision.job_id}', output: '${steps.human_revision.output}'}
+          - id: human_evidence
+            type: action
+            action: council.check_evidence
+            with: {contribution_id: '${steps.human_revised.output.contribution_id}', council_id: '${inputs.council_id}', commit: '${steps.start.output.commit}'}
+
+finally:
+  # A run that stops early ends its council and tells whoever waits for it.
+  - {id: settle, type: action, action: council.settle, with: {council_id: '${inputs.council_id}'}}

@@ -7,10 +7,14 @@ package playbooks
 import (
 	"context"
 	"io/fs"
+	"log/slog"
 	"time"
 
 	"github.com/forecrew/forecrew/internal/config"
+	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/evidence"
+	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/registers"
@@ -44,12 +48,31 @@ type Deps struct {
 	// action do nothing.
 	Knowledge KnowledgeSeeder
 	Now       func() time.Time // defaults to the real UTC time
+
+	// The rest is for the council actions.
+	Config   *config.Config
+	Councils *councils.Set
+	Gates    gates.Service
+	// Runs starts the council playbook; it is the engine, which is built
+	// after the actions, so a call must only come once it exists.
+	Runs councils.Starter
+	// Evidence archives the URLs members cite; nil keeps no copy.
+	Evidence evidence.Store
+	// Fetcher fetches those URLs; it defaults to the zero councils.Fetcher.
+	Fetcher *councils.Fetcher
+	Logger  *slog.Logger // defaults to discarding
 }
 
 // Register adds every action of the package to registry, by name.
 func Register(registry workflow.Actions, deps Deps) {
 	if deps.Now == nil {
 		deps.Now = func() time.Time { return time.Now().UTC() }
+	}
+	if deps.Fetcher == nil {
+		deps.Fetcher = &councils.Fetcher{}
+	}
+	if deps.Logger == nil {
+		deps.Logger = slog.New(slog.DiscardHandler)
 	}
 	d := &actions{Deps: deps, regs: registers.New(deps.Store, deps.Signals, deps.Now)}
 	registry["project.register"] = d.registerProject
@@ -84,6 +107,14 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["tests.base_check_result"] = d.testsBaseCheckResult
 	registry["knowledge.seed"] = d.seedKnowledge
 	registry["job.if_pushed"] = d.ifPushed
+	registry["council.run"] = d.councilRun
+	registry["council.start"] = d.councilStart
+	registry["council.contribute"] = d.councilContribute
+	registry["council.check_evidence"] = d.councilCheckEvidence
+	registry["council.round_done"] = d.councilRoundDone
+	registry["council.open_gate"] = d.councilOpenGate
+	registry["council.decide"] = d.councilDecide
+	registry["council.settle"] = d.councilSettle
 }
 
 // actions implements the actions on top of Deps.

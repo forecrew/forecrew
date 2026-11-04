@@ -39,6 +39,9 @@ type OpenRequest struct {
 	// Origin is what opens the gate; playbooks leave it empty
 	// (domain.GateFromPlaybook).
 	Origin domain.GateOrigin `json:"-"`
+	// Opened, when set, runs in the transaction that stores a new gate, so
+	// what must refer to the gate does so before anyone can resolve it.
+	Opened func(ctx context.Context, tx store.Store, g domain.Gate) error `json:"-"`
 }
 
 // Service manages gates.
@@ -125,6 +128,11 @@ func (k *Keeper) Open(ctx context.Context, req OpenRequest) (domain.Gate, error)
 		if err := tx.Gates().Create(ctx, &g); err != nil {
 			return err
 		}
+		if req.Opened != nil {
+			if err := req.Opened(ctx, tx, g); err != nil {
+				return err
+			}
+		}
 		return audit(ctx, tx, domain.SystemActor(g.AccountID, domain.ForecrewdName), "gate.opened", g, nil)
 	})
 	if err != nil {
@@ -142,6 +150,9 @@ func (k *Keeper) Resolve(ctx context.Context, by domain.Actor, gateID uuid.UUID,
 	err := k.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		var err error
 		if g, err = get(ctx, tx, by.AccountID, gateID); err != nil {
+			return err
+		}
+		if err := checkCouncilRound(ctx, tx, g, decision); err != nil {
 			return err
 		}
 		if err := g.Resolve(by, decision, feedback, now); err != nil {
@@ -177,6 +188,27 @@ func (k *Keeper) Resolve(ctx context.Context, by domain.Actor, gateID uuid.UUID,
 		}
 	}
 	return g, nil
+}
+
+// checkCouncilRound refuses a request for changes on the gate of a council
+// that had its human round (domain.MaxRevisionRounds): the gate of its second
+// brief can only be approved or rejected.
+func checkCouncilRound(ctx context.Context, tx store.Store, g domain.Gate, decision domain.GateStatus) error {
+	if g.Kind != domain.GateCouncilDecision || decision != domain.GateChangesRequested {
+		return nil
+	}
+	found, err := tx.Councils().List(ctx, g.AccountID, store.CouncilFilter{GateID: g.ID})
+	if err != nil || len(found) == 0 {
+		return err
+	}
+	briefs, err := tx.Councils().Contributions(ctx, g.AccountID, found[0].ID, domain.StageSynthesis)
+	if err != nil {
+		return err
+	}
+	if len(briefs) >= domain.MaxSynthesisRounds {
+		return fmt.Errorf("%s had its human round: approve or reject its brief: %w", found[0].Ref(), mcp.ErrInvalidInput)
+	}
+	return nil
 }
 
 // Decide implements Service.

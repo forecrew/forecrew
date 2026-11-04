@@ -254,3 +254,62 @@ func TestListPending(t *testing.T) {
 		t.Fatalf("other project: %+v", pending)
 	}
 }
+
+// TestCouncilGetsOneHumanRound: the gate of a council's second brief can only
+// be approved or rejected; the first takes a request for changes.
+func TestCouncilGetsOneHumanRound(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := f.open(t, domain.GateCouncilDecision)
+	c := domain.Council{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.CouncilTechnical, Question: "q", GateID: g.ID}
+	must(t, f.st.Councils().Create(ctx, &c))
+	for round := 1; round <= domain.MaxSynthesisRounds; round++ {
+		k := domain.CouncilContribution{AccountID: f.account, CouncilID: c.ID, Role: "facilitator", Stage: domain.StageSynthesis, Round: round, Content: []byte(`{}`)}
+		must(t, f.st.Councils().AddContribution(ctx, &k))
+	}
+	in := mcp.GateDecisionInput{Gate: g.Ref(), Feedback: "again"}
+	_, err := f.svc.Decide(ctx, f.by, mcp.ToolRequestChanges, in)
+	wantErr(t, err, mcp.ErrInvalidInput)
+	if _, err := f.svc.Decide(ctx, f.by, mcp.ToolApprove, in); err != nil {
+		t.Fatal(err)
+	}
+
+	first := f.open(t, domain.GateCouncilDecision)
+	other := domain.Council{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.CouncilTechnical, Question: "q", GateID: first.ID}
+	must(t, f.st.Councils().Create(ctx, &other))
+	k := domain.CouncilContribution{AccountID: f.account, CouncilID: other.ID, Role: "facilitator", Stage: domain.StageSynthesis, Round: 1, Content: []byte(`{}`)}
+	must(t, f.st.Councils().AddContribution(ctx, &k))
+	if _, err := f.svc.Decide(ctx, f.by, mcp.ToolRequestChanges, mcp.GateDecisionInput{Gate: first.Ref(), Feedback: "again"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestOpenedRunsInTheGatesTransaction: what it does is there with the gate,
+// its failure leaves no gate, and a gate that exists does not run it again.
+func TestOpenedRunsInTheGatesTransaction(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	req := gates.OpenRequest{ID: domain.NewID(), AccountID: f.account, ProjectID: f.project.ID, Kind: domain.GateCouncilDecision, Title: "t", SubjectRepo: "acme/app"}
+	boom := errors.New("boom")
+	req.Opened = func(context.Context, store.Store, domain.Gate) error { return boom }
+	if _, err := f.svc.Open(ctx, req); !errors.Is(err, boom) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := f.svc.Get(ctx, f.account, req.ID); !errors.Is(err, gates.ErrNotFound) {
+		t.Fatalf("a gate was left behind: %v", err)
+	}
+	calls := 0
+	req.Opened = func(_ context.Context, tx store.Store, g domain.Gate) error {
+		calls++
+		_, err := tx.Gates().Get(ctx, g.AccountID, g.ID)
+		return err
+	}
+	for range 2 {
+		if _, err := f.svc.Open(ctx, req); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d", calls)
+	}
+}
