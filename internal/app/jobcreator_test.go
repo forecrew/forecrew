@@ -207,6 +207,45 @@ func TestJobCreatorResources(t *testing.T) {
 	}
 }
 
+// TestJobCreatorToolbox: a role with a toolbox gets it in its spec, a job that
+// needs Docker and the toolbox's labels, and the tools of its MCP servers.
+func TestJobCreatorToolbox(t *testing.T) {
+	f := newFixture(t, func(d *Deps) {
+		d.Files = packs(t, func(m fstest.MapFS) {
+			m["packs/roles/reviewer.yaml"].Data = append(m["packs/roles/reviewer.yaml"].Data, "toolbox: browser\n"...)
+			m["packs/toolboxes/browser.yaml"].Data = append(m["packs/toolboxes/browser.yaml"].Data, "needs: [GPU]\n"...)
+		})
+	})
+	job := func(role string) domain.Job {
+		req := f.request(role)
+		req.Needs = []string{"linux"}
+		id, err := f.creator.Create(t.Context(), req)
+		must(t, err)
+		j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+		must(t, err)
+		return j
+	}
+	j := job("reviewer")
+	if j.Spec.Toolbox == nil || j.Spec.Toolbox.Name != "browser" || len(j.Spec.Toolbox.MCPServers) != 1 {
+		t.Fatalf("toolbox = %+v", j.Spec.Toolbox)
+	}
+	if want := []string{"docker", "gpu", "linux"}; !slices.Equal(j.Needs, want) {
+		t.Errorf("needs = %v, want %v", j.Needs, want)
+	}
+	if !slices.Contains(j.Spec.AllowedTools, runtime.MCPServerTool("playwright")) || !slices.Contains(j.Spec.AllowedTools, "Read") {
+		t.Errorf("allowed tools = %v", j.Spec.AllowedTools)
+	}
+	if err := j.Spec.Validate(); err != nil {
+		t.Errorf("spec: %v", err)
+	}
+
+	// Another role is unchanged, and so is the role pack's own list.
+	j = job("developer")
+	if j.Spec.Toolbox != nil || !slices.Equal(j.Needs, []string{"linux"}) || slices.Contains(j.Spec.AllowedTools, runtime.MCPServerTool("playwright")) {
+		t.Errorf("developer job = needs %v, toolbox %+v, tools %v", j.Needs, j.Spec.Toolbox, j.Spec.AllowedTools)
+	}
+}
+
 func TestJobCreatorGeneratesID(t *testing.T) {
 	f := newFixture(t)
 	id, err := f.creator.Create(t.Context(), f.request("reviewer"))
