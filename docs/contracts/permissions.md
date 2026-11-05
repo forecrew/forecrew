@@ -6,8 +6,8 @@ catalog and the built-in roles are code in `internal/domain`
 `domain.GatePermission`, `domain.ScopesAllow`); this file describes them, and
 a test keeps the seeded `roles` rows equal to `domain.BuiltInRoles`. The
 model (organizations, members, teams, bindings, tokens) is in
-[identity.md](identity.md). The authorization engine that enforces it is
-T53's `internal/authz`.
+[identity.md](identity.md). `internal/authz` enforces it; see [The
+engine](#the-engine).
 
 ## Rules
 
@@ -28,8 +28,12 @@ T53's `internal/authz`.
 - **No escalation:** nobody gives a permission they lack, or acts on someone
   who holds more than they do; see [No escalation](#no-escalation).
 - **Gates:** resolving a gate (`approve`, `request_changes` or `reject`,
-  from any entry point) needs `domain.GatePermission` of its kind on its
-  project. Agents never resolve gates.
+  from any entry point, and `resolve_assumption` for the review gates it
+  closes) needs `domain.GatePermission` of its kind on its project. Only
+  people resolve gates: a person, or an ownerless token, which is a person's
+  until it gets its owner. Service accounts, workers and agents never do,
+  whatever role they hold. Until knowledge proposals are built, every
+  `knowledge_proposal` gate counts as protected.
 - **Lists** without a project filter return only the rows of the projects
   where the caller has the list's permission.
 
@@ -214,7 +218,9 @@ Every `/api/v1` route (`api.RouteAccess`) and every MCP tool
 none. "Signed in" means any active member, service account or token of the
 organization, with no permission; "own" means the caller's own records need
 no permission and other people's need the one named; "the gate's" means
-`domain.GatePermission` of the gate's kind on its project.
+`domain.GatePermission` of the gate's kind on its project. A tool that names
+its object by ID (a job, a gate, an artifact, a council, a note) looks the
+object up and checks the permission on the object's project.
 
 | MCP tool | REST route | Needs |
 |----------|------------|-------|
@@ -252,11 +258,34 @@ no permission and other people's need the one named; "the gate's" means
 | `reject` | `POST /api/v1/gates/{gate}/reject` | the gate's |
 | `list_tokens` | `GET /api/v1/tokens` | own; `token.manage` for everyone's |
 | `revoke_token` | `POST /api/v1/tokens/{token}/revoke` | own; `token.manage` for another's |
+| `list_roles` | `GET /api/v1/roles` | `org.read` |
+| `list_teams` | `GET /api/v1/teams` | `org.read` |
+| `create_team` | `POST /api/v1/teams` | `team.manage` |
+| `update_team` | `PATCH /api/v1/teams/{team}` | `team.manage` |
+| `delete_team` | `DELETE /api/v1/teams/{team}` | `team.manage` and every permission of the team's roles, because it removes them |
+| `list_team_members` | `GET /api/v1/teams/{team}/members` | `org.read` |
+| `add_team_member` | `POST /api/v1/teams/{team}/members` | `team.manage`, No escalation |
+| `remove_team_member` | `DELETE /api/v1/teams/{team}/members/{user}` | `team.manage` |
+| `list_role_bindings` | `GET /api/v1/role-bindings` | `org.read`; with a project, `project.read` on it |
+| `create_role_binding` | `POST /api/v1/role-bindings` | by its subject and scope, No escalation |
+| `delete_role_binding` | `DELETE /api/v1/role-bindings/{binding}` | by its subject and scope, No escalation |
+| `list_service_accounts` | `GET /api/v1/service-accounts` | `org.read` |
+| `create_service_account` | `POST /api/v1/service-accounts` | `service_account.manage` |
+| `update_service_account` | `PATCH /api/v1/service-accounts/{service_account}` | `service_account.manage` |
+| `set_service_account_disabled` | `POST /api/v1/service-accounts/{service_account}/disable`, `.../enable` | `service_account.manage`, No escalation |
 
-**GitHub commands** (`@forecrew` in issues and PRs) run as the user whose
-linked GitHub identity wrote the comment: `approve` and `changes` need the
-gate's permission, `status` needs `gate.read`. Without a linked user with
-the permission the command is refused with a reply.
+For a binding on the organization, No escalation also concerns everything
+the member or service account already holds; for a binding on a project, only
+the role at that project, so a Project admin manages their project without
+holding what its people hold elsewhere.
+
+**GitHub commands** (`@forecrew` in issues and PRs, `webhook.CommandAccess`)
+run as the user whose linked GitHub identity wrote the comment, matched by
+GitHub user ID: `approve` and `changes` need the gate's permission, `status`
+needs `gate.read`. Without a linked user with the permission the command is
+refused with a reply. An organization where nobody holds a role yet is not
+enforced: there `github.allowlist` still decides, as it did before
+organizations, and an unknown author is ignored without a reply.
 
 **The CLI** reaches the server through `/api/v1`, so a remote command needs
 what its route needs. The server-side commands (`forecrew migrate`,
@@ -291,4 +320,37 @@ human tokens are refused there. An `ask_human` question it opens is a
 Actions and resources are named like Cedar entities so a policy engine can
 take over attribute rules later (4.7): `Action::"gate.approve.merge"`,
 `Organization::"<id>"`, `Project::"<id>"`, `User::"<id>"`, `Team::"<id>"`,
-`ServiceAccount::"<id>"`. T53 documents the evaluator interface here.
+`ServiceAccount::"<id>"` (`authz.EntityUID`).
+
+## The engine
+
+`authz.Engine` is the one check. `Authorize(ctx, subject, permission,
+resource)` takes the actor, a permission and the organization or a project,
+and answers nil or an error wrapping `authz.ErrDenied` (`403 forbidden`).
+
+1. The resource must be in the actor's organization.
+2. A token or OAuth grant must allow the permission's class
+   (`domain.ScopesAllow`). A session has no scopes to meet.
+3. An ownerless token stops here: it is allowed.
+4. `Evaluator.IsAuthorized(request, bindings)` decides, from a
+   `Request{Principal, Action, Resource}` and the bindings that apply
+   (`RoleBindingRepo.Effective`).
+
+The evaluator is the only part that knows about roles. `RoleEvaluator` is the
+union of the bindings; a policy engine replaces it through
+`Engine.WithEvaluator` for attribute rules, with the same shape as cedar-go's
+`IsAuthorized(entities, request)`, and no caller changes. What the engine reads
+is kept for one request (`Engine.Request`) and never across requests, so a
+change of bindings counts from the next request.
+
+Three places call it. `guard` in `internal/api` and the wrapper in
+`register` in `internal/mcp` check the entry of `RouteAccess` or `ToolAccess`
+before the call: the caller holds the permission on the organization or on
+some project. They do not know the project yet; `internal/tools` does, and
+checks the permission on it, the gate's permission, own records and No
+escalation. A route or a tool without an entry does not start, and a GitHub
+command without one does not parse.
+
+Denied write actions are audited as `access.denied` with the actor, its
+credential, the permission and the resource. Changes to teams, role bindings,
+service accounts and tokens are audited with their target.

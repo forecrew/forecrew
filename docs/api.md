@@ -47,9 +47,10 @@ Non-2xx responses have this body:
 |--------|--------|------|
 | 400 | `bad_request` | Malformed JSON, unknown or mistyped fields, bad query parameter, missing `token` on login. |
 | 400 | `invalid_input` | The tool refused the input: a field is missing or malformed, a bad ref, a decision the gate does not allow (`request-changes` on a `needs_you` gate, or without `feedback`). |
-| 401 | `unauthorized` | Missing, unknown or revoked token. |
+| 401 | `unauthorized` | Missing, unknown, revoked or expired token. |
+| 403 | `forbidden` | The caller lacks the permission, on the project the call is about or at all; the message names it. See [contracts/permissions.md](contracts/permissions.md). |
 | 404 | `not_found` | Unknown project, goal, job, gate or active token, or one of another account; unknown endpoint. |
-| 409 | `conflict` | The state does not allow it, for example a gate that is already decided or a job that is not queued or running (`cancel`). |
+| 409 | `conflict` | The state does not allow it, for example a gate that is already decided, a job that is not queued or running (`cancel`), a name that is taken, a binding that exists or the last Owner. |
 | 413 | `too_large` | Body over 1 MiB. |
 | 415 | `unsupported_media_type` | A cookie session sent a state-changing request that is not `application/json`. |
 | 500 | `internal` | Server error; the cause is only in the server log. |
@@ -85,7 +86,7 @@ structs in `internal/domain` and `internal/mcp`.
 | `GET /api/v1/councils/{council}` | `get_council` | `{council}` is `COUNCIL-2` or a UUID | `200` council with `ref`, `brief`, `contributions` by stage and round (`member`, `runtime`, `stage`, `round`, `content`, `evidence_check`; agent text, so untrusted data), `gate` and `decision` |
 | `POST /api/v1/councils/{council}/constraints` | `add_council_constraint` | `{"constraint": "..."}` | `200` council; the next round's prompts include it. `409` when the council ended |
 | `GET /api/v1/workers` | `list_workers` | | `200` workers with `pool`, `labels`, `version`, `last_seen_at`, `online` and `running_jobs` (refs) |
-| `GET /api/v1/gates?project=` | `list_pending_gates` | `project` optional | `200` pending gates with `ref`, `kind`, `project`, `goal_ref`, `task_ref`, `summary`, `url` (GitHub issue or PR) and `created_at` |
+| `GET /api/v1/gates?project=` | `list_pending_gates` | `project` optional | `200` pending gates with `ref`, `kind`, `project`, `goal_ref`, `task_ref`, `summary`, `url` (GitHub issue or PR), `can_resolve` (whether the caller may resolve it) and `created_at` |
 | `POST /api/v1/gates/{gate}/approve` | `approve` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `approved` |
 | `POST /api/v1/gates/{gate}/request-changes` | `request_changes` | `{"feedback": "required"}` | `200` the gate, now `changes_requested` |
 | `POST /api/v1/gates/{gate}/reject` | `reject` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `rejected` |
@@ -93,7 +94,22 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/tokens/{token}/revoke` | `revoke_token` | `{token}` is a name or ID; body optional | `200` `{"token": {...}, "self": false, "message": "..."}`; `404` when no active token has that name or ID. `self` is true when the caller revoked the token it used: the next request, with the header or the session cookie, gets `401` |
 | `POST /api/v1/session` | | `{"token": "fcm_..."}` | `200` session, sets the cookie |
 | `DELETE /api/v1/session` | | | `204`, clears the cookie |
-| `GET /api/v1/me` | | | `200` session |
+| `GET /api/v1/me` | | | `200` session: `token`, `account` (the current organization), `user` (absent for a service account or an ownerless token), `roles` (`role`, `scope`, `project_id`, `team_id` when it comes through a team), `permissions` (held on the organization and, for project-scoped ones, on every project) and `projects` (by project ID, the project-scoped permissions on each project where the caller has any). A token shows what it can use, its scopes applied |
+| `GET /api/v1/roles` | `list_roles` | | `200` roles with `name`, `scope`, `permissions`, `built_in`, `custom` |
+| `GET /api/v1/teams` | `list_teams` | | `200` teams |
+| `POST /api/v1/teams` | `create_team` | `{"name", "slug"}`; `slug` is derived from the name when left out | `201` team; `409` when the slug is taken |
+| `PATCH /api/v1/teams/{team}` | `update_team` | `{team}` is a slug or UUID; `{"name", "slug"}`, both optional | `200` team |
+| `DELETE /api/v1/teams/{team}` | `delete_team` | | `200` the team, deleted with its members and bindings |
+| `GET /api/v1/teams/{team}/members` | `list_team_members` | | `200` members: `user_id`, `source`, `created_at` |
+| `POST /api/v1/teams/{team}/members` | `add_team_member` | `{"user": "uuid"}` | `201` member; `404` when the user is not a member of the organization |
+| `DELETE /api/v1/teams/{team}/members/{user}` | `remove_team_member` | | `200` member |
+| `GET /api/v1/role-bindings?project=&subject_kind=&subject=` | `list_role_bindings` | all optional; `subject` needs `subject_kind` | `200` bindings with `id`, `subject_kind`, `subject_id`, `role`, `role_scope`, `project` |
+| `POST /api/v1/role-bindings` | `create_role_binding` | `{"subject_kind", "subject", "role", "project"}`; `subject_kind` is `user`, `team` or `service_account`, `subject` a user UUID, a team slug or a service account name (or their UUIDs); without `project` the role applies to the organization | `201` binding; `409` when it exists |
+| `DELETE /api/v1/role-bindings/{binding}` | `delete_role_binding` | | `200` the binding; `409` for the last Owner |
+| `GET /api/v1/service-accounts` | `list_service_accounts` | | `200` service accounts |
+| `POST /api/v1/service-accounts` | `create_service_account` | `{"name", "description"}` | `201` service account; `409` when the name is taken |
+| `PATCH /api/v1/service-accounts/{service_account}` | `update_service_account` | `{service_account}` is a name or UUID; `{"name", "description"}`, both optional | `200` service account |
+| `POST /api/v1/service-accounts/{service_account}/disable`, `.../enable` | `set_service_account_disabled` | body optional | `200` service account |
 
 ### Artifact downloads
 
