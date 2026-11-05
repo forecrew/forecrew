@@ -131,8 +131,16 @@ func (s *Service) GetCouncil(ctx context.Context, by domain.Actor, in mcp.Counci
 	if d.Untrusted, err = untrustedText(d); err != nil {
 		return mcp.CouncilDetail{}, err
 	}
-	d.Decision, err = s.councilDecision(ctx, c)
-	return d, err
+	if d.Decision, err = s.councilDecision(ctx, c); err != nil {
+		return d, err
+	}
+	if !readsGates {
+		d.GateID = uuid.Nil()
+		if d.Decision != nil {
+			d.Decision.GateID = uuid.Nil()
+		}
+	}
+	return d, nil
 }
 
 // untrustedText is what agents wrote in a council, each piece between
@@ -207,6 +215,13 @@ func (s *Service) AddCouncilConstraint(ctx context.Context, by domain.Actor, in 
 	})
 	if err != nil {
 		return mcp.CouncilInfo{}, err
+	}
+	readsGates, err := s.readsGates(ctx, by, c.ProjectID)
+	if err != nil {
+		return mcp.CouncilInfo{}, err
+	}
+	if !readsGates {
+		c.GateID = uuid.Nil()
 	}
 	return mcp.CouncilInfo{Council: c, Ref: c.Ref()}, nil
 }
