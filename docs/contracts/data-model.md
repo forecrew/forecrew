@@ -1150,8 +1150,10 @@ CREATE TABLE machines (
                CHECK (state IN ('requested','booting','ready','busy','draining','destroyed','failed')),
   worker_id    uuid,
   job_id       uuid,
+  jobs_taken   integer NOT NULL DEFAULT 0 CHECK (jobs_taken >= 0),
   error        text NOT NULL DEFAULT '',
   assigned_at  timestamptz,
+  booting_at   timestamptz,
   ready_at     timestamptz,
   deadline_at  timestamptz,
   destroyed_at timestamptz,
@@ -1287,8 +1289,8 @@ RETURNING *;
 ```
 
 From T58 an ephemeral worker also leases only jobs whose `resources` fit its
-machine's shape, and at most the shape's `max_jobs` in all (fleet.md,
-Machines). `resources` do not restrict a static worker.
+machine's shape, and only while `machines.jobs_taken` is below the shape's
+`max_jobs`; the lease adds one in the same transaction (fleet.md, Machines). `resources` do not restrict a static worker.
 
 `Jobs.Release` (Nack) requeues with `domain.Job.Release`: `Requeue` plus
 `run_after = now() + domain.RetryBackoff(attempts)` (30 s base, doubling, 10 min

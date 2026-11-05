@@ -56,11 +56,11 @@ currency of the instance, config.md `fleet.currency`. A price of 0 is free.
 | `image` | Image name, or `name@version` to pin one (`domain.ParseImageRef`). Unpinned means the newest built (`ImageRepo.Resolve`). |
 | `price_per_minute` | What a minute costs; own machines at home are 0. |
 | `monthly_budget` | Stops new machines of this shape for the month; NULL means no limit. |
-| `warm_min` | Ready machines kept with no job. |
+| `warm_min` | Machines kept up with no job: `ready`, or warm (`Machine.Warm`). |
 | `max` | Machines of this shape at once, ≥ 1 and ≥ `warm_min`. |
-| `idle_seconds` | How long a ready machine above `warm_min` waits for a job; 0 destroys it at once. |
-| `boot_timeout_seconds` | How long a machine may take to reach `ready` before it is failed and replaced; default 300. |
-| `max_jobs` | Jobs a machine takes in its life, and its worker's `max_jobs`; default 1. |
+| `idle_seconds` | How long a machine up above `warm_min` waits for a job; 0 destroys it at once. |
+| `boot_timeout_seconds` | How long a machine may take from entering `booting` until its worker calls, before it is failed and replaced; default 300. Also how long a bound bootstrap token lasts. |
+| `max_jobs` | Jobs a machine takes in its life, counted by `machines.jobs_taken`, and its worker's `max_jobs`; default 1. |
 | `note` | What a person should know, shown on the machine type: slower boot on plain EC2, the 24-hour minimum on EC2 Mac. |
 | `enabled` | A disabled shape gets no new machines. |
 
@@ -165,9 +165,9 @@ requested → destroyed            booting, ready → draining
 | State | Means | Set by |
 |-------|-------|--------|
 | `requested` | The row exists; the provider may not know it yet. The controller writes it first, so a restart finds what it asked for. | forecrewd |
-| `booting` | The provider started it; `external_id` is known. | provider report |
-| `ready` | Its worker connected. | forecrewd, at `POST /worker/v1/bootstrap` |
-| `busy` | It leased a job; it stays busy until it has taken `max_jobs` jobs or sits idle. | forecrewd, at lease |
+| `booting` | The provider started it; `external_id` is known and `booting_at` set. A warm machine waits here. | provider report |
+| `ready` | It has a worker: its bootstrap token was exchanged. | forecrewd, at `POST /worker/v1/bootstrap` |
+| `busy` | It leased a job. It stays busy until `jobs_taken` reaches the shape's `max_jobs` and its last job ends, or until it sits idle for `idle_seconds`. | forecrewd, at lease |
 | `draining` | It takes no more jobs and is being destroyed. | forecrewd |
 | `destroyed` | Gone; `destroyed_at` is set. | provider report |
 | `failed` | It broke; `error` says why. It may still exist at the provider, and goes to `destroyed` once it is gone. | either |
@@ -183,6 +183,17 @@ start. A warm machine of an instance-wide shape has none (`account_id` NULL,
 never changes: trigger `machines_check` enforces it, the composite keys keep
 its worker and job in that organization, and its worker must be ephemeral.
 
+**Warm.** A machine with no organization cannot have a worker, because
+`workers.account_id` is required. So it stays `booting`: its worker's first call
+gets `202` and sets `ready_at`, which is what makes it warm (`Machine.Warm`),
+counts it for `warm_min` and stops its boot timeout. It reaches `ready` after
+assignment, like any machine, when the waiting worker exchanges its token.
+
+**Boot timeout.** It starts at `booting_at`, when the provider has started the
+machine, and ends at `ready_at` (`Machine.BootExpired`). A machine kept
+`requested`, because its provider is offline or has no room, is not timing out:
+the controller may withdraw it, but does not fail it.
+
 **Worker.** Every machine is a worker with `ephemeral` true, made at bootstrap
 with the shape's pool, `max_jobs` and offered labels. It is revoked when its
 machine starts draining. Static workers have `ephemeral` false and no machine
@@ -191,8 +202,10 @@ organization, as `Jobs.LeaseNext` always did; so an organization's machines
 lease only its jobs.
 
 **Leasing.** An ephemeral worker also leases only jobs whose `resources` fit
-its machine's shape (`Shape.Fits`), and at most `max_jobs` in all; T58 adds
-this to the leasing query (data-model.md). A static worker reports no size, so
+its machine's shape (`Shape.Fits`), and only while `jobs_taken` is below the
+shape's `max_jobs` (`Machine.CanTakeJob`); each lease adds one in the same
+transaction (`MachineRepo.TakeJob`). T58 adds this to the leasing query
+(data-model.md). A static worker reports no size, so
 `resources` do not restrict it: labels route jobs to it. `job_id` is the job the
 machine last leased. A machine started for a job is not reserved for it: the
 first job that fits takes it, and demand is counted again.
