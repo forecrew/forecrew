@@ -6,7 +6,8 @@
 //   - Every project-scoped call takes the account ID and only sees rows of
 //     that account. The only unscoped lookups are the ones that discover the
 //     account: Projects.ListByRepo (webhooks), Workers.GetByTokenHash,
-//     MCPTokens.GetByTokenHash and Jobs.GetByJobMCPTokenHash.
+//     MCPTokens.GetByTokenHash and Jobs.GetByJobMCPTokenHash, and the
+//     instance-wide calls of the fleet repositories, which say so.
 //   - Create fills ID (a new UUIDv7 when nil), Number (next human ref
 //     number of the account for entities that have one), CreatedAt and
 //     UpdatedAt, and writes them back into the argument.
@@ -951,4 +952,184 @@ type SCIMTokenRepo interface {
 	List(ctx context.Context, accountID uuid.UUID) ([]domain.SCIMToken, error)
 	Touch(ctx context.Context, accountID, id uuid.UUID) error
 	Revoke(ctx context.Context, accountID, id uuid.UUID) error
+}
+
+// The fleet repositories (docs/contracts/fleet.md, data-model.md, migration
+// 00007) are contracts only until they join Store, each with the Postgres
+// implementation and the testkit fake: CapacityProviderRepo, ShapeRepo,
+// MachineRepo, BootstrapTokenRepo and FleetPolicyRepo by T58,
+// ProviderJoinCodeRepo by T59, ImageRepo by T60 and UsageRepo by T65. They
+// serve a controller that works across organizations, so the calls that find
+// a provider, machine or token by its ID or hash are unscoped; the zero
+// account ID means the instance-wide rows.
+
+// CapacityProviderRepo stores capacity providers. Name is unique per
+// organization, and among instance-wide providers.
+type CapacityProviderRepo interface {
+	Create(ctx context.Context, p *domain.CapacityProvider) error
+	Get(ctx context.Context, id uuid.UUID) (domain.CapacityProvider, error)
+	GetByName(ctx context.Context, accountID uuid.UUID, name string) (domain.CapacityProvider, error)
+	// GetByTokenHash is unscoped: the token identifies the provider.
+	// Revoked providers are returned too; callers check Status.
+	GetByTokenHash(ctx context.Context, hash []byte) (domain.CapacityProvider, error)
+	// List returns an organization's own providers, or the instance-wide
+	// ones for the zero ID.
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.CapacityProvider, error)
+	// ListAll returns every provider, for the controller.
+	ListAll(ctx context.Context) ([]domain.CapacityProvider, error)
+	// Update writes Limits, NetworkAllow and Tags.
+	Update(ctx context.Context, p *domain.CapacityProvider) error
+	// SetStatus moves a provider to status; ErrConflict when it is revoked.
+	SetStatus(ctx context.Context, id uuid.UUID, status domain.ProviderStatus) error
+	// SetToken stores the hash of a new token and makes the provider
+	// active.
+	SetToken(ctx context.Context, id uuid.UUID, hash []byte) error
+	// Seen records contact: LastSeenAt = now and, when not nil, the
+	// capabilities as reported.
+	Seen(ctx context.Context, id uuid.UUID, capabilities *domain.ProviderCapabilities) error
+}
+
+// ProviderJoinCodeRepo stores join codes (fleet-agent-api.md, Joining).
+type ProviderJoinCodeRepo interface {
+	Create(ctx context.Context, c *domain.ProviderJoinCode) error
+	// GetByCodeHash is unscoped: the code identifies the organization.
+	GetByCodeHash(ctx context.Context, hash []byte) (domain.ProviderJoinCode, error)
+	// Claim records the facts of the agent holding claimHash. The first
+	// claim binds the code; another claim fails with ErrConflict, as does
+	// an expired or used code.
+	Claim(ctx context.Context, id uuid.UUID, claimHash []byte, kind domain.ProviderKind, facts domain.ProviderCapabilities) error
+	// Confirm links the code to the provider a person confirmed.
+	Confirm(ctx context.Context, id, providerID uuid.UUID) error
+	// MarkUsed records that the token was handed over; ErrConflict when it
+	// already was, so it is handed over once.
+	MarkUsed(ctx context.Context, id uuid.UUID) error
+}
+
+// ShapeRepo stores shapes. Name is unique per organization, and among
+// instance-wide shapes. A provider of another organization is ErrNotFound.
+type ShapeRepo interface {
+	Create(ctx context.Context, s *domain.Shape) error
+	Get(ctx context.Context, id uuid.UUID) (domain.Shape, error)
+	GetByName(ctx context.Context, accountID uuid.UUID, name string) (domain.Shape, error)
+	// List returns an organization's own shapes, or the instance-wide ones
+	// for the zero ID.
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.Shape, error)
+	// ListAvailable returns what an organization's jobs can be offered,
+	// for domain.SelectShapes: its own and the instance-wide shapes.
+	ListAvailable(ctx context.Context, accountID uuid.UUID) ([]domain.Shape, error)
+	// Update writes everything but ID, AccountID and ProviderID.
+	Update(ctx context.Context, s *domain.Shape) error
+}
+
+// MachineFilter selects machines; zero fields match everything. Active
+// keeps machines whose state domain.MachineState.Counts.
+type MachineFilter struct {
+	AccountID  uuid.UUID
+	ProviderID uuid.UUID
+	ShapeID    uuid.UUID
+	State      domain.MachineState
+	Active     bool
+	Limit      int
+}
+
+// MachineRepo stores machines. The controller writes the row before it
+// asks the provider for anything, so a restart finds what it asked for.
+type MachineRepo interface {
+	Create(ctx context.Context, m *domain.Machine) error
+	Get(ctx context.Context, id uuid.UUID) (domain.Machine, error)
+	// GetByWorker returns the machine of an ephemeral worker.
+	GetByWorker(ctx context.Context, accountID, workerID uuid.UUID) (domain.Machine, error)
+	// GetByExternalID finds a machine by the provider's ID, for
+	// reconciliation.
+	GetByExternalID(ctx context.Context, providerID uuid.UUID, externalID string) (domain.Machine, error)
+	List(ctx context.Context, f MachineFilter) ([]domain.Machine, error)
+	// UpdateState is a compare-and-set (package comment). errMsg is stored
+	// when not empty; moving to ready sets ReadyAt, to destroyed DestroyedAt.
+	UpdateState(ctx context.Context, id uuid.UUID, from, to domain.MachineState, errMsg string) error
+	SetExternalID(ctx context.Context, id uuid.UUID, externalID string) error
+	// Assign gives an unassigned machine its organization and sets
+	// AssignedAt; ErrConflict when it already has one.
+	Assign(ctx context.Context, id, accountID uuid.UUID) error
+	// SetWorker links the machine to its worker of the same organization.
+	SetWorker(ctx context.Context, id, workerID uuid.UUID) error
+	// SetJob records the job the machine leased and its deadline.
+	SetJob(ctx context.Context, id, jobID uuid.UUID, deadline time.Time) error
+}
+
+// BootstrapTokenRepo stores machines' one-time tokens, one per machine.
+type BootstrapTokenRepo interface {
+	// Issue stores t, replacing the machine's token unless that one was
+	// used (ErrConflict): each delivery to a provider mints a new token,
+	// because only hashes are kept.
+	Issue(ctx context.Context, t *domain.BootstrapToken) error
+	// GetByTokenHash is unscoped: the token identifies the machine. Used
+	// and expired tokens are returned too; callers check Usable.
+	GetByTokenHash(ctx context.Context, hash []byte) (domain.BootstrapToken, error)
+	// Assign binds an unassigned token to its organization, with an expiry.
+	Assign(ctx context.Context, machineID, accountID uuid.UUID, expiresAt time.Time) error
+	// Consume marks the token used; ErrConflict when it is not
+	// domain.BootstrapToken.Usable, so two callers cannot both use it.
+	Consume(ctx context.Context, hash []byte) (domain.BootstrapToken, error)
+}
+
+// FleetPolicyRepo stores fleet policies, one per organization.
+type FleetPolicyRepo interface {
+	// Get returns domain.DefaultFleetPolicy when the organization has no
+	// row.
+	Get(ctx context.Context, accountID uuid.UUID) (domain.FleetPolicy, error)
+	// Put creates or replaces the row.
+	Put(ctx context.Context, p *domain.FleetPolicy) error
+}
+
+// ImageFilter selects images; zero fields match everything.
+type ImageFilter struct {
+	Name   string
+	OS     domain.MachineOS
+	Arch   domain.MachineArch
+	Format domain.ImageFormat
+	Limit  int
+}
+
+// ImageRepo stores images. (name, version, arch, format) is unique per
+// organization, and among instance-wide images.
+type ImageRepo interface {
+	Create(ctx context.Context, i *domain.Image) error
+	Get(ctx context.Context, id uuid.UUID) (domain.Image, error)
+	// List returns an organization's own images and the instance-wide
+	// ones, or only the latter for the zero ID.
+	List(ctx context.Context, accountID uuid.UUID, f ImageFilter) ([]domain.Image, error)
+	// Resolve returns what a shape's image reference names for an
+	// organization: the version asked for, or the newest by BuiltAt, among
+	// images of os, arch and one of formats. The organization's own image
+	// wins over an instance-wide one of the same version.
+	Resolve(ctx context.Context, accountID uuid.UUID, ref string, os domain.MachineOS, arch domain.MachineArch, formats []domain.ImageFormat) (domain.Image, error)
+	// Delete removes an image by retention; ErrConflict while a live
+	// machine's shape pins it.
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+// UsageFilter selects usage records by EndedAt in [From, To); zero fields
+// match everything.
+type UsageFilter struct {
+	ShapeID   uuid.UUID
+	Ownership domain.Ownership
+	From, To  time.Time
+}
+
+// UsageTotal sums usage records.
+type UsageTotal struct {
+	Minutes float64
+	Cost    float64
+}
+
+// UsageRepo stores usage records, one per machine.
+type UsageRepo interface {
+	// Create stores a record; a machine that has one fails with
+	// ErrConflict, so metering can be retried.
+	Create(ctx context.Context, u *domain.UsageRecord) error
+	List(ctx context.Context, accountID uuid.UUID, f UsageFilter) ([]domain.UsageRecord, error)
+	Sum(ctx context.Context, accountID uuid.UUID, f UsageFilter) (UsageTotal, error)
+	// SumByProvider sums a provider's records of every organization, for
+	// its monthly budget.
+	SumByProvider(ctx context.Context, providerID uuid.UUID, from, to time.Time) (UsageTotal, error)
 }

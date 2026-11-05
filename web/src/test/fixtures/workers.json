@@ -4,6 +4,7 @@
     "account_id": "018f0000-0000-7000-8000-000000000001",
     "name": "build-box-1",
     "pool": "build",
+    "ephemeral": false,
     "labels": [
       "docker",
       "go",
@@ -25,6 +26,7 @@
     "account_id": "018f0000-0000-7000-8000-000000000001",
     "name": "mac-mini",
     "pool": "control",
+    "ephemeral": false,
     "labels": [
       "macos",
       "runtime:codex"
