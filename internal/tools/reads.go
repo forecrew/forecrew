@@ -8,6 +8,7 @@ import (
 	"slices"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
@@ -239,12 +240,7 @@ func (s *Service) GetGoal(ctx context.Context, by domain.Actor, in mcp.GoalRefIn
 	case !errors.Is(err, store.ErrNotFound):
 		return mcp.GoalDetail{}, fmt.Errorf("spec of %s: %w", g.Ref(), err)
 	}
-	all, err := st.Gates().List(ctx, by.AccountID, store.GateFilter{ProjectID: g.ProjectID})
-	if err != nil {
-		return mcp.GoalDetail{}, fmt.Errorf("gates of %s: %w", g.Ref(), err)
-	}
-	mine := slices.DeleteFunc(all, func(x domain.Gate) bool { return x.GoalID != g.ID })
-	if d.Gates, err = s.gateInfos(ctx, by, mine); err != nil {
+	if d.Gates, err = s.goalGates(ctx, by, g); err != nil {
 		return mcp.GoalDetail{}, fmt.Errorf("gates of %s: %w", g.Ref(), err)
 	}
 	if d.Assumptions, err = s.goalAssumptions(ctx, g); err != nil {
@@ -270,6 +266,19 @@ func (s *Service) GetGoal(ctx context.Context, by domain.Actor, in mcp.GoalRefIn
 		d.Tasks[i] = td
 	}
 	return d, nil
+}
+
+// goalGates returns the gates of a goal; none for a caller without gate.read.
+func (s *Service) goalGates(ctx context.Context, by domain.Actor, g domain.Goal) ([]mcp.GateInfo, error) {
+	can, err := s.authz.Can(ctx, by, domain.PermGateRead, authz.Project(by.AccountID, g.ProjectID))
+	if err != nil || !can {
+		return []mcp.GateInfo{}, err
+	}
+	all, err := s.cfg.Store.Gates().List(ctx, by.AccountID, store.GateFilter{ProjectID: g.ProjectID})
+	if err != nil {
+		return nil, err
+	}
+	return s.gateInfos(ctx, by, slices.DeleteFunc(all, func(x domain.Gate) bool { return x.GoalID != g.ID }))
 }
 
 // taskDetail adds links, pull requests, pending needs, iterations and cost
