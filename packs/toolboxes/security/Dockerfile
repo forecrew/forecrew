@@ -1,21 +1,22 @@
-# syntax=docker/dockerfile:1
 # The security toolbox (security.yaml): semgrep, gitleaks, osv-scanner and
-# trivy on top of the agent base image. The scanners are pinned by version, and
-# the downloaded binaries by checksum. Build context: packs/toolboxes.
+# trivy on top of the agent base image. The downloaded binaries are pinned by
+# checksum, semgrep and its dependencies by hash (requirements.txt, made from
+# requirements.in with pip-compile --generate-hashes). Build context: packs/toolboxes.
 ARG FORECREW_BASE
 FROM ${FORECREW_BASE}
 
 ARG TARGETARCH
-ARG SEMGREP_VERSION=1.183.0
 ARG GITLEAKS_VERSION=8.30.1
 ARG OSV_SCANNER_VERSION=2.7.0
 ARG TRIVY_VERSION=0.76.2
 
+COPY security/requirements.txt /tmp/requirements.txt
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-venv \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m venv /opt/semgrep \
-    && /opt/semgrep/bin/pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}" \
+    && /opt/semgrep/bin/pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt \
     && ln -s /opt/semgrep/bin/semgrep /usr/local/bin/semgrep
 
 RUN set -eu; \

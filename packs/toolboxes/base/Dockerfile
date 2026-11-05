@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # The base image of the toolboxes: Node, git and the agent CLIs a job's
 # runtime needs inside its container (docs/worker.md, Toolboxes). Toolbox
 # Dockerfiles start from it:

@@ -23,9 +23,6 @@ import (
 
 // Toolbox images and the limits of their build.
 const (
-	// toolboxImageRepo is the repository of the images built from toolbox
-	// files; the tag is the toolbox name and a hash of its build context.
-	toolboxImageRepo = "forecrew-toolbox"
 	// toolboxHashVersion changes the hash of every toolbox image when the way
 	// they are built changes.
 	toolboxHashVersion = "1"
@@ -52,6 +49,12 @@ const (
 	// containerTmpSize bounds each in-memory directory of the container.
 	containerTmpSize = "1g"
 )
+
+// toolboxImageRepo is the repository of the images built from toolbox files;
+// the tag is the toolbox name and a hash of its build context. A variable for
+// the tests, which use their own so that they never build or remove the
+// images of a worker on the same engine.
+var toolboxImageRepo = "forecrew-toolbox"
 
 // Variables for the tests: the most files and bytes a toolbox build context
 // may hold.
