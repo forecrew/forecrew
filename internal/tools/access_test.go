@@ -318,8 +318,20 @@ func TestTokensOfTheCaller(t *testing.T) {
 		t.Errorf("token.manage sees %d tokens", len(list))
 	}
 	// A name means the caller's own token; someone else's needs token.manage.
+	// and without it the token looks like one that does not exist.
 	_, err = f.svc.RevokeToken(ctx, by, mcp.RevokeTokenInput{Token: theirs.ID.String()})
-	wantErr(t, err, authz.ErrDenied)
+	wantErr(t, err, mcp.ErrNotFound)
+	if errors.Is(err, authz.ErrDenied) {
+		t.Errorf("err = %v", err)
+	}
+	ghost := domain.NewID().String()
+	_, missing := f.svc.RevokeToken(ctx, by, mcp.RevokeTokenInput{Token: ghost})
+	if strings.ReplaceAll(err.Error(), theirs.ID.String(), "") != strings.ReplaceAll(missing.Error(), ghost, "") {
+		t.Errorf("the answers differ: %v, %v", err, missing)
+	}
+	if got, _ := f.auditOf(ctx, t); !slices.Contains(got, "access.denied") {
+		t.Errorf("audit = %v", got)
+	}
 	out, err := f.svc.RevokeToken(ctx, other, mcp.RevokeTokenInput{Token: "ci"})
 	must(t, err)
 	if out.Token.ID != theirs.ID || out.Self {

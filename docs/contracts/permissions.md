@@ -260,7 +260,7 @@ object up and checks the permission on the object's project.
 | `request_changes` | `POST /api/v1/gates/{gate}/request-changes` | the gate's |
 | `reject` | `POST /api/v1/gates/{gate}/reject` | the gate's |
 | `list_tokens` | `GET /api/v1/tokens` | own; `token.manage` for everyone's |
-| `revoke_token` | `POST /api/v1/tokens/{token}/revoke` | own, with class write unless it is the token in use; `token.manage` for another's |
+| `revoke_token` | `POST /api/v1/tokens/{token}/revoke` | own, with class write unless it is the token in use; `token.manage` for another's, which is `404` without it, as for a token that does not exist |
 | `list_roles` | `GET /api/v1/roles` | `org.read` |
 | `list_teams` | `GET /api/v1/teams` | `org.read` |
 | `create_team` | `POST /api/v1/teams` | `team.manage` |
