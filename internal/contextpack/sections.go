@@ -2,6 +2,7 @@ package contextpack
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"unicode/utf8"
 
@@ -68,12 +69,27 @@ type packBlock struct {
 	manifest  *domain.ContextManifest
 }
 
-// render renders the item cut to at most limit characters (0 for no limit);
-// the second result says whether it was cut.
-func (it Item) render(limit int) (string, bool) {
+// space is room in a pack: characters, which the role's budget counts, and
+// bytes, which the prompt's budget counts.
+type space struct{ chars, bytes int }
+
+// unbounded is room without limits.
+var unbounded = space{math.MaxInt / 2, math.MaxInt / 2}
+
+func measure(s string) space { return space{utf8.RuneCountInString(s), len(s)} }
+
+func (a space) minus(b space) space { return space{a.chars - b.chars, a.bytes - b.bytes} }
+
+func (a space) plus(b space) space { return space{a.chars + b.chars, a.bytes + b.bytes} }
+
+func (a space) fits(b space) bool { return b.chars <= a.chars && b.bytes <= a.bytes }
+
+// render renders the item cut to fit limit; the second result says whether
+// it was cut. It is empty when not even a cut item fits.
+func (it Item) render(limit space) (string, bool) {
 	if it.Body == "" {
 		text := "- " + it.Label + "\n"
-		if limit > 0 && utf8.RuneCountInString(text) > limit {
+		if !limit.fits(measure(text)) {
 			return "", true // a list entry is not cut
 		}
 		return text, false
@@ -81,18 +97,21 @@ func (it Item) render(limit int) (string, bool) {
 	head := "### " + it.Label + "\n\n"
 	body := strings.TrimRight(it.Body, "\n")
 	full := head + it.wrap(body)
-	if limit <= 0 || utf8.RuneCountInString(full) <= limit {
+	if limit.fits(measure(full)) {
 		return full, false
 	}
 	// Cut the body before it is wrapped, so the closing marker survives.
 	// The wrapped text may be longer than the cut one: shrink until it fits.
-	room := limit - utf8.RuneCountInString(head+it.wrap("")) - 1
+	// The body is cut to bytes, which is at least its characters.
+	overhead := measure(head + it.wrap(""))
+	room := min(limit.chars-overhead.chars, limit.bytes-overhead.bytes) - 1
 	for room > 0 {
 		text := head + it.wrap(cut(body, room, nil))
-		if utf8.RuneCountInString(text) <= limit {
+		m := measure(text)
+		if limit.fits(m) {
 			return text, true
 		}
-		room -= utf8.RuneCountInString(text) - limit
+		room -= max(m.chars-limit.chars, m.bytes-limit.bytes, 1)
 	}
 	return "", true
 }
@@ -119,14 +138,21 @@ func (it Item) manifest(size int) domain.ContextItem {
 
 // fillSections builds the context block of a role from the candidate
 // sections: those the role lists, in its order, each filled item by item
-// until the budget in characters is used. An item that does not fit is cut
-// when there is room for a useful part of it, the rest are dropped; the
-// manifest names them. Sizes count the characters of the text the prompt
-// gets, headings included. The test plan is not a section of the block.
-func fillSections(role roles.Role, candidates []Section) packBlock {
-	budget := role.ContextBudget
-	if budget <= 0 {
-		budget = roles.DefaultContextBudget("")
+// until the budget is used. The budget is the role's, in characters, and
+// maxBytes (0 for none): what the prompt has room for. An item that does not
+// fit is cut when there is room for a useful part of it, the rest are
+// dropped. The prompt says how many items a section left out, and at the end
+// which sections had no room at all; the manifest names every item. Sizes
+// count the characters of the text the prompt gets, headings included. The
+// test plan is not a section of the block.
+func fillSections(role roles.Role, candidates []Section, maxBytes int) packBlock {
+	left := space{role.ContextBudget, unbounded.bytes}
+	if left.chars <= 0 {
+		left.chars = roles.DefaultContextBudget("")
+	}
+	budget := left.chars
+	if maxBytes > 0 {
+		left.bytes = maxBytes
 	}
 	var names []string
 	for _, n := range role.Context {
@@ -137,65 +163,136 @@ func fillSections(role roles.Role, candidates []Section) packBlock {
 	if len(names) == 0 {
 		return packBlock{}
 	}
-	intro := "\n" + contextIntro
-	used := utf8.RuneCountInString(intro)
-	var b strings.Builder
-	m := &domain.ContextManifest{Budget: budget}
-	untrusted := false
-	for _, name := range names {
-		var cand Section
+	cands := make([]Section, len(names))
+	for i, n := range names {
+		cands[i] = Section{Name: n}
 		for _, c := range candidates {
-			if c.Name == name {
-				cand = c
+			if c.Name == n {
+				cands[i] = c
 			}
 		}
-		sec, text, trust := fillSection(cand, name, budget-used)
-		used += sec.Size
+	}
+	intro := "\n" + contextIntro
+	left = left.minus(measure(intro))
+	m := &domain.ContextManifest{Budget: budget}
+	// The last line of the block names the sections left out; keep room for
+	// it from the start.
+	reserve := measure(omittedLine(cands, true))
+	if !left.fits(reserve) {
+		for _, c := range cands {
+			m.Sections = append(m.Sections, omitted(c))
+		}
+		return packBlock{manifest: m}
+	}
+	left = left.minus(reserve)
+	var b strings.Builder
+	var missing []Section
+	untrusted := false
+	for _, c := range cands {
+		sec, text, trust := fillSection(c, left)
+		left = left.minus(measure(text))
 		untrusted = untrusted || trust
 		b.WriteString(text)
+		if text == "" && len(sec.Dropped) > 0 {
+			missing = append(missing, c)
+		}
 		m.Sections = append(m.Sections, sec)
 	}
 	if b.Len() == 0 {
 		return packBlock{manifest: m}
 	}
-	text := intro + b.String()
+	text := intro + b.String() + omittedLine(missing, false)
 	m.Size = utf8.RuneCountInString(text)
 	return packBlock{text: text, untrusted: untrusted, manifest: m}
 }
 
-// Texts a section shows when it holds no item.
-const (
-	noRoom   = "Nothing fits the context budget.\n"
-	sectionH = "\n## %s\n\n"
-)
-
-// fillSection fills section name from cand in at most room characters. It
-// returns the manifest entry, the text and whether an item in it is
-// untrusted. A section without items and note, or whose heading does not
-// fit, has no text.
-func fillSection(cand Section, name string, room int) (sec domain.ContextSection, text string, untrusted bool) {
-	sec = domain.ContextSection{Name: name, Items: []domain.ContextItem{}}
-	head := fmt.Sprintf(sectionH, sectionHeading(name))
-	room -= utf8.RuneCountInString(head)
-	if room < utf8.RuneCountInString(noRoom) {
-		for _, it := range cand.Items {
-			sec.Dropped = append(sec.Dropped, it.manifest(utf8.RuneCountInString(fullText(it))))
+// omittedLine says which of cands had no room. With worst it is the longest
+// line possible for them, the room to keep for it.
+func omittedLine(cands []Section, worst bool) string {
+	var parts []string
+	for _, c := range cands {
+		switch {
+		case len(c.Items) == 0:
+		case worst:
+			parts = append(parts, fmt.Sprintf("%s (%d items)", c.Name, max(len(c.Items), 1000)))
+		default:
+			parts = append(parts, fmt.Sprintf("%s (%s)", c.Name, count(len(c.Items))))
 		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "\nLeft out for the budget: " + strings.Join(parts, ", ") + ".\n"
+}
+
+// count says how many items, e.g. "1 item", "3 items".
+func count(n int) string {
+	if n == 1 {
+		return "1 item"
+	}
+	return fmt.Sprintf("%d items", n)
+}
+
+// omitted is the manifest entry of a section with no room in the pack.
+func omitted(c Section) domain.ContextSection {
+	sec := domain.ContextSection{Name: c.Name, Items: []domain.ContextItem{}}
+	for _, it := range c.Items {
+		sec.Dropped = append(sec.Dropped, it.manifest(utf8.RuneCountInString(fullText(it))))
+	}
+	return sec
+}
+
+const sectionH = "\n## %s\n\n"
+
+// leftOut says how many items of a section did not fit.
+func leftOut(dropped, placed int) string {
+	if placed == 0 {
+		return count(dropped) + " left out for the budget.\n"
+	}
+	return fmt.Sprintf("%s more left out for the budget.\n", count(dropped))
+}
+
+// fillSection fills a section in at most room. It returns the manifest
+// entry, the text and whether an item in it is untrusted. A section without
+// items and note has no text; neither has one that has no room for its
+// heading and a line.
+func fillSection(cand Section, room space) (sec domain.ContextSection, text string, untrusted bool) {
+	name := cand.Name
+	sec = domain.ContextSection{Name: name, Items: []domain.ContextItem{}}
+	if len(cand.Items) == 0 && cand.Note == "" {
 		return sec, "", false
 	}
+	head := fmt.Sprintf(sectionH, sectionHeading(name))
+	note := ""
+	if cand.Note != "" {
+		note = "\n" + cand.Note + "\n"
+	}
+	explain := measure("\n" + leftOut(len(cand.Items), 1))
+	need := measure(head + note)
+	if note == "" {
+		need = measure(head).plus(explain)
+	}
+	if !room.fits(need) {
+		return omitted(cand), "", false
+	}
+	room = room.minus(measure(head + note))
 	var body strings.Builder
 	prevEntry := false // the last item written is a list entry
-	for _, it := range cand.Items {
+	for i, it := range cand.Items {
 		// A blank line sets an item off from the list entry before it.
 		lead := ""
 		if prevEntry && it.Body != "" {
 			lead = "\n"
 		}
-		item, _ := it.render(0)
-		if utf8.RuneCountInString(lead+item)+len(it.gap()) > room {
+		avail := room
+		if i < len(cand.Items)-1 || len(sec.Dropped) > 0 {
+			avail = room.minus(explain) // a later item may be left out
+		}
+		item, _ := it.render(unbounded)
+		if !avail.fits(measure(lead + item + it.gap())) {
 			item = ""
-			if room-len(lead)-len(it.gap()) >= minTruncated {
-				item, _ = it.render(room - len(lead) - len(it.gap()))
+			if limit := avail.minus(measure(lead + it.gap())); limit.chars >= minTruncated && limit.bytes >= minTruncated {
+				item, _ = it.render(limit)
 			}
 			if item == "" {
 				sec.Dropped = append(sec.Dropped, it.manifest(utf8.RuneCountInString(fullText(it))))
@@ -204,26 +301,32 @@ func fillSection(cand Section, name string, room int) (sec domain.ContextSection
 		}
 		body.WriteString(lead + item + it.gap())
 		sec.Items = append(sec.Items, it.manifest(utf8.RuneCountInString(item)))
-		room -= utf8.RuneCountInString(lead+item) + len(it.gap())
+		room = room.minus(measure(lead + item + it.gap()))
 		prevEntry = it.Body == ""
 		untrusted = untrusted || it.Untrusted
 	}
-	switch {
-	case body.Len() > 0:
-	case cand.Note != "" && utf8.RuneCountInString(cand.Note)+1 <= room:
-		body.WriteString(cand.Note + "\n")
-	case len(sec.Dropped) > 0:
-		body.WriteString(noRoom)
-	default:
-		return sec, "", false // nothing to say
+	text = head + strings.TrimRight(body.String(), "\n")
+	if body.Len() > 0 {
+		text += "\n"
 	}
-	text = head + strings.TrimRight(body.String(), "\n") + "\n"
+	if len(sec.Dropped) > 0 {
+		if body.Len() > 0 {
+			text += "\n"
+		}
+		text += leftOut(len(sec.Dropped), len(sec.Items))
+	}
+	if note != "" {
+		if len(sec.Items) == 0 && len(sec.Dropped) == 0 {
+			note = note[1:] // no blank line after the heading
+		}
+		text += note
+	}
 	sec.Size = utf8.RuneCountInString(text)
 	return sec, text, untrusted
 }
 
 func fullText(it Item) string {
-	text, _ := it.render(0)
+	text, _ := it.render(unbounded)
 	return text
 }
 
