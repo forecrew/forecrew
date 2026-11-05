@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -50,6 +51,19 @@ type dockerJob struct {
 	cleaned sync.Once
 }
 
+// dockerUser returns the uid:gid containers run as: the worker's own. A
+// worker running as root is refused.
+func dockerUser() (string, error) {
+	uid, gid := hostIDs()
+	if uid == 0 {
+		return "", errors.New("the worker runs as root; Docker environments run jobs as the worker's user and refuse uid 0, run the worker as a dedicated user")
+	}
+	if uid < 0 { // Windows
+		uid, gid = 1000, 1000
+	}
+	return strconv.Itoa(uid) + ":" + strconv.Itoa(gid), nil
+}
+
 // labels are the labels every container and network of the job gets.
 func (dj *dockerJob) labels() []string {
 	return []string{"--label", jobLabelKey + "=" + dj.id, "--label", workerLabelKey + "=" + dj.d.worker}
@@ -84,14 +98,11 @@ func (r *jobRun) startDocker(parent context.Context, mark string) (dj *dockerJob
 	if err != nil {
 		return nil, fail("%v", err)
 	}
-	uid, gid := hostIDs()
-	if uid == 0 {
-		return nil, fail("the worker runs as root; Docker environments run jobs as the worker's user and refuse uid 0, run the worker as a dedicated user")
+	user, err := dockerUser()
+	if err != nil {
+		return nil, fail("%v", err)
 	}
-	if uid < 0 { // Windows
-		uid, gid = 1000, 1000
-	}
-	dj = &dockerJob{r: r, d: r.w.docker, id: r.spec.JobID.String(), env: src.Env, mark: mark, user: strconv.Itoa(uid) + ":" + strconv.Itoa(gid)}
+	dj = &dockerJob{r: r, d: r.w.docker, id: r.spec.JobID.String(), env: src.Env, mark: mark, user: user}
 	if dj.env == nil {
 		dj.env = map[string]string{}
 	}
@@ -253,15 +264,22 @@ func (dj *dockerJob) logTail(ctx context.Context, ctr string) string {
 	return " (see the service log in the job log)"
 }
 
+// runArgs are the arguments of every `docker run` of the job: the job's
+// labels, the worker's user, no capabilities, no privilege gain, a process
+// limit, no entrypoint and the job's private network.
+func (dj *dockerJob) runArgs() []string {
+	args := []string{"run", "--rm", "--init", "--name", fmt.Sprintf("forecrew-%s-run%d", dj.id, dj.seq.Add(1))}
+	args = append(args, dj.labels()...)
+	return append(args, "--user", dj.user, "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+		"--pids-limit", containerPidsLimit, "--entrypoint", "", "--network", dj.network)
+}
+
 // contain turns a process meant for the host into the docker run of the same
 // process in the job container: the work tree at /work, the worker user's
 // uid, no capabilities, no privilege gain, no Docker socket, no published
 // ports, no host network. Its environment is exactly p.Env.
 func (dj *dockerJob) contain(p runtime.Process) runtime.Process {
-	args := []string{"run", "--rm", "--init", "--name", fmt.Sprintf("forecrew-%s-run%d", dj.id, dj.seq.Add(1))}
-	args = append(args, dj.labels()...)
-	args = append(args, "--user", dj.user, "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-		"--pids-limit", containerPidsLimit, "--entrypoint", "", "-v", dj.r.dir+":"+workMount, "--network", dj.network)
+	args := append(dj.runArgs(), "-v", dj.r.dir+":"+workMount)
 	wd := workMount
 	if rel, err := filepath.Rel(dj.r.dir, p.Dir); err == nil && rel != "." && p.Dir != "" {
 		wd += "/" + filepath.ToSlash(rel)

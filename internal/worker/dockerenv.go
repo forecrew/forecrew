@@ -198,20 +198,26 @@ func (dj *dockerJob) image(ctx context.Context, src envSource) (string, error) {
 	return tag, wrapBuild(dj.docker(ctx, "build", "--tag", tag, "--file", file, dir))
 }
 
-// build builds the Dockerfile of src as the image tag. The images its FROM
-// lines pull are recorded for pruning unless they were on the daemon before
-// and not the worker's.
+// build builds the Dockerfile of src as the image tag.
 func (dj *dockerJob) build(ctx context.Context, src envSource, tag string) error {
 	file := filepath.Join(dj.r.dir, filepath.FromSlash(src.Dockerfile))
 	text, _ := os.ReadFile(file) // #nosec G304 -- hashed above, symlinks refused
+	return dj.buildFile(ctx, string(text), file, filepath.Join(dj.r.dir, filepath.FromSlash(src.Context)), tag)
+}
+
+// buildFile builds the Dockerfile file (whose text is text) with the context
+// directory dir as the image tag, with extra arguments for docker build. The
+// images its FROM lines pull are recorded for pruning unless they were on
+// the daemon before and not the worker's.
+func (dj *dockerJob) buildFile(ctx context.Context, text, file, dir, tag string, extra ...string) error {
 	var track []string
-	for _, ref := range fromRefs(string(text)) {
+	for _, ref := range fromRefs(text) {
 		if dj.imageIsOurs(ctx, ref) {
 			track = append(track, ref)
 		}
 	}
-	err := dj.docker(ctx, "build", "--tag", tag, "--file", file, filepath.Join(dj.r.dir, filepath.FromSlash(src.Context)))
-	if err != nil {
+	args := append([]string{"build", "--tag", tag}, extra...)
+	if err := dj.docker(ctx, append(args, "--file", file, dir)...); err != nil {
 		return err // a name that does not exist must not be recorded: a later prune would remove an image of that name
 	}
 	for _, ref := range track {
