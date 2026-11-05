@@ -1,4 +1,4 @@
-import { cost, count, isRefOrId, until, goalRef, goalTone, jobRef, jobTone, projectTone, splitList, stageOf, taskTone, words } from "./format"
+import { assumptionOfGate, councilOfGate, councilTone, cost, count, decisionRef, gateLabel, isQuestion, isRefOrId, levelTone, until, goalRef, goalTone, jobRef, jobTone, projectTone, splitLines, splitList, stageOf, taskTone, words } from "./format"
 import { safeRedirect } from "./redirect"
 
 test("refs", () => {
@@ -80,4 +80,35 @@ test.each([
   ["TASK", "", false],
 ] as const)("isRefOrId(%s, %s) is %s", (kind, s, ok) => {
   expect(isRefOrId(kind, s)).toBe(ok)
+})
+
+describe("council helpers", () => {
+  test("read the council and the assumption a gate is about from its title", () => {
+    expect(councilOfGate("COUNCIL-5: Which queue?")).toBe("COUNCIL-5")
+    expect(councilOfGate("Which queue? COUNCIL-5: x")).toBeUndefined()
+    expect(assumptionOfGate("Review A-7: Fewer than 50 workers.")).toBe("A-7")
+    expect(assumptionOfGate("Approve A-7")).toBeUndefined()
+  })
+
+  test("tell a job's question from an escalation", () => {
+    expect(isQuestion({ kind: "needs_you", origin: "ask_human" })).toBe(true)
+    expect(isQuestion({ kind: "needs_you", origin: "playbook" })).toBe(false)
+    expect(isQuestion({ kind: "needs_you" })).toBe(false)
+    expect(isQuestion({ kind: "merge_approval", origin: "ask_human" })).toBe(false)
+    expect(gateLabel({ kind: "needs_you", origin: "ask_human" })).toBe("Question")
+    expect(gateLabel({ kind: "needs_you" })).toBe("Needs you")
+    expect(gateLabel({ kind: "council_decision" })).toBe("Council decision")
+  })
+
+  test("tones, refs and lines", () => {
+    expect(councilTone("decided")).toBe("good")
+    expect(councilTone("failed")).toBe("bad")
+    expect(councilTone("running")).toBe("attention")
+    expect(councilTone("canceled")).toBe("neutral")
+    expect(levelTone("high")).toBe("bad")
+    expect(levelTone("medium")).toBe("attention")
+    expect(levelTone("low")).toBe("neutral")
+    expect(decisionRef(9)).toBe("DEC-9")
+    expect(splitLines(" a \n\n b\n")).toEqual(["a", "b"])
+  })
 })

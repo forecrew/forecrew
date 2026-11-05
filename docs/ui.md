@@ -7,10 +7,10 @@ review code; the UI links to it.
 
 Screens: Home (what needs me, is everything healthy), Inbox (decide gates,
 filtered by project; a goal page decides its own pending gates with the same
-cards), Goals, Projects, Jobs, Workers and Tokens (dig into detail; a queued or
+cards), Goals, Councils, Decisions, Projects, Jobs, Workers and Tokens (dig into detail; a queued or
 running job can be canceled from the job page and from the job tables), and a
-command menu (Ctrl+K or Cmd+K) to jump anywhere or start a goal or an
-onboarding.
+command menu (Ctrl+K or Cmd+K) to jump anywhere or start a goal, a council or
+an onboarding.
 
 ## Look
 
@@ -40,6 +40,35 @@ left out, not faked:
   selected decision on the right: its actions first (Open on GitHub at the
   right end), then the summary, then the feedback box. Verification, reviews
   and assumptions are not shown (no data).
+- **Inbox cards by kind.** A `council_decision` card shows the council's brief
+  (read with `get_council`): each option with its pros, cons, cost, risk and
+  votes, the dissent, the assumptions and the open questions. Approve accepts
+  the recommendation; Request changes sends the feedback as the constraint of
+  one more round (not offered once the council had its human round); Reject
+  fails the council. An `assumption_review` card shows the statement, impact,
+  confidence, source and dependents of the assumption (read from the register
+  by the `Review A-n:` title): Accept approves the gate, Invalidate rejects it,
+  Verify resolves the assumption with evidence through `resolve_assumption`,
+  which closes the gate. A question a job asked with `ask_human` (a `needs_you`
+  gate with `origin: ask_human`) has its own chip and words, apart from
+  escalations: the answer is required and goes as the approval's feedback;
+  Decline rejects it. The other new kinds (knowledge, access, improvement) get
+  a label and a chip and the generic card. J and K move, A approves and R
+  requests changes, on every card.
+- **Councils.** The list shows every council of the chosen project (of all
+  projects without one), newest first, with a status filter. A council page has
+  the question and constraints (a form adds one while it runs), the members
+  (named `role@runtime`, known from what they contributed), the proposals,
+  critiques and revisions side by side with the check of their cited sources,
+  and the brief. The devil's advocate's dissent, which its seat requires, is
+  shown apart from the dissent of members who disagreed. Everything agents
+  wrote is rendered as plain text; the raw output of a contribution is one
+  click away. A council that waits for a human links to its card in the Inbox.
+  Start a council from the Councils page, the command menu or a goal page.
+- **Decisions.** The decisions register of the chosen project, newest first:
+  the question, the choice among the options, who decided (a person, or the
+  policy), the reasons, dissent, the assumptions it rests on, and a link to
+  its council.
 - **Job.** A back link, the title with the state badge and a line with goal,
   worker and model, the log beside the details, the cost and the tokens; Cancel
   stays at the top right.
