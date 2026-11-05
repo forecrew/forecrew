@@ -1,8 +1,12 @@
 package webhook
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/analyzer"
 	"github.com/forecrew/forecrew/internal/domain"
@@ -122,5 +126,30 @@ func TestMergedPRApprovesKnowledgeProposalGate(t *testing.T) {
 	e.send("kb1", "pull_request", []byte(payload))
 	if got := e.gate(g); got.Status != domain.GateApproved {
 		t.Errorf("knowledge gate = %s, want approved", got.Status)
+	}
+}
+
+type proposalFollower struct {
+	got []string
+	err error
+}
+
+func (f *proposalFollower) PRClosed(_ context.Context, _ uuid.UUID, repo string, number int, merged bool) error {
+	f.got = append(f.got, fmt.Sprint(repo, "#", number, " ", merged))
+	return f.err
+}
+
+func TestClosedPRSettlesItsProposals(t *testing.T) {
+	e := newEnv(t)
+	f := &proposalFollower{err: errors.New("no")}
+	e.eng.Proposals = f
+	e.addChange(7, "abc123")
+	e.send("kb2", "pull_request", fixture(t, "pull_request_merged.json"))
+	if len(f.got) != 1 || !strings.HasSuffix(f.got[0], "#7 true") {
+		t.Errorf("follower = %v", f.got)
+	}
+	// It failed: the change stays open, for the poller to try again.
+	if got := e.change(7); got.State != domain.ChangeOpen {
+		t.Errorf("change = %+v", got)
 	}
 }

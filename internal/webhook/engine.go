@@ -24,6 +24,9 @@ type Deps struct {
 	// Knowledge keeps the knowledge index in step with the default branch;
 	// nil leaves push events and the poller's knowledge pass out.
 	Knowledge KnowledgeSyncer
+	// Proposals settles the knowledge proposals of closed PRs; nil leaves
+	// them to their runs.
+	Proposals ProposalFollower
 	// Allowed reports whether a GitHub login may command @forecrew.
 	Allowed func(login string) bool
 	Log     *slog.Logger
@@ -39,6 +42,12 @@ type Deps struct {
 // runs on the goroutine that handles webhooks.
 type KnowledgeSyncer interface {
 	Request(p domain.Project, before, head string)
+}
+
+// ProposalFollower settles the knowledge proposals of a closed PR;
+// *proposals.Service implements it.
+type ProposalFollower interface {
+	PRClosed(ctx context.Context, accountID uuid.UUID, repo string, number int, merged bool) error
 }
 
 type engine struct {
@@ -134,6 +143,11 @@ func (e *engine) prClosed(ctx context.Context, accountID, projectID uuid.UUID, r
 	}
 	if err := e.releaseReviews(ctx, accountID, repo, number, merged); err != nil {
 		return err
+	}
+	if e.Proposals != nil {
+		if err := e.Proposals.PRClosed(ctx, accountID, repo, number, merged); err != nil {
+			return err
+		}
 	}
 	return e.setChangeState(ctx, accountID, repo, number, state)
 }

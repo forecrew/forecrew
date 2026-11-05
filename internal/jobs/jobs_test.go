@@ -404,6 +404,20 @@ func (r *fakeRegistrar) JobCompleted(_ context.Context, _ store.Store, j domain.
 	return r.err
 }
 
+// Every registrar hears of a succeeded job.
+func TestCompleteTellsEveryRegistrar(t *testing.T) {
+	f := newFixture(t)
+	first, second := &fakeRegistrar{}, &fakeRegistrar{}
+	f.svc.WithRegistrar(first).WithRegistrar(second)
+	j := schemaJob(t, f)
+	f.lease(t)
+	_, err := f.svc.Complete(t.Context(), f.worker, j.ID, store.JobResult{Status: domain.JobSucceeded, Output: json.RawMessage(`{"summary":"ok"}`)})
+	must(t, err)
+	if len(first.jobs) != 1 || len(second.jobs) != 1 {
+		t.Errorf("first %+v, second %+v", first.jobs, second.jobs)
+	}
+}
+
 // A succeeded job is told to the registrar, in the transaction that finishes
 // it: a failing registrar keeps the job running so that the worker retries.
 func TestCompleteTellsTheRegistrar(t *testing.T) {
