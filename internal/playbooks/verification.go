@@ -98,9 +98,9 @@ type verificationOutput struct {
 // data changes nothing, and with more test runs it replaces the report.
 func (a *actions) verificationBuild(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
-		Change    int       `json:"change"`
-		SHA       string    `json:"sha"`
-		TaskID    uuid.UUID `json:"task_id"`
+		Change int       `json:"change"`
+		SHA    string    `json:"sha"`
+		TaskID uuid.UUID `json:"task_id"`
 		// BaseCheck is the output of tests.base_check_result.
 		BaseCheck *struct {
 			NewTests []verification.BaseTest `json:"new_tests"`

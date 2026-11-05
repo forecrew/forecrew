@@ -47,6 +47,7 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.StartCouncil(ctx, by, mcp.StartCouncilInput{}); return err },
 		func() error { _, err := s.GetCouncil(ctx, by, mcp.CouncilRefInput{}); return err },
 		func() error { _, err := s.AddCouncilConstraint(ctx, by, mcp.AddCouncilConstraintInput{}); return err },
+		func() error { _, err := s.VerificationReport(ctx, by, mcp.VerificationReportInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())
