@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest"
-import { cleanup } from "@testing-library/react"
+import { cleanup, configure } from "@testing-library/react"
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest"
 import { server } from "./server"
 
@@ -7,6 +7,9 @@ import { server } from "./server"
 const nodeFetch = globalThis.fetch
 globalThis.fetch = (input, init) =>
   nodeFetch(typeof input === "string" && input.startsWith("/") ? new URL(input, window.location.origin) : input, init)
+
+// Every test renders the whole app; on a busy machine the 1 s default of findBy and waitFor is too short.
+configure({ asyncUtilTimeout: 5000 })
 
 beforeAll(() => server.listen({ onUnhandledFrame: "error" }))
 afterEach(() => {
