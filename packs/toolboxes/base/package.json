@@ -1,0 +1,9 @@
+{
+  "name": "forecrew-toolbox-base-cli",
+  "private": true,
+  "description": "Agent CLIs of the toolbox base image; see Dockerfile and docs/worker.md",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.306",
+    "@openai/codex": "0.163.0"
+  }
+}

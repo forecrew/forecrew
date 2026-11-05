@@ -1,0 +1,7 @@
+name: security
+dockerfile: security/Dockerfile
+clis:
+  - {name: semgrep, version: semgrep --version}
+  - {name: gitleaks, version: gitleaks version}
+  - {name: osv-scanner, version: osv-scanner --version}
+  - {name: trivy, version: trivy --version}

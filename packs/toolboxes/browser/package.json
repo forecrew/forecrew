@@ -1,0 +1,8 @@
+{
+  "name": "forecrew-toolbox-browser",
+  "private": true,
+  "description": "Playwright MCP server of the browser toolbox; see Dockerfile and docs/worker.md",
+  "dependencies": {
+    "@playwright/mcp": "0.0.84"
+  }
+}
