@@ -81,6 +81,8 @@ type Config struct {
 	Pools map[string]Pool `yaml:"pools"`
 	// Evidence is the artifact storage; nil when not configured.
 	Evidence *Evidence `yaml:"evidence"`
+	// Fleet holds the settings of machines on demand.
+	Fleet Fleet `yaml:"fleet"`
 	// Sizing is the rule that gives goals their councils from their triage.
 	Sizing Sizing `yaml:"sizing"`
 	// MaxTestResultsSize is the largest request body (bytes) a worker may
@@ -269,6 +271,7 @@ func (c *Config) Validate() error {
 	c.validateRoles(&p)
 	c.validatePools(&p)
 	c.validateEvidence(&p)
+	c.validateFleet(&p)
 	c.validateSizing(&p)
 	if c.MaxTestResultsSize < 0 {
 		p.addf("max_test_results_size must be positive")
