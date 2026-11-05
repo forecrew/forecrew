@@ -14,6 +14,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/matrix"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/testreport"
 )
 
 // ErrInvalid is wrapped by the errors of bad input.
@@ -66,6 +67,9 @@ type Inputs struct {
 	// Expected lists the results the matrix asks for. Without it the stored
 	// runs are all there is, and all of them are required.
 	Expected []Expected
+	// Task says the change belongs to a task: a task with no criteria
+	// blocks, since nothing says what the change must do.
+	Task bool
 	// Criteria are the ids of the task's acceptance criteria.
 	Criteria   []string
 	Tests      []MapTest
@@ -137,21 +141,24 @@ func (b Builder) Build(ctx context.Context, change domain.Change, sha string, in
 	if !shaPattern.MatchString(sha) {
 		return Report{}, fmt.Errorf("%w: %q is not a commit SHA", ErrInvalid, sha)
 	}
-	groups, err := b.groups(ctx, change, sha, in.Expected)
+	groups, stored, err := b.groups(ctx, change, sha, in.Expected)
 	if err != nil {
 		return Report{}, err
 	}
 	bd := &builder{b: b, ctx: ctx, change: change, groups: groups, runResults: map[uuid.UUID]map[string]string{}}
 	rep := Report{Version: ReportVersion, SHA: sha, NewTests: map[string]bool{}, Environments: map[string]EnvironmentInfo{}}
 	bd.results(&rep)
+	if in.Task && len(in.Criteria) == 0 {
+		bd.hard = append(bd.hard, "the task lists no acceptance criteria")
+	}
 	if err := bd.flaky(&rep); err != nil {
 		return Report{}, err
 	}
 	if err := bd.criteria(&rep, in); err != nil {
 		return Report{}, err
 	}
-	bd.newTests(&rep, in.BaseCheck)
-	if len(rep.Results) == 0 {
+	bd.newTests(&rep, in.BaseCheck, in.Tests)
+	if stored == 0 {
 		bd.pending = append(bd.pending, "no test results for "+sha)
 	}
 	rep.Blocking = append(bd.hard, bd.pending...)
@@ -168,16 +175,16 @@ func (b Builder) Build(ctx context.Context, change domain.Change, sha string, in
 
 // groups reads the runs of sha and groups them by environment, cell and
 // suite, the expected results first and in their order, the others by key.
-func (b Builder) groups(ctx context.Context, change domain.Change, sha string, expected []Expected) ([]*group, error) {
+// stored counts the runs that were taken into account.
+func (b Builder) groups(ctx context.Context, change domain.Change, sha string, expected []Expected) (out []*group, stored int, err error) {
 	runs, err := b.Store.TestRuns().List(ctx, change.AccountID, store.TestRunFilter{ProjectID: change.ProjectID, SHA: sha})
 	if err != nil {
-		return nil, fmt.Errorf("list test runs of %s: %w", sha, err)
+		return nil, 0, fmt.Errorf("list test runs of %s: %w", sha, err)
 	}
 	slices.SortStableFunc(runs, func(a, b domain.TestRun) int {
 		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), cmp.Compare(a.Attempt, b.Attempt), strings.Compare(a.ID.String(), b.ID.String()))
 	})
 	byKey := map[string]*group{}
-	var out []*group
 	for _, e := range expected {
 		k := groupKey(e.Environment, e.Cell, e.Suite)
 		if _, dup := byKey[k]; !dup {
@@ -190,6 +197,12 @@ func (b Builder) groups(ctx context.Context, change domain.Change, sha string, e
 		if r.ChangeID != uuid.Nil() && r.ChangeID != change.ID {
 			continue // a run reported for another PR
 		}
+		// The base check lays the new tests over the base branch, which with
+		// stacked PRs is another PR's head: its runs say nothing about sha.
+		if j, err := b.Store.Jobs().Get(ctx, r.AccountID, r.JobID); err == nil && j.Spec.Overlay != nil {
+			continue
+		}
+		stored++
 		k := groupKey(r.Environment, r.Cell, r.Suite)
 		g, ok := byKey[k]
 		if !ok {
@@ -202,7 +215,7 @@ func (b Builder) groups(ctx context.Context, change domain.Change, sha string, e
 	slices.SortStableFunc(extra, func(a, b *group) int {
 		return cmp.Compare(groupKey(a.exp.Environment, a.exp.Cell, a.exp.Suite), groupKey(b.exp.Environment, b.exp.Cell, b.exp.Suite))
 	})
-	return append(out, extra...), nil
+	return append(out, extra...), stored, nil
 }
 
 func (g *group) latest() (domain.TestRun, bool) {
@@ -314,8 +327,13 @@ func rank(status string) int {
 	return 0
 }
 
+// synthetic names the results the worker adds for a command that failed or
+// a report that could not be read: they are not tests.
+var synthetic = []string{testreport.CommandResult, testreport.ReportResult, testreport.OversizedResult}
+
 // flaky lists the tests that failed in an earlier attempt of a cell and
-// passed in its latest one.
+// passed in its latest one. A test that failed earlier and is skipped or
+// missing in the latest attempt of a required cell blocks: it did not pass.
 func (bd *builder) flaky(rep *Report) error {
 	envs := map[string]map[string]bool{}
 	for _, g := range bd.groups {
@@ -332,13 +350,18 @@ func (bd *builder) flaky(rep *Report) error {
 			return err
 		}
 		for _, id := range failed {
-			if now[id] != string(domain.TestPassed) {
-				continue
+			switch st := now[id]; {
+			case st == string(domain.TestPassed):
+				if envs[id] == nil {
+					envs[id] = map[string]bool{}
+				}
+				envs[id][g.exp.Environment] = true
+			case st == string(domain.TestFailed) || st == string(domain.TestErrored):
+				// the latest attempt fails it, which the result reports
+			case g.exp.Required:
+				bd.hard = append(bd.hard, fmt.Sprintf("%s failed in an earlier attempt of %s and did not pass in the latest",
+					id, label(g.exp.Environment, g.exp.Cell, g.exp.Suite)))
 			}
-			if envs[id] == nil {
-				envs[id] = map[string]bool{}
-			}
-			envs[id][g.exp.Environment] = true
 		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(envs)) {
@@ -356,10 +379,13 @@ func (bd *builder) failedBefore(runs []domain.TestRun) ([]string, error) {
 			return nil, fmt.Errorf("failures of test run %s: %w", earlier.ID, err)
 		}
 		for _, f := range fails {
-			ids = append(ids, testID(f))
+			if !slices.Contains(synthetic, f.Name) {
+				ids = append(ids, testID(f))
+			}
 		}
 	}
-	return ids, nil
+	slices.Sort(ids)
+	return slices.Compact(ids), nil
 }
 
 // testStatus is the worst result of a test over the results of its suite
@@ -479,8 +505,9 @@ func listTests(ids []string) string {
 }
 
 // newTests records the fail-on-base check: a new test that passed on base
-// blocks. A test listed twice counts as passed on base if any entry says so.
-func (bd *builder) newTests(rep *Report, checks []BaseTest) {
+// blocks, and one that has not been checked yet leaves the report incomplete.
+// A test listed twice counts as passed on base if any entry says so.
+func (bd *builder) newTests(rep *Report, checks []BaseTest, tests []MapTest) {
 	for _, c := range checks {
 		failed := c.FailedOnBase
 		if prev, ok := rep.NewTests[c.ID]; ok {
@@ -492,5 +519,14 @@ func (bd *builder) newTests(rep *Report, checks []BaseTest) {
 		if !rep.NewTests[id] {
 			bd.hard = append(bd.hard, fmt.Sprintf("new test %s passed on the base branch", id))
 		}
+	}
+	var unchecked []string
+	for _, t := range tests {
+		if _, ok := rep.NewTests[t.ID]; !ok && !slices.Contains(unchecked, t.ID) {
+			unchecked = append(unchecked, t.ID)
+		}
+	}
+	if len(unchecked) > 0 {
+		bd.pending = append(bd.pending, fmt.Sprintf("new test %s has not been checked on the base branch yet", listTests(unchecked)))
 	}
 }

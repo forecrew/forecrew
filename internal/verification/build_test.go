@@ -143,12 +143,20 @@ func TestBuildFlaky(t *testing.T) {
 			{env: "linux-go", cell: linux(), results: join(pass("a::T1"), fail("a::T2"))},
 			{env: "linux-go", cell: linux(), results: join(fail("a::T1"), pass("a::T2"))},
 		}, domain.VerificationFailed, []verification.Flaky{{Test: "a::T2", Environments: []string{"linux-go"}}}, "failed"},
-		{"a rerun that passes without the test lists nothing", []run{
+		{"a test missing from the rerun blocks", []run{
 			{env: "linux-go", cell: linux(), results: fail("a::T2")},
 			{env: "linux-go", cell: linux(), results: pass("a::T9")},
-		}, domain.VerificationPassed, []verification.Flaky{}, "passed"},
+		}, domain.VerificationFailed, []verification.Flaky{}, "passed"},
+		{"a test skipped in the rerun blocks", []run{
+			{env: "linux-go", cell: linux(), results: fail("a::T2")},
+			{env: "linux-go", cell: linux(), results: results(domain.TestSkipped, "a::T2")},
+		}, domain.VerificationFailed, []verification.Flaky{}, "passed"},
 		{"a compile error then a pass has no test to list", []run{
 			{env: "linux-go", cell: linux(), status: domain.TestRunErrored},
+			{env: "linux-go", cell: linux(), results: pass("a::T1")},
+		}, domain.VerificationPassed, []verification.Flaky{}, "passed"},
+		{"the synthetic results of a failed command are not tests", []run{
+			{env: "linux-go", cell: linux(), results: fail("(command)", "(report)", "(oversized)")},
 			{env: "linux-go", cell: linux(), results: pass("a::T1")},
 		}, domain.VerificationPassed, []verification.Flaky{}, "passed"},
 	}
@@ -159,6 +167,9 @@ func TestBuildFlaky(t *testing.T) {
 				f.add(r)
 			}
 			rep := f.build(verification.Inputs{Expected: []verification.Expected{cell}})
+			if tt.status == domain.VerificationFailed && tt.result == "passed" {
+				blockingHas(t, rep, "a::T2 failed in an earlier attempt")
+			}
 			if rep.Status != tt.status || rep.Results[0].Status != tt.result || rep.Results[0].Attempts != 2 || !reflect.DeepEqual(rep.Flaky, tt.flaky) {
 				t.Errorf("status %s, result %+v, flaky %+v; blocking %q", rep.Status, rep.Results[0], rep.Flaky, rep.Blocking)
 			}
@@ -253,6 +264,9 @@ func TestBuildCriteria(t *testing.T) {
 				f.add(r)
 			}
 			tt.in.Expected = tt.exp
+			for _, mt := range tt.in.Tests {
+				tt.in.BaseCheck = append(tt.in.BaseCheck, verification.BaseTest{ID: mt.ID, FailedOnBase: true})
+			}
 			rep := f.build(tt.in)
 			if rep.Status != tt.status {
 				t.Errorf("status = %s, want %s (blocking %q)", rep.Status, tt.status, rep.Blocking)
@@ -295,19 +309,36 @@ func TestBuildNewTests(t *testing.T) {
 		status domain.VerificationStatus
 		want   map[string]bool
 		block  []string
+		// mapped are the tests of the test map; by default the checked ones.
+		mapped []string
 	}{
-		{"every new test failed on base", []verification.BaseTest{{ID: "a::T1", FailedOnBase: true}}, domain.VerificationPassed, map[string]bool{"a::T1": true}, nil},
+		{"every new test failed on base", []verification.BaseTest{{ID: "a::T1", FailedOnBase: true}}, domain.VerificationPassed, map[string]bool{"a::T1": true}, nil, nil},
 		{"a new test that passed on base blocks", []verification.BaseTest{{ID: "a::T1", FailedOnBase: true}, {ID: "a::T2"}}, domain.VerificationFailed,
-			map[string]bool{"a::T1": true, "a::T2": false}, []string{"new test a::T2 passed on the base branch"}},
+			map[string]bool{"a::T1": true, "a::T2": false}, []string{"new test a::T2 passed on the base branch"}, nil},
 		{"a test listed twice passed on base if one entry says so", []verification.BaseTest{{ID: "a::T1", FailedOnBase: true}, {ID: "a::T1"}}, domain.VerificationFailed,
-			map[string]bool{"a::T1": false}, []string{"a::T1 passed"}},
-		{"no base check", nil, domain.VerificationPassed, map[string]bool{}, nil},
+			map[string]bool{"a::T1": false}, []string{"a::T1 passed"}, nil},
+		{"no new tests, no base check", nil, domain.VerificationPassed, map[string]bool{}, nil, nil},
+		{"a new test with no base check entry is incomplete", nil, domain.VerificationIncomplete, map[string]bool{}, []string{"new test a::T1 has not been checked on the base branch yet"}, []string{"a::T1"}},
+		{"one of two new tests unchecked", []verification.BaseTest{{ID: "a::T1", FailedOnBase: true}}, domain.VerificationIncomplete, map[string]bool{"a::T1": true},
+			[]string{"a::T2 has not been checked"}, []string{"a::T1", "a::T2", "a::T2"}},
+		{"unchecked next to one that passed on base is failed", []verification.BaseTest{{ID: "a::T1"}}, domain.VerificationFailed, map[string]bool{"a::T1": false},
+			[]string{"a::T1 passed on the base", "a::T2 has not been checked"}, []string{"a::T1", "a::T2"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
 			f.add(run{env: "linux-go", cell: linux(), results: pass("a::T1")})
-			rep := f.build(verification.Inputs{BaseCheck: tt.checks})
+			in := verification.Inputs{BaseCheck: tt.checks}
+			mapped := tt.mapped
+			for _, c := range tt.checks {
+				if tt.mapped == nil {
+					mapped = append(mapped, c.ID)
+				}
+			}
+			for _, id := range mapped {
+				in.Tests = append(in.Tests, verification.MapTest{Criterion: "AC-1", Suite: "unit", ID: id})
+			}
+			rep := f.build(in)
 			if rep.Status != tt.status || !reflect.DeepEqual(rep.NewTests, tt.want) {
 				t.Errorf("status %s, new tests %v; blocking %q", rep.Status, rep.NewTests, rep.Blocking)
 			}
@@ -369,5 +400,60 @@ suites:
 	want := []string{"linux-go/unit/os=linux/required", "linux-go/e2e/os=linux/optional", "mac-go/unit/os=macos/optional", "mac-go/e2e/os=macos/optional"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Expect = %v, want %v", got, want)
+	}
+}
+
+// TestBuildNeedsARealRun: placeholders for the cells that have not run are
+// not results, and neither are the runs of the base check.
+func TestBuildNeedsARealRun(t *testing.T) {
+	exp := []verification.Expected{req("linux-go", linux(), "unit")}
+	tests := []struct {
+		name string
+		runs []run
+		exp  []verification.Expected
+	}{
+		{"expected cells, no run", nil, exp},
+		{"expected cells, only runs of another commit", []run{{env: "linux-go", cell: linux(), results: pass("a::T1"), sha: "ffff000"}}, exp},
+		{"only a run of the base check", []run{{env: "linux-go", cell: linux(), results: pass("a::T1"), overlay: true}}, exp},
+		{"only optional cells expected", nil, []verification.Expected{optional(exp[0])}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			for _, r := range tt.runs {
+				f.add(r)
+			}
+			rep := f.build(verification.Inputs{Expected: tt.exp})
+			if rep.Status != domain.VerificationIncomplete {
+				t.Errorf("status = %s, blocking %q", rep.Status, rep.Blocking)
+			}
+			blockingHas(t, rep, "no test results for "+sha)
+		})
+	}
+}
+
+// TestBuildIgnoresBaseCheckRuns: with stacked PRs the base is another PR's
+// head, so a passing overlay run has the sha of the PR under test and must not
+// erase its failure.
+func TestBuildIgnoresBaseCheckRuns(t *testing.T) {
+	f := newFixture(t)
+	f.add(run{env: "linux-go", cell: linux(), results: fail("a::T1")})
+	f.add(run{env: "linux-go", cell: linux(), results: pass("a::T1"), overlay: true})
+	rep := f.build(verification.Inputs{Expected: []verification.Expected{req("linux-go", linux(), "unit")}})
+	if rep.Status != domain.VerificationFailed || rep.Results[0].Attempts != 1 || rep.Results[0].Status != "failed" || len(rep.Flaky) != 0 {
+		t.Fatalf("report = %+v", rep)
+	}
+}
+
+func TestBuildTaskWithoutCriteria(t *testing.T) {
+	f := newFixture(t)
+	f.add(run{env: "linux-go", cell: linux(), results: pass("a::T1")})
+	rep := f.build(verification.Inputs{Task: true})
+	if rep.Status != domain.VerificationFailed {
+		t.Fatalf("status = %s", rep.Status)
+	}
+	blockingHas(t, rep, "the task lists no acceptance criteria")
+	if rep := f.build(verification.Inputs{}); rep.Status != domain.VerificationPassed {
+		t.Errorf("a change without a task: %s, %q", rep.Status, rep.Blocking)
 	}
 }
