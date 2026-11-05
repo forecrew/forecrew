@@ -62,6 +62,112 @@ const profileJSON = `{
   "open_questions": ["Which checks gate a merge?"]
 }`
 
+const (
+	proposalJSON = `{"priority":"simplicity","position":"Use the Postgres queue we already run.","recommendation":"postgres-queue",
+	  "options":[{"name":"postgres-queue","summary":"SKIP LOCKED on the jobs table.","pros":["no new service"],"cons":["polling"],"cost":"low","risk":"low"},
+	             {"name":"redis-streams","summary":"A Redis stream per pool.","pros":["push"],"cons":["a new service"],"cost":"medium","risk":"medium"}],
+	  "evidence":[{"claim":"Leasing exists","kind":"path","source":"internal/queue/lease.go:40-58","date":null,"confidence":"high"}],
+	  "assumptions":[],"risks":[{"risk":"Polling load","likelihood":"low","impact":"medium","mitigation":"Index the lease query."}],"revision":null,"escalation":null}`
+	critiqueJSON = `{"priority":"security","critiques":[{"member":"architect@claude-code","agree":[{"point":"No new service","reason":"Fewer secrets to hold.","evidence":[]}],
+	  "disagree":[{"point":"Polling","reason":"A <b>busy</b> table leaks timing.","evidence":[{"claim":"c","kind":"url","source":"https://example.com/x","date":"2026-01-02","confidence":"low"}]}],
+	  "challenged_assumptions":[]}],"assumptions":[],"escalation":null}`
+	revisionJSON = `{"priority":"simplicity","position":"Keep Postgres, add the index.","recommendation":"postgres-queue","options":[],"evidence":[],"assumptions":[],"risks":[],
+	  "revision":{"changed":false,"reason":"The critique does not change the cost.","prompted_by":[]},"escalation":null}`
+)
+
+// fixtureBrief is the brief of the fixture councils.
+func fixtureBrief() *domain.CouncilBrief {
+	return &domain.CouncilBrief{
+		Question: "Which queue should jobs use?",
+		Options: []domain.BriefOption{
+			{Name: "postgres-queue", Summary: "SKIP LOCKED on the jobs table.", Pros: []string{"no new service"}, Cons: []string{"polling"}, Cost: domain.LevelLow, Risk: domain.LevelLow},
+			{Name: "redis-streams", Summary: "A Redis stream per pool.", Pros: []string{"push"}, Cons: []string{"a new service"}, Cost: domain.LevelMedium, Risk: domain.LevelMedium},
+		},
+		Recommendation: "postgres-queue",
+		Votes: []domain.BriefVote{
+			{Member: "architect@claude-code", Option: "postgres-queue", Reason: "Already run."},
+			{Member: "security@codex", Option: "redis-streams", Reason: "Isolates job data."},
+		},
+		Dissent: []domain.BriefDissent{
+			{Member: "security@codex", Position: "Job data should not share the application database."},
+			{Member: "devils-advocate@claude-code", Position: "Devil's advocate (mandated dissent): Polling will not scale past 50 workers."},
+		},
+		Assumptions:   []domain.StatedAssumption{{Statement: "Fewer than 50 workers.", Confidence: domain.LevelMedium, Impact: domain.LevelHigh, VerifyBy: domain.VerifyByAskHuman}},
+		OpenQuestions: []string{"Who owns the Redis cluster?"},
+		Reversible:    true,
+	}
+}
+
+// fixtureCouncil is a council of the project app.
+func fixtureCouncil(number int64, status domain.CouncilStatus, brief *domain.CouncilBrief) domain.Council {
+	return domain.Council{
+		ID: fid(int(number) + 200), AccountID: fid(1), ProjectID: fid(10), Number: number, Kind: domain.CouncilTechnical,
+		Question: "Which queue should jobs use?", Constraints: []string{"Keep it to one database"}, Status: status, Brief: brief,
+		RunID: fid(int(number) + 300), CreatedAt: at(-90 + int(number)), UpdatedAt: at(-10),
+	}
+}
+
+func fixtureContribution(c domain.Council, id int, role, runtime string, stage domain.CouncilStage, round int, content string, checks []domain.SourceCheck) mcp.ContributionInfo {
+	return mcp.ContributionInfo{
+		ID: fid(id), AccountID: fid(1), CouncilID: c.ID, Role: role, Runtime: runtime, Stage: stage, Round: round,
+		Content: json.RawMessage(content), EvidenceCheck: checks, CreatedAt: at(-60 + id%10),
+		Member: role + "@" + runtime,
+	}
+}
+
+// fixtureCouncils answers get_council for the fixture councils: 2 is
+// running, 3 decided, 4 failed and 5 waits for a human.
+func fixtureCouncils(acc domain.Account) func(context.Context, domain.Actor, mcp.CouncilRefInput) (mcp.CouncilDetail, error) {
+	ok := []domain.SourceCheck{{Source: "internal/queue/lease.go:40-58", Kind: domain.SourcePath, Status: domain.SourceOK}}
+	bad := []domain.SourceCheck{{Source: "https://example.com/x", Kind: domain.SourceURL, Status: domain.SourceRefused, Detail: "private address"}}
+	return func(_ context.Context, _ domain.Actor, in mcp.CouncilRefInput) (mcp.CouncilDetail, error) {
+		var number int64
+		if _, err := fmt.Sscanf(in.Council, "COUNCIL-%d", &number); err != nil || number < 2 || number > 5 {
+			return mcp.CouncilDetail{}, fmt.Errorf("council %s: %w", in.Council, mcp.ErrNotFound)
+		}
+		status, brief := domain.CouncilDecided, fixtureBrief()
+		switch number {
+		case 2:
+			status, brief = domain.CouncilRunning, nil
+		case 4:
+			status = domain.CouncilFailed
+		case 5:
+			status = domain.CouncilRunning
+		}
+		c := fixtureCouncil(number, status, brief)
+		d := mcp.CouncilDetail{Council: c, Ref: c.Ref(), Contributions: []mcp.ContributionInfo{
+			fixtureContribution(c, 401, "architect", "claude-code", domain.StageProposal, 1, proposalJSON, ok),
+			fixtureContribution(c, 402, "security", "codex", domain.StageProposal, 1, proposalJSON, bad),
+			fixtureContribution(c, 403, "devils-advocate", "claude-code", domain.StageProposal, 1, proposalJSON, nil),
+			fixtureContribution(c, 404, "security", "codex", domain.StageCritique, 1, critiqueJSON, bad),
+		}}
+		if number != 2 {
+			d.Contributions = append(d.Contributions,
+				fixtureContribution(c, 405, "architect", "claude-code", domain.StageRevision, 1, revisionJSON, nil),
+				fixtureContribution(c, 406, "facilitator", "claude-code", domain.StageSynthesis, 1, `{"recommendation":"postgres-queue"}`, nil))
+		}
+		gateStatus := domain.GateApproved
+		switch number {
+		case 4:
+			gateStatus = domain.GateRejected
+		case 5:
+			gateStatus = domain.GatePending
+		}
+		if number != 2 {
+			g := domain.Gate{ID: fid(500 + int(number)), AccountID: acc.ID, ProjectID: fid(10), Number: 7 + number, Kind: domain.GateCouncilDecision, Status: gateStatus, Title: c.Ref() + ": Which queue should jobs use?", Summary: "The brief.", CreatedAt: at(-20)}
+			d.Gate = &mcp.GateInfo{Gate: g, Ref: g.Ref(), Project: "app"}
+			d.GateID = g.ID
+		}
+		if number == 3 {
+			d.Decision = &domain.Decision{
+				ID: fid(600), AccountID: acc.ID, ProjectID: fid(10), Number: 5, Question: c.Question, Choice: "postgres-queue", DecidedBy: "user:ana",
+				CouncilID: c.ID, GateID: d.GateID, CreatedAt: at(-5),
+			}
+		}
+		return d, nil
+	}
+}
+
 // fixtureEnv is an API whose fake service returns fixed data.
 func fixtureEnv(t *testing.T) *env {
 	t.Helper()
@@ -88,6 +194,12 @@ func fixtureEnv(t *testing.T) *env {
 		{ID: fid(30), AccountID: acc.ID, ProjectID: fid(10), Number: 9, Kind: domain.GateMergeApproval, Status: domain.GatePending, Title: "Merge PR #9", Summary: "Adds email sign-in. Tests pass.\n\n- 12 files changed\n- Coverage 91%", SubjectRepo: "acme/app", SubjectNumber: 9, CreatedAt: at(-45), Ref: "GATE-9", Project: "app", GoalRef: "GOAL-3", TaskRef: "TASK-12", URL: "https://github.com/acme/app/pull/9"},
 		{ID: fid(31), AccountID: acc.ID, ProjectID: fid(10), Number: 10, Kind: domain.GateSpecApproval, Status: domain.GatePending, Title: "Approve the spec", Summary: "Spec revision 2 for GOAL-4.", SubjectRepo: "acme/app", SubjectNumber: 6, CreatedAt: at(-20), Ref: "GATE-10", Project: "app", GoalRef: "GOAL-4", URL: "https://github.com/acme/app/issues/6"},
 		{ID: fid(32), AccountID: acc.ID, ProjectID: fid(11), Number: 11, Kind: domain.GateNeedsYou, Status: domain.GatePending, Title: "Developer job failed", Summary: "The developer job failed 3 times: <script>alert(1)</script> tests do not compile.", SubjectRepo: "acme/docs", CreatedAt: at(-5), Ref: "GATE-11", Project: "docs", TaskRef: "TASK-14"},
+	}
+	councilGates := []mcp.GateInfo{
+		{ID: fid(512), AccountID: acc.ID, ProjectID: fid(10), Number: 12, Kind: domain.GateCouncilDecision, Status: domain.GatePending, Title: "COUNCIL-5: Which queue should jobs use?", Summary: "The brief of COUNCIL-5. It is agent text.", SubjectRepo: "acme/app", CreatedAt: at(-15), Ref: "GATE-12", Project: "app"},
+		{ID: fid(513), AccountID: acc.ID, ProjectID: fid(10), Number: 13, Kind: domain.GateAssumptionReview, Status: domain.GatePending, Title: "Review A-7: Fewer than 50 workers will poll the queue.", Summary: "A-7 is a high-impact assumption made by architect: work rests on it and nobody has checked it.", SubjectRepo: "acme/app", SubjectNumber: 6, GoalID: fid(20), TaskID: fid(40), CreatedAt: at(-12), Ref: "GATE-13", Project: "app", GoalRef: "GOAL-3", TaskRef: "TASK-12", URL: "https://github.com/acme/app/issues/6"},
+		{ID: fid(514), AccountID: acc.ID, ProjectID: fid(10), Number: 14, Kind: domain.GateNeedsYou, Origin: domain.GateFromAskHuman, Status: domain.GatePending, Title: "The developer asks a question", Summary: "Should the sign-in link expire after 15 minutes or 1 hour?", SubjectRepo: "acme/app", JobID: fid(141), CreatedAt: at(-8), Ref: "GATE-14", Project: "app", GoalRef: "GOAL-3"},
+		gates[2],
 	}
 	decided := gates[0].Gate
 	decided.Status, decided.ResolvedBy, decided.ResolvedAt = domain.GateApproved, "mcp:laptop", t0
@@ -149,7 +261,12 @@ func fixtureEnv(t *testing.T) *env {
 			{ID: fid(61), AccountID: acc.ID, Name: "mac-mini", Pool: domain.PoolControl, Labels: []string{"macos", "runtime:codex"}, Version: "v0.3.0", MaxJobs: 1, LastSeenAt: at(-120), CreatedAt: at(-900), Online: false, RunningJobs: []string{}},
 		}, nil
 	}
-	s.ListPendingGatesFunc = func(context.Context, domain.Actor, mcp.ProjectFilterInput) ([]mcp.GateInfo, error) { return gates, nil }
+	s.ListPendingGatesFunc = func(_ context.Context, _ domain.Actor, in mcp.ProjectFilterInput) ([]mcp.GateInfo, error) {
+		if in.Project == "council" {
+			return councilGates, nil
+		}
+		return gates, nil
+	}
 	s.ApproveFunc = func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error) { return decided, nil }
 	s.RequestChangesFunc = func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error) {
 		g := decided
@@ -160,6 +277,67 @@ func fixtureEnv(t *testing.T) *env {
 		g := decided
 		g.Status = domain.GateRejected
 		return g, nil
+	}
+	s.GetCouncilFunc = fixtureCouncils(acc)
+	s.ListCouncilsFunc = func(context.Context, domain.Actor, mcp.ListCouncilsInput) ([]mcp.CouncilInfo, error) {
+		out := []mcp.CouncilInfo{}
+		for _, n := range []int64{5, 4, 3, 2} {
+			status, brief := domain.CouncilDecided, fixtureBrief()
+			switch n {
+			case 2:
+				status, brief = domain.CouncilRunning, nil
+			case 4:
+				status = domain.CouncilFailed
+			case 5:
+				status = domain.CouncilRunning
+			}
+			c := fixtureCouncil(n, status, brief)
+			out = append(out, mcp.CouncilInfo{Council: c, Ref: c.Ref()})
+		}
+		return out, nil
+	}
+	s.StartCouncilFunc = func(context.Context, domain.Actor, mcp.StartCouncilInput) (mcp.CouncilInfo, error) {
+		c := fixtureCouncil(6, domain.CouncilRunning, nil)
+		return mcp.CouncilInfo{Council: c, Ref: c.Ref()}, nil
+	}
+	s.AddConstraintFunc = func(_ context.Context, _ domain.Actor, in mcp.AddCouncilConstraintInput) (mcp.CouncilInfo, error) {
+		c := fixtureCouncil(2, domain.CouncilRunning, nil)
+		c.Constraints = append(c.Constraints, in.Constraint)
+		return mcp.CouncilInfo{Council: c, Ref: c.Ref()}, nil
+	}
+	assumptions := []mcp.AssumptionInfo{
+		{
+			ID: fid(91), AccountID: acc.ID, ProjectID: fid(10), Number: 7, GoalID: fid(20), MadeBy: "architect", JobID: fid(70),
+			Statement: "Fewer than 50 workers will poll the queue.", Confidence: domain.LevelMedium, Impact: domain.LevelHigh, VerifyBy: domain.VerifyByAskHuman,
+			Status: domain.AssumptionUnverified, Dependents: []domain.Dependent{{Kind: domain.DependentGoal, ID: "GOAL-3"}, {Kind: domain.DependentTask, ID: "TASK-12"}},
+			CreatedAt: at(-30), UpdatedAt: at(-30), Ref: "A-7", Source: "JOB-41",
+		},
+		{
+			ID: fid(92), AccountID: acc.ID, ProjectID: fid(10), Number: 8, MadeBy: "product-owner", CouncilID: fid(203),
+			Statement: "Users read email on their phone.", Confidence: domain.LevelLow, Impact: domain.LevelMedium, VerifyBy: domain.VerifyByResearch,
+			Status: domain.AssumptionAccepted, Dependents: []domain.Dependent{}, ResolvedBy: "mcp:laptop", ResolvedAt: at(-2), CreatedAt: at(-50), UpdatedAt: at(-2), Ref: "A-8", Source: fid(203).String(),
+		},
+	}
+	s.ListAssumptionsFunc = func(context.Context, domain.Actor, mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error) {
+		return assumptions, nil
+	}
+	s.ResolveAssumptionFunc = func(_ context.Context, _ domain.Actor, in mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error) {
+		a := assumptions[0]
+		a.Status, a.Evidence, a.ResolvedBy, a.ResolvedAt = in.Status, in.Evidence, "mcp:laptop", t0
+		return a, nil
+	}
+	s.ListDecisionsFunc = func(context.Context, domain.Actor, mcp.ListDecisionsInput) ([]mcp.DecisionInfo, error) {
+		d := domain.Decision{
+			ID: fid(600), AccountID: acc.ID, ProjectID: fid(10), Number: 5, GoalID: fid(20), Question: "Which queue should jobs use?",
+			Options: []domain.DecisionOption{{Name: "postgres-queue", Summary: "SKIP LOCKED on the jobs table."}, {Name: "redis-streams"}},
+			Choice:  "postgres-queue", Reasons: "Already run; no new service.", Dissent: "security@codex: job data should not share the application database.",
+			DecidedBy: "user:ana", CouncilID: fid(203), GateID: fid(511), CreatedAt: at(-5),
+		}
+		auto := d
+		auto.ID, auto.Number, auto.Question, auto.Choice, auto.DecidedBy, auto.Dissent, auto.CouncilID, auto.GateID, auto.GoalID, auto.CreatedAt =
+			fid(601), 4, "Which license?", "mit", domain.DecidedByPolicy, "", fid(202), uuid.Nil(), uuid.Nil(), at(-100)
+		auto.Options, auto.Reasons = nil, "The policy accepts a recommendation nobody dissented from."
+		return []mcp.DecisionInfo{{Decision: d, Ref: "DEC-5", Assumptions: []string{"A-7"}}, {Decision: auto, Ref: "DEC-4", Assumptions: []string{}}}, nil
 	}
 	tokens := []mcp.TokenInfo{
 		{ID: fid(90), Name: "laptop", CreatedAt: at(-2000), LastUsedAt: at(-1), Current: true},
@@ -288,6 +466,32 @@ func fixtureCases() []fixtureCase {
 		{"workers-empty", "GET", "/api/v1/workers", "", 200, "bearer", emptyLists},
 		{"gates", "GET", "/api/v1/gates", "", 200, "bearer", nil},
 		{"gates-empty", "GET", "/api/v1/gates", "", 200, "bearer", emptyLists},
+		{"gates-council", "GET", "/api/v1/gates?project=council", "", 200, "bearer", nil},
+		{"councils", "GET", "/api/v1/councils?project=app", "", 200, "bearer", nil},
+		{"councils-empty", "GET", "/api/v1/councils?project=app", "", 200, "bearer", func(e *env) {
+			e.svc.ListCouncilsFunc = func(context.Context, domain.Actor, mcp.ListCouncilsInput) ([]mcp.CouncilInfo, error) {
+				return []mcp.CouncilInfo{}, nil
+			}
+		}},
+		{"council-running", "GET", "/api/v1/councils/COUNCIL-2", "", 200, "bearer", nil},
+		{"council-decided", "GET", "/api/v1/councils/COUNCIL-3", "", 200, "bearer", nil},
+		{"council-failed", "GET", "/api/v1/councils/COUNCIL-4", "", 200, "bearer", nil},
+		{"council-pending", "GET", "/api/v1/councils/COUNCIL-5", "", 200, "bearer", nil},
+		{"council-start", "POST", "/api/v1/councils", `{"project":"app","question":"Which queue should jobs use?"}`, 202, "bearer", nil},
+		{"council-constraint", "POST", "/api/v1/councils/COUNCIL-2/constraints", `{"constraint":"No new services"}`, 200, "bearer", nil},
+		{"council-constraint-conflict", "POST", "/api/v1/councils/COUNCIL-3/constraints", `{"constraint":"No new services"}`, 409, "bearer", func(e *env) {
+			e.svc.AddConstraintFunc = func(context.Context, domain.Actor, mcp.AddCouncilConstraintInput) (mcp.CouncilInfo, error) {
+				return mcp.CouncilInfo{}, fmt.Errorf("COUNCIL-3 is decided: %w", domain.ErrInvalidTransition)
+			}
+		}},
+		{"assumptions", "GET", "/api/v1/assumptions?project=app", "", 200, "bearer", nil},
+		{"assumption-resolve", "POST", "/api/v1/assumptions/A-7/resolve", `{"status":"verified","evidence":"Load test with 80 workers."}`, 200, "bearer", nil},
+		{"decisions", "GET", "/api/v1/decisions?project=app", "", 200, "bearer", nil},
+		{"decisions-empty", "GET", "/api/v1/decisions?project=app", "", 200, "bearer", func(e *env) {
+			e.svc.ListDecisionsFunc = func(context.Context, domain.Actor, mcp.ListDecisionsInput) ([]mcp.DecisionInfo, error) {
+				return []mcp.DecisionInfo{}, nil
+			}
+		}},
 		{"gate-approve", "POST", "/api/v1/gates/GATE-9/approve", `{"feedback":"Looks good."}`, 200, "bearer", nil},
 		{"gate-request-changes", "POST", "/api/v1/gates/GATE-9/request-changes", `{"feedback":"Add a test for the expired link."}`, 200, "bearer", nil},
 		{"gate-reject", "POST", "/api/v1/gates/GATE-11/reject", "", 200, "bearer", nil},
