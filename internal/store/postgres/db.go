@@ -130,6 +130,11 @@ func (s *Store) Artifacts() store.ArtifactRepo { return artifactRepo{s.db} }
 // TestRuns implements store.Store.
 func (s *Store) TestRuns() store.TestRunRepo { return testRunRepo{s.db} }
 
+// VerificationReports implements store.Store.
+func (s *Store) VerificationReports() store.VerificationReportRepo {
+	return verificationReportRepo{s.db}
+}
+
 // Councils implements store.Store.
 func (s *Store) Councils() store.CouncilRepo { return councilRepo{s.db} }
 
