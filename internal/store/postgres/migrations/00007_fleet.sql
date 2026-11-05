@@ -145,7 +145,9 @@ CREATE INDEX machines_account ON machines (account_id, created_at);
 -- A machine runs a shape of its provider. A machine of an organization's
 -- shape belongs to that organization from the start; a machine of an
 -- instance-wide shape to one organization at most, and that never changes.
--- A worker only comes from the fleet: ephemeral.
+-- A worker only comes from the fleet: ephemeral. jobs_taken never rises past
+-- the shape's max_jobs; a machine already past a max_jobs lowered later can
+-- still drain and be destroyed.
 -- +goose StatementBegin
 CREATE FUNCTION machines_check() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
@@ -160,6 +162,9 @@ BEGIN
   END IF;
   IF TG_OP = 'UPDATE' AND OLD.account_id IS NOT NULL AND OLD.account_id IS DISTINCT FROM NEW.account_id THEN
     RAISE EXCEPTION 'a machine keeps its organization' USING ERRCODE = 'check_violation', CONSTRAINT = 'machines_check';
+  END IF;
+  IF NEW.jobs_taken > s.max_jobs AND (TG_OP = 'INSERT' OR NEW.jobs_taken > OLD.jobs_taken) THEN
+    RAISE EXCEPTION 'a machine takes at most its shape''s max_jobs' USING ERRCODE = 'check_violation', CONSTRAINT = 'machines_check';
   END IF;
   IF NEW.worker_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM workers w WHERE w.id = NEW.worker_id AND w.ephemeral) THEN
     RAISE EXCEPTION 'the worker of a machine is ephemeral' USING ERRCODE = 'check_violation', CONSTRAINT = 'machines_check';
