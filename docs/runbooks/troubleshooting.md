@@ -48,7 +48,7 @@ in `GET /api/v1/workers`.
   decides where its jobs run.
 - Missing toolchain label (`go`, `node`, `docker`): add it to `labels` in the
   worker's `worker.yaml` and restart the service, or use another worker.
-- Missing `runtime:claude-code` or `runtime:codex`: the CLI is not on the
+- Missing `runtime:claude-code`, `runtime:codex` or `runtime:opencode`: the CLI is not on the
   service's `PATH`. The service runs as the dedicated user with
   `PATH=/usr/local/bin:/usr/bin:/bin` (macOS also `/opt/homebrew/bin`). Install
   the CLI system-wide, then run

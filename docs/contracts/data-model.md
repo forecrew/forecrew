@@ -118,7 +118,7 @@ CREATE TABLE jobs (
   kind             text NOT NULL DEFAULT 'agent' CHECK (kind IN ('agent','command')),
   pool             text NOT NULL DEFAULT 'build',  -- worker pool; only its workers lease the job
   role             text NOT NULL,          -- may be '' for command jobs
-  runtime          text NOT NULL,          -- adapter: claude-code | codex; '' for command jobs
+  runtime          text NOT NULL,          -- adapter: claude-code | codex | opencode; '' for command jobs
   needs            text[] NOT NULL DEFAULT '{}',
   goal_id          uuid REFERENCES goals(id),
   spec_id          uuid,                   -- FK added after specs

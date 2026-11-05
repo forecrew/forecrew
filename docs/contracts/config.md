@@ -105,6 +105,49 @@ auth:                                         # optional; these are the defaults
 
 Model names above are examples; use the ones your vendors offer.
 
+### Other models: opencode
+
+The `opencode` adapter reaches every other provider, so any role can run on
+any model. Its models are in `provider/model` form, and the vendor of the
+runtime keys `model_tiers` as usual. A DeepSeek runtime:
+
+```yaml
+runtimes:
+  deepseek:
+    adapter: opencode
+    vendor: deepseek
+    credential_env: [DEEPSEEK_API_KEY]
+
+model_tiers:
+  fast:   {deepseek: deepseek/deepseek-chat}
+  strong: {deepseek: deepseek/deepseek-chat}
+  best:   {deepseek: deepseek/deepseek-reasoner}
+
+roles:
+  developer: {runtime: deepseek, tier: strong}
+```
+
+A local Ollama, or anything else that speaks the OpenAI API, is a `base_url`.
+The part of the model before the `/` names the provider and is free to choose;
+the rest is the model the endpoint knows. Ollama takes no key:
+
+```yaml
+runtimes:
+  local:
+    adapter: opencode
+    vendor: ollama
+    base_url: http://localhost:11434/v1
+
+model_tiers:
+  strong: {ollama: ollama/qwen3-coder}
+
+roles:
+  reviewer: {runtime: local, tier: strong}
+```
+
+The address is seen from the worker, so `localhost` is the worker machine. A
+custom endpoint receives the repo code in the prompts and the runtime's key.
+
 ### Fields
 
 | Key | Type | Required | Default | Meaning |
@@ -116,10 +159,11 @@ Model names above are examples; use the ones your vendors offer.
 | `github.app_id` | integer | yes | | GitHub App ID. |
 | `github.allowlist` | list of strings | no | empty | GitHub logins allowed to command `@forecrew` in issues and PRs. Compared case-insensitively. Empty means nobody. |
 | `runtimes` | map name → runtime | yes, ≥1 | | Agent runtimes. Names match `^[a-z0-9][a-z0-9-]*$` and are referenced by `roles`. |
-| `runtimes.<name>.adapter` | `claude-code` \| `codex` | yes | | Runtime adapter. Workers advertise `runtime:<adapter>` and jobs require it. |
+| `runtimes.<name>.adapter` | `claude-code` \| `codex` \| `opencode` | yes | | Runtime adapter. Workers advertise `runtime:<adapter>` and jobs require it. |
 | `runtimes.<name>.vendor` | string | yes | | Model vendor; selects the model in `model_tiers`. |
-| `runtimes.<name>.credential_env` | list of strings | no | empty | Names of env vars forecrewd reads at startup and passes to the worker in the job spec `env`. Each must be set. Empty means the key must be in the worker's own environment (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`). A login on the worker machine is not used by either runtime: every run gets an isolated config dir (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`). A Codex job with no `CODEX_API_KEY` from either place fails with an error naming it. |
-| `model_tiers` | map tier → vendor → model | yes for every (tier, vendor) a role uses | | Tiers are `fast`, `strong`, `best`. |
+| `runtimes.<name>.credential_env` | list of strings | no | empty | Names of env vars forecrewd reads at startup and passes to the worker in the job spec `env`. Each must be set. Empty means the key must be in the worker's own environment (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`, the provider's variable for opencode). A login on the worker machine is not used by any runtime: every run gets an isolated config dir (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, opencode's XDG directories). A Codex job with no `CODEX_API_KEY` from either place fails with an error naming it. |
+| `runtimes.<name>.base_url` | URL | no | empty | Custom model endpoint, sent with the job when it is leased. Must be `https://`, or `http://` only to `localhost` or a loopback or private IP address; a host name is not enough for `http`, because it could resolve anywhere. No credentials, query, fragment or braces. `claude-code` gets it as `ANTHROPIC_BASE_URL`, `codex` as `openai_base_url`, and `opencode` as a custom OpenAI-compatible provider named by the model's provider part. The first `credential_env` holds the endpoint's key (opencode; the others read their usual variable). A job with that variable set nowhere fails with an error naming it. Empty means the vendor's own. |
+| `model_tiers` | map tier → vendor → model | yes for every (tier, vendor) a role uses | | Tiers are `fast`, `strong`, `best`. A vendor of an `opencode` runtime has its models in `provider/model` form. |
 | `roles` | map role → `{runtime, tier}` | no | empty | Runtime and tier per role. Role definitions (prompts, write paths, schemas) live in `packs/roles`. |
 | `policy.allow_same_vendor_review` | bool | no | `false` | When false, `reviewer` and `developer` must use runtimes of different vendors. |
 | `policy.accept_recommendations` | list of council kinds | no | empty | Council kinds (`domain.CouncilKind`) whose recommendation is accepted without a human; the decision is recorded as `policy`. Empty means every brief opens a `council_decision` gate. `reversible` is declared by the facilitator, an agent, and nothing verifies it, so this policy rests on that claim. A brief is accepted only when it says `reversible` and no member other than the devil's advocate, whose dissent its seat requires, dissents or votes against the recommendation. |
@@ -197,7 +241,8 @@ forecrewd takes the config path from `--config` (default `forecrew.yaml`).
 `config.Parse` reports every problem at once, wrapping `config.ErrInvalid`:
 missing or malformed `public_base_url`, `public_base_url` not matching
 `tls_domain`, missing env secrets, `app_id` ≤ 0, no runtimes, unknown adapter,
-missing vendor, invalid runtime name, unknown tier, role referring to an
+missing vendor, invalid runtime name, a `base_url` that breaks its rules, an
+`opencode` model not in `provider/model` form, unknown tier, role referring to an
 unknown runtime, role tier without a model for the runtime's vendor,
 reviewer/developer on the same vendor without `allow_same_vendor_review`,
 invalid pool names, pools without kinds or with unknown kinds, empty role
@@ -233,7 +278,7 @@ On top of `labels` the worker adds, when polling:
 
 - its OS label: `linux`, `darwin` or `windows` (Go's `GOOS`; macOS also gets `macos`);
 - `runtime:<adapter>` for each runtime CLI it finds (`runtime:claude-code`,
-  `runtime:codex`);
+  `runtime:codex`, `runtime:opencode`);
 - `docker` when the Docker engine answers `docker version`.
 
 | Variable | Required | Meaning |

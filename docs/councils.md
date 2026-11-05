@@ -44,7 +44,7 @@ members:
 | `members[].role` | yes | A role from `packs/roles`, not the facilitator. |
 | `members[].priority` | yes | What the seat argues from, e.g. `risk`, `simplicity`, `user-value`, `cost`, `dissent`; `^[a-z][a-z0-9-]*$`, unique within the council. |
 | `members[].focus` | yes | What the priority means on this council, one sentence; the member's prompt quotes it. |
-| `members[].runtimes` | no | Runtime adapters (`claude-code`, `codex`) the seat prefers, in order. Empty means the role's runtime in forecrew.yaml. |
+| `members[].runtimes` | no | Runtime adapters (`claude-code`, `codex`, `opencode`) the seat prefers, in order. Empty means the role's runtime in forecrew.yaml. |
 
 `councils.Load` decodes strictly (unknown keys are errors), checks every
 pack against the role definitions (`roles.Catalog.Definition`) and reports
