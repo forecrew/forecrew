@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	gh "github.com/google/go-github/v93/github"
 )
@@ -60,6 +61,45 @@ func (c *Client) CheckStatus(ctx context.Context, repo, sha string) (CheckStatus
 		out.State = ChecksSuccess
 	}
 	return out, nil
+}
+
+// SetCheckRun implements Tracker.
+func (c *Client) SetCheckRun(ctx context.Context, repo string, in CheckRunInput) error {
+	g, owner, name, err := c.repoClient(ctx, repo)
+	if err != nil {
+		return err
+	}
+	op := fmt.Sprintf("check run %s on %s@%s", in.Name, repo, in.SHA)
+	existing, err := all(func(o gh.ListOptions) ([]*gh.CheckRun, *gh.Response, error) {
+		res, resp, err := g.Checks.ListCheckRunsForRef(ctx, owner, name, in.SHA, &gh.ListCheckRunsOptions{CheckName: &in.Name, AppID: &c.appID, ListOptions: o})
+		return res.GetCheckRuns(), resp, err
+	})
+	if err != nil {
+		return wrap("list "+op, err)
+	}
+	summary := in.Summary
+	if len(summary) > MaxCheckSummary {
+		summary = strings.ToValidUTF8(summary[:MaxCheckSummary], "")
+	}
+	output := &gh.CheckRunOutput{Title: &in.Title, Summary: &summary}
+	completed, conclusion := "completed", string(in.Conclusion)
+	done := gh.Timestamp{Time: c.now()}
+	if len(existing) > 0 {
+		_, _, err = g.Checks.UpdateCheckRun(ctx, owner, name, existing[0].GetID(), gh.UpdateCheckRunOptions{
+			Name: in.Name, Status: &completed, Conclusion: &conclusion, CompletedAt: &done, Output: output,
+		})
+		if err != nil {
+			return wrap("update "+op, err)
+		}
+		return nil
+	}
+	_, _, err = g.Checks.CreateCheckRun(ctx, owner, name, gh.CreateCheckRunOptions{
+		Name: in.Name, HeadSHA: in.SHA, Status: &completed, Conclusion: &conclusion, CompletedAt: &done, Output: output,
+	})
+	if err != nil {
+		return wrap("create "+op, err)
+	}
+	return nil
 }
 
 // passed reports whether a completed check run's conclusion counts as success.

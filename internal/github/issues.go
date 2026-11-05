@@ -138,6 +138,19 @@ func (c *Client) CreateComment(ctx context.Context, repo string, number int, bod
 	return toComment(cm), nil
 }
 
+// UpdateComment implements Tracker.
+func (c *Client) UpdateComment(ctx context.Context, repo string, id int64, body string) (Comment, error) {
+	g, owner, name, err := c.repoClient(ctx, repo)
+	if err != nil {
+		return Comment{}, err
+	}
+	cm, _, err := g.Issues.UpdateComment(ctx, owner, name, id, gh.IssueCommentRequest{Body: body})
+	if err != nil {
+		return Comment{}, wrap(fmt.Sprintf("update comment %d of %s", id, repo), err)
+	}
+	return toComment(cm), nil
+}
+
 // ListComments implements Tracker. GitHub filters by update time, so comments
 // are filtered again by creation time.
 func (c *Client) ListComments(ctx context.Context, repo string, number int, since time.Time) ([]Comment, error) {

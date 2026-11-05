@@ -2,6 +2,7 @@ package github_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/forecrew/forecrew/internal/github"
@@ -52,4 +53,65 @@ func TestCheckStatusErrors(t *testing.T) {
 	wantErr(t, err, github.ErrNotFound)
 	_, err = e.client.CheckStatus(ctx, "bad", "x")
 	wantErr(t, err, github.ErrInvalid)
+}
+
+func TestSetCheckRun(t *testing.T) {
+	in := github.CheckRunInput{Name: "forecrew/verification", SHA: "4f1c2b9e", Conclusion: github.ConclusionNeutral, Title: "Incomplete", Summary: "2 cells missing"}
+	t.Run("creates", func(t *testing.T) {
+		e := newEnv(t)
+		e.handle("GET /repos/acme/app/commits/4f1c2b9e/check-runs", func(w http.ResponseWriter, r *http.Request) {
+			if q := r.URL.Query(); q.Get("check_name") != "forecrew/verification" || q.Get("app_id") == "" {
+				t.Errorf("query = %v", q)
+			}
+			_, _ = w.Write(fixture(t, "api", "check_runs_empty.json"))
+		})
+		var body map[string]any
+		e.handle("POST /repos/acme/app/check-runs", func(w http.ResponseWriter, r *http.Request) {
+			body = readJSON(t, r)
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id": 1}`))
+		})
+		noErr(t, e.client.SetCheckRun(t.Context(), "acme/app", in))
+		out, _ := body["output"].(map[string]any)
+		if body["name"] != "forecrew/verification" || body["head_sha"] != "4f1c2b9e" || body["status"] != "completed" || body["conclusion"] != "neutral" ||
+			out["title"] != "Incomplete" || out["summary"] != "2 cells missing" || body["completed_at"] == nil {
+			t.Fatalf("body = %v", body)
+		}
+	})
+	t.Run("updates its own run and cuts a long summary", func(t *testing.T) {
+		e := newEnv(t)
+		e.handle("GET /repos/acme/app/commits/4f1c2b9e/check-runs", func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"total_count": 1, "check_runs": [{"id": 77, "name": "forecrew/verification", "status": "completed", "conclusion": "neutral"}]}`))
+		})
+		var body map[string]any
+		e.handle("PATCH /repos/acme/app/check-runs/77", func(w http.ResponseWriter, r *http.Request) {
+			body = readJSON(t, r)
+			_, _ = w.Write([]byte(`{"id": 77}`))
+		})
+		long := in
+		long.Conclusion, long.Summary = github.ConclusionSuccess, strings.Repeat("é", github.MaxCheckSummary)
+		noErr(t, e.client.SetCheckRun(t.Context(), "acme/app", long))
+		out, _ := body["output"].(map[string]any)
+		if s, _ := out["summary"].(string); body["conclusion"] != "success" || len(s) > github.MaxCheckSummary || len(s) < github.MaxCheckSummary-1 {
+			t.Fatalf("conclusion %v, summary of %d bytes", body["conclusion"], len(s))
+		}
+	})
+	t.Run("errors", func(t *testing.T) {
+		e := newEnv(t)
+		e.serve("GET /repos/acme/app/commits/4f1c2b9e/check-runs", http.StatusForbidden, "error_forbidden.json")
+		wantErr(t, e.client.SetCheckRun(t.Context(), "acme/app", in), github.ErrForbidden)
+		e.serve("GET /repos/acme/app/commits/aaaa/check-runs", http.StatusOK, "check_runs_empty.json")
+		e.serve("POST /repos/acme/app/check-runs", http.StatusForbidden, "error_forbidden.json")
+		bad := in
+		bad.SHA = "aaaa"
+		wantErr(t, e.client.SetCheckRun(t.Context(), "acme/app", bad), github.ErrForbidden)
+		e.serve("GET /repos/acme/app/commits/bbbb/check-runs", http.StatusOK, "check_runs_page2.json")
+		e.serve("PATCH /repos/acme/app/check-runs/", http.StatusNotFound, "error_not_found.json")
+		upd := in
+		upd.SHA = "bbbb"
+		if err := e.client.SetCheckRun(t.Context(), "acme/app", upd); err == nil {
+			t.Fatal("update error swallowed")
+		}
+		wantErr(t, e.client.SetCheckRun(t.Context(), "bad", in), github.ErrInvalid)
+	})
 }

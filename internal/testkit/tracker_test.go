@@ -398,3 +398,41 @@ func TestTrackerCreatePRNeedsTheBranch(t *testing.T) {
 		t.Errorf("CreatePR with a branch: %v", err)
 	}
 }
+
+func TestTrackerUpdateCommentAndCheckRun(t *testing.T) {
+	tr := NewTracker(nil)
+	tr.Install("acme/app")
+	ctx := t.Context()
+	issue, err := tr.CreateIssue(ctx, "acme/app", github.IssueInput{Title: "t"})
+	must(t, err)
+	mine, err := tr.CreateComment(ctx, "acme/app", issue.Number, "v1")
+	must(t, err)
+	theirs, err := tr.AddComment("acme/app", issue.Number, "ana", "hi")
+	must(t, err)
+	got, err := tr.UpdateComment(ctx, "acme/app", mine.ID, "v2")
+	if err != nil || got.Body != "v2" || got.ID != mine.ID {
+		t.Fatalf("UpdateComment = %+v, %v", got, err)
+	}
+	if cs, _ := tr.ListComments(ctx, "acme/app", issue.Number, time.Time{}); len(cs) != 2 || cs[0].Body != "v2" {
+		t.Fatalf("comments = %+v", cs)
+	}
+	_, err = tr.UpdateComment(ctx, "acme/app", theirs.ID, "x")
+	wantErr(t, err, github.ErrForbidden)
+	_, err = tr.UpdateComment(ctx, "acme/app", 999, "x")
+	wantErr(t, err, github.ErrNotFound)
+	_, err = tr.UpdateComment(ctx, "acme/none", 1, "x")
+	wantErr(t, err, github.ErrNotInstalled)
+
+	in := github.CheckRunInput{Name: "forecrew/verification", SHA: "s1", Conclusion: github.ConclusionNeutral, Title: "t", Summary: "a"}
+	must(t, tr.SetCheckRun(ctx, "acme/app", in))
+	in.Conclusion = github.ConclusionSuccess
+	must(t, tr.SetCheckRun(ctx, "acme/app", in))
+	if run, ok := tr.CheckRun("acme/app", "s1", in.Name); !ok || run.Conclusion != github.ConclusionSuccess {
+		t.Fatalf("CheckRun = %+v, %v", run, ok)
+	}
+	if _, ok := tr.CheckRun("acme/app", "s2", in.Name); ok {
+		t.Fatal("check run on another sha")
+	}
+	must(t, tr.ForbidChecks("acme/app"))
+	wantErr(t, tr.SetCheckRun(ctx, "acme/app", in), github.ErrForbidden)
+}

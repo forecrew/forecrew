@@ -293,3 +293,23 @@ func TestOwnTokenIsCachedUntilNearExpiry(t *testing.T) {
 		t.Fatalf("installation looked up %d times, want 1", e.lookups)
 	}
 }
+
+func TestUpdateComment(t *testing.T) {
+	e := newEnv(t)
+	e.handle("PATCH /repos/acme/app/issues/comments/555", func(w http.ResponseWriter, r *http.Request) {
+		if b := readJSON(t, r); b["body"] != "Edited" {
+			t.Errorf("body = %v", b)
+		}
+		_, _ = w.Write(fixture(t, "api", "comment.json"))
+	})
+	c, err := e.client.UpdateComment(t.Context(), "acme/app", 555, "Edited")
+	noErr(t, err)
+	if c.ID != 555 {
+		t.Fatalf("comment = %+v", c)
+	}
+	e.serve("PATCH /repos/acme/app/issues/comments/9", http.StatusNotFound, "error_not_found.json")
+	_, err = e.client.UpdateComment(t.Context(), "acme/app", 9, "x")
+	wantErr(t, err, github.ErrNotFound)
+	_, err = e.client.UpdateComment(t.Context(), "bad", 9, "x")
+	wantErr(t, err, github.ErrInvalid)
+}
