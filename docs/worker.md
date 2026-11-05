@@ -310,6 +310,99 @@ worker label, before it takes a job.
   symlink fails the job, and so does a name that looks like a secret in
   `containerEnv`.
 
+## Toolboxes
+
+A role whose pack names a `toolbox` (`packs/toolboxes/<name>.yaml`,
+contracts/toolbox.schema.json) runs its agent jobs inside that toolbox's
+container, with the toolbox's CLIs and MCP servers. The job needs a worker
+with the `docker` label (plus the toolbox's `needs`): forecrewd adds them to the job.
+The `security-reviewer` role uses `security` (semgrep, gitleaks,
+osv-scanner and trivy in filesystem mode, versions pinned, downloads checked
+against their checksums). `browser` (Playwright's MCP server and Chromium) is
+for the QA tester of a later task.
+
+Only the agent CLI runs in the container. The worker still clones, snapshots
+the work tree after the run, checks `write_paths` and `locked_paths`, builds
+its own commit and pushes it, outside the container, exactly as for a host job.
+
+**Image.** A toolbox with `image` is pulled. One with `dockerfile` is built from
+the toolbox files `forecrew-worker` ships (an embedded copy of `packs/toolboxes`,
+used as the build context, so a worker needs no checkout; a worker older than
+forecrewd may lack a file and fails the job saying so). The result is tagged
+`forecrew-toolbox:<name>-<hash>`, the hash covering every file of the context, so
+an existing tag is reused: the second job neither pulls nor builds, and
+changing a file builds a new image. Tags are recorded like environment images
+and pruned after `image_prune_days` without use.
+
+**Agent CLIs.** Toolbox Dockerfiles start from the Forecrew base image,
+`packs/toolboxes/base`, which has Node, git and both runtime CLIs at the exact
+versions of its `package-lock.json`:
+
+```dockerfile
+ARG FORECREW_BASE
+FROM ${FORECREW_BASE}
+```
+
+A Dockerfile that names `FORECREW_BASE` gets the base built first
+(`forecrew-toolbox:base-<hash>`) and passed as a build argument. The
+alternative, adding the CLI as a layer on top of any image, would have to
+guess the distribution, its package manager and whether Node exists; the
+base makes the CLIs one pinned, tested piece, at the price that an arbitrary
+`image:` toolbox must already contain the CLI of the runtime its role uses
+(`claude` or `codex` on its `PATH`), or the job fails.
+
+**Container.** Each `docker run` of the job:
+
+- runs as the worker's uid:gid (a worker running as root refuses), with
+  `--cap-drop ALL`, `no-new-privileges`, a process limit and `--init`; no
+  Docker socket, not privileged, no host network or PID namespace, no published
+  port;
+- mounts the work tree and the evidence directory read-write and the repo's
+  bare cache read-only, all at their host paths (so `git diff` and `git log`
+  work in the container; nothing can write the cache), and nothing else;
+- has an empty in-memory `HOME` (`/home/agent`, which is also the runtime's
+  config directory) and `/tmp` of 1 GiB each, and 512 MiB of shared memory for
+  Chromium. They die with the container, so every run starts with an isolated
+  home and the worker account's own `~/.claude` or `~/.codex` never reaches it;
+- gets exactly the job's environment: the runtime key (`env` of the spec),
+  `FORECREW_JOB_MCP_TOKEN`, `FORECREW_EVIDENCE_DIR`, the locale and time zone.
+  The values of credentials travel in the environment of the docker client and
+  the command line only names them (`-e NAME`), so they are not in the process
+  list. A credential named like a variable of the docker client (`PATH`,
+  `HOME`, `DOCKER_*`) fails the job. The repo token and the worker's own
+  environment never enter the container;
+- is on a network of its own for the job (created and removed with the
+  container, which is also removed on cancel or a crash like environment
+  containers).
+
+**Network.** The container can reach the internet and, like the containers of
+environments, the machine's network. Agents need their model API, and the
+scanners download their rules and databases; there is no egress filtering
+before the microVM provider (T61). Do not give a toolbox role a repo you do not
+trust with the machine's LAN.
+
+**Reaching forecrewd.** The agent talks to the job MCP gateway at the worker's
+`server_url`. If that is on the worker's own loopback (`localhost`,
+`127.0.0.1`, `[::1]`), the container is told `host.docker.internal` instead,
+which the worker maps to the host's gateway with `--add-host`
+`host.docker.internal:host-gateway`; forecrewd must then listen on an address
+the Docker bridge reaches (not only `127.0.0.1`), and anything else listening
+on the host's non-loopback addresses is reachable too, so use a real
+`server_url` outside of development. A `server_url` that is a name or address
+the container can resolve is used as is. The worker does not rewrite https
+certificates: a private CA is not trusted in the container.
+
+**MCP servers.** The toolbox's `mcp_servers` are stdio servers the agent CLI
+starts inside the container, from the same MCP configuration as the gateway
+(`--mcp-config` with `--strict-mcp-config` for claude-code, `-c mcp_servers.*`
+for codex; docs/runtimes.md). The job's allowed tools get `mcp__<server>`, every
+tool of the server. A secret reaches a server only through its
+`credential_env`, by variable name.
+
+**Versions.** At the start of a job the worker runs each CLI's `version` command
+once in the container and writes the first line of each to the job log
+(`toolbox <name> cli <cli>: ...`).
+
 ## Secrets
 
 The repo token is used only by the worker's own `git ls-remote`, `fetch` and
@@ -332,7 +425,7 @@ reach a command, and command jobs get no `env` and a read-only repo token.
 ## Agents are not isolated from the worker
 
 Agents run as the worker's user. That is **not a security boundary**: an agent
-can read the worker's files and, on systems without the protections below,
+(except in a toolbox container, above) can read the worker's files and, on systems without the protections below,
 its environment. Run the worker under a dedicated user that owns nothing else,
 and treat everything on the machine that user can read as available to
 agents. Isolation beyond that (containers, VMs) is not part of the worker.

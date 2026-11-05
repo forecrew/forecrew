@@ -197,7 +197,7 @@ which `council.read` shows the members and the facilitator:
 | `facilitator` | best | control | repo.read, git.read | Neutral chair: frames, checks, synthesizes; no option and no vote. |
 | `devils-advocate` | strong | control | repo.read, git.read | Makes the strongest honest case against the option the council leans to, in good faith and with evidence. |
 | `market-researcher` | strong | control | repo.read, git.read | Every market claim a `url` with its date and a confidence; web search where the runtime has it. |
-| `security-reviewer` | strong | build | repo.read, git.read, run.tests | Trust boundaries and exposure; runs the project's existing scanners, so it needs a build worker. |
+| `security-reviewer` | strong | build | repo.read, git.read, run.tests | Trust boundaries and exposure; runs in the `security` toolbox (semgrep, gitleaks, osv-scanner, trivy), so it needs a build worker with the `docker` label. |
 | `ux` | strong | control | repo.read, git.read | User value: what each option changes for the people who use the product. |
 
 All are read-only, and their council jobs also get `council.read`. Their prompts describe the seat and leave the step's
