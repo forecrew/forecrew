@@ -159,7 +159,11 @@ Response `200`:
 
 - creates a machine it does not have, with `fleet.Provider.Create`;
 - destroys a machine it has that is **not** in the list, and reports it;
-- changes nothing for a machine it has that is in the list.
+- calls `fleet.Provider.Update` for a machine it has when its `tags`,
+  `network_allow` or `deadline` differ from what it last applied. An agent that
+  restarted knows no last values, so it applies them once; `Update` allows that.
+  A failed `Update` is retried on the next poll and does not fail the machine;
+- changes nothing else on a machine it has.
 
 `bootstrap` is present only on a machine that is `requested` **and not in
 `have`**. forecrewd keeps only the hash, so that delivery mints a token and
