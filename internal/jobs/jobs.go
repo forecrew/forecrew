@@ -46,7 +46,7 @@ type Registrar interface {
 type Service struct {
 	st     store.Store
 	bus    Publisher
-	reg    Registrar
+	regs   []Registrar
 	pools  map[string]config.Pool
 	logger *slog.Logger
 	now    func() time.Time
@@ -65,9 +65,9 @@ func New(st store.Store, bus Publisher, pools map[string]config.Pool, logger *sl
 	return &Service{st: st, bus: bus, pools: pools, logger: logger, now: now, wake: make(chan struct{})}
 }
 
-// WithRegistrar makes the service tell r of every job that succeeds.
+// WithRegistrar makes the service also tell r of every job that succeeds.
 func (s *Service) WithRegistrar(r Registrar) *Service {
-	s.reg = r
+	s.regs = append(s.regs, r)
 	return s
 }
 
@@ -194,9 +194,11 @@ func (s *Service) Complete(ctx context.Context, w domain.Worker, jobID uuid.UUID
 		if err = storeTestRuns(ctx, tx, cur, j, r.TestRuns); err != nil {
 			return err
 		}
-		if s.reg != nil && j.Status == domain.JobSucceeded {
-			if err := s.reg.JobCompleted(ctx, tx, j); err != nil {
-				return err
+		if j.Status == domain.JobSucceeded {
+			for _, r := range s.regs {
+				if err := r.JobCompleted(ctx, tx, j); err != nil {
+					return err
+				}
 			}
 		}
 		return audit(ctx, tx, workerActor(w), j, "job.completed", map[string]any{
