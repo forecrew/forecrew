@@ -48,6 +48,10 @@ type pathSource interface {
 // CuratorRole is the role that writes the fallback knowledge/** folder.
 const CuratorRole = "knowledge-curator"
 
+// ReviewerRole is the role whose verdict schema reviews of knowledge
+// proposals answer with.
+const ReviewerRole = "reviewer"
+
 // writePaths returns the role's write paths with the project's knowledge
 // paths excluded, for every writing role but the curator. When the
 // project's knowledge policy is unknown the job is refused (fail closed):
@@ -91,6 +95,13 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 		if role, err = c.councilRole(ctx, req, role); err != nil {
 			return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
 		}
+	}
+	if req.ProposalReview {
+		reviewer, err := c.roles.Resolve(ctx, req.AccountID, req.ProjectID, ReviewerRole)
+		if err != nil {
+			return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
+		}
+		role = role.ProposalReviewer(reviewer.OutputSchema)
 	}
 	// The lease mints a token for the job's repo: it must be the project's.
 	if req.Repo != "" && !strings.EqualFold(req.Repo, project.Repo) {

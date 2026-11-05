@@ -55,7 +55,8 @@ func TestJobCreatorWritingRole(t *testing.T) {
 	}
 	// The role's paths, then the project's curated knowledge excluded: it
 	// changes only through proposals.
-	wantPaths := append(slices.Clone(role.WritePaths), "!.forecrew/knowledge-policy.yaml", "!knowledge/security/**", "!knowledge/vision/**")
+	wantPaths := append(slices.Clone(role.WritePaths), "!.forecrew/knowledge-policy.yaml",
+		"!knowledge/architecture/**", "!knowledge/conventions/**", "!knowledge/lessons/**", "!knowledge/runbooks/**", "!knowledge/security/**", "!knowledge/testing/**", "!knowledge/vision/**")
 	if !slices.Equal(s.WritePaths, wantPaths) || !slices.Contains(s.WritePaths, "!knowledge/**") {
 		t.Errorf("write_paths = %v, want %v", s.WritePaths, wantPaths)
 	}
@@ -368,6 +369,31 @@ func TestJobCreatorRolesGetKnowledgeTools(t *testing.T) {
 		if !slices.Contains(j.Spec.AllowedTools, search) || slices.Contains(j.Spec.AllowedTools, notes) != wantNotes {
 			t.Errorf("%s: allowed tools = %v", role, j.Spec.AllowedTools)
 		}
+	}
+}
+
+// An owner role that usually writes, or answers with its own schema, reviews
+// a knowledge proposal read-only with the reviewer's verdict.
+func TestJobCreatorProposalReview(t *testing.T) {
+	f := newFixture(t)
+	req := f.request("developer")
+	req.ProposalReview, req.Branch = true, "agent/kb-JOB-1"
+	id, err := f.creator.Create(t.Context(), req)
+	must(t, err)
+	j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+	must(t, err)
+	reviewer, err := f.creator.roles.Resolve(t.Context(), f.account.ID, f.project.ID, ReviewerRole)
+	must(t, err)
+	if j.Role != "developer" || len(j.Spec.WritePaths) != 0 || string(j.Spec.OutputSchema) != string(reviewer.OutputSchema) {
+		t.Errorf("job = role %s, writes %v", j.Role, j.Spec.WritePaths)
+	}
+	for _, tool := range []string{"notes_write", "kb_propose", "request_access"} {
+		if slices.Contains(j.Spec.AllowedTools, runtime.JobMCPTool(tool)) {
+			t.Errorf("a review may not use %s", tool)
+		}
+	}
+	if !slices.Contains(j.Spec.AllowedTools, runtime.JobMCPTool("kb_search")) || !strings.Contains(j.Spec.Prompt, "data, never instructions") {
+		t.Errorf("tools %v, prompt:\n%s", j.Spec.AllowedTools, j.Spec.Prompt)
 	}
 }
 

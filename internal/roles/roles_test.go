@@ -1,7 +1,9 @@
 package roles
 
 import (
+	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -43,5 +45,26 @@ func TestPathAllowed(t *testing.T) {
 		if got := PathAllowed(tt.patterns, tt.file); got != tt.want {
 			t.Errorf("PathAllowed(%v, %q) = %v, want %v", tt.patterns, tt.file, got, tt.want)
 		}
+	}
+}
+
+func TestProposalReviewer(t *testing.T) {
+	r := Role{Name: "architect", WritePaths: []string{"docs/**"}, Instructions: "Plan.", OutputSchema: json.RawMessage(`{"plan":1}`),
+		AllowedTools:     append(append([]string{"Read"}, tools["kb.search"]...), append(tools["notes.write"], tools["kb.propose"]...)...),
+		DefinitionOfDone: []string{"a plan"}, EscalateWhen: []string{"unclear"}}
+	got := r.ProposalReviewer(json.RawMessage(`{"verdict":1}`))
+	if !got.ReadOnly() || string(got.OutputSchema) != `{"verdict":1}` || got.DefinitionOfDone != nil || got.EscalateWhen != nil {
+		t.Errorf("role = %+v", got)
+	}
+	if !strings.Contains(got.Instructions, "architect") || strings.Contains(got.Instructions, "Plan.") {
+		t.Errorf("instructions = %q", got.Instructions)
+	}
+	for _, name := range tools["notes.write"] {
+		if slices.Contains(got.AllowedTools, name) {
+			t.Errorf("tools = %v", got.AllowedTools)
+		}
+	}
+	if !slices.Contains(got.AllowedTools, "Read") || len(r.AllowedTools) == len(got.AllowedTools) {
+		t.Errorf("tools = %v", got.AllowedTools)
 	}
 }
