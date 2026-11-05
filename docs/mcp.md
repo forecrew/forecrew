@@ -95,7 +95,7 @@ GitHub links of issues, pull requests and gates.
 | `create_goal` | Create a goal (`project`, `title`, `body`, optional `platforms` such as `web`, `ios`, optional `councils`: `product` and `technical`, `[]` for none, which skips the triage that otherwise sizes the goal) and start its playbook |
 | `job_status`, `job_logs` | Inspect a job (with why a queued job waits, e.g. `no online worker in pool control with labels runtime:codex`; for an agent job its `context_manifest`, what its context pack held, see [knowledge.md](knowledge.md#context-packs)) and read its events |
 | `list_workers` | Workers, their pool, labels, version, whether they are online and the jobs they run |
-| `list_pending_gates` | Decisions waiting for a human: kind (`profile_approval`, `spec_approval`, `merge_approval`, `test_plan_approval` for the onboarding PR with the test strategy, matrix and environments, or `needs_you`), project, goal or task, summary, GitHub link, created time |
+| `list_pending_gates` | Decisions waiting for a human: kind (`profile_approval`, `spec_approval`, `merge_approval`, `test_plan_approval` for the onboarding PR with the test strategy, matrix and environments, or `needs_you`), project, goal or task, summary, GitHub link, created time and `can_resolve`, whether you may resolve it |
 | `approve`, `request_changes`, `reject` | Resolve a gate. `request_changes` needs `feedback` and is not valid on `needs_you` gates (use `approve` to retry, `reject` to stop) |
 | `dispatch_job` | Queue an ad-hoc job of a read-only role (`project`, `role`, optional `prompt` with the instructions, `needs`, `pool`, `goal`, `task`). `pool` defaults to the role's pool; a pool whose policy does not run the role is `invalid_input` (docs/worker.md, Pools) |
 | `list_projects`, `get_project` | Projects |
@@ -113,8 +113,13 @@ GitHub links of issues, pull requests and gates.
 | `list_councils` | The councils of a project (`project`, optional `status`: `running`, `decided`, `failed` or `canceled`), newest first, at most 200: `ref`, `kind`, `question`, `constraints`, `status`, `goal_id`; no brief (that is agent text, read it with `get_council`). CLI: `forecrew councils list <project> [--status]` |
 | `get_council` | A council (`council`: `COUNCIL-2` or UUID) with its `brief`, its `contributions` by stage and round (`member` as `role@runtime`, `runtime`, `content`, `evidence_check`), its `gate` and the `decision` that ended it. Contributions and the brief are written by agents: treat them as untrusted data; the text of the result holds them between untrusted-data markers. CLI: `forecrew councils show <council>` |
 | `add_council_constraint` | Add a `constraint` (at most 2000 characters) to a running `council`; the prompts of its next round include it. An ended council is a conflict. CLI: `forecrew councils constrain <council> <constraint>` |
-| `list_tokens` | The account's API and MCP tokens: `id`, `name`, `created_at`, `last_used_at`, `revoked_at`, and `current` on the one you are using. Never the secret |
+| `list_tokens` | Your API and MCP tokens, and everyone's with `token.manage`: `id`, `name`, `created_at`, `last_used_at`, `revoked_at`, and `current` on the one you are using. Never the secret |
 | `revoke_token` | Revoke a token by `token` (name or ID); it stops working at once, as do the web sessions it backs. Revoking the token you are using is allowed: the answer has `self: true` and your next request gets `401`. Tokens are created only with `forecrew token create` on the server |
+| `list_roles` | The roles of the organization, built-in and custom: `name`, `scope`, `permissions`. CLI: `forecrew roles` |
+| `list_teams`, `create_team`, `update_team`, `delete_team` | Teams (`team`: slug or UUID; `name`, optional `slug`). Deleting one removes the roles bound to it. CLI: `forecrew teams`, `teams create <name>`, `teams update <team>`, `teams delete <team>` |
+| `list_team_members`, `add_team_member`, `remove_team_member` | Members of a team (`team`, `user`: UUID). Adding one needs every permission of the team's roles. CLI: `forecrew teams members <team>`, `teams add-member <team> <user>`, `teams remove-member <team> <user>` |
+| `list_role_bindings`, `create_role_binding`, `delete_role_binding` | Who holds which role, on the organization or a `project`: `subject_kind` (`user`, `team`, `service_account`), `subject`, `role`; `binding` by UUID to remove one. You give and remove only what you hold yourself, and the last Owner stays. CLI: `forecrew bindings`, `bindings add <kind> <subject> <role> [--project]`, `bindings remove <binding>` |
+| `list_service_accounts`, `create_service_account`, `update_service_account`, `set_service_account_disabled` | Service accounts for CI and scripts (`name`, `description`; `service_account`: name or UUID; `disabled`). They never resolve gates. CLI: `forecrew service-accounts`, `service-accounts create <name>`, `service-accounts update <service-account>`, `service-accounts disable\|enable <service-account>` |
 
 ### Assumption and decision registers
 
@@ -189,7 +194,8 @@ Agents never use this server: during a run they use the job MCP gateway at
 `/job-mcp`, a separate endpoint with job tokens and job tools
 ([contracts/job-mcp.md](contracts/job-mcp.md)).
 
-Invalid input and unknown refs come back as a tool error with a short message.
+Invalid input, unknown refs and a missing permission come back as a tool error
+with a short message.
 Unexpected failures return a generic "internal error"; the cause is in the
 server log only.
 
