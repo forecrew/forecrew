@@ -45,6 +45,9 @@ func (s *Service) StartCouncil(ctx context.Context, by domain.Actor, in mcp.Star
 	if err != nil {
 		return mcp.CouncilInfo{}, err
 	}
+	if err := s.allow(ctx, by, domain.PermCouncilStart, p.ID); err != nil {
+		return mcp.CouncilInfo{}, err
+	}
 	constraints := make([]string, len(in.Constraints))
 	for i, text := range in.Constraints {
 		if constraints[i], err = constraintOf(text); err != nil {
@@ -95,6 +98,9 @@ func (s *Service) GetCouncil(ctx context.Context, by domain.Actor, in mcp.Counci
 	if err != nil {
 		return mcp.CouncilDetail{}, err
 	}
+	if err := s.allow(ctx, by, domain.PermProjectRead, c.ProjectID); err != nil {
+		return mcp.CouncilDetail{}, err
+	}
 	all, err := s.cfg.Store.Councils().Contributions(ctx, by.AccountID, c.ID, "")
 	if err != nil {
 		return mcp.CouncilDetail{}, err
@@ -112,7 +118,7 @@ func (s *Service) GetCouncil(ctx context.Context, by domain.Actor, in mcp.Counci
 		if err != nil {
 			return mcp.CouncilDetail{}, err
 		}
-		infos, err := s.gateInfos(ctx, by.AccountID, []domain.Gate{g})
+		infos, err := s.gateInfos(ctx, by, []domain.Gate{g})
 		if err != nil {
 			return mcp.CouncilDetail{}, err
 		}
@@ -172,6 +178,9 @@ func (s *Service) AddCouncilConstraint(ctx context.Context, by domain.Actor, in 
 	}
 	c, err := s.council(ctx, by.AccountID, in.Council)
 	if err != nil {
+		return mcp.CouncilInfo{}, err
+	}
+	if err := s.allow(ctx, by, domain.PermCouncilStart, c.ProjectID); err != nil {
 		return mcp.CouncilInfo{}, err
 	}
 	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {

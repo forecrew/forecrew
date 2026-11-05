@@ -50,6 +50,21 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.GetCouncil(ctx, by, mcp.CouncilRefInput{}); return err },
 		func() error { _, err := s.AddCouncilConstraint(ctx, by, mcp.AddCouncilConstraintInput{}); return err },
 		func() error { _, err := s.VerificationReport(ctx, by, mcp.VerificationReportInput{}); return err },
+		func() error { _, err := s.ListRoles(ctx, by); return err },
+		func() error { _, err := s.ListTeams(ctx, by); return err },
+		func() error { _, err := s.CreateTeam(ctx, by, mcp.CreateTeamInput{}); return err },
+		func() error { _, err := s.UpdateTeam(ctx, by, mcp.UpdateTeamInput{}); return err },
+		func() error { _, err := s.DeleteTeam(ctx, by, mcp.TeamRefInput{}); return err },
+		func() error { _, err := s.ListTeamMembers(ctx, by, mcp.TeamRefInput{}); return err },
+		func() error { _, err := s.AddTeamMember(ctx, by, mcp.TeamMemberInput{}); return err },
+		func() error { _, err := s.RemoveTeamMember(ctx, by, mcp.TeamMemberInput{}); return err },
+		func() error { _, err := s.ListRoleBindings(ctx, by, mcp.ListRoleBindingsInput{}); return err },
+		func() error { _, err := s.CreateRoleBinding(ctx, by, mcp.CreateRoleBindingInput{}); return err },
+		func() error { _, err := s.DeleteRoleBinding(ctx, by, mcp.RoleBindingRefInput{}); return err },
+		func() error { _, err := s.ListServiceAccounts(ctx, by); return err },
+		func() error { _, err := s.CreateServiceAccount(ctx, by, mcp.CreateServiceAccountInput{}); return err },
+		func() error { _, err := s.UpdateServiceAccount(ctx, by, mcp.UpdateServiceAccountInput{}); return err },
+		func() error { _, err := s.SetServiceAccountDisabled(ctx, by, mcp.SetServiceAccountInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

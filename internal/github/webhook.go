@@ -60,7 +60,10 @@ type Event struct {
 	Repo   string // owner/name
 	Number int    // issue or PR number; for check events the first associated PR, or 0
 	Actor  string // login that caused the event
-	SHA    string // head SHA for PR, review, check and status events
+	// ActorID is the stable GitHub user ID of Actor, on issue_comment events;
+	// a login can be renamed and then taken by someone else.
+	ActorID int64
+	SHA     string // head SHA for PR, review, check and status events
 	// Conclusion is the check run or suite conclusion, or the commit status
 	// state (success, failure, error, pending).
 	Conclusion  string
@@ -94,6 +97,7 @@ func ParseEvent(kind string, payload []byte) (Event, error) {
 		e.Number, e.Body = p.GetIssue().GetNumber(), p.GetIssue().GetBody()
 	case *gh.IssueCommentEvent:
 		e.Action, e.Repo, e.Actor = p.GetAction(), p.GetRepo().GetFullName(), p.GetSender().GetLogin()
+		e.ActorID = p.GetSender().GetID()
 		e.Number, e.Body = p.GetIssue().GetNumber(), p.GetComment().GetBody()
 		e.IsPR = p.GetIssue().IsPullRequest()
 	case *gh.PullRequestEvent:

@@ -19,6 +19,14 @@ func (s *Service) JobStatus(ctx context.Context, by domain.Actor, in mcp.JobRefI
 	if err != nil {
 		return mcp.JobInfo{}, err
 	}
+	if err := s.allow(ctx, by, domain.PermJobRead, j.ProjectID); err != nil {
+		return mcp.JobInfo{}, err
+	}
+	return s.jobInfo(ctx, by, j)
+}
+
+// jobInfo is the view of a job.
+func (s *Service) jobInfo(ctx context.Context, by domain.Actor, j domain.Job) (mcp.JobInfo, error) {
 	v, err := s.cfg.Jobs.Status(ctx, by.AccountID, j.ID)
 	if err != nil {
 		return mcp.JobInfo{}, err
@@ -39,6 +47,9 @@ func (s *Service) JobLogs(ctx context.Context, by domain.Actor, in mcp.JobLogsIn
 	if err != nil {
 		return mcp.JobLogsOutput{}, err
 	}
+	if err := s.allow(ctx, by, domain.PermJobRead, j.ProjectID); err != nil {
+		return mcp.JobLogsOutput{}, err
+	}
 	l, err := s.cfg.Jobs.Logs(ctx, by.AccountID, j.ID, in.AfterSeq, in.Limit)
 	if err != nil {
 		return mcp.JobLogsOutput{}, err
@@ -48,6 +59,9 @@ func (s *Service) JobLogs(ctx context.Context, by domain.Actor, in mcp.JobLogsIn
 
 // ListWorkers implements mcp.ToolService.
 func (s *Service) ListWorkers(ctx context.Context, by domain.Actor) ([]mcp.WorkerInfo, error) {
+	if err := s.allowOrg(ctx, by, domain.PermWorkerRead); err != nil {
+		return nil, err
+	}
 	views, err := s.cfg.Jobs.Workers(ctx, by.AccountID)
 	if err != nil {
 		return nil, err
@@ -65,15 +79,22 @@ func (s *Service) ListPendingGates(ctx context.Context, by domain.Actor, in mcp.
 	if err != nil {
 		return nil, err
 	}
+	visible, err := s.scope(ctx, by, domain.PermGateRead, projectID)
+	if err != nil {
+		return nil, err
+	}
 	pending, err := s.cfg.Gates.ListPending(ctx, by.AccountID, projectID)
 	if err != nil {
 		return nil, err
 	}
-	return s.gateInfos(ctx, by.AccountID, pending)
+	pending = slices.DeleteFunc(pending, func(g domain.Gate) bool { return !visible.Has(g.ProjectID) })
+	return s.gateInfos(ctx, by, pending)
 }
 
-// gateInfos adds project, goal and task refs and the GitHub link to gates.
-func (s *Service) gateInfos(ctx context.Context, accountID uuid.UUID, gs []domain.Gate) ([]mcp.GateInfo, error) {
+// gateInfos adds project, goal and task refs, the GitHub link and whether by
+// may resolve them to gates.
+func (s *Service) gateInfos(ctx context.Context, by domain.Actor, gs []domain.Gate) ([]mcp.GateInfo, error) {
+	accountID := by.AccountID
 	projects, err := s.cfg.Store.Projects().List(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -86,6 +107,9 @@ func (s *Service) gateInfos(ctx context.Context, accountID uuid.UUID, gs []domai
 	out := make([]mcp.GateInfo, len(gs))
 	for i, g := range gs {
 		info := mcp.GateInfo{Gate: g, Ref: g.Ref(), Project: names[g.ProjectID], URL: issueURL(g.SubjectRepo, g.SubjectNumber)}
+		if info.CanResolve, err = s.authz.CanResolve(ctx, by, g); err != nil {
+			return nil, err
+		}
 		if g.GoalID != uuid.Nil() {
 			if info.GoalRef, err = memo(goalRefs, g.GoalID, func() (string, error) {
 				goal, err := s.cfg.Store.Goals().Get(ctx, accountID, g.GoalID)
@@ -121,12 +145,24 @@ func memo(cache map[uuid.UUID]string, id uuid.UUID, load func() (string, error))
 
 // ListProjects implements mcp.ToolService.
 func (s *Service) ListProjects(ctx context.Context, by domain.Actor) ([]domain.Project, error) {
-	return s.cfg.Store.Projects().List(ctx, by.AccountID)
+	visible, err := s.authz.Projects(ctx, by, domain.PermProjectRead)
+	if err != nil {
+		return nil, err
+	}
+	projects, err := s.cfg.Store.Projects().List(ctx, by.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(projects, func(p domain.Project) bool { return !visible.Has(p.ID) }), nil
 }
 
 // GetProject implements mcp.ToolService.
 func (s *Service) GetProject(ctx context.Context, by domain.Actor, in mcp.ProjectInput) (domain.Project, error) {
-	return s.project(ctx, by.AccountID, in.Project)
+	p, err := s.project(ctx, by.AccountID, in.Project)
+	if err != nil {
+		return domain.Project{}, err
+	}
+	return p, s.allow(ctx, by, domain.PermProjectRead, p.ID)
 }
 
 // ListGoals implements mcp.ToolService.
@@ -138,7 +174,15 @@ func (s *Service) ListGoals(ctx context.Context, by domain.Actor, in mcp.ListGoa
 	if err != nil {
 		return nil, err
 	}
-	return s.cfg.Store.Goals().List(ctx, by.AccountID, store.GoalFilter{ProjectID: projectID, Status: in.Status})
+	visible, err := s.scope(ctx, by, domain.PermGoalRead, projectID)
+	if err != nil {
+		return nil, err
+	}
+	goals, err := s.cfg.Store.Goals().List(ctx, by.AccountID, store.GoalFilter{ProjectID: projectID, Status: in.Status})
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(goals, func(g domain.Goal) bool { return !visible.Has(g.ProjectID) }), nil
 }
 
 // ListJobs implements mcp.ToolService.
@@ -160,6 +204,16 @@ func (s *Service) ListJobs(ctx context.Context, by domain.Actor, in mcp.ListJobs
 			return nil, err
 		}
 		f.GoalID = g.ID
+		if f.ProjectID == uuid.Nil() {
+			f.ProjectID = g.ProjectID
+		}
+	}
+	visible, err := s.scope(ctx, by, domain.PermJobRead, f.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	if !visible.All {
+		f.InProjects = visible.IDs
 	}
 	return s.cfg.Store.Jobs().List(ctx, by.AccountID, f)
 }
@@ -168,6 +222,9 @@ func (s *Service) ListJobs(ctx context.Context, by domain.Actor, in mcp.ListJobs
 func (s *Service) GetGoal(ctx context.Context, by domain.Actor, in mcp.GoalRefInput) (mcp.GoalDetail, error) {
 	g, err := s.goal(ctx, by.AccountID, in.Goal)
 	if err != nil {
+		return mcp.GoalDetail{}, err
+	}
+	if err := s.allow(ctx, by, domain.PermGoalRead, g.ProjectID); err != nil {
 		return mcp.GoalDetail{}, err
 	}
 	st := s.cfg.Store
@@ -187,7 +244,7 @@ func (s *Service) GetGoal(ctx context.Context, by domain.Actor, in mcp.GoalRefIn
 		return mcp.GoalDetail{}, fmt.Errorf("gates of %s: %w", g.Ref(), err)
 	}
 	mine := slices.DeleteFunc(all, func(x domain.Gate) bool { return x.GoalID != g.ID })
-	if d.Gates, err = s.gateInfos(ctx, by.AccountID, mine); err != nil {
+	if d.Gates, err = s.gateInfos(ctx, by, mine); err != nil {
 		return mcp.GoalDetail{}, fmt.Errorf("gates of %s: %w", g.Ref(), err)
 	}
 	if d.Assumptions, err = s.goalAssumptions(ctx, g); err != nil {

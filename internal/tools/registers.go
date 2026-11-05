@@ -69,6 +69,9 @@ func (s *Service) ListAssumptions(ctx context.Context, by domain.Actor, in mcp.L
 	if err != nil {
 		return nil, err
 	}
+	if err := s.allow(ctx, by, domain.PermProjectRead, p.ID); err != nil {
+		return nil, err
+	}
 	f := store.AssumptionFilter{ProjectID: p.ID, Status: in.Status, Impact: in.Impact, VerifyBy: in.VerifyBy}
 	task, err := s.narrowToTask(ctx, by.AccountID, p, in, &f)
 	if err != nil {
@@ -97,6 +100,19 @@ func (s *Service) ResolveAssumption(ctx context.Context, by domain.Actor, in mcp
 	if err != nil {
 		return mcp.AssumptionInfo{}, err
 	}
+	if err := s.allow(ctx, by, domain.PermAssumptionResolve, a.ProjectID); err != nil {
+		return mcp.AssumptionInfo{}, err
+	}
+	// Resolving an assumption closes its pending review gates as by.
+	reviews, err := regs.ReviewGates(ctx, a.AccountID, a.ProjectID, []domain.Assumption{a})
+	if err != nil {
+		return mcp.AssumptionInfo{}, err
+	}
+	for _, g := range reviews {
+		if err := s.authz.AuthorizeGate(ctx, by, g); err != nil {
+			return mcp.AssumptionInfo{}, err
+		}
+	}
 	got, err := regs.Resolve(ctx, by, a.ID, in.Status, in.Evidence)
 	if errors.Is(err, domain.ErrInvalidRecord) {
 		err = fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
@@ -118,6 +134,9 @@ func (s *Service) ListDecisions(ctx context.Context, by domain.Actor, in mcp.Lis
 	}
 	p, err := s.project(ctx, by.AccountID, in.Project)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.allow(ctx, by, domain.PermProjectRead, p.ID); err != nil {
 		return nil, err
 	}
 	f := store.DecisionFilter{ProjectID: p.ID}

@@ -5,19 +5,33 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/registers"
+	"github.com/forecrew/forecrew/internal/store"
 )
 
-// commandRE matches the commands "approve", "changes" and "status", and the
-// assumption ("A-3") a command may name.
-var commandRE = regexp.MustCompile(`(?i)@forecrew\s+(approve|changes|status)\b(?:[ \t]+(A-[0-9]+)\b)?`)
+// CommandAccess returns what each @forecrew command needs
+// (docs/contracts/permissions.md), by command. It is the list of commands:
+// a command without an entry does not parse.
+func CommandAccess() map[string]mcp.Access {
+	return map[string]mcp.Access{
+		"approve": {Gate: true},
+		"changes": {Gate: true},
+		"status":  {Permission: domain.PermGateRead},
+	}
+}
+
+// commandRE matches the commands of CommandAccess and the assumption ("A-3")
+// a command may name.
+var commandRE = regexp.MustCompile(`(?i)@forecrew\s+(` + strings.Join(slices.Sorted(maps.Keys(CommandAccess())), "|") + `)\b(?:[ \t]+(A-[0-9]+)\b)?`)
 
 // parseCommand finds the first @forecrew command in a comment. assumption is
 // the assumption it names ("A-3"), if any. For changes, feedback is the rest
@@ -34,8 +48,7 @@ func parseCommand(body string) (cmd, assumption, feedback string, ok bool) {
 	return cmd, assumption, strings.TrimSpace(body[loc[1]:]), true
 }
 
-// comment runs the @forecrew command in a new issue or PR comment. Without an
-// Allowed function nobody may command.
+// comment runs the @forecrew command in a new issue or PR comment.
 func (e *engine) comment(ctx context.Context, ev github.Event) error {
 	if ev.Action != "created" {
 		return nil
@@ -45,14 +58,65 @@ func (e *engine) comment(ctx context.Context, ev github.Event) error {
 		return nil
 	}
 	return e.eachProject(ctx, ev.Repo, func(p domain.Project) error {
-		if e.Allowed == nil || !e.Allowed(ev.Actor) {
-			return e.auditIgnored(ctx, p, ev, cmd)
+		by, enforced, err := e.commander(ctx, p, ev)
+		if err != nil {
+			return err
 		}
-		return e.runCommand(ctx, p, ev, cmd, assumption, feedback)
+		switch {
+		case by.Kind == domain.ActorUser:
+			return e.runCommand(ctx, p, ev, by, cmd, assumption, feedback)
+		case enforced:
+			if err := e.auditIgnored(ctx, p, ev, cmd); err != nil {
+				return err
+			}
+			return e.reply(ctx, ev, "Only a member of this Forecrew organization with a linked GitHub account can do that.")
+		case e.Allowed != nil && e.Allowed(ev.Actor):
+			return e.runCommand(ctx, p, ev, by, cmd, assumption, feedback)
+		}
+		return e.auditIgnored(ctx, p, ev, cmd)
 	})
 }
 
-// auditIgnored records a command from somebody outside the allowlist.
+// commander returns who a comment acts as: the one member linked to the
+// GitHub account of its author, or otherwise github:<login>. enforced is
+// false in an organization nobody has a role in yet, as on an instance from
+// before organizations, where the allowlist of the config still decides;
+// from its first role binding on only permissions do.
+func (e *engine) commander(ctx context.Context, p domain.Project, ev github.Event) (by domain.Actor, enforced bool, err error) {
+	by = domain.Actor{AccountID: p.AccountID, Kind: domain.ActorGitHub, Name: ev.Actor}
+	users, err := e.Store.Directory().GitHubMembers(ctx, p.AccountID, ev.ActorID, ev.Actor)
+	if err != nil {
+		return by, true, fmt.Errorf("find the user of %s: %w", ev.Actor, err)
+	}
+	if len(users) == 1 {
+		return domain.UserActor(p.AccountID, users[0], domain.Credential{}), true, nil
+	}
+	bindings, err := e.Store.RoleBindings().List(ctx, p.AccountID, store.RoleBindingFilter{})
+	if err != nil {
+		return by, true, fmt.Errorf("list role bindings: %w", err)
+	}
+	return by, len(bindings) > 0, nil
+}
+
+// permitted runs check for a linked user, whose command needs p, and replies
+// when it is denied. Empty p needs nothing, and github:<login> comes from the
+// allowlist. When ok is false the command stops with err.
+func (e *engine) permitted(ctx context.Context, ev github.Event, by domain.Actor, p domain.Permission, check func() error) (ok bool, err error) {
+	if by.Kind != domain.ActorUser || p == "" {
+		return true, nil
+	}
+	err = check()
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, authz.ErrDenied):
+		return false, e.reply(ctx, ev, fmt.Sprintf("You need the permission `%s` on this project to do that.", p))
+	}
+	return false, err
+}
+
+// auditIgnored records a command from somebody who is not a linked member or
+// on the allowlist.
 func (e *engine) auditIgnored(ctx context.Context, p domain.Project, ev github.Event, cmd string) error {
 	data, err := json.Marshal(map[string]any{"repo": ev.Repo, "number": ev.Number, "command": cmd})
 	if err != nil {
@@ -65,7 +129,7 @@ func (e *engine) auditIgnored(ctx context.Context, p domain.Project, ev github.E
 	if err != nil {
 		return fmt.Errorf("audit ignored command: %w", err)
 	}
-	e.Log.Warn("command from a user outside the allowlist", "account_id", p.AccountID, "project_id", p.ID, "login", ev.Actor, "command", cmd)
+	e.Log.Warn("command from an unknown GitHub user", "account_id", p.AccountID, "project_id", p.ID, "login", ev.Actor, "command", cmd)
 	return nil
 }
 
@@ -89,9 +153,16 @@ func decidable(pending []domain.Gate, assumption string) (domain.Gate, bool) {
 	return pending[i], true
 }
 
-// runCommand applies the command of an allowed user to the gate it is about
-// (see decidable) and replies with the outcome.
-func (e *engine) runCommand(ctx context.Context, p domain.Project, ev github.Event, cmd, assumption, feedback string) error {
+// runCommand applies the command of by to the gate it is about (see
+// decidable) and replies with the outcome. A linked user needs the permission
+// of CommandAccess; by is github:<login> only on the allowlist's say.
+func (e *engine) runCommand(ctx context.Context, p domain.Project, ev github.Event, by domain.Actor, cmd, assumption, feedback string) error {
+	access := CommandAccess()[cmd]
+	if ok, err := e.permitted(ctx, ev, by, access.Permission, func() error {
+		return e.Authz.Authorize(ctx, by, access.Permission, authz.Project(p.AccountID, p.ID))
+	}); !ok {
+		return err
+	}
 	pending, err := e.Store.Gates().ListPendingBySubject(ctx, p.AccountID, ev.Repo, ev.Number)
 	if err != nil {
 		return fmt.Errorf("list gates of %s#%d: %w", ev.Repo, ev.Number, err)
@@ -123,7 +194,11 @@ func (e *engine) runCommand(ctx context.Context, p domain.Project, ev github.Eve
 		}
 		return err
 	}
-	by := domain.Actor{AccountID: p.AccountID, Kind: domain.ActorGitHub, Name: ev.Actor}
+	if access.Gate {
+		if ok, err := e.permitted(ctx, ev, by, authz.GatePermission(g), func() error { return e.Authz.AuthorizeGate(ctx, by, g) }); !ok {
+			return err
+		}
+	}
 	if err := e.resolve(ctx, by, g, decision, feedback); err != nil {
 		return err
 	}

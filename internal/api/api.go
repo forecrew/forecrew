@@ -1,7 +1,8 @@
 // Package api serves /api/v1 (docs/api.md): one JSON endpoint per MCP tool,
 // plus the browser session endpoints of the web UI. Handlers only decode
 // the request, call the mcp.ToolService and encode the answer; every rule
-// lives in the service.
+// lives in the service. Every route has an entry in RouteAccess, which guard
+// checks before the handler.
 package api
 
 import (
@@ -15,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
@@ -32,6 +34,10 @@ type Config struct {
 	Artifacts ArtifactOpener
 	Tokens    store.MCPTokenRepo
 	Accounts  store.AccountRepo
+	// Authz checks RouteAccess on every route.
+	Authz *authz.Engine
+	// Directory finds the user of GET /api/v1/me.
+	Directory store.DirectoryRepo
 	Logger    *slog.Logger
 }
 
@@ -59,9 +65,9 @@ func (s *Server) Handler() http.Handler {
 
 	handle("POST /api/v1/session", http.HandlerFunc(s.login))
 	handle("DELETE /api/v1/session", http.HandlerFunc(s.logout))
-	handle("GET /api/v1/me", s.protect(http.HandlerFunc(s.me)))
+	route := func(pattern string, h http.Handler) { handle(pattern, s.protect(s.guard(pattern, h))) }
+	route("GET /api/v1/me", http.HandlerFunc(s.me))
 
-	route := func(pattern string, h http.Handler) { handle(pattern, s.protect(h)) }
 	route("POST /api/v1/projects", serve(s, http.StatusAccepted, bodyOf[mcp.OnboardProjectInput], t.OnboardProject))
 	route("GET /api/v1/projects", serve(s, http.StatusOK, noInput, list(noArg(t.ListProjects))))
 	route("GET /api/v1/projects/{project...}", serve(s, http.StatusOK, projectInput, t.GetProject))
@@ -103,6 +109,23 @@ func (s *Server) Handler() http.Handler {
 
 	route("GET /api/v1/tokens", serve(s, http.StatusOK, noInput, list(noArg(t.ListTokens))))
 	route("POST /api/v1/tokens/{token}/revoke", serve(s, http.StatusOK, tokenInput, t.RevokeToken))
+
+	route("GET /api/v1/roles", serve(s, http.StatusOK, noInput, list(noArg(t.ListRoles))))
+	route("GET /api/v1/teams", serve(s, http.StatusOK, noInput, list(noArg(t.ListTeams))))
+	route("POST /api/v1/teams", serve(s, http.StatusCreated, bodyOf[mcp.CreateTeamInput], t.CreateTeam))
+	route("PATCH /api/v1/teams/{team}", serve(s, http.StatusOK, updateTeamInput, t.UpdateTeam))
+	route("DELETE /api/v1/teams/{team}", serve(s, http.StatusOK, teamInput, t.DeleteTeam))
+	route("GET /api/v1/teams/{team}/members", serve(s, http.StatusOK, teamInput, list(t.ListTeamMembers)))
+	route("POST /api/v1/teams/{team}/members", serve(s, http.StatusCreated, addTeamMemberInput, t.AddTeamMember))
+	route("DELETE /api/v1/teams/{team}/members/{user}", serve(s, http.StatusOK, teamMemberInput, t.RemoveTeamMember))
+	route("GET /api/v1/role-bindings", serve(s, http.StatusOK, listRoleBindingsInput, list(t.ListRoleBindings)))
+	route("POST /api/v1/role-bindings", serve(s, http.StatusCreated, bodyOf[mcp.CreateRoleBindingInput], t.CreateRoleBinding))
+	route("DELETE /api/v1/role-bindings/{binding}", serve(s, http.StatusOK, bindingInput, t.DeleteRoleBinding))
+	route("GET /api/v1/service-accounts", serve(s, http.StatusOK, noInput, list(noArg(t.ListServiceAccounts))))
+	route("POST /api/v1/service-accounts", serve(s, http.StatusCreated, bodyOf[mcp.CreateServiceAccountInput], t.CreateServiceAccount))
+	route("PATCH /api/v1/service-accounts/{service_account}", serve(s, http.StatusOK, updateServiceAccountInput, t.UpdateServiceAccount))
+	route("POST /api/v1/service-accounts/{service_account}/disable", serve(s, http.StatusOK, setServiceAccountInput(true), t.SetServiceAccountDisabled))
+	route("POST /api/v1/service-accounts/{service_account}/enable", serve(s, http.StatusOK, setServiceAccountInput(false), t.SetServiceAccountDisabled))
 
 	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errors.New("no such endpoint"), http.StatusNotFound, "not_found")
@@ -165,7 +188,47 @@ func RouteAccess() map[string]mcp.Access {
 
 		"GET /api/v1/tokens":                 tool[mcp.ToolListTokens],
 		"POST /api/v1/tokens/{token}/revoke": tool[mcp.ToolRevokeToken],
+
+		"GET /api/v1/roles":                                       tool[mcp.ToolListRoles],
+		"GET /api/v1/teams":                                       tool[mcp.ToolListTeams],
+		"POST /api/v1/teams":                                      tool[mcp.ToolCreateTeam],
+		"PATCH /api/v1/teams/{team}":                              tool[mcp.ToolUpdateTeam],
+		"DELETE /api/v1/teams/{team}":                             tool[mcp.ToolDeleteTeam],
+		"GET /api/v1/teams/{team}/members":                        tool[mcp.ToolListTeamMembers],
+		"POST /api/v1/teams/{team}/members":                       tool[mcp.ToolAddTeamMember],
+		"DELETE /api/v1/teams/{team}/members/{user}":              tool[mcp.ToolRemoveTeamMember],
+		"GET /api/v1/role-bindings":                               tool[mcp.ToolListRoleBindings],
+		"POST /api/v1/role-bindings":                              tool[mcp.ToolCreateRoleBinding],
+		"DELETE /api/v1/role-bindings/{binding}":                  tool[mcp.ToolDeleteRoleBinding],
+		"GET /api/v1/service-accounts":                            tool[mcp.ToolListServiceAccounts],
+		"POST /api/v1/service-accounts":                           tool[mcp.ToolCreateServiceAccount],
+		"PATCH /api/v1/service-accounts/{service_account}":        tool[mcp.ToolUpdateServiceAccount],
+		"POST /api/v1/service-accounts/{service_account}/disable": tool[mcp.ToolSetServiceAccount],
+		"POST /api/v1/service-accounts/{service_account}/enable":  tool[mcp.ToolSetServiceAccount],
 	}
+}
+
+// guard is the permission middleware of REST and the web API: it checks the
+// route's entry of RouteAccess before the handler runs. A route without one
+// does not start.
+func (s *Server) guard(pattern string, next http.Handler) http.Handler {
+	access, ok := RouteAccess()[pattern]
+	if !ok {
+		panic("api: " + pattern + " has no entry in RouteAccess") // programmer error, at startup
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		by, ok := mcp.ActorFromContext(r.Context())
+		if !ok {
+			s.fail(w, r, errNotAuthenticated, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		ctx := s.cfg.Authz.Request(r.Context())
+		if err := access.Check(ctx, s.cfg.Authz, by); err != nil {
+			s.failTool(w, r, by, err)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 // serve adapts a tool method to a handler: in decodes the request into the
@@ -260,6 +323,49 @@ func constraintInput(r *http.Request) (mcp.AddCouncilConstraintInput, error) {
 
 func tokenInput(r *http.Request) (mcp.RevokeTokenInput, error) {
 	return mcp.RevokeTokenInput{Token: r.PathValue("token")}, nil
+}
+
+func teamInput(r *http.Request) (mcp.TeamRefInput, error) {
+	return mcp.TeamRefInput{Team: r.PathValue("team")}, nil
+}
+
+func updateTeamInput(r *http.Request) (mcp.UpdateTeamInput, error) {
+	in, err := bodyOf[mcp.UpdateTeamInput](r)
+	in.Team = r.PathValue("team")
+	return in, err
+}
+
+func addTeamMemberInput(r *http.Request) (mcp.TeamMemberInput, error) {
+	var body struct {
+		User string `json:"user"`
+	}
+	err := decode(r, &body)
+	return mcp.TeamMemberInput{Team: r.PathValue("team"), User: body.User}, err
+}
+
+func teamMemberInput(r *http.Request) (mcp.TeamMemberInput, error) {
+	return mcp.TeamMemberInput{Team: r.PathValue("team"), User: r.PathValue("user")}, nil
+}
+
+func listRoleBindingsInput(r *http.Request) (mcp.ListRoleBindingsInput, error) {
+	q := r.URL.Query()
+	return mcp.ListRoleBindingsInput{Project: q.Get("project"), SubjectKind: domain.SubjectKind(q.Get("subject_kind")), Subject: q.Get("subject")}, nil
+}
+
+func bindingInput(r *http.Request) (mcp.RoleBindingRefInput, error) {
+	return mcp.RoleBindingRefInput{Binding: r.PathValue("binding")}, nil
+}
+
+func updateServiceAccountInput(r *http.Request) (mcp.UpdateServiceAccountInput, error) {
+	in, err := bodyOf[mcp.UpdateServiceAccountInput](r)
+	in.ServiceAccount = r.PathValue("service_account")
+	return in, err
+}
+
+func setServiceAccountInput(disabled bool) func(*http.Request) (mcp.SetServiceAccountInput, error) {
+	return func(r *http.Request) (mcp.SetServiceAccountInput, error) {
+		return mcp.SetServiceAccountInput{ServiceAccount: r.PathValue("service_account"), Disabled: disabled}, nil
+	}
 }
 
 func noteInput(r *http.Request) (mcp.DeleteNoteInput, error) {

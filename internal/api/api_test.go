@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/forecrew/forecrew/internal/api"
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/testkit"
@@ -51,7 +52,7 @@ func newEnvFor(t *testing.T, now func() time.Time, account domain.Account) *env 
 	must(t, st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: e.account.ID, Name: "old", TokenHash: mcp.HashToken("fcm_old"), RevokedAt: testkit.NewClock(t0).Now()}))
 	e.actor = domain.Actor{AccountID: e.account.ID, Kind: domain.ActorMCP, Name: "laptop"}
 	srv := api.New(api.Config{
-		Tools: e.svc, Artifacts: e.svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: slog.New(slog.NewJSONHandler(e.logs, nil)),
+		Tools: e.svc, Artifacts: e.svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Authz: authz.New(st, nil), Directory: st.Directory(), Logger: slog.New(slog.NewJSONHandler(e.logs, nil)),
 	})
 	e.server = httptest.NewTLSServer(srv.Handler())
 	t.Cleanup(e.server.Close)
@@ -165,6 +166,24 @@ func TestEndpoints(t *testing.T) {
 		{"POST", "/api/v1/councils/COUNCIL-2/constraints", `{"constraint":"Stay on Postgres"}`, 200, mcp.ToolAddConstraint, mcp.AddCouncilConstraintInput{Council: "COUNCIL-2", Constraint: "Stay on Postgres"}},
 		{"GET", "/api/v1/changes/9/verification?project=app", "", 200, mcp.ToolVerificationReport, mcp.VerificationReportInput{Change: "9", Project: "app"}},
 		{"GET", "/api/v1/changes/TASK-12/verification", "", 200, mcp.ToolVerificationReport, mcp.VerificationReportInput{Change: "TASK-12"}},
+		{"GET", "/api/v1/roles", "", 200, mcp.ToolListRoles, nil},
+		{"GET", "/api/v1/teams", "", 200, mcp.ToolListTeams, nil},
+		{"POST", "/api/v1/teams", `{"name":"Core","slug":"core"}`, 201, mcp.ToolCreateTeam, mcp.CreateTeamInput{Name: "Core", Slug: "core"}},
+		{"PATCH", "/api/v1/teams/core", `{"name":"Base"}`, 200, mcp.ToolUpdateTeam, mcp.UpdateTeamInput{Team: "core", Name: "Base"}},
+		{"DELETE", "/api/v1/teams/core", "", 200, mcp.ToolDeleteTeam, mcp.TeamRefInput{Team: "core"}},
+		{"GET", "/api/v1/teams/core/members", "", 200, mcp.ToolListTeamMembers, mcp.TeamRefInput{Team: "core"}},
+		{"POST", "/api/v1/teams/core/members", `{"user":"u"}`, 201, mcp.ToolAddTeamMember, mcp.TeamMemberInput{Team: "core", User: "u"}},
+		{"DELETE", "/api/v1/teams/core/members/u", "", 200, mcp.ToolRemoveTeamMember, mcp.TeamMemberInput{Team: "core", User: "u"}},
+		{"GET", "/api/v1/role-bindings?project=app&subject_kind=team&subject=core", "", 200, mcp.ToolListRoleBindings,
+			mcp.ListRoleBindingsInput{Project: "app", SubjectKind: domain.SubjectTeam, Subject: "core"}},
+		{"POST", "/api/v1/role-bindings", `{"subject_kind":"team","subject":"core","role":"viewer","project":"app"}`, 201, mcp.ToolCreateRoleBinding,
+			mcp.CreateRoleBindingInput{SubjectKind: domain.SubjectTeam, Subject: "core", Role: "viewer", Project: "app"}},
+		{"DELETE", "/api/v1/role-bindings/b", "", 200, mcp.ToolDeleteRoleBinding, mcp.RoleBindingRefInput{Binding: "b"}},
+		{"GET", "/api/v1/service-accounts", "", 200, mcp.ToolListServiceAccounts, nil},
+		{"POST", "/api/v1/service-accounts", `{"name":"ci"}`, 201, mcp.ToolCreateServiceAccount, mcp.CreateServiceAccountInput{Name: "ci"}},
+		{"PATCH", "/api/v1/service-accounts/ci", `{"name":"build"}`, 200, mcp.ToolUpdateServiceAccount, mcp.UpdateServiceAccountInput{ServiceAccount: "ci", Name: "build"}},
+		{"POST", "/api/v1/service-accounts/ci/disable", "", 200, mcp.ToolSetServiceAccount, mcp.SetServiceAccountInput{ServiceAccount: "ci", Disabled: true}},
+		{"POST", "/api/v1/service-accounts/ci/enable", "", 200, mcp.ToolSetServiceAccount, mcp.SetServiceAccountInput{ServiceAccount: "ci"}},
 	}
 	seen := map[string]bool{}
 	for i, tt := range tests {
@@ -312,7 +331,7 @@ func TestMeWithMissingAccount(t *testing.T) {
 	must(t, e.store.Accounts().Create(t.Context(), &other))
 	st := testkit.NewStore(nil) // tokens know an account that this store lacks
 	must(t, st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: domain.NewID(), Name: "t", TokenHash: mcp.HashToken("fcm_t")}))
-	srv := httptest.NewServer(api.New(api.Config{Tools: e.svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: slog.New(slog.DiscardHandler)}).Handler())
+	srv := httptest.NewServer(api.New(api.Config{Tools: e.svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Authz: authz.New(st, nil), Directory: st.Directory(), Logger: slog.New(slog.DiscardHandler)}).Handler())
 	defer srv.Close()
 	req, err := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/api/v1/me", nil)
 	must(t, err)

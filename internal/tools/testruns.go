@@ -29,10 +29,15 @@ func (s *Service) ListTestRuns(ctx context.Context, by domain.Actor, in mcp.List
 	if err != nil {
 		return nil, err
 	}
+	visible, err := s.authz.Projects(ctx, by, domain.PermJobRead)
+	if err != nil {
+		return nil, err
+	}
 	runs, err := s.cfg.Store.TestRuns().List(ctx, by.AccountID, f)
 	if err != nil {
 		return nil, err
 	}
+	runs = slices.DeleteFunc(runs, func(r domain.TestRun) bool { return !visible.Has(r.ProjectID) })
 	out := make([]mcp.TestRunInfo, len(runs))
 	for i, r := range runs {
 		out[i] = mcp.TestRunInfo{TestRun: r, JobRef: jobRef, Failures: []domain.TestResult{}}
@@ -68,14 +73,22 @@ func (s *Service) testRunFilter(ctx context.Context, by domain.Actor, in mcp.Lis
 		if err != nil {
 			return f, "", err
 		}
+		if err := s.allow(ctx, by, domain.PermJobRead, j.ProjectID); err != nil {
+			return f, "", err
+		}
 		f.JobID, jobRef = j.ID, j.Ref()
 	}
 	if in.Change == 0 {
-		f.ProjectID, err = s.optionalProject(ctx, by.AccountID, in.Project)
-		return f, jobRef, err
+		if f.ProjectID, err = s.optionalProject(ctx, by.AccountID, in.Project); err != nil || f.ProjectID == uuid.Nil() {
+			return f, jobRef, err
+		}
+		return f, jobRef, s.allow(ctx, by, domain.PermJobRead, f.ProjectID)
 	}
 	p, err := s.project(ctx, by.AccountID, in.Project)
 	if err != nil {
+		return f, "", err
+	}
+	if err := s.allow(ctx, by, domain.PermJobRead, p.ID); err != nil {
 		return f, "", err
 	}
 	c, err := s.cfg.Store.Changes().GetByPR(ctx, by.AccountID, p.Repo, in.Change)

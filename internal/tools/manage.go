@@ -7,6 +7,7 @@ import (
 	"slices"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
@@ -18,31 +19,58 @@ func (s *Service) CancelJob(ctx context.Context, by domain.Actor, in mcp.JobRefI
 	if err != nil {
 		return mcp.JobInfo{}, err
 	}
+	if err := s.allow(ctx, by, domain.PermJobCancel, j.ProjectID); err != nil {
+		return mcp.JobInfo{}, err
+	}
 	if _, err := s.cfg.Jobs.Cancel(ctx, by, by.AccountID, j.ID); errors.Is(err, domain.ErrInvalidTransition) {
 		return mcp.JobInfo{}, fmt.Errorf("%s is %s, only queued or running jobs can be canceled: %w", j.Ref(), j.Status, err)
 	} else if err != nil {
 		return mcp.JobInfo{}, err
 	}
-	return s.JobStatus(ctx, by, mcp.JobRefInput{Job: j.ID.String()})
+	return s.jobInfo(ctx, by, j)
 }
 
-// ListTokens implements mcp.ToolService.
+// ownToken reports whether t is by's: the owner's, or the very token of an
+// ownerless actor.
+func ownToken(by domain.Actor, t domain.MCPToken) bool {
+	if by.Kind == domain.ActorMCP {
+		return t.OwnerKind == "" && t.Name == by.Name
+	}
+	id, ok := by.SubjectID()
+	return ok && t.OwnerID == id && string(t.OwnerKind) == string(by.Kind)
+}
+
+// ListTokens implements mcp.ToolService: the caller's own tokens, and
+// everybody's with token.manage.
 func (s *Service) ListTokens(ctx context.Context, by domain.Actor) ([]mcp.TokenInfo, error) {
+	everyone, err := s.authz.Can(ctx, by, domain.PermTokenManage, authz.Organization(by.AccountID))
+	if err != nil {
+		return nil, err
+	}
 	tokens, err := s.cfg.Store.MCPTokens().List(ctx, by.AccountID)
 	if err != nil {
 		return nil, fmt.Errorf("list tokens: %w", err)
 	}
-	out := make([]mcp.TokenInfo, len(tokens))
-	for i, t := range tokens {
-		out[i] = tokenInfo(by, t)
+	out := make([]mcp.TokenInfo, 0, len(tokens))
+	for _, t := range tokens {
+		if everyone || ownToken(by, t) {
+			out = append(out, tokenInfo(by, t))
+		}
 	}
 	return out, nil
 }
 
-// tokenInfo is the view of t for by, which has the token's name when it is
-// the caller's own.
+// current reports whether t is the token by is calling with.
+func current(by domain.Actor, t domain.MCPToken) bool {
+	if by.Kind == domain.ActorMCP {
+		return ownToken(by, t)
+	}
+	return by.Credential.Kind == domain.CredentialToken && by.Credential.ID == t.ID
+}
+
+// tokenInfo is the view of t for by.
 func tokenInfo(by domain.Actor, t domain.MCPToken) mcp.TokenInfo {
-	return mcp.NewTokenInfo(t, by.Kind == domain.ActorMCP && by.Name == t.Name && t.RevokedAt.IsZero())
+	return mcp.NewTokenInfo(t, current(by, t) && t.RevokedAt.IsZero())
 }
 
 // RevokeToken implements mcp.ToolService.
@@ -50,21 +78,21 @@ func (s *Service) RevokeToken(ctx context.Context, by domain.Actor, in mcp.Revok
 	if in.Token == "" {
 		return mcp.RevokeTokenOutput{}, fmt.Errorf("token is required: %w", mcp.ErrInvalidInput)
 	}
-	var t domain.MCPToken
-	err := s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
-		tokens, err := tx.MCPTokens().List(ctx, by.AccountID)
-		if err != nil {
-			return err
+	t, err := s.findToken(ctx, by, in.Token)
+	if err != nil {
+		return mcp.RevokeTokenOutput{}, err
+	}
+	if !ownToken(by, t) {
+		if err := s.allowOrg(ctx, by, domain.PermTokenManage); err != nil {
+			return mcp.RevokeTokenOutput{}, err
 		}
-		if t, err = store.FindActive(in.Token, tokens, func(t domain.MCPToken) (uuid.UUID, string, bool) {
-			return t.ID, t.Name, !t.RevokedAt.IsZero()
-		}); err != nil {
-			return fmt.Errorf("no active token %q: %w", in.Token, mcp.ErrNotFound)
-		}
+	}
+	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := tx.MCPTokens().Revoke(ctx, by.AccountID, t.ID); err != nil {
 			return err
 		}
-		if tokens, err = tx.MCPTokens().List(ctx, by.AccountID); err != nil { // for its revocation time
+		tokens, err := tx.MCPTokens().List(ctx, by.AccountID) // for its revocation time
+		if err != nil {
 			return err
 		}
 		t = tokens[slices.IndexFunc(tokens, func(x domain.MCPToken) bool { return x.ID == t.ID })]
@@ -73,5 +101,24 @@ func (s *Service) RevokeToken(ctx context.Context, by domain.Actor, in mcp.Revok
 	if err != nil {
 		return mcp.RevokeTokenOutput{}, err
 	}
-	return mcp.NewRevokeTokenOutput(tokenInfo(by, t), by.Kind == domain.ActorMCP && by.Name == t.Name), nil
+	return mcp.NewRevokeTokenOutput(tokenInfo(by, t), current(by, t)), nil
+}
+
+// findToken finds an active token by name or ID. Names repeat across owners,
+// so a name means the caller's own token first.
+func (s *Service) findToken(ctx context.Context, by domain.Actor, ref string) (domain.MCPToken, error) {
+	tokens, err := s.cfg.Store.MCPTokens().List(ctx, by.AccountID)
+	if err != nil {
+		return domain.MCPToken{}, err
+	}
+	key := func(t domain.MCPToken) (uuid.UUID, string, bool) { return t.ID, t.Name, !t.RevokedAt.IsZero() }
+	mine := slices.DeleteFunc(slices.Clone(tokens), func(t domain.MCPToken) bool { return !ownToken(by, t) })
+	if t, err := store.FindActive(ref, mine, key); err == nil {
+		return t, nil
+	}
+	t, err := store.FindActive(ref, tokens, key)
+	if err != nil {
+		return domain.MCPToken{}, fmt.Errorf("no active token %q: %w", ref, mcp.ErrNotFound)
+	}
+	return t, nil
 }

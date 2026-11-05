@@ -58,7 +58,6 @@ func TestTokens(t *testing.T) {
 	ctx := t.Context()
 	other, _, _ := f.otherAccount(t)
 	for _, tok := range []domain.MCPToken{
-		{AccountID: f.account.ID, Name: "laptop", TokenHash: mcp.HashToken("fcm_a")},
 		{AccountID: f.account.ID, Name: "ci", TokenHash: mcp.HashToken("fcm_b")},
 		{AccountID: other.AccountID, Name: "ci", TokenHash: mcp.HashToken("fcm_c")},
 	} {
@@ -86,7 +85,7 @@ func TestTokens(t *testing.T) {
 	_, err = f.svc.RevokeToken(ctx, f.by, mcp.RevokeTokenInput{Token: "ghost"})
 	wantErr(t, err, mcp.ErrNotFound)
 	// The other account's token with the same name is untouched.
-	if others, _ := f.st.MCPTokens().List(ctx, other.AccountID); len(others) != 1 || !others[0].RevokedAt.IsZero() {
+	if others, _ := f.st.MCPTokens().List(ctx, other.AccountID); len(others) != 2 || !others[1].RevokedAt.IsZero() {
 		t.Errorf("other account tokens = %+v", others)
 	}
 
