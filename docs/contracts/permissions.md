@@ -96,7 +96,7 @@ feature: see identity.md, Tokens.
 |------------|-------|------------|--------|
 | `org.read` | read | organization | see the organization, its members, teams, roles and service accounts |
 | `org.manage` | admin | organization | rename the organization, change its slug and `max_token_ttl`, grant and remove the Owner role |
-| `billing.manage` | admin | organization | billing and plans (S.3) |
+| `billing.manage` | admin | organization | billing and plans (S.3); the budgets of providers, shapes and the fleet policy, and nothing else of them |
 | `member.manage` | admin | organization | invite, suspend and remove members, change their organization role bindings, within [No escalation](#no-escalation) |
 | `team.manage` | admin | organization | create, rename and delete teams, change their members and their bindings, within [No escalation](#no-escalation) |
 | `role.manage` | admin | organization | create, edit and delete custom roles (enterprise) |
@@ -104,8 +104,8 @@ feature: see identity.md, Tokens.
 | `connection.manage` | admin | organization | sign-in connections, group mappings, verified domains, SSO enforcement, SCIM tokens, within [No escalation](#no-escalation) |
 | `token.manage` | admin | organization | create service account tokens; list and revoke other people's tokens |
 | `audit.read` | read | organization | read the audit log |
-| `worker.read` | read | organization | list workers |
-| `worker.manage` | admin | organization | add, move and revoke workers |
+| `worker.read` | read | organization | list workers, machines, capacity providers, shapes, images and fleet usage |
+| `worker.manage` | admin | organization | add, move and revoke workers; capacity providers, join codes, shapes and the fleet policy (locations and machine types, shown to users as Manage machines) |
 | `pool.manage` | admin | organization | worker pools |
 | `project.create` | write | organization | onboard a repo as a project |
 | `project.read` | read | project | a project, its profile, councils, assumptions, decisions, knowledge and improvement proposals |

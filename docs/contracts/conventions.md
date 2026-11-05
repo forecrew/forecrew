@@ -79,7 +79,8 @@ has the coding conventions they refer to.
 - Tokens are random 32 bytes, base64url without padding, with a prefix:
   `fcw_` worker tokens, `fcm_` MCP/API tokens (personal and service account
   tokens), `fcj_` job MCP tokens (job-mcp.md; bound to one lease, never
-  stored in clear), and the identity tokens of identity.md (`fcs_`
+  stored in clear), `fcp_` provider tokens (fleet-agent-api.md), `fcb_`
+  one-time bootstrap tokens of machines (fleet.md), and the identity tokens of identity.md (`fcs_`
   sessions, `fci_` invitations, `fco_`/`fca_`/`fcr_` OAuth codes, access
   and refresh tokens, `fcscim_` SCIM). Only their SHA-256 is stored;
   they are shown once. Compare hashes, not tokens.
