@@ -27,6 +27,9 @@ func (s *Service) SearchKnowledge(ctx context.Context, by domain.Actor, in mcp.S
 	if err != nil {
 		return nil, err
 	}
+	if err := s.allow(ctx, by, domain.PermProjectRead, p.ID); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(in.Query) == "" {
 		return nil, fmt.Errorf("query is required: %w", mcp.ErrInvalidInput)
 	}
@@ -93,6 +96,9 @@ func (s *Service) DeleteNote(ctx context.Context, by domain.Actor, in mcp.Delete
 		return mcp.DeleteNoteOutput{}, fmt.Errorf("note %s: %w", id, mcp.ErrNotFound)
 	}
 	if err != nil {
+		return mcp.DeleteNoteOutput{}, err
+	}
+	if err := s.allow(ctx, by, domain.PermKnowledgePropose, e.ProjectID); err != nil {
 		return mcp.DeleteNoteOutput{}, err
 	}
 	if err := s.cfg.Notes.Delete(ctx, by.AccountID, id); err != nil {

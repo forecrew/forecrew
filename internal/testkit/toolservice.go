@@ -61,6 +61,22 @@ type ToolService struct {
 	ResolveAssumptionFunc func(context.Context, domain.Actor, mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error)
 	ListDecisionsFunc     func(context.Context, domain.Actor, mcp.ListDecisionsInput) ([]mcp.DecisionInfo, error)
 
+	ListRolesFunc                 func(context.Context, domain.Actor, any) ([]domain.Role, error)
+	ListTeamsFunc                 func(context.Context, domain.Actor, any) ([]domain.Team, error)
+	CreateTeamFunc                func(context.Context, domain.Actor, mcp.CreateTeamInput) (domain.Team, error)
+	UpdateTeamFunc                func(context.Context, domain.Actor, mcp.UpdateTeamInput) (domain.Team, error)
+	DeleteTeamFunc                func(context.Context, domain.Actor, mcp.TeamRefInput) (domain.Team, error)
+	ListTeamMembersFunc           func(context.Context, domain.Actor, mcp.TeamRefInput) ([]domain.TeamMember, error)
+	AddTeamMemberFunc             func(context.Context, domain.Actor, mcp.TeamMemberInput) (domain.TeamMember, error)
+	RemoveTeamMemberFunc          func(context.Context, domain.Actor, mcp.TeamMemberInput) (domain.TeamMember, error)
+	ListRoleBindingsFunc          func(context.Context, domain.Actor, mcp.ListRoleBindingsInput) ([]mcp.RoleBindingInfo, error)
+	CreateRoleBindingFunc         func(context.Context, domain.Actor, mcp.CreateRoleBindingInput) (mcp.RoleBindingInfo, error)
+	DeleteRoleBindingFunc         func(context.Context, domain.Actor, mcp.RoleBindingRefInput) (mcp.RoleBindingInfo, error)
+	ListServiceAccountsFunc       func(context.Context, domain.Actor, any) ([]domain.ServiceAccount, error)
+	CreateServiceAccountFunc      func(context.Context, domain.Actor, mcp.CreateServiceAccountInput) (domain.ServiceAccount, error)
+	UpdateServiceAccountFunc      func(context.Context, domain.Actor, mcp.UpdateServiceAccountInput) (domain.ServiceAccount, error)
+	SetServiceAccountDisabledFunc func(context.Context, domain.Actor, mcp.SetServiceAccountInput) (domain.ServiceAccount, error)
+
 	mu    sync.Mutex
 	calls []ToolCall
 }
@@ -247,6 +263,81 @@ func (s *ToolService) ProposeKnowledge(ctx context.Context, by domain.Actor, in 
 // DeleteNote implements mcp.ToolService.
 func (s *ToolService) DeleteNote(ctx context.Context, by domain.Actor, in mcp.DeleteNoteInput) (mcp.DeleteNoteOutput, error) {
 	return invoke(ctx, s, mcp.ToolDeleteNote, by, in, s.DeleteNoteFunc)
+}
+
+// ListRoles implements mcp.ToolService.
+func (s *ToolService) ListRoles(ctx context.Context, by domain.Actor) ([]domain.Role, error) {
+	return invoke[any](ctx, s, mcp.ToolListRoles, by, nil, s.ListRolesFunc)
+}
+
+// ListTeams implements mcp.ToolService.
+func (s *ToolService) ListTeams(ctx context.Context, by domain.Actor) ([]domain.Team, error) {
+	return invoke[any](ctx, s, mcp.ToolListTeams, by, nil, s.ListTeamsFunc)
+}
+
+// CreateTeam implements mcp.ToolService.
+func (s *ToolService) CreateTeam(ctx context.Context, by domain.Actor, in mcp.CreateTeamInput) (domain.Team, error) {
+	return invoke(ctx, s, mcp.ToolCreateTeam, by, in, s.CreateTeamFunc)
+}
+
+// UpdateTeam implements mcp.ToolService.
+func (s *ToolService) UpdateTeam(ctx context.Context, by domain.Actor, in mcp.UpdateTeamInput) (domain.Team, error) {
+	return invoke(ctx, s, mcp.ToolUpdateTeam, by, in, s.UpdateTeamFunc)
+}
+
+// DeleteTeam implements mcp.ToolService.
+func (s *ToolService) DeleteTeam(ctx context.Context, by domain.Actor, in mcp.TeamRefInput) (domain.Team, error) {
+	return invoke(ctx, s, mcp.ToolDeleteTeam, by, in, s.DeleteTeamFunc)
+}
+
+// ListTeamMembers implements mcp.ToolService.
+func (s *ToolService) ListTeamMembers(ctx context.Context, by domain.Actor, in mcp.TeamRefInput) ([]domain.TeamMember, error) {
+	return invoke(ctx, s, mcp.ToolListTeamMembers, by, in, s.ListTeamMembersFunc)
+}
+
+// AddTeamMember implements mcp.ToolService.
+func (s *ToolService) AddTeamMember(ctx context.Context, by domain.Actor, in mcp.TeamMemberInput) (domain.TeamMember, error) {
+	return invoke(ctx, s, mcp.ToolAddTeamMember, by, in, s.AddTeamMemberFunc)
+}
+
+// RemoveTeamMember implements mcp.ToolService.
+func (s *ToolService) RemoveTeamMember(ctx context.Context, by domain.Actor, in mcp.TeamMemberInput) (domain.TeamMember, error) {
+	return invoke(ctx, s, mcp.ToolRemoveTeamMember, by, in, s.RemoveTeamMemberFunc)
+}
+
+// ListRoleBindings implements mcp.ToolService.
+func (s *ToolService) ListRoleBindings(ctx context.Context, by domain.Actor, in mcp.ListRoleBindingsInput) ([]mcp.RoleBindingInfo, error) {
+	return invoke(ctx, s, mcp.ToolListRoleBindings, by, in, s.ListRoleBindingsFunc)
+}
+
+// CreateRoleBinding implements mcp.ToolService.
+func (s *ToolService) CreateRoleBinding(ctx context.Context, by domain.Actor, in mcp.CreateRoleBindingInput) (mcp.RoleBindingInfo, error) {
+	return invoke(ctx, s, mcp.ToolCreateRoleBinding, by, in, s.CreateRoleBindingFunc)
+}
+
+// DeleteRoleBinding implements mcp.ToolService.
+func (s *ToolService) DeleteRoleBinding(ctx context.Context, by domain.Actor, in mcp.RoleBindingRefInput) (mcp.RoleBindingInfo, error) {
+	return invoke(ctx, s, mcp.ToolDeleteRoleBinding, by, in, s.DeleteRoleBindingFunc)
+}
+
+// ListServiceAccounts implements mcp.ToolService.
+func (s *ToolService) ListServiceAccounts(ctx context.Context, by domain.Actor) ([]domain.ServiceAccount, error) {
+	return invoke[any](ctx, s, mcp.ToolListServiceAccounts, by, nil, s.ListServiceAccountsFunc)
+}
+
+// CreateServiceAccount implements mcp.ToolService.
+func (s *ToolService) CreateServiceAccount(ctx context.Context, by domain.Actor, in mcp.CreateServiceAccountInput) (domain.ServiceAccount, error) {
+	return invoke(ctx, s, mcp.ToolCreateServiceAccount, by, in, s.CreateServiceAccountFunc)
+}
+
+// UpdateServiceAccount implements mcp.ToolService.
+func (s *ToolService) UpdateServiceAccount(ctx context.Context, by domain.Actor, in mcp.UpdateServiceAccountInput) (domain.ServiceAccount, error) {
+	return invoke(ctx, s, mcp.ToolUpdateServiceAccount, by, in, s.UpdateServiceAccountFunc)
+}
+
+// SetServiceAccountDisabled implements mcp.ToolService.
+func (s *ToolService) SetServiceAccountDisabled(ctx context.Context, by domain.Actor, in mcp.SetServiceAccountInput) (domain.ServiceAccount, error) {
+	return invoke(ctx, s, mcp.ToolSetServiceAccount, by, in, s.SetServiceAccountDisabledFunc)
 }
 
 // OpenArtifact implements api.ArtifactOpener. It records no call; without

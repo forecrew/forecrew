@@ -17,6 +17,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/testkit"
@@ -44,7 +45,7 @@ func newEnv(t *testing.T) *env {
 	e := &env{svc: &testkit.ToolService{}, store: st, logs: &bytes.Buffer{},
 		actor: domain.Actor{AccountID: account.ID, Kind: domain.ActorMCP, Name: "laptop"}}
 	logger := slog.New(slog.NewJSONHandler(e.logs, nil))
-	e.server = httptest.NewServer(mcp.NewHandler(e.svc, st.MCPTokens(), "test", logger))
+	e.server = httptest.NewServer(mcp.NewHandler(e.svc, st.MCPTokens(), authz.New(st, nil), "test", logger))
 	t.Cleanup(e.server.Close)
 	return e
 }
@@ -212,6 +213,22 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolGetCouncil, map[string]any{"council": "COUNCIL-2"}, mcp.CouncilRefInput{Council: "COUNCIL-2"}},
 		{mcp.ToolAddConstraint, map[string]any{"council": "COUNCIL-2", "constraint": "Stay on Postgres"}, mcp.AddCouncilConstraintInput{Council: "COUNCIL-2", Constraint: "Stay on Postgres"}},
 		{mcp.ToolVerificationReport, map[string]any{"change": "9", "project": "app"}, mcp.VerificationReportInput{Change: "9", Project: "app"}},
+		{mcp.ToolListRoles, nil, nil},
+		{mcp.ToolListTeams, nil, nil},
+		{mcp.ToolCreateTeam, map[string]any{"name": "Core", "slug": "core"}, mcp.CreateTeamInput{Name: "Core", Slug: "core"}},
+		{mcp.ToolUpdateTeam, map[string]any{"team": "core", "name": "Base"}, mcp.UpdateTeamInput{Team: "core", Name: "Base"}},
+		{mcp.ToolDeleteTeam, map[string]any{"team": "core"}, mcp.TeamRefInput{Team: "core"}},
+		{mcp.ToolListTeamMembers, map[string]any{"team": "core"}, mcp.TeamRefInput{Team: "core"}},
+		{mcp.ToolAddTeamMember, map[string]any{"team": "core", "user": "u"}, mcp.TeamMemberInput{Team: "core", User: "u"}},
+		{mcp.ToolRemoveTeamMember, map[string]any{"team": "core", "user": "u"}, mcp.TeamMemberInput{Team: "core", User: "u"}},
+		{mcp.ToolListRoleBindings, map[string]any{"project": "app"}, mcp.ListRoleBindingsInput{Project: "app"}},
+		{mcp.ToolCreateRoleBinding, map[string]any{"subject_kind": "team", "subject": "core", "role": "viewer", "project": "app"},
+			mcp.CreateRoleBindingInput{SubjectKind: domain.SubjectTeam, Subject: "core", Role: "viewer", Project: "app"}},
+		{mcp.ToolDeleteRoleBinding, map[string]any{"binding": "b"}, mcp.RoleBindingRefInput{Binding: "b"}},
+		{mcp.ToolListServiceAccounts, nil, nil},
+		{mcp.ToolCreateServiceAccount, map[string]any{"name": "ci", "description": "CI"}, mcp.CreateServiceAccountInput{Name: "ci", Description: "CI"}},
+		{mcp.ToolUpdateServiceAccount, map[string]any{"service_account": "ci", "name": "build"}, mcp.UpdateServiceAccountInput{ServiceAccount: "ci", Name: "build"}},
+		{mcp.ToolSetServiceAccount, map[string]any{"service_account": "ci", "disabled": true}, mcp.SetServiceAccountInput{ServiceAccount: "ci", Disabled: true}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))
@@ -484,5 +501,55 @@ func TestVerificationReportTextIsUntrusted(t *testing.T) {
 	}
 	if _, text := call(t, e.connect(t, testToken), mcp.ToolVerificationReport, map[string]any{}); !strings.Contains(text, "change") {
 		t.Errorf("a call without change = %q", text)
+	}
+}
+
+// TestEveryToolChecksItsPermission calls each tool with a permission as a
+// user who holds none: the wrapper refuses it before the service runs.
+func TestEveryToolChecksItsPermission(t *testing.T) {
+	e := newEnv(t)
+	u := e.store.AddMember(e.actor.AccountID, domain.User{Name: "Ana"}, "")
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(e.store.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: e.actor.AccountID, Name: "user", TokenHash: mcp.HashToken("fcm_user"),
+		OwnerKind: domain.SubjectUser, OwnerID: u.ID, Scopes: []domain.Scope{domain.ScopeAdmin}}))
+	cs := e.connect(t, "fcm_user")
+	args := map[string]map[string]any{
+		mcp.ToolAddTeamMember: {"team": "t", "user": "u"}, mcp.ToolRemoveTeamMember: {"team": "t", "user": "u"}, mcp.ToolDeleteTeam: {"team": "t"},
+		mcp.ToolListTeamMembers: {"team": "t"}, mcp.ToolUpdateTeam: {"team": "t"}, mcp.ToolCreateTeam: {"name": "t"},
+		mcp.ToolCreateServiceAccount: {"name": "s"}, mcp.ToolUpdateServiceAccount: {"service_account": "s"}, mcp.ToolSetServiceAccount: {"service_account": "s", "disabled": true},
+		mcp.ToolGetCouncil: {"council": "c"}, mcp.ToolAddConstraint: {"council": "c", "constraint": "x"}, mcp.ToolStartCouncil: {"project": "p", "question": "q"},
+		mcp.ToolCreateGoal: {"project": "p", "title": "t", "body": "b"}, mcp.ToolSearchKnowledge: {"project": "p", "query": "q"},
+		mcp.ToolJobLogs: {"job": "j"}, mcp.ToolJobStatus: {"job": "j"}, mcp.ToolCancelJob: {"job": "j"}, mcp.ToolListArtifacts: {"job": "j"},
+		mcp.ToolOnboardProject: {"repo": "o/r"}, mcp.ToolResolveAssumption: {"assumption": "a", "status": "accepted"}, mcp.ToolListAssumptions: {"project": "p"},
+		mcp.ToolGetProject: {"project": "p"}, mcp.ToolDeleteNote: {"note": "n"}, mcp.ToolDispatchJob: {"project": "p", "role": "r"},
+		mcp.ToolGetGoal: {"goal": "g"}, mcp.ToolListDecisions: {"project": "p"},
+	}
+	for name, a := range mcp.ToolAccess() {
+		if a.Permission == "" || a.Own {
+			continue
+		}
+		in, ok := args[name]
+		if !ok {
+			in = map[string]any{}
+		}
+		res, text := call(t, cs, name, in)
+		if !res.IsError || !strings.Contains(text, string(a.Permission)) {
+			t.Errorf("%s: IsError=%v text=%q", name, res.IsError, text)
+		}
+	}
+	if n := len(e.svc.Calls()); n != 0 {
+		t.Errorf("service called %d times", n)
+	}
+	// The zero-permission tools still reach the service.
+	if res, _ := call(t, cs, mcp.ToolListTokens, nil); res.IsError {
+		t.Error("list_tokens refused")
+	}
+	if got := e.svc.Calls(); len(got) != 1 || got[0].Actor.Kind != domain.ActorUser {
+		t.Errorf("calls = %+v", got)
 	}
 }

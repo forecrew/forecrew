@@ -8,6 +8,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
@@ -20,6 +21,8 @@ type Deps struct {
 	Store   store.Store
 	Signals workflow.SignalBus
 	Gates   gates.Service
+	// Authz checks the permission of GitHub commands.
+	Authz   *authz.Engine
 	Tracker github.Tracker
 	// Knowledge keeps the knowledge index in step with the default branch;
 	// nil leaves push events and the poller's knowledge pass out.
@@ -27,7 +30,8 @@ type Deps struct {
 	// Proposals settles the knowledge proposals of closed PRs; nil leaves
 	// them to their runs.
 	Proposals ProposalFollower
-	// Allowed reports whether a GitHub login may command @forecrew.
+	// Allowed reports whether a GitHub login may command @forecrew in an
+	// organization nobody has a role in yet; see commander.
 	Allowed func(login string) bool
 	Log     *slog.Logger
 	// RunChanged, when set, is told of every workflow_run event, so the

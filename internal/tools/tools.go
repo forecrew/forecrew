@@ -1,6 +1,7 @@
 // Package tools implements mcp.ToolService once. The MCP server, /api/v1 and
 // the web UI all call it, so a rule lives in exactly one place. Every method
-// works for the account of the actor, never sees another account's rows and
+// works for the account of the actor, never sees another account's rows,
+// checks the actor's permission on the project it finds (internal/authz) and
 // answers with the errors of internal/mcp (ErrNotFound, ErrInvalidInput, ...).
 package tools
 
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/evidence"
@@ -90,7 +92,8 @@ type Config struct {
 
 // Service is the mcp.ToolService.
 type Service struct {
-	cfg Config
+	cfg   Config
+	authz *authz.Engine
 }
 
 var _ mcp.ToolService = (*Service)(nil)
@@ -100,7 +103,29 @@ func New(cfg Config) *Service {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &Service{cfg: cfg}
+	return &Service{cfg: cfg, authz: authz.New(cfg.Store, cfg.Logger)}
+}
+
+// allow checks that by holds p on a project.
+func (s *Service) allow(ctx context.Context, by domain.Actor, p domain.Permission, projectID uuid.UUID) error {
+	return s.authz.Authorize(ctx, by, p, authz.Project(by.AccountID, projectID))
+}
+
+// allowOrg checks that by holds p on the organization.
+func (s *Service) allowOrg(ctx context.Context, by domain.Actor, p domain.Permission) error {
+	return s.authz.Authorize(ctx, by, p, authz.Organization(by.AccountID))
+}
+
+// scope returns where a list may look: the project it is filtered on, which
+// by must hold p on, or every project where by holds p.
+func (s *Service) scope(ctx context.Context, by domain.Actor, p domain.Permission, projectID uuid.UUID) (authz.Visible, error) {
+	if projectID == uuid.Nil() {
+		return s.authz.Projects(ctx, by, p)
+	}
+	if err := s.allow(ctx, by, p, projectID); err != nil {
+		return authz.Visible{}, err
+	}
+	return authz.Visible{IDs: []uuid.UUID{projectID}}, nil
 }
 
 // lookup finds an entity by human ref (GOAL-3) or UUID. A ref that is
@@ -162,7 +187,7 @@ func (s *Service) job(ctx context.Context, accountID uuid.UUID, ref string) (dom
 
 // audit records what by did.
 func (s *Service) audit(ctx context.Context, st store.Store, by domain.Actor, projectID uuid.UUID, action, subject string, subjectID uuid.UUID, data map[string]any) error {
-	e := domain.AuditEntry{AccountID: by.AccountID, ProjectID: projectID, Actor: by.String(), Action: action, SubjectType: subject, SubjectID: subjectID}
+	e := domain.AuditEntry{AccountID: by.AccountID, ProjectID: projectID, Actor: by.String(), Credential: by.Credential.String(), Action: action, SubjectType: subject, SubjectID: subjectID}
 	if data != nil {
 		raw, err := json.Marshal(data)
 		if err != nil {

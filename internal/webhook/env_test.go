@@ -15,6 +15,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
@@ -68,6 +69,7 @@ func newEnv(t *testing.T) *env {
 func (e *env) deps() Deps {
 	return Deps{
 		Store: e.st, Signals: e.bus, Gates: e.gates, Tracker: e.tracker,
+		Authz:   authz.New(e.st, nil),
 		Allowed: func(l string) bool { return config.GitHub{Allowlist: e.allowed}.Allowed(l) },
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)), Now: e.clock.Now,
 	}

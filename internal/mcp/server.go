@@ -11,24 +11,25 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
 // NewHandler returns the MCP server over streamable HTTP, protected by bearer
-// token authentication. Mount it at /mcp. Each tool calls the matching
-// ToolService method as the token's actor.
-func NewHandler(svc ToolService, tokens store.MCPTokenRepo, version string, logger *slog.Logger) http.Handler {
+// token authentication. Mount it at /mcp. Each tool checks ToolAccess and
+// calls the matching ToolService method as the token's actor.
+func NewHandler(svc ToolService, tokens store.MCPTokenRepo, engine *authz.Engine, version string, logger *slog.Logger) http.Handler {
 	srv := sdk.NewServer(&sdk.Implementation{Name: "forecrew", Version: version}, nil)
-	registerTools(srv, svc, logger)
+	registerTools(srv, svc, engine, logger)
 	// Stateless: every request carries its own token, so there is no session
 	// to hijack and nothing to lose on restart; all tools are request/response.
 	h := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return srv }, &sdk.StreamableHTTPOptions{Stateless: true})
 	return Authenticate(tokens, logger)(h)
 }
 
-func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
-	r := registrar{srv: srv, logger: logger}
+func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logger *slog.Logger) {
+	r := registrar{srv: srv, engine: engine, access: ToolAccess(), logger: logger}
 	project := "Project name or repo (owner/name)."
 	gate := "Gate ref (GATE-7) or UUID."
 	job := "Job ref (JOB-41) or UUID."
@@ -234,6 +235,96 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 			out, err := svc.ProposeKnowledge(ctx, by, in)
 			return result(out, "%s opened as pull request #%d.", out.Proposal, out.Number), err
 		})
+	registerAccessTools(r, svc)
+}
+
+// registerAccessTools adds the tools that manage who may do what.
+func registerAccessTools(r registrar, svc ToolService) {
+	team := "Team slug or UUID."
+	user := "User UUID."
+	sa := "Service account name or UUID."
+	register(r, ToolListRoles, "List the roles of the organization, built-in and custom, with their scope and permissions.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			roles, err := svc.ListRoles(ctx, by)
+			return list("roles", roles, "%d roles.", len(roles)), err
+		})
+	register(r, ToolListTeams, "List the teams of the organization.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			teams, err := svc.ListTeams(ctx, by)
+			return list("teams", teams, "%d teams.", len(teams)), err
+		})
+	register(r, ToolCreateTeam, "Create a team. Its members get the roles bound to it.",
+		fieldDocs{"name": "Team name.", "slug": "URL name; derived from the name when left out."},
+		func(ctx context.Context, by domain.Actor, in CreateTeamInput) (toolResult, error) {
+			t, err := svc.CreateTeam(ctx, by, in)
+			return result(t, "Team %s created.", t.Slug), err
+		}, "name")
+	register(r, ToolUpdateTeam, "Rename a team or change its slug.",
+		fieldDocs{"team": team, "name": "New name; unchanged when left out.", "slug": "New slug; unchanged when left out."},
+		func(ctx context.Context, by domain.Actor, in UpdateTeamInput) (toolResult, error) {
+			t, err := svc.UpdateTeam(ctx, by, in)
+			return result(t, "Team %s updated.", t.Slug), err
+		}, "team")
+	register(r, ToolDeleteTeam, "Delete a team with its members and role bindings; its members lose the roles they had through it.",
+		fieldDocs{"team": team}, func(ctx context.Context, by domain.Actor, in TeamRefInput) (toolResult, error) {
+			t, err := svc.DeleteTeam(ctx, by, in)
+			return result(t, "Team %s deleted.", t.Slug), err
+		}, "team")
+	register(r, ToolListTeamMembers, "List the members of a team.",
+		fieldDocs{"team": team}, func(ctx context.Context, by domain.Actor, in TeamRefInput) (toolResult, error) {
+			m, err := svc.ListTeamMembers(ctx, by, in)
+			return list("members", m, "%d members.", len(m)), err
+		}, "team")
+	register(r, ToolAddTeamMember, "Add a member of the organization to a team. You need every permission of the team's roles.",
+		fieldDocs{"team": team, "user": user}, func(ctx context.Context, by domain.Actor, in TeamMemberInput) (toolResult, error) {
+			m, err := svc.AddTeamMember(ctx, by, in)
+			return result(m, "%s is in the team.", m.UserID), err
+		}, "team", "user")
+	register(r, ToolRemoveTeamMember, "Remove a member from a team; they lose the roles they had through it.",
+		fieldDocs{"team": team, "user": user}, func(ctx context.Context, by domain.Actor, in TeamMemberInput) (toolResult, error) {
+			m, err := svc.RemoveTeamMember(ctx, by, in)
+			return result(m, "%s left the team.", m.UserID), err
+		}, "team", "user")
+	register(r, ToolListRoleBindings, "List role bindings: who holds which role, on the organization or on a project. Without a project this needs org.read; with one, project.read on it.",
+		fieldDocs{"project": "Only the bindings on this project (name or repo).", "subject_kind": "user, team or service_account.", "subject": "A subject of that kind: user UUID, team slug or UUID, service account name or UUID."},
+		func(ctx context.Context, by domain.Actor, in ListRoleBindingsInput) (toolResult, error) {
+			b, err := svc.ListRoleBindings(ctx, by, in)
+			return list("bindings", b, "%d bindings.", len(b)), err
+		})
+	register(r, ToolCreateRoleBinding, "Give a role to a user, team or service account, on the organization or on one project. You need every permission of the role at that scope.",
+		fieldDocs{"subject_kind": "user, team or service_account.", "subject": "User UUID, team slug or UUID, service account name or UUID.", "role": "Role name, for example maintainer.", "project": "Project (name or repo); leave it out to bind on the organization."},
+		func(ctx context.Context, by domain.Actor, in CreateRoleBindingInput) (toolResult, error) {
+			b, err := svc.CreateRoleBinding(ctx, by, in)
+			return result(b, "Role %s given.", b.Role), err
+		}, "subject_kind", "subject", "role")
+	register(r, ToolDeleteRoleBinding, "Remove a role binding by UUID. You need every permission of the role at its scope. The last Owner cannot be removed.",
+		fieldDocs{"binding": "Binding UUID."}, func(ctx context.Context, by domain.Actor, in RoleBindingRefInput) (toolResult, error) {
+			b, err := svc.DeleteRoleBinding(ctx, by, in)
+			return result(b, "Role %s removed.", b.Role), err
+		}, "binding")
+	register(r, ToolListServiceAccounts, "List the service accounts of the organization.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			s, err := svc.ListServiceAccounts(ctx, by)
+			return list("service_accounts", s, "%d service accounts.", len(s)), err
+		})
+	register(r, ToolCreateServiceAccount, "Create a service account for CI and scripts. It holds tokens and role bindings and never signs in.",
+		fieldDocs{"name": "Lowercase name, unique in the organization.", "description": "What it is for."},
+		func(ctx context.Context, by domain.Actor, in CreateServiceAccountInput) (toolResult, error) {
+			s, err := svc.CreateServiceAccount(ctx, by, in)
+			return result(s, "Service account %s created.", s.Name), err
+		}, "name")
+	register(r, ToolUpdateServiceAccount, "Rename a service account or change its description.",
+		fieldDocs{"service_account": sa, "name": "New name; unchanged when left out.", "description": "New description; unchanged when left out."},
+		func(ctx context.Context, by domain.Actor, in UpdateServiceAccountInput) (toolResult, error) {
+			s, err := svc.UpdateServiceAccount(ctx, by, in)
+			return result(s, "Service account %s updated.", s.Name), err
+		}, "service_account")
+	register(r, ToolSetServiceAccount, "Disable or enable a service account; while disabled its tokens have no permissions. You need every permission of its roles.",
+		fieldDocs{"service_account": sa, "disabled": "true to disable, false to enable."},
+		func(ctx context.Context, by domain.Actor, in SetServiceAccountInput) (toolResult, error) {
+			s, err := svc.SetServiceAccountDisabled(ctx, by, in)
+			return result(s, "Service account %s updated.", s.Name), err
+		}, "service_account", "disabled")
 }
 
 // toolResult is what a tool returns to the client: a short text and the
@@ -269,6 +360,8 @@ func gateTool(decide func(context.Context, domain.Actor, GateDecisionInput) (dom
 
 type registrar struct {
 	srv    *sdk.Server
+	engine *authz.Engine
+	access map[string]Access
 	logger *slog.Logger
 }
 
@@ -280,6 +373,10 @@ type fieldDocs map[string]string
 // marked required on top of those In requires. call receives the token's actor
 // and returns the short text and the structured content.
 func register[In any](r registrar, name, description string, docs fieldDocs, call func(context.Context, domain.Actor, In) (toolResult, error), required ...string) {
+	access, ok := r.access[name]
+	if !ok {
+		panic("mcp: " + name + " has no entry in ToolAccess") // programmer error, at startup
+	}
 	schema, err := jsonschema.For[In](nil)
 	if err != nil {
 		panic("mcp: schema for " + name + ": " + err.Error()) // programmer error, at startup
@@ -301,6 +398,10 @@ func register[In any](r registrar, name, description string, docs fieldDocs, cal
 		actor, ok := ActorFromContext(ctx)
 		if !ok {
 			return nil, nil, errors.New("not authenticated")
+		}
+		ctx = r.engine.Request(ctx)
+		if err := access.Check(ctx, r.engine, actor); err != nil {
+			return nil, nil, errors.New(toolErrorMessage(ctx, r.logger, name, actor, err))
 		}
 		res, err := call(ctx, actor, in)
 		if err != nil {

@@ -81,7 +81,7 @@ func TestParseEvent(t *testing.T) {
 			Body: "It looks like you accidently spelled 'commit' with two 't's.",
 		}},
 		{"issue_comment", "issue_comment_created.json", github.Event{
-			Kind: "issue_comment", Action: "created", Repo: exRepo, Number: 1, Actor: "Codertocat",
+			Kind: "issue_comment", Action: "created", Repo: exRepo, Number: 1, Actor: "Codertocat", ActorID: 21031067,
 			Body: "You are totally right! I'll get this fixed right away.",
 		}},
 		{"pull_request", "pull_request_closed.json", github.Event{

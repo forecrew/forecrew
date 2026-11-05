@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 )
@@ -51,10 +52,16 @@ func (c *clearOn401) WriteHeader(status int) {
 	c.ResponseWriter.WriteHeader(status)
 }
 
-// Session is the answer of POST /api/v1/session and GET /api/v1/me.
+// Session is the answer of POST /api/v1/session and GET /api/v1/me: who the
+// caller is, its current organization and what it may do there, for the UI
+// to hide what it cannot.
 type Session struct {
 	Token   string         `json:"token"` // name of the token
 	Account domain.Account `json:"account"`
+	// User is the person behind the call; nil for a service account and an
+	// ownerless token.
+	User *domain.User `json:"user,omitempty"`
+	authz.Effective
 }
 
 // login checks the token with the same middleware as every other call and
@@ -100,7 +107,7 @@ func sessionCookie(token string, maxAge int) *http.Cookie {
 	}
 }
 
-// me answers with the token name and account of the caller.
+// me answers with the caller, its organization and its effective permissions.
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	by, ok := mcp.ActorFromContext(r.Context())
@@ -113,5 +120,19 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		s.failTool(w, r, by, err)
 		return
 	}
-	s.write(w, r, http.StatusOK, Session{Token: by.Name, Account: acc})
+	eff, err := s.cfg.Authz.EffectiveOf(r.Context(), by)
+	if err != nil {
+		s.failTool(w, r, by, err)
+		return
+	}
+	session := Session{Token: by.Name, Account: acc, Effective: eff}
+	if id, ok := by.SubjectID(); ok && by.Kind == domain.ActorUser {
+		u, err := s.cfg.Directory.User(r.Context(), id)
+		if err != nil {
+			s.failTool(w, r, by, err)
+			return
+		}
+		session.User = &u
+	}
+	s.write(w, r, http.StatusOK, session)
 }

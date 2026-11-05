@@ -159,6 +159,9 @@ func TestOnboardingQueuesItsFirstJob(t *testing.T) {
 	defer func() { cancel(); <-done }()
 
 	by := domain.Actor{AccountID: f.account.ID, Kind: domain.ActorMCP, Name: "test"}
+	if err := f.st.MCPTokens().Create(ctx, &domain.MCPToken{AccountID: f.account.ID, Name: "test", TokenHash: mcp.HashToken("fcm_test")}); err != nil {
+		t.Fatal(err)
+	}
 	out, err := f.app.tools.OnboardProject(ctx, by, mcp.OnboardProjectInput{Repo: "acme/new"})
 	if err != nil {
 		t.Fatal(err)

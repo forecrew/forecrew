@@ -81,6 +81,7 @@ func newFixture(t *testing.T) *fixture {
 		},
 	})
 	f.by = domain.Actor{AccountID: f.account.ID, Kind: domain.ActorMCP, Name: "laptop"}
+	must(t, st.MCPTokens().Create(ctx, &domain.MCPToken{AccountID: f.account.ID, Name: "laptop", TokenHash: mcp.HashToken("fcm_laptop")}))
 	return f
 }
 
@@ -111,6 +112,7 @@ func (f *fixture) otherAccount(t *testing.T) (domain.Actor, domain.Goal, domain.
 	must(t, f.st.Goals().Create(ctx, &g))
 	j := domain.Job{AccountID: acc.ID, ProjectID: p.ID, GoalID: g.ID, Role: "reviewer", Runtime: "claude-code", Spec: domain.JobSpec{Repo: p.Repo}}
 	must(t, f.st.Jobs().Create(ctx, &j))
+	must(t, f.st.MCPTokens().Create(ctx, &domain.MCPToken{AccountID: acc.ID, Name: "other-laptop", TokenHash: mcp.HashToken("fcm_other")}))
 	return domain.Actor{AccountID: acc.ID, Kind: domain.ActorMCP, Name: "other-laptop"}, g, j
 }
 

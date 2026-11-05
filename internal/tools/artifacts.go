@@ -19,6 +19,9 @@ func (s *Service) ListArtifacts(ctx context.Context, by domain.Actor, in mcp.Job
 	if err != nil {
 		return nil, err
 	}
+	if err := s.allow(ctx, by, domain.PermJobRead, j.ProjectID); err != nil {
+		return nil, err
+	}
 	return s.cfg.Store.Artifacts().ListByJob(ctx, by.AccountID, j.ID)
 }
 
@@ -35,6 +38,9 @@ func (s *Service) OpenArtifact(ctx context.Context, by domain.Actor, id string) 
 		return a, nil, fmt.Errorf("artifact %s: %w", id, mcp.ErrNotFound)
 	}
 	if err != nil {
+		return a, nil, err
+	}
+	if err := s.allow(ctx, by, domain.PermJobRead, a.ProjectID); err != nil {
 		return a, nil, err
 	}
 	if s.cfg.Evidence == nil {

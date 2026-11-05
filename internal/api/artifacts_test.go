@@ -13,6 +13,7 @@ import (
 	"testing/iotest"
 
 	"github.com/forecrew/forecrew/internal/api"
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/testkit"
@@ -114,7 +115,7 @@ func TestArtifactDownloadCutShort(t *testing.T) {
 		body := io.NopCloser(io.MultiReader(strings.NewReader("part"), iotest.ErrReader(errors.New("storage down"))))
 		return domain.Artifact{Name: "a.txt", ContentType: "text/plain", Size: 100}, body, nil
 	}
-	hs := httptest.NewServer(api.New(api.Config{Tools: svc, Artifacts: svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: slog.New(slog.DiscardHandler)}).Handler())
+	hs := httptest.NewServer(api.New(api.Config{Tools: svc, Artifacts: svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Authz: authz.New(st, nil), Directory: st.Directory(), Logger: slog.New(slog.DiscardHandler)}).Handler())
 	t.Cleanup(hs.Close)
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", hs.URL+"/api/v1/artifacts/"+domain.NewID().String(), nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -130,7 +131,7 @@ func TestArtifactDownloadCutShort(t *testing.T) {
 
 func TestNoArtifactEndpointWithoutOpener(t *testing.T) {
 	st := testkit.NewStore(nil)
-	h := api.New(api.Config{Tools: &testkit.ToolService{}, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: slog.New(slog.DiscardHandler)}).Handler()
+	h := api.New(api.Config{Tools: &testkit.ToolService{}, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Authz: authz.New(st, nil), Directory: st.Directory(), Logger: slog.New(slog.DiscardHandler)}).Handler()
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/api/v1/artifacts/"+domain.NewID().String(), nil))
 	if rec.Code != 404 {

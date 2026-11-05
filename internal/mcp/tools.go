@@ -13,6 +13,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/knowledge"
 )
@@ -27,21 +28,27 @@ var (
 	// ErrUnavailable means a feature is not configured, for example the
 	// evidence storage of artifacts.
 	ErrUnavailable = errors.New("unavailable")
+	// ErrConflict means the change clashes with what is stored: a name that
+	// is taken, a binding that exists, the last Owner.
+	ErrConflict = errors.New("conflict")
 )
 
-// ErrorCode classifies the errors callers act on: "not_found" for
-// ErrNotFound, "invalid_input" for ErrInvalidInput, domain.ErrInvalidRef and
-// domain.ErrInvalidDecision, "conflict" for domain.ErrInvalidTransition and
+// ErrorCode classifies the errors callers act on: "forbidden" for
+// authz.ErrDenied, "not_found" for ErrNotFound, "invalid_input" for
+// ErrInvalidInput, domain.ErrInvalidRef and domain.ErrInvalidDecision,
+// "conflict" for ErrConflict and domain.ErrInvalidTransition and
 // "unavailable" for ErrUnavailable.
 // ok is false for any other error, which is an internal one. The MCP server
 // and /api/v1 use it to decide what a client may see.
 func ErrorCode(err error) (code string, ok bool) {
 	switch {
+	case errors.Is(err, authz.ErrDenied):
+		return "forbidden", true
 	case errors.Is(err, ErrNotFound):
 		return "not_found", true
 	case errors.Is(err, ErrInvalidInput), errors.Is(err, domain.ErrInvalidRef), errors.Is(err, domain.ErrInvalidDecision):
 		return "invalid_input", true
-	case errors.Is(err, domain.ErrInvalidTransition):
+	case errors.Is(err, ErrConflict), errors.Is(err, domain.ErrInvalidTransition):
 		return "conflict", true
 	case errors.Is(err, ErrUnavailable):
 		return "unavailable", true
@@ -82,6 +89,22 @@ const (
 	ToolGetCouncil         = "get_council"
 	ToolAddConstraint      = "add_council_constraint"
 	ToolVerificationReport = "verification_report"
+
+	ToolListRoles            = "list_roles"
+	ToolListTeams            = "list_teams"
+	ToolCreateTeam           = "create_team"
+	ToolUpdateTeam           = "update_team"
+	ToolDeleteTeam           = "delete_team"
+	ToolListTeamMembers      = "list_team_members"
+	ToolAddTeamMember        = "add_team_member"
+	ToolRemoveTeamMember     = "remove_team_member"
+	ToolListRoleBindings     = "list_role_bindings"
+	ToolCreateRoleBinding    = "create_role_binding"
+	ToolDeleteRoleBinding    = "delete_role_binding"
+	ToolListServiceAccounts  = "list_service_accounts"
+	ToolCreateServiceAccount = "create_service_account"
+	ToolUpdateServiceAccount = "update_service_account"
+	ToolSetServiceAccount    = "set_service_account_disabled"
 )
 
 // Tools returns every MCP tool name.
@@ -94,6 +117,10 @@ func Tools() []string {
 		ToolSearchKnowledge, ToolDeleteNote, ToolProposeKnowledge,
 		ToolStartCouncil, ToolListCouncils, ToolGetCouncil, ToolAddConstraint,
 		ToolVerificationReport,
+		ToolListRoles, ToolListTeams, ToolCreateTeam, ToolUpdateTeam, ToolDeleteTeam,
+		ToolListTeamMembers, ToolAddTeamMember, ToolRemoveTeamMember,
+		ToolListRoleBindings, ToolCreateRoleBinding, ToolDeleteRoleBinding,
+		ToolListServiceAccounts, ToolCreateServiceAccount, ToolUpdateServiceAccount, ToolSetServiceAccount,
 	}
 }
 
@@ -172,6 +199,102 @@ type ToolService interface {
 	// the one of its head commit, else the latest. A change with no report is
 	// ErrNotFound.
 	VerificationReport(ctx context.Context, by domain.Actor, in VerificationReportInput) (VerificationInfo, error)
+	AccessService
+}
+
+// AccessService manages who may do what: teams, role bindings and service
+// accounts (docs/contracts/permissions.md). Every change obeys No escalation.
+type AccessService interface {
+	// ListRoles lists the built-in roles and the organization's custom ones.
+	ListRoles(ctx context.Context, by domain.Actor) ([]domain.Role, error)
+	ListTeams(ctx context.Context, by domain.Actor) ([]domain.Team, error)
+	CreateTeam(ctx context.Context, by domain.Actor, in CreateTeamInput) (domain.Team, error)
+	UpdateTeam(ctx context.Context, by domain.Actor, in UpdateTeamInput) (domain.Team, error)
+	// DeleteTeam deletes a team, which removes the roles bound to it.
+	DeleteTeam(ctx context.Context, by domain.Actor, in TeamRefInput) (domain.Team, error)
+	ListTeamMembers(ctx context.Context, by domain.Actor, in TeamRefInput) ([]domain.TeamMember, error)
+	AddTeamMember(ctx context.Context, by domain.Actor, in TeamMemberInput) (domain.TeamMember, error)
+	RemoveTeamMember(ctx context.Context, by domain.Actor, in TeamMemberInput) (domain.TeamMember, error)
+	ListRoleBindings(ctx context.Context, by domain.Actor, in ListRoleBindingsInput) ([]RoleBindingInfo, error)
+	CreateRoleBinding(ctx context.Context, by domain.Actor, in CreateRoleBindingInput) (RoleBindingInfo, error)
+	// DeleteRoleBinding removes a binding; the last Owner's is a conflict.
+	DeleteRoleBinding(ctx context.Context, by domain.Actor, in RoleBindingRefInput) (RoleBindingInfo, error)
+	ListServiceAccounts(ctx context.Context, by domain.Actor) ([]domain.ServiceAccount, error)
+	CreateServiceAccount(ctx context.Context, by domain.Actor, in CreateServiceAccountInput) (domain.ServiceAccount, error)
+	UpdateServiceAccount(ctx context.Context, by domain.Actor, in UpdateServiceAccountInput) (domain.ServiceAccount, error)
+	SetServiceAccountDisabled(ctx context.Context, by domain.Actor, in SetServiceAccountInput) (domain.ServiceAccount, error)
+}
+
+// CreateTeamInput is the input of create_team.
+type CreateTeamInput struct {
+	Name string `json:"name"`
+	Slug string `json:"slug,omitempty"` // derived from the name when empty
+}
+
+// UpdateTeamInput is the input of update_team.
+type UpdateTeamInput struct {
+	Team string `json:"team"` // slug or UUID
+	Name string `json:"name,omitempty"`
+	Slug string `json:"slug,omitempty"`
+}
+
+// TeamRefInput names a team.
+type TeamRefInput struct {
+	Team string `json:"team"` // slug or UUID
+}
+
+// TeamMemberInput names a member of a team.
+type TeamMemberInput struct {
+	Team string `json:"team"` // slug or UUID
+	User string `json:"user"` // UUID
+}
+
+// ListRoleBindingsInput is the input of list_role_bindings.
+type ListRoleBindingsInput struct {
+	Project     string             `json:"project,omitempty"` // name or repo
+	SubjectKind domain.SubjectKind `json:"subject_kind,omitempty"`
+	Subject     string             `json:"subject,omitempty"` // needs subject_kind
+}
+
+// CreateRoleBindingInput is the input of create_role_binding.
+type CreateRoleBindingInput struct {
+	SubjectKind domain.SubjectKind `json:"subject_kind"`
+	Subject     string             `json:"subject"` // user UUID, team or service account by name or UUID
+	Role        string             `json:"role"`    // role name
+	Project     string             `json:"project,omitempty"`
+}
+
+// RoleBindingRefInput names a role binding.
+type RoleBindingRefInput struct {
+	Binding string `json:"binding"` // UUID
+}
+
+// RoleBindingInfo is a role binding with the names of its role and project.
+type RoleBindingInfo struct {
+	domain.RoleBinding
+	Role      string           `json:"role"`
+	RoleScope domain.RoleScope `json:"role_scope"`
+	Project   string           `json:"project,omitempty"` // empty: the organization
+}
+
+// CreateServiceAccountInput is the input of create_service_account.
+type CreateServiceAccountInput struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// UpdateServiceAccountInput is the input of update_service_account. Empty
+// fields stay as they are; a nil Description too.
+type UpdateServiceAccountInput struct {
+	ServiceAccount string  `json:"service_account"` // name or UUID
+	Name           string  `json:"name,omitempty"`
+	Description    *string `json:"description,omitempty"`
+}
+
+// SetServiceAccountInput is the input of set_service_account_disabled.
+type SetServiceAccountInput struct {
+	ServiceAccount string `json:"service_account"` // name or UUID
+	Disabled       bool   `json:"disabled"`
 }
 
 // SearchKnowledgeInput is the input of search_knowledge.
@@ -462,6 +585,8 @@ type GateInfo struct {
 	TaskRef string `json:"task_ref,omitempty"`
 	// URL is the GitHub issue or PR the gate is about.
 	URL string `json:"url,omitempty"`
+	// CanResolve says whether the caller may resolve the gate.
+	CanResolve bool `json:"can_resolve"`
 }
 
 // ProjectFilterInput optionally narrows a list to one project.

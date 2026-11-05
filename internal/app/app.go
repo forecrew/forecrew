@@ -25,6 +25,7 @@ import (
 	"github.com/forecrew/forecrew/internal/actionsprovider"
 	"github.com/forecrew/forecrew/internal/analyzer"
 	"github.com/forecrew/forecrew/internal/api"
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/councils"
@@ -230,7 +231,8 @@ func New(d Deps) (*App, error) {
 		Registers: regs, Councils: seats, Logger: log,
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
-	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Tracker: d.GitHub, Knowledge: syncs, Proposals: kbProposals, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
+	access := authz.New(st, log)
+	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Authz: access, Tracker: d.GitHub, Knowledge: syncs, Proposals: kbProposals, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
 	jobGateway := jobmcp.New(jobmcp.Config{
 		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Search: search, Notes: notes, Proposals: kbProposals, Logger: log, Version: d.Version, Now: d.Now,
 	})
@@ -260,8 +262,8 @@ func New(d Deps) (*App, error) {
 		a.certs = newCertManager(cfg.Server.TLSDomain, cfg.Server.CertCacheDir)
 	}
 	a.handler = a.routes(workers.Handler(), jobGateway.Handler(),
-		mcp.NewHandler(toolSvc, st.MCPTokens(), d.Version, log),
-		api.New(api.Config{Tools: toolSvc, Artifacts: toolSvc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Logger: log}).Handler())
+		mcp.NewHandler(toolSvc, st.MCPTokens(), access, d.Version, log),
+		api.New(api.Config{Tools: toolSvc, Artifacts: toolSvc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Authz: access, Directory: st.Directory(), Logger: log}).Handler())
 	return a, nil
 }
 

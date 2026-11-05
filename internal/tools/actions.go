@@ -23,6 +23,9 @@ const defaultBranch = "main"
 
 // OnboardProject implements mcp.ToolService.
 func (s *Service) OnboardProject(ctx context.Context, by domain.Actor, in mcp.OnboardProjectInput) (mcp.OnboardProjectOutput, error) {
+	if err := s.allowOrg(ctx, by, domain.PermProjectCreate); err != nil {
+		return mcp.OnboardProjectOutput{}, err
+	}
 	repo := strings.TrimSpace(in.Repo)
 	owner, name, ok := strings.Cut(repo, "/")
 	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
@@ -107,6 +110,9 @@ func (s *Service) CreateGoal(ctx context.Context, by domain.Actor, in mcp.Create
 	if err != nil {
 		return domain.Goal{}, err
 	}
+	if err := s.allow(ctx, by, domain.PermGoalCreate, p.ID); err != nil {
+		return domain.Goal{}, err
+	}
 	if p.Status != domain.ProjectOnboarded {
 		return domain.Goal{}, fmt.Errorf("project %s is %s, onboard it first: %w", p.Name, p.Status, mcp.ErrInvalidInput)
 	}
@@ -176,6 +182,9 @@ func (s *Service) DispatchJob(ctx context.Context, by domain.Actor, in mcp.Dispa
 	}
 	p, err := s.project(ctx, by.AccountID, in.Project)
 	if err != nil {
+		return domain.Job{}, err
+	}
+	if err := s.allow(ctx, by, domain.PermJobDispatch, p.ID); err != nil {
 		return domain.Job{}, err
 	}
 	role, err := s.cfg.Roles.Resolve(ctx, by.AccountID, p.ID, in.Role)
@@ -254,11 +263,22 @@ func (s *Service) Reject(ctx context.Context, by domain.Actor, in mcp.GateDecisi
 	return s.decide(ctx, by, mcp.ToolReject, in)
 }
 
-// decide lets the gate service apply the decision rules.
+// decide checks that by may resolve the gate and lets the gate service apply
+// the decision rules, which also answer a call that names no gate.
 func (s *Service) decide(ctx context.Context, by domain.Actor, tool string, in mcp.GateDecisionInput) (domain.Gate, error) {
-	g, err := s.cfg.Gates.Decide(ctx, by, tool, in)
+	var err error
+	if in.Gate != "" {
+		var g domain.Gate
+		if g, err = s.cfg.Gates.Find(ctx, by.AccountID, in.Gate); err == nil {
+			err = s.authz.AuthorizeGate(ctx, by, g)
+		}
+	}
+	var resolved domain.Gate
+	if err == nil {
+		resolved, err = s.cfg.Gates.Decide(ctx, by, tool, in)
+	}
 	if errors.Is(err, gates.ErrNotFound) {
 		return domain.Gate{}, fmt.Errorf("gate %s: %w", in.Gate, mcp.ErrNotFound)
 	}
-	return g, err
+	return resolved, err
 }

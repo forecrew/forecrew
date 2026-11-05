@@ -1,6 +1,11 @@
 package mcp
 
-import "github.com/forecrew/forecrew/internal/domain"
+import (
+	"context"
+
+	"github.com/forecrew/forecrew/internal/authz"
+	"github.com/forecrew/forecrew/internal/domain"
+)
 
 // Access is what a caller needs to use a tool or an /api/v1 route
 // (docs/contracts/permissions.md). The authorization engine checks it on
@@ -16,8 +21,21 @@ type Access struct {
 	// Own means the call works on the caller's own records without a
 	// permission (their tokens, their session).
 	Own bool
+	// Target means the permission depends on what the call is about (the
+	// subject and scope of a role binding); the tool decides it.
+	Target bool
 	// Public means the route needs no credential at all.
 	Public bool
+}
+
+// Check is the check of the entry points, before the call runs: by holds the
+// permission somewhere. They do not know the project yet; the tool checks
+// the project, and the Gate, Own and Target cases, through the same engine.
+func (a Access) Check(ctx context.Context, e *authz.Engine, by domain.Actor) error {
+	if a.Permission == "" || a.Own {
+		return nil
+	}
+	return e.AuthorizeAnywhere(ctx, by, a.Permission)
 }
 
 // ToolAccess returns what each MCP tool needs, by tool name. Every tool of
@@ -56,19 +74,37 @@ func ToolAccess() map[string]Access {
 		ToolGetCouncil:         {Permission: domain.PermProjectRead},
 		ToolAddConstraint:      {Permission: domain.PermCouncilStart},
 		ToolVerificationReport: {Permission: domain.PermJobRead},
+
+		ToolListRoles:            {Permission: domain.PermOrgRead},
+		ToolListTeams:            {Permission: domain.PermOrgRead},
+		ToolCreateTeam:           {Permission: domain.PermTeamManage},
+		ToolUpdateTeam:           {Permission: domain.PermTeamManage},
+		ToolDeleteTeam:           {Permission: domain.PermTeamManage},
+		ToolListTeamMembers:      {Permission: domain.PermOrgRead},
+		ToolAddTeamMember:        {Permission: domain.PermTeamManage},
+		ToolRemoveTeamMember:     {Permission: domain.PermTeamManage},
+		ToolListRoleBindings:     {Target: true},
+		ToolCreateRoleBinding:    {Target: true},
+		ToolDeleteRoleBinding:    {Target: true},
+		ToolListServiceAccounts:  {Permission: domain.PermOrgRead},
+		ToolCreateServiceAccount: {Permission: domain.PermServiceAccountManage},
+		ToolUpdateServiceAccount: {Permission: domain.PermServiceAccountManage},
+		ToolSetServiceAccount:    {Permission: domain.PermServiceAccountManage},
 	}
 }
 
 // CheckAccess reports an access entry that is not well formed: a
-// permission outside the catalog, Gate with a permission (the gate decides
-// it), Own without the permission for other people's records, or Public
-// with anything else.
+// permission outside the catalog, Gate or Target with a permission (the gate
+// or the tool decides it), Own without the permission for other people's
+// records, or Public with anything else.
 func CheckAccess(a Access) error {
 	switch {
-	case a.Public && (a.Permission != "" || a.Gate || a.Own):
+	case a.Public && (a.Permission != "" || a.Gate || a.Own || a.Target):
 		return errAccess("a public route needs nothing else")
 	case a.Gate && a.Permission != "":
 		return errAccess("a gate decides its permission")
+	case a.Target && a.Permission != "":
+		return errAccess("the tool decides the permission of its target")
 	case a.Own && a.Permission == "":
 		return errAccess("own records need a permission for other people's")
 	case a.Permission != "" && !a.Permission.Valid():

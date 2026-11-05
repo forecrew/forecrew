@@ -107,7 +107,8 @@
       "project": "app",
       "goal_ref": "GOAL-3",
       "task_ref": "TASK-12",
-      "url": "https://github.com/acme/app/pull/9"
+      "url": "https://github.com/acme/app/pull/9",
+      "can_resolve": false
     },
     {
       "id": "018f0000-0000-7000-8000-000000000033",
@@ -128,7 +129,8 @@
       "ref": "GATE-8",
       "project": "app",
       "goal_ref": "GOAL-3",
-      "url": "https://github.com/acme/app/issues/5"
+      "url": "https://github.com/acme/app/issues/5",
+      "can_resolve": false
     }
   ],
   "assumptions": [
