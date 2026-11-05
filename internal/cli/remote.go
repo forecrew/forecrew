@@ -23,6 +23,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/verification"
 )
 
 // remote is the connection of the commands that call /api/v1.
@@ -178,6 +179,7 @@ func (r *remote) commands() []*cobra.Command {
 		decisionsCommand(r),
 		knowledgeCommand(r),
 		councilsCommand(r),
+		verificationCommand(r),
 	}
 }
 
@@ -344,6 +346,29 @@ func councilsCommand(r *remote) *cobra.Command {
 	return councils
 }
 
+// verificationCommand shows the verification report of a pull request.
+func verificationCommand(r *remote) *cobra.Command {
+	var project string
+	cmd := &cobra.Command{
+		Use:   "verification <change>",
+		Short: "Show the verification report of a pull request (a number with --project, a pull request URL or TASK-12)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := "/changes/" + url.PathEscape(args[0]) + "/verification"
+			if project != "" {
+				path += "?project=" + url.QueryEscape(project)
+			}
+			var v mcp.VerificationInfo
+			if err := r.call(cmd.Context(), http.MethodGet, path, nil, &v); err != nil {
+				return err
+			}
+			return printVerification(cmd.OutOrStdout(), v)
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "project name or repo; needed for a pull request number")
+	return cmd
+}
+
 // artifactCommand downloads artifacts.
 func artifactCommand(r *remote) *cobra.Command {
 	artifact := &cobra.Command{Use: "artifact", Short: "Download job artifacts"}
@@ -479,6 +504,26 @@ func safeText(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// printVerification shows a verification report as Markdown. The render is
+// already safe text; safeText keeps what the server sent from driving the
+// terminal.
+func printVerification(w io.Writer, v mcp.VerificationInfo) error {
+	rep, err := verification.Parse(v.Report)
+	if err != nil {
+		return fmt.Errorf("the server sent a bad verification report: %w", err)
+	}
+	stale := ""
+	if !v.Current {
+		stale = " (not the latest commit)"
+	}
+	fmt.Fprintf(w, "Pull request #%d, report of %s%s\n", v.Change, safeText(v.SHA), stale)
+	_, body, _ := strings.Cut(verification.Render(rep), "\n")
+	for line := range strings.SplitSeq(body, "\n") {
+		fmt.Fprintln(w, safeText(line))
+	}
+	return nil
 }
 
 // printCouncil shows a council. Everything but its ref and status may come

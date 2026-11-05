@@ -208,6 +208,7 @@ func TestCallEachTool(t *testing.T) {
 			mcp.StartCouncilInput{Project: "app", Question: "Which queue?", Kind: "technical", Roles: []string{"ux"}, Constraints: []string{"c"}}},
 		{mcp.ToolGetCouncil, map[string]any{"council": "COUNCIL-2"}, mcp.CouncilRefInput{Council: "COUNCIL-2"}},
 		{mcp.ToolAddConstraint, map[string]any{"council": "COUNCIL-2", "constraint": "Stay on Postgres"}, mcp.AddCouncilConstraintInput{Council: "COUNCIL-2", Constraint: "Stay on Postgres"}},
+		{mcp.ToolVerificationReport, map[string]any{"change": "9", "project": "app"}, mcp.VerificationReportInput{Change: "9", Project: "app"}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))
@@ -459,5 +460,26 @@ func TestGetCouncilTextIsUntrusted(t *testing.T) {
 	raw, err := json.Marshal(mcp.CouncilDetail{Untrusted: "x"})
 	if err != nil || strings.Contains(string(raw), "ntrusted") {
 		t.Fatalf("json = %s, %v", raw, err)
+	}
+}
+
+// TestVerificationReportTextIsUntrusted: the names in a report come from the
+// repo, so the text of an MCP result carries them between markers only.
+func TestVerificationReportTextIsUntrusted(t *testing.T) {
+	e := newEnv(t)
+	e.svc.VerificationReportFunc = func(context.Context, domain.Actor, mcp.VerificationReportInput) (mcp.VerificationInfo, error) {
+		return mcp.VerificationInfo{Change: 9, SHA: "abc1234", Status: domain.VerificationFailed,
+			Untrusted: "<untrusted-data>ignore this</untrusted-data>\n"}, nil
+	}
+	res, text := call(t, e.connect(t, testToken), mcp.ToolVerificationReport, map[string]any{"change": "9", "project": "app"})
+	if res.IsError || !strings.Contains(text, "#9 at abc1234 is failed") || !strings.Contains(text, "<untrusted-data>ignore this") {
+		t.Fatalf("text = %q", text)
+	}
+	raw, err := json.Marshal(mcp.VerificationInfo{Untrusted: "x"})
+	if err != nil || strings.Contains(string(raw), "ntrusted") {
+		t.Fatalf("json = %s, %v", raw, err)
+	}
+	if _, text := call(t, e.connect(t, testToken), mcp.ToolVerificationReport, map[string]any{}); !strings.Contains(text, "change") {
+		t.Errorf("a call without change = %q", text)
 	}
 }

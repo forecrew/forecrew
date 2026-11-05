@@ -81,6 +81,7 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/councils", serve(s, http.StatusAccepted, bodyOf[mcp.StartCouncilInput], t.StartCouncil))
 	route("GET /api/v1/councils/{council}", serve(s, http.StatusOK, councilInput, t.GetCouncil))
 	route("POST /api/v1/councils/{council}/constraints", serve(s, http.StatusOK, constraintInput, t.AddCouncilConstraint))
+	route("GET /api/v1/changes/{change}/verification", serve(s, http.StatusOK, verificationInput, t.VerificationReport))
 	if s.cfg.Artifacts != nil {
 		route("GET /api/v1/artifacts/{id}", http.HandlerFunc(s.artifact))
 	}
@@ -148,6 +149,8 @@ func RouteAccess() map[string]mcp.Access {
 		"POST /api/v1/councils":                       tool[mcp.ToolStartCouncil],
 		"GET /api/v1/councils/{council}":              tool[mcp.ToolGetCouncil],
 		"POST /api/v1/councils/{council}/constraints": tool[mcp.ToolAddConstraint],
+
+		"GET /api/v1/changes/{change}/verification": tool[mcp.ToolVerificationReport],
 
 		"GET /api/v1/workers": tool[mcp.ToolListWorkers],
 
@@ -228,6 +231,10 @@ func goalInput(r *http.Request) (mcp.GoalRefInput, error) {
 
 func jobInput(r *http.Request) (mcp.JobRefInput, error) {
 	return mcp.JobRefInput{Job: r.PathValue("job")}, nil
+}
+
+func verificationInput(r *http.Request) (mcp.VerificationReportInput, error) {
+	return mcp.VerificationReportInput{Change: r.PathValue("change"), Project: r.URL.Query().Get("project")}, nil
 }
 
 func councilInput(r *http.Request) (mcp.CouncilRefInput, error) {

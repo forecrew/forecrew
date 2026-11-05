@@ -13,6 +13,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/verification"
 )
 
 func TestJobArtifacts(t *testing.T) {
@@ -157,7 +158,7 @@ func TestJobShowPrintsTestCounts(t *testing.T) {
 func TestJobTestsStripsControlCharacters(t *testing.T) {
 	e := newRemoteEnv(t)
 	e.svc.ListTestRunsFunc = func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error) {
-		return []mcp.TestRunInfo{{TestRun: domain.TestRun{Suite: "un\x1b[2Jit", Status: domain.TestRunFailed, SHA: "abc"},
+		return []mcp.TestRunInfo{{Suite: "un\x1b[2Jit", Status: domain.TestRunFailed, SHA: "abc",
 			Failures: []domain.TestResult{{Name: "T\x07est\r", Classname: "c\x1b]0;title\x07", Status: domain.TestFailed, Message: "\x1b[31mred\x1b[0m\x00"}}}}, nil
 	}
 	out, _, code := e.run(t, "job", "tests", "JOB-1")
@@ -221,5 +222,55 @@ func TestCouncilCommands(t *testing.T) {
 		if _, _, code := e.run(t, args...); code == 0 {
 			t.Errorf("%v accepted", args)
 		}
+	}
+}
+
+func TestVerificationCommand(t *testing.T) {
+	e := newRemoteEnv(t)
+	report := verification.Report{
+		Version: 1, SHA: "abc1234", Status: domain.VerificationFailed,
+		Results:  []verification.Result{{Environment: "linux-go\x1b[31m", Cell: map[string]string{"os": "linux"}, Suite: "unit", Required: true, Status: "failed", Counts: domain.TestCounts{Failed: 1}, Attempts: 1}},
+		Criteria: map[string]verification.Criterion{"AC-1": {Status: "untested", Tests: map[string]string{}}},
+		Blocking: []string{"AC-1 has no test"},
+	}
+	raw, err := report.JSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var in mcp.VerificationReportInput
+	e.svc.VerificationReportFunc = func(_ context.Context, _ domain.Actor, got mcp.VerificationReportInput) (mcp.VerificationInfo, error) {
+		in = got
+		return mcp.VerificationInfo{SHA: "abc1234", Status: domain.VerificationFailed, Report: raw, Change: 9}, nil
+	}
+	out, errOut, code := e.run(t, "verification", "9", "--project", "app")
+	if code != 0 || errOut != "" || in != (mcp.VerificationReportInput{Change: "9", Project: "app"}) {
+		t.Fatalf("code %d, stderr %q, input %+v", code, errOut, in)
+	}
+	for _, want := range []string{"Pull request #9, report of abc1234 (not the latest commit)", "Verification of `abc1234`: failed", "AC-1 has no test", "| linux-go\\[31m | `os=linux` | unit | yes | failed |"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\x1b") || strings.Contains(out, "forecrew:verification") {
+		t.Errorf("control characters or the marker reached the terminal: %q", out)
+	}
+
+	if _, _, code := e.run(t, "verification", "TASK-3"); code != 0 || in != (mcp.VerificationReportInput{Change: "TASK-3"}) {
+		t.Errorf("task ref: code %d, input %+v", code, in)
+	}
+	if _, _, code := e.run(t, "verification"); code == 0 {
+		t.Error("accepted no change")
+	}
+	e.svc.VerificationReportFunc = func(context.Context, domain.Actor, mcp.VerificationReportInput) (mcp.VerificationInfo, error) {
+		return mcp.VerificationInfo{Report: []byte(`{"version":3}`)}, nil
+	}
+	if _, errOut, code := e.run(t, "verification", "TASK-3"); code != 1 || !strings.Contains(errOut, "bad verification report") {
+		t.Errorf("bad report: code %d, stderr %q", code, errOut)
+	}
+	e.svc.VerificationReportFunc = func(context.Context, domain.Actor, mcp.VerificationReportInput) (mcp.VerificationInfo, error) {
+		return mcp.VerificationInfo{}, fmt.Errorf("pull request #9: %w", mcp.ErrNotFound)
+	}
+	if _, errOut, code := e.run(t, "verification", "9", "--project", "app"); code != 1 || !strings.Contains(errOut, "not found") {
+		t.Errorf("not found: code %d, stderr %q", code, errOut)
 	}
 }

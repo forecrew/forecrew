@@ -160,6 +160,8 @@ func TestEndpoints(t *testing.T) {
 			mcp.StartCouncilInput{Project: "app", Question: "Which queue?", Kind: "technical", Roles: []string{"ux"}}},
 		{"GET", "/api/v1/councils/COUNCIL-2", "", 200, mcp.ToolGetCouncil, mcp.CouncilRefInput{Council: "COUNCIL-2"}},
 		{"POST", "/api/v1/councils/COUNCIL-2/constraints", `{"constraint":"Stay on Postgres"}`, 200, mcp.ToolAddConstraint, mcp.AddCouncilConstraintInput{Council: "COUNCIL-2", Constraint: "Stay on Postgres"}},
+		{"GET", "/api/v1/changes/9/verification?project=app", "", 200, mcp.ToolVerificationReport, mcp.VerificationReportInput{Change: "9", Project: "app"}},
+		{"GET", "/api/v1/changes/TASK-12/verification", "", 200, mcp.ToolVerificationReport, mcp.VerificationReportInput{Change: "TASK-12"}},
 	}
 	seen := map[string]bool{}
 	for i, tt := range tests {

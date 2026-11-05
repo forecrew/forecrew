@@ -234,6 +234,9 @@ func (s *Service) taskDetail(ctx context.Context, p domain.Project, t domain.Tas
 	if err != nil {
 		return mcp.TaskDetail{}, fmt.Errorf("changes of %s: %w", t.Ref(), err)
 	}
+	if td.Verification, err = s.verificationRef(ctx, t, changes); err != nil {
+		return mcp.TaskDetail{}, err
+	}
 	td.Changes = make([]mcp.ChangeInfo, len(changes))
 	for i, c := range changes {
 		td.Changes[i] = mcp.ChangeInfo{Change: c}

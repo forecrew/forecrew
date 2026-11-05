@@ -51,34 +51,35 @@ func ErrorCode(err error) (code string, ok bool) {
 
 // Tool names as exposed over MCP.
 const (
-	ToolOnboardProject    = "onboard_project"
-	ToolCreateGoal        = "create_goal"
-	ToolJobStatus         = "job_status"
-	ToolJobLogs           = "job_logs"
-	ToolListWorkers       = "list_workers"
-	ToolListPendingGates  = "list_pending_gates"
-	ToolApprove           = "approve"
-	ToolRequestChanges    = "request_changes"
-	ToolReject            = "reject"
-	ToolDispatchJob       = "dispatch_job"
-	ToolListProjects      = "list_projects"
-	ToolGetProject        = "get_project"
-	ToolListGoals         = "list_goals"
-	ToolGetGoal           = "get_goal"
-	ToolListJobs          = "list_jobs"
-	ToolCancelJob         = "cancel_job"
-	ToolListTokens        = "list_tokens"
-	ToolRevokeToken       = "revoke_token"
-	ToolListArtifacts     = "list_artifacts"
-	ToolListTestRuns      = "list_test_runs"
-	ToolListAssumptions   = "list_assumptions"
-	ToolResolveAssumption = "resolve_assumption"
-	ToolListDecisions     = "list_decisions"
-	ToolSearchKnowledge   = "search_knowledge"
-	ToolDeleteNote        = "delete_note"
-	ToolStartCouncil      = "start_council"
-	ToolGetCouncil        = "get_council"
-	ToolAddConstraint     = "add_council_constraint"
+	ToolOnboardProject     = "onboard_project"
+	ToolCreateGoal         = "create_goal"
+	ToolJobStatus          = "job_status"
+	ToolJobLogs            = "job_logs"
+	ToolListWorkers        = "list_workers"
+	ToolListPendingGates   = "list_pending_gates"
+	ToolApprove            = "approve"
+	ToolRequestChanges     = "request_changes"
+	ToolReject             = "reject"
+	ToolDispatchJob        = "dispatch_job"
+	ToolListProjects       = "list_projects"
+	ToolGetProject         = "get_project"
+	ToolListGoals          = "list_goals"
+	ToolGetGoal            = "get_goal"
+	ToolListJobs           = "list_jobs"
+	ToolCancelJob          = "cancel_job"
+	ToolListTokens         = "list_tokens"
+	ToolRevokeToken        = "revoke_token"
+	ToolListArtifacts      = "list_artifacts"
+	ToolListTestRuns       = "list_test_runs"
+	ToolListAssumptions    = "list_assumptions"
+	ToolResolveAssumption  = "resolve_assumption"
+	ToolListDecisions      = "list_decisions"
+	ToolSearchKnowledge    = "search_knowledge"
+	ToolDeleteNote         = "delete_note"
+	ToolStartCouncil       = "start_council"
+	ToolGetCouncil         = "get_council"
+	ToolAddConstraint      = "add_council_constraint"
+	ToolVerificationReport = "verification_report"
 )
 
 // Tools returns every MCP tool name.
@@ -90,6 +91,7 @@ func Tools() []string {
 		ToolListAssumptions, ToolResolveAssumption, ToolListDecisions,
 		ToolSearchKnowledge, ToolDeleteNote,
 		ToolStartCouncil, ToolGetCouncil, ToolAddConstraint,
+		ToolVerificationReport,
 	}
 }
 
@@ -159,6 +161,10 @@ type ToolService interface {
 	// AddCouncilConstraint adds a constraint to a running council; the next
 	// round's prompts include it. A council that ended is a conflict.
 	AddCouncilConstraint(ctx context.Context, by domain.Actor, in AddCouncilConstraintInput) (CouncilInfo, error)
+	// VerificationReport returns the verification report of a pull request:
+	// the one of its head commit, else the latest. A change with no report is
+	// ErrNotFound.
+	VerificationReport(ctx context.Context, by domain.Actor, in VerificationReportInput) (VerificationInfo, error)
 }
 
 // SearchKnowledgeInput is the input of search_knowledge.
@@ -263,6 +269,39 @@ type CouncilDetail struct {
 	// markers, for the text of an MCP result, which an agent may read as
 	// instructions. Other clients read the fields above as data.
 	Untrusted string `json:"-"`
+}
+
+// VerificationReportInput is the input of verification_report.
+type VerificationReportInput struct {
+	// Change is a pull request number (with Project), a pull request URL
+	// (https://github.com/owner/app/pull/9) or a task ref (TASK-12: its
+	// newest pull request).
+	Change  string `json:"change"`
+	Project string `json:"project,omitempty"` // name or repo; required for a number
+}
+
+// VerificationInfo is the verification report of a pull request head.
+type VerificationInfo struct {
+	domain.VerificationReport
+	Change int    `json:"change"` // pull request number
+	URL    string `json:"url"`    // the pull request
+	// Current says the report is for the pull request's head commit; a
+	// report of an earlier head is stale.
+	Current bool `json:"current"`
+	// Untrusted holds the report as Markdown between untrusted-data markers,
+	// for the text of an MCP result: test and environment names come from
+	// the repo, and an agent may read them as instructions. Other clients
+	// read the fields above as data.
+	Untrusted string `json:"-"`
+}
+
+// VerificationRef is the verification of a task's pull request in get_goal.
+type VerificationRef struct {
+	Status  domain.VerificationStatus `json:"status"`
+	SHA     string                    `json:"sha"`
+	Current bool                      `json:"current"`
+	// URL is the REST path of the report (api.md).
+	URL string `json:"url"`
 }
 
 // JobRefInput is the input of job_status.
@@ -462,6 +501,9 @@ type TaskDetail struct {
 	// on this task.
 	Needs   []string     `json:"needs"`
 	Changes []ChangeInfo `json:"changes"`
+	// Verification is the verification report of the task's newest pull
+	// request that has one; absent when none has.
+	Verification *VerificationRef `json:"verification,omitempty"`
 	// Iterations is the number of jobs run for the task.
 	Iterations int `json:"iterations"`
 	// CostUSD is the cost of those jobs.
