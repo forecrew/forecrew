@@ -34,6 +34,13 @@ engine](#the-engine).
   until it gets its owner. Service accounts, workers and agents never do,
   whatever role they hold. Until knowledge proposals are built, every
   `knowledge_proposal` gate counts as protected.
+- **The one exception on gates:** a PR merged or closed on GitHub resolves
+  the `profile_approval`, `merge_approval` and `knowledge_proposal` gates
+  whose subject it is, approved or rejected, as the actor `github:github`, and
+  sends back the pending assumption reviews of its task as `forecrewd`. No
+  permission is checked: the decision was made on GitHub, under GitHub's own
+  rights over the repository, and Forecrew only records it. Whoever can merge
+  in the repo can therefore pass these gates; protect the branch there.
 - **Lists** without a project filter return only the rows of the projects
   where the caller has the list's permission.
 
@@ -163,7 +170,8 @@ knowledge) and **Viewer** (`viewer`: reads every project). Project roles:
 without `project.manage`), **Contributor** (`contributor`: creates goals and
 jobs, starts councils, resolves spec, council, assumption, non-protected
 knowledge and `needs_you` gates, but not merges, profiles, test plans,
-protected knowledge, access requests or improvement proposals) and
+protected knowledge, access requests or improvement proposals; every
+knowledge gate counts as protected for now, so none of them in practice) and
 **Viewer** (`viewer`: reads the project).
 
 | Permission | Owner | Admin | Billing | Member | Viewer | Project admin | Maintainer | Contributor | Project viewer |

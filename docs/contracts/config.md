@@ -157,7 +157,7 @@ custom endpoint receives the repo code in the prompts and the runtime's key.
 | `server.tls_domain` | string | no | empty | When set, forecrewd serves HTTPS itself with automatic Let's Encrypt certificates (TLS-ALPN-01 on the listen port) for this domain, and `public_base_url` must be `https://<tls_domain>`. When empty, forecrewd serves plain HTTP for a load balancer that terminates TLS, or for local dev. |
 | `server.cert_cache_dir` | path | no | `/var/lib/forecrew/certs` when `tls_domain` is set | Where certificates are cached. Must be persistent. |
 | `github.app_id` | integer | yes | | GitHub App ID. |
-| `github.allowlist` | list of strings | no | empty | GitHub logins allowed to command `@forecrew` in issues and PRs. Compared case-insensitively. Empty means nobody. |
+| `github.allowlist` | list of strings | no | empty | GitHub logins allowed to command `@forecrew` in issues and PRs of an organization where nobody holds a role yet. Compared case-insensitively. Empty means nobody. Deprecated: from an organization's first role binding on it is ignored there, and a command needs a linked GitHub identity with the permission ([permissions.md](permissions.md#what-every-entry-point-needs)). |
 | `runtimes` | map name → runtime | yes, ≥1 | | Agent runtimes. Names match `^[a-z0-9][a-z0-9-]*$` and are referenced by `roles`. |
 | `runtimes.<name>.adapter` | `claude-code` \| `codex` \| `opencode` | yes | | Runtime adapter. Workers advertise `runtime:<adapter>` and jobs require it. |
 | `runtimes.<name>.vendor` | string | yes | | Model vendor; selects the model in `model_tiers`. |
