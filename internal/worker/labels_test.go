@@ -38,6 +38,7 @@ func TestDetectLabels(t *testing.T) {
 			name: "both runtimes", configured: []string{"Go", " node "}, goos: "linux", bins: []string{"claude", "codex"},
 			want: []string{"go", "linux", "node", "runtime:claude-code", "runtime:codex"},
 		},
+		{name: "opencode", goos: "linux", bins: []string{"opencode"}, want: []string{"linux", "runtime:opencode"}},
 		{name: "claude only", goos: "windows", bins: []string{"claude"}, want: []string{"runtime:claude-code", "windows"}},
 		{name: "macos has both names", configured: []string{"go", "GO"}, goos: "darwin", bins: []string{"codex"}, want: []string{"darwin", "go", "macos", "runtime:codex"}},
 		{name: "unrelated binary", goos: "linux", bins: []string{"python"}, want: []string{"linux"}},

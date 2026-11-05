@@ -7,13 +7,16 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/runtime"
 )
 
 // claudeLabels and codexLabels are the labels of workers that have one
@@ -125,6 +128,76 @@ func TestFeatureHappyPath(t *testing.T) {
 		for _, j := range js {
 			if ran := w.ag.workersOf(j.ID); j.Status != domain.JobSucceeded || !slices.Equal(ran, []string{on}) {
 				t.Errorf("%s job %s is %s and ran on %v, want succeeded on %s", role, j.Ref(), j.Status, ran, on)
+			}
+		}
+	}
+}
+
+// TestRolesOnOpencode: read-only and writing roles run on opencode runtimes,
+// the reviewer on another vendor than the developer. Jobs carry the model and
+// endpoint of their role's runtime, and their tools map to opencode rules.
+func TestRolesOnOpencode(t *testing.T) {
+	cfg := testConfig()
+	cfg.Runtimes = map[string]config.Runtime{
+		"deepseek": {Adapter: config.AdapterOpencode, Vendor: "deepseek"},
+		"local":    {Adapter: config.AdapterOpencode, Vendor: "ollama", BaseURL: "http://localhost:11434/v1"},
+	}
+	cfg.ModelTiers = map[config.Tier]map[string]string{
+		config.TierStrong: {"deepseek": "deepseek/deepseek-chat", "ollama": "ollama/qwen3"},
+		config.TierBest:   {"deepseek": "deepseek/deepseek-reasoner", "ollama": "ollama/qwen3-big"},
+	}
+	for role, r := range cfg.Roles {
+		r.Runtime = "deepseek"
+		if role == "reviewer" {
+			r.Runtime = "local"
+		}
+		cfg.Roles[role] = r
+	}
+	w := newWorldOn(t, true, nil, cfg)
+	labels := []string{"linux", "runtime:opencode"}
+	w.startWorker("opencode-box", labels...)
+	w.startWorkerIn(domain.PoolControl, controlBox, labels...)
+
+	var mu sync.Mutex
+	calls := map[string]call{}
+	w.ag.Before = func(_ context.Context, c call) error {
+		mu.Lock()
+		defer mu.Unlock()
+		calls[c.Role] = c
+		return nil
+	}
+	goal := w.createGoal(contributing, "Contributors do not know how to run the tests.")
+	w.decide(w.gate(domain.GateSpecApproval), "approve", "")
+	w.mergeTask()
+	w.waitGoal(goal.ID, domain.GoalDone)
+
+	mu.Lock()
+	defer mu.Unlock()
+	for role, want := range map[string]struct {
+		model    string
+		endpoint string
+		edits    bool
+	}{
+		"architect": {model: "deepseek/deepseek-reasoner"},
+		"developer": {model: "deepseek/deepseek-chat", edits: true},
+		"reviewer":  {model: "ollama/qwen3-big", endpoint: "http://localhost:11434/v1"},
+	} {
+		c, ok := calls[role]
+		if !ok {
+			t.Errorf("%s did not run", role)
+			continue
+		}
+		if c.Model != want.model || (want.endpoint == "") != (c.Endpoint == nil) || (c.Endpoint != nil && c.Endpoint.BaseURL != want.endpoint) {
+			t.Errorf("%s: model %q, endpoint %+v", role, c.Model, c.Endpoint)
+		}
+		rules, err := runtime.OpencodeRules(c.Tools, c.WorkDir+"-scratch")
+		must(t, err)
+		if _, edits := rules["edit"]; edits != want.edits {
+			t.Errorf("%s: rules %v, want edit %v", role, rules, want.edits)
+		}
+		for _, j := range w.jobs(role) {
+			if j.Runtime != runtime.Opencode || j.Status != domain.JobSucceeded {
+				t.Errorf("%s job %s ran on %q and is %s", role, j.Ref(), j.Runtime, j.Status)
 			}
 		}
 	}

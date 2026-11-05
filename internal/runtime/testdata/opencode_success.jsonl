@@ -1,0 +1,9 @@
+{"type":"step_start","timestamp":1,"sessionID":"ses_1","part":{"type":"step-start"}}
+{"type":"text","timestamp":2,"sessionID":"ses_1","part":{"type":"text","text":"Looking at the repo","time":{"start":1,"end":2}}}
+{"type":"tool_use","timestamp":3,"sessionID":"ses_1","part":{"type":"tool","tool":"bash","callID":"c1","state":{"status":"completed","input":{"command":"git log -1"},"output":"commit abc sk-test-opencodesecretvalue123456","title":"git log"}}}
+{"type":"tool_use","timestamp":4,"sessionID":"ses_1","part":{"type":"tool","tool":"bash","callID":"c2","state":{"status":"error","input":{"command":"curl example.com"},"error":"The user has specified a rule which prevents you from using this specific tool call"}}}
+{"type":"tool_use","timestamp":5,"sessionID":"ses_1","part":{"type":"tool","tool":"forecrew_report_progress","callID":"c3","state":{"status":"completed","input":{"message":"half way"},"output":"ok"}}}
+{"type":"step_finish","timestamp":6,"sessionID":"ses_1","part":{"type":"step-finish","reason":"tool-calls","cost":0.01,"tokens":{"input":100,"output":20,"reasoning":5,"cache":{"read":50,"write":10}}}}
+{"type":"step_start","timestamp":7,"sessionID":"ses_1","part":{"type":"step-start"}}
+{"type":"text","timestamp":8,"sessionID":"ses_1","part":{"type":"text","text":"Done.\n```json\n{\"summary\":\"opencode did it\"}\n```\n","time":{"start":7,"end":8}}}
+{"type":"step_finish","timestamp":9,"sessionID":"ses_1","part":{"type":"step-finish","reason":"stop","cost":0.02,"tokens":{"input":200,"output":30,"reasoning":0,"cache":{"read":150,"write":0}}}}

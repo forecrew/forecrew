@@ -147,6 +147,12 @@ func newWorld(t *testing.T, onboarded bool) *world {
 // embedded ones), to run a playbook of the test's own.
 func newWorldWith(t *testing.T, onboarded bool, files fs.FS) *world {
 	t.Helper()
+	return newWorldOn(t, onboarded, files, testConfig())
+}
+
+// newWorldOn is newWorldWith with forecrewd's configuration.
+func newWorldOn(t *testing.T, onboarded bool, files fs.FS, cfg *config.Config) *world {
+	t.Helper()
 	pool := testkit.NewDatabase(t)
 	must(t, postgres.Migrate(t.Context(), pool))
 	w := &world{t: t, pool: pool, st: postgres.New(pool), clock: &shiftClock{}, ag: &agents{scriptDir: t.TempDir()}, hooks: make(chan testkit.Event, 1024), logs: &logBuffer{}}
@@ -170,7 +176,7 @@ func newWorldWith(t *testing.T, onboarded bool, files fs.FS) *world {
 	must(t, err)
 	w.url = "http://" + ln.Addr().String()
 	a, err := app.New(app.Deps{
-		Config: testConfig(), Files: files, Evidence: testkit.NewEvidence(), Store: w.st, Ping: pool.Ping, GitHub: w.tracker, Actions: w.actions.Client, Version: "e2e", Now: w.clock.Now, Listener: ln,
+		Config: cfg, Files: files, Evidence: testkit.NewEvidence(), Store: w.st, Ping: pool.Ping, GitHub: w.tracker, Actions: w.actions.Client, Version: "e2e", Now: w.clock.Now, Listener: ln,
 		Logger: slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug})), ReapEvery: 50 * time.Millisecond,
 	})
 	must(t, err)
@@ -302,7 +308,7 @@ func (w *world) startWorkerIn(pool, name string, labels ...string) *workerProc {
 	client.BackoffMin, client.BackoffMax = 5*time.Millisecond, 50*time.Millisecond
 	cfg := worker.Config{
 		Client: client, Labels: labels, Version: "e2e", WorkDir: filepath.Join(w.t.TempDir(), "work"), MaxJobs: 1,
-		Runtimes: runtime.NewRegistry(fakeRuntime{runtime.ClaudeCode, name, w.ag}, fakeRuntime{runtime.Codex, name, w.ag}),
+		Runtimes: runtime.NewRegistry(fakeRuntime{runtime.ClaudeCode, name, w.ag}, fakeRuntime{runtime.Codex, name, w.ag}, fakeRuntime{runtime.Opencode, name, w.ag}),
 		Analyzer: &testkit.Analyzer{}, Logger: slog.New(slog.NewTextHandler(p.logs, nil)), Environ: hermeticGit(),
 		CloneURL:          func(string) string { return w.remote },
 		HeartbeatInterval: 100 * time.Millisecond, FlushInterval: 20 * time.Millisecond, GracePeriod: 100 * time.Millisecond,

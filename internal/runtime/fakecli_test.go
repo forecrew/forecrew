@@ -1,12 +1,14 @@
 package runtime
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -26,6 +28,10 @@ import (
 //	FAKE_BGCHILD start a background child holding stdout, then exit normally
 //	FAKE_PIDFILE where the child's pid is written
 //	FAKE_RECORD  where the args, stdin and API_KEY are recorded as JSON
+//	FAKE_VERSION what --version prints
+//	FAKE_RETRY_STREAM, FAKE_RETRY_RECORD  FAKE_STREAM and FAKE_RECORD of a run
+//	             that continues a session
+//	FAKE_OPENCODE_LOAD where the configuration opencode would load is written
 func TestMain(m *testing.M) {
 	if os.Getenv("FORECREW_FAKE_CLI") == "1" {
 		fakeCLI()
@@ -64,10 +70,19 @@ func environMap() map[string]string {
 func fakeCLI() {
 	args := os.Args[1:]
 	if len(args) == 1 && args[0] == "--version" {
-		fmt.Fprint(os.Stdout, "9.9.9 (Fake CLI)\nsecond line\n")
+		fmt.Fprint(os.Stdout, cmp.Or(os.Getenv("FAKE_VERSION"), "9.9.9 (Fake CLI)")+"\nsecond line\n")
 		return
 	}
-	if rec := os.Getenv("FAKE_RECORD"); rec != "" {
+	if out := os.Getenv("FAKE_OPENCODE_LOAD"); out != "" {
+		dir, _ := os.Getwd()
+		b, _ := json.Marshal(opencodeLoad(environMap(), dir))
+		_ = os.WriteFile(out, b, 0o600)
+	}
+	recordTo, streamFrom := os.Getenv("FAKE_RECORD"), os.Getenv("FAKE_STREAM")
+	if slices.Contains(args, "--session") {
+		recordTo, streamFrom = cmp.Or(os.Getenv("FAKE_RETRY_RECORD"), recordTo), cmp.Or(os.Getenv("FAKE_RETRY_STREAM"), streamFrom)
+	}
+	if rec := recordTo; rec != "" {
 		stdin, _ := readAll(os.Stdin)
 		dir, _ := os.Getwd()
 		cfgDir := os.Getenv("CLAUDE_CONFIG_DIR")
@@ -81,7 +96,7 @@ func fakeCLI() {
 		})
 		_ = os.WriteFile(rec, b, 0o600)
 	}
-	if f := os.Getenv("FAKE_STREAM"); f != "" {
+	if f := streamFrom; f != "" {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			fmt.Fprint(os.Stderr, err)
