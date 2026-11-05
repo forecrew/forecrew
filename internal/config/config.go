@@ -311,32 +311,35 @@ func (c *Config) validateRuntimes(p *problems) {
 		p.addf("runtimes: at least one runtime is required")
 	}
 	for _, name := range sortedKeys(c.Runtimes) {
-		rt := c.Runtimes[name]
-		if !runtimeName.MatchString(name) {
-			p.addf("runtimes.%s: name must match %s", name, runtimeName)
-		}
-		if !slices.Contains(adapters, rt.Adapter) {
-			p.addf("runtimes.%s.adapter must be one of %s, got %q", name, strings.Join(adapters, ", "), rt.Adapter)
-		}
-		if rt.BaseURL != "" {
-			if err := checkBaseURL(rt.BaseURL); err != nil {
-				p.addf("runtimes.%s.base_url: %v", name, err)
-			}
-		}
-		if rt.Vendor == "" {
-			p.addf("runtimes.%s.vendor must be set", name)
-		}
-		for _, env := range rt.CredentialEnv {
-			if rt.Credentials[env] == "" {
-				p.addf("runtimes.%s: %s is not set", name, env)
-			}
-		}
+		validateRuntime(name, c.Runtimes[name], p)
 	}
 	for _, tier := range sortedKeys(c.ModelTiers) {
 		if !tier.valid() {
 			p.addf("model_tiers.%s: tier must be fast, strong or best", tier)
 		}
 		c.validateOpencodeModels(tier, p)
+	}
+}
+
+func validateRuntime(name string, rt Runtime, p *problems) {
+	if !runtimeName.MatchString(name) {
+		p.addf("runtimes.%s: name must match %s", name, runtimeName)
+	}
+	if !slices.Contains(adapters, rt.Adapter) {
+		p.addf("runtimes.%s.adapter must be one of %s, got %q", name, strings.Join(adapters, ", "), rt.Adapter)
+	}
+	if rt.BaseURL != "" {
+		if err := checkBaseURL(rt.BaseURL); err != nil {
+			p.addf("runtimes.%s.base_url: %v", name, err)
+		}
+	}
+	if rt.Vendor == "" {
+		p.addf("runtimes.%s.vendor must be set", name)
+	}
+	for _, env := range rt.CredentialEnv {
+		if rt.Credentials[env] == "" {
+			p.addf("runtimes.%s: %s is not set", name, env)
+		}
 	}
 }
 

@@ -58,6 +58,14 @@ func TestOpencodeSuccess(t *testing.T) {
 
 	r := readRecord(t, rec)
 	noToken(t, r, events)
+	checkOpencodeProcess(t, r, spec)
+	checkOpencodeEvents(t, events)
+}
+
+// checkOpencodeProcess checks how the CLI was started: secrets only in its
+// environment, the prompt on stdin, the checkout as its directory.
+func checkOpencodeProcess(t *testing.T, r fakeRecord, spec RunSpec) {
+	t.Helper()
 	wantArgs := []string{"run", "--format", "json", "--model", "deepseek/deepseek-chat", "--dir", spec.WorkDir}
 	if !slices.Equal(r.Args, wantArgs) {
 		t.Errorf("args = %q", r.Args)
@@ -76,7 +84,11 @@ func TestOpencodeSuccess(t *testing.T) {
 	if strings.Contains(r.Env["OPENCODE_CONFIG_CONTENT"], testOpencodeKey) || strings.Contains(r.Env["OPENCODE_CONFIG_CONTENT"], testJobToken) {
 		t.Error("a secret is in the inline configuration")
 	}
+}
 
+// checkOpencodeEvents checks the events of opencode_success.jsonl.
+func checkOpencodeEvents(t *testing.T, events []domain.JobEvent) {
+	t.Helper()
 	if got := find(events, domain.EventMessage); len(got) != 2 || got[0].Text != "Looking at the repo" {
 		t.Errorf("messages = %+v", got)
 	}
