@@ -43,6 +43,9 @@ func ownToken(by domain.Actor, t domain.MCPToken) bool {
 // ListTokens implements mcp.ToolService: the caller's own tokens, and
 // everybody's with token.manage.
 func (s *Service) ListTokens(ctx context.Context, by domain.Actor) ([]mcp.TokenInfo, error) {
+	if err := s.authz.AuthorizeScope(ctx, by, domain.ScopeRead); err != nil {
+		return nil, err
+	}
 	everyone, err := s.authz.Can(ctx, by, domain.PermTokenManage, authz.Organization(by.AccountID))
 	if err != nil {
 		return nil, err
@@ -82,10 +85,8 @@ func (s *Service) RevokeToken(ctx context.Context, by domain.Actor, in mcp.Revok
 	if err != nil {
 		return mcp.RevokeTokenOutput{}, err
 	}
-	if !ownToken(by, t) {
-		if err := s.allowOrg(ctx, by, domain.PermTokenManage); err != nil {
-			return mcp.RevokeTokenOutput{}, err
-		}
+	if err := s.checkRevoke(ctx, by, t); err != nil {
+		return mcp.RevokeTokenOutput{}, err
 	}
 	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := tx.MCPTokens().Revoke(ctx, by.AccountID, t.ID); err != nil {
@@ -102,6 +103,20 @@ func (s *Service) RevokeToken(ctx context.Context, by domain.Actor, in mcp.Revok
 		return mcp.RevokeTokenOutput{}, err
 	}
 	return mcp.NewRevokeTokenOutput(tokenInfo(by, t), current(by, t)), nil
+}
+
+// checkRevoke checks that by may revoke t. The token in use can always end
+// itself; another of the caller's own needs a credential that may write, so a
+// leaked read token cannot take its owner's others down; anybody else's needs
+// token.manage.
+func (s *Service) checkRevoke(ctx context.Context, by domain.Actor, t domain.MCPToken) error {
+	switch {
+	case current(by, t):
+		return nil
+	case ownToken(by, t):
+		return s.authz.AuthorizeScope(ctx, by, domain.ScopeWrite)
+	}
+	return s.allowOrg(ctx, by, domain.PermTokenManage)
 }
 
 // findToken finds an active token by name or ID. Names repeat across owners,

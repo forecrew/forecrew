@@ -217,7 +217,10 @@ Every `/api/v1` route (`api.RouteAccess`) and every MCP tool
 (`mcp.ToolAccess`) has one entry; tests fail when a route or a tool has
 none. "Signed in" means any active member, service account or token of the
 organization, with no permission; "own" means the caller's own records need
-no permission and other people's need the one named; "the gate's" means
+no role and other people's need the one named, while a token or OAuth grant
+still has to reach them: reading them needs class read, and revoking one of
+your tokens needs class write, except the token you are calling with, which
+can always end itself; "the gate's" means
 `domain.GatePermission` of the gate's kind on its project. A tool that names
 its object by ID (a job, a gate, an artifact, a council, a note) looks the
 object up and checks the permission on the object's project.
@@ -257,7 +260,7 @@ object up and checks the permission on the object's project.
 | `request_changes` | `POST /api/v1/gates/{gate}/request-changes` | the gate's |
 | `reject` | `POST /api/v1/gates/{gate}/reject` | the gate's |
 | `list_tokens` | `GET /api/v1/tokens` | own; `token.manage` for everyone's |
-| `revoke_token` | `POST /api/v1/tokens/{token}/revoke` | own; `token.manage` for another's |
+| `revoke_token` | `POST /api/v1/tokens/{token}/revoke` | own, with class write unless it is the token in use; `token.manage` for another's |
 | `list_roles` | `GET /api/v1/roles` | `org.read` |
 | `list_teams` | `GET /api/v1/teams` | `org.read` |
 | `create_team` | `POST /api/v1/teams` | `team.manage` |

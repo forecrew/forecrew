@@ -286,7 +286,13 @@ func (e *Engine) deny(ctx context.Context, by domain.Actor, p domain.Permission,
 	if p.Scope() == domain.ScopeRead || res.AccountID != by.AccountID {
 		return denied
 	}
-	data, err := json.Marshal(map[string]string{"permission": string(p), "action": Action(p).String(), "resource": res.UID().String()})
+	e.record(ctx, by, res, map[string]string{"permission": string(p), "action": Action(p).String(), "resource": res.UID().String()})
+	return denied
+}
+
+// record audits a denial on res. A failure is logged: the denial stands.
+func (e *Engine) record(ctx context.Context, by domain.Actor, res Resource, detail map[string]string) {
+	data, err := json.Marshal(detail)
 	if err == nil {
 		kind := "organization"
 		id := res.AccountID
@@ -300,9 +306,28 @@ func (e *Engine) deny(ctx context.Context, by domain.Actor, p domain.Permission,
 		})
 	}
 	if err != nil {
-		e.log.ErrorContext(ctx, "audit denial", "account_id", by.AccountID, "actor", by.String(), "permission", p, "error", err)
+		e.log.ErrorContext(ctx, "audit denial", "account_id", by.AccountID, "actor", by.String(), "error", err)
 	}
-	return denied
+}
+
+// AuthorizeScope returns nil when the credential of by reaches need. It is
+// the check of a caller's own records, which need no permission from its
+// roles but stay within what its token or grant may do. A session has no
+// scopes to meet. Otherwise the error wraps ErrDenied, and a denied write is
+// audited.
+func (e *Engine) AuthorizeScope(ctx context.Context, by domain.Actor, need domain.Scope) error {
+	v, err := e.callerOf(ctx, by)
+	if err != nil {
+		return err
+	}
+	if !v.bounded || slices.ContainsFunc(v.scopes, func(s domain.Scope) bool { return s.Includes(need) }) {
+		return nil
+	}
+	if need != domain.ScopeRead {
+		res := Organization(by.AccountID)
+		e.record(ctx, by, res, map[string]string{"scope": string(need), "resource": res.UID().String()})
+	}
+	return fmt.Errorf("a credential with %s scope is needed: %w", need, ErrDenied)
 }
 
 // Visible is the set of projects where a caller holds a permission.
