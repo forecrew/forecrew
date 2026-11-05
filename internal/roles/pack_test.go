@@ -151,6 +151,11 @@ func TestLoadPoolAndToolbox(t *testing.T) {
 		!slices.Equal(d.Context, []string{"notes", "knowledge"}) || d.ContextBudget != 1500 {
 		t.Fatalf("definition = %+v", d)
 	}
+	fsys["packs/toolboxes/security.yaml"] = &fstest.MapFile{Data: []byte("name: security\ndockerfile: security/Dockerfile\n")}
+	fsys["packs/toolboxes/security/Dockerfile"] = &fstest.MapFile{Data: []byte("FROM x\n")}
+	if defs, err = Load(fsys); err != nil || defs["dev"].Toolbox.Dockerfile != "security/Dockerfile" {
+		t.Fatalf("toolbox with a Dockerfile: %+v, %v", defs["dev"].Toolbox, err)
+	}
 	defs, err = Load(packFS(validRole))
 	if err != nil || defs["dev"].Pool != "build" || defs["dev"].Toolbox != nil {
 		t.Fatalf("defaults = %+v, %v", defs["dev"], err)
@@ -195,6 +200,12 @@ func TestLoadInvalid(t *testing.T) {
 		{"bad toolbox file", func(f fstest.MapFS) {
 			f["packs/toolboxes/security.yaml"] = &fstest.MapFile{Data: []byte("name: security\n")}
 		}, "packs/toolboxes/security.yaml: invalid file"},
+		{"missing dockerfile", func(f fstest.MapFS) {
+			f["packs/toolboxes/security.yaml"] = &fstest.MapFile{Data: []byte("name: security\ndockerfile: security/Dockerfile\n")}
+		}, "dockerfile security/Dockerfile: no such file in packs/toolboxes"},
+		{"server named like the gateway", func(f fstest.MapFS) {
+			f["packs/toolboxes/security.yaml"] = &fstest.MapFile{Data: []byte("name: security\nimage: x:1\nmcp_servers: [{name: forecrew, command: x}]\n")}
+		}, `"forecrew" is the name of the job MCP gateway`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

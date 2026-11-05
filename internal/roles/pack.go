@@ -17,6 +17,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/runtime"
 	"github.com/forecrew/forecrew/internal/testsys"
 )
 
@@ -181,8 +182,11 @@ func LoadToolboxes(fsys fs.FS) (map[string]domain.Toolbox, error) {
 		if err == nil {
 			var t domain.Toolbox
 			if t, err = testsys.ParseToolbox(name, data); err == nil {
-				out[t.Name] = t
-				continue
+				if err = checkToolbox(fsys, t); err == nil {
+					out[t.Name] = t
+					continue
+				}
+				err = fmt.Errorf("%s: %w", name, err)
 			}
 		}
 		errs = append(errs, fmt.Errorf("%w: %w", ErrInvalidRole, err))
@@ -191,6 +195,22 @@ func LoadToolboxes(fsys fs.FS) (map[string]domain.Toolbox, error) {
 		return nil, errors.Join(errs...)
 	}
 	return out, nil
+}
+
+// checkToolbox checks what the schema cannot: the Dockerfile exists, and no
+// MCP server takes the name of the job MCP gateway.
+func checkToolbox(fsys fs.FS, t domain.Toolbox) error {
+	if t.Dockerfile != "" {
+		if _, err := fs.Stat(fsys, path.Join(PacksDir, "toolboxes", t.Dockerfile)); err != nil {
+			return fmt.Errorf("dockerfile %s: no such file in %s/toolboxes", t.Dockerfile, PacksDir)
+		}
+	}
+	for _, s := range t.MCPServers {
+		if s.Name == runtime.JobMCPServer {
+			return fmt.Errorf("mcp_servers: %q is the name of the job MCP gateway", s.Name)
+		}
+	}
+	return nil
 }
 
 func loadFile(fsys fs.FS, name string, toolboxes map[string]domain.Toolbox) (Definition, error) {
