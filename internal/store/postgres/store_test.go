@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"slices"
 	"testing"
@@ -302,5 +303,50 @@ func TestGoalSize(t *testing.T) {
 	got, err = repo.Get(ctx, f.account, g2.ID)
 	if err != nil || got.Size == nil || got.Size.Councils == nil || len(got.Size.Councils) != 0 || got.Size.Reason != "set by a human" {
 		t.Fatalf("created size = %+v, %v", got.Size, err)
+	}
+}
+
+// A task search lists the matching tasks, best match first, within the limit.
+func TestTaskTextSearch(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := f.newGoal(t)
+	sp := f.newSpec(t, g, 1)
+	for i, c := range []struct{ title, body string }{
+		{"Add token store", "Hash reset tokens in Postgres."},
+		{"Rename colours", "Cosmetic change."},
+		{"Token store tests", "Test the token store."},
+	} {
+		tk := f.newTask(t, g, sp, i+1)
+		tk.Title, tk.Body = c.title, c.body
+		must(t, f.st.Tasks().Update(ctx, &tk))
+		if i != 0 {
+			must(t, f.st.Tasks().UpdateStatus(ctx, f.account, tk.ID, domain.TaskOpen, domain.TaskInProgress))
+		}
+	}
+	titles := func(q store.TaskFilter) []string {
+		q.ProjectID = f.project.ID
+		list, err := f.st.Tasks().List(ctx, f.account, q)
+		must(t, err)
+		var out []string
+		for _, tk := range list {
+			out = append(out, tk.Title)
+		}
+		return out
+	}
+	if got := titles(store.TaskFilter{Text: "token or store"}); fmt.Sprint(got) != "[Token store tests Add token store]" {
+		t.Errorf("search = %v, want the better match first", got)
+	}
+	if got := titles(store.TaskFilter{Text: "token", Status: domain.TaskInProgress}); fmt.Sprint(got) != "[Token store tests]" {
+		t.Errorf("search by status = %v", got)
+	}
+	if got := titles(store.TaskFilter{Text: "token store", Limit: 1}); len(got) != 1 {
+		t.Errorf("limited search = %v", got)
+	}
+	if got := titles(store.TaskFilter{Text: "nothingmatches"}); len(got) != 0 {
+		t.Errorf("search = %v", got)
+	}
+	if got := titles(store.TaskFilter{Text: "  "}); len(got) != 3 {
+		t.Errorf("a blank text lists every task: %v", got)
 	}
 }

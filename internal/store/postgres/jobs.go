@@ -108,6 +108,7 @@ func (r jobRepo) List(ctx context.Context, accountID uuid.UUID, f store.JobFilte
 	andNot(w, "goal_id = ?", f.GoalID)
 	andNot(w, "task_id = ?", f.TaskID)
 	andNot(w, "worker_id = ?", f.WorkerID)
+	andNot(w, "role = ?", f.Role)
 	andNot(w, "status = ?", string(f.Status))
 	return many(ctx, r.db, scanJob, `SELECT `+jobCols+` FROM jobs`+w.sql("created_at DESC, id DESC", f.Limit), w.args...)
 }

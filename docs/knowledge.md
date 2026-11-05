@@ -180,8 +180,8 @@ gets a `# Context` block with the sections the role's pack lists in
 | `knowledge` | the entries and generated facts that best match the task (or, without one, the goal): a search for any of the first ten distinctive words of its title and text, six results |
 | `decisions` | the decisions of the job's goal, then the paths and titles of the project's ADRs (entries of the `architecture` section) |
 | `assumptions` | the open assumptions the task rests on, the goal's own included, high impact first; for a job with a goal only, those of the goal. For the `test-engineer`, only those to verify by test |
-| `similar_tasks` | up to five merged tasks of the project that share at least two distinctive words with the task or goal, closest first, with their PR link and how often the reviewer saw them and the last verdict. Tasks have no search index: forecrewd compares word sets |
-| `notes` | the notes agents wrote for the job's goal, newest first, in full |
+| `similar_tasks` | up to five merged tasks of the project that best match the task or goal in a full-text search (any of the first ten distinctive words of its title and text), with their PR link and how often the reviewer saw them and the last verdict |
+| `notes` | the notes agents wrote for the job's goal (not the project's), newest first, in full |
 | `related_files` | paths the task text names (words with a `/` or a file extension) and the areas the goal's triage found |
 | `test_plan` | the repo's test matrix, strategy and environments. It is not part of the budget below: it is cut with the prompt when that is too large |
 
@@ -198,7 +198,11 @@ the default of the tier `forecrew.yaml` gives the role (fast 6000, strong
 most relevant first. An item that does not fit is cut, with a note, when at
 least 200 characters are left, and dropped otherwise; a section without room
 for its heading is left out. Headings and the wrapping of untrusted text
-count.
+count. The prompt says so: a line under a section tells how many items were
+left out, and a last line names the sections left out whole. The pack also
+gives way to the rest of the prompt: it gets only what is left of the prompt's
+byte budget (120,000 bytes) after the goal, spec, task and feedback, so a large
+goal is never cut for the pack.
 
 **Untrusted text.** Decisions, assumptions, tasks, notes, triage areas and every
 entry outside the repo provider's protected sections are written by agents or

@@ -154,6 +154,9 @@ func (r taskRepo) List(_ context.Context, accountID uuid.UUID, f store.TaskFilte
 	slices.SortStableFunc(tasks, func(a, b domain.Task) int {
 		return cmp.Or(cmp.Compare(a.Seq, b.Seq), cmp.Compare(a.Number, b.Number))
 	})
+	if strings.TrimSpace(f.Text) != "" {
+		tasks = rankTasks(tasks, queryWords(f.Text))
+	}
 	if f.Limit > 0 && len(tasks) > f.Limit {
 		tasks = tasks[:f.Limit]
 	}
@@ -218,4 +221,27 @@ func (r changeRepo) List(_ context.Context, accountID uuid.UUID, f store.ChangeF
 	return listRows(r.s, changesT, f.Limit, func(c domain.Change) bool {
 		return c.AccountID == accountID && zeroOr(f.ProjectID, c.ProjectID) && zeroOr(f.TaskID, c.TaskID) && zeroOr(f.State, c.State) && zeroOr(f.HeadSHA, c.HeadSHA)
 	})
+}
+
+// rankTasks keeps the tasks that match q, best first and newest first among
+// equals, as the Postgres store ranks them.
+func rankTasks(tasks []domain.Task, q wordQuery) []domain.Task {
+	type hit struct {
+		task domain.Task
+		rank float64
+	}
+	var hits []hit
+	for _, t := range tasks {
+		if rank, ok := textRank(domain.KnowledgeEntry{Title: t.Title, Body: t.Body}, q); ok {
+			hits = append(hits, hit{t, rank})
+		}
+	}
+	slices.SortStableFunc(hits, func(a, b hit) int {
+		return cmp.Or(cmp.Compare(b.rank, a.rank), cmp.Compare(b.task.Number, a.task.Number))
+	})
+	out := make([]domain.Task, len(hits))
+	for i, h := range hits {
+		out[i] = h.task
+	}
+	return out
 }

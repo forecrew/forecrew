@@ -54,7 +54,7 @@ func (r jobRepo) List(_ context.Context, accountID uuid.UUID, f store.JobFilter)
 	return read(r.s, func(d *storeData) ([]domain.Job, error) {
 		return d.jobs.newest(f.Limit, func(j domain.Job) bool {
 			return j.AccountID == accountID && zeroOr(f.ProjectID, j.ProjectID) && zeroOr(f.GoalID, j.GoalID) &&
-				zeroOr(f.TaskID, j.TaskID) && zeroOr(f.WorkerID, j.WorkerID) && zeroOr(f.Status, j.Status)
+				zeroOr(f.TaskID, j.TaskID) && zeroOr(f.WorkerID, j.WorkerID) && zeroOr(f.Role, j.Role) && zeroOr(f.Status, j.Status)
 		}), nil
 	})
 }

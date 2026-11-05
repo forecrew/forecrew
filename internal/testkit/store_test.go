@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -1160,5 +1161,48 @@ func TestStoreVerificationReports(t *testing.T) {
 	must(t, f.st.Artifacts().Delete(ctx, f.account, art.ID))
 	if got, err := repo.Get(ctx, f.account, other.ID); err != nil || got.ArtifactID != uuid.Nil() || got.Status != domain.VerificationFailed {
 		t.Fatalf("after delete = %+v, %v", got, err)
+	}
+}
+
+// A task search lists the matching tasks, best match first, within the limit.
+func TestStoreTaskTextSearch(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := domain.NewID()
+	for i, c := range []struct{ title, body string }{
+		{"Add token store", "Hash reset tokens in Postgres."},
+		{"Rename colours", "Cosmetic change."},
+		{"Token store tests", "Test the token store."},
+	} {
+		tk := domain.Task{AccountID: f.account, ProjectID: f.project.ID, GoalID: g, Seq: i + 1, Title: c.title, Body: c.body, Status: domain.TaskOpen}
+		must(t, f.st.Tasks().Create(ctx, &tk))
+		if i != 0 {
+			must(t, f.st.Tasks().UpdateStatus(ctx, f.account, tk.ID, domain.TaskOpen, domain.TaskInProgress))
+		}
+	}
+	titles := func(q store.TaskFilter) []string {
+		q.ProjectID = f.project.ID
+		list, err := f.st.Tasks().List(ctx, f.account, q)
+		must(t, err)
+		var out []string
+		for _, tk := range list {
+			out = append(out, tk.Title)
+		}
+		return out
+	}
+	if got := titles(store.TaskFilter{Text: "token or store"}); fmt.Sprint(got) != "[Token store tests Add token store]" {
+		t.Errorf("search = %v, want the better match first", got)
+	}
+	if got := titles(store.TaskFilter{Text: "token", Status: domain.TaskInProgress}); fmt.Sprint(got) != "[Token store tests]" {
+		t.Errorf("search by status = %v", got)
+	}
+	if got := titles(store.TaskFilter{Text: "token store", Limit: 1}); len(got) != 1 {
+		t.Errorf("limited search = %v", got)
+	}
+	if got := titles(store.TaskFilter{Text: "nothingmatches"}); len(got) != 0 {
+		t.Errorf("search = %v", got)
+	}
+	if got := titles(store.TaskFilter{Text: "  "}); len(got) != 3 {
+		t.Errorf("a blank text lists every task: %v", got)
 	}
 }
