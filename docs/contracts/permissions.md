@@ -218,6 +218,7 @@ no permission and other people's need the one named; "the gate's" means
 | `list_artifacts` | `GET /api/v1/jobs/{job}/artifacts` | `job.read` |
 | | `GET /api/v1/artifacts/{id}` | `job.read` on the artifact's job's project |
 | `list_test_runs` | `GET /api/v1/test-runs` | `job.read` |
+| `verification_report` | `GET /api/v1/changes/{change}/verification` | `job.read`, like the test runs it is built from |
 | `list_assumptions` | `GET /api/v1/assumptions` | `project.read` |
 | `resolve_assumption` | `POST /api/v1/assumptions/{assumption}/resolve` | `assumption.resolve` |
 | `list_decisions` | `GET /api/v1/decisions` | `project.read` |
