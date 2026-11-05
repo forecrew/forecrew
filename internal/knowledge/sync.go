@@ -428,7 +428,7 @@ var SeedSections = []string{"architecture", "conventions", "testing", "runbooks"
 func MissingSections(p Policy) []string {
 	var out []string
 	for _, name := range SeedSections {
-		if s, ok := p.Sections[name]; !ok || len(s.Paths) == 0 {
+		if s, ok := p.Sections[name]; !ok || len(s.Paths) == 0 || s.Implicit() {
 			out = append(out, name)
 		}
 	}

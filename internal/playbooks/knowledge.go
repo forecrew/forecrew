@@ -72,7 +72,7 @@ func seedText(p knowledge.Policy, missing []string) string {
 	b.WriteString("Do not write entries for these; their owners keep them.\n\n")
 	names := make([]string, 0, len(p.Sections))
 	for name, s := range p.Sections {
-		if !knowledge.Reserved(name) && len(s.Paths) > 0 {
+		if !knowledge.Reserved(name) && len(s.Paths) > 0 && !s.Implicit() {
 			names = append(names, name)
 		}
 	}
