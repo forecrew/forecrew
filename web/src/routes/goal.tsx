@@ -10,6 +10,8 @@ import { GateList } from "@/components/GateList"
 import { PageHeader } from "@/components/PageHeader"
 import { StatusBadge } from "@/components/StatusBadge"
 import { TableWrap } from "@/components/TableWrap"
+import { cn } from "cn"
+import { buttonVariants } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cost, gateKindLabel, goalTone, jobRef, jobTone, stageOf, taskTone, words, type Tone } from "@/lib/format"
 
@@ -114,7 +116,11 @@ export function GoalPage() {
     <Async query={goal}>
       {(d) => (
         <>
-          <PageHeader title={`${d.ref} · ${d.goal.title}`} />
+          <PageHeader title={`${d.ref} · ${d.goal.title}`}>
+            <Link to="/councils/new" search={{ project: d.project, question: `${d.ref}: ${d.goal.title}` }} className={cn(buttonVariants({ variant: "outline" }))}>
+              Start a council
+            </Link>
+          </PageHeader>
           <div className="mb-6 flex flex-wrap items-center gap-3 text-sm">
             <StatusBadge tone={goalTone(d.goal.status)}>{words(d.goal.status)}</StatusBadge>
             <span>Stage: {stageOf(d.goal.status)}</span>

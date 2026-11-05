@@ -6,6 +6,8 @@ import { ApiError, setUnauthorizedHandler } from "@/api/client"
 import { meOptions } from "@/api/queries"
 import { AppShell } from "@/components/AppShell"
 import { NotFound, RouteError } from "@/components/RouteError"
+import { CouncilPage, CouncilsPage, NewCouncilPage } from "@/routes/councils"
+import { DecisionsPage } from "@/routes/decisions"
 import { GoalPage } from "@/routes/goal"
 import { GoalsPage, NewGoalPage } from "@/routes/goals"
 import { HomePage } from "@/routes/home"
@@ -28,11 +30,13 @@ interface Search {
   redirect?: string
   /** The decision the inbox opens with (a Home link). */
   gate?: string
+  /** The question a new council opens with. */
+  question?: string
 }
 
 const search = (s: Record<string, unknown>): Search => {
   const out: Search = {}
-  for (const k of ["project", "status", "redirect", "gate"] as const) {
+  for (const k of ["project", "status", "redirect", "gate", "question"] as const) {
     const v = s[k]
     if (typeof v === "string" && v) out[k] = v
   }
@@ -72,6 +76,10 @@ const routeTree = root.addChildren([
     createRoute({ getParentRoute: () => app, path: "/inbox", validateSearch: search, component: InboxPage }),
     createRoute({ getParentRoute: () => app, path: "/goals", validateSearch: search, component: GoalsPage }),
     child("/goals/new", NewGoalPage),
+    createRoute({ getParentRoute: () => app, path: "/councils", validateSearch: search, component: CouncilsPage }),
+    child("/councils/new", NewCouncilPage),
+    child("/councils/$ref", CouncilPage),
+    createRoute({ getParentRoute: () => app, path: "/decisions", validateSearch: search, component: DecisionsPage }),
     child("/goals/$ref", GoalPage),
     child("/projects", ProjectsPage),
     child("/projects/new", OnboardPage),

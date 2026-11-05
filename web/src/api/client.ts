@@ -1,4 +1,5 @@
 import type {
+  Assumption, AssumptionStatus, Council, CouncilDetail, CouncilStatus, Decision, StartCouncilInput,
   CreateGoalInput, DispatchJobInput, ErrorBody, Gate, GateInfo, Goal, GoalDetail, GoalStatus, Job, JobInfo,
   JobLogs, JobStatus, OnboardInput, OnboardResult, Project, RevokeResult, Session, Token, Worker,
 } from "./types"
@@ -89,6 +90,18 @@ export const api = {
 
   listTokens: () => request<Token[]>("GET", "/api/v1/tokens"),
   revokeToken: (id: string) => request<RevokeResult>("POST", `/api/v1/tokens/${seg(id)}/revoke`),
+
+  listCouncils: (f: { project: string; status?: CouncilStatus | "" }) => request<Council[]>("GET", `/api/v1/councils${query(f)}`),
+  getCouncil: (ref: string) => request<CouncilDetail>("GET", `/api/v1/councils/${seg(ref)}`),
+  startCouncil: (input: StartCouncilInput) => request<Council>("POST", "/api/v1/councils", input),
+  addConstraint: (ref: string, constraint: string) =>
+    request<Council>("POST", `/api/v1/councils/${seg(ref)}/constraints`, { constraint }),
+
+  listAssumptions: (f: { project: string; status?: AssumptionStatus }) =>
+    request<Assumption[]>("GET", `/api/v1/assumptions${query(f)}`),
+  resolveAssumption: (ref: string, status: AssumptionStatus, evidence?: string) =>
+    request<Assumption>("POST", `/api/v1/assumptions/${seg(ref)}/resolve`, evidence ? { status, evidence } : { status }),
+  listDecisions: (f: { project: string }) => request<Decision[]>("GET", `/api/v1/decisions${query(f)}`),
 
   listGates: (f: { project?: string } = {}) => request<GateInfo[]>("GET", `/api/v1/gates${query(f)}`),
   approve: (ref: string, feedback?: string) =>

@@ -1,6 +1,6 @@
-import { keepPreviousData, queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, queryOptions, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { api } from "./client"
-import type { GateInfo, GoalStatus, JobEvent, JobStatus } from "./types"
+import type { AssumptionStatus, CouncilStatus, GateInfo, GoalStatus, JobEvent, JobStatus, StartCouncilInput } from "./types"
 
 /** Lists refresh every 5 s. TanStack Query pauses polling while the tab is hidden. */
 export const POLL_MS = 5000
@@ -18,6 +18,10 @@ export const keys = {
   goalJobs: (goal: string) => ["goal-jobs", goal] as const,
   job: (ref: string) => ["job", ref] as const,
   logs: (ref: string) => ["job-logs", ref] as const,
+  councils: (project?: string, status?: string) => ["councils", project ?? "", status ?? ""] as const,
+  council: (ref: string) => ["council", ref] as const,
+  decisions: (project?: string) => ["decisions", project ?? ""] as const,
+  assumptions: (project: string) => ["assumptions", project] as const,
   workers: ["workers"] as const,
   tokens: ["tokens"] as const,
 }
@@ -61,6 +65,47 @@ export const useJob = (ref: string) =>
     refetchInterval: (q) => (q.state.data && ["succeeded", "failed", "canceled"].includes(q.state.data.status) ? false : POLL_MS),
     refetchIntervalInBackground: false,
   })
+
+/** Runs a per-project list call for one project, or for every project when none is chosen; newest first. */
+async function acrossProjects<T extends { created_at: string }>(qc: QueryClient, project: string | undefined, fetch: (name: string) => Promise<T[]>) {
+  const names = project ? [project] : (await qc.ensureQueryData({ queryKey: keys.projects, queryFn: api.listProjects })).map((p) => p.name)
+  return (await Promise.all(names.map(fetch))).flat().sort((a, b) => b.created_at.localeCompare(a.created_at))
+}
+
+export const useCouncils = (project?: string, status?: CouncilStatus | "") => {
+  const qc = useQueryClient()
+  return useQuery({
+    queryKey: keys.councils(project, status),
+    queryFn: () => acrossProjects(qc, project, (name) => api.listCouncils({ project: name, status })),
+    placeholderData: keepPreviousData,
+    ...poll,
+  })
+}
+export const useDecisions = (project?: string) => {
+  const qc = useQueryClient()
+  return useQuery({
+    queryKey: keys.decisions(project),
+    queryFn: () => acrossProjects(qc, project, (name) => api.listDecisions({ project: name })),
+    placeholderData: keepPreviousData,
+    ...poll,
+  })
+}
+/** A council; it refreshes every 5 s until it ends. */
+export const useCouncil = (ref: string, enabled = true) =>
+  useQuery({
+    queryKey: keys.council(ref),
+    queryFn: () => api.getCouncil(ref),
+    enabled,
+    refetchInterval: (q) => (q.state.data && q.state.data.status !== "running" ? false : POLL_MS),
+    refetchIntervalInBackground: false,
+  })
+export const useAssumptions = (project: string, enabled = true) =>
+  useQuery({
+    queryKey: keys.assumptions(project),
+    queryFn: () => api.listAssumptions({ project }),
+    enabled,
+    ...poll,
+  })
 export const useTokens = () => useQuery({ queryKey: keys.tokens, queryFn: api.listTokens, ...poll })
 export const useWorkers = () => useQuery({ queryKey: keys.workers, queryFn: api.listWorkers, ...poll })
 
@@ -92,6 +137,35 @@ export function useJobLog(ref: string, running: boolean) {
     },
     refetchInterval: running ? LOG_POLL_MS : false,
     refetchIntervalInBackground: false,
+  })
+}
+
+/** Adds a constraint to a running council; the council refreshes. */
+export function useAddConstraint(ref: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (constraint: string) => api.addConstraint(ref, constraint),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["council"] }),
+  })
+}
+
+/** Starts a council; the council lists refresh. */
+export function useStartCouncil() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: StartCouncilInput) => api.startCouncil(input),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["councils"] }),
+  })
+}
+
+/** Verifies an assumption with evidence; its review gate closes with it. */
+export function useVerifyAssumption() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { ref: string; evidence: string }) => api.resolveAssumption(v.ref, "verified" satisfies AssumptionStatus, v.evidence),
+    onSuccess: (a) =>
+      qc.setQueriesData<GateInfo[]>({ queryKey: ["gates"] }, (old) => old?.filter((g) => !(g.kind === "assumption_review" && g.title.startsWith(`Review ${a.ref}:`)))),
+    onSettled: () => Promise.all(["gates", "assumptions", "goal"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
   })
 }
 
@@ -131,6 +205,7 @@ export function useDecide() {
     onSuccess: (_, v) => {
       qc.setQueriesData<GateInfo[]>({ queryKey: ["gates"] }, (old) => old?.filter((g) => g.ref !== v.ref))
     },
-    onSettled: () => Promise.all([qc.invalidateQueries({ queryKey: ["gates"] }), qc.invalidateQueries({ queryKey: ["goal"] })]),
+    onSettled: () =>
+      Promise.all(["gates", "goal", "council", "councils", "decisions", "assumptions"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
   })
 }
