@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -183,14 +184,14 @@ func (p *Publisher) comment(ctx context.Context, change domain.Change, md string
 	if err != nil {
 		return fmt.Errorf("list the comments of %s#%d: %w", change.Repo, change.Number, err)
 	}
-	for i := len(comments) - 1; i >= 0; i-- {
-		if comments[i].Author != bot || !strings.HasPrefix(comments[i].Body, Marker) {
+	for _, comment := range slices.Backward(comments) {
+		if comment.Author != bot || !strings.HasPrefix(comment.Body, Marker) {
 			continue
 		}
-		if comments[i].Body == md {
+		if comment.Body == md {
 			return nil
 		}
-		_, err := p.Tracker.UpdateComment(ctx, change.Repo, comments[i].ID, md)
+		_, err := p.Tracker.UpdateComment(ctx, change.Repo, comment.ID, md)
 		if err == nil {
 			return nil
 		}
