@@ -25,6 +25,9 @@ type Pack struct {
 	Prompt string
 	// Hash is "sha256:<hex>" of Prompt.
 	Hash string
+	// Manifest records what the pack's sections held, for the job's record;
+	// nil when the role lists no section.
+	Manifest *domain.ContextManifest
 }
 
 // Builder builds context packs.
@@ -43,6 +46,10 @@ type StoreBuilder struct {
 	files   RepoFiles
 	allowed func(login string) bool
 	budget  int
+	// search and assumptions fill sections of the context pack, see
+	// WithKnowledge and WithAssumptions.
+	search      Searcher
+	assumptions TaskAssumptions
 }
 
 // New returns a StoreBuilder. files reads the test plan of the test roles'
@@ -58,14 +65,18 @@ func New(st store.Store, files RepoFiles, allowed func(login string) bool, budge
 // and the goal to that of the spec. req.Prompt becomes the trusted Instructions section. req.Feedback is quoted as given: callers
 // wrap text from GitHub users outside the allowlist with WrapUntrusted.
 func (b *StoreBuilder) Build(ctx context.Context, req workflow.JobRequest, role roles.Role) (Pack, error) {
-	in, err := b.input(ctx, req, role.Name)
+	if req.Council != nil {
+		// Council members read what their stage may see with council.read.
+		role.Context = slices.DeleteFunc(slices.Clone(role.Context), func(s string) bool { return s != SectionTestPlan })
+	}
+	in, err := b.input(ctx, req, role)
 	if err != nil {
 		return Pack{}, fmt.Errorf("build %s context: %w", role.Name, err)
 	}
 	return Render(role, in, b.budget)
 }
 
-func (b *StoreBuilder) input(ctx context.Context, req workflow.JobRequest, role string) (Input, error) {
+func (b *StoreBuilder) input(ctx context.Context, req workflow.JobRequest, role roles.Role) (Input, error) {
 	acc := req.AccountID
 	project, err := b.store.Projects().Get(ctx, acc, req.ProjectID)
 	if err != nil {
@@ -78,17 +89,20 @@ func (b *StoreBuilder) input(ctx context.Context, req workflow.JobRequest, role 
 	if in.BaseRef == "" {
 		in.BaseRef = project.DefaultBranch
 	}
-	if b.files != nil && slices.Contains(testPlanRoles, role) {
+	if b.files != nil && slices.Contains(role.Context, SectionTestPlan) {
 		if in.TestPlan, err = b.testPlan(ctx, in.Repo, in.BaseRef, in.Branch); err != nil {
 			return Input{}, err
 		}
 	}
 	specID, goalID := req.SpecID, req.GoalID
+	var task *domain.Task
+	var goal *domain.Goal
 	if req.TaskID != uuid.Nil() {
-		task, err := b.store.Tasks().Get(ctx, acc, req.TaskID)
+		t, err := b.store.Tasks().Get(ctx, acc, req.TaskID)
 		if err != nil {
 			return Input{}, fmt.Errorf("load task %s: %w", req.TaskID, err)
 		}
+		task = &t
 		in.Task = Text{Heading: fmt.Sprintf("Task %s: %s", task.Ref(), task.Title), Body: task.Body}
 		specID = cmp.Or(specID, task.SpecID)
 		goalID = cmp.Or(goalID, task.GoalID)
@@ -102,14 +116,24 @@ func (b *StoreBuilder) input(ctx context.Context, req workflow.JobRequest, role 
 		goalID = cmp.Or(goalID, spec.GoalID)
 	}
 	if goalID != uuid.Nil() {
-		goal, err := b.store.Goals().Get(ctx, acc, goalID)
+		g, err := b.store.Goals().Get(ctx, acc, goalID)
 		if err != nil {
 			return Input{}, fmt.Errorf("load goal %s: %w", goalID, err)
 		}
+		goal = &g
 		in.Goal = Text{Heading: fmt.Sprintf("Goal %s: %s", goal.Ref(), goal.Title), Body: goal.Body}
 		in.Goal.Untrusted, in.Goal.Source = b.untrusted(goal.CreatedBy), goal.CreatedBy
 	}
-	return in, b.jobTexts(ctx, req, &in)
+	if err := b.jobTexts(ctx, req, &in); err != nil {
+		return Input{}, err
+	}
+	if len(role.Context) > 0 {
+		var err error
+		if in.Sections, err = b.sections(ctx, role, project, task, goal); err != nil {
+			return Input{}, err
+		}
+	}
+	return in, nil
 }
 
 // jobTexts fills the sections that belong to the job itself.

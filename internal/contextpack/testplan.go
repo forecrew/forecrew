@@ -20,11 +20,8 @@ type RepoFiles interface {
 	GetFile(ctx context.Context, repo, ref, path string) ([]byte, error)
 }
 
-// testPlanRoles get the Test plan section. The role packs' context
-// settings (T38) will take this choice over.
-var testPlanRoles = []string{"test-architect", "environment-engineer", "test-engineer"}
-
-// testPlan returns the Test plan section: the test matrix, the test
+// testPlan returns the Test plan section, which roles that list test_plan
+// among their context sections get: the test matrix, the test
 // strategy and the environments the matrix names, read at the job branch
 // when the matrix is there and at the base otherwise. Missing files are
 // said to be missing; other read errors fail.

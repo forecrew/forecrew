@@ -7,6 +7,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -142,7 +143,7 @@ func TestRenderGolden(t *testing.T) {
 				t.Fatalf("Render: %v", err)
 			}
 			again, _ := Render(resolve(t, c, name), in, 0)
-			if again != pack {
+			if !reflect.DeepEqual(again, pack) {
 				t.Error("Render is not deterministic")
 			}
 			if !strings.HasPrefix(pack.Hash, "sha256:") || len(pack.Hash) != len("sha256:")+64 {
