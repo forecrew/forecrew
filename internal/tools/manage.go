@@ -85,7 +85,7 @@ func (s *Service) RevokeToken(ctx context.Context, by domain.Actor, in mcp.Revok
 	if err != nil {
 		return mcp.RevokeTokenOutput{}, err
 	}
-	if err := s.checkRevoke(ctx, by, t); err != nil {
+	if err := s.checkRevoke(ctx, by, t, in.Token); err != nil {
 		return mcp.RevokeTokenOutput{}, err
 	}
 	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
@@ -108,15 +108,27 @@ func (s *Service) RevokeToken(ctx context.Context, by domain.Actor, in mcp.Revok
 // checkRevoke checks that by may revoke t. The token in use can always end
 // itself; another of the caller's own needs a credential that may write, so a
 // leaked read token cannot take its owner's others down; anybody else's needs
-// token.manage.
-func (s *Service) checkRevoke(ctx context.Context, by domain.Actor, t domain.MCPToken) error {
+// token.manage, and without it the token does not exist for the caller (the
+// denial is audited all the same).
+func (s *Service) checkRevoke(ctx context.Context, by domain.Actor, t domain.MCPToken, ref string) error {
 	switch {
 	case current(by, t):
 		return nil
 	case ownToken(by, t):
 		return s.authz.AuthorizeScope(ctx, by, domain.ScopeWrite)
 	}
-	return s.allowOrg(ctx, by, domain.PermTokenManage)
+	if err := s.allowOrg(ctx, by, domain.PermTokenManage); errors.Is(err, authz.ErrDenied) {
+		return noToken(ref)
+	} else if err != nil {
+		return err
+	}
+	return nil
+}
+
+// noToken is the answer for a token that does not exist, and for somebody
+// else's the caller may not touch, so it cannot tell the two apart.
+func noToken(ref string) error {
+	return fmt.Errorf("no active token %q: %w", ref, mcp.ErrNotFound)
 }
 
 // findToken finds an active token by name or ID. Names repeat across owners,
@@ -133,7 +145,7 @@ func (s *Service) findToken(ctx context.Context, by domain.Actor, ref string) (d
 	}
 	t, err := store.FindActive(ref, tokens, key)
 	if err != nil {
-		return domain.MCPToken{}, fmt.Errorf("no active token %q: %w", ref, mcp.ErrNotFound)
+		return domain.MCPToken{}, noToken(ref)
 	}
 	return t, nil
 }
