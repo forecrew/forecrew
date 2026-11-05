@@ -79,6 +79,7 @@ structs in `internal/domain` and `internal/mcp`.
 | `GET /api/v1/artifacts/{id}` | | `{id}` is an artifact UUID | `200` the file, streamed; see [Artifact downloads](#artifact-downloads). `404` when it is unknown, of another account, or deleted by retention; `503` without evidence storage |
 | `GET /api/v1/knowledge?project=&q=&section=&kind=&provider=&limit=` | `search_knowledge` | `project` and `q` required; `kind` is `entry`, `note` or `generated`; `limit` defaults to 8, at most 50 | `200` results (an array, `[]` when none) as in [mcp.md](mcp.md): `id`, `kind`, `provider`, `section`, `path`, `title`, `source_url`, `snippet`, `untrusted`, `provenance`, `needs_reverify`, `rank`. Snippets are not wrapped here: check `untrusted` before handing them to an agent |
 | `DELETE /api/v1/knowledge/notes/{note}` | `delete_note` | `{note}` is a note UUID | `200` `{"note": "uuid", "message": "..."}`; `400` when the entry is not an agent note, `404` when unknown |
+| `POST /api/v1/knowledge/proposals` | `propose_knowledge` | `{"project", "section", "path", "body", "reason", "action"}`; `action` is optional, as in [mcp.md](mcp.md) | `201` `{"proposal": "KB-5", "status": "open", "number": 12, "url": "..."}`; `400` for what the policy refuses |
 | `POST /api/v1/councils` | `start_council` | `{"project", "question", "kind", "roles": [], "constraints": []}`; `project` and `question` required, `kind` defaults to `adhoc` | `202` council with `ref` and `run_id` (`running`) |
 | `GET /api/v1/councils/{council}` | `get_council` | `{council}` is `COUNCIL-2` or a UUID | `200` council with `ref`, `brief`, `contributions` by stage and round (`member`, `runtime`, `stage`, `round`, `content`, `evidence_check`; agent text, so untrusted data), `gate` and `decision` |
 | `POST /api/v1/councils/{council}/constraints` | `add_council_constraint` | `{"constraint": "..."}` | `200` council; the next round's prompts include it. `409` when the council ended |
@@ -152,7 +153,6 @@ the CLI command listed there.
 | `GET /api/v1/assumptions?project=&status=&impact=` | `list_assumptions` | `project` required | `200` assumptions |
 | `POST /api/v1/assumptions/{assumption}/resolve` | `resolve_assumption` | `{"status", "evidence"}` | `200` assumption |
 | `GET /api/v1/decisions?project=&goal=&council=` | `list_decisions` | `project` required | `200` decisions |
-| `POST /api/v1/knowledge/proposals` | `propose_knowledge` | `{"project", "section", "path", "body", "reason", "action"}` | `201` knowledge proposal |
 | `POST /api/v1/bugs` | `report_bug` | `{"project", "title", "body", "platforms": []}` | `201` goal of kind `bug` |
 | `GET /api/v1/proposals?project=&status=&category=` | `list_proposals` | `project` required | `200` proposals |
 | `POST /api/v1/proposals/{proposal}/decide` | `decide_proposal` | `{"decision", "reason", "until"}` | `200` proposal |

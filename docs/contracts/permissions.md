@@ -224,6 +224,7 @@ no permission and other people's need the one named; "the gate's" means
 | `list_decisions` | `GET /api/v1/decisions` | `project.read` |
 | `search_knowledge` | `GET /api/v1/knowledge` | `project.read` |
 | `delete_note` | `DELETE /api/v1/knowledge/notes/{note}` | `knowledge.propose`, the closest write permission: deleting an agent note curates knowledge, and the catalog has no narrower one |
+| `propose_knowledge` | `POST /api/v1/knowledge/proposals` | `knowledge.propose` and, for a protected section the caller approves, `gate.approve.knowledge_protected` |
 | `start_council` | `POST /api/v1/councils` | `council.start` |
 | `get_council` | `GET /api/v1/councils/{council}` | `project.read` |
 | `add_council_constraint` | `POST /api/v1/councils/{council}/constraints` | `council.start` |
@@ -248,10 +249,7 @@ directly with the operator's server access and no permission; they are
 audited as `user:<operator>`.
 
 **Planned tools** ([mcp.md](../mcp.md#planned-tools)) need, when their task
-builds them: `list_proposals` `project.read`;
-`propose_knowledge` `knowledge.propose` (and, for a protected section the
-caller approves, `gate.approve.knowledge_protected`); `report_bug`
-`goal.create`; `decide_proposal` `proposal.decide`.
+builds them: `list_proposals` `project.read`; `report_bug` `goal.create`; `decide_proposal` `proposal.decide`.
 
 ### Adding a tool or a route
 

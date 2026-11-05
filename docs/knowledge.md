@@ -3,8 +3,8 @@
 How forecrewd indexes, searches and guards a project's knowledge. The
 contract (providers, policy, entry format, proposals) is
 [contracts/knowledge.md](contracts/knowledge.md); this page describes what
-runs today (providers, index and search). Access control and the proposal
-flow are T37, curation and promotion of notes T39, external providers 4.19.
+runs today (providers, index, search, access control and proposals).
+Curation and promotion of notes are T39, external providers 4.19.
 
 ## What is indexed
 
@@ -24,7 +24,11 @@ folders (`docs/adr`, `docs/decisions`, `doc/architecture/decisions` or the
 folder `.adr-dir` names) are `architecture`, `CONTRIBUTING.md` is
 `conventions`, CODEOWNERS is `owners`, `knowledge/vision/**` and
 `knowledge/security/**` are protected, human-owned sections, and every other
-folder `knowledge/<section>/` is a section of that name. The analyzer finds
+folder `knowledge/<section>/` is a section of that name. `architecture`
+(owner `architect`), `conventions` (`reviewer`), `testing` (`test-architect`),
+`runbooks` (`developer`) and `lessons` (`knowledge-curator`) always exist there,
+at `knowledge/<section>/**` when the repo has no location for them, so agents
+can propose to them. Every role reads and proposes. The analyzer finds
 the sources (`analyzer.KnowledgeSourcesOf`), the same ones it reports in the
 repo facts. A folder that is not a valid section name, a reserved name
 (`generated`, `notes`) or a file straight in `knowledge/` is no entry.
@@ -183,3 +187,63 @@ extended with `!knowledge/**`, `!.forecrew/knowledge-policy.yaml` and `!<glob>`
 for each path of the project's sections, so curated knowledge changes only
 through proposals (T37). The roles' packs list `!knowledge/**` themselves
 where they write broadly.
+
+## Proposals
+
+Agents never change curated knowledge. They propose, section owners approve
+in the tool where the section lives, and `internal/knowledge/proposals` runs
+the flow. Agent notes are outside it.
+
+A role proposes with the job MCP tool `kb_propose` ({section, path, action,
+body, reason}). `Policy.Target` decides. It refuses, and the proposal is
+dropped with an audit entry (`knowledge.proposal_dropped`), when:
+
+- the section is `generated`, `notes` or unknown;
+- the role is not in `access.propose` of the section, or of any other section
+  whose globs match the path, so a path of a protected section cannot be
+  proposed under another section's name;
+- the path is the policy file, whatever the policy says about itself, or is
+  not an entry of the section.
+
+The check runs again when the proposal is sent, against the policy of that
+moment. Proposal bodies are data: forecrewd writes the provenance frontmatter
+above the body, so a body cannot forge it, and the PR text marks reason and
+text as data.
+
+**When it goes out.** A proposal of a goal's job to a section that is not
+protected is `per_goal`: it stays `queued` for the goal's learn PR (T39). The
+others are `standalone`. In the transaction that finishes a job successfully,
+forecrewd stores one run of the playbook `knowledge-proposal` per provider
+with such proposals, so a crash loses none. The standalone proposals of a job
+that fails or is canceled are not sent and stay `queued`.
+
+**Review.** The repo provider's review flow is one PR `agent/kb-<job>`
+written by forecrewd through the GitHub API, which needs no agent run. A
+provider without one gets a `knowledge_proposal` gate that shows the change;
+approving it says a human copied it across. One PR can carry several
+sections, and the strictest owner wins:
+
+| Owner of a section | What happens |
+|--------------------|--------------|
+| protected, or `human` | A `knowledge_proposal` gate on the PR; approving merges it. |
+| a role | A read-only review job of that role on the branch, answering with the reviewer's verdict. `approve` merges it after the checks; any other verdict, or a review that cannot be read, opens the human gate. A role the project does not have counts as `human`. |
+| `codeowners` | Nothing of Forecrew's own: GitHub requests the CODEOWNERS reviewers for the changed paths and a human merges. The branch rules must allow PRs from the App, and must not stop a reviewer from merging. |
+
+`request_changes` and `reject` both reject the proposals and close the PR; the
+feedback is in the audit log for a new proposal. A PR merged or closed on
+GitHub at any point settles the proposals (`pr.merged`, `pr.closed`, the
+webhook and the poller). forecrewd merges with `github.merge_pr`, so branch
+rules that demand a human review make it escalate to a `needs_you` gate.
+
+**Humans** use `propose_knowledge`: straight to a PR `agent/kb-KB-n`, no job
+and no gate, merged on GitHub like any PR. For a protected section the caller
+is recorded as approver (`knowledge.proposal_approved` and a PR comment).
+
+## Access requests
+
+A role that needs more calls `request_access` ({section, level, reason}) and
+goes on without it. forecrewd opens an `access_request` gate and, in the same
+transaction, a run of the playbook `knowledge-access`. Approving opens a PR
+`agent/kb-access-GATE-n` on the policy file, which a human merges like any
+PR; rejecting changes nothing. A repo without a policy file gets one that
+spells out the whole default policy, because a file replaces the defaults.
