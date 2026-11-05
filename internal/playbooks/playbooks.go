@@ -17,6 +17,7 @@ import (
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/knowledge"
+	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
@@ -48,6 +49,9 @@ type Deps struct {
 	// Knowledge indexes a project's repo for knowledge.seed; nil makes the
 	// action do nothing.
 	Knowledge KnowledgeSeeder
+	// Proposals runs the knowledge.* actions of proposals; they fail without
+	// it.
+	Proposals *proposals.Service
 	Now       func() time.Time // defaults to the real UTC time
 
 	// The rest is for the council actions.
@@ -112,6 +116,11 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["verification.build"] = d.verificationBuild
 	registry["verification.rerun_cells"] = d.verificationRerunCells
 	registry["knowledge.seed"] = d.seedKnowledge
+	registry["knowledge.propose"] = d.knowledgePropose
+	registry["knowledge.assess"] = d.knowledgeAssess
+	registry["knowledge.decide"] = d.knowledgeDecide
+	registry["knowledge.settle"] = d.knowledgeSettle
+	registry["knowledge.access_pr"] = d.knowledgeAccessPR
 	registry["job.if_pushed"] = d.ifPushed
 	registry["council.run"] = d.councilRun
 	registry["council.start"] = d.councilStart
