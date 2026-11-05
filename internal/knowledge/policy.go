@@ -203,8 +203,10 @@ type Target struct {
 // Target checks a proposal to file of section by role ("" is a human, who
 // may propose anywhere) and returns who approves it. It wraps ErrRefused for
 // a reserved or unknown section, the policy file, whatever it says about
-// itself, a repo path outside the section, and a section of the path that
-// the role may not propose to.
+// itself, a path under GeneratedPrefix, a repo path outside the section, and
+// a section of the path that the role may not propose to. A protected section
+// also claims a path that differs from its globs only in case: the two are
+// one file on a case-insensitive checkout.
 func (p Policy) Target(section, file, role string) (Target, error) {
 	s, ok := p.Sections[section]
 	if Reserved(section) || !ok {
@@ -216,8 +218,10 @@ func (p Policy) Target(section, file, role string) (Target, error) {
 	t := Target{Provider: s.Provider, Repo: p.Providers[s.Provider].Kind == domain.ProviderKindRepo, Sections: []string{section}}
 	if t.Repo {
 		switch {
-		case file == PolicyFile:
+		case strings.EqualFold(file, PolicyFile):
 			return Target{}, fmt.Errorf("%s changes only through request_access and a human: %w", PolicyFile, ErrRefused)
+		case strings.HasPrefix(strings.ToLower(file), GeneratedPrefix):
+			return Target{}, fmt.Errorf("path %q is under %s, which forecrewd keeps: %w", file, GeneratedPrefix, ErrRefused)
 		case !domain.RelativePath(file) || path.Clean(file) != file:
 			return Target{}, fmt.Errorf("path %q must be a clean path relative to the repo root: %w", file, ErrRefused)
 		case !Indexable(s.Paths, file, 0):
@@ -225,7 +229,10 @@ func (p Policy) Target(section, file, role string) (Target, error) {
 		}
 		for _, name := range slices.Sorted(maps.Keys(p.Sections)) {
 			o := p.Sections[name]
-			if name != section && !Reserved(name) && p.Providers[o.Provider].Kind == domain.ProviderKindRepo && Indexable(o.Paths, file, 0) {
+			if name == section || Reserved(name) || p.Providers[o.Provider].Kind != domain.ProviderKindRepo {
+				continue
+			}
+			if Indexable(o.Paths, file, 0) || (o.Protected && foldedMatch(o.Paths, file)) {
 				t.Sections = append(t.Sections, name)
 			}
 		}

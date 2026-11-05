@@ -80,6 +80,16 @@ func DefaultPolicy(sources []analyzer.KnowledgeSource, files []string) Policy {
 	return p
 }
 
+// foldedMatch reports whether file is an entry under the globs when case
+// does not count, as on a case-insensitive checkout.
+func foldedMatch(globs []string, file string) bool {
+	folded := make([]string, len(globs))
+	for i, g := range globs {
+		folded[i] = strings.ToLower(g)
+	}
+	return Indexable(folded, strings.ToLower(file), 0)
+}
+
 // Mapping tells which repo files are entries of which section.
 type Mapping struct {
 	sections []mapped
@@ -126,12 +136,19 @@ func (m Mapping) SectionOf(file string, size int) (string, bool) {
 	return "", false
 }
 
+// keptOut reports whether file is one no section can hold. Case does not
+// count: the same names collide on a case-insensitive checkout.
+func keptOut(file string) bool {
+	lower := strings.ToLower(file)
+	return lower == PolicyFile || lower == ".git" || strings.HasPrefix(lower, ".git/") || strings.HasPrefix(lower, GeneratedPrefix)
+}
+
 // Indexable reports whether file is an entry under the globs: a glob
 // matches it, no ! glob does, it is small enough, and it is a text file
-// unless a glob names it exactly. The policy file and git internals are
-// never entries.
+// unless a glob names it exactly. The policy file, git internals and paths
+// under GeneratedPrefix, which forecrewd keeps, are never entries.
 func Indexable(globs []string, file string, size int) bool {
-	if size > MaxEntryBytes || file == PolicyFile || file == ".git" || strings.HasPrefix(file, ".git/") {
+	if size > MaxEntryBytes || keptOut(file) {
 		return false
 	}
 	exact, wild := false, false

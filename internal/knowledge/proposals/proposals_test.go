@@ -186,6 +186,51 @@ func TestSubmitRefuses(t *testing.T) {
 	}
 }
 
+// A section of ** can neither change nor retire a generated entry, though
+// the index has it under the repo provider.
+func TestGeneratedEntriesCannotBeProposedTo(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	policy, err := knowledge.ParsePolicy([]byte("version: 1\nsections:\n  everything: {paths: ['**'], owner: developer}\n"))
+	must(t, err)
+	e.policy = policy
+	const file = "generated/components/api.md"
+	entry := domain.KnowledgeEntry{AccountID: e.account, ProjectID: e.project.ID, Provider: "repo", Path: file, Section: domain.SectionGenerated, Title: "api", Body: "b", Generated: true}
+	must(t, e.st.Knowledge().Upsert(ctx, &entry))
+	j := e.job(t, "developer", uuid.Nil())
+	for _, in := range []proposals.Input{
+		{Section: "everything", Path: file, Action: domain.KnowledgeEdit, Body: "# Mine\n", Reason: "r"},
+		{Section: "everything", Path: file, Action: domain.KnowledgeRetire, Reason: "r"},
+		{Section: "everything", Path: "generated/new.md", Action: domain.KnowledgeAdd, Body: "# Mine\n", Reason: "r"},
+	} {
+		if _, err := e.svc.Submit(ctx, j, in); !errors.Is(err, proposals.ErrForbidden) {
+			t.Errorf("%s %s: err = %v", in.Action, in.Path, err)
+		}
+		by := domain.Actor{AccountID: e.account, Kind: domain.ActorUser, Name: "ana"}
+		if _, err := e.svc.Human(ctx, by, e.project, in); !errors.Is(err, proposals.ErrInvalid) {
+			t.Errorf("human %s %s: err = %v", in.Action, in.Path, err)
+		}
+	}
+	if got := len(e.audited(t, "knowledge.proposal_dropped")); got != 3 {
+		t.Errorf("%d dropped entries, want 3", got)
+	}
+}
+
+// A goal's proposal to a path of a protected section in another case does
+// not slip into the learn PR as an unprotected one.
+func TestProtectedPathInAnotherCaseIsStandalone(t *testing.T) {
+	e := newEnv(t)
+	policy, err := knowledge.ParsePolicy([]byte("version: 1\nsections:\n  everything: {paths: ['**'], owner: developer}\n  vision: {owner: human, protected: true}\n"))
+	must(t, err)
+	e.policy = policy
+	goal := testkit.Goal(t, e.st, e.account, e.project.ID, "g")
+	k, err := e.svc.Submit(t.Context(), e.job(t, "developer", goal.ID), add("everything", "knowledge/Vision/a.md"))
+	must(t, err)
+	if k.Batch != domain.BatchStandalone {
+		t.Errorf("proposal = %+v", k)
+	}
+}
+
 func TestSendWritesAPullRequest(t *testing.T) {
 	e := newEnv(t)
 	ctx := t.Context()

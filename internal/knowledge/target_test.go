@@ -137,3 +137,52 @@ func TestHas(t *testing.T) {
 		}
 	}
 }
+
+const broadPolicy = `version: 1
+sections:
+  everything: {paths: ["**"], owner: developer}
+  vision: {owner: human, protected: true, access: {propose: [product-owner]}}
+`
+
+// A section of ** does not reach what forecrewd keeps, in any case.
+func TestBroadSectionStopsAtForecrewdsPaths(t *testing.T) {
+	p, err := knowledge.ParsePolicy([]byte(broadPolicy))
+	must(t, err)
+	for _, file := range []string{"generated/components/api.md", "generated/x.md", "Generated/x.md", ".FORECREW/knowledge-policy.yaml", ".Git/x.md"} {
+		if _, err := p.Target("everything", file, "developer"); !errors.Is(err, knowledge.ErrRefused) {
+			t.Errorf("%s: err = %v", file, err)
+		}
+		if _, err := p.Target("everything", file, ""); !errors.Is(err, knowledge.ErrRefused) {
+			t.Errorf("%s, a human: err = %v", file, err)
+		}
+		if _, ok := knowledge.RepoMapping(p).SectionOf(file, 0); ok {
+			t.Errorf("%s is an entry", file)
+		}
+	}
+	if _, err := p.Target("everything", "docs/generated/x.md", "developer"); err != nil {
+		t.Errorf("a folder of that name elsewhere: %v", err)
+	}
+}
+
+// knowledge/Vision and knowledge/vision are one folder on a case-insensitive
+// checkout, so the other spelling does not get around the protection.
+func TestProtectionIgnoresCase(t *testing.T) {
+	p, err := knowledge.ParsePolicy([]byte(broadPolicy))
+	must(t, err)
+	for _, file := range []string{"knowledge/Vision/a.md", "KNOWLEDGE/VISION/a.md", "knowledge/vision/a.md"} {
+		if _, err := p.Target("everything", file, "developer"); !errors.Is(err, knowledge.ErrRefused) {
+			t.Errorf("%s: a role the protected section does not allow: %v", file, err)
+		}
+		got, err := p.Target("everything", file, "")
+		must(t, err)
+		if !got.Protected || !slices.Contains(got.Owners, knowledge.OwnerHuman) || !slices.Contains(got.Sections, "vision") {
+			t.Errorf("%s: target = %+v", file, got)
+		}
+	}
+	// Only protected sections fold: others keep git's exact paths.
+	open, err := knowledge.ParsePolicy([]byte("version: 1\nsections:\n  everything: {paths: ['**']}\n  lessons: {access: {propose: [architect]}}\n"))
+	must(t, err)
+	if got, err := open.Target("everything", "knowledge/Lessons/a.md", "developer"); err != nil || len(got.Sections) != 1 {
+		t.Errorf("target = %+v, %v", got, err)
+	}
+}

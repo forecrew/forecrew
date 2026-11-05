@@ -202,8 +202,12 @@ dropped with an audit entry (`knowledge.proposal_dropped`), when:
 - the role is not in `access.propose` of the section, or of any other section
   whose globs match the path, so a path of a protected section cannot be
   proposed under another section's name;
-- the path is the policy file, whatever the policy says about itself, or is
-  not an entry of the section.
+- the path is the policy file, whatever the policy says about itself, lies
+  under `generated/`, which forecrewd keeps, or is not an entry of the section.
+
+Case does not count for these paths or for protected sections: on a
+case-insensitive checkout `knowledge/Vision/` is `knowledge/vision/`, so a
+section of `**` does not get around the protection with another spelling.
 
 The check runs again when the proposal is sent, against the policy of that
 moment. Proposal bodies are data: forecrewd writes the provenance frontmatter
