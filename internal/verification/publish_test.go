@@ -157,44 +157,79 @@ func TestPublishUpdatesTheCommentInPlace(t *testing.T) {
 	}
 }
 
-func TestPublishNewHeadKeepsOneComment(t *testing.T) {
+// TestPublishStaleSHAKeepsTheComment: a report of a sha that is not the PR's
+// head is stored and gets its check run, but the comment is the head's.
+func TestPublishStaleSHAKeepsTheComment(t *testing.T) {
 	f := newPubFixture(t)
 	f.add(run{env: "e", cell: linux(), results: pass("a::T1")})
 	f.publish(f.build(verification.Inputs{}))
-	other, err := f.b.Build(t.Context(), f.change, "ffff0000", verification.Inputs{})
+	before := f.markerComments()
+	stale, err := f.b.Build(t.Context(), f.change, "ffff0000", verification.Inputs{})
 	must(t, err)
-	f.publish(other)
-	comments := f.markerComments()
-	if len(comments) != 1 || !strings.Contains(comments[0].Body, "ffff0000") {
-		t.Fatalf("comments = %+v", comments)
+	f.publish(stale)
+	after := f.markerComments()
+	if len(after) != 1 || after[0].Body != before[0].Body || !strings.Contains(after[0].Body, sha[:10]) {
+		t.Fatalf("the comment changed: %+v", after)
 	}
-	if _, ok := f.tr.CheckRun("acme/app", "ffff0000", verification.CheckName); !ok {
-		t.Error("no check run on the new head")
+	if run, ok := f.tr.CheckRun("acme/app", "ffff0000", verification.CheckName); !ok || run.Conclusion != github.ConclusionNeutral {
+		t.Errorf("no check run on the stale sha: %+v, %v", run, ok)
+	}
+	if _, err := f.st.VerificationReports().GetBySHA(t.Context(), f.acc.ID, f.change.ID, "ffff0000"); err != nil {
+		t.Errorf("the stale report was not stored: %v", err)
+	}
+
+	// The PR moves to the new head: its report takes the comment over, in place.
+	moved := f.change
+	moved.HeadSHA = "ffff0000"
+	must(t, f.st.Changes().Upsert(t.Context(), &moved))
+	f.publish(stale)
+	comments := f.markerComments()
+	if len(comments) != 1 || comments[0].ID != before[0].ID || !strings.Contains(comments[0].Body, "ffff0000") {
+		t.Fatalf("comments = %+v", comments)
 	}
 	if _, err := f.st.VerificationReports().GetBySHA(t.Context(), f.acc.ID, f.change.ID, sha); err != nil {
 		t.Errorf("the report of the old head is gone: %v", err)
 	}
 }
 
-// TestPublishIgnoresAMarkerFromSomeoneElse: a user who posts the marker first
-// cannot stop the report from being published.
+// TestPublishSetsTheCheckRunBeforeTheComment: when the comment fails, the sha
+// does not keep an older conclusion.
+func TestPublishSetsTheCheckRunBeforeTheComment(t *testing.T) {
+	f := newPubFixture(t)
+	f.add(run{env: "e", cell: linux(), results: fail("a::T1")})
+	f.pub.Tracker = &failing{Tracker: f.tr, create: errors.New("down")}
+	if _, err := f.pub.Publish(t.Context(), f.change, f.build(verification.Inputs{})); err == nil {
+		t.Fatal("no error")
+	}
+	if run, ok := f.tr.CheckRun("acme/app", sha, verification.CheckName); !ok || run.Conclusion != github.ConclusionFailure {
+		t.Errorf("check run = %+v, %v", run, ok)
+	}
+}
+
+// TestPublishIgnoresAMarkerFromSomeoneElse: only the App's own comments are
+// found and edited, whatever the token could edit: a user who posts the marker
+// neither stops the report nor has their comment overwritten.
 func TestPublishIgnoresAMarkerFromSomeoneElse(t *testing.T) {
 	f := newPubFixture(t)
 	_, err := f.tr.AddComment("acme/app", f.change.Number, "mallory", verification.Marker+"\nall good")
+	must(t, err)
+	// A bot comment that merely mentions the marker is not the report either.
+	_, err = f.tr.CreateComment(t.Context(), "acme/app", f.change.Number, "see "+verification.Marker)
 	must(t, err)
 	f.add(run{env: "e", cell: linux(), results: fail("a::T1")})
 	rep := f.build(verification.Inputs{})
 	f.publish(rep)
 	f.publish(rep)
 	all := f.markerComments()
-	if len(all) != 2 || all[0].Author != "mallory" || all[0].Body != verification.Marker+"\nall good" || all[1].Author != "forecrew[bot]" || all[1].Body != verification.Render(rep) {
+	if len(all) != 3 || all[0].Author != "mallory" || all[0].Body != verification.Marker+"\nall good" || all[1].Body != "see "+verification.Marker ||
+		all[2].Author != "forecrew[bot]" || all[2].Body != verification.Render(rep) {
 		t.Fatalf("comments = %+v", all)
 	}
 	// An edit of the report goes to the App's comment.
 	f.add(run{env: "e", cell: linux(), results: pass("a::T1")})
 	f.publish(f.build(verification.Inputs{}))
 	all = f.markerComments()
-	if len(all) != 2 || all[0].Body != verification.Marker+"\nall good" || !strings.Contains(all[1].Body, "Passed") {
+	if len(all) != 3 || all[0].Body != verification.Marker+"\nall good" || all[1].Body != "see "+verification.Marker || !strings.Contains(all[2].Body, "Passed") {
 		t.Fatalf("comments = %+v", all)
 	}
 }
@@ -225,6 +260,14 @@ type failing struct {
 	update error
 	create error
 	check  error
+	bot    error
+}
+
+func (f *failing) Bot(ctx context.Context) (string, error) {
+	if f.bot != nil {
+		return "", f.bot
+	}
+	return f.Tracker.Bot(ctx)
 }
 
 func (f *failing) ListComments(ctx context.Context, repo string, n int, since time.Time) ([]github.Comment, error) {
@@ -269,6 +312,7 @@ func TestPublishErrors(t *testing.T) {
 			f.add(run{env: "e", cell: linux(), suite: "lint", results: pass("a::L1")})
 			w.update = boom
 		}, "update the verification comment"},
+		{"bot", func(_ *pubFixture, w *failing) { w.bot = boom }, "App's login"},
 		{"check run", func(_ *pubFixture, w *failing) { w.check = boom }, "check run"},
 		{"evidence", func(f *pubFixture, _ *failing) { f.ev.PutErr = boom }, "store the rendered report"},
 	}
@@ -338,5 +382,19 @@ func TestPublishDeletedArtifactIsRecreated(t *testing.T) {
 	second := f.publish(rep)
 	if second.ArtifactID == first.ArtifactID || second.ArtifactID.String() == "00000000-0000-0000-0000-000000000000" {
 		t.Errorf("artifact after retention = %+v", second)
+	}
+}
+
+// TestPublishCommentDeletedMeanwhile: an edit that finds the comment gone
+// posts it again.
+func TestPublishCommentDeletedMeanwhile(t *testing.T) {
+	f := newPubFixture(t)
+	f.add(run{env: "e", cell: linux(), results: pass("a::T1")})
+	f.publish(f.build(verification.Inputs{}))
+	f.add(run{env: "e", cell: linux(), suite: "lint", results: pass("a::L1")})
+	f.pub.Tracker = &failing{Tracker: f.tr, update: github.ErrNotFound}
+	f.publish(f.build(verification.Inputs{}))
+	if len(f.markerComments()) != 2 {
+		t.Errorf("comments = %+v", f.markerComments())
 	}
 }

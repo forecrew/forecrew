@@ -21,12 +21,9 @@ import (
 // CheckName is the name of the check run of the report.
 const CheckName = "forecrew/verification"
 
-// maxMarkerComments bounds how many comments with the marker are tried when
-// looking for the one the App can edit.
-const maxMarkerComments = 5
-
 // Tracker is what Publisher needs from GitHub; github.Tracker implements it.
 type Tracker interface {
+	Bot(ctx context.Context) (string, error)
 	ListComments(ctx context.Context, repo string, number int, since time.Time) ([]github.Comment, error)
 	CreateComment(ctx context.Context, repo string, number int, body string) (github.Comment, error)
 	UpdateComment(ctx context.Context, repo string, id int64, body string) (github.Comment, error)
@@ -88,9 +85,8 @@ func (p *Publisher) Publish(ctx context.Context, change domain.Change, rep Repor
 	if p.Tracker == nil {
 		return out, nil
 	}
-	if err := p.comment(ctx, change, md); err != nil {
-		return out, err
-	}
+	// The check run comes first: when the comment fails, the sha does not
+	// keep the conclusion of an older build.
 	err = p.Tracker.SetCheckRun(ctx, change.Repo, github.CheckRunInput{
 		Name: CheckName, SHA: rep.SHA, Conclusion: conclusion(rep.Status), Title: rep.Title(),
 		Summary: strings.TrimPrefix(md, Marker+"\n"),
@@ -104,7 +100,16 @@ func (p *Publisher) Publish(ctx context.Context, change domain.Change, rep Repor
 	case err != nil:
 		return out, fmt.Errorf("set the %s check run: %w", CheckName, err)
 	}
-	return out, nil
+	// The comment shows the head of the PR: a report of an older sha leaves
+	// the comment of the newer one alone.
+	head, err := p.Store.Changes().Get(ctx, change.AccountID, change.ID)
+	if err != nil {
+		return out, fmt.Errorf("read the pull request: %w", err)
+	}
+	if !strings.EqualFold(head.HeadSHA, rep.SHA) {
+		return out, nil
+	}
+	return out, p.comment(ctx, change, md)
 }
 
 func (p *Publisher) log() *slog.Logger {
@@ -166,20 +171,22 @@ func (p *Publisher) dropArtifact(ctx context.Context, a *domain.Artifact) {
 	}
 }
 
-// comment updates the comment with the marker, or creates it. Others can post
-// the marker too, so the comments are tried newest first until the App can
-// edit one.
+// comment updates the App's comment that starts with the marker, or creates
+// it. Anyone can post the marker, and a token with write access may be able to
+// edit their comments, so only the bot's own count.
 func (p *Publisher) comment(ctx context.Context, change domain.Change, md string) error {
+	bot, err := p.Tracker.Bot(ctx)
+	if err != nil {
+		return fmt.Errorf("read the App's login: %w", err)
+	}
 	comments, err := p.Tracker.ListComments(ctx, change.Repo, change.Number, time.Time{})
 	if err != nil {
 		return fmt.Errorf("list the comments of %s#%d: %w", change.Repo, change.Number, err)
 	}
-	tried := 0
-	for i := len(comments) - 1; i >= 0 && tried < maxMarkerComments; i-- {
-		if !strings.Contains(comments[i].Body, Marker) {
+	for i := len(comments) - 1; i >= 0; i-- {
+		if comments[i].Author != bot || !strings.HasPrefix(comments[i].Body, Marker) {
 			continue
 		}
-		tried++
 		if comments[i].Body == md {
 			return nil
 		}
@@ -187,9 +194,10 @@ func (p *Publisher) comment(ctx context.Context, change domain.Change, md string
 		if err == nil {
 			return nil
 		}
-		if !errors.Is(err, github.ErrForbidden) && !errors.Is(err, github.ErrNotFound) {
+		if !errors.Is(err, github.ErrNotFound) { // deleted meanwhile: comment anew
 			return fmt.Errorf("update the verification comment: %w", err)
 		}
+		break
 	}
 	if _, err := p.Tracker.CreateComment(ctx, change.Repo, change.Number, md); err != nil {
 		return fmt.Errorf("comment on %s#%d: %w", change.Repo, change.Number, err)
