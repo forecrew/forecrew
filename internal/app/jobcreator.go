@@ -16,6 +16,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/roles"
+	"github.com/forecrew/forecrew/internal/runtime"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -118,13 +119,15 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 			return uuid.Nil(), fmt.Errorf("create %s job: locked_paths: %q must be a glob relative to the repo root, without !, control characters or backticks: %w", req.Role, l, jobs.ErrInvalid)
 		}
 	}
+	needs, allowed := toolboxJob(role, req.Needs)
 	j, err := c.jobs.Create(ctx, domain.SystemActor(req.AccountID, domain.ForecrewdName), domain.Job{
-		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Pool: pool, Role: role.Name, Runtime: role.Runtime, Needs: req.Needs, Resources: role.Resources,
+		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Pool: pool, Role: role.Name, Runtime: role.Runtime, Needs: needs, Resources: role.Resources,
 		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID, ContextManifest: pack.Manifest,
 		Spec: domain.JobSpec{
 			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, WritePaths: writePaths, Model: role.Model,
-			Prompt: pack.Prompt, OutputSchema: role.OutputSchema, AllowedTools: role.AllowedTools, MaxTurns: role.MaxTurns,
+			Prompt: pack.Prompt, OutputSchema: role.OutputSchema, AllowedTools: allowed, MaxTurns: role.MaxTurns,
 			Timeout: domain.Duration(role.Timeout), IncludeRepoFacts: req.IncludeRepoFacts, LockedPaths: req.LockedPaths,
+			Toolbox: role.Toolbox,
 		},
 	})
 	if err != nil {
@@ -151,6 +154,23 @@ func (c *jobCreator) jobRole(ctx context.Context, req workflow.JobRequest) (role
 		return role.ProposalReviewer(reviewer.OutputSchema), nil
 	}
 	return role, nil
+}
+
+// toolboxJob returns the needs and the allowed tools of a job of role: with a
+// toolbox the job needs a worker with Docker and the toolbox's labels, and
+// may use every tool of the toolbox's MCP servers.
+func toolboxJob(role roles.Role, needs []string) (labels, allowed []string) {
+	t := role.Toolbox
+	if t == nil {
+		return needs, role.AllowedTools
+	}
+	labels = append(slices.Clone(needs), "docker")
+	labels = append(labels, t.Needs...)
+	allowed = slices.Clone(role.AllowedTools)
+	for _, s := range t.MCPServers {
+		allowed = append(allowed, runtime.MCPServerTool(s.Name))
+	}
+	return labels, allowed
 }
 
 // councilRole turns role into the job of req's council turn. The pool stays
