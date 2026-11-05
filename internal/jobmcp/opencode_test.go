@@ -21,34 +21,38 @@ func TestEveryPackToolMapsToOpencode(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range slices.Sorted(maps.Keys(defs)) {
-		d := defs[name]
-		tools := d.AllowedTools()
-		rules, err := runtime.OpencodeRules(tools, "/scratch")
-		if err != nil {
-			t.Errorf("%s: %v", name, err)
-			continue
-		}
-		b, err := json.Marshal(rules)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if strings.Contains(string(b), `"ask"`) {
-			t.Errorf("%s: rules ask: %s", name, b)
-		}
-		_, edit := rules["edit"]
-		if want := slices.Contains(tools, "Edit"); edit != want {
-			t.Errorf("%s: edit rule %v, role edits %v", name, edit, want)
-		}
-		if len(d.WritePaths) == 0 && edit {
-			t.Errorf("%s: read-only role can edit", name)
-		}
-		if shell := rules["bash"]; shell != "allow" && slices.Contains(tools, "Bash") {
-			t.Errorf("%s: bash = %v", name, shell)
-		}
-		for _, tool := range tools {
-			if gateway, ok := runtime.JobMCPToolOf(tool); ok && rules[runtime.JobMCPServer+"_"+gateway] != "allow" {
-				t.Errorf("%s: gateway tool %s is not allowed: %s", name, gateway, b)
-			}
+		checkOpencodeRules(t, name, defs[name])
+	}
+}
+
+func checkOpencodeRules(t *testing.T, name string, d roles.Definition) {
+	t.Helper()
+	tools := d.AllowedTools()
+	rules, err := runtime.OpencodeRules(tools, "/scratch")
+	if err != nil {
+		t.Errorf("%s: %v", name, err)
+		return
+	}
+	b, err := json.Marshal(rules)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), `"ask"`) {
+		t.Errorf("%s: rules ask: %s", name, b)
+	}
+	_, edit := rules["edit"]
+	if want := slices.Contains(tools, "Edit"); edit != want {
+		t.Errorf("%s: edit rule %v, role edits %v", name, edit, want)
+	}
+	if len(d.WritePaths) == 0 && edit {
+		t.Errorf("%s: read-only role can edit", name)
+	}
+	if shell := rules["bash"]; shell != "allow" && slices.Contains(tools, "Bash") {
+		t.Errorf("%s: bash = %v", name, shell)
+	}
+	for _, tool := range tools {
+		if gateway, ok := runtime.JobMCPToolOf(tool); ok && rules[runtime.JobMCPServer+"_"+gateway] != "allow" {
+			t.Errorf("%s: gateway tool %s is not allowed: %s", name, gateway, b)
 		}
 	}
 }
