@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # The browser toolbox (browser.yaml): Playwright's MCP server and Chromium on
 # top of the agent base image. Versions are exact in browser/package.json;
 # package-lock.json pins every dependency with its integrity hash. Build

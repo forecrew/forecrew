@@ -368,8 +368,14 @@ base makes the CLIs one pinned, tested piece, at the price that an arbitrary
   `FORECREW_JOB_MCP_TOKEN`, `FORECREW_EVIDENCE_DIR`, the locale and time zone.
   The values of credentials travel in the environment of the docker client and
   the command line only names them (`-e NAME`), so they are not in the process
-  list. A credential named like a variable of the docker client (`PATH`,
-  `HOME`, `DOCKER_*`) fails the job. The repo token and the worker's own
+  list. They are part of the container's configuration, though: anyone who can
+  use the Docker daemon sees them in `docker inspect` while the container
+  exists (it is removed when the agent ends, before evidence is uploaded).
+  The runtime's key may also come from the worker's own environment
+  (`credential_env` empty, config.md): the worker forwards that one variable
+  (`ANTHROPIC_API_KEY` or `CODEX_API_KEY`) into the container too. A credential whose name the docker client or the loader reads
+  (`DOCKER_*`, `LD_*`, `LC_*`, `*_PROXY`, `PATH`, `HOME`, `TMPDIR`, `XDG_RUNTIME_DIR` and the
+  other variables of the worker's allowlist) fails the job, set or not. The repo token and the worker's own
   environment never enter the container;
 - is on a network of its own for the job (created and removed with the
   container, which is also removed on cancel or a crash like environment
@@ -389,7 +395,12 @@ which the worker maps to the host's gateway with `--add-host`
 the Docker bridge reaches (not only `127.0.0.1`), and anything else listening
 on the host's non-loopback addresses is reachable too, so use a real
 `server_url` outside of development. A `server_url` that is a name or address
-the container can resolve is used as is. The worker does not rewrite https
+the container can resolve is used as is.
+
+Whether or not that rewrite applies, a container can always reach the host's
+ports that are bound to all addresses (`0.0.0.0`, `[::]`) through the bridge
+gateway. Do not bind an unauthenticated service on the worker's machine to all
+addresses while it runs toolbox jobs. The worker does not rewrite https
 certificates: a private CA is not trusted in the container.
 
 **MCP servers.** The toolbox's `mcp_servers` are stdio servers the agent CLI

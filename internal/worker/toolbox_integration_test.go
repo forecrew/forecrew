@@ -32,6 +32,9 @@ func toolboxWorker(t *testing.T, sc runtime.Script) *testEnv {
 	if out, err := exec.Command("docker", "version", "--format", "{{.Server.Version}}").CombinedOutput(); err != nil { //nolint:gosec // fixed command
 		t.Skipf("no Docker engine: %v: %s", err, out)
 	}
+	old := toolboxImageRepo
+	toolboxImageRepo = "t48-toolbox"
+	t.Cleanup(func() { toolboxImageRepo = old })
 	e := newEnv(t, scriptAdapter(t, sc))
 	files, err := fs.Sub(forecrew.Files, "packs/toolboxes")
 	if err != nil {
