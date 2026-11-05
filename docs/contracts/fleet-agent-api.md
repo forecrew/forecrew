@@ -119,12 +119,21 @@ Response `200`:
 
 Long-polls the machines that should exist here, and records the contact.
 
-Request: `{"generation": 41}`, the last generation seen; absent or 0 on the
-first poll.
+Request:
+
+```json
+{"generation": 41, "have": ["018f..."]}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `generation` | The last generation seen; absent or 0 on the first poll. |
+| `have` | Every machine the agent has or is starting: from the moment it receives a machine until `Create` fails or the machine is destroyed. It is how forecrewd knows not to send a new token. |
 
 forecrewd answers at once when the provider's desired machines changed since
-`generation`, otherwise it waits up to 30 s and answers with the same list. The
-agent polls again right away; its HTTP client timeout must be at least 45 s.
+`generation`, or when a `requested` machine is not in `have`. Otherwise it waits
+up to 30 s and answers with the same list. The agent polls again right away; its
+HTTP client timeout must be at least 45 s.
 
 Response `200`:
 
@@ -152,11 +161,15 @@ Response `200`:
 - destroys a machine it has that is **not** in the list, and reports it;
 - changes nothing for a machine it has that is in the list.
 
-`bootstrap` is present only on machines still `requested`. forecrewd keeps only
-the hash, so each poll that returns a `requested` machine mints a new token and
-replaces the old one. That is why `Create` restarts a machine that exists: a
-retry after a crash must boot with the token just given. `deadline` is absent
-until the machine has a job. A `paused` provider gets no `requested` machines.
+`bootstrap` is present only on a machine that is `requested` **and not in
+`have`**. forecrewd keeps only the hash, so that delivery mints a token and
+replaces the machine's old one; nothing else does. A `Create` that takes 20 s
+therefore keeps its token through every poll on the way, because the agent lists
+the machine in `have` from the moment it receives it. When `Create` fails the
+agent drops it from `have`, and the next poll delivers a new token. That is why
+`Create` restarts a machine that exists: a retry must boot with the token just
+given. `deadline` is absent until the machine has a job. A `paused` provider
+gets no `requested` machines.
 
 ## POST /fleet/v1/machines/{machine_id}/state
 
@@ -202,11 +215,13 @@ forecrewd compares it with its machines and answers:
   list is failed with the error `gone from the provider`. A `requested` machine
   missing from it is fine: the next poll creates it.
 - A `requested` machine that is in the list moves to `booting` with that
-  `external_id`: the agent crashed before reporting it, and the machine keeps
-  the token it booted with.
+  `external_id`: the agent crashed before reporting it. Its token stands,
+  because no poll since has delivered a new one.
 
-The agent reconciles before its first poll after `register`, so a machine it
-started before a crash is found rather than started again with a new token.
+An agent that restarts has an empty `have`, so it reconciles before its first
+poll after `register`: a machine it started before a crash is `booting` by then,
+gets no `bootstrap`, and keeps the token it booted with. Only a machine the
+provider does not list is delivered again.
 
 ## Sequence
 

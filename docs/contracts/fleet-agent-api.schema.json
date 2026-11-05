@@ -154,6 +154,14 @@
         "generation": {
           "type": "integer",
           "minimum": 0
+        },
+        "have": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "description": "Every machine the agent has or is starting."
         }
       }
     },
