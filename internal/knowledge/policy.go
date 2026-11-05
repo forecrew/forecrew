@@ -217,25 +217,10 @@ func (p Policy) Target(section, file, role string) (Target, error) {
 	}
 	t := Target{Provider: s.Provider, Repo: p.Providers[s.Provider].Kind == domain.ProviderKindRepo, Sections: []string{section}}
 	if t.Repo {
-		switch {
-		case strings.EqualFold(file, PolicyFile):
-			return Target{}, fmt.Errorf("%s changes only through request_access and a human: %w", PolicyFile, ErrRefused)
-		case strings.HasPrefix(strings.ToLower(file), GeneratedPrefix):
-			return Target{}, fmt.Errorf("path %q is under %s, which forecrewd keeps: %w", file, GeneratedPrefix, ErrRefused)
-		case !domain.RelativePath(file) || path.Clean(file) != file:
-			return Target{}, fmt.Errorf("path %q must be a clean path relative to the repo root: %w", file, ErrRefused)
-		case !Indexable(s.Paths, file, 0):
-			return Target{}, fmt.Errorf("path %q is not an entry of section %s: %w", file, section, ErrRefused)
+		if err := checkRepoPath(section, s, file); err != nil {
+			return Target{}, err
 		}
-		for _, name := range slices.Sorted(maps.Keys(p.Sections)) {
-			o := p.Sections[name]
-			if name == section || Reserved(name) || p.Providers[o.Provider].Kind != domain.ProviderKindRepo {
-				continue
-			}
-			if Indexable(o.Paths, file, 0) || (o.Protected && foldedMatch(o.Paths, file)) {
-				t.Sections = append(t.Sections, name)
-			}
-		}
+		t.Sections = append(t.Sections, p.alsoHolding(section, file)...)
 	}
 	for _, name := range t.Sections {
 		o := p.Sections[name]
@@ -251,6 +236,36 @@ func (p Policy) Target(section, file, role string) (Target, error) {
 	slices.Sort(t.Owners)
 	t.Owners = slices.Compact(t.Owners)
 	return t, nil
+}
+
+// checkRepoPath refuses a repo path no proposal to section s may touch.
+func checkRepoPath(section string, s Section, file string) error {
+	switch {
+	case strings.EqualFold(file, PolicyFile):
+		return fmt.Errorf("%s changes only through request_access and a human: %w", PolicyFile, ErrRefused)
+	case strings.HasPrefix(strings.ToLower(file), GeneratedPrefix):
+		return fmt.Errorf("path %q is under %s, which forecrewd keeps: %w", file, GeneratedPrefix, ErrRefused)
+	case !domain.RelativePath(file) || path.Clean(file) != file:
+		return fmt.Errorf("path %q must be a clean path relative to the repo root: %w", file, ErrRefused)
+	case !Indexable(s.Paths, file, 0):
+		return fmt.Errorf("path %q is not an entry of section %s: %w", file, section, ErrRefused)
+	}
+	return nil
+}
+
+// alsoHolding returns the other repo sections file belongs to, sorted.
+func (p Policy) alsoHolding(section, file string) []string {
+	var out []string
+	for _, name := range slices.Sorted(maps.Keys(p.Sections)) {
+		o := p.Sections[name]
+		if name == section || Reserved(name) || p.Providers[o.Provider].Kind != domain.ProviderKindRepo {
+			continue
+		}
+		if Indexable(o.Paths, file, 0) || (o.Protected && foldedMatch(o.Paths, file)) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // Has reports whether role holds level (read, propose or write) on section.
