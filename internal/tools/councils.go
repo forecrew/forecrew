@@ -113,7 +113,11 @@ func (s *Service) GetCouncil(ctx context.Context, by domain.Actor, in mcp.Counci
 	for i, k := range all {
 		d.Contributions[i] = mcp.ContributionInfo{CouncilContribution: k, Member: councils.MemberName(k.Role, k.Runtime)}
 	}
-	if c.GateID != uuid.Nil() {
+	readsGates, err := s.readsGates(ctx, by, c.ProjectID)
+	if err != nil {
+		return mcp.CouncilDetail{}, err
+	}
+	if c.GateID != uuid.Nil() && readsGates {
 		g, err := s.cfg.Store.Gates().Get(ctx, by.AccountID, c.GateID)
 		if err != nil {
 			return mcp.CouncilDetail{}, err

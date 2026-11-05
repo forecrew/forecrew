@@ -284,6 +284,33 @@ func TestGoalLeavesGatesOutWithoutGateRead(t *testing.T) {
 	}
 }
 
+func TestCouncilLeavesItsGateOutWithoutGateRead(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	info, err := f.svc.StartCouncil(ctx, f.by, mcp.StartCouncilInput{Project: "app", Question: "q", Roles: []string{"architect", "ux"}})
+	must(t, err)
+	g := f.gateOn(t, domain.GateCouncilDecision, f.project.ID)
+	c := info.Council
+	c.GateID = g.ID
+	must(t, f.st.Councils().Update(ctx, &c))
+	role := domain.Role{AccountID: f.account.ID, Name: "readers", Scope: projectScope, Permissions: []domain.Permission{domain.PermProjectRead}, Custom: true}
+	must(t, f.st.Roles().Create(ctx, &role))
+	by, id := f.member(t, "", "", uuid.Nil())
+	must(t, f.st.RoleBindings().Create(ctx, &domain.RoleBinding{AccountID: f.account.ID, SubjectKind: domain.SubjectUser, SubjectID: id, RoleID: role.ID, ProjectID: f.project.ID, CreatedBy: "user:op"}))
+
+	d, err := f.svc.GetCouncil(ctx, by, mcp.CouncilRefInput{Council: info.Ref})
+	must(t, err)
+	if d.Gate != nil {
+		t.Fatalf("gate = %+v", d.Gate)
+	}
+	viewer, _ := f.member(t, projectScope, domain.RoleViewer, f.project.ID)
+	d, err = f.svc.GetCouncil(ctx, viewer, mcp.CouncilRefInput{Council: info.Ref})
+	must(t, err)
+	if d.Gate == nil || d.Gate.ID != g.ID {
+		t.Fatalf("gate = %+v", d.Gate)
+	}
+}
+
 func TestServiceAccountNeverResolvesAGate(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()

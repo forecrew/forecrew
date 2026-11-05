@@ -268,9 +268,15 @@ func (s *Service) GetGoal(ctx context.Context, by domain.Actor, in mcp.GoalRefIn
 	return d, nil
 }
 
+// readsGates reports whether by may see the gates of a project, for views of
+// other objects that show theirs.
+func (s *Service) readsGates(ctx context.Context, by domain.Actor, projectID uuid.UUID) (bool, error) {
+	return s.authz.Can(ctx, by, domain.PermGateRead, authz.Project(by.AccountID, projectID))
+}
+
 // goalGates returns the gates of a goal; none for a caller without gate.read.
 func (s *Service) goalGates(ctx context.Context, by domain.Actor, g domain.Goal) ([]mcp.GateInfo, error) {
-	can, err := s.authz.Can(ctx, by, domain.PermGateRead, authz.Project(by.AccountID, g.ProjectID))
+	can, err := s.readsGates(ctx, by, g.ProjectID)
 	if err != nil || !can {
 		return []mcp.GateInfo{}, err
 	}
