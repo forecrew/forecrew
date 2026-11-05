@@ -33,6 +33,21 @@ type fakeS3 struct {
 
 func newFakeS3() *fakeS3 { return &fakeS3{objects: map[string][]byte{}, types: map[string]string{}} }
 
+// set changes the fake's state under its lock: a listing the client abandoned
+// early can still be served in the background.
+func (f *fakeS3) set(fn func(*fakeS3)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	fn(f)
+}
+
+// object returns the stored body of key and how many objects are stored.
+func (f *fakeS3) object(key string) (string, int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return string(f.objects[key]), len(f.objects)
+}
+
 func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -175,7 +190,7 @@ func TestS3RoundTrip(t *testing.T) {
 	if err := s.Put(ctx, key, strings.NewReader("<xml/>"), 6, "text/xml"); err != nil {
 		t.Fatal(err)
 	}
-	if got := string(srv.objects["bkt/"+key]); got != "<xml/>" {
+	if got, _ := srv.object("bkt/" + key); got != "<xml/>" {
 		t.Fatalf("stored %q", got)
 	}
 	rc, err := s.Get(ctx, key)
@@ -201,8 +216,9 @@ func TestS3RoundTrip(t *testing.T) {
 func TestS3RefusesUnknownSize(t *testing.T) {
 	srv := newFakeS3()
 	s := newTestS3(t, srv)
-	if err := s.Put(t.Context(), "k", strings.NewReader("x"), -1, ""); !errors.Is(err, ErrUnknownSize) || len(srv.objects) != 0 {
-		t.Fatalf("err = %v, objects %d", err, len(srv.objects))
+	err := s.Put(t.Context(), "k", strings.NewReader("x"), -1, "")
+	if _, n := srv.object(""); !errors.Is(err, ErrUnknownSize) || n != 0 {
+		t.Fatalf("err = %v, objects %d", err, n)
 	}
 }
 
@@ -210,7 +226,7 @@ func TestS3Errors(t *testing.T) {
 	srv := newFakeS3()
 	s := newTestS3(t, srv)
 	ctx := t.Context()
-	srv.fail = http.StatusForbidden // not retried by the client
+	srv.set(func(f *fakeS3) { f.fail = http.StatusForbidden }) // not retried by the client
 	if err := s.Put(ctx, "k", strings.NewReader("x"), 1, ""); err == nil {
 		t.Error("put: no error")
 	}
@@ -279,7 +295,7 @@ func TestS3List(t *testing.T) {
 
 	// The server cuts listings into pages of 2; List still honours its limit
 	// and reads across pages.
-	srv.pageMax = 2
+	srv.set(func(f *fakeS3) { f.pageMax = 2 })
 	got, err = s.List(ctx, "jobs/", "", 3)
 	if err != nil || len(got) != 3 || got[2].Key != "jobs/b/1" {
 		t.Fatalf("limit 3 over pages of 2 = %+v, %v", got, err)
@@ -287,7 +303,7 @@ func TestS3List(t *testing.T) {
 	if got, err := s.List(ctx, "", "", 10); err != nil || len(got) != 4 {
 		t.Fatalf("all over pages of 2 = %+v, %v", got, err)
 	}
-	srv.listFail = true
+	srv.set(func(f *fakeS3) { f.listFail = true })
 	if _, err := s.List(ctx, "jobs/", "", 10); err == nil {
 		t.Fatal("a failing listing was accepted")
 	}
