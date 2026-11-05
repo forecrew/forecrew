@@ -49,7 +49,7 @@ steps:
       - id: merge
         type: action
         action: github.merge_pr
-        with: {repo: '${inputs.repo}', number: '${item}'}
+        with: {repo: '${inputs.repo}', number: '${item}', sha: '${steps.send.output.head_sha}'}
         on_failure: escalate
   # CODEOWNERS reviewers approve on GitHub and a human merges.
   - id: followed
