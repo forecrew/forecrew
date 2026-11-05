@@ -92,13 +92,11 @@ func (s *S3) Delete(ctx context.Context, key string) error {
 
 // List implements Store.
 func (s *S3) List(ctx context.Context, prefix, after string, limit int) ([]Object, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel() // stops the listing once limit objects are read
 	out := []Object{}
 	if limit <= 0 {
 		return out, nil
 	}
-	for o := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{
+	for o := range s.client.ListObjectsIter(ctx, s.bucket, minio.ListObjectsOptions{
 		Prefix: prefix, Recursive: true, StartAfter: after, MaxKeys: limit,
 	}) {
 		if o.Err != nil {
@@ -108,6 +106,11 @@ func (s *S3) List(ctx context.Context, prefix, after string, limit int) ([]Objec
 		if len(out) == limit {
 			break
 		}
+	}
+	// The iterator ends quietly on a cancelled context; a short list must
+	// still mean the listing is complete (Store.List).
+	if len(out) < limit && ctx.Err() != nil {
+		return nil, fmt.Errorf("list evidence: %w", ctx.Err())
 	}
 	return out, nil
 }
