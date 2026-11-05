@@ -16,14 +16,14 @@ import (
 
 type jobRepo struct{ db dbtx }
 
-var jobCols = `id, account_id, project_id, number, status, kind, pool, role, runtime, needs, ` +
+var jobCols = `id, account_id, project_id, number, status, kind, pool, role, runtime, needs, resources, ` +
 	cuuid("goal_id") + `, ` + cuuid("spec_id") + `, ` + cuuid("task_id") + `, spec, attempts, max_attempts, ` +
 	cuuid("worker_id") + `, ` + ctime("run_after") + `, ` + ctime("lease_expires_at") + `, ` + ctime("started_at") + `, ` + ctime("finished_at") + `, output, ` +
 	ctext("head_sha") + `, ` + ctext("error") + `, usage, cost_usd, created_at, updated_at`
 
 func scanJob(row pgx.Row) (j domain.Job, err error) {
-	var spec, usage, output []byte
-	err = row.Scan(&j.ID, &j.AccountID, &j.ProjectID, &j.Number, &j.Status, &j.Kind, &j.Pool, &j.Role, &j.Runtime, &j.Needs,
+	var spec, usage, output, resources []byte
+	err = row.Scan(&j.ID, &j.AccountID, &j.ProjectID, &j.Number, &j.Status, &j.Kind, &j.Pool, &j.Role, &j.Runtime, &j.Needs, &resources,
 		&j.GoalID, &j.SpecID, &j.TaskID, &spec, &j.Attempts, &j.MaxAttempts,
 		&j.WorkerID, &j.RunAfter, &j.LeaseExpiresAt, &j.StartedAt, &j.FinishedAt, &output,
 		&j.HeadSHA, &j.Error, &usage, &j.CostUSD, &j.CreatedAt, &j.UpdatedAt)
@@ -37,6 +37,9 @@ func scanJob(row pgx.Row) (j domain.Job, err error) {
 	}
 	if err := json.Unmarshal(usage, &j.Usage); err != nil {
 		return j, fmt.Errorf("decode job usage: %w", err)
+	}
+	if err := json.Unmarshal(resources, &j.Resources); err != nil {
+		return j, fmt.Errorf("decode job resources: %w", err)
 	}
 	return j, nil
 }
@@ -58,6 +61,10 @@ func (r jobRepo) Create(ctx context.Context, j *domain.Job) error {
 	if err != nil {
 		return fmt.Errorf("encode job usage: %w", err)
 	}
+	resources, err := json.Marshal(j.Resources)
+	if err != nil {
+		return fmt.Errorf("encode job resources: %w", err)
+	}
 	return inTx(ctx, r.db, func(tx dbtx) error {
 		err := owned(ctx, tx, j.AccountID, ref{"projects", j.ProjectID}, ref{"goals", j.GoalID}, ref{"specs", j.SpecID}, ref{"tasks", j.TaskID})
 		if err != nil {
@@ -69,10 +76,10 @@ func (r jobRepo) Create(ctx context.Context, j *domain.Job) error {
 		}
 		j.Number = n
 		return mapErr(tx.QueryRow(ctx, `INSERT INTO jobs (id, account_id, project_id, number, status, role, runtime, needs, goal_id, spec_id, task_id,
-				spec, attempts, max_attempts, usage, cost_usd, kind, pool)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING created_at, updated_at`,
+				spec, attempts, max_attempts, usage, cost_usd, kind, pool, resources)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING created_at, updated_at`,
 			j.ID, j.AccountID, j.ProjectID, j.Number, string(j.Status), j.Role, j.Runtime, j.Needs,
-			opt(j.GoalID), opt(j.SpecID), opt(j.TaskID), spec, j.Attempts, j.MaxAttempts, usage, j.CostUSD, string(j.Kind), j.Pool).Scan(&j.CreatedAt, &j.UpdatedAt))
+			opt(j.GoalID), opt(j.SpecID), opt(j.TaskID), spec, j.Attempts, j.MaxAttempts, usage, j.CostUSD, string(j.Kind), j.Pool, resources).Scan(&j.CreatedAt, &j.UpdatedAt))
 	})
 }
 

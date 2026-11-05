@@ -242,6 +242,8 @@ export interface Worker {
   name: string
   /** Pool the worker leases jobs from, set by an admin; empty means build. */
   pool: string
+  /** The worker of a fleet machine; false on every static worker. */
+  ephemeral: boolean
   labels: string[]
   version: string
   max_jobs: number
