@@ -64,10 +64,10 @@ func (p Pack) seatOf(role string, i int) Seat {
 	if j := slices.IndexFunc(p.Members, func(m Seat) bool { return m.Role == role }); j >= 0 {
 		return p.Members[j]
 	}
-	first := i % len(adapters)
+	first := i % len(newSeatAdapters)
 	return Seat{
 		Role: role, Priority: role, Focus: "the question as the " + role + " sees it",
-		Runtimes: slices.Concat(adapters[first:], adapters[:first]),
+		Runtimes: slices.Concat(newSeatAdapters[first:], newSeatAdapters[:first]),
 	}
 }
 

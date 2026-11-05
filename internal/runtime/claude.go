@@ -116,6 +116,9 @@ func (c *claudeCode) Run(ctx context.Context, spec RunSpec, emit func(domain.Job
 		binary: c.cfg.binary("claude"), args: claudeArgs(spec), stdin: spec.Prompt,
 		env: []string{"CLAUDE_CONFIG_DIR=" + configDir},
 	}
+	if spec.Endpoint != nil {
+		r.env = append(r.env, "ANTHROPIC_BASE_URL="+spec.Endpoint.BaseURL)
+	}
 	return runCLI(ctx, c.cfg, spec, r, &claudeParser{tools: map[string]string{}}, emit)
 }
 

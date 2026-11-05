@@ -232,7 +232,7 @@ func New(d Deps) (*App, error) {
 		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Search: search, Notes: notes, Logger: log, Version: d.Version, Now: d.Now,
 	})
 	workers := workerapi.New(workerapi.Config{
-		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Pools: cfg.Pools, Logger: log,
+		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Endpoint: workerapi.RuntimeEndpoint(cfg), Pools: cfg.Pools, Logger: log,
 		Evidence: ev, MaxArtifactSize: evidenceMaxSize(cfg), MaxTestResultsSize: cfg.MaxTestResultsSize,
 		JobMCPURL: jobMCPURL(cfg), Attachments: jobGateway.Attachments(),
 	})

@@ -1,9 +1,25 @@
 package domain
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 )
+
+// providerModelRE is the provider/model form of an opencode model. Braces
+// are refused because opencode expands {env:...} and {file:...} in the inline
+// configuration the name ends up in.
+var providerModelRE = regexp.MustCompile(`^([a-zA-Z0-9][a-zA-Z0-9._-]*)/([^\s{}]+)$`)
+
+// SplitProviderModel splits a model in provider/model form, for example
+// deepseek/deepseek-chat. The model part may hold further slashes.
+func SplitProviderModel(s string) (provider, model string, ok bool) {
+	m := providerModelRE.FindStringSubmatch(s)
+	if m == nil {
+		return "", "", false
+	}
+	return m[1], m[2], true
+}
 
 // Validate checks that the spec fits its kind (docs/contracts/job-spec.md):
 // an agent job has a runtime, model and prompt and none of the command

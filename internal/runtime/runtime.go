@@ -1,5 +1,5 @@
 // Package runtime defines the adapter between the worker and an agent
-// runtime CLI (Claude Code headless, Codex CLI), plus a scripted adapter that
+// runtime CLI (Claude Code headless, Codex CLI, opencode), plus a scripted adapter that
 // replays a script file for end-to-end tests. internal/testkit has an
 // in-memory fake for unit tests.
 package runtime
@@ -42,6 +42,9 @@ type RunSpec struct {
 	// EvidenceDir is a scratch directory outside the checkout the agent may
 	// write evidence files to (also in Env[EvidenceDirEnv]); empty means none.
 	EvidenceDir string
+	// Endpoint is the custom model endpoint of the runtime; nil means the
+	// vendor's own.
+	Endpoint *domain.Endpoint
 }
 
 // EvidenceDirEnv is the environment variable holding the scratch directory.
@@ -106,7 +109,7 @@ type Result struct {
 
 // Adapter runs one kind of runtime CLI.
 type Adapter interface {
-	// Name is the adapter name used in config: claude-code or codex.
+	// Name is the adapter name used in config: claude-code, codex or opencode.
 	Name() string
 	// Detect returns the CLI version, or ErrNotInstalled.
 	Detect(ctx context.Context) (string, error)

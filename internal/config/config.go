@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
@@ -46,6 +47,7 @@ const (
 const (
 	AdapterClaudeCode = "claude-code"
 	AdapterCodex      = "codex"
+	AdapterOpencode   = "opencode"
 )
 
 // Tier is a model tier.
@@ -57,6 +59,9 @@ const (
 	TierStrong Tier = "strong"
 	TierBest   Tier = "best"
 )
+
+// adapters are the runtime adapters a runtime may use.
+var adapters = []string{AdapterClaudeCode, AdapterCodex, AdapterOpencode}
 
 func (t Tier) valid() bool { return t == TierFast || t == TierStrong || t == TierBest }
 
@@ -130,13 +135,29 @@ func (g GitHub) Allowed(login string) bool {
 
 // Runtime is an agent runtime workers can run.
 type Runtime struct {
-	Adapter string `yaml:"adapter"` // claude-code or codex
+	Adapter string `yaml:"adapter"` // claude-code, codex or opencode
 	Vendor  string `yaml:"vendor"`  // model vendor, keys model_tiers, e.g. anthropic
 	// CredentialEnv names the environment variables forecrewd reads and
 	// passes to the worker in the job spec env.
 	CredentialEnv []string `yaml:"credential_env"`
 	// Credentials holds the values of CredentialEnv, read from the environment.
 	Credentials map[string]string `yaml:"-"`
+	// BaseURL, when set, sends the runtime's model calls to a custom
+	// endpoint instead of the vendor's.
+	BaseURL string `yaml:"base_url"`
+}
+
+// Endpoint returns the custom model endpoint of the runtime, nil when it has
+// none. The first credential_env holds the endpoint's key.
+func (r Runtime) Endpoint() *domain.Endpoint {
+	if r.BaseURL == "" {
+		return nil
+	}
+	e := &domain.Endpoint{BaseURL: r.BaseURL}
+	if len(r.CredentialEnv) > 0 {
+		e.KeyEnv = r.CredentialEnv[0]
+	}
+	return e
 }
 
 // Role assigns a runtime and model tier to a role.
@@ -294,8 +315,13 @@ func (c *Config) validateRuntimes(p *problems) {
 		if !runtimeName.MatchString(name) {
 			p.addf("runtimes.%s: name must match %s", name, runtimeName)
 		}
-		if rt.Adapter != AdapterClaudeCode && rt.Adapter != AdapterCodex {
-			p.addf("runtimes.%s.adapter must be %s or %s, got %q", name, AdapterClaudeCode, AdapterCodex, rt.Adapter)
+		if !slices.Contains(adapters, rt.Adapter) {
+			p.addf("runtimes.%s.adapter must be one of %s, got %q", name, strings.Join(adapters, ", "), rt.Adapter)
+		}
+		if rt.BaseURL != "" {
+			if err := checkBaseURL(rt.BaseURL); err != nil {
+				p.addf("runtimes.%s.base_url: %v", name, err)
+			}
 		}
 		if rt.Vendor == "" {
 			p.addf("runtimes.%s.vendor must be set", name)
@@ -310,7 +336,56 @@ func (c *Config) validateRuntimes(p *problems) {
 		if !tier.valid() {
 			p.addf("model_tiers.%s: tier must be fast, strong or best", tier)
 		}
+		c.validateOpencodeModels(tier, p)
 	}
+}
+
+// validateOpencodeModels checks the tier's models of the vendors opencode
+// runtimes use: opencode names a model provider/model.
+func (c *Config) validateOpencodeModels(tier Tier, p *problems) {
+	for _, vendor := range sortedKeys(c.ModelTiers[tier]) {
+		model := c.ModelTiers[tier][vendor]
+		opencode := slices.ContainsFunc(sortedKeys(c.Runtimes), func(name string) bool {
+			rt := c.Runtimes[name]
+			return rt.Adapter == AdapterOpencode && rt.Vendor == vendor
+		})
+		if _, _, ok := domain.SplitProviderModel(model); opencode && !ok {
+			p.addf("model_tiers.%s.%s: an opencode model must be in provider/model form, got %q", tier, vendor, model)
+		}
+	}
+}
+
+// checkBaseURL checks a custom endpoint: repo code and API keys go there, so
+// it must be https, or http only to this machine or a private network. An IP
+// address or localhost is needed for that: a name could resolve anywhere.
+// Credentials in the URL would end up in logs, and braces would be expanded
+// by opencode's inline configuration.
+func checkBaseURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return errors.New("not a valid URL")
+	}
+	if (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" {
+		return fmt.Errorf("must be an absolute http(s) URL, got %q", raw)
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(raw, "{}") {
+		return errors.New("must not hold credentials, a query, a fragment or braces")
+	}
+	if u.Scheme == "http" && !localHost(u.Hostname()) {
+		return fmt.Errorf("http is only allowed to a loopback or private address, got %q", u.Hostname())
+	}
+	return nil
+}
+
+// localHost reports whether host is localhost, or an IP address that is
+// loopback or private. Link-local addresses are not: cloud metadata lives
+// there.
+func localHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
 }
 
 func (c *Config) validateRoles(p *problems) {

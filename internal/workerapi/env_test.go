@@ -58,3 +58,27 @@ func TestNewDefaults(t *testing.T) {
 		t.Fatalf("config = %+v", s.cfg)
 	}
 }
+
+func TestRuntimeEndpoint(t *testing.T) {
+	cfg := &config.Config{
+		Runtimes: map[string]config.Runtime{
+			"local":  {Adapter: config.AdapterOpencode, BaseURL: "http://localhost:11434/v1"},
+			"remote": {Adapter: config.AdapterOpencode, BaseURL: "https://api.example.com/v1", CredentialEnv: []string{"KEY", "OTHER"}},
+			"claude": {Adapter: config.AdapterClaudeCode},
+		},
+		Roles: map[string]config.Role{"developer": {Runtime: "remote"}},
+	}
+	endpoint := RuntimeEndpoint(cfg)
+	if e := endpoint(domain.Job{Role: "developer", Runtime: config.AdapterOpencode}); e == nil || *e != (domain.Endpoint{BaseURL: "https://api.example.com/v1", KeyEnv: "KEY"}) {
+		t.Errorf("role runtime: %+v", e)
+	}
+	if e := endpoint(domain.Job{Role: "reviewer", Runtime: config.AdapterOpencode}); e == nil || e.BaseURL != "http://localhost:11434/v1" || e.KeyEnv != "" {
+		t.Errorf("first runtime of the adapter: %+v", e)
+	}
+	if e := endpoint(domain.Job{Role: "developer", Runtime: config.AdapterClaudeCode}); e != nil {
+		t.Errorf("no base_url: %+v", e)
+	}
+	if e := endpoint(domain.Job{Role: "developer", Runtime: "other"}); e != nil {
+		t.Errorf("unknown adapter: %+v", e)
+	}
+}

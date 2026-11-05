@@ -252,3 +252,15 @@ func TestCodexNeedsItsKey(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestCodexEndpoint(t *testing.T) {
+	spec := codexSpec()
+	spec.Endpoint = &domain.Endpoint{BaseURL: "https://proxy.example.com/v1", KeyEnv: "CODEX_API_KEY"}
+	args := codexArgs(spec)
+	if i := slices.Index(args, `openai_base_url="https://proxy.example.com/v1"`); i < 1 || args[i-1] != "-c" {
+		t.Fatalf("args = %q", args)
+	}
+	if slices.ContainsFunc(codexArgs(codexSpec()), func(a string) bool { return strings.Contains(a, "openai_base_url") }) {
+		t.Error("base URL set without an endpoint")
+	}
+}

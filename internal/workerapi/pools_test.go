@@ -118,3 +118,26 @@ func TestPoolLabelIsJustALabel(t *testing.T) {
 		t.Fatalf("worker = %+v, %v", stored, err)
 	}
 }
+
+// TestEndpointGoesWithTheLease: a pool that withholds the runtime's keys does
+// not withhold its endpoint, or the job would go to the vendor with a key of
+// the worker's own. The endpoint is not stored.
+func TestEndpointGoesWithTheLease(t *testing.T) {
+	cfg := poolConfig()
+	cfg.Runtimes["local"] = config.Runtime{Adapter: config.AdapterOpencode, BaseURL: "https://models.example.com/v1",
+		CredentialEnv: []string{"LOCAL_KEY"}, Credentials: map[string]string{"LOCAL_KEY": "sk-local"}}
+	e := newEnv(t, withPools(cfg), func(c *Config) { c.Endpoint = RuntimeEndpoint(cfg) })
+	_, token := e.addPoolWorker(t, "w", domain.PoolControl)
+	j := e.queue(t, domain.Job{Pool: domain.PoolControl, Role: "reviewer", Runtime: config.AdapterOpencode})
+	status, lease := e.poll(t, token, "runtime:opencode")
+	if status != http.StatusOK || lease.Job.JobID != j.ID {
+		t.Fatalf("poll: status %d, lease %+v", status, lease)
+	}
+	want := domain.Endpoint{BaseURL: "https://models.example.com/v1", KeyEnv: "LOCAL_KEY"}
+	if got := lease.Job; got.Env != nil || got.Endpoint == nil || *got.Endpoint != want {
+		t.Fatalf("env %v, endpoint %+v", got.Env, got.Endpoint)
+	}
+	if stored := e.job(t, j.ID); stored.Spec.Endpoint != nil {
+		t.Fatalf("stored endpoint %+v", stored.Spec.Endpoint)
+	}
+}

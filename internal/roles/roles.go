@@ -23,7 +23,7 @@ var ErrUnknownRole = errors.New("unknown role")
 // Role is a resolved role.
 type Role struct {
 	Name    string
-	Runtime string // adapter of the role's configured runtime: claude-code or codex
+	Runtime string // adapter of the role's configured runtime: claude-code, codex or opencode
 	Model   string // model of the role's tier for the runtime's vendor
 	// WritePaths are doublestar globs; "!" excludes; empty means read-only.
 	WritePaths []string

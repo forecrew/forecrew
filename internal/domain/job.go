@@ -112,7 +112,7 @@ type Job struct {
 	// lease it. Empty is stored as PoolBuild.
 	Pool        string    `json:"pool"`
 	Role        string    `json:"role"`    // role name; for command jobs the role that asked for it, may be empty
-	Runtime     string    `json:"runtime"` // runtime adapter: claude-code or codex; empty for command jobs
+	Runtime     string    `json:"runtime"` // runtime adapter: claude-code, codex or opencode; empty for command jobs
 	Needs       []string  `json:"needs"`   // labels the worker must have, besides runtime:<runtime> for agent jobs
 	GoalID      uuid.UUID `json:"goal_id,omitzero"`
 	SpecID      uuid.UUID `json:"spec_id,omitzero"`
@@ -260,7 +260,7 @@ type JobSpec struct {
 	// WritePaths are doublestar globs relative to the repo root; a pattern
 	// starting with "!" excludes. Empty means read-only.
 	WritePaths       []string        `json:"write_paths"`
-	Runtime          string          `json:"runtime"` // runtime adapter: claude-code or codex
+	Runtime          string          `json:"runtime"` // runtime adapter: claude-code, codex or opencode
 	Model            string          `json:"model"`
 	Prompt           string          `json:"prompt"`
 	OutputSchema     json.RawMessage `json:"output_schema,omitempty"` // inline JSON Schema, no $ref
@@ -293,6 +293,18 @@ type JobSpec struct {
 	// JobMCP is the job MCP gateway (docs/contracts/job-mcp.md), added at
 	// lease time like RepoToken; agent jobs only.
 	JobMCP *JobMCP `json:"job_mcp,omitempty"`
+	// Endpoint is the custom model endpoint of the job's runtime, added at
+	// lease time like Env; agent jobs only. Nil means the vendor's own.
+	Endpoint *Endpoint `json:"endpoint,omitempty"`
+}
+
+// Endpoint is a custom model endpoint (runtimes.<name>.base_url in
+// forecrew.yaml). Repo code and API keys go to it. It holds no secret.
+type Endpoint struct {
+	BaseURL string `json:"base_url"`
+	// KeyEnv names the variable holding the endpoint's API key; empty means
+	// the endpoint takes none.
+	KeyEnv string `json:"key_env,omitempty"`
 }
 
 // JobMCP is how an agent job reaches the job MCP gateway. Token is a secret,
@@ -328,12 +340,14 @@ type Overlay struct {
 // IsCommand reports whether the spec is of a command job.
 func (s JobSpec) IsCommand() bool { return s.Kind == JobKindCommand }
 
-// Redacted returns a copy without Env, RepoToken and JobMCP, the form that
-// is stored. JobMCP goes as a whole: it is only ever added at lease time.
+// Redacted returns a copy without Env, RepoToken, JobMCP and Endpoint, the
+// form that is stored. JobMCP and Endpoint go as a whole: they are only ever
+// added at lease time.
 func (s JobSpec) Redacted() JobSpec {
 	s.Env = nil
 	s.RepoToken = ""
 	s.JobMCP = nil
+	s.Endpoint = nil
 	return s
 }
 

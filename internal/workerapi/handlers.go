@@ -167,6 +167,9 @@ func (s *Server) withSecrets(ctx context.Context, j domain.Job) (domain.JobSpec,
 		if runtime, env := s.cfg.Env(j); pool.Credentials.AllowsRuntime(runtime) {
 			spec.Env = env
 		}
+		// Whatever the pool withholds, the job must not fall back to the
+		// vendor's endpoint with a key of the worker's own.
+		spec.Endpoint = s.cfg.Endpoint(j)
 		// The job MCP token is scoped to this job and lease, so every pool
 		// gets it; pools have no setting to withhold it.
 		token, hash := jobmcp.NewToken()

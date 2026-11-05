@@ -502,3 +502,16 @@ func TestClaudeChattyChildDrainIsCapped(t *testing.T) {
 		t.Fatal("run still open: a chatty child kept the output drain going")
 	}
 }
+
+func TestClaudeEndpoint(t *testing.T) {
+	rec := filepath.Join(t.TempDir(), "rec.json")
+	a := newFakeClaude("FAKE_STREAM="+stream("claude_success.jsonl"), "FAKE_RECORD="+rec)
+	spec := claudeSpec()
+	spec.Endpoint = &domain.Endpoint{BaseURL: "https://proxy.example.com"}
+	if _, _, err := collect(t, a, spec); err != nil {
+		t.Fatal(err)
+	}
+	if got := readRecord(t, rec).Env["ANTHROPIC_BASE_URL"]; got != "https://proxy.example.com" {
+		t.Fatalf("ANTHROPIC_BASE_URL = %q", got)
+	}
+}
