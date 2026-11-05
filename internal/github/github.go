@@ -280,8 +280,12 @@ type Tracker interface {
 
 	// CreateComment comments on an issue or PR conversation.
 	CreateComment(ctx context.Context, repo string, number int, body string) (Comment, error)
-	// UpdateComment replaces the body of the comment with the given ID. The
-	// App can only edit its own comments.
+	// Bot returns the login of the GitHub App's bot ("<slug>[bot]"), the
+	// author of the App's comments.
+	Bot(ctx context.Context) (string, error)
+	// UpdateComment replaces the body of the comment with the given ID.
+	// Callers edit only comments whose author is Bot: a token with write
+	// access may be able to edit others.
 	UpdateComment(ctx context.Context, repo string, id int64, body string) (Comment, error)
 	// ListComments returns the comments created after since, oldest first.
 	ListComments(ctx context.Context, repo string, number int, since time.Time) ([]Comment, error)
