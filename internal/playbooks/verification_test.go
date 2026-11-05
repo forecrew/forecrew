@@ -1,7 +1,9 @@
 package playbooks_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"log/slog"
 	"maps"
 	"reflect"
 	"slices"
@@ -340,4 +342,55 @@ func TestVerificationRerunCellsErrors(t *testing.T) {
 	must(t, v.tracker.SetFile("acme/app", headSHA, ".forecrew/matrix.yaml", []byte("version: 2")))
 	_, err = v.call(t, "verification.rerun_cells", map[string]any{"report_id": got.ReportID})
 	wantErr(t, err, "test matrix at")
+}
+
+// TestVerificationBuildWarnsOnceWithoutChecksPermission: one publisher serves
+// every call, so the warning is logged once for the process.
+func TestVerificationBuildWarnsOnceWithoutChecksPermission(t *testing.T) {
+	v := newVerified(t)
+	var logs bytes.Buffer
+	playbooks.Register(v.actions, playbooks.Deps{Store: v.st, Tracker: v.tracker, Signals: v.bus, Sizing: config.DefaultSizing(), Roles: testRoles(), Now: v.clock.Now,
+		Logger: slog.New(slog.NewTextHandler(&logs, nil))})
+	must(t, v.tracker.ForbidChecks("acme/app"))
+	v.addRun(t, "linux-go", "linux", "unit", testResults(domain.TestPassed, "pkg::TestA")...)
+	for range 3 {
+		v.build(t, nil)
+		v.addRun(t, "win", "windows", "unit", testResults(domain.TestPassed, "pkg::TestA")...)
+	}
+	if n := strings.Count(logs.String(), "Checks: write"); n != 1 {
+		t.Errorf("the warning was logged %d times:\n%s", n, logs.String())
+	}
+	if len(v.comments(t)) != 1 {
+		t.Errorf("comments = %+v", v.comments(t))
+	}
+}
+
+// TestVerificationBuildNewTestsNeedTheBaseCheck: without base_check the new
+// tests of the test map are unchecked and the report is incomplete.
+func TestVerificationBuildNewTestsNeedTheBaseCheck(t *testing.T) {
+	v := newVerified(t)
+	v.testerJob(t, "test-engineer", v.task, `{"tests":[{"criterion":"AC-1","suite":"unit","id":"pkg::TestA","file":"a_test.go"}],"untestable":[{"criterion":"AC-2","reason":"visual"}]}`)
+	v.addRun(t, "linux-go", "linux", "unit", testResults(domain.TestPassed, "pkg::TestA")...)
+	v.addRun(t, "win", "windows", "unit", testResults(domain.TestPassed, "pkg::TestA")...)
+	v.addRun(t, "linux-go", "linux", "e2e", testResults(domain.TestPassed, "e2e::Flow")...)
+	got := v.build(t, nil)
+	if got.Status != "incomplete" || len(got.Blocking) != 1 || !strings.Contains(got.Blocking[0], "pkg::TestA has not been checked on the base branch") {
+		t.Fatalf("build = %+v", got)
+	}
+}
+
+// TestVerificationBuildTaskWithoutCriteriaBlocks: a task whose body lists no
+// criteria cannot be verified.
+func TestVerificationBuildTaskWithoutCriteriaBlocks(t *testing.T) {
+	v := newVerified(t)
+	task := v.task
+	task.Body = "Do it, see AC-1."
+	must(t, v.st.Tasks().Update(t.Context(), &task))
+	v.addRun(t, "linux-go", "linux", "unit", testResults(domain.TestPassed, "pkg::TestA")...)
+	v.addRun(t, "win", "windows", "unit", testResults(domain.TestPassed, "pkg::TestA")...)
+	v.addRun(t, "linux-go", "linux", "e2e", testResults(domain.TestPassed, "e2e::Flow")...)
+	got := v.build(t, nil)
+	if got.Status != "failed" || !slices.Contains(got.Blocking, "the task lists no acceptance criteria") {
+		t.Fatalf("build = %+v", got)
+	}
 }

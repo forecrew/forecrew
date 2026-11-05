@@ -132,20 +132,11 @@ func (a *actions) verificationBuild(ctx context.Context, call workflow.ActionCal
 	if err != nil {
 		return nil, err
 	}
-	stored, err := a.verifier().Publish(ctx, ch, rep)
+	stored, err := a.verifier.Publish(ctx, ch, rep)
 	if err != nil {
 		return nil, err
 	}
 	return verificationOutput{Status: rep.Status, Blocking: rep.Blocking, Summary: rep.Summary(), ReportID: stored.ID}, nil
-}
-
-// verifier returns the publisher of reports.
-func (a *actions) verifier() *verification.Publisher {
-	p := &verification.Publisher{Store: a.Store, Evidence: a.Evidence, Logger: a.Logger}
-	if a.Tracker != nil {
-		p.Tracker = a.Tracker
-	}
-	return p
 }
 
 // verificationInputs reads what the report needs besides the test runs:
@@ -176,7 +167,7 @@ func (a *actions) verificationInputs(ctx context.Context, run domain.WorkflowRun
 	if err != nil {
 		return in, err
 	}
-	in.Criteria = taskCriteria(t.Body)
+	in.Task, in.Criteria = true, taskCriteria(t.Body)
 	in.Tests, in.Untestable, err = a.taskTestMap(ctx, t)
 	return in, err
 }
