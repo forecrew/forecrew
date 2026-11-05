@@ -6,9 +6,13 @@ package knowledge
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
+	"maps"
+	"path"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/schema"
@@ -58,7 +62,13 @@ type Section struct {
 	Owner     string   `json:"owner"` // role, OwnerHuman or OwnerCodeowners
 	Protected bool     `json:"protected"`
 	Access    Access   `json:"access"`
+
+	implicit bool // from defaultOwners: the repo gives it no location
 }
+
+// Implicit reports whether the section only exists because the default
+// policy names it: the repo has no location for it yet.
+func (s Section) Implicit() bool { return s.implicit }
 
 // Access lists the roles (or Everyone) that may read a section, propose
 // changes to it, and write it without a proposal.
@@ -170,6 +180,86 @@ func (p Policy) checkSection(name string, s Section) []string {
 		out = append(out, fmt.Sprintf("sections.%s: a protected section cannot be written without a proposal", name))
 	}
 	return out
+}
+
+// ErrRefused means the policy does not allow a proposal or an access level.
+var ErrRefused = errors.New("refused by the knowledge policy")
+
+// Target is what the policy says about a change to one entry.
+type Target struct {
+	Provider string
+	// Repo is true when the entry lives in the project repo.
+	Repo bool
+	// Sections are the sections the entry belongs to, the named one first:
+	// globs of several sections can match one file.
+	Sections []string
+	// Protected is true when any of them is.
+	Protected bool
+	// Owners are the distinct approvers, sorted: OwnerHuman for a protected
+	// section whatever its owner says.
+	Owners []string
+}
+
+// Target checks a proposal to file of section by role ("" is a human, who
+// may propose anywhere) and returns who approves it. It wraps ErrRefused for
+// a reserved or unknown section, the policy file, whatever it says about
+// itself, a repo path outside the section, and a section of the path that
+// the role may not propose to.
+func (p Policy) Target(section, file, role string) (Target, error) {
+	s, ok := p.Sections[section]
+	if Reserved(section) || !ok {
+		return Target{}, fmt.Errorf("section %q takes no proposals: %w", section, ErrRefused)
+	}
+	if strings.ContainsFunc(file, func(r rune) bool { return unicode.IsControl(r) || r == '`' }) {
+		return Target{}, fmt.Errorf("path %q has control characters or backticks: %w", file, ErrRefused)
+	}
+	t := Target{Provider: s.Provider, Repo: p.Providers[s.Provider].Kind == domain.ProviderKindRepo, Sections: []string{section}}
+	if t.Repo {
+		switch {
+		case file == PolicyFile:
+			return Target{}, fmt.Errorf("%s changes only through request_access and a human: %w", PolicyFile, ErrRefused)
+		case !domain.RelativePath(file) || path.Clean(file) != file:
+			return Target{}, fmt.Errorf("path %q must be a clean path relative to the repo root: %w", file, ErrRefused)
+		case !Indexable(s.Paths, file, 0):
+			return Target{}, fmt.Errorf("path %q is not an entry of section %s: %w", file, section, ErrRefused)
+		}
+		for _, name := range slices.Sorted(maps.Keys(p.Sections)) {
+			o := p.Sections[name]
+			if name != section && !Reserved(name) && p.Providers[o.Provider].Kind == domain.ProviderKindRepo && Indexable(o.Paths, file, 0) {
+				t.Sections = append(t.Sections, name)
+			}
+		}
+	}
+	for _, name := range t.Sections {
+		o := p.Sections[name]
+		if role != "" && !allows(o.Access.Propose, role) {
+			return Target{}, fmt.Errorf("role %s may not propose to section %s: %w", role, name, ErrRefused)
+		}
+		owner := o.Owner
+		if o.Protected {
+			t.Protected, owner = true, OwnerHuman
+		}
+		t.Owners = append(t.Owners, owner)
+	}
+	slices.Sort(t.Owners)
+	t.Owners = slices.Compact(t.Owners)
+	return t, nil
+}
+
+// Has reports whether role holds level (read, propose or write) on section.
+func (p Policy) Has(section, level, role string) bool {
+	s := p.Sections[section]
+	switch level {
+	case "read":
+		return CanRead(p, section, role)
+	case "propose":
+		return allows(s.Access.Propose, role)
+	}
+	return allows(s.Access.Write, role)
+}
+
+func allows(roles []string, role string) bool {
+	return slices.Contains(roles, Everyone) || slices.Contains(roles, role)
 }
 
 // Reserved reports whether section is kept by forecrewd (generated, notes):

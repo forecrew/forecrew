@@ -18,6 +18,17 @@ const MaxEntryBytes = 256 << 10
 // file (knowledge.md).
 var defaultProtected = []string{"vision", "security"}
 
+// defaultOwners are the roles that own a section when a repo has no policy
+// file. Each of these sections exists there, so agents can propose to it,
+// even when the repo has no location for it yet.
+var defaultOwners = map[string]string{
+	"architecture": "architect",
+	"conventions":  "reviewer",
+	"testing":      "test-architect",
+	"runbooks":     "developer",
+	"lessons":      "knowledge-curator",
+}
+
 // textExts are the extensions indexed when a section's glob has a wildcard;
 // a glob that names one file indexes it whatever it is called (CODEOWNERS).
 var textExts = []string{".md", ".mdx", ".markdown", ".txt"}
@@ -26,8 +37,8 @@ var textExts = []string{".md", ".mdx", ".markdown", ".txt"}
 // the repo provider; the sections the repo already keeps (ADR folders are
 // architecture, the contributing guide conventions, CODEOWNERS owners, as
 // the analyzer finds them); vision and security, protected and owned by a
-// human; and a section for every other folder under knowledge/. files are
-// the paths of the repo.
+// human; the sections of defaultOwners with their owners; and a section for
+// every other folder under knowledge/. files are the paths of the repo.
 func DefaultPolicy(sources []analyzer.KnowledgeSource, files []string) Policy {
 	p := Policy{Version: 1, Providers: map[string]Provider{}, Sections: map[string]Section{}}
 	add := func(name string, s Section, glob string) {
@@ -56,6 +67,14 @@ func DefaultPolicy(sources []analyzer.KnowledgeSource, files []string) Policy {
 				add(name, Section{}, "knowledge/"+name+"/**")
 			}
 		}
+	}
+	for name, owner := range defaultOwners {
+		s, have := p.Sections[name]
+		if !have {
+			s = Section{Paths: []string{"knowledge/" + name + "/**"}, implicit: true}
+		}
+		s.Owner = owner
+		p.Sections[name] = s
 	}
 	p.applyDefaults()
 	return p
