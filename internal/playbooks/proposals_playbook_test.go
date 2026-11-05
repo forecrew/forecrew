@@ -44,7 +44,7 @@ func newProposalFlow(t *testing.T, role string, goal uuid.UUID) *proposalFlow {
 	must(t, v.tracker.SetFile("acme/app", "head1", knowledge.PolicyFile, []byte(flowPolicy)))
 	must(t, v.tracker.SetHeadOfBranch("acme/app", "main", "head1"))
 	svc := &proposals.Service{
-		Store: v.st, GitHub: v.tracker, Gates: v.gates, Roles: testRoles(), Now: v.clock.Now,
+		Store: v.st, GitHub: v.tracker, Gates: v.gates, Roles: testRoles(),
 		Policy: func(context.Context, domain.Project) (knowledge.Policy, error) { return policy, nil },
 	}
 	v.proposals = svc

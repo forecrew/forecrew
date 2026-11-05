@@ -57,7 +57,7 @@ func TestTarget(t *testing.T) {
 				return
 			}
 			must(t, err)
-			if !slices.Equal(got.Owners, tt.owners) && !(tt.protected && slices.Contains(got.Owners, knowledge.OwnerHuman)) {
+			if !slices.Equal(got.Owners, tt.owners) {
 				t.Errorf("owners = %v, want %v", got.Owners, tt.owners)
 			}
 			if got.Protected != tt.protected || got.Repo != tt.repo || got.Sections[0] != tt.section {
