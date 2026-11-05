@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -62,6 +63,9 @@ func codexArgs(spec RunSpec) []string {
 	if spec.JobMCP != nil {
 		args = append(args, codexMCPConfig(spec.JobMCP.URL, jobMCPTools(spec.AllowedTools))...)
 	}
+	for _, s := range spec.MCPServers {
+		args = append(args, codexStdioConfig(s)...)
+	}
 	return append(args, "-")
 }
 
@@ -84,23 +88,58 @@ func codexMCPConfig(url string, tools []string) []string {
 	}
 }
 
+// codexStdioConfig returns the -c overrides that add a stdio server of the
+// toolbox: its tools run without approval, its credentials are the variables
+// codex forwards (env_vars), never values on the command line.
+func codexStdioConfig(s domain.MCPServer) []string {
+	server := "mcp_servers." + s.Name + "."
+	args := make([]string, len(s.Args))
+	for i, a := range s.Args {
+		args[i] = strconv.Quote(a)
+	}
+	out := []string{
+		"-c", server + "command=" + strconv.Quote(s.Command),
+		"-c", server + "args=[" + strings.Join(args, ",") + "]",
+		"-c", server + `default_tools_approval_mode="approve"`,
+		"-c", server + "startup_timeout_sec=" + strconv.Itoa(int(stdioStartupTimeout.Seconds())),
+	}
+	if len(s.Env) > 0 {
+		var kv []string
+		for _, k := range slices.Sorted(maps.Keys(s.Env)) {
+			kv = append(kv, k+"="+strconv.Quote(s.Env[k]))
+		}
+		out = append(out, "-c", server+"env={"+strings.Join(kv, ",")+"}")
+	}
+	if len(s.CredentialEnv) > 0 {
+		quoted := make([]string, len(s.CredentialEnv))
+		for i, n := range s.CredentialEnv {
+			quoted[i] = strconv.Quote(n)
+		}
+		out = append(out, "-c", server+"env_vars=["+strings.Join(quoted, ",")+"]")
+	}
+	return out
+}
+
 func (c *codexCLI) Run(ctx context.Context, spec RunSpec, emit func(domain.JobEvent)) (Result, error) {
 	// Each run gets an empty CODEX_HOME, so the worker account's own
 	// ~/.codex (config, MCP servers, login) cannot change what the job was
 	// given. Credentials come from CODEX_API_KEY, which codex exec reads
 	// directly; there is no login to fall back on.
-	if !slices.ContainsFunc(startEnv(c.cfg.Env, spec.Env), func(kv string) bool {
+	if !slices.ContainsFunc(spec.baseEnv(c.cfg), func(kv string) bool {
 		v, ok := strings.CutPrefix(kv, codexKeyEnv+"=")
 		return ok && v != ""
 	}) {
 		return Result{}, fmt.Errorf("%w: %s is not set: add it to the runtime's credential_env or the worker's environment", ErrRunFailed, codexKeyEnv)
 	}
-	home, err := os.MkdirTemp("", "forecrew-codex-")
-	if err != nil {
-		return Result{}, fmt.Errorf("create codex home: %w", err)
+	home := ContainerHome // empty and private to the container
+	if spec.Container == nil {
+		var err error
+		if home, err = os.MkdirTemp("", "forecrew-codex-"); err != nil {
+			return Result{}, fmt.Errorf("create codex home: %w", err)
+		}
+		defer func() { _ = os.RemoveAll(home) }()
 	}
-	defer func() { _ = os.RemoveAll(home) }()
-	r := cliRun{binary: c.cfg.binary("codex"), args: codexArgs(spec), stdin: spec.Prompt, env: []string{"CODEX_HOME=" + home}}
+	r := cliRun{binary: spec.binary(c.cfg, "codex"), args: codexArgs(spec), stdin: spec.Prompt, env: []string{"CODEX_HOME=" + home}}
 	return runCLI(ctx, c.cfg, spec, r, &codexParser{started: map[string]bool{}}, emit)
 }
 

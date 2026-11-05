@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -45,6 +47,49 @@ type RunSpec struct {
 	// Endpoint is the custom model endpoint of the runtime; nil means the
 	// vendor's own.
 	Endpoint *domain.Endpoint
+	// MCPServers are the stdio MCP servers of the job's toolbox, started by
+	// the CLI next to the gateway. Their secrets are the variables of Env
+	// they name in CredentialEnv, which the CLI's configuration refers to.
+	MCPServers []domain.MCPServer
+	// Container, when set, runs the CLI inside the job's toolbox container
+	// instead of on the host (see Container).
+	Container Container
+}
+
+// Container runs the processes of a job inside its toolbox container.
+// WorkDir and EvidenceDir are the same paths in the container as on the host.
+type Container interface {
+	// Wrap returns the process that runs p in the container. p.Env is the
+	// whole environment of p: the container gets exactly that, never the
+	// worker's own.
+	Wrap(p Process) Process
+}
+
+// ContainerHome is the HOME of a toolbox container: an empty directory that
+// lives and dies with the container, so each run has its own and the worker
+// account's ~/.claude or ~/.codex never reaches it.
+const ContainerHome = "/home/agent"
+
+// binary returns the CLI to run: the adapter's own name inside a container
+// (the operator's path is the host's), otherwise the configured one.
+func (s RunSpec) binary(cfg Config, def string) string {
+	if s.Container != nil {
+		return def
+	}
+	return cfg.binary(def)
+}
+
+// baseEnv returns the environment before the adapter's additions: the
+// worker's plus Env on the host, only Env in a container.
+func (s RunSpec) baseEnv(cfg Config) []string {
+	if s.Container == nil {
+		return startEnv(cfg.Env, s.Env)
+	}
+	env := make([]string, 0, len(s.Env))
+	for _, k := range slices.Sorted(maps.Keys(s.Env)) {
+		env = append(env, k+"="+s.Env[k])
+	}
+	return env
 }
 
 // EvidenceDirEnv is the environment variable holding the scratch directory.
@@ -69,6 +114,10 @@ const JobMCPPath = "/job-mcp"
 // jobMCPToolTimeout bounds one gateway call: above ask_human's 30 minutes.
 const jobMCPToolTimeout = 35 * time.Minute
 
+// stdioStartupTimeout is how long codex waits for a toolbox server to start:
+// a browser takes longer than its default 10 s.
+const stdioStartupTimeout = time.Minute
+
 // JobMCP is the job MCP gateway of a run.
 type JobMCP struct {
 	URL string
@@ -77,6 +126,10 @@ type JobMCP struct {
 // JobMCPTool returns the runtime tool name of a gateway tool, the form
 // role tools map to in a job's allowed tools: mcp__forecrew__<tool>.
 func JobMCPTool(tool string) string { return "mcp__" + JobMCPServer + "__" + tool }
+
+// MCPServerTool returns the allowed-tools rule that lets the agent use every
+// tool of the MCP server of a toolbox: mcp__<server>.
+func MCPServerTool(server string) string { return "mcp__" + server }
 
 // JobMCPToolOf returns the gateway tool of a runtime tool name, or false
 // when it is not one.

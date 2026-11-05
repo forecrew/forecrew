@@ -345,8 +345,12 @@ type outcome struct {
 func runCLI(ctx context.Context, cfg Config, spec RunSpec, r cliRun, p parser, emit func(domain.JobEvent)) (Result, error) {
 	red := NewRedactor(spec.Env)
 	e := &emitter{emit: emit, red: red, now: cfg.now}
-	r.env = append(startEnv(cfg.Env, spec.Env), r.env...) // r.env: adapter additions, last wins
+	r.env = append(spec.baseEnv(cfg), r.env...) // r.env: adapter additions, last wins
 	r.dir = spec.WorkDir
+	if spec.Container != nil {
+		w := spec.Container.Wrap(Process{Path: r.binary, Args: r.args, Dir: r.dir, Env: r.env})
+		r.binary, r.args, r.dir, r.env = w.Path, w.Args, w.Dir, w.Env
+	}
 	r.timeout = spec.Timeout
 	stderr, err := execute(ctx, r, func(b []byte) { p.line(b, e) })
 	out := p.done()
