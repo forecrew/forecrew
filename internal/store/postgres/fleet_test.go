@@ -176,6 +176,14 @@ func TestFleetScoping(t *testing.T) {
 	must(t, pool.QueryRow(ctx, insertMachine, f.account, provA, shapeA).Scan(&twin))
 	mustFail(t, pool, `UPDATE machines SET external_id = 'vm-1' WHERE id = $1`, twin)
 
+	// jobs_taken starts at 0 and cannot go below it.
+	var taken int
+	must(t, pool.QueryRow(ctx, `SELECT jobs_taken FROM machines WHERE id = $1`, twin).Scan(&taken))
+	if taken != 0 {
+		t.Fatalf("jobs_taken = %d", taken)
+	}
+	mustFail(t, pool, `UPDATE machines SET jobs_taken = -1 WHERE id = $1`, twin)
+
 	// destroyed_at goes with the state.
 	mustFail(t, pool, `UPDATE machines SET state = 'destroyed' WHERE id = $1`, twin)
 	must(t, exec(pool, `UPDATE machines SET state = 'destroyed', destroyed_at = now() WHERE id = $1`, twin))

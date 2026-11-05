@@ -1044,7 +1044,8 @@ type MachineRepo interface {
 	GetByExternalID(ctx context.Context, providerID uuid.UUID, externalID string) (domain.Machine, error)
 	List(ctx context.Context, f MachineFilter) ([]domain.Machine, error)
 	// UpdateState is a compare-and-set (package comment). errMsg is stored
-	// when not empty; moving to ready sets ReadyAt, to destroyed DestroyedAt.
+	// when not empty; moving to booting sets BootingAt, to ready ReadyAt
+	// unless it is set, to destroyed DestroyedAt.
 	UpdateState(ctx context.Context, id uuid.UUID, from, to domain.MachineState, errMsg string) error
 	SetExternalID(ctx context.Context, id uuid.UUID, externalID string) error
 	// Assign gives an unassigned machine its organization and sets
@@ -1052,8 +1053,12 @@ type MachineRepo interface {
 	Assign(ctx context.Context, id, accountID uuid.UUID) error
 	// SetWorker links the machine to its worker of the same organization.
 	SetWorker(ctx context.Context, id, workerID uuid.UUID) error
-	// SetJob records the job the machine leased and its deadline.
-	SetJob(ctx context.Context, id, jobID uuid.UUID, deadline time.Time) error
+	// MarkUp sets ReadyAt, once, on a booting machine whose worker called
+	// and must wait; the state does not change.
+	MarkUp(ctx context.Context, id uuid.UUID) error
+	// TakeJob records a lease in one update: JobID, the deadline and one
+	// more JobsTaken, and returns the machine as stored.
+	TakeJob(ctx context.Context, id, jobID uuid.UUID, deadline time.Time) (domain.Machine, error)
 }
 
 // BootstrapTokenRepo stores machines' one-time tokens, one per machine.

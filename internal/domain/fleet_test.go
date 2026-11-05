@@ -485,6 +485,7 @@ func TestMachineValidate(t *testing.T) {
 		{"no shape", func(m *Machine) { m.ShapeID = uuid.Nil() }},
 		{"unassigned with a worker", func(m *Machine) { m.AccountID, m.WorkerID = uuid.Nil(), NewID() }},
 		{"unassigned with a job", func(m *Machine) { m.AccountID, m.JobID = uuid.Nil(), NewID() }},
+		{"negative jobs", func(m *Machine) { m.JobsTaken = -1 }},
 		{"destroyed without a time", func(m *Machine) { m.State = MachineDestroyed }},
 		{"a time without destroyed", func(m *Machine) { m.DestroyedAt = time.Now() }},
 	}
@@ -493,6 +494,59 @@ func TestMachineValidate(t *testing.T) {
 		tt.change(&m)
 		if err := m.Validate(); !errors.Is(err, ErrInvalidRecord) {
 			t.Errorf("%s: %v", tt.name, err)
+		}
+	}
+}
+
+func TestMachineCanTakeJob(t *testing.T) {
+	s := Shape{MaxJobs: 2}
+	for taken, want := range map[int]bool{0: true, 1: true, 2: false, 3: false} {
+		if got := (Machine{JobsTaken: taken}).CanTakeJob(s); got != want {
+			t.Errorf("%d taken: %v", taken, got)
+		}
+	}
+}
+
+func TestMachineWarm(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name string
+		m    Machine
+		want bool
+	}{
+		{"up with no organization", Machine{State: MachineBooting, ReadyAt: now}, true},
+		{"still booting", Machine{State: MachineBooting}, false},
+		{"assigned", Machine{State: MachineBooting, ReadyAt: now, AccountID: orgA}, false},
+		{"ready", Machine{State: MachineReady, ReadyAt: now, AccountID: orgA}, false},
+	}
+	for _, tt := range tests {
+		if got := tt.m.Warm(); got != tt.want {
+			t.Errorf("%s: %v", tt.name, got)
+		}
+	}
+}
+
+// The boot timeout counts from booting, so a machine waiting for an offline
+// provider does not fail for it.
+func TestMachineBootExpired(t *testing.T) {
+	now := time.Now()
+	s := Shape{BootTimeoutSeconds: 60}
+	early, late := now.Add(-time.Second), now.Add(-time.Minute)
+	tests := []struct {
+		name string
+		m    Machine
+		want bool
+	}{
+		{"just booting", Machine{State: MachineBooting, BootingAt: early}, false},
+		{"out of time", Machine{State: MachineBooting, BootingAt: late}, true},
+		{"requested for hours", Machine{State: MachineRequested, CreatedAt: now.Add(-5 * time.Hour)}, false},
+		{"booting with no time", Machine{State: MachineBooting}, false},
+		{"warm", Machine{State: MachineBooting, BootingAt: late, ReadyAt: early}, false},
+		{"ready", Machine{State: MachineReady, BootingAt: late, ReadyAt: early}, false},
+	}
+	for _, tt := range tests {
+		if got := tt.m.BootExpired(s, now); got != tt.want {
+			t.Errorf("%s: %v", tt.name, got)
 		}
 	}
 }

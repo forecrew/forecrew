@@ -108,12 +108,13 @@ type Shape struct {
 	PricePerMinute float64 `json:"price_per_minute"` // in config fleet.currency; 0 is free
 	// MonthlyBudget stops new machines of this shape; nil means no limit.
 	MonthlyBudget *float64 `json:"monthly_budget,omitempty"`
-	WarmMin       int      `json:"warm_min"` // ready machines kept with no job
+	WarmMin       int      `json:"warm_min"` // machines up with no job, ready or Warm
 	Max           int      `json:"max"`      // machines at once
 	// IdleSeconds is how long a ready machine above WarmMin waits for a
 	// job before it is destroyed.
 	IdleSeconds int `json:"idle_seconds"`
-	// BootTimeoutSeconds is how long a machine may take to reach ready.
+	// BootTimeoutSeconds is how long a machine may take from booting until
+	// its worker calls, and how long a bootstrap token lasts once bound.
 	BootTimeoutSeconds int `json:"boot_timeout_seconds"`
 	// MaxJobs is how many jobs a machine takes in its life, usually 1.
 	MaxJobs   int       `json:"max_jobs"`
@@ -531,8 +532,8 @@ type MachineState string
 // agent reports booting, destroyed and failed (fleet-agent-api.md).
 const (
 	MachineRequested MachineState = "requested" // a row exists; the provider may not know it yet
-	MachineBooting   MachineState = "booting"   // the provider started it
-	MachineReady     MachineState = "ready"     // its worker connected; no job yet
+	MachineBooting   MachineState = "booting"   // the provider started it; a warm machine waits here
+	MachineReady     MachineState = "ready"     // it has a worker; no job yet
 	MachineBusy      MachineState = "busy"      // it leased a job
 	MachineDraining  MachineState = "draining"  // takes no more jobs and is being destroyed
 	MachineDestroyed MachineState = "destroyed" // gone
@@ -578,16 +579,39 @@ type Machine struct {
 	State      MachineState `json:"state"`
 	WorkerID   uuid.UUID    `json:"worker_id,omitzero"`
 	JobID      uuid.UUID    `json:"job_id,omitzero"` // the job it last leased
-	Error      string       `json:"error,omitempty"`
+	// JobsTaken counts the jobs it leased in its life, against the shape's
+	// MaxJobs.
+	JobsTaken int    `json:"jobs_taken"`
+	Error     string `json:"error,omitempty"`
 	// AssignedAt is when it got its organization, where metering starts.
 	AssignedAt time.Time `json:"assigned_at,omitzero"`
-	ReadyAt    time.Time `json:"ready_at,omitzero"`
+	// BootingAt is when it entered booting, where the boot timeout starts.
+	BootingAt time.Time `json:"booting_at,omitzero"`
+	// ReadyAt is when its worker first called: it reached ready, or it is
+	// warm, still booting and waiting for an organization.
+	ReadyAt time.Time `json:"ready_at,omitzero"`
 	// DeadlineAt is when it is destroyed whatever it is doing; zero while
 	// it has no job.
 	DeadlineAt  time.Time `json:"deadline_at,omitzero"`
 	DestroyedAt time.Time `json:"destroyed_at,omitzero"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// CanTakeJob reports whether the machine may lease another job of shape s.
+func (m Machine) CanTakeJob(s Shape) bool { return m.JobsTaken < s.MaxJobs }
+
+// Warm reports whether the machine is up and waiting for an organization.
+func (m Machine) Warm() bool {
+	return m.State == MachineBooting && m.AccountID == uuid.Nil() && !m.ReadyAt.IsZero()
+}
+
+// BootExpired reports whether the machine used up shape s's boot timeout at
+// now. The time counts from BootingAt, so a machine still requested, with its
+// provider offline perhaps, does not time out, and a warm one is up.
+func (m Machine) BootExpired(s Shape, now time.Time) bool {
+	return m.State == MachineBooting && m.ReadyAt.IsZero() && !m.BootingAt.IsZero() &&
+		!now.Before(m.BootingAt.Add(time.Duration(s.BootTimeoutSeconds)*time.Second))
 }
 
 // Validate checks the state and that a worker or job comes with an
@@ -600,6 +624,9 @@ func (m Machine) Validate() error {
 	}
 	if m.AccountID == uuid.Nil() && (m.WorkerID != uuid.Nil() || m.JobID != uuid.Nil()) {
 		p.addf("an unassigned machine has no worker or job")
+	}
+	if m.JobsTaken < 0 {
+		p.addf("jobs_taken must not be negative")
 	}
 	if (m.State == MachineDestroyed) != !m.DestroyedAt.IsZero() {
 		p.addf("destroyed_at is set exactly when the machine is destroyed")
