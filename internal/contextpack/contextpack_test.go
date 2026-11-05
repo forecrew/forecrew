@@ -207,7 +207,7 @@ func TestBuildTestPlan(t *testing.T) {
 			"As committed at `trunk`;", "## Matrix: `.forecrew/matrix.yaml`\n\nDoes not exist yet.\n",
 			"## Environments\n\nNone: there is no matrix to name them.\n",
 		}, nil},
-		{"other role", "developer", "agent/task-1", nil, nil, []string{"# Test plan"}},
+		{"role without test_plan", "developer", "agent/task-1", nil, nil, []string{"# Test plan"}},
 	}
 	tr := testPlanRepo(t)
 	for _, tt := range tests {
@@ -217,7 +217,11 @@ func TestBuildTestPlan(t *testing.T) {
 				files = tr
 			}
 			req := workflow.JobRequest{AccountID: f.project.AccountID, ProjectID: f.project.ID, Branch: tt.branch, TaskID: f.task.ID}
-			pack, err := contextpack.New(f.st, files, nil, 0).Build(context.Background(), req, roles.Role{Name: tt.role})
+			role := roles.Role{Name: tt.role}
+			if tt.role != "developer" { // the role packs list test_plan for the test roles only
+				role.Context = []string{contextpack.SectionTestPlan}
+			}
+			pack, err := contextpack.New(f.st, files, nil, 0).Build(context.Background(), req, role)
 			if err != nil {
 				t.Fatalf("Build: %v", err)
 			}
@@ -253,7 +257,7 @@ func TestBuildTestPlanErrors(t *testing.T) {
 			}
 			return tr.GetFile(ctx, repo, ref, path)
 		})
-		_, err := contextpack.New(f.st, files, nil, 0).Build(context.Background(), req, roles.Role{Name: "test-engineer"})
+		_, err := contextpack.New(f.st, files, nil, 0).Build(context.Background(), req, roles.Role{Name: "test-engineer", Context: []string{contextpack.SectionTestPlan}})
 		if !errors.Is(err, boom) || !strings.Contains(err.Error(), "read "+file+" at ") {
 			t.Errorf("Build with %s failing: error = %v", file, err)
 		}
