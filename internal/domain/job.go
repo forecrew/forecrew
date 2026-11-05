@@ -110,10 +110,13 @@ type Job struct {
 	Kind      JobKind   `json:"kind"` // agent or command; empty is stored as agent
 	// Pool is the worker pool the job runs in; only workers of that pool
 	// lease it. Empty is stored as PoolBuild.
-	Pool        string    `json:"pool"`
-	Role        string    `json:"role"`    // role name; for command jobs the role that asked for it, may be empty
-	Runtime     string    `json:"runtime"` // runtime adapter: claude-code, codex or opencode; empty for command jobs
-	Needs       []string  `json:"needs"`   // labels the worker must have, besides runtime:<runtime> for agent jobs
+	Pool    string   `json:"pool"`
+	Role    string   `json:"role"`    // role name; for command jobs the role that asked for it, may be empty
+	Runtime string   `json:"runtime"` // runtime adapter: claude-code, codex or opencode; empty for command jobs
+	Needs   []string `json:"needs"`   // labels the worker must have, besides runtime:<runtime> for agent jobs
+	// Resources is what the job needs of a machine, from its role pack or
+	// environment; it picks the shape (fleet.md).
+	Resources   Resources `json:"resources,omitzero"`
 	GoalID      uuid.UUID `json:"goal_id,omitzero"`
 	SpecID      uuid.UUID `json:"spec_id,omitzero"`
 	TaskID      uuid.UUID `json:"task_id,omitzero"`

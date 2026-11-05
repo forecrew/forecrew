@@ -17,6 +17,6 @@ var (
 	// rules of docs/contracts.
 	ErrInvalidSpec = errors.New("invalid spec")
 	// ErrInvalidRecord means a council, assumption, decision, knowledge
-	// entry or proposal breaks the rules of docs/contracts.
+	// entry, proposal or fleet record breaks the rules of docs/contracts.
 	ErrInvalidRecord = errors.New("invalid record")
 )

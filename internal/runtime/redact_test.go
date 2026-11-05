@@ -22,6 +22,8 @@ func TestRedactor(t *testing.T) {
 		{"github token", "token ghs_" + strings.Repeat("a", 36), "token [REDACTED]"},
 		{"github pat", "github_pat_" + strings.Repeat("B", 30), "[REDACTED]"},
 		{"forecrew token", "fcw_" + strings.Repeat("z", 43), "[REDACTED]"},
+		{"provider token", "fcp_" + strings.Repeat("z", 43), "[REDACTED]"},
+		{"bootstrap token", "fcb_" + strings.Repeat("z", 43), "[REDACTED]"},
 		{"bearer", "Authorization: Bearer abcdefghijklmnop1234", "Authorization: [REDACTED]"},
 		{"private key", "a -----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY----- b", "a [REDACTED] b"},
 		{"json escaped", `{"k":"pa\"ss\\word"}`, `{"k":"[REDACTED]"}`},

@@ -2,9 +2,10 @@ package runtime
 
 import (
 	"encoding/json"
-	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/forecrew/forecrew/internal/domain"
 )
 
 const redacted = "[REDACTED]"
@@ -12,18 +13,6 @@ const redacted = "[REDACTED]"
 // minSecretLen is the shortest env value treated as a secret; shorter values
 // would mangle ordinary text.
 const minSecretLen = 6
-
-// secretPatterns match well-known credential shapes, so a secret is hidden
-// even when it did not come from RunSpec.Env.
-var secretPatterns = regexp.MustCompile(strings.Join([]string{
-	`sk-ant-[A-Za-z0-9_-]{8,}`,
-	`sk-[A-Za-z0-9_-]{20,}`,
-	`gh[pousr]_[A-Za-z0-9]{20,}`,
-	`github_pat_[A-Za-z0-9_]{20,}`,
-	`fc[wm]_[A-Za-z0-9_-]{20,}`,
-	`(?i)bearer\s+[A-Za-z0-9._~+/=-]{16,}`,
-	`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`,
-}, "|"))
 
 // Redactor hides secrets in text: the values of RunSpec.Env and well-known
 // credential shapes. The zero value is not usable; build it with NewRedactor.
@@ -54,5 +43,5 @@ func NewRedactor(env map[string]string) *Redactor {
 
 // String returns s with secrets replaced by "[REDACTED]".
 func (r *Redactor) String(s string) string {
-	return secretPatterns.ReplaceAllString(r.replacer.Replace(s), redacted)
+	return domain.SecretPatterns.ReplaceAllString(r.replacer.Replace(s), redacted)
 }
