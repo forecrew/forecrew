@@ -18,6 +18,9 @@ import (
 // ClaudeCode is the adapter name of the Claude Code CLI.
 const ClaudeCode = "claude-code"
 
+// claudeKeyEnv is the variable claude takes its API key from.
+const claudeKeyEnv = "ANTHROPIC_API_KEY" // #nosec G101 -- a variable name, not a secret
+
 // readOnlyClaudeTools is the tool set when RunSpec.AllowedTools is empty.
 var readOnlyClaudeTools = []string{"Read", "Grep", "Glob"}
 

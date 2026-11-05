@@ -249,7 +249,6 @@ func TestToolboxJobFailures(t *testing.T) {
 		{"docker run fails", []string{"run125"}, securityBox, nil, StatusRetry, "boom"},
 		{"no docker", nil, securityBox, func(e *testEnv) { e.cfg.DockerBin = "" }, StatusRetry, "no Docker engine"},
 		{"root worker", nil, securityBox, func(*testEnv) { hostIDs = func() (int, int) { return 0, 0 } }, StatusFailed, "runs as root"},
-		{"credential named like a client variable", nil, securityBox, nil, StatusFailed, "also a variable of the Docker client"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -264,9 +263,6 @@ func TestToolboxJobFailures(t *testing.T) {
 				e.rebuild()
 			}
 			s := toolboxSpec(e, tt.box)
-			if tt.name == "credential named like a client variable" {
-				s.Env["PATH"] = "/elsewhere"
-			}
 			c := e.doComplete(s)
 			if c.Status != tt.status || !strings.Contains(c.Error, tt.want) {
 				t.Fatalf("completion = %+v, want %s containing %q", c, tt.status, tt.want)
@@ -398,5 +394,91 @@ func TestToolboxFiles(t *testing.T) {
 	maxToolboxFiles = 1
 	if err := hashFS(&h3, files); err == nil || !strings.Contains(err.Error(), "more than 1 toolbox files") {
 		t.Errorf("too many files: %v", err)
+	}
+}
+
+func TestToolboxRefusesReservedCredentialNames(t *testing.T) {
+	for _, name := range []string{
+		"PATH", "HOME", "path", "DOCKER_HOST", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "DOCKER_API_VERSION", "docker_config",
+		"XDG_RUNTIME_DIR", "LD_PRELOAD", "LD_LIBRARY_PATH", "HTTPS_PROXY", "http_proxy", "NO_PROXY", "ALL_PROXY", "LC_ALL", "TMPDIR",
+	} {
+		if !reservedCredential(name) {
+			t.Errorf("%s is allowed as a credential name", name)
+		}
+	}
+	for _, name := range []string{"ANTHROPIC_API_KEY", "CODEX_API_KEY", "SCAN_KEY", "FORECREW_JOB_MCP_TOKEN", "LDAP_PASSWORD", "PROXYPASS"} {
+		if reservedCredential(name) {
+			t.Errorf("%s is refused as a credential name", name)
+		}
+	}
+	e, g := toolboxEnv(t, func(context.Context, runtime.RunSpec, func(domain.JobEvent)) (runtime.Result, error) {
+		t.Error("the agent ran")
+		return runtime.Result{}, nil
+	})
+	s := toolboxSpec(e, securityBox)
+	s.Env["LD_PRELOAD"] = "/x.so"
+	c := e.doComplete(s)
+	if c.Status != StatusFailed || !strings.Contains(c.Error, "LD_PRELOAD") {
+		t.Errorf("completion = %+v", c)
+	}
+	if hasCall(calls(t, g.log), "run --rm") {
+		t.Error("a container was started")
+	}
+}
+
+// named gives an adapter another name, so that a spec can ask for a real one.
+type named struct {
+	funcAdapter
+	name string
+}
+
+func (n named) Name() string { return n.name }
+
+func TestToolboxForwardsTheWorkersOwnKey(t *testing.T) {
+	var out []string
+	adapter := named{funcAdapter{func(ctx context.Context, spec runtime.RunSpec, _ func(domain.JobEvent)) (runtime.Result, error) {
+		var err error
+		out, err = inBox(ctx, spec, `echo "key=[$ANTHROPIC_API_KEY]"`)
+		return runtime.Result{}, err
+	}}, runtime.ClaudeCode}
+	g := newToolboxEngine(t)
+	e := newEnv(t, adapter)
+	e.cfg.DockerBin, e.cfg.Toolboxes = g.bin, toolboxFiles()
+	e.cfg.Environ = append(os.Environ(), "ANTHROPIC_API_KEY="+testAPIKey)
+	e.rebuild()
+	// The spec has no key: the worker's own goes into the container, by name.
+	s := toolboxSpec(e, securityBox, func(s *domain.JobSpec) { s.Runtime, s.Env = runtime.ClaudeCode, nil })
+	if c := e.doComplete(s); c.Status != StatusSucceeded {
+		t.Fatalf("completion = %+v", c)
+	}
+	if len(out) != 1 || out[0] != "key=["+testAPIKey+"]" {
+		t.Errorf("the job saw %q", out)
+	}
+	for _, c := range calls(t, g.log) {
+		if strings.Contains(c, testAPIKey) {
+			t.Errorf("the key is in a command line: %s", c)
+		}
+	}
+	if !hasCall(calls(t, g.log), "-e ANTHROPIC_API_KEY ") {
+		t.Error("the key was not passed by name")
+	}
+}
+
+func TestToolboxContainerIsGoneBeforeTheEvidenceIsRead(t *testing.T) {
+	e, g := toolboxEnv(t, func(_ context.Context, spec runtime.RunSpec, _ func(domain.JobEvent)) (runtime.Result, error) {
+		return runtime.Result{}, os.WriteFile(filepath.Join(spec.EvidenceDir, "shot.txt"), []byte("evidence"), 0o600)
+	})
+	s := toolboxSpec(e, securityBox, func(s *domain.JobSpec) { s.JobMCP = &domain.JobMCP{Token: testJobMCPTok} })
+	e.api.attach[s.JobID] = []Attachment{{Path: runtime.EvidencePrefix + "shot.txt", Name: "shot"}}
+	var removedFirst bool
+	e.api.onUpload = func(string) { removedFirst = hasCall(calls(t, g.log), "rm -f -v c1") }
+	if c := e.doComplete(s); c.Status != StatusSucceeded {
+		t.Fatalf("completion = %+v", c)
+	}
+	if got := e.api.uploaded()["shot"]; got != "evidence" {
+		t.Fatalf("uploads = %v", e.api.uploaded())
+	}
+	if !removedFirst {
+		t.Error("the container was still there when the evidence was uploaded")
 	}
 }

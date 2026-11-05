@@ -70,6 +70,19 @@ type Container interface {
 // account's ~/.claude or ~/.codex never reaches it.
 const ContainerHome = "/home/agent"
 
+// KeyEnv returns the variable an adapter's CLI reads its API key from, which
+// a worker may hold in its own environment (docs/contracts/config.md,
+// credential_env), or "" for an unknown adapter.
+func KeyEnv(adapter string) string {
+	switch adapter {
+	case ClaudeCode:
+		return claudeKeyEnv
+	case Codex:
+		return codexKeyEnv
+	}
+	return ""
+}
+
 // binary returns the CLI to run: the adapter's own name inside a container
 // (the operator's path is the host's), otherwise the configured one.
 func (s RunSpec) binary(cfg Config, def string) string {
