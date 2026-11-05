@@ -31,6 +31,21 @@ func SecretLikeName(name string) bool {
 	})
 }
 
+// SecretPatterns matches well-known credential shapes: API keys, provider and
+// Forecrew tokens, private keys and URLs with a password. Logs are scrubbed
+// with it, and values that must never hold a secret are refused with it.
+var SecretPatterns = regexp.MustCompile(strings.Join([]string{
+	`sk-ant-[A-Za-z0-9_-]{8,}`,
+	`sk-[A-Za-z0-9_-]{20,}`,
+	`gh[pousr]_[A-Za-z0-9]{20,}`,
+	`github_pat_[A-Za-z0-9_]{20,}`,
+	`fc[wmpb]_[A-Za-z0-9_-]{20,}`,
+	`A[KS]IA[A-Z0-9]{16}`,
+	`(?i)bearer\s+[A-Za-z0-9._~+/=-]{16,}`,
+	`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`,
+	`://[^/\s:@]+:[^/\s@]+@`,
+}, "|"))
+
 // RelativePath reports whether p is a slash-separated path (or glob)
 // relative to the repo root that does not leave it.
 func RelativePath(p string) bool {

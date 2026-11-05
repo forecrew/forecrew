@@ -25,8 +25,8 @@ const (
 	PermConnectionManage     Permission = "connection.manage"      // sign-in connections, group mappings, verified domains, SSO enforcement, SCIM tokens
 	PermTokenManage          Permission = "token.manage"           // service account tokens; listing and revoking other people's tokens
 	PermAuditRead            Permission = "audit.read"
-	PermWorkerRead           Permission = "worker.read"
-	PermWorkerManage         Permission = "worker.manage" // add, move and revoke workers
+	PermWorkerRead           Permission = "worker.read"   // workers, machines, providers, shapes, images and fleet usage
+	PermWorkerManage         Permission = "worker.manage" // workers, capacity providers, shapes and the fleet policy; shown as Manage machines
 	PermPoolManage           Permission = "pool.manage"
 	PermProjectCreate        Permission = "project.create" // onboard a repo
 

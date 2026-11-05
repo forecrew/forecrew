@@ -16,22 +16,12 @@ var runtimeCLIs = []struct{ binary, adapter string }{
 	{"opencode", runtime.Opencode},
 }
 
-// osLabels returns the labels for an operating system (a GOOS value). macOS
-// gets both darwin (conventions.md) and macos (the name used by repo
-// profiles), so jobs written either way match.
-func osLabels(goos string) []string {
-	if goos == "darwin" {
-		return []string{"darwin", "macos"}
-	}
-	return []string{goos}
-}
-
 // DetectLabels returns every label of the worker, normalized: the configured
 // ones, the os label for goos and runtime:<adapter> for each runtime CLI that
 // lookPath finds (exec.LookPath in production).
 func DetectLabels(configured []string, goos string, lookPath func(string) (string, error)) []string {
 	labels := append([]string(nil), configured...)
-	labels = append(labels, osLabels(goos)...)
+	labels = append(labels, domain.OSLabels(goos)...)
 	for _, cli := range runtimeCLIs {
 		if _, err := lookPath(cli.binary); err == nil {
 			labels = append(labels, domain.RuntimeLabel(cli.adapter))

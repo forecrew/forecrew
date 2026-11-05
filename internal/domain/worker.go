@@ -19,7 +19,10 @@ type Worker struct {
 	// Pool is set by an admin when the worker is created and never taken
 	// from what the worker sends; the worker leases only jobs of its pool.
 	// Empty is stored as PoolBuild.
-	Pool       string    `json:"pool"`
+	Pool string `json:"pool"`
+	// Ephemeral marks the worker of a machine (fleet.md): made when the
+	// machine boots, gone with it. False on every worker an admin adds.
+	Ephemeral  bool      `json:"ephemeral"`
 	TokenHash  []byte    `json:"-"` // SHA-256 of the worker token
 	Labels     []string  `json:"labels"`
 	Version    string    `json:"version"`
