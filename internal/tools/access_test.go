@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -293,6 +294,12 @@ func TestCouncilLeavesItsGateOutWithoutGateRead(t *testing.T) {
 	c := info.Council
 	c.GateID = g.ID
 	must(t, f.st.Councils().Update(ctx, &c))
+	decision := domain.Decision{AccountID: f.account.ID, ProjectID: f.project.ID, Question: "q", Choice: "pg", DecidedBy: "user:ana", CouncilID: c.ID, GateID: g.ID}
+	must(t, f.st.Decisions().Create(ctx, &decision))
+	sig, err := domain.NewSignal(f.account.ID, f.project.ID, &domain.CouncilDecidedSignal{CouncilID: c.ID, Status: domain.CouncilDecided, DecisionID: decision.ID}, f.clock.Now())
+	must(t, err)
+	_, err = f.st.Signals().Insert(ctx, &sig)
+	must(t, err)
 	role := domain.Role{AccountID: f.account.ID, Name: "readers", Scope: projectScope, Permissions: []domain.Permission{domain.PermProjectRead}, Custom: true}
 	must(t, f.st.Roles().Create(ctx, &role))
 	by, id := f.member(t, "", "", uuid.Nil())
@@ -300,14 +307,36 @@ func TestCouncilLeavesItsGateOutWithoutGateRead(t *testing.T) {
 
 	d, err := f.svc.GetCouncil(ctx, by, mcp.CouncilRefInput{Council: info.Ref})
 	must(t, err)
-	if d.Gate != nil {
-		t.Fatalf("gate = %+v", d.Gate)
+	if d.Gate != nil || d.GateID != uuid.Nil() || d.Decision == nil || d.Decision.GateID != uuid.Nil() {
+		t.Fatalf("council = %+v", d)
+	}
+	if raw, _ := json.Marshal(d); strings.Contains(string(raw), g.ID.String()) {
+		t.Errorf("the gate shows: %s", raw)
 	}
 	viewer, _ := f.member(t, projectScope, domain.RoleViewer, f.project.ID)
 	d, err = f.svc.GetCouncil(ctx, viewer, mcp.CouncilRefInput{Council: info.Ref})
 	must(t, err)
-	if d.Gate == nil || d.Gate.ID != g.ID {
-		t.Fatalf("gate = %+v", d.Gate)
+	if d.Gate == nil || d.Gate.ID != g.ID || d.GateID != g.ID || d.Decision.GateID != g.ID {
+		t.Fatalf("council = %+v", d)
+	}
+
+	// add_council_constraint answers with the council too.
+	starter := domain.Role{AccountID: f.account.ID, Name: "starters", Scope: projectScope, Permissions: []domain.Permission{domain.PermCouncilStart}, Custom: true}
+	must(t, f.st.Roles().Create(ctx, &starter))
+	noGates, sid := f.member(t, "", "", uuid.Nil())
+	must(t, f.st.RoleBindings().Create(ctx, &domain.RoleBinding{AccountID: f.account.ID, SubjectKind: domain.SubjectUser, SubjectID: sid, RoleID: starter.ID, ProjectID: f.project.ID, CreatedBy: "user:op"}))
+	in := mcp.AddCouncilConstraintInput{Council: info.Ref, Constraint: "Keep Postgres"}
+	got, err := f.svc.AddCouncilConstraint(ctx, noGates, in)
+	must(t, err)
+	if got.GateID != uuid.Nil() {
+		t.Errorf("council = %+v", got)
+	}
+	in.Constraint = "Stay small"
+	if got, err = f.svc.AddCouncilConstraint(ctx, f.by, in); err != nil || got.GateID != g.ID {
+		t.Errorf("council = %+v, %v", got, err)
+	}
+	if stored, _ := f.st.Councils().Get(ctx, f.account.ID, c.ID); stored.GateID != g.ID {
+		t.Errorf("the stored council lost its gate: %+v", stored)
 	}
 }
 

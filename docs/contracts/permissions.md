@@ -260,8 +260,8 @@ object up and checks the permission on the object's project.
 | `propose_knowledge` | `POST /api/v1/knowledge/proposals` | `knowledge.propose` and, for a protected section the caller approves, `gate.approve.knowledge_protected` |
 | `start_council` | `POST /api/v1/councils` | `council.start` |
 | `list_councils` | `GET /api/v1/councils` | `project.read` |
-| `get_council` | `GET /api/v1/councils/{council}` | `project.read`; its gate only with `gate.read` |
-| `add_council_constraint` | `POST /api/v1/councils/{council}/constraints` | `council.start` |
+| `get_council` | `GET /api/v1/councils/{council}` | `project.read`; its gate and `gate_id` only with `gate.read` |
+| `add_council_constraint` | `POST /api/v1/councils/{council}/constraints` | `council.start`; `gate_id` only with `gate.read` |
 | `list_workers` | `GET /api/v1/workers` | `worker.read` |
 | `list_pending_gates` | `GET /api/v1/gates` | `gate.read`; each gate says whether the caller may resolve it |
 | `approve` | `POST /api/v1/gates/{gate}/approve` | the gate's |
