@@ -54,6 +54,17 @@ func TestParsePoolsAndEvidence(t *testing.T) {
 	}
 }
 
+func TestParseFleet(t *testing.T) {
+	c, err := Parse([]byte(validYAML+"fleet:\n  currency: CHF\n"), env(nil))
+	if err != nil || c.Fleet.Currency != "CHF" {
+		t.Fatalf("fleet = %+v, %v", c.Fleet, err)
+	}
+	c, err = Parse([]byte(validYAML), env(nil))
+	if err != nil || c.Fleet.Currency != DefaultFleetCurrency {
+		t.Fatalf("default = %+v, %v", c.Fleet, err)
+	}
+}
+
 func TestParseMaxTestResultsSize(t *testing.T) {
 	c, err := Parse([]byte(validYAML+"max_test_results_size: 1048576\n"), env(nil))
 	if err != nil || c.MaxTestResultsSize != 1<<20 {
@@ -137,6 +148,7 @@ func TestParsePoolsAndEvidenceInvalid(t *testing.T) {
 		env     map[string]string
 		want    string
 	}{
+		{name: "bad currency", replace: [2]string{"evidence:", "fleet:\n  currency: chf\nevidence:"}, want: "fleet.currency"},
 		{name: "bad endpoint", replace: [2]string{"http://garage:3900", "garage:3900"}, want: "evidence.endpoint must be"},
 		{name: "no bucket", replace: [2]string{"bucket: forecrew-evidence", "bucket: ''"}, want: "evidence.bucket"},
 		{name: "negative size", replace: [2]string{"path_style: true", "path_style: true\n  max_artifact_size: -1"}, want: "max_artifact_size"},

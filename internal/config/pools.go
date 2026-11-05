@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"slices"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -46,6 +47,25 @@ type Evidence struct {
 	AccessKeyID string `yaml:"-"`
 	// SecretAccessKey comes from FORECREW_EVIDENCE_SECRET_ACCESS_KEY.
 	SecretAccessKey string `yaml:"-"`
+}
+
+// DefaultFleetCurrency is the currency of fleet amounts unless fleet.currency
+// says otherwise.
+const DefaultFleetCurrency = "USD"
+
+// Fleet configures machines on demand (docs/contracts/fleet.md).
+type Fleet struct {
+	// Currency is the ISO 4217 code of every fleet amount: prices, budgets
+	// and usage costs.
+	Currency string `yaml:"currency"`
+}
+
+var currencyRE = regexp.MustCompile(`^[A-Z]{3}$`)
+
+func (c *Config) validateFleet(p *problems) {
+	if !currencyRE.MatchString(c.Fleet.Currency) {
+		p.addf("fleet.currency must be an ISO 4217 code such as USD, got %q", c.Fleet.Currency)
+	}
 }
 
 // Pool is the policy of a worker pool: what its workers may run and which
@@ -136,8 +156,12 @@ func (c *Config) readEvidence(getenv func(string) string) {
 	}
 }
 
-// applyPoolDefaults adds the default pools forecrew.yaml does not define.
+// applyPoolDefaults adds the default pools forecrew.yaml does not define,
+// and the fleet's default currency.
 func (c *Config) applyPoolDefaults() {
+	if c.Fleet.Currency == "" {
+		c.Fleet.Currency = DefaultFleetCurrency
+	}
 	if c.Pools == nil {
 		c.Pools = map[string]Pool{}
 	}
