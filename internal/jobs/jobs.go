@@ -135,6 +135,9 @@ func (s *Service) Create(ctx context.Context, by domain.Actor, j domain.Job) (do
 func (s *Service) place(j *domain.Job) error {
 	if j.Kind == domain.JobKindCommand {
 		j.Pool = domain.CommandPool(j.Spec.Environment)
+		if env := j.Spec.Environment; env != nil {
+			j.Resources = env.Resources
+		}
 	}
 	j.Pool = domain.OrDefaultPool(j.Pool)
 	if j.Pool == domain.PoolActions && j.Kind == domain.JobKindCommand {

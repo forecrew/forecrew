@@ -119,7 +119,7 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 		}
 	}
 	j, err := c.jobs.Create(ctx, domain.SystemActor(req.AccountID, domain.ForecrewdName), domain.Job{
-		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Pool: pool, Role: role.Name, Runtime: role.Runtime, Needs: req.Needs,
+		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Pool: pool, Role: role.Name, Runtime: role.Runtime, Needs: req.Needs, Resources: role.Resources,
 		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID,
 		Spec: domain.JobSpec{
 			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, WritePaths: writePaths, Model: role.Model,

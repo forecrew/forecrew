@@ -149,6 +149,23 @@ func TestJobCreatorPools(t *testing.T) {
 	}
 }
 
+// A role pack's resources reach the job.
+func TestJobCreatorResources(t *testing.T) {
+	f := newFixture(t, func(d *Deps) {
+		d.Files = packs(t, func(m fstest.MapFS) {
+			m["packs/roles/reviewer.yaml"].Data = append(m["packs/roles/reviewer.yaml"].Data, "resources: {min_cpu: 4, gpu: 1}\n"...)
+		})
+	})
+	id, err := f.creator.Create(t.Context(), f.request("reviewer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+	if err != nil || j.Resources != (domain.Resources{MinCPU: 4, GPU: 1}) {
+		t.Fatalf("resources = %+v, %v", j.Resources, err)
+	}
+}
+
 func TestJobCreatorGeneratesID(t *testing.T) {
 	f := newFixture(t)
 	id, err := f.creator.Create(t.Context(), f.request("reviewer"))

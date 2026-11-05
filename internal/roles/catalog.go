@@ -93,5 +93,6 @@ func (c *Catalog) Resolve(_ context.Context, _, _ uuid.UUID, name string) (Role,
 		EscalateWhen:     slices.Clone(d.EscalateWhen),
 		Pool:             d.Pool,
 		Toolbox:          d.Toolbox,
+		Resources:        d.Resources,
 	}, nil
 }
