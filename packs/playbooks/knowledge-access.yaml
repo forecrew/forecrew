@@ -1,0 +1,9 @@
+description: Turn an approved access request into a pull request on the knowledge policy, which a human merges. Started by forecrewd with the access_request gate.
+inputs: [gate_id, section, level, role]
+steps:
+  - {id: decision, type: wait, with: {signal: gate.resolved, gate_id: '${inputs.gate_id}'}}
+  - id: policy_pr
+    type: action
+    action: knowledge.access_pr
+    with: {gate_id: '${inputs.gate_id}', section: '${inputs.section}', level: '${inputs.level}', role: '${inputs.role}'}
+    on_failure: escalate

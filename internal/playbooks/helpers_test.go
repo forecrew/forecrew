@@ -12,6 +12,7 @@ import (
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/playbooks"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
@@ -41,6 +42,8 @@ type env struct {
 	wrapped github.Tracker
 	// knowledge, when set, is what knowledge.seed indexes with.
 	knowledge playbooks.KnowledgeSeeder
+	// proposals, when set, serves the knowledge.* actions of proposals.
+	proposals *proposals.Service
 	actions   workflow.Actions
 	account   uuid.UUID
 	project   domain.Project
@@ -75,7 +78,7 @@ func (v *env) register() {
 		tr = v.wrapped
 	}
 	playbooks.Register(v.actions, playbooks.Deps{
-		Store: v.st, Tracker: tr, Signals: v.bus, Sizing: config.DefaultSizing(), Roles: testRoles(), Knowledge: v.knowledge, Now: v.clock.Now,
+		Store: v.st, Tracker: tr, Signals: v.bus, Sizing: config.DefaultSizing(), Roles: testRoles(), Knowledge: v.knowledge, Proposals: v.proposals, Now: v.clock.Now,
 	})
 }
 

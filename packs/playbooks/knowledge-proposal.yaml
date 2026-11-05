@@ -1,0 +1,66 @@
+description: Take the proposals a job made to one knowledge provider through review. Protected and human-owned sections, and providers without a review flow, wait for a human; a section owned by a role gets a read-only review by that role and is merged when it approves; a section owned by CODEOWNERS is left to its reviewers on GitHub. Started by forecrewd when the job completes.
+inputs: [repo, job_id, provider]
+steps:
+  - id: send
+    type: action
+    action: knowledge.propose
+    with: {job_id: '${inputs.job_id}', provider: '${inputs.provider}'}
+    on_failure: escalate
+  # The owner role reads the branch and answers with the reviewer's verdict.
+  - id: reviews
+    type: foreach
+    items: '${steps.send.output.reviewers}'
+    steps:
+      - id: review
+        type: job
+        with:
+          role: '${item}'
+          repo: '${inputs.repo}'
+          branch: '${steps.send.output.branch}'
+          feedback: '${steps.send.output.review_text}'
+          proposal_review: true
+        on_failure: escalate
+  - id: assess
+    type: action
+    action: knowledge.assess
+    with: {job_id: '${inputs.job_id}', provider: '${inputs.provider}', reviews: '${steps.reviews.output}'}
+    on_failure: escalate
+  - id: human
+    type: foreach
+    items: '${steps.assess.output.if_gate}'
+    steps:
+      - {id: decision, type: wait, with: {signal: gate.resolved, gate_id: '${item}'}}
+  - id: decide
+    type: action
+    action: knowledge.decide
+    with: {job_id: '${inputs.job_id}', provider: '${inputs.provider}'}
+    on_failure: escalate
+  - id: merged
+    type: foreach
+    items: '${steps.decide.output.if_merge}'
+    steps:
+      # The checks of the PR head; "none" means the repo has no checks. A
+      # timeout opens a needs_you gate.
+      - id: checks
+        type: wait
+        timeout: 1h
+        on_failure: escalate
+        with: {signal: checks.completed, repo: '${inputs.repo}', sha: '${steps.send.output.head_sha}'}
+      - id: merge
+        type: action
+        action: github.merge_pr
+        with: {repo: '${inputs.repo}', number: '${item}'}
+        on_failure: escalate
+  # CODEOWNERS reviewers approve on GitHub and a human merges.
+  - id: followed
+    type: foreach
+    items: '${steps.decide.output.if_follow}'
+    steps:
+      - {id: pr, type: wait, with: {signal: pr.merged, repo: '${inputs.repo}', number: '${item}'}}
+  - id: settle
+    type: action
+    action: knowledge.settle
+    with: {job_id: '${inputs.job_id}', provider: '${inputs.provider}'}
+    on_failure: escalate
+finally:
+  - {id: abandon, type: action, action: knowledge.settle, with: {job_id: '${inputs.job_id}', provider: '${inputs.provider}'}}
