@@ -13,6 +13,7 @@ import (
 var runtimeCLIs = []struct{ binary, adapter string }{
 	{"claude", runtime.ClaudeCode},
 	{"codex", runtime.Codex},
+	{"opencode", runtime.Opencode},
 }
 
 // osLabels returns the labels for an operating system (a GOOS value). macOS

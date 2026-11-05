@@ -7,7 +7,7 @@ import (
 
 func TestRegistry(t *testing.T) {
 	r := DefaultRegistry(nil, nil)
-	for _, name := range []string{"claude-code", "codex"} {
+	for _, name := range []string{"claude-code", "codex", "opencode"} {
 		a, err := r.Get(name)
 		if err != nil || a.Name() != name {
 			t.Errorf("Get(%q) = %v, %v", name, a, err)

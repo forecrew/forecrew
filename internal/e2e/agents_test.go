@@ -32,6 +32,9 @@ type call struct {
 	Feedback bool
 	Prompt   string
 	WorkDir  string
+	Model    string
+	Tools    []string
+	Endpoint *domain.Endpoint
 }
 
 // agents decides what the scripted runtime does for each role. The zero
@@ -74,7 +77,7 @@ func (a *agents) next(spec runtime.RunSpec) (call, error) {
 	if err != nil {
 		return call{}, err
 	}
-	c := call{Role: role, Prompt: spec.Prompt, WorkDir: spec.WorkDir, Feedback: strings.Contains(spec.Prompt, "Feedback to address")}
+	c := call{Role: role, Prompt: spec.Prompt, WorkDir: spec.WorkDir, Model: spec.Model, Tools: spec.AllowedTools, Endpoint: spec.Endpoint, Feedback: strings.Contains(spec.Prompt, "Feedback to address")}
 	if m := taskRef.FindStringSubmatch(spec.Prompt); m != nil {
 		c.Task, _ = strconv.Atoi(m[1])
 	}

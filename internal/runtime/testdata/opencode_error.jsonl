@@ -1,0 +1,2 @@
+{"type":"step_start","timestamp":1,"sessionID":"ses_1","part":{"type":"step-start"}}
+{"type":"error","timestamp":2,"sessionID":"ses_1","error":{"name":"APIError","data":{"message":"401 bad key sk-test-opencodesecretvalue123456"}}}

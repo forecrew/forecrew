@@ -25,12 +25,12 @@ func NewRegistry(adapters ...Adapter) *Registry {
 	return r
 }
 
-// DefaultRegistry returns a Registry with the claude-code and codex adapters,
-// each looking for its CLI in PATH. env and now are the Config fields of the
+// DefaultRegistry returns a Registry with the claude-code, codex and opencode
+// adapters, each looking for its CLI in PATH. env and now are the Config fields of the
 // same name.
 func DefaultRegistry(env []string, now func() time.Time) *Registry {
 	cfg := Config{Env: env, Now: now}
-	return NewRegistry(NewClaudeCode(cfg), NewCodex(cfg))
+	return NewRegistry(NewClaudeCode(cfg), NewCodex(cfg), NewOpencode(cfg))
 }
 
 // Get returns the adapter registered as name, or ErrUnknownAdapter.
