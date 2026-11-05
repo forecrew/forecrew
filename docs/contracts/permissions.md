@@ -96,7 +96,7 @@ feature: see identity.md, Tokens.
 |------------|-------|------------|--------|
 | `org.read` | read | organization | see the organization, its members, teams, roles and service accounts |
 | `org.manage` | admin | organization | rename the organization, change its slug and `max_token_ttl`, grant and remove the Owner role |
-| `billing.manage` | admin | organization | billing and plans (S.3); the budgets of providers, shapes and the fleet policy, and nothing else of them |
+| `billing.manage` | admin | organization | billing and plans (S.3); the [budget fields](#budget-fields) of the fleet |
 | `member.manage` | admin | organization | invite, suspend and remove members, change their organization role bindings, within [No escalation](#no-escalation) |
 | `team.manage` | admin | organization | create, rename and delete teams, change their members and their bindings, within [No escalation](#no-escalation) |
 | `role.manage` | admin | organization | create, edit and delete custom roles (enterprise) |
@@ -105,7 +105,7 @@ feature: see identity.md, Tokens.
 | `token.manage` | admin | organization | create service account tokens; list and revoke other people's tokens |
 | `audit.read` | read | organization | read the audit log |
 | `worker.read` | read | organization | list workers, machines, capacity providers, shapes, images and fleet usage |
-| `worker.manage` | admin | organization | add, move and revoke workers; capacity providers, join codes, shapes and the fleet policy (locations and machine types, shown to users as Manage machines) |
+| `worker.manage` | admin | organization | add, move and revoke workers; capacity providers, join codes, shapes, the fleet policy and the organization's images (locations and machine types, shown to users as Manage machines), except [budget fields](#budget-fields) |
 | `pool.manage` | admin | organization | worker pools |
 | `project.create` | write | organization | onboard a repo as a project |
 | `project.read` | read | project | a project, its profile, councils, assumptions, decisions, knowledge and improvement proposals |
@@ -131,6 +131,22 @@ feature: see identity.md, Tokens.
 | `gate.approve.access_request` | write | project | resolve `access_request` gates |
 | `gate.approve.improvement` | write | project | resolve `improvement_proposal` gates |
 | `gate.approve.needs_you` | write | project | resolve `needs_you` gates, playbook escalations and `ask_human` questions alike |
+
+### Budget fields
+
+These fields say what the organization may spend or use, so they need
+`billing.manage`, and `worker.manage` alone cannot change them:
+
+- `capacity_providers.limits.monthly_budget`
+- `shapes.monthly_budget`
+- `fleet_policy.quotas.*`: `concurrent_machines`, `monthly_minutes`,
+  `monthly_budget`
+
+A change to a provider, shape or policy that touches one of them needs
+`billing.manage` for that field, on top of `worker.manage` for any other field it
+changes. Creating a row counts as changing its budget fields when they are set.
+`billing.manage` alone changes these fields and nothing else of the row, and
+reads them without `worker.read`. Instance-wide rows stay with instance admins.
 
 ## Built-in roles
 
