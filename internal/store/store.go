@@ -73,6 +73,11 @@ type Store interface {
 	Knowledge() KnowledgeRepo
 	KnowledgeProposals() KnowledgeProposalRepo
 	Councils() CouncilRepo
+	Teams() TeamRepo
+	ServiceAccounts() ServiceAccountRepo
+	Roles() RoleRepo
+	RoleBindings() RoleBindingRepo
+	Directory() DirectoryRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
 	// must use the ctx passed to fn.
@@ -189,12 +194,15 @@ type ChangeRepo interface {
 // JobFilter selects jobs; zero fields match everything.
 type JobFilter struct {
 	ProjectID uuid.UUID
-	GoalID    uuid.UUID
-	TaskID    uuid.UUID
-	WorkerID  uuid.UUID
-	Role      string
-	Status    domain.JobStatus
-	Limit     int
+	// InProjects, when not nil, keeps the jobs of these projects only; empty
+	// matches nothing.
+	InProjects []uuid.UUID
+	GoalID     uuid.UUID
+	TaskID     uuid.UUID
+	WorkerID   uuid.UUID
+	Role       string
+	Status     domain.JobStatus
+	Limit      int
 }
 
 // JobResult is what a worker reports when it finishes a job.
@@ -856,6 +864,18 @@ type RoleBindingRepo interface {
 	// service account its own. Only active members and enabled users and
 	// service accounts have any; the others get none.
 	Effective(ctx context.Context, accountID uuid.UUID, kind domain.SubjectKind, id uuid.UUID) ([]BoundRole, error)
+}
+
+// DirectoryRepo answers the two questions authorization asks about people:
+// who a user is and which user wrote a GitHub comment.
+type DirectoryRepo interface {
+	// User returns a user by ID.
+	User(ctx context.Context, id uuid.UUID) (domain.User, error)
+	// GitHubMembers returns the distinct members of the organization, in any
+	// status, linked to a GitHub account through a github connection the
+	// organization can use. The account is matched by its stable user ID,
+	// or by login, ignoring case, when id is zero.
+	GitHubMembers(ctx context.Context, accountID uuid.UUID, id int64, login string) ([]uuid.UUID, error)
 }
 
 // ConnectionRepo stores sign-in connections and their group mappings.

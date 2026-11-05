@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 	"uuid"
 
@@ -53,7 +54,7 @@ func (r jobRepo) GetByNumber(_ context.Context, accountID uuid.UUID, number int6
 func (r jobRepo) List(_ context.Context, accountID uuid.UUID, f store.JobFilter) ([]domain.Job, error) {
 	return read(r.s, func(d *storeData) ([]domain.Job, error) {
 		return d.jobs.newest(f.Limit, func(j domain.Job) bool {
-			return j.AccountID == accountID && zeroOr(f.ProjectID, j.ProjectID) && zeroOr(f.GoalID, j.GoalID) &&
+			return j.AccountID == accountID && zeroOr(f.ProjectID, j.ProjectID) && (f.InProjects == nil || slices.Contains(f.InProjects, j.ProjectID)) && zeroOr(f.GoalID, j.GoalID) &&
 				zeroOr(f.TaskID, j.TaskID) && zeroOr(f.WorkerID, j.WorkerID) && zeroOr(f.Role, j.Role) && zeroOr(f.Status, j.Status)
 		}), nil
 	})
