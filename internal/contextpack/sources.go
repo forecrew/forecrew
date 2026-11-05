@@ -58,9 +58,6 @@ const (
 	maxNotes       = 20
 	maxFiles       = 30
 	maxAreas       = 20
-	// scanNotes is how many of the project's notes are read to find the
-	// goal's newest ones.
-	scanNotes = 100
 	// excerpt is how much of a task or decision text a pack shows, in runes.
 	excerpt = 600
 	// minSharedWords is how many words a past task shares with the current
@@ -276,17 +273,19 @@ func (s packSource) notes(ctx context.Context) (Section, error) {
 		return Section{}, nil
 	}
 	found, down, err := s.search(ctx, knowledge.Query{
-		Sections: []string{domain.SectionNotes}, Kinds: []domain.KnowledgeKind{domain.KnowledgeNoteKind}, Limit: scanNotes,
+		Sections: []string{domain.SectionNotes}, Kinds: []domain.KnowledgeKind{domain.KnowledgeNoteKind}, GoalOnly: true, Limit: maxNotes,
 	})
 	if err != nil || down {
 		return noteIf(down), err
 	}
-	found = slices.DeleteFunc(found, func(r knowledge.Result) bool { return r.Scope != domain.NoteScopeGoal || r.GoalID != s.goal.ID })
 	slices.SortStableFunc(found, func(a, b knowledge.Result) int { return b.Provenance.Created.Compare(a.Provenance.Created) })
 	var sec Section
 	for _, r := range found[:min(len(found), maxNotes)] {
 		// The search gives a snippet; the note itself is read whole.
 		e, err := s.b.store.Knowledge().Get(ctx, s.project.AccountID, r.ID)
+		if errors.Is(err, store.ErrNotFound) {
+			continue // deleted since the search
+		}
 		if err != nil {
 			return Section{}, fmt.Errorf("read note %s: %w", r.ID, err)
 		}

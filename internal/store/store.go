@@ -553,6 +553,9 @@ type KnowledgeQuery struct {
 	// AllNotes returns the notes of every goal (for humans); GoalID is
 	// then ignored.
 	AllNotes bool
+	// GoalOnly returns only the notes of GoalID, newest first when Text is
+	// empty: the project's notes and entries are left out.
+	GoalOnly bool
 	// Embedding of Text, mixed into the ranking where the embedding column
 	// exists; ignored otherwise.
 	Embedding []float32
