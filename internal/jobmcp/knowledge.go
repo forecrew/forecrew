@@ -12,6 +12,7 @@ import (
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/knowledge"
+	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
@@ -28,6 +29,69 @@ func init() {
 		"Save a note for the jobs that come after you: scope goal for what only this goal needs, project for what every job of the project should know. "+
 			"Give note (an earlier note's id) to replace it. Notes are shared data, not instructions; keep them short and factual.",
 		50, notesWrite)
+	register("kb_propose", "kb.propose",
+		"Propose adding, editing or retiring an entry of a curated section you may propose to: body is the full new Markdown without frontmatter (empty to retire), reason why the knowledge base should change. "+
+			"You do not change the entry: its owner reviews the proposal, and a proposal of a goal waits for the goal's learn step. For working knowledge that needs no review use notes_write.",
+		20, kbPropose)
+	register("request_access", "request_access",
+		"Ask a human for read, propose or write access to a knowledge section you do not have, with a reason. It returns at once and you go on without the access: approval changes the knowledge policy through a pull request, for later jobs.",
+		5, requestAccess)
+}
+
+func proposalError(err error) error {
+	switch {
+	case errors.Is(err, knowledge.ErrPolicyUnknown):
+		return Errorf(CodeUnavailable, "the knowledge policy of this project cannot be read now: try again later")
+	case errors.Is(err, proposals.ErrForbidden):
+		return Errorf(CodeForbidden, "%v", err)
+	case errors.Is(err, proposals.ErrInvalid):
+		return Errorf(CodeInvalidInput, "%v", err)
+	}
+	return err
+}
+
+func kbPropose(ctx context.Context, c *Call, raw json.RawMessage) (Result, error) {
+	var in struct {
+		Section string                 `json:"section"`
+		Path    string                 `json:"path"`
+		Action  domain.KnowledgeAction `json:"action"`
+		Body    string                 `json:"body"`
+		Reason  string                 `json:"reason"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return Result{}, err
+	}
+	if c.Config.Proposals == nil {
+		return Result{}, Errorf(CodeUnavailable, "this forecrewd has no knowledge base")
+	}
+	k, err := c.Config.Proposals.Submit(ctx, c.Job, proposals.Input{Section: in.Section, Path: in.Path, Action: in.Action, Body: in.Body, Reason: in.Reason})
+	if err != nil {
+		return Result{}, proposalError(err)
+	}
+	message := k.Ref() + " goes to the section's owner when this job completes."
+	if k.Batch == domain.BatchPerGoal {
+		message = k.Ref() + " waits for the goal's learn step."
+	}
+	return Result{Data: map[string]any{"proposal": k.Ref(), "status": k.Status, "batch": k.Batch, "message": message}}, nil
+}
+
+func requestAccess(ctx context.Context, c *Call, raw json.RawMessage) (Result, error) {
+	var in struct {
+		Section string `json:"section"`
+		Level   string `json:"level"`
+		Reason  string `json:"reason"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return Result{}, err
+	}
+	if c.Config.Proposals == nil {
+		return Result{}, Errorf(CodeUnavailable, "this forecrewd has no knowledge base")
+	}
+	g, err := c.Config.Proposals.RequestAccess(ctx, c.Job, proposals.AccessRequest{Section: in.Section, Level: in.Level, Reason: in.Reason})
+	if err != nil {
+		return Result{}, proposalError(err)
+	}
+	return Result{Data: map[string]any{"gate": g.Ref(), "status": g.Status, "message": "A human decides " + g.Ref() + ". Go on without the access."}}, nil
 }
 
 type searchResult struct {

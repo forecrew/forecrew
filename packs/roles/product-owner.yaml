@@ -1,7 +1,7 @@
 role: product-owner
 model: best
 prompt: roles/product-owner.md
-tools: [repo.read, git.read, assumption.record, kb.search, notes.write]
+tools: [repo.read, git.read, assumption.record, kb.search, notes.write, kb.propose, request_access]
 write_paths: []
 pool: control
 produces: [spec]
