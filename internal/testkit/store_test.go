@@ -1036,9 +1036,14 @@ func TestAccountTokenCap(t *testing.T) {
 }
 
 func TestKnowledgeStore(t *testing.T) {
-	f := newFixture(t)
-	KnowledgeStoreSuite(t, f.st, f.account, f.project.ID, true)
-	KnowledgeProposalStoreSuite(t, f.st, f.account, f.project.ID)
+	// The real clock: the suite checks that the newest note comes first.
+	st := NewStore(nil)
+	acc := domain.Account{Name: "default"}
+	must(t, st.Accounts().Create(t.Context(), &acc))
+	p := domain.Project{AccountID: acc.ID, Name: "app", Repo: "acme/app", DefaultBranch: "main", Status: domain.ProjectRegistered}
+	must(t, st.Projects().Create(t.Context(), &p))
+	KnowledgeStoreSuite(t, st, acc.ID, p.ID, true)
+	KnowledgeProposalStoreSuite(t, st, acc.ID, p.ID)
 }
 
 func TestStoreCouncils(t *testing.T) {

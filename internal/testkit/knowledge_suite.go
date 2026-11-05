@@ -22,6 +22,7 @@ func KnowledgeStoreSuite(t *testing.T, st store.Store, account, project uuid.UUI
 	s.embeddings(embeddings)
 	s.reverify()
 	s.expiry()
+	s.newestGoalNoteFirst()
 }
 
 type knowledgeSuite struct {
@@ -296,5 +297,23 @@ func KnowledgeProposalStoreSuite(t *testing.T, st store.Store, account, project 
 	k.Status, k.ExternalRef = domain.KnowledgeOpen, "13" // same status: only the fields move
 	if err := repo.Update(ctx, &k, domain.KnowledgeOpen); err != nil {
 		t.Errorf("same-status Update: %v", err)
+	}
+}
+
+// newestGoalNoteFirst: a goal-only search without text lists the newest note
+// first, whatever the paths say.
+func (s *knowledgeSuite) newestGoalNoteFirst() {
+	t, ctx := s.t, s.t.Context()
+	g := Goal(t, s.st, s.account, s.project, "ordered")
+	older := s.note("notes/a-older", "Older", "written first", domain.NoteScopeGoal, g.ID)
+	mustT(t, s.repo.Upsert(ctx, older))
+	time.Sleep(20 * time.Millisecond)
+	newer := s.note("notes/z-newer", "Newer", "written second", domain.NoteScopeGoal, g.ID)
+	mustT(t, s.repo.Upsert(ctx, newer))
+	if got := s.paths(store.KnowledgeQuery{GoalOnly: true, GoalID: g.ID, Limit: 1}); len(got) != 1 || got[0] != newer.Path {
+		t.Errorf("newest goal note = %v, want %s", got, newer.Path)
+	}
+	if got := s.paths(store.KnowledgeQuery{GoalOnly: true, GoalID: g.ID}); len(got) != 2 || got[0] != newer.Path || got[1] != older.Path {
+		t.Errorf("goal notes = %v, want newest first", got)
 	}
 }
