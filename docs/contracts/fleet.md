@@ -151,8 +151,9 @@ type Provider interface {
   a config disk, a shared directory), is never written to the host's disk
   outside the guest's own image, and is never logged (`fleet.Bootstrap` hides
   it).
-- Everything created carries `forecrew:machine`, and `forecrew:org` and
-  `forecrew:job` when they are known, as tags or the provider's closest thing,
+- Everything created carries `forecrew:machine`, and `forecrew:org` (the
+  organization's ID, which unlike its slug never changes) and `forecrew:job` when
+  they are known, as tags or the provider's closest thing,
   next to the provider's `tags`.
 
 ## Machines
@@ -313,7 +314,10 @@ of `TestSelectShapes`:
 
 `fleet_policy`, one row per organization (`domain.FleetPolicy`). An
 organization without a row has `domain.DefaultFleetPolicy`: `own_only`, so code
-stays on its own machines until someone decides otherwise.
+stays on its own machines until someone decides otherwise. That default would
+leave an organization of a hosted instance with no machines at all, so hosted
+organizations need a `fleet_policy` row set when they are created, with the
+routing chosen on the first-run screen (T65, T66).
 
 | Field | Meaning |
 |-------|---------|
@@ -350,6 +354,23 @@ organization registers its own builds under its ID. The manifest of a build is
   os, arch, format and digest, one per line), so a signature fits one image
   only. The fleet agent checks it, and the digest, against the public keys it
   trusts before first use, and refuses the machine otherwise.
+- **Who signs.** Forecrew's images are signed in the release pipeline with the
+  project's key, and an instance's own with its operator's; agents trust the
+  matching public keys. An organization's images are signed by a person of that
+  organization with its own key, kept off the host, and its public key goes in the
+  local config of its own fleet agents, not through forecrewd. A fleet agent holds
+  no signing key and never signs anything.
+- **Registering.** `POST /api/v1/images` (`forecrew image add`, T60) with a
+  person's credentials: `worker.manage` for the organization's images, instance
+  admin for instance-wide ones. There is no route for an agent, and
+  `Image.Validate` requires a signature everywhere, so an unsigned image cannot be
+  stored. The server checks the form only; the agent checks the signature.
+- **Built on a host.** A Windows image from a user's ISO (T60, T62) is built by
+  the fleet agent, which leaves an unsigned manifest on that host. A person
+  checks it, signs it, and registers it under the organization. So a host agent
+  can never register an image others trust: the row needs a person, it is only
+  the organization's, and only agents configured with its key accept it. The plan
+  of that step says so.
 - `contents`: `labels` (a shape on the image lists them), `packages` [{`name`,
   `version`}] (the Software line) and, on `rootfs` only, `kernel` {`uri`,
   `digest`}.

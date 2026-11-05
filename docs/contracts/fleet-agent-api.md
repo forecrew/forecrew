@@ -34,6 +34,13 @@ scripts and air-gapped sites, or from `join`, which shows it to nobody.
 - Nothing the agent's local credentials allow is ever sent: capabilities hold
   facts, not secrets.
 
+## Images
+
+There is no route here to register an image, by design. The provider token gives
+no way to add to `images`, so a compromised host cannot publish something others
+trust. An image built on a host, such as a Windows image from a user's ISO, is
+registered by a person (fleet.md, Images).
+
 ## Errors
 
 The body is the worker API's: `{"error": {"code": "...", "message": "..."}}`.
@@ -45,7 +52,7 @@ The body is the worker API's: `{"error": {"code": "...", "message": "..."}}`.
 | 404 | `not_found` | The machine is not this provider's. |
 | 409 | `conflict` | A transition the machine cannot make; on `join`, a code claimed by another agent. |
 | 413 | `too_large` | Body over 1 MiB. |
-| 429 | `rate_limited` | Too many `join` calls from one address. |
+| 429 | `rate_limited` | Too many `join` calls from one address, or too many with unknown codes from all addresses (Joining). |
 | 500 | `internal` | Server error. |
 
 The agent retries 5xx and network errors with exponential backoff (1 s up to
@@ -67,6 +74,14 @@ Connect step, is random, is stored as a hash (`provider_join_codes`), and lasts
 `domain.JoinCodeTTL` (1 hour) or `domain.JoinCodeCloudTTL` (7 days, for a kit
 another team runs). Alone it can do nothing: it gives no access to demand, and it
 works once.
+
+A code holds at least 40 bits from a cryptographic random source: 8 characters
+of Crockford base32, as in `K7PQ-2M4X`. Guessing is limited on top of the
+per-address limit by a global throttle: `join` calls with an unknown code,
+counted over every address, are held to 5 per second, and past that every `join`
+gets `429` before any lookup. So at most about 3 million guesses fit in a
+week-long code's life, against 2^40 codes. A legitimate agent retries after
+backoff.
 
 ### POST /fleet/v1/join
 
@@ -122,16 +137,15 @@ Long-polls the machines that should exist here, and records the contact.
 Request:
 
 ```json
-{"generation": 41, "have": ["018f..."]}
+{"generation": "41", "have": ["018f..."]}
 ```
 
 | Field | Meaning |
 |-------|---------|
-| `generation` | The last generation seen; absent or 0 on the first poll. |
+| `generation` | The value of the last response, sent back as it came; absent on the first poll. It is opaque: the agent never orders or parses it. Any difference from the server's current value means changed, so it may go down or start over after forecrewd restarts, which costs one early answer and nothing else. |
 | `have` | Every machine the agent has or is starting: from the moment it receives a machine until `Create` fails or the machine is destroyed. It is how forecrewd knows not to send a new token. |
 
-forecrewd answers at once when the provider's desired machines changed since
-`generation`, or when a `requested` machine is not in `have`. Otherwise it waits
+forecrewd answers at once when `generation` differs from its own value, or when a `requested` machine is not in `have`. Otherwise it waits
 up to 30 s and answers with the same list. The agent polls again right away; its
 HTTP client timeout must be at least 45 s.
 
@@ -139,14 +153,14 @@ Response `200`:
 
 ```json
 {
-  "generation": 42,
+  "generation": "42",
   "machines": [
     {
       "machine_id": "018f...",
       "shape": {"...": "domain.Shape"},
       "image": {"...": "domain.Image, resolved"},
       "bootstrap": {"server_url": "https://forecrew.example.com", "token": "fcb_..."},
-      "tags": {"forecrew:machine": "018f...", "forecrew:org": "acme"},
+      "tags": {"forecrew:machine": "018f...", "forecrew:org": "018e..."},
       "network_allow": ["10.0.0.5"],
       "deadline": "2026-03-01T13:00:00Z"
     }
