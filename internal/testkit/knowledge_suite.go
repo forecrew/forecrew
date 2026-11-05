@@ -239,3 +239,59 @@ func mustT(t *testing.T, err error) {
 		t.Fatal(err)
 	}
 }
+
+// KnowledgeProposalStoreSuite checks the contract of
+// store.KnowledgeProposalRepo on st, the fake and Postgres alike.
+func KnowledgeProposalStoreSuite(t *testing.T, st store.Store, account, project uuid.UUID) {
+	t.Helper()
+	ctx, repo := t.Context(), st.KnowledgeProposals()
+	k := domain.KnowledgeProposal{
+		AccountID: account, ProjectID: project, Provider: "repo", Section: "architecture", Path: "docs/adr/1.md", Action: domain.KnowledgeAdd,
+		Body: "# ADR", Reason: "why", ProposedBy: "architect", Batch: domain.BatchStandalone, Status: domain.KnowledgeQueued,
+	}
+	if err := repo.Create(ctx, &k); err != nil {
+		t.Fatal(err)
+	}
+	second := k
+	second.ID, second.Path, second.Batch = uuid.Nil(), "docs/adr/2.md", domain.BatchStandalone
+	second.Status = domain.KnowledgeOpen
+	if err := repo.Create(ctx, &second); err != nil {
+		t.Fatal(err)
+	}
+	if k.Number == 0 || second.Number != k.Number+1 || k.CreatedAt.IsZero() {
+		t.Errorf("numbers %d, %d, created %v", k.Number, second.Number, k.CreatedAt)
+	}
+	got, err := repo.Get(ctx, account, k.ID)
+	if err != nil || got.Path != k.Path || got.Ref() != k.Ref() || got.Action != domain.KnowledgeAdd {
+		t.Errorf("Get = %+v, %v", got, err)
+	}
+	if got, err = repo.GetByNumber(ctx, account, second.Number); err != nil || got.ID != second.ID {
+		t.Errorf("GetByNumber = %+v, %v", got, err)
+	}
+	if _, err := repo.Get(ctx, uuid.New(), k.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Get of another account: %v", err)
+	}
+	list, err := repo.List(ctx, account, store.KnowledgeProposalFilter{ProjectID: project, Status: domain.KnowledgeQueued})
+	if err != nil || len(list) != 1 || list[0].ID != k.ID {
+		t.Errorf("List = %+v, %v", list, err)
+	}
+	k.Status, k.ExternalRef = domain.KnowledgeOpen, "12"
+	if err := repo.Update(ctx, &k, domain.KnowledgeQueued); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = repo.Get(ctx, account, k.ID); got.Status != domain.KnowledgeOpen || got.ExternalRef != "12" {
+		t.Errorf("after Update = %+v", got)
+	}
+	k.Status = domain.KnowledgeRejected
+	if err := repo.Update(ctx, &k, domain.KnowledgeQueued); !errors.Is(err, store.ErrConflict) {
+		t.Errorf("stale Update: %v", err)
+	}
+	k.Status = domain.KnowledgeQueued
+	if err := repo.Update(ctx, &k, domain.KnowledgeOpen); !errors.Is(err, domain.ErrInvalidTransition) {
+		t.Errorf("backward Update: %v", err)
+	}
+	k.Status, k.ExternalRef = domain.KnowledgeOpen, "13" // same status: only the fields move
+	if err := repo.Update(ctx, &k, domain.KnowledgeOpen); err != nil {
+		t.Errorf("same-status Update: %v", err)
+	}
+}

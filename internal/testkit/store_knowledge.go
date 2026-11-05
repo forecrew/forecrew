@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -290,4 +291,57 @@ func cosine(a, b []float32) float64 {
 		return 0
 	}
 	return dot / (math.Sqrt(na) * math.Sqrt(nb))
+}
+
+func kbProposalsT(d *storeData) *table[domain.KnowledgeProposal] { return &d.kbProposals }
+
+// KnowledgeProposals implements store.Store.
+func (s *Store) KnowledgeProposals() store.KnowledgeProposalRepo { return knowledgeProposalRepo{s} }
+
+type knowledgeProposalRepo struct{ s *Store }
+
+func (r knowledgeProposalRepo) Create(_ context.Context, k *domain.KnowledgeProposal) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		err := firstErr(foreign(&d.projects, k.AccountID, k.ProjectID), foreign(&d.jobs, k.AccountID, k.JobID), foreign(&d.goals, k.AccountID, k.GoalID),
+			foreign(&d.changes, k.AccountID, k.ChangeID), foreign(&d.gates, k.AccountID, k.GateID))
+		if err != nil {
+			return err
+		}
+		k.ID = newID(k.ID)
+		k.Number = d.nextNumber(k.AccountID, domain.RefKnowledge)
+		k.CreatedAt, k.UpdatedAt = now, now
+		d.kbProposals.insert(*k)
+		return nil
+	})
+}
+
+func (r knowledgeProposalRepo) Get(_ context.Context, accountID, id uuid.UUID) (domain.KnowledgeProposal, error) {
+	return getRow(r.s, kbProposalsT, accountID, id)
+}
+
+func (r knowledgeProposalRepo) GetByNumber(_ context.Context, accountID uuid.UUID, number int64) (domain.KnowledgeProposal, error) {
+	return findRow(r.s, kbProposalsT, func(k domain.KnowledgeProposal) bool { return k.AccountID == accountID && k.Number == number })
+}
+
+func (r knowledgeProposalRepo) List(_ context.Context, accountID uuid.UUID, f store.KnowledgeProposalFilter) ([]domain.KnowledgeProposal, error) {
+	return listRows(r.s, kbProposalsT, f.Limit, func(k domain.KnowledgeProposal) bool {
+		return k.AccountID == accountID && zeroOr(f.ProjectID, k.ProjectID) && zeroOr(f.GoalID, k.GoalID) && zeroOr(f.JobID, k.JobID) &&
+			zeroOr(f.ChangeID, k.ChangeID) && zeroOr(f.Batch, k.Batch) && zeroOr(f.Status, k.Status)
+	})
+}
+
+func (r knowledgeProposalRepo) Update(_ context.Context, k *domain.KnowledgeProposal, from domain.KnowledgeProposalStatus) error {
+	if k.Status != from {
+		if _, err := from.Transition(k.Status); err != nil {
+			return err
+		}
+	}
+	return update(r.s, kbProposalsT, k.AccountID, k.ID, func(cur *domain.KnowledgeProposal, now time.Time) error {
+		if cur.Status != from {
+			return fmt.Errorf("knowledge proposal %s is %q, not %q: %w", cur.Ref(), cur.Status, from, store.ErrConflict)
+		}
+		cur.Status, cur.ExternalRef, cur.ChangeID, cur.GateID, cur.UpdatedAt = k.Status, k.ExternalRef, k.ChangeID, k.GateID, now
+		k.UpdatedAt = now
+		return nil
+	})
 }

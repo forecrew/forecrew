@@ -14,6 +14,7 @@ func TestKnowledge(t *testing.T) {
 	must(t, err)
 	t.Logf("pgvector column: %v", has)
 	testkit.KnowledgeStoreSuite(t, f.st, f.account, f.project.ID, has)
+	testkit.KnowledgeProposalStoreSuite(t, f.st, f.account, f.project.ID)
 }
 
 // TestKnowledgeMigrationWithoutVector: 00006 does nothing without the

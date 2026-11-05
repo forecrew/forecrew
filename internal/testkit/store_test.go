@@ -1037,6 +1037,7 @@ func TestAccountTokenCap(t *testing.T) {
 func TestKnowledgeStore(t *testing.T) {
 	f := newFixture(t)
 	KnowledgeStoreSuite(t, f.st, f.account, f.project.ID, true)
+	KnowledgeProposalStoreSuite(t, f.st, f.account, f.project.ID)
 }
 
 func TestStoreCouncils(t *testing.T) {

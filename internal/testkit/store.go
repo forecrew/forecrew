@@ -61,6 +61,7 @@ type storeData struct {
 	deliveries    map[string]domain.WebhookDelivery
 	counters      map[counterKey]int64
 	knowledge     table[domain.KnowledgeEntry]
+	kbProposals   table[domain.KnowledgeProposal]
 	embeddings    map[uuid.UUID][]float32
 	// jobMCP holds the job MCP token hash of a job with the lease it was
 	// set for; a hash whose lease ended no longer matches (the Postgres
@@ -96,6 +97,7 @@ func NewStore(now func() time.Time) *Store {
 		verifications: table[domain.VerificationReport]{key: func(r domain.VerificationReport) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		assumptions:   table[domain.Assumption]{key: func(r domain.Assumption) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		decisions:     table[domain.Decision]{key: func(r domain.Decision) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		kbProposals:   table[domain.KnowledgeProposal]{key: func(r domain.KnowledgeProposal) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		testRuns:      table[domain.TestRun]{key: func(r domain.TestRun) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		testResult:    table[domain.TestResult]{key: func(r domain.TestResult) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		councils:      table[domain.Council]{key: func(r domain.Council) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
@@ -132,6 +134,7 @@ func (d *storeData) clone() *storeData {
 	c.assumptions = d.assumptions.clone()
 	c.decisions = d.decisions.clone()
 	c.knowledge = d.knowledge.clone()
+	c.kbProposals = d.kbProposals.clone()
 	c.embeddings = maps.Clone(d.embeddings)
 	c.councils = d.councils.clone()
 	c.council = d.council.clone()
