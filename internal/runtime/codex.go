@@ -56,6 +56,9 @@ func codexArgs(spec RunSpec) []string {
 	if spec.Model != "" {
 		args = append(args, "--model", spec.Model)
 	}
+	if spec.Endpoint != nil {
+		args = append(args, "-c", "openai_base_url="+strconv.Quote(spec.Endpoint.BaseURL))
+	}
 	if spec.JobMCP != nil {
 		args = append(args, codexMCPConfig(spec.JobMCP.URL, jobMCPTools(spec.AllowedTools))...)
 	}

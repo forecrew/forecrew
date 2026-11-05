@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -47,6 +48,17 @@ type fakeRecord struct {
 	CodexEntries int    `json:"codex_entries"`
 	// JobMCPToken is the job MCP token variable as seen by the CLI.
 	JobMCPToken string `json:"job_mcp_token"`
+	// Env is the whole environment as seen by the CLI.
+	Env map[string]string `json:"env"`
+}
+
+func environMap() map[string]string {
+	out := map[string]string{}
+	for _, kv := range os.Environ() {
+		k, v, _ := strings.Cut(kv, "=")
+		out[k] = v
+	}
+	return out
 }
 
 func fakeCLI() {
@@ -65,7 +77,7 @@ func fakeCLI() {
 		b, _ := json.Marshal(fakeRecord{
 			Args: args, Stdin: stdin, APIKey: os.Getenv("API_KEY"), Dir: dir,
 			ConfigDir: cfgDir, ConfigEntries: len(entries), JobMCPToken: os.Getenv(JobMCPTokenEnv),
-			CodexHome: codexHome, CodexEntries: len(codexEntries),
+			CodexHome: codexHome, CodexEntries: len(codexEntries), Env: environMap(),
 		})
 		_ = os.WriteFile(rec, b, 0o600)
 	}

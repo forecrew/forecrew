@@ -232,3 +232,135 @@ func TestModelOn(t *testing.T) {
 		t.Fatal("an adapter without a runtime gave a model")
 	}
 }
+
+// opencodeYAML puts the developer on a DeepSeek runtime of opencode.
+var opencodeYAML = strings.NewReplacer(
+	"  codex:\n", "  deepseek:\n    adapter: opencode\n    vendor: deepseek\n    credential_env: [DEEPSEEK_API_KEY]\n  codex:\n",
+	"strong: {anthropic: claude-sonnet,", "strong: {deepseek: deepseek/deepseek-chat, anthropic: claude-sonnet,",
+	"developer: {runtime: claude,", "developer: {runtime: deepseek,",
+).Replace(validYAML)
+
+func opencodeEnv() func(string) string {
+	return env(map[string]string{"DEEPSEEK_API_KEY": "sk-ds"})
+}
+
+func TestParseOpencode(t *testing.T) {
+	c, err := Parse([]byte(opencodeYAML), opencodeEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter, model, err := c.Model("developer")
+	if err != nil || adapter != AdapterOpencode || model != "deepseek/deepseek-chat" {
+		t.Errorf("Model(developer) = %s, %s, %v", adapter, model, err)
+	}
+	if e := c.Runtimes["deepseek"].Endpoint(); e != nil {
+		t.Errorf("endpoint without base_url: %+v", e)
+	}
+}
+
+func TestParseOpencodeInvalid(t *testing.T) {
+	tests := []struct {
+		name string
+		old  string
+		new  string
+		want string
+	}{
+		{"no provider", "deepseek/deepseek-chat", "deepseek-chat", "model_tiers.strong.deepseek"},
+		{"no model", "deepseek/deepseek-chat", "deepseek/", "provider/model"},
+		{"expansion", "deepseek/deepseek-chat", "'deepseek/{env:HOME}'", "provider/model"},
+		{"unknown adapter", "adapter: opencode", "adapter: aider", "runtimes.deepseek.adapter must be one of claude-code, codex, opencode"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse([]byte(strings.Replace(opencodeYAML, tt.old, tt.new, 1)), opencodeEnv())
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestOpencodeSameVendorReview(t *testing.T) {
+	both := strings.Replace(opencodeYAML, "reviewer: {runtime: codex, tier: best}", "reviewer: {runtime: deepseek, tier: strong}", 1)
+	if _, err := Parse([]byte(both), opencodeEnv()); err == nil || !strings.Contains(err.Error(), `vendor "deepseek"`) {
+		t.Fatalf("err = %v", err)
+	}
+	// Two runtimes of one adapter are different vendors: the vendor counts.
+	two := strings.NewReplacer(
+		"  codex:\n", "  local:\n    adapter: opencode\n    vendor: ollama\n  codex:\n",
+		"strong: {deepseek:", "strong: {ollama: ollama/qwen3, deepseek:",
+		"reviewer: {runtime: codex, tier: best}", "reviewer: {runtime: local, tier: strong}",
+	).Replace(opencodeYAML)
+	if _, err := Parse([]byte(two), opencodeEnv()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBaseURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string // part of the error; empty means valid
+	}{
+		{"https://api.example.com/v1", ""},
+		{"https://8.8.8.8/v1", ""},
+		{"http://localhost:11434/v1", ""},
+		{"http://LOCALHOST:11434/v1", ""},
+		{"http://127.0.0.1:1234/v1", ""},
+		{"http://[::1]:1234/v1", ""},
+		{"http://10.1.2.3/v1", ""},
+		{"http://172.16.0.1/v1", ""},
+		{"http://192.168.1.10:11434/v1", ""},
+		{"http://[fd00::1]/v1", ""},
+		{"http://api.example.com/v1", "http is only allowed"},
+		{"http://ollama.internal/v1", "http is only allowed"},
+		{"http://8.8.8.8/v1", "http is only allowed"},
+		{"http://169.254.169.254/latest", "http is only allowed"},
+		{"http://0.0.0.0/v1", "http is only allowed"},
+		{"ftp://example.com", "absolute http(s) URL"},
+		{"api.example.com/v1", "absolute http(s) URL"},
+		{"https://", "absolute http(s) URL"},
+		{"https://user:key@api.example.com/v1", "credentials"},
+		{"https://api.example.com/v1?key=abc", "credentials"},
+		{"https://api.example.com/v1#x", "credentials"},
+		{"https://api.example.com/{env:HOME}", "braces"},
+		{"https://bad host/", "not a valid URL"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			yaml := strings.Replace(opencodeYAML, "vendor: deepseek\n", "vendor: deepseek\n    base_url: \""+tt.url+"\"\n", 1)
+			c, err := Parse([]byte(yaml), opencodeEnv())
+			if tt.want == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if e := c.Runtimes["deepseek"].Endpoint(); e == nil || e.BaseURL != tt.url || e.KeyEnv != "DEEPSEEK_API_KEY" {
+					t.Fatalf("endpoint = %+v", e)
+				}
+				return
+			}
+			if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "runtimes.deepseek.base_url") || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestBaseURLOnEveryAdapter(t *testing.T) {
+	yaml := strings.NewReplacer(
+		"vendor: anthropic\n", "vendor: anthropic\n    base_url: https://proxy.example.com\n",
+		"vendor: openai\n", "vendor: openai\n    base_url: https://proxy.example.com/v1\n",
+	).Replace(validYAML)
+	c, err := Parse([]byte(yaml), env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := c.Runtimes["codex"].Endpoint(); e == nil || e.KeyEnv != "OPENAI_API_KEY" {
+		t.Fatalf("endpoint = %+v", e)
+	}
+}
+
+func TestEndpointWithoutKey(t *testing.T) {
+	if e := (Runtime{BaseURL: "http://localhost:11434/v1"}).Endpoint(); e == nil || e.KeyEnv != "" {
+		t.Fatalf("endpoint = %+v", e)
+	}
+}

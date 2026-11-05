@@ -43,7 +43,12 @@ const minMembers = 3
 var priorityName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 // adapters are the runtimes a seat may prefer.
-var adapters = []string{config.AdapterClaudeCode, config.AdapterCodex}
+var adapters = []string{config.AdapterClaudeCode, config.AdapterCodex, config.AdapterOpencode}
+
+// newSeatAdapters are the runtimes a seat made for an ad hoc member rotates
+// through. opencode is left out: it is opt-in, and a seat falls back to its
+// first runtime when no worker offers any.
+var newSeatAdapters = adapters[:2]
 
 // Step is one kind of council job: the member stages of
 // domain.CouncilStage, plus the facilitator's framing and its checks

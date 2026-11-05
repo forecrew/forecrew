@@ -56,6 +56,9 @@ type Config struct {
 	// Env returns the runtime (a key of runtimes) and its secrets for a
 	// leased job; see RuntimeEnv.
 	Env func(j domain.Job) (runtime string, env map[string]string)
+	// Endpoint returns the custom model endpoint for a leased job, nil for
+	// the vendor's own; see RuntimeEndpoint.
+	Endpoint func(j domain.Job) *domain.Endpoint
 	// Pools is the pool policy that limits the credentials of leased jobs
 	// (config.Config.Pools); nil means config.DefaultPools.
 	Pools  map[string]config.Pool
@@ -99,6 +102,9 @@ func New(cfg Config) *Server {
 	}
 	if cfg.MaxArtifactSize <= 0 {
 		cfg.MaxArtifactSize = config.DefaultMaxArtifactSize
+	}
+	if cfg.Endpoint == nil {
+		cfg.Endpoint = func(domain.Job) *domain.Endpoint { return nil }
 	}
 	if cfg.Env == nil {
 		cfg.Env = func(domain.Job) (string, map[string]string) { return "", nil }

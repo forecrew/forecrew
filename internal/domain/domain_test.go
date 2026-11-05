@@ -205,9 +205,9 @@ func TestJobFinish(t *testing.T) {
 
 func TestJobSpecSecrets(t *testing.T) {
 	s := JobSpec{JobID: NewID(), Repo: "o/r", Env: map[string]string{"KEY": "secret"}, RepoToken: "ghs_secret", Timeout: Duration(45 * time.Minute),
-		JobMCP: &JobMCP{URL: "https://forecrew.example.com/job-mcp", Token: "fcj_secret"}}
+		JobMCP: &JobMCP{URL: "https://forecrew.example.com/job-mcp", Token: "fcj_secret"}, Endpoint: &Endpoint{BaseURL: "https://api.example.com/v1"}}
 	r := s.Redacted()
-	if r.Env != nil || r.RepoToken != "" || r.JobMCP != nil || s.RepoToken == "" || s.JobMCP.Token == "" {
+	if r.Env != nil || r.RepoToken != "" || r.JobMCP != nil || r.Endpoint != nil || s.RepoToken == "" || s.JobMCP.Token == "" {
 		t.Fatalf("Redacted = %+v (original %+v)", r, s)
 	}
 	if b, _ := json.Marshal(r); strings.Contains(string(b), "job_mcp") || strings.Contains(string(b), "secret") {
@@ -339,6 +339,30 @@ func TestParseRefOrID(t *testing.T) {
 			}
 		case err != nil || n != tt.wantNum || (got != uuid.Nil()) != tt.wantID || (tt.wantID && got.String() != tt.in):
 			t.Errorf("ParseRefOrID(%q) = %d, %v, %v", tt.in, n, got, err)
+		}
+	}
+}
+
+func TestSplitProviderModel(t *testing.T) {
+	tests := []struct {
+		in, provider, model string
+		ok                  bool
+	}{
+		{"deepseek/deepseek-chat", "deepseek", "deepseek-chat", true},
+		{"openrouter/qwen/qwen3-coder", "openrouter", "qwen/qwen3-coder", true},
+		{"ollama/llama3.1:8b", "ollama", "llama3.1:8b", true},
+		{"deepseek-chat", "", "", false},
+		{"/model", "", "", false},
+		{"provider/", "", "", false},
+		{"-x/model", "", "", false},
+		{"a/{env:HOME}", "", "", false},
+		{"a/b c", "", "", false},
+		{"", "", "", false},
+	}
+	for _, tt := range tests {
+		provider, model, ok := SplitProviderModel(tt.in)
+		if provider != tt.provider || model != tt.model || ok != tt.ok {
+			t.Errorf("SplitProviderModel(%q) = %q, %q, %v", tt.in, provider, model, ok)
 		}
 	}
 }

@@ -173,7 +173,7 @@ func TestLoadInvalid(t *testing.T) {
 		{"bad priority", replace("priority: cost", "priority: Low Cost"), `priority "Low Cost" must match`},
 		{"shared priority", replace("priority: cost", "priority: simplicity"), `priority "simplicity" is held by two members`},
 		{"no focus", replace("focus: effort, ", ""), "focus must be set"},
-		{"unknown runtime", replace("runtimes: [codex]}", "runtimes: [gemini]}"), `runtime "gemini" must be one of claude-code, codex`},
+		{"unknown runtime", replace("runtimes: [codex]}", "runtimes: [gemini]}"), `runtime "gemini" must be one of claude-code, codex, opencode`},
 		{"runtime twice", replace("runtimes: [claude-code, codex]", "runtimes: [claude-code, claude-code]"), `runtime "claude-code" is listed twice`},
 		{"no devil's advocate", replace("role: devils-advocate,", "role: dev,"), "exactly one devils-advocate, got 0"},
 		{"one vendor", replace("runtimes: [claude-code, codex]", "runtimes: [codex, claude-code]"), "at least two runtimes"},
