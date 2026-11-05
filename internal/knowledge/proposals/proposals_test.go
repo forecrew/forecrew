@@ -67,7 +67,7 @@ func newEnv(t *testing.T) *env {
 	must(t, err)
 	e := &env{st: st, tracker: tr, gates: testkit.NewGates(st, testkit.NewSignalBus(st), clock.Now), policy: policy, project: p, account: acc.ID, clock: clock}
 	e.svc = &proposals.Service{
-		Store: st, GitHub: tr, Gates: e.gates, Now: clock.Now,
+		Store: st, GitHub: tr, Gates: e.gates,
 		Policy: func(context.Context, domain.Project) (knowledge.Policy, error) { return e.policy, nil },
 		Roles:  testkit.Roles{"architect": roles.Role{Name: "architect"}, "developer": roles.Role{Name: "developer"}},
 	}
@@ -330,22 +330,29 @@ func TestAssessRoutes(t *testing.T) {
 				}
 				return
 			}
-			got := e.get(t, k)
-			if got.GateID != key || got.Status != domain.KnowledgeOpen {
-				t.Errorf("proposal = %+v", got)
-			}
-			g, err := e.gates.Get(ctx, e.account, key)
-			must(t, err)
-			if g.Kind != domain.GateKnowledgeProposal || !strings.Contains(g.Title, k.Ref()) || !strings.Contains(g.Summary, "<untrusted-data") {
-				t.Errorf("gate = %+v", g)
-			}
-			if tt.provider == "wiki" && (g.SubjectNumber != 0 || !strings.Contains(g.Summary, "# New")) {
-				t.Errorf("the gate must show the change to copy: %+v", g)
-			}
+			e.checkGate(t, k, key)
 			if again, err := e.svc.Assess(ctx, b, key, tt.verdicts); err != nil || len(again) != 1 || again[0] != key.String() {
 				t.Errorf("again = %v, %v", again, err)
 			}
 		})
+	}
+}
+
+// checkGate checks the gate key of k: it shows the proposal as data, and
+// without a PR the change to copy across.
+func (e *env) checkGate(t *testing.T, k domain.KnowledgeProposal, key uuid.UUID) {
+	t.Helper()
+	got := e.get(t, k)
+	if got.GateID != key || got.Status != domain.KnowledgeOpen {
+		t.Errorf("proposal = %+v", got)
+	}
+	g, err := e.gates.Get(t.Context(), e.account, key)
+	must(t, err)
+	if g.Kind != domain.GateKnowledgeProposal || !strings.Contains(g.Title, k.Ref()) || !strings.Contains(g.Summary, "<untrusted-data") {
+		t.Errorf("gate = %+v", g)
+	}
+	if k.Provider == "wiki" && (g.SubjectNumber != 0 || !strings.Contains(g.Summary, "# New")) {
+		t.Errorf("the gate must show the change to copy: %+v", g)
 	}
 }
 

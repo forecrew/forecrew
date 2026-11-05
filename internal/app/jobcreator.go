@@ -87,21 +87,9 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	if err != nil {
 		return uuid.Nil(), fmt.Errorf("create %s job: project %s: %w", req.Role, req.ProjectID, err)
 	}
-	role, err := c.roles.Resolve(ctx, req.AccountID, req.ProjectID, req.Role)
+	role, err := c.jobRole(ctx, req)
 	if err != nil {
 		return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
-	}
-	if req.Council != nil {
-		if role, err = c.councilRole(ctx, req, role); err != nil {
-			return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
-		}
-	}
-	if req.ProposalReview {
-		reviewer, err := c.roles.Resolve(ctx, req.AccountID, req.ProjectID, ReviewerRole)
-		if err != nil {
-			return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
-		}
-		role = role.ProposalReviewer(reviewer.OutputSchema)
 	}
 	// The lease mints a token for the job's repo: it must be the project's.
 	if req.Repo != "" && !strings.EqualFold(req.Repo, project.Repo) {
@@ -143,6 +131,26 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 		return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
 	}
 	return j.ID, nil
+}
+
+// jobRole resolves the role of req, as a council turn or the review of a
+// knowledge proposal when req is one.
+func (c *jobCreator) jobRole(ctx context.Context, req workflow.JobRequest) (roles.Role, error) {
+	role, err := c.roles.Resolve(ctx, req.AccountID, req.ProjectID, req.Role)
+	if err != nil {
+		return roles.Role{}, err
+	}
+	if req.Council != nil {
+		return c.councilRole(ctx, req, role)
+	}
+	if req.ProposalReview {
+		reviewer, err := c.roles.Resolve(ctx, req.AccountID, req.ProjectID, ReviewerRole)
+		if err != nil {
+			return roles.Role{}, err
+		}
+		return role.ProposalReviewer(reviewer.OutputSchema), nil
+	}
+	return role, nil
 }
 
 // councilRole turns role into the job of req's council turn. The pool stays

@@ -119,7 +119,7 @@ func TestSearchKnowledgeWrapsAHostileTitle(t *testing.T) {
 }
 
 func proposalService(f *fixture) *tools.Service {
-	svc := &proposals.Service{Store: f.st, GitHub: f.tracker, Gates: f.gates, Now: f.clock.Now, Policy: func(context.Context, domain.Project) (knowledge.Policy, error) {
+	svc := &proposals.Service{Store: f.st, GitHub: f.tracker, Gates: f.gates, Policy: func(context.Context, domain.Project) (knowledge.Policy, error) {
 		return knowledge.DefaultPolicy(nil, nil), nil
 	}}
 	return tools.New(tools.Config{Store: f.st, Proposals: svc})

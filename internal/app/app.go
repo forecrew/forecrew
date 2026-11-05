@@ -208,7 +208,7 @@ func New(d Deps) (*App, error) {
 	}
 	notes := &knowledge.Notes{Store: st, Index: index, Now: d.Now, Log: log}
 	search := &knowledge.Search{Index: index, Policy: syncer.Policy}
-	kbProposals := &proposals.Service{Store: st, Policy: syncer.Policy, GitHub: d.GitHub, Gates: gateSvc, Roles: catalog, Now: d.Now, Log: log}
+	kbProposals := &proposals.Service{Store: st, Policy: syncer.Policy, GitHub: d.GitHub, Gates: gateSvc, Roles: catalog, Log: log}
 	jobSvc.WithRegistrar(kbProposals)
 	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0), jobs: jobSvc, knowledge: syncer, councils: seats, models: cfg.ModelOn}
 

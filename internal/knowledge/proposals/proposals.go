@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -50,15 +49,7 @@ type Service struct {
 	GitHub github.Tracker
 	Gates  gates.Service
 	Roles  roles.Resolver
-	Now    func() time.Time // defaults to the real UTC time
-	Log    *slog.Logger     // defaults to discarding
-}
-
-func (s *Service) now() time.Time {
-	if s.Now == nil {
-		return time.Now().UTC()
-	}
-	return s.Now()
+	Log    *slog.Logger // defaults to discarding
 }
 
 func (s *Service) log() *slog.Logger {

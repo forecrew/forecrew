@@ -74,7 +74,7 @@ func proposeCommand(r *remote) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in := mcp.ProposeKnowledgeInput{Project: args[0], Section: args[1], Path: args[2], Reason: reason, Action: domain.KnowledgeAction(action)}
 			if bodyFile != "" {
-				body, err := os.ReadFile(bodyFile)
+				body, err := os.ReadFile(bodyFile) //nolint:gosec // the user names the file to send
 				if err != nil {
 					return err
 				}
