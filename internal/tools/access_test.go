@@ -610,6 +610,46 @@ func TestRoleBindingTools(t *testing.T) {
 	}
 }
 
+// TestBindingsHideProjectsTheCallerCannotRead: Billing has org.read but no
+// project.read, so it sees no project through list_role_bindings either.
+func TestBindingsHideProjectsTheCallerCannotRead(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	billing, _ := f.member(t, orgScope, domain.RoleBilling, uuid.Nil())
+	_, onProject := f.member(t, projectScope, domain.RoleViewer, f.project.ID)
+
+	if projects, err := f.svc.ListProjects(ctx, billing); err != nil || len(projects) != 0 {
+		t.Fatalf("projects = %+v, %v", projects, err)
+	}
+	got, err := f.svc.ListRoleBindings(ctx, billing, mcp.ListRoleBindingsInput{})
+	must(t, err)
+	if len(got) != 1 || got[0].Role != domain.RoleBilling || got[0].Project != "" {
+		t.Fatalf("billing sees %+v", got)
+	}
+	got, err = f.svc.ListRoleBindings(ctx, billing, mcp.ListRoleBindingsInput{SubjectKind: domain.SubjectUser, Subject: onProject.String()})
+	if err != nil || len(got) != 0 {
+		t.Errorf("billing sees %+v, %v", got, err)
+	}
+	_, err = f.svc.ListRoleBindings(ctx, billing, mcp.ListRoleBindingsInput{Project: "app"})
+	wantErr(t, err, authz.ErrDenied)
+
+	// With org.read and one project, the caller sees that project only.
+	second := f.secondProject(t)
+	testkit.Bind(t, f.st, f.account.ID, domain.SubjectUser, onProject, projectScope, domain.RoleViewer, second.ID)
+	mixed, id := f.member(t, orgScope, domain.RoleBilling, uuid.Nil())
+	testkit.Bind(t, f.st, f.account.ID, domain.SubjectUser, id, projectScope, domain.RoleViewer, second.ID)
+	got, err = f.svc.ListRoleBindings(ctx, mixed, mcp.ListRoleBindingsInput{})
+	must(t, err)
+	for _, b := range got {
+		if b.ProjectID == f.project.ID {
+			t.Errorf("sees %+v", b)
+		}
+	}
+	if !slices.ContainsFunc(got, func(b mcp.RoleBindingInfo) bool { return b.Project == second.Name }) {
+		t.Errorf("bindings = %+v", got)
+	}
+}
+
 func TestLastOwnerStays(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
