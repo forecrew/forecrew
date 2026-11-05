@@ -234,6 +234,36 @@ server `forecrew`).
 Not yet verified against the real CLIs: see the live checks in
 [runbooks/smoke-live.md](runbooks/smoke-live.md).
 
+## Toolbox containers
+
+With a toolbox (docs/worker.md, Toolboxes) the worker sets `RunSpec.Container`
+and `RunSpec.MCPServers`. Every adapter then runs its CLI as the container's
+`docker run` (`Container.Wrap`), with the adapter's own binary name, not the
+operator's path, the same work and evidence directories, and exactly
+`RunSpec.Env` plus the adapter's own variables as the environment: nothing
+of the worker's. Each run's config home is the container's empty in-memory
+`HOME` (`CLAUDE_CONFIG_DIR` or `CODEX_HOME` = `/home/agent`) instead of a
+temporary directory.
+
+The toolbox's stdio MCP servers (`RunSpec.MCPServers`) are added next to the
+gateway:
+
+- **claude-code:** `--mcp-config` gets a `stdio` entry per server
+  (`command`, `args`, `env`); a name in `credential_env` becomes
+  `"NAME": "${NAME}"`, which Claude Code expands from its own environment,
+  so no value is in argv. Without a gateway the config still holds the servers;
+  `--strict-mcp-config` is always set. Allow a server's tools with
+  `mcp__<server>` in the allowed tools.
+- **codex:** `-c mcp_servers.<name>.command`, `.args`, `.env` (inline table),
+  `.env_vars` (the `credential_env` names, which codex forwards from its
+  environment), `default_tools_approval_mode="approve"` and
+  `startup_timeout_sec=60`.
+
+Not yet verified against the real CLIs with a model: see the live checks in
+[runbooks/smoke-live.md](runbooks/smoke-live.md). The browser toolbox's smoke
+test (`make test-toolbox-browser`) runs `claude mcp list` in the container,
+which starts the server and reports it connected.
+
 ## Evidence scratch directory
 
 `RunSpec.EvidenceDir` is a per-job directory outside the checkout, also in
@@ -251,7 +281,10 @@ neither `Write` nor `Bash` has no way to create a file either.
 
 `NewScripted(path, cfg)` replays a JSON script (`runtime.Script`) on every
 run: events to emit (with optional `delay`), file edits in the work dir (paths
-must stay inside it), the final `text` and `output`, usage, and an optional
+must stay inside it), `commands` (programs run in the work dir inside the
+toolbox container, after the events and before the edits: their output goes to
+the job log as `log` events and a non-zero exit code is logged, not an error;
+without a container the run fails), the final `text` and `output`, usage, and an optional
 `error`. It validates the output like the real adapters.
 
 ```json
