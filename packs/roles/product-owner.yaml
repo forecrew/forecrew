@@ -16,3 +16,4 @@ escalate_when:
   - the goal is too vague to write a single testable criterion
 max_turns: 40
 timeout: 20m
+context: [decisions, knowledge, assumptions, similar_tasks, notes]

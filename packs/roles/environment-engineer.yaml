@@ -19,3 +19,4 @@ escalate_when:
   - the matrix names an environment that cannot work without a change to the matrix
 max_turns: 80
 timeout: 40m
+context: [test_plan, knowledge, notes]

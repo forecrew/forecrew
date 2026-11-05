@@ -14,3 +14,4 @@ escalate_when:
   - the goal contradicts the code or the project profile
 max_turns: 15
 timeout: 10m
+context: [knowledge, similar_tasks]

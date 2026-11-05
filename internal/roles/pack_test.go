@@ -137,7 +137,7 @@ func TestLoadValid(t *testing.T) {
 }
 
 func TestLoadPoolAndToolbox(t *testing.T) {
-	fsys := packFS(validRole + "pool: control\ntoolbox: security\ncontext: {}\nresources: {min_cpu: 4, min_memory_mb: 8192, min_disk_gb: 50, gpu: 1}\n")
+	fsys := packFS(validRole + "pool: control\ntoolbox: security\ncontext: [notes, knowledge]\ncontext_budget: 1500\nresources: {min_cpu: 4, min_memory_mb: 8192, min_disk_gb: 50, gpu: 1}\n")
 	fsys["packs/toolboxes/security.yaml"] = &fstest.MapFile{Data: []byte("name: security\nimage: ghcr.io/x/security:1\nneeds: [Linux]\n")}
 	defs, err := Load(fsys)
 	if err != nil {
@@ -147,7 +147,8 @@ func TestLoadPoolAndToolbox(t *testing.T) {
 	if want := (domain.Resources{MinCPU: 4, MinMemoryMB: 8192, MinDiskGB: 50, GPU: 1}); d.Resources != want {
 		t.Fatalf("resources = %+v", d.Resources)
 	}
-	if d.Pool != "control" || d.Toolbox == nil || d.Toolbox.Image != "ghcr.io/x/security:1" || !slices.Equal(d.Toolbox.Needs, []string{"linux"}) {
+	if d.Pool != "control" || d.Toolbox == nil || d.Toolbox.Image != "ghcr.io/x/security:1" || !slices.Equal(d.Toolbox.Needs, []string{"linux"}) ||
+		!slices.Equal(d.Context, []string{"notes", "knowledge"}) || d.ContextBudget != 1500 {
 		t.Fatalf("definition = %+v", d)
 	}
 	defs, err = Load(packFS(validRole))
@@ -188,7 +189,9 @@ func TestLoadInvalid(t *testing.T) {
 		{"no files", func(f fstest.MapFS) { delete(f, "packs/roles/dev.yaml") }, "no role files"},
 		{"bad pool", setRole(validRole + "pool: Control Room\n"), `pool "Control Room" is not a valid pool name`},
 		{"unknown toolbox", setRole(validRole + "toolbox: security\n"), `toolbox "security": no packs/toolboxes/security.yaml`},
-		{"context set", setRole(validRole + "context: {sections: [adr]}\n"), "context is reserved"},
+		{"unknown context section", setRole(validRole + "context: [adr]\n"), `context: unknown section "adr"`},
+		{"repeated context section", setRole(validRole + "context: [notes, notes]\n"), `context: section "notes" is listed twice`},
+		{"small context budget", setRole(validRole + "context_budget: 999\n"), "context_budget must be 0"},
 		{"bad toolbox file", func(f fstest.MapFS) {
 			f["packs/toolboxes/security.yaml"] = &fstest.MapFile{Data: []byte("name: security\n")}
 		}, "packs/toolboxes/security.yaml: invalid file"},

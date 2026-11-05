@@ -49,7 +49,8 @@ resources:           # optional, what its jobs need of a machine
 | `pool` | string | no, default `build` | Worker pool the role's jobs run in (config.md `pools`, worker-api.md Pools). A `domain.ValidName`; whether the pool exists and allows the role is checked when a job is created. Read-only reasoning roles (councils, triage, architect, product-owner) belong in `control`; a read-only role that runs the tests, such as `reviewer`, stays in `build`. |
 | `toolbox` | string | no | Name of a toolbox, `packs/toolboxes/<name>.yaml` (toolbox.schema.json); it must exist. The role's agent jobs run inside the toolbox image, with its CLIs and MCP servers, on a worker with the `docker` label (from T48). The resolved toolbox is the spec's `toolbox`. |
 | `resources` | mapping | no | What the role's jobs need of a machine: `min_cpu`, `min_memory_mb`, `min_disk_gb`, `gpu`, integers ≥ 0. Copied to `jobs.resources`; it picks the shape (fleet.md). |
-| `context` | mapping | no | Reserved for the context pack settings of T38 (which knowledge sections and registers a job sees). Must be absent or empty until then. |
+| `context` | list of strings | no | The sections of the role's context pack, highest priority first, each at most once: `knowledge`, `decisions`, `assumptions`, `similar_tasks`, `notes`, `related_files` and `test_plan` (the repo's test matrix, strategy and environments). Absent means a job without a pack. See docs/knowledge.md, Context packs. |
+| `context_budget` | integer ≥ 0 | no | Size of the pack in characters; 0 or absent is the default of the tier `forecrew.yaml` gives the role: fast 6000, strong 16000, best 32000. |
 
 ## Job MCP tools
 

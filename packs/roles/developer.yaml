@@ -17,3 +17,4 @@ escalate_when:
   - a locked test is wrong or contradicts the task (name the test and the reason)
 max_turns: 120
 timeout: 60m
+context: [decisions, assumptions, knowledge, related_files, notes, similar_tasks]

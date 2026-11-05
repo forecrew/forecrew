@@ -94,6 +94,12 @@ type Definition struct {
 	// Resources is what the role's jobs need of a machine (resources: in
 	// the role file).
 	Resources domain.Resources
+	// Context lists the sections of the role's context pack (ContextSections),
+	// highest priority first; none means a job without a pack.
+	Context []string
+	// ContextBudget is the size of the pack in characters; 0 means the
+	// tier's default (DefaultContextBudget).
+	ContextBudget int
 }
 
 // AllowedTools returns the runtime tools the definition's tools allow,
@@ -123,9 +129,11 @@ type file struct {
 	Pool             string           `yaml:"pool"`
 	Toolbox          string           `yaml:"toolbox"`
 	Resources        domain.Resources `yaml:"resources"`
-	// Context is reserved for the context pack settings of T38; it must be
-	// empty until they are defined.
-	Context map[string]any `yaml:"context"`
+	// Context lists the context pack sections of the role's jobs, highest
+	// priority first; ContextBudget is the pack's size in characters, the
+	// tier's default when 0.
+	Context       []string `yaml:"context"`
+	ContextBudget int      `yaml:"context_budget"`
 }
 
 // Load reads every packs/roles/*.yaml file in fsys, keyed by role name. It
@@ -275,8 +283,16 @@ func (f file) check(name string, p *[]string) Definition {
 	if err := f.Resources.Validate(); err != nil {
 		add("%v", err)
 	}
-	if len(f.Context) > 0 {
-		add("context is reserved and must be empty for now")
+	for i, c := range f.Context {
+		switch {
+		case !slices.Contains(ContextSections, c):
+			add("context: unknown section %q, want one of %s", c, strings.Join(ContextSections, ", "))
+		case slices.Contains(f.Context[:i], c):
+			add("context: section %q is listed twice", c)
+		}
+	}
+	if f.ContextBudget != 0 && f.ContextBudget < MinContextBudget {
+		add("context_budget must be 0 (the tier's default) or at least %d", MinContextBudget)
 	}
 	var writePaths []string
 	if f.WritePaths != nil {
@@ -294,6 +310,8 @@ func (f file) check(name string, p *[]string) Definition {
 		Timeout:          f.Timeout,
 		Pool:             domain.OrDefaultPool(f.Pool),
 		Resources:        f.Resources,
+		Context:          f.Context,
+		ContextBudget:    f.ContextBudget,
 	}
 }
 

@@ -72,3 +72,4 @@ escalate_when:
   - testing a criterion needs a change to source code, a dependency or the matrix that the task does not describe
 max_turns: 100
 timeout: 60m
+context: [test_plan, assumptions, decisions, knowledge, related_files, notes]

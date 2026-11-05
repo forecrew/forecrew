@@ -11,3 +11,4 @@ definition_of_done:
   - the verdict is approve only if every criterion is met and there is no blocker or major comment
 max_turns: 60
 timeout: 30m
+context: [decisions, assumptions, knowledge, related_files, similar_tasks, notes]

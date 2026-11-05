@@ -16,3 +16,4 @@ escalate_when:
   - a criterion is ambiguous
 max_turns: 40
 timeout: 20m
+context: [decisions, knowledge, assumptions, similar_tasks, notes, related_files]
