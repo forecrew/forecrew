@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -166,7 +167,13 @@ func runCommands(ctx context.Context, spec RunSpec, cmds []ScriptCommand, e *emi
 	if spec.Container == nil {
 		return errNoContainer
 	}
-	log := func(b []byte) { e.event(domain.EventLog, string(b), nil) }
+	// Standard output and error are read on two goroutines.
+	var mu sync.Mutex
+	log := func(b []byte) {
+		mu.Lock()
+		defer mu.Unlock()
+		e.event(domain.EventLog, string(b), nil)
+	}
 	for _, c := range cmds {
 		if len(c.Argv) == 0 {
 			return errors.New("script command has no argv")
