@@ -292,6 +292,7 @@ func fixtureEnv(t *testing.T) *env {
 				status = domain.CouncilRunning
 			}
 			c := fixtureCouncil(n, status, brief)
+			c.Brief = nil // the list leaves the agent-written brief to get_council
 			out = append(out, mcp.CouncilInfo{Council: c, Ref: c.Ref()})
 		}
 		return out, nil

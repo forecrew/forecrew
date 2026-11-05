@@ -83,6 +83,7 @@ func (s *Service) ListCouncils(ctx context.Context, by domain.Actor, in mcp.List
 	}
 	out := make([]mcp.CouncilInfo, len(cs))
 	for i, c := range cs {
+		c.Brief = nil // agent text: it is read with get_council, which marks it untrusted
 		out[i] = mcp.CouncilInfo{Council: c, Ref: c.Ref()}
 	}
 	return out, nil
