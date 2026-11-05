@@ -63,7 +63,7 @@ for _ in $(seq 1 45); do
 done
 echo "worker row: $row"
 case "$row" in
-control\|*runtime:claude-code*runtime:codex*\|online) ;;
+control\|*runtime:claude-code*runtime:codex*runtime:opencode*\|online) ;;
 *) fail "control worker not online in pool control with runtime labels: $row" ;;
 esac
 

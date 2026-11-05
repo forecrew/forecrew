@@ -8,7 +8,8 @@ It needs:
 - `git`;
 - the runtime CLIs the jobs use, installed system-wide so the service user finds
   them (`/usr/local/bin` or `/usr/bin`; on macOS also `/opt/homebrew/bin`):
-  `claude` (Claude Code) and/or `codex`;
+  `claude` (Claude Code), `codex` and/or `opencode` (exactly the version in
+  [docs/runtimes.md](../runtimes.md), others are refused);
 - the toolchains jobs build with (`go`, `node`, `docker`, ...). Advertise them
   as labels.
 
@@ -93,7 +94,7 @@ The script:
 
 The labels the worker advertises are the ones you passed plus its OS
 (`linux`, `darwin`/`macos`, `windows`) and `runtime:claude-code` /
-`runtime:codex` for each CLI it finds on `PATH`.
+`runtime:codex` / `runtime:opencode` for each CLI it finds on `PATH`.
 
 ### Private repository releases
 
@@ -196,5 +197,6 @@ and run `sudo systemctl restart forecrew-worker`, or run the script with
 forecrewd normally sends each job its runtime's key (`credential_env`). A
 runtime with an empty `credential_env` needs the key in the worker's
 environment instead: `ANTHROPIC_API_KEY` for Claude Code, `CODEX_API_KEY` for
-Codex. A `claude` or `codex` login on the machine is not used, because each
+Codex, the provider's variable for opencode (`DEEPSEEK_API_KEY`, ...). A
+`claude`, `codex` or `opencode` login on the machine is not used, because each
 run gets an isolated config dir.

@@ -13,8 +13,8 @@ forecrew-worker version
 ## Labels
 
 The configured labels, the os (`linux`, `windows`; a macOS worker advertises
-both `darwin`, the `GOOS` value of conventions.md, and `macos`, the name repo profiles use) and `runtime:claude-code` / `runtime:codex` for each of `claude`
-and `codex` found on `PATH`, and `docker` when the Docker engine answers
+both `darwin`, the `GOOS` value of conventions.md, and `macos`, the name repo profiles use) and `runtime:claude-code` / `runtime:codex` / `runtime:opencode` for each of `claude`,
+`codex` and `opencode` found on `PATH`, and `docker` when the Docker engine answers
 `docker version` (see Environments).
 
 ## Pools

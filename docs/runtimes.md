@@ -2,7 +2,7 @@
 
 `internal/runtime` runs an agent CLI for one job and turns its output into the
 same events and result for every runtime. Adapters are looked up by name in a
-`runtime.Registry`: `claude-code`, `codex` and `scripted`.
+`runtime.Registry`: `claude-code`, `codex`, `opencode` and `scripted`.
 
 ## What every adapter does
 
@@ -103,6 +103,106 @@ codex exec --json --skip-git-repo-check --ephemeral -c approval_policy="never" -
   `default_tools_approval_mode = "approve"` (so `approval_policy = "never"`
   does not refuse them) and `tool_timeout_sec = 2100`.
 
+## opencode
+
+Serves every model the other two do not (plan decision 33). Written against
+**opencode 1.19.5** (`opencode-ai` on npm, `v1.19.5` at
+`github.com/anomalyco/opencode`): its docs and the source of that tag.
+**Not run against a real binary** (not installed on the development machine):
+see the live checks in [runbooks/smoke-live.md](runbooks/smoke-live.md).
+
+```
+opencode run --format json --model <provider/model> --dir <workdir> [--session <id>]
+```
+
+- **Exact version.** `Run` refuses any other version than
+  `runtime.OpencodeVersion`, because what keeps a repo out was read in that
+  release's source, the JSON events are undocumented, and 2.x renames the
+  `bash` permission. A new version means reading that again and running the
+  live checks.
+- **Isolation.** Each run gets a fresh temporary directory, removed afterwards:
+  `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME` and
+  `OPENCODE_TEST_HOME` (opencode's home, for `~/.opencode` and `~/.claude`)
+  point inside it, so the account's config, login and sessions are not used.
+  `HOME` stays for the agent's shell, whose toolchains live there; the XDG
+  variables reach the shell too, so caches that follow them start cold. The
+  worker's other `OPENCODE_*` variables are removed, except `OPENCODE_API_KEY`.
+  A managed config (`/etc/opencode`) still applies; it is the operator's.
+- **Configuration** is inline, in `OPENCODE_CONFIG_CONTENT`: no file, and
+  no secret, which it names as `{env:VAR}`. It turns off auto-update, sharing,
+  snapshots, formatters and language servers (both run binaries of the
+  checkout, even for a role without a shell), and enables the model's provider
+  only. `OPENCODE_DISABLE_MODELS_FETCH` keeps the catalog built into the binary,
+  and the model is declared, so a model newer than that catalog still resolves
+  (without prices: its cost is 0). `OPENCODE_PURE` drops external plugins; the built-in
+  ones stay, because Azure, Cerebras and others need them. opencode still tries
+  to install `@opencode-ai/plugin` from npm into the empty config directory, in
+  the background; nothing of the job depends on it.
+- **The checkout widens nothing.** Inline config only wins key by key over
+  `opencode.json` and `.opencode/`, so a `bash` rule of the repo would survive
+  the merge, and `.opencode/` also brings plugins, tools and agents.
+  `OPENCODE_DISABLE_PROJECT_CONFIG=true` skips all of them and project
+  instruction files (`AGENTS.md`, `CLAUDE.md`): the role's prompt is what the
+  agent gets. `OPENCODE_DISABLE_CLAUDE_CODE` and
+  `OPENCODE_DISABLE_EXTERNAL_SKILLS` do the same for `.claude` and `.agents`.
+  A `.env` in the checkout is not read: the release binary is built without it.
+- **Directory.** opencode takes its directory from `PWD`, which Go leaves as the
+  worker's own, so the run sets `--dir` and `PWD`.
+- **Prompt** on stdin. `--auto` is never passed.
+- **Limits.** `MaxTurns` is the `steps` of the `build` agent: after that many
+  steps opencode takes the tools away and asks for a final answer, so the job
+  ends with what it has instead of failing as on Claude Code.
+- **Structured output.** `opencode run` cannot constrain output to a schema. The
+  schema is in the prompt (the context pack puts it there), `output.go`
+  validates the last message, and an `InvalidOutputError` is sent back once, with
+  the validator's message and the schema, with `--session` in the same run
+  directory. It gets what is left of the timeout and the turns. A second failure
+  returns `ErrInvalidOutput`.
+- **Events** (undocumented; from `run.ts`): `step_start` (a turn), `step_finish`
+  (that step's tokens and cost, summed), `text`, `tool_use` (once, when the call
+  has ended; status `completed` or `error`) and `error`. Input tokens exclude the
+  cache; output tokens include reasoning. The first `sessionID` is the session.
+  Gateway tools are reported as `mcp__forecrew__<tool>`.
+- **Credentials** come from the provider's own variable in `RunSpec.Env` or the
+  worker's environment. With `RunSpec.Endpoint` the model's provider becomes
+  `@ai-sdk/openai-compatible` with that `baseURL` and `apiKey: {env:<key_env>}`;
+  the key must be set, and one from the worker's environment is redacted too.
+
+### Permissions
+
+opencode allows nearly everything by default, so the rules start from
+`"*": "deny"` and allow only what `AllowedTools` maps to (`OpencodeRules`). Its
+last matching rule wins, and these come after opencode's defaults. No rule is
+`ask`: a tool that is not allowed is removed or refused, never waits.
+
+| `AllowedTools` | opencode |
+|----------------|----------|
+| `Read` | `read`, `list` |
+| `LS` | `list` |
+| `Glob` | `glob` |
+| `Grep` | `grep` |
+| `Edit`, `Write`, `MultiEdit`, `NotebookEdit` | `edit` |
+| `Bash` | `bash: allow` |
+| `Bash(git log *)` | `bash: {"*": deny, "git log *": allow}` |
+| `Bash(go test:*)` | `bash: {"*": deny, "go test *": allow}` |
+| `TodoWrite` | `todowrite` |
+| `WebFetch` | `webfetch` |
+| `WebSearch` | `websearch` |
+| `mcp__forecrew__<tool>` | `forecrew_<tool>` |
+| anything else | the job fails at start |
+
+Empty `AllowedTools` means `Read Grep Glob`. `external_directory` is denied
+except `<EvidenceDir>/*`, which also overrides the temporary directories
+opencode allows by default. `doom_loop` is denied. opencode checks each command
+of a shell line on its own, so `git log; curl x` does not pass `git log *`.
+
+## Custom endpoints
+
+`RunSpec.Endpoint` comes from `runtimes.<name>.base_url` (config.md), which
+`config` validates, because repo code and keys go there. `claude-code` sets
+`ANTHROPIC_BASE_URL`, `codex` passes `-c openai_base_url=...` and `opencode`
+configures a provider. The key is never in the URL, argv or a file.
+
 ## Job MCP gateway
 
 When the job spec has `job_mcp` (docs/contracts/job-mcp.md), the worker
@@ -126,6 +226,10 @@ server `forecrew`).
   configuration. The `mcp__forecrew__*` tools are pre-approved with
   `--allowedTools` and left out of `--tools`, which lists built-in tools only.
 - **codex:** the `-c mcp_servers.forecrew.*` overrides above.
+- **opencode:** a `remote` server `forecrew` in the inline configuration, its
+  `Authorization` header `Bearer {env:FORECREW_JOB_MCP_TOKEN}`, OAuth off and a
+  `timeout` of 36 minutes. opencode names the tools `forecrew_<tool>`; only the
+  allowed ones have an allow rule, so the others are removed.
 
 Not yet verified against the real CLIs: see the live checks in
 [runbooks/smoke-live.md](runbooks/smoke-live.md).
@@ -134,7 +238,8 @@ Not yet verified against the real CLIs: see the live checks in
 
 `RunSpec.EvidenceDir` is a per-job directory outside the checkout, also in
 `FORECREW_EVIDENCE_DIR`. claude-code gets it with `--add-dir`; codex gets
-`--add-dir` too, which makes it writable only in the `workspace-write` sandbox.
+`--add-dir` too, which makes it writable only in the `workspace-write` sandbox;
+opencode gets an `external_directory` allow rule.
 
 Limitations: codex keeps the `read-only` sandbox for every role without an
 editing tool, and that sandbox lets it write nowhere. So no read-only role on

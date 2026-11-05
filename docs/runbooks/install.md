@@ -226,7 +226,8 @@ refused when its job is created.
   (or `job_status`) says `no online worker in pool control`.
 - **Check it.** `docker compose ps` shows `worker-control` running and
   `control-init` exited with 0. The web UI's Workers page lists `control` in pool
-  `control`, online, with the labels `runtime:claude-code` and `runtime:codex`.
+  `control`, online, with the labels `runtime:claude-code`, `runtime:codex` and
+  `runtime:opencode`.
 
 ## With systemd
 

@@ -17,10 +17,10 @@ A job has a **kind** (`jobs.kind`, `domain.JobKind`):
 forecrewd builds the spec when the job is created (`workflow.JobCreator`):
 the role is resolved (`roles.Resolver`: runtime adapter, model, write paths,
 tools, schema, limits) and the prompt is built (`contextpack.Builder`). The
-spec is stored in `jobs.spec` **without** `env`, `repo_token` and `job_mcp`
-(`JobSpec.Redacted`). These secrets are added when the job is leased and
-exist only in memory on both sides; they are never stored, logged or written
-to disk (`JobSpec.LogValue` and `JobMCP.LogValue` omit them).
+spec is stored in `jobs.spec` **without** `env`, `repo_token`, `job_mcp` and
+`endpoint` (`JobSpec.Redacted`). These are added when the job is leased. The
+secrets among them exist only in memory on both sides; they are never stored,
+logged or written to disk (`JobSpec.LogValue` and `JobMCP.LogValue` omit them).
 
 ## Example: agent job
 
@@ -102,17 +102,18 @@ same with `"branch": ""`, `"base_ref": "main"` and
 | `branch` | string | Branch to check out, and for writing roles to commit to and push. Always starts with `agent/` (e.g. `agent/task-12`). Writing roles: the worker creates it from `base_ref` if it does not exist on the remote, otherwise checks it out (rework); it force-pushes nothing: pushes are fast-forward only. Read-only roles: may be empty (the worker checks out `base_ref`) or set to an existing branch to inspect, e.g. the branch a reviewer reviews; the worker checks it out but never commits or pushes it. |
 | `role` | string | Role name, e.g. `developer`. Informational for the worker. |
 | `write_paths` | string[] | Paths the job may change, as [doublestar](https://github.com/bmatcuk/doublestar) globs relative to the repo root with `/` separators. A pattern starting with `!` excludes. A file is writable if it matches at least one include pattern and no exclude pattern. Empty means read-only: nothing is committed or pushed. |
-| `runtime` | string | Runtime adapter to run: `claude-code` or `codex`. The worker has the label `runtime:<runtime>`. |
-| `model` | string | Model name passed to the runtime CLI. |
+| `runtime` | string | Runtime adapter to run: `claude-code`, `codex` or `opencode`. The worker has the label `runtime:<runtime>`. |
+| `model` | string | Model name passed to the runtime CLI. For `opencode`, in `provider/model` form, e.g. `deepseek/deepseek-chat`. |
 | `prompt` | string | Full prompt (role instructions plus context pack). |
 | `output_schema` | object | JSON Schema (draft 2020-12) the final output must match, inline with all `$ref`s resolved. Absent means free text. |
-| `allowed_tools` | string[] | Tools the agent may use, in the runtime's own syntax (Claude Code tool names and patterns such as `Bash(go test:*)`; Codex maps them to its sandbox and approval settings). Empty means the adapter's default for the access level (read-only roles get no editing tools). |
+| `allowed_tools` | string[] | Tools the agent may use, in the runtime's own syntax (Claude Code tool names and patterns such as `Bash(go test:*)`; Codex maps them to its sandbox and approval settings; opencode maps them to permission rules, and a tool without a rule fails the job when it starts, see docs/runtimes.md). Empty means the adapter's default for the access level (read-only roles get no editing tools). |
 | `max_turns` | integer | Maximum agent turns; 0 means the runtime default. |
 | `timeout` | string | Go duration (`"45m0s"`). The worker stops the runtime when it passes and completes the job as `failed`. |
 | `include_repo_facts` | boolean | When true the worker runs the analyzer on the checkout and appends the facts to the prompt as a `## Repo facts` section holding the `analyzer.Facts` JSON in a fenced block. |
 | `env` | object string → string | Secrets (runtime credentials) set in the runtime process environment only. Never written to disk or logs. May be absent. |
 | `repo_token` | string | Short-lived GitHub App installation token scoped to `repo`: contents `write` when `write_paths` is non-empty, `read` otherwise (always `read` for command jobs, and never wider than the job's pool allows, config.md `pools`). Used for clone and push over HTTPS through a credential helper or `GIT_CONFIG_*` env vars, never written into `.git/config`. Expires after about an hour. |
 | `job_mcp` | object | Agent jobs only, from T47. The job MCP gateway (job-mcp.md): `url` (`<public base>/job-mcp`, informational, may be empty; the worker connects to `<server_url>/job-mcp`) and `token` (`fcj_...`), a secret valid only while this worker holds this lease. Added at lease time, never stored; the worker passes the token to the runtime in an environment variable, never in argv or a file. Absent: the agent has no channel back to forecrewd. |
+| `endpoint` | object | Agent jobs only. The custom model endpoint of the job's runtime (`runtimes.<name>.base_url`, config.md): `base_url`, and `key_env`, the name of the variable holding its key (the runtime's first `credential_env`; absent when it has none). Holds no secret. Added at lease time, also when the pool withholds `env`, so that the job never falls back to the vendor. Absent: the vendor's own endpoint. |
 | `kind` | `agent` \| `command` | Job kind; absent means `agent`. |
 | `locked_paths` | string[] | Agent jobs only. Globs like `write_paths` (no `!`) the job may not change even when `write_paths` allow it, e.g. the tests a test engineer wrote before the developer's job. |
 | `toolbox` | object | Agent jobs only. The role's toolbox (`packs/toolboxes/<name>.yaml`, toolbox.schema.json), resolved: the image the agent runs in, its CLIs and MCP servers. Absent: the agent runs on the worker's host. A job with a toolbox needs the `docker` label. |
@@ -137,7 +138,7 @@ same with `"branch": ""`, `"base_ref": "main"` and
    `git diff origin/<base_ref>...HEAD` (or `<base_ref>...HEAD` when
    `base_ref` is a SHA) shows the branch's changes; prompts rely on it.
 3. Run the runtime adapter with `model`, `prompt` (plus repo facts),
-   `output_schema`, `allowed_tools`, `max_turns`, `timeout`, `env`.
+   `output_schema`, `allowed_tools`, `max_turns`, `timeout`, `env`, `endpoint`.
 4. For writing roles, the worker builds the commit itself from the files in
    the work tree after the run: one commit by `forecrew-bot` whose parent is
    the starting commit. The agent's own commits and history are never
