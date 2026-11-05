@@ -59,9 +59,19 @@ another credential: `Authorization: Bearer <bootstrap token>`, a one-time
 `fcb_` token that reached the guest through its provider. Request:
 `{"version": "v0.1.0"}`.
 
-Response `200`, once: forecrewd marks the token used, creates the worker with
-`ephemeral` true and a new token, links it to the machine and moves the machine
-to `ready`. The worker keeps the token in memory and goes on as any worker;
+What the call gets depends on the token and its machine:
+
+| Machine | Token | Answer |
+|---------|-------|--------|
+| `requested`, or `booting` and unassigned | unused | `202`, machine stays in its state |
+| `booting`, assigned | usable | `200` |
+| `booting`, assigned | expired | `401` |
+| `ready` | used | `401`: a token works once |
+| `busy`, `draining`, `destroyed`, `failed` | any | `401` |
+
+Response `200`, once, only from `booting`: forecrewd marks the token used,
+creates the worker with `ephemeral` true and a new token, links it to the machine
+and moves the machine to `ready`, all in one transaction. The worker keeps the token in memory and goes on as any worker;
 `labels` are its configured labels, on top of which it adds its own. A worker
 that restarts cannot come back, and its machine is replaced.
 
@@ -69,16 +79,19 @@ that restarts cannot come back, and its machine is replaced.
 {"worker_token": "fcw_...", "name": "machine-018f4e2a", "labels": ["amd64", "docker", "linux"], "max_jobs": 1}
 ```
 
-Response `202`: the machine is warm and has no organization yet. The token stays
-unused and the machine counts as `ready`; the worker asks again after
-`retry_after_seconds`.
+Response `202`: wait. Either the machine has no organization yet, or the guest
+was faster than its provider's report. The token stays unused and the worker asks
+again after `retry_after_seconds`. This path never moves a machine out of
+`requested` or `booting`: it only sets `ready_at` on a `booting` machine, once
+(fleet.md, Warm).
 
 ```json
 {"retry_after_seconds": 5}
 ```
 
-`401 unauthorized`: unknown, used or expired token. Neither the token nor the
-answer is ever logged.
+`401 unauthorized`: an unknown, used or expired token, or a machine that can no
+longer take a worker, as the table says. The worker exits and the machine is
+replaced. Neither the token nor the answer is ever logged.
 
 ## POST /worker/v1/poll
 

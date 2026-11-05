@@ -226,8 +226,17 @@ func TestBootstrapTokens(t *testing.T) {
 	mustFail(t, pool, `UPDATE bootstrap_tokens SET used_at = now() WHERE machine_id = $1`, warm)
 	mustFail(t, pool, `UPDATE bootstrap_tokens SET account_id = $1, expires_at = now() WHERE machine_id = $2`, f.account, warm) // machine unassigned
 
+	// An assigned machine's token has exactly its organization: not
+	// another, and not none.
+	var assigned string
+	must(t, pool.QueryRow(ctx, `INSERT INTO machines (account_id, provider_id, shape_id, assigned_at) VALUES ($1, $2, $3, now()) RETURNING id`, f.account, provI, shapeI).Scan(&assigned))
+	mustFail(t, pool, `INSERT INTO bootstrap_tokens (machine_id, token_hash) VALUES ($1, $2)`, assigned, hash32(3))
+	mustFail(t, pool, `INSERT INTO bootstrap_tokens (machine_id, account_id, token_hash, expires_at) VALUES ($1, $2, $3, now())`, assigned, orgB, hash32(3))
+	must(t, exec(pool, `INSERT INTO bootstrap_tokens (machine_id, account_id, token_hash, expires_at) VALUES ($1, $2, $3, now())`, assigned, f.account, hash32(3)))
+
 	must(t, exec(pool, `UPDATE machines SET account_id = $1, assigned_at = now() WHERE id = $2`, f.account, warm))
 	mustFail(t, pool, `UPDATE bootstrap_tokens SET account_id = $1, expires_at = now() WHERE machine_id = $2`, orgB, warm)
+	mustFail(t, pool, `UPDATE bootstrap_tokens SET token_hash = $1 WHERE machine_id = $2`, hash32(4), warm) // still unbound, machine is not
 	must(t, exec(pool, `UPDATE bootstrap_tokens SET account_id = $1, expires_at = now() + interval '5 minutes' WHERE machine_id = $2`, f.account, warm))
 	must(t, exec(pool, `UPDATE bootstrap_tokens SET used_at = now() WHERE machine_id = $1`, warm))
 	// One per machine, a hash is a hash.

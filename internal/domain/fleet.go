@@ -636,9 +636,9 @@ func (m Machine) Validate() error {
 
 // BootstrapToken lets the worker on a machine connect once, for a worker
 // token (worker-api.md, POST /worker/v1/bootstrap). It is bound to one
-// machine, and from assignment to one organization with an expiry. Only its
-// hash is stored. An unassigned token has neither: it can only be told to
-// wait.
+// machine, and to exactly its organization with an expiry, counted from
+// assignment. Only its hash is stored. An unassigned token has neither: it
+// can only be told to wait.
 type BootstrapToken struct {
 	MachineID uuid.UUID `json:"machine_id"`
 	AccountID uuid.UUID `json:"account_id,omitzero"`

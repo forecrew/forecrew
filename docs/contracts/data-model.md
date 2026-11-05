@@ -1209,10 +1209,11 @@ CREATE TABLE bootstrap_tokens (
   CHECK (used_at IS NULL OR account_id IS NOT NULL)
 );
 
--- A bootstrap token has its machine's organization.
+-- A bootstrap token has exactly its machine's organization, none on an
+-- unassigned machine. Assigning updates the machine first, then the token.
 CREATE FUNCTION bootstrap_tokens_check() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM machines m WHERE m.id = NEW.machine_id AND (NEW.account_id IS NULL OR m.account_id = NEW.account_id)) THEN
+  IF NOT EXISTS (SELECT 1 FROM machines m WHERE m.id = NEW.machine_id AND m.account_id IS NOT DISTINCT FROM NEW.account_id) THEN
     RAISE EXCEPTION 'a bootstrap token has its machine''s organization' USING ERRCODE = 'check_violation', CONSTRAINT = 'bootstrap_tokens_check';
   END IF;
   RETURN NEW;

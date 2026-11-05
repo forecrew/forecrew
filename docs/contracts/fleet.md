@@ -219,19 +219,24 @@ while it has no job.
 `bootstrap_tokens` (`domain.BootstrapToken`), prefix `fcb_`, one per machine,
 hash only:
 
-- bound to the machine, its organization and an expiry of the shape's boot
+- bound to the machine and exactly its organization (trigger
+  `bootstrap_tokens_check`), and to an expiry of the shape's boot timeout. The
+  expiry counts from assignment, or from the delivery for a machine that was
+  assigned before it: a warm machine may wait for days, then gets the whole
   timeout;
-- exchanged once for a worker token, at `POST /worker/v1/bootstrap`;
+- exchanged once for a worker token, at `POST /worker/v1/bootstrap`, only from
+  `booting`. A machine that is `ready`, `busy`, `draining`, `destroyed` or
+  `failed` gets `401`, so a copied token cannot bring a dead machine back;
 - minted when it is delivered to the provider, because only the hash is kept.
   It is delivered, and so replaced, only for a machine that is `requested` and
   that the agent does not list as having (fleet-agent-api.md, poll), so a slow
   `Create` keeps its token. A failed `Create` is delivered again, which is why
   `Provider.Create` restarts a machine that exists;
 - on an unassigned machine, without organization and expiry: such a token only
-  gets `202`, and marks the machine `ready`. Assigning the machine sets both, in
-  one update with the machine's, and the waiting worker gets its token. It can
-  do nothing before that, so it needs no expiry; the machine's life is the
-  controller's to end.
+  gets `202`, which never moves the machine out of `requested` or `booting`.
+  Assigning sets both, in one transaction with the machine's, and the waiting
+  worker gets its token. It can do nothing before that, so it needs no expiry;
+  the machine's life is the controller's to end.
 
 ## Job resources
 
