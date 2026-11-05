@@ -3,11 +3,13 @@ package evidence
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -29,6 +31,7 @@ type fakeS3 struct {
 	listFail bool
 	pageMax  int // keys per listing page, 0 for no cap
 	fail     int // status to answer every request with, when set
+	lists    int // listing requests served
 }
 
 func newFakeS3() *fakeS3 { return &fakeS3{objects: map[string][]byte{}, types: map[string]string{}} }
@@ -107,6 +110,7 @@ func (f *fakeS3) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // pageMax keys (when set); a cut page is reported truncated, with the last
 // key as continuation token.
 func (f *fakeS3) list(w http.ResponseWriter, r *http.Request) {
+	f.lists++
 	q := r.URL.Query()
 	max, _ := strconv.Atoi(q.Get("max-keys"))
 	var keys []string
@@ -306,5 +310,52 @@ func TestS3List(t *testing.T) {
 	srv.set(func(f *fakeS3) { f.listFail = true })
 	if _, err := s.List(ctx, "jobs/", "", 10); err == nil {
 		t.Fatal("a failing listing was accepted")
+	}
+}
+
+// List stops at its limit inside a page: no further page is requested and
+// no goroutine is left behind.
+func TestS3ListStopsAtTheLimit(t *testing.T) {
+	srv := newFakeS3()
+	s := newTestS3(t, srv)
+	ctx := t.Context()
+	for i := range 10 {
+		if err := s.Put(ctx, fmt.Sprintf("k/%02d", i), strings.NewReader("x"), 1, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv.set(func(f *fakeS3) { f.pageMax = 4 })
+	before := runtime.NumGoroutine()
+	for range 20 {
+		got, err := s.List(ctx, "k/", "", 5)
+		if err != nil || len(got) != 5 {
+			t.Fatalf("List = %d objects, %v", len(got), err)
+		}
+	}
+	var lists int
+	srv.set(func(f *fakeS3) { lists = f.lists })
+	if lists != 40 { // two pages per call: 4 keys, then 1 of the next 4
+		t.Errorf("list requests = %d, want 40", lists)
+	}
+	time.Sleep(50 * time.Millisecond)
+	srv.set(func(f *fakeS3) { lists = f.lists })
+	if lists != 40 {
+		t.Errorf("list requests after the calls returned = %d, want 40", lists)
+	}
+	if after := runtime.NumGoroutine(); after > before+2 {
+		t.Errorf("goroutines %d -> %d: a listing was left running", before, after)
+	}
+}
+
+func TestS3ListCancelledContext(t *testing.T) {
+	srv := newFakeS3()
+	s := newTestS3(t, srv)
+	if err := s.Put(t.Context(), "k/1", strings.NewReader("x"), 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if got, err := s.List(ctx, "k/", "", 10); !errors.Is(err, context.Canceled) {
+		t.Errorf("List = %v, %v; want context.Canceled", got, err)
 	}
 }
