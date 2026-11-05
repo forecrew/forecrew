@@ -382,34 +382,10 @@ func (r *jobRun) execute(ctx context.Context) Completion {
 		}
 	}
 
-	var box *toolboxRun
-	if r.spec.Toolbox != nil {
-		var done *Completion
-		box, done = r.startToolbox(ctx)
-		if box != nil {
-			// The container and the job's network die with the run, in all
-			// outcomes.
-			defer box.cleanup(ctx)
-		}
-		if done != nil {
-			return *done
-		}
-	}
-	r.ev.text(domain.EventStatus, "running")
-	res, err := r.runAgent(ctx, prompt, box)
-	if cause := r.uploadEvidence(ctx); cause != nil {
-		r.stop(cause)
-		return Completion{}
-	}
-	comp := Completion{Usage: res.Usage, CostUSD: res.CostUSD}
-	if err != nil {
-		comp.Status, comp.Error = StatusFailed, r.red.String(err.Error())
-		if errors.Is(err, runtime.ErrNotInstalled) || errors.Is(err, runtime.ErrUnknownAdapter) || (box != nil && containerNotRun(err)) {
-			comp.Status = StatusRetry
-		}
+	comp, ended := r.agentStep(ctx, prompt)
+	if ended {
 		return comp
 	}
-	comp.Output = res.Output
 
 	// Whatever the agent did to its worktree or to git, only the files count:
 	// the worker snapshots them itself and publishes its own commit.
@@ -442,6 +418,41 @@ func (r *jobRun) execute(ctx context.Context) Completion {
 	}
 	comp.Status, comp.HeadSHA = StatusSucceeded, head
 	return comp
+}
+
+// agentStep runs the agent, in the toolbox container when the spec has one,
+// and uploads the evidence it marked. It returns what the completion holds so
+// far; ended says the job ends here, with that completion (the run failed, or
+// the job was stopped and the completion is not used).
+func (r *jobRun) agentStep(ctx context.Context, prompt string) (comp Completion, ended bool) {
+	var box *toolboxRun
+	if r.spec.Toolbox != nil {
+		var done *Completion
+		if box, done = r.startToolbox(ctx); box != nil {
+			// The container and the job's network die with the run, in all
+			// outcomes.
+			defer box.cleanup(ctx)
+		}
+		if done != nil {
+			return *done, true
+		}
+	}
+	r.ev.text(domain.EventStatus, "running")
+	res, err := r.runAgent(ctx, prompt, box)
+	if cause := r.uploadEvidence(ctx); cause != nil {
+		r.stop(cause)
+		return Completion{}, true
+	}
+	comp = Completion{Usage: res.Usage, CostUSD: res.CostUSD}
+	if err != nil {
+		comp.Status, comp.Error = StatusFailed, r.red.String(err.Error())
+		if errors.Is(err, runtime.ErrNotInstalled) || errors.Is(err, runtime.ErrUnknownAdapter) || (box != nil && containerNotRun(err)) {
+			comp.Status = StatusRetry
+		}
+		return comp, true
+	}
+	comp.Output = res.Output
+	return comp, false
 }
 
 // containerNotRun reports whether err says `docker run` itself failed (the

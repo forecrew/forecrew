@@ -55,31 +55,37 @@ func TestContainerEnvAndHome(t *testing.T) {
 			// The adapter's Env is the worker's: a variable of it, and the
 			// operator's binary, must not reach the container.
 			a := tc.a("WORKER_PRIVATE=1")
-			box := &fakeBox{extra: []string{"FAKE_STREAM=" + stream(tc.name + "_success.jsonl"), "FAKE_RECORD=" + rec}}
+			box := &fakeBox{extra: []string{"FAKE_STREAM=" + stream(tc.name+"_success.jsonl"), "FAKE_RECORD=" + rec}}
 			spec := tc.spec
 			spec.WorkDir, spec.Container = t.TempDir(), box
 			if _, _, err := collect(t, a, spec); err != nil {
 				t.Fatal(err)
 			}
-			// The binary is the adapter's own name: Config.Binary is a host path.
-			if box.got.Path == os.Args[0] || (box.got.Path != "claude" && box.got.Path != "codex") {
-				t.Errorf("wrapped path = %q", box.got.Path)
-			}
-			if box.got.Dir != spec.WorkDir {
-				t.Errorf("wrapped dir = %q, want %q", box.got.Dir, spec.WorkDir)
-			}
-			if !slices.Contains(box.got.Env, tc.home) {
-				t.Errorf("home not set in %q", box.got.Env)
-			}
-			for _, kv := range box.got.Env {
-				if strings.HasPrefix(kv, "WORKER_PRIVATE=") || strings.HasPrefix(kv, "PATH=") {
-					t.Errorf("worker variable %q reached the container", kv)
-				}
-			}
-			if !slices.ContainsFunc(box.got.Env, func(kv string) bool { return strings.HasPrefix(kv, tc.key+"=") }) {
-				t.Errorf("credential %s missing in %q", tc.key, box.got.Env)
-			}
+			checkWrapped(t, box.got, spec.WorkDir, tc.home, tc.key)
 		})
+	}
+}
+
+// checkWrapped checks the process an adapter gave the container.
+func checkWrapped(t *testing.T, got Process, dir, home, key string) {
+	t.Helper()
+	// The binary is the adapter's own name: Config.Binary is a host path.
+	if got.Path != "claude" && got.Path != "codex" {
+		t.Errorf("wrapped path = %q", got.Path)
+	}
+	if got.Dir != dir {
+		t.Errorf("wrapped dir = %q, want %q", got.Dir, dir)
+	}
+	if !slices.Contains(got.Env, home) {
+		t.Errorf("home not set in %q", got.Env)
+	}
+	for _, kv := range got.Env {
+		if strings.HasPrefix(kv, "WORKER_PRIVATE=") || strings.HasPrefix(kv, "PATH=") {
+			t.Errorf("worker variable %q reached the container", kv)
+		}
+	}
+	if !slices.ContainsFunc(got.Env, func(kv string) bool { return strings.HasPrefix(kv, key+"=") }) {
+		t.Errorf("credential %s missing in %q", key, got.Env)
 	}
 }
 

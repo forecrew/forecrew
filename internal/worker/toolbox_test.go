@@ -91,7 +91,7 @@ func toolboxSpec(e *testEnv, tb domain.Toolbox, mod ...func(*domain.JobSpec)) do
 
 // inBox runs a shell script in the container of spec and returns its output
 // lines.
-func inBox(ctx context.Context, spec runtime.RunSpec, script string, emit func(domain.JobEvent)) ([]string, error) {
+func inBox(ctx context.Context, spec runtime.RunSpec, script string) ([]string, error) {
 	var out []string
 	var mu sync.Mutex
 	p := spec.Container.Wrap(runtime.Process{Path: "sh", Args: []string{"-c", script}, Dir: spec.WorkDir, Env: envList(spec.Env)})
@@ -116,7 +116,7 @@ func TestToolboxJobRunsInTheContainer(t *testing.T) {
 	e, g := toolboxEnv(t, func(ctx context.Context, spec runtime.RunSpec, emit func(domain.JobEvent)) (runtime.Result, error) {
 		gotSpec = spec
 		var err error
-		seen, err = inBox(ctx, spec, `echo "key=[$ANTHROPIC_API_KEY] home=$HOME evidence=$FORECREW_EVIDENCE_DIR"; pwd; echo found > out.txt; echo hi > "$FORECREW_EVIDENCE_DIR/shot.txt"`, emit)
+		seen, err = inBox(ctx, spec, `echo "key=[$ANTHROPIC_API_KEY] home=$HOME evidence=$FORECREW_EVIDENCE_DIR"; pwd; echo found > out.txt; echo hi > "$FORECREW_EVIDENCE_DIR/shot.txt"`)
 		return runtime.Result{}, err
 	})
 	s := toolboxSpec(e, securityBox)
@@ -255,7 +255,7 @@ func TestToolboxJobFailures(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Cleanup(func() { hostIDs = func() (int, int) { return os.Getuid(), os.Getgid() } })
 			e, g := toolboxEnv(t, func(ctx context.Context, spec runtime.RunSpec, emit func(domain.JobEvent)) (runtime.Result, error) {
-				_, err := inBox(ctx, spec, "true", emit)
+				_, err := inBox(ctx, spec, "true")
 				return runtime.Result{}, err
 			})
 			g.set(t, tt.flags...)
@@ -283,7 +283,7 @@ func TestToolboxJobFailures(t *testing.T) {
 
 func TestToolboxJobTakesTheAgentErrorsAsFailures(t *testing.T) {
 	e, _ := toolboxEnv(t, func(ctx context.Context, spec runtime.RunSpec, emit func(domain.JobEvent)) (runtime.Result, error) {
-		_, err := inBox(ctx, spec, "exit 3", emit)
+		_, err := inBox(ctx, spec, "exit 3")
 		return runtime.Result{}, err
 	})
 	c := e.doComplete(toolboxSpec(e, securityBox))
@@ -318,7 +318,7 @@ func TestToolboxGatewayInTheContainer(t *testing.T) {
 	var url string
 	e, g := toolboxEnv(t, func(ctx context.Context, spec runtime.RunSpec, emit func(domain.JobEvent)) (runtime.Result, error) {
 		url = spec.JobMCP.URL
-		out, err := inBox(ctx, spec, `echo "token=[$FORECREW_JOB_MCP_TOKEN]"`, emit)
+		out, err := inBox(ctx, spec, `echo "token=[$FORECREW_JOB_MCP_TOKEN]"`)
 		if len(out) != 1 || out[0] != "token=["+testJobMCPTok+"]" {
 			t.Errorf("the token in the container: %q", out)
 		}
