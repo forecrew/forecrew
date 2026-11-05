@@ -512,10 +512,27 @@ func printJob(w io.Writer, j mcp.JobInfo) {
 	if t := j.Tests; t != nil {
 		rows = append(rows, []string{"Tests:", fmt.Sprintf("%s: %d passed, %d failed, %d skipped, %d errored in %d runs", t.Status, t.Passed, t.Failed, t.Skipped, t.Errored, t.Runs)})
 	}
+	if m := j.ContextManifest; m != nil {
+		rows = append(rows, []string{"Context:", contextSummary(m)})
+	}
 	if !j.FinishedAt.IsZero() {
 		rows = append(rows, []string{"Finished:", j.FinishedAt.Format("2006-01-02 15:04:05 MST")})
 	}
 	table(w, rows)
+}
+
+// contextSummary says what a job's context pack held: its size against the
+// budget, then the items of each section and the ones left out.
+func contextSummary(m *domain.ContextManifest) string {
+	parts := make([]string, 0, len(m.Sections))
+	for _, s := range m.Sections {
+		part := fmt.Sprintf("%s %d", s.Name, len(s.Items))
+		if len(s.Dropped) > 0 {
+			part += fmt.Sprintf(" (+%d dropped)", len(s.Dropped))
+		}
+		parts = append(parts, part)
+	}
+	return fmt.Sprintf("%d of %d characters: %s", m.Size, m.Budget, strings.Join(parts, ", "))
 }
 
 // safeText replaces control characters, escape sequences included, with
