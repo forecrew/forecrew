@@ -15,6 +15,7 @@ import (
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
+	"github.com/forecrew/forecrew/internal/tools"
 )
 
 const (
@@ -658,6 +659,34 @@ func TestLastOwnerStays(t *testing.T) {
 	_, err := f.svc.DeleteRoleBinding(ctx, by, mcp.RoleBindingRefInput{Binding: b.ID.String()})
 	wantErr(t, err, mcp.ErrConflict)
 	wantErr(t, err, store.ErrLastOwner)
+}
+
+// lastOwnerTeams refuses to delete a team, as the store does when it would
+// leave the organization without an active Owner.
+type lastOwnerTeams struct{ store.TeamRepo }
+
+func (lastOwnerTeams) Delete(context.Context, uuid.UUID, uuid.UUID) error { return store.ErrLastOwner }
+
+// lastOwnerStore runs transactions on itself, with lastOwnerTeams.
+type lastOwnerStore struct{ store.Store }
+
+func (s lastOwnerStore) Teams() store.TeamRepo { return lastOwnerTeams{s.Store.Teams()} }
+
+func (s lastOwnerStore) WithTx(ctx context.Context, fn func(context.Context, store.Store) error) error {
+	return fn(ctx, s)
+}
+
+func TestDeleteTeamKeepsTheLastOwner(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	_, err := f.svc.CreateTeam(ctx, f.by, mcp.CreateTeamInput{Name: "core"})
+	must(t, err)
+	svc := tools.New(tools.Config{Store: lastOwnerStore{f.st}})
+	_, err = svc.DeleteTeam(ctx, f.by, mcp.TeamRefInput{Team: "core"})
+	wantErr(t, err, store.ErrLastOwner)
+	if code, ok := mcp.ErrorCode(err); !ok || code != "conflict" {
+		t.Errorf("code = %q, %v", code, ok)
+	}
 }
 
 // TestNoEscalation walks the rules of permissions.md.

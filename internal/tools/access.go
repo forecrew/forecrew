@@ -137,7 +137,7 @@ func (s *Service) DeleteTeam(ctx context.Context, by domain.Actor, in mcp.TeamRe
 		}
 		return s.audit(ctx, tx, by, uuid.Nil(), "team.deleted", "team", t.ID, map[string]any{"name": t.Name, "slug": t.Slug})
 	})
-	return t, err
+	return t, conflict(err, "team "+t.Slug)
 }
 
 // ListTeamMembers implements mcp.ToolService.
