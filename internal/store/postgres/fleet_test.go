@@ -165,6 +165,25 @@ func TestFleetScoping(t *testing.T) {
 	mine := domain.Worker{AccountID: f.account, Name: "machine-a", TokenHash: hash32(8), Ephemeral: true}
 	must(t, f.st.Workers().Create(ctx, &mine))
 	must(t, exec(pool, `UPDATE machines SET worker_id = $1, job_id = $2 WHERE id = $3`, mine.ID, f.newJob(t).ID, warm))
+	// A join code has its provider's organization.
+	join := `INSERT INTO provider_join_codes (account_id, code_hash, claim_hash, provider_id, expires_at) VALUES ($1, $2, $3, $4, now())`
+	mustFail(t, pool, join, f.account, hash32(11), hash32(12), provB)
+	mustFail(t, pool, join, f.account, hash32(11), hash32(12), provI)
+	mustFail(t, pool, join, nil, hash32(11), hash32(12), provA)
+	must(t, exec(pool, join, f.account, hash32(11), hash32(12), provA))
+	must(t, exec(pool, join, nil, hash32(13), hash32(14), provI))
+	mustFail(t, pool, `UPDATE provider_join_codes SET provider_id = $1 WHERE code_hash = $2`, provB, hash32(11))
+
+	// A usage record has its machine's organization and shape.
+	var used string
+	must(t, pool.QueryRow(ctx, insertMachine, f.account, provI, shapeI).Scan(&used))
+	usage := `INSERT INTO usage_records (account_id, machine_id, shape_id, ownership, minutes, cost, started_at, ended_at) VALUES ($1, $2, $3, 'hosted', 1, 0, now(), now())`
+	mustFail(t, pool, usage, orgB, used, shapeI)
+	mustFail(t, pool, usage, f.account, used, shapeA)
+	must(t, exec(pool, usage, f.account, used, shapeI))
+	mustFail(t, pool, `UPDATE usage_records SET account_id = $1`, orgB)
+	mustFail(t, pool, `UPDATE machines SET shape_id = $1 WHERE id = $2`, shapeA, used)
+
 	// One worker, one machine.
 	var other string
 	must(t, pool.QueryRow(ctx, insertMachine, f.account, provA, shapeA).Scan(&other))
@@ -284,10 +303,10 @@ func TestFleetConstraints(t *testing.T) {
 	mustFail(t, pool, `UPDATE images SET digest = 'md5:1'`)
 	mustFail(t, pool, `UPDATE images SET format = 'iso'`)
 	// Join codes: a code is confirmed only after a claim, used after both.
-	join := `INSERT INTO provider_join_codes (code_hash, expires_at, provider_id, claim_hash, used_at) VALUES ($1, now(), $2, $3, $4)`
-	mustFail(t, pool, join, hash32(1), prov, nil, nil)
-	mustFail(t, pool, join, hash32(1), nil, hash32(2), "2026-01-01")
-	must(t, exec(pool, join, hash32(1), prov, hash32(2), "2026-01-01"))
+	join := `INSERT INTO provider_join_codes (account_id, code_hash, expires_at, provider_id, claim_hash, used_at) VALUES ($1, $2, now(), $3, $4, $5)`
+	mustFail(t, pool, join, f.account, hash32(1), prov, nil, nil)
+	mustFail(t, pool, join, f.account, hash32(1), nil, hash32(2), "2026-01-01")
+	must(t, exec(pool, join, f.account, hash32(1), prov, hash32(2), "2026-01-01"))
 	// Usage: one record per machine.
 	var machine string
 	must(t, pool.QueryRow(t.Context(), `INSERT INTO machines (account_id, provider_id, shape_id, assigned_at) VALUES ($1, $2, $3, now()) RETURNING id`, f.account, prov, shape).Scan(&machine))
