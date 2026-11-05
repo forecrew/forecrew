@@ -70,6 +70,7 @@ type Store interface {
 	Assumptions() AssumptionRepo
 	Decisions() DecisionRepo
 	Knowledge() KnowledgeRepo
+	KnowledgeProposals() KnowledgeProposalRepo
 	Councils() CouncilRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
@@ -438,8 +439,8 @@ type VerificationReportRepo interface {
 // The repositories below belong to the team (councils, registers,
 // knowledge, proposals; docs/contracts/data-model.md, migration 00004).
 // Like the testing system's, they are contracts only until they join Store
-// (AssumptionRepo, DecisionRepo, CouncilRepo and KnowledgeRepo are in it):
-// KnowledgeProposalRepo by T37 and ProposalRepo by T50, each with the
+// (AssumptionRepo, DecisionRepo, CouncilRepo, KnowledgeRepo and
+// KnowledgeProposalRepo are in it): ProposalRepo by T50, with the
 // Postgres implementation and the testkit fake. goals.kind and goals.size
 // are read and written by GoalRepo from T35 (Size) and T41 (Kind),
 // and jobs.context_manifest by JobRepo from T38; until then they keep their
@@ -621,6 +622,8 @@ type KnowledgeRepo interface {
 type KnowledgeProposalFilter struct {
 	ProjectID uuid.UUID
 	GoalID    uuid.UUID
+	JobID     uuid.UUID
+	ChangeID  uuid.UUID
 	Batch     domain.KnowledgeBatch
 	Status    domain.KnowledgeProposalStatus
 	Limit     int
@@ -633,7 +636,8 @@ type KnowledgeProposalRepo interface {
 	GetByNumber(ctx context.Context, accountID uuid.UUID, number int64) (domain.KnowledgeProposal, error)
 	List(ctx context.Context, accountID uuid.UUID, f KnowledgeProposalFilter) ([]domain.KnowledgeProposal, error)
 	// Update writes Status, ExternalRef, ChangeID and GateID, as a
-	// compare-and-set of the status from from.
+	// compare-and-set of the status from from: ErrConflict when it moved,
+	// domain.ErrInvalidTransition for a move the domain refuses.
 	Update(ctx context.Context, k *domain.KnowledgeProposal, from domain.KnowledgeProposalStatus) error
 }
 

@@ -302,3 +302,78 @@ func firstRunes(s string, n int) string {
 	}
 	return s
 }
+
+// KnowledgeProposals implements store.Store.
+func (s *Store) KnowledgeProposals() store.KnowledgeProposalRepo { return knowledgeProposalRepo{s.db} }
+
+type knowledgeProposalRepo struct{ db dbtx }
+
+var knowledgeProposalCols = `id, account_id, project_id, number, provider, section, path, action, body, reason, proposed_by,
+	` + cuuid("job_id") + `, ` + cuuid("goal_id") + `, batch, external_ref, ` + cuuid("change_id") + `, ` + cuuid("gate_id") + `, status, created_at, updated_at`
+
+func scanKnowledgeProposal(row pgx.Row) (k domain.KnowledgeProposal, err error) {
+	err = row.Scan(&k.ID, &k.AccountID, &k.ProjectID, &k.Number, &k.Provider, &k.Section, &k.Path, &k.Action, &k.Body, &k.Reason, &k.ProposedBy,
+		&k.JobID, &k.GoalID, &k.Batch, &k.ExternalRef, &k.ChangeID, &k.GateID, &k.Status, &k.CreatedAt, &k.UpdatedAt)
+	utc(&k.CreatedAt, &k.UpdatedAt)
+	return k, err
+}
+
+func (r knowledgeProposalRepo) Create(ctx context.Context, k *domain.KnowledgeProposal) error {
+	k.ID = newID(k.ID)
+	return inTx(ctx, r.db, func(tx dbtx) error {
+		refs := []ref{{"projects", k.ProjectID}, {"jobs", k.JobID}, {"goals", k.GoalID}, {"changes", k.ChangeID}, {"gates", k.GateID}}
+		if err := owned(ctx, tx, k.AccountID, refs...); err != nil {
+			return err
+		}
+		n, err := nextNumber(ctx, tx, k.AccountID, string(domain.RefKnowledge))
+		if err != nil {
+			return mapErr(err)
+		}
+		k.Number = n
+		err = tx.QueryRow(ctx, `INSERT INTO knowledge_proposals (id, account_id, project_id, number, provider, section, path, action, body, reason,
+				proposed_by, job_id, goal_id, batch, external_ref, change_id, gate_id, status)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING created_at, updated_at`,
+			k.ID, k.AccountID, k.ProjectID, k.Number, k.Provider, k.Section, k.Path, string(k.Action), k.Body, k.Reason,
+			k.ProposedBy, opt(k.JobID), opt(k.GoalID), string(k.Batch), k.ExternalRef, opt(k.ChangeID), opt(k.GateID), string(k.Status)).Scan(&k.CreatedAt, &k.UpdatedAt)
+		utc(&k.CreatedAt, &k.UpdatedAt)
+		return mapErr(err)
+	})
+}
+
+func (r knowledgeProposalRepo) Get(ctx context.Context, accountID, id uuid.UUID) (domain.KnowledgeProposal, error) {
+	return one(ctx, r.db, scanKnowledgeProposal, `SELECT `+knowledgeProposalCols+` FROM knowledge_proposals WHERE account_id = $1 AND id = $2`, accountID, id)
+}
+
+func (r knowledgeProposalRepo) GetByNumber(ctx context.Context, accountID uuid.UUID, number int64) (domain.KnowledgeProposal, error) {
+	return one(ctx, r.db, scanKnowledgeProposal, `SELECT `+knowledgeProposalCols+` FROM knowledge_proposals WHERE account_id = $1 AND number = $2`, accountID, number)
+}
+
+func (r knowledgeProposalRepo) List(ctx context.Context, accountID uuid.UUID, f store.KnowledgeProposalFilter) ([]domain.KnowledgeProposal, error) {
+	w := newWhere(accountID)
+	andNot(w, "project_id = ?", f.ProjectID)
+	andNot(w, "goal_id = ?", f.GoalID)
+	andNot(w, "job_id = ?", f.JobID)
+	andNot(w, "change_id = ?", f.ChangeID)
+	andNot(w, "batch = ?", string(f.Batch))
+	andNot(w, "status = ?", string(f.Status))
+	return many(ctx, r.db, scanKnowledgeProposal, `SELECT `+knowledgeProposalCols+` FROM knowledge_proposals`+w.sql("number", f.Limit), w.args...)
+}
+
+func (r knowledgeProposalRepo) Update(ctx context.Context, k *domain.KnowledgeProposal, from domain.KnowledgeProposalStatus) error {
+	if k.Status != from {
+		if _, err := from.Transition(k.Status); err != nil {
+			return err
+		}
+	}
+	if err := owned(ctx, r.db, k.AccountID, ref{"changes", k.ChangeID}, ref{"gates", k.GateID}); err != nil {
+		return err
+	}
+	err := r.db.QueryRow(ctx, `UPDATE knowledge_proposals SET status = $4, external_ref = $5, change_id = $6, gate_id = $7, updated_at = now()
+		WHERE account_id = $1 AND id = $2 AND status = $3 RETURNING updated_at`,
+		k.AccountID, k.ID, string(from), string(k.Status), k.ExternalRef, opt(k.ChangeID), opt(k.GateID)).Scan(&k.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("knowledge proposal %s is not %q: %w", k.Ref(), from, store.ErrConflict)
+	}
+	utc(&k.UpdatedAt)
+	return mapErr(err)
+}
