@@ -34,6 +34,9 @@ type Query struct {
 	// project's. Humans pass AllGoals instead.
 	GoalID   uuid.UUID
 	AllGoals bool
+	// GoalOnly narrows the search to the notes of GoalID, newest first
+	// without Text.
+	GoalOnly bool
 }
 
 // Result is a hit with what a reader needs to judge it. Untrusted is true
@@ -74,7 +77,7 @@ func (s *Search) Run(ctx context.Context, q Query) ([]Result, error) {
 	}
 	sq := store.KnowledgeQuery{
 		ProjectID: q.Project.ID, Text: q.Text, Sections: q.Sections, Kinds: q.Kinds, Providers: q.Providers,
-		GoalID: q.GoalID, AllNotes: q.AllGoals, Limit: limit,
+		GoalID: q.GoalID, AllNotes: q.AllGoals, GoalOnly: q.GoalOnly, Limit: limit,
 	}
 	if q.Role != "" {
 		// Ask for more than limit: hidden sections are dropped afterwards.

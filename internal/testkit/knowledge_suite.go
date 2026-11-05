@@ -131,6 +131,8 @@ func (s *knowledgeSuite) search() {
 		{"entries of a section", store.KnowledgeQuery{Text: "queue", Kinds: []domain.KnowledgeKind{domain.KnowledgeEntryKind}, Sections: []string{"architecture"}}, 1, s.adr.Path},
 		{"an exclusion", store.KnowledgeQuery{Text: "queue -slow", Kinds: notes, GoalID: s.g1.ID}, 1, ""},
 		{"either of two words", store.KnowledgeQuery{Text: "lease or contributing"}, 2, ""},
+		{"goal notes only", store.KnowledgeQuery{GoalOnly: true, GoalID: s.g1.ID}, 1, s.n1.Path},
+		{"goal notes only, with text", store.KnowledgeQuery{GoalOnly: true, GoalID: s.g1.ID, Text: "queue"}, 1, s.n1.Path},
 		{"nothing", store.KnowledgeQuery{Text: "nothingmatches"}, 0, ""},
 		{"a section without text", store.KnowledgeQuery{Sections: []string{"conventions"}}, 1, ""},
 	}

@@ -220,6 +220,8 @@ func searchFilters(accountID uuid.UUID, q store.KnowledgeQuery) *where {
 		w.conds = append(w.conds, "("+strings.Join(kinds, " OR ")+")")
 	}
 	switch {
+	case q.GoalOnly:
+		w.and("provider = 'internal' AND scope = 'goal' AND goal_id = ?", q.GoalID)
 	case q.AllNotes:
 	case q.GoalID == uuid.Nil():
 		w.conds = append(w.conds, "(provider <> 'internal' OR scope = 'project')")
@@ -238,10 +240,14 @@ func (r knowledgeRepo) Search(ctx context.Context, accountID uuid.UUID, q store.
 		limit = 20
 	}
 	if strings.TrimSpace(q.Text) == "" {
+		order := "section, path"
+		if q.GoalOnly {
+			order = "created_at DESC, path"
+		}
 		return many(ctx, r.db, func(row pgx.Row) (store.KnowledgeHit, error) {
 			e, err := scanKnowledge(row)
 			return store.KnowledgeHit{Entry: e, Snippet: firstRunes(e.Body, 240)}, err
-		}, `SELECT `+knowledgeCols+` FROM knowledge_entries`+w.sql("section, path", limit), w.args...)
+		}, `SELECT `+knowledgeCols+` FROM knowledge_entries`+w.sql(order, limit), w.args...)
 	}
 	hasVec := false
 	if len(q.Embedding) > 0 {

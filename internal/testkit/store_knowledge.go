@@ -194,6 +194,9 @@ func (r knowledgeRepo) Search(_ context.Context, accountID uuid.UUID, q store.Kn
 			}
 		}
 		slices.SortStableFunc(hits, func(a, b store.KnowledgeHit) int {
+			if q.GoalOnly && strings.TrimSpace(q.Text) == "" {
+				return cmp.Or(b.Entry.CreatedAt.Compare(a.Entry.CreatedAt), cmp.Compare(a.Entry.Path, b.Entry.Path))
+			}
 			return cmp.Or(cmp.Compare(b.Rank, a.Rank), cmp.Compare(a.Entry.Section, b.Entry.Section), cmp.Compare(a.Entry.Path, b.Entry.Path))
 		})
 		return hits[:min(len(hits), cmp.Or(q.Limit, 20))], nil
@@ -225,6 +228,9 @@ func visible(e domain.KnowledgeEntry, accountID uuid.UUID, q store.KnowledgeQuer
 		len(q.Providers) > 0 && !slices.Contains(q.Providers, e.Provider),
 		len(q.Kinds) > 0 && !slices.Contains(q.Kinds, e.Kind()):
 		return false
+	}
+	if q.GoalOnly {
+		return e.Provider == domain.ProviderInternal && e.Scope == domain.NoteScopeGoal && e.GoalID == q.GoalID
 	}
 	return e.Provider != domain.ProviderInternal || e.Scope == domain.NoteScopeProject || q.AllNotes ||
 		(q.GoalID != uuid.Nil() && e.GoalID == q.GoalID)

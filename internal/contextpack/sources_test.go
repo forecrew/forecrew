@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -445,8 +446,8 @@ func (s failStore) Jobs() store.JobRepo {
 }
 
 func (s failStore) Knowledge() store.KnowledgeRepo {
-	if s.fail == "notes" {
-		return failKnowledge{s.Store.Knowledge()}
+	if s.fail == "notes" || s.fail == "notes-gone" {
+		return failKnowledge{s.Store.Knowledge(), s.fail == "notes-gone"}
 	}
 	return s.Store.Knowledge()
 }
@@ -457,7 +458,10 @@ type (
 	failChanges     struct{ store.ChangeRepo }
 	failJobs        struct{ store.JobRepo }
 	failTasks       struct{ store.TaskRepo }
-	failKnowledge   struct{ store.KnowledgeRepo }
+	failKnowledge   struct {
+		store.KnowledgeRepo
+		gone bool
+	}
 )
 
 func (failDecisions) List(context.Context, uuid.UUID, store.DecisionFilter) ([]domain.Decision, error) {
@@ -479,7 +483,10 @@ func (failTasks) List(context.Context, uuid.UUID, store.TaskFilter) ([]domain.Ta
 	return nil, errRead
 }
 
-func (failKnowledge) Get(context.Context, uuid.UUID, uuid.UUID) (domain.KnowledgeEntry, error) {
+func (f failKnowledge) Get(context.Context, uuid.UUID, uuid.UUID) (domain.KnowledgeEntry, error) {
+	if f.gone {
+		return domain.KnowledgeEntry{}, store.ErrNotFound
+	}
 	return domain.KnowledgeEntry{}, errRead
 }
 
@@ -508,5 +515,32 @@ func TestBuildContextErrors(t *testing.T) {
 		if !errors.Is(err, errRead) || !strings.Contains(err.Error(), tt.section+" section") {
 			t.Errorf("%s failing: error = %v", tt.fail, err)
 		}
+	}
+}
+
+// Project notes must not crowd out the notes of the goal.
+func TestBuildContextNotesAmongManyProjectNotes(t *testing.T) {
+	e := newPackEnv(t)
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 130 {
+		e.note(t, uuid.Nil(), domain.NoteScopeProject, fmt.Sprintf("Project note %03d", i), "shared", at)
+	}
+	mine := e.note(t, e.goal.ID, domain.NoteScopeGoal, "Zzz goal note", "ours", at)
+	p := e.build(t, roles.Role{Name: "developer", Context: []string{contextpack.SectionNotes}}, workflow.JobRequest{GoalID: e.goal.ID})
+	if got := ids(section(t, p, "notes").Items); len(got) != 1 || got[0] != mine.ID.String() {
+		t.Errorf("notes = %v, want the goal's note only", got)
+	}
+}
+
+// A note deleted between the search and the read is skipped.
+func TestBuildContextNoteDeletedMeanwhile(t *testing.T) {
+	e := newPackEnv(t)
+	e.note(t, e.goal.ID, domain.NoteScopeGoal, "Gone", "bye", time.Now())
+	st := failStore{e.st, "notes-gone"}
+	b := contextpack.New(st, nil, nil, 0).WithKnowledge(e.search)
+	req := workflow.JobRequest{AccountID: e.project.AccountID, ProjectID: e.project.ID, GoalID: e.goal.ID}
+	p, err := b.Build(context.Background(), req, roles.Role{Name: "developer", Context: []string{contextpack.SectionNotes}})
+	if err != nil || len(p.Manifest.Sections[0].Items) != 0 {
+		t.Errorf("Build = %+v, %v", p.Manifest, err)
 	}
 }
