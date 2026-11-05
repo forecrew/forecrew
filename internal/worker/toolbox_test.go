@@ -113,7 +113,7 @@ func envList(m map[string]string) []string {
 func TestToolboxJobRunsInTheContainer(t *testing.T) {
 	var seen []string
 	var gotSpec runtime.RunSpec
-	e, g := toolboxEnv(t, func(ctx context.Context, spec runtime.RunSpec, emit func(domain.JobEvent)) (runtime.Result, error) {
+	e, g := toolboxEnv(t, func(ctx context.Context, spec runtime.RunSpec, _ func(domain.JobEvent)) (runtime.Result, error) {
 		gotSpec = spec
 		var err error
 		seen, err = inBox(ctx, spec, `echo "key=[$ANTHROPIC_API_KEY] home=$HOME evidence=$FORECREW_EVIDENCE_DIR"; pwd; echo found > out.txt; echo hi > "$FORECREW_EVIDENCE_DIR/shot.txt"`)
@@ -254,7 +254,7 @@ func TestToolboxJobFailures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Cleanup(func() { hostIDs = func() (int, int) { return os.Getuid(), os.Getgid() } })
-			e, g := toolboxEnv(t, func(ctx context.Context, spec runtime.RunSpec, emit func(domain.JobEvent)) (runtime.Result, error) {
+			e, g := toolboxEnv(t, func(ctx context.Context, spec runtime.RunSpec, _ func(domain.JobEvent)) (runtime.Result, error) {
 				_, err := inBox(ctx, spec, "true")
 				return runtime.Result{}, err
 			})
@@ -282,7 +282,7 @@ func TestToolboxJobFailures(t *testing.T) {
 }
 
 func TestToolboxJobTakesTheAgentErrorsAsFailures(t *testing.T) {
-	e, _ := toolboxEnv(t, func(ctx context.Context, spec runtime.RunSpec, emit func(domain.JobEvent)) (runtime.Result, error) {
+	e, _ := toolboxEnv(t, func(ctx context.Context, spec runtime.RunSpec, _ func(domain.JobEvent)) (runtime.Result, error) {
 		_, err := inBox(ctx, spec, "exit 3")
 		return runtime.Result{}, err
 	})
@@ -316,7 +316,7 @@ func TestToolboxGatewayURL(t *testing.T) {
 
 func TestToolboxGatewayInTheContainer(t *testing.T) {
 	var url string
-	e, g := toolboxEnv(t, func(ctx context.Context, spec runtime.RunSpec, emit func(domain.JobEvent)) (runtime.Result, error) {
+	e, g := toolboxEnv(t, func(ctx context.Context, spec runtime.RunSpec, _ func(domain.JobEvent)) (runtime.Result, error) {
 		url = spec.JobMCP.URL
 		out, err := inBox(ctx, spec, `echo "token=[$FORECREW_JOB_MCP_TOKEN]"`)
 		if len(out) != 1 || out[0] != "token=["+testJobMCPTok+"]" {
