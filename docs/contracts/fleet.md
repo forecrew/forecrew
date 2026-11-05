@@ -60,7 +60,7 @@ currency of the instance, config.md `fleet.currency`. A price of 0 is free.
 | `monthly_budget` | Stops new machines of this shape for the month; NULL means no limit. |
 | `warm_min` | Machines kept up with no job: `ready`, or warm (`Machine.Warm`). |
 | `max` | Machines of this shape at once, ≥ 1 and ≥ `warm_min`. |
-| `idle_seconds` | How long a machine up above `warm_min` waits for a job; 0 destroys it at once. |
+| `idle_seconds` | How long a machine up above `warm_min` waits for a job; 0 destroys it at once. Idle time counts from the latest of `ready_at`, `assigned_at` and the end of its last job, so an assigned warm machine is not destroyed before its first job. |
 | `boot_timeout_seconds` | How long a machine may take from entering `booting` until its worker calls, before it is failed and replaced; default 300. Also how long a bound bootstrap token lasts. |
 | `max_jobs` | Jobs a machine takes in its life, counted by `machines.jobs_taken`, and its worker's `max_jobs`; default 1. |
 | `note` | What a person should know, shown on the machine type: slower boot on plain EC2, the 24-hour minimum on EC2 Mac. |
@@ -190,7 +190,10 @@ its worker and job in that organization, and its worker must be ephemeral.
 `workers.account_id` is required. So it stays `booting`: its worker's first call
 gets `202` and sets `ready_at`, which is what makes it warm (`Machine.Warm`),
 counts it for `warm_min` and stops its boot timeout. It reaches `ready` after
-assignment, like any machine, when the waiting worker exchanges its token.
+assignment, like any machine, when the waiting worker exchanges its token. Its
+idle time starts again at `assigned_at`: the latest of `ready_at`, `assigned_at`
+and the end of its last job counts, so time spent warm is not held against it and
+it is not destroyed before its first job.
 
 **Boot timeout.** It starts at `booting_at`, when the provider has started the
 machine, and ends at `ready_at` (`Machine.BootExpired`). A machine kept
