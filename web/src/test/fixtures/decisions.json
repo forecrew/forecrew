@@ -1,0 +1,46 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000600",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 5,
+    "goal_id": "018f0000-0000-7000-8000-000000000020",
+    "question": "Which queue should jobs use?",
+    "options": [
+      {
+        "name": "postgres-queue",
+        "summary": "SKIP LOCKED on the jobs table."
+      },
+      {
+        "name": "redis-streams"
+      }
+    ],
+    "choice": "postgres-queue",
+    "reasons": "Already run; no new service.",
+    "dissent": "security@codex: job data should not share the application database.",
+    "decided_by": "user:ana",
+    "council_id": "018f0000-0000-7000-8000-000000000203",
+    "gate_id": "018f0000-0000-7000-8000-000000000511",
+    "created_at": "2026-03-01T11:55:00Z",
+    "ref": "DEC-5",
+    "assumptions": [
+      "A-7"
+    ]
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000601",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 4,
+    "question": "Which license?",
+    "options": null,
+    "choice": "mit",
+    "reasons": "The policy accepts a recommendation nobody dissented from.",
+    "decided_by": "policy",
+    "council_id": "018f0000-0000-7000-8000-000000000202",
+    "created_at": "2026-03-01T10:20:00Z",
+    "ref": "DEC-4",
+    "assumptions": []
+  }
+]
+

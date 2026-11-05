@@ -1,0 +1,18 @@
+{
+  "id": "018f0000-0000-7000-8000-000000000202",
+  "account_id": "018f0000-0000-7000-8000-000000000001",
+  "project_id": "018f0000-0000-7000-8000-000000000010",
+  "number": 2,
+  "kind": "technical",
+  "question": "Which queue should jobs use?",
+  "constraints": [
+    "Keep it to one database",
+    "No new services"
+  ],
+  "status": "running",
+  "run_id": "018f0000-0000-7000-8000-000000000302",
+  "created_at": "2026-03-01T10:32:00Z",
+  "updated_at": "2026-03-01T11:50:00Z",
+  "ref": "COUNCIL-2"
+}
+

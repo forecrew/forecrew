@@ -1,0 +1,395 @@
+{
+  "id": "018f0000-0000-7000-8000-000000000205",
+  "account_id": "018f0000-0000-7000-8000-000000000001",
+  "project_id": "018f0000-0000-7000-8000-000000000010",
+  "number": 5,
+  "kind": "technical",
+  "question": "Which queue should jobs use?",
+  "constraints": [
+    "Keep it to one database"
+  ],
+  "status": "running",
+  "brief": {
+    "question": "Which queue should jobs use?",
+    "options": [
+      {
+        "name": "postgres-queue",
+        "summary": "SKIP LOCKED on the jobs table.",
+        "pros": [
+          "no new service"
+        ],
+        "cons": [
+          "polling"
+        ],
+        "cost": "low",
+        "risk": "low"
+      },
+      {
+        "name": "redis-streams",
+        "summary": "A Redis stream per pool.",
+        "pros": [
+          "push"
+        ],
+        "cons": [
+          "a new service"
+        ],
+        "cost": "medium",
+        "risk": "medium"
+      }
+    ],
+    "recommendation": "postgres-queue",
+    "votes": [
+      {
+        "member": "architect@claude-code",
+        "option": "postgres-queue",
+        "reason": "Already run."
+      },
+      {
+        "member": "security@codex",
+        "option": "redis-streams",
+        "reason": "Isolates job data."
+      }
+    ],
+    "dissent": [
+      {
+        "member": "security@codex",
+        "position": "Job data should not share the application database."
+      },
+      {
+        "member": "devils-advocate@claude-code",
+        "position": "Devil's advocate (mandated dissent): Polling will not scale past 50 workers."
+      }
+    ],
+    "assumptions": [
+      {
+        "statement": "Fewer than 50 workers.",
+        "confidence": "medium",
+        "impact": "high",
+        "verify_by": "ask-human"
+      }
+    ],
+    "open_questions": [
+      "Who owns the Redis cluster?"
+    ],
+    "reversible": true,
+    "budget_exhausted": false
+  },
+  "gate_id": "018f0000-0000-7000-8000-000000000505",
+  "run_id": "018f0000-0000-7000-8000-000000000305",
+  "created_at": "2026-03-01T10:35:00Z",
+  "updated_at": "2026-03-01T11:50:00Z",
+  "ref": "COUNCIL-5",
+  "contributions": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000401",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "council_id": "018f0000-0000-7000-8000-000000000205",
+      "role": "architect",
+      "runtime": "claude-code",
+      "stage": "proposal",
+      "round": 1,
+      "content": {
+        "priority": "simplicity",
+        "position": "Use the Postgres queue we already run.",
+        "recommendation": "postgres-queue",
+        "options": [
+          {
+            "name": "postgres-queue",
+            "summary": "SKIP LOCKED on the jobs table.",
+            "pros": [
+              "no new service"
+            ],
+            "cons": [
+              "polling"
+            ],
+            "cost": "low",
+            "risk": "low"
+          },
+          {
+            "name": "redis-streams",
+            "summary": "A Redis stream per pool.",
+            "pros": [
+              "push"
+            ],
+            "cons": [
+              "a new service"
+            ],
+            "cost": "medium",
+            "risk": "medium"
+          }
+        ],
+        "evidence": [
+          {
+            "claim": "Leasing exists",
+            "kind": "path",
+            "source": "internal/queue/lease.go:40-58",
+            "date": null,
+            "confidence": "high"
+          }
+        ],
+        "assumptions": [],
+        "risks": [
+          {
+            "risk": "Polling load",
+            "likelihood": "low",
+            "impact": "medium",
+            "mitigation": "Index the lease query."
+          }
+        ],
+        "revision": null,
+        "escalation": null
+      },
+      "evidence_check": [
+        {
+          "source": "internal/queue/lease.go:40-58",
+          "kind": "path",
+          "status": "ok"
+        }
+      ],
+      "created_at": "2026-03-01T11:01:00Z",
+      "member": "architect@claude-code"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000402",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "council_id": "018f0000-0000-7000-8000-000000000205",
+      "role": "security",
+      "runtime": "codex",
+      "stage": "proposal",
+      "round": 1,
+      "content": {
+        "priority": "simplicity",
+        "position": "Use the Postgres queue we already run.",
+        "recommendation": "postgres-queue",
+        "options": [
+          {
+            "name": "postgres-queue",
+            "summary": "SKIP LOCKED on the jobs table.",
+            "pros": [
+              "no new service"
+            ],
+            "cons": [
+              "polling"
+            ],
+            "cost": "low",
+            "risk": "low"
+          },
+          {
+            "name": "redis-streams",
+            "summary": "A Redis stream per pool.",
+            "pros": [
+              "push"
+            ],
+            "cons": [
+              "a new service"
+            ],
+            "cost": "medium",
+            "risk": "medium"
+          }
+        ],
+        "evidence": [
+          {
+            "claim": "Leasing exists",
+            "kind": "path",
+            "source": "internal/queue/lease.go:40-58",
+            "date": null,
+            "confidence": "high"
+          }
+        ],
+        "assumptions": [],
+        "risks": [
+          {
+            "risk": "Polling load",
+            "likelihood": "low",
+            "impact": "medium",
+            "mitigation": "Index the lease query."
+          }
+        ],
+        "revision": null,
+        "escalation": null
+      },
+      "evidence_check": [
+        {
+          "source": "https://example.com/x",
+          "kind": "url",
+          "status": "refused",
+          "detail": "private address"
+        }
+      ],
+      "created_at": "2026-03-01T11:02:00Z",
+      "member": "security@codex"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000403",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "council_id": "018f0000-0000-7000-8000-000000000205",
+      "role": "devils-advocate",
+      "runtime": "claude-code",
+      "stage": "proposal",
+      "round": 1,
+      "content": {
+        "priority": "simplicity",
+        "position": "Use the Postgres queue we already run.",
+        "recommendation": "postgres-queue",
+        "options": [
+          {
+            "name": "postgres-queue",
+            "summary": "SKIP LOCKED on the jobs table.",
+            "pros": [
+              "no new service"
+            ],
+            "cons": [
+              "polling"
+            ],
+            "cost": "low",
+            "risk": "low"
+          },
+          {
+            "name": "redis-streams",
+            "summary": "A Redis stream per pool.",
+            "pros": [
+              "push"
+            ],
+            "cons": [
+              "a new service"
+            ],
+            "cost": "medium",
+            "risk": "medium"
+          }
+        ],
+        "evidence": [
+          {
+            "claim": "Leasing exists",
+            "kind": "path",
+            "source": "internal/queue/lease.go:40-58",
+            "date": null,
+            "confidence": "high"
+          }
+        ],
+        "assumptions": [],
+        "risks": [
+          {
+            "risk": "Polling load",
+            "likelihood": "low",
+            "impact": "medium",
+            "mitigation": "Index the lease query."
+          }
+        ],
+        "revision": null,
+        "escalation": null
+      },
+      "evidence_check": null,
+      "created_at": "2026-03-01T11:03:00Z",
+      "member": "devils-advocate@claude-code"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000404",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "council_id": "018f0000-0000-7000-8000-000000000205",
+      "role": "security",
+      "runtime": "codex",
+      "stage": "critique",
+      "round": 1,
+      "content": {
+        "priority": "security",
+        "critiques": [
+          {
+            "member": "architect@claude-code",
+            "agree": [
+              {
+                "point": "No new service",
+                "reason": "Fewer secrets to hold.",
+                "evidence": []
+              }
+            ],
+            "disagree": [
+              {
+                "point": "Polling",
+                "reason": "A \u003cb\u003ebusy\u003c/b\u003e table leaks timing.",
+                "evidence": [
+                  {
+                    "claim": "c",
+                    "kind": "url",
+                    "source": "https://example.com/x",
+                    "date": "2026-01-02",
+                    "confidence": "low"
+                  }
+                ]
+              }
+            ],
+            "challenged_assumptions": []
+          }
+        ],
+        "assumptions": [],
+        "escalation": null
+      },
+      "evidence_check": [
+        {
+          "source": "https://example.com/x",
+          "kind": "url",
+          "status": "refused",
+          "detail": "private address"
+        }
+      ],
+      "created_at": "2026-03-01T11:04:00Z",
+      "member": "security@codex"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000405",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "council_id": "018f0000-0000-7000-8000-000000000205",
+      "role": "architect",
+      "runtime": "claude-code",
+      "stage": "revision",
+      "round": 1,
+      "content": {
+        "priority": "simplicity",
+        "position": "Keep Postgres, add the index.",
+        "recommendation": "postgres-queue",
+        "options": [],
+        "evidence": [],
+        "assumptions": [],
+        "risks": [],
+        "revision": {
+          "changed": false,
+          "reason": "The critique does not change the cost.",
+          "prompted_by": []
+        },
+        "escalation": null
+      },
+      "evidence_check": null,
+      "created_at": "2026-03-01T11:05:00Z",
+      "member": "architect@claude-code"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000406",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "council_id": "018f0000-0000-7000-8000-000000000205",
+      "role": "facilitator",
+      "runtime": "claude-code",
+      "stage": "synthesis",
+      "round": 1,
+      "content": {
+        "recommendation": "postgres-queue"
+      },
+      "evidence_check": null,
+      "created_at": "2026-03-01T11:06:00Z",
+      "member": "facilitator@claude-code"
+    }
+  ],
+  "gate": {
+    "id": "018f0000-0000-7000-8000-000000000505",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 12,
+    "kind": "council_decision",
+    "status": "pending",
+    "title": "COUNCIL-5: Which queue should jobs use?",
+    "summary": "The brief.",
+    "subject_repo": "",
+    "created_at": "2026-03-01T11:40:00Z",
+    "ref": "GATE-12",
+    "project": "app"
+  }
+}
+
