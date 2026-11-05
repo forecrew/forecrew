@@ -341,7 +341,11 @@ test files from `head` are run on `base` (`tests.base_check_request`) and
 
 - The latest attempt of a suite in a cell counts (reruns are new jobs of the
   same cell). A test that failed in an earlier attempt and passed in the latest
-  is **flaky**: listed with its environments, not blocking.
+  is **flaky**: listed with its environments, not blocking. One that failed
+  earlier and is skipped or missing in the latest attempt of a required cell
+  blocks (the synthetic `(command)`, `(report)` and `(oversized)` results are
+  not tests). Runs of the base check (jobs with an overlay) are not read, since
+  with stacked PRs the base is another PR's head.
 - A required result (a suite in a cell the matrix's `required` and the suite's
   `required` ask for) that failed or errored blocks. Results that are not
   required are shown and never block.
@@ -352,17 +356,23 @@ test files from `head` are run on `base` (`tests.base_check_request`) and
   did not run in a run that finished, or were all skipped. The test's result is
   its worst over the required results of its suite (all of them when the suite
   has no required result).
-- A new test that passed on the base branch (`base_check`) blocks.
+- A new test that passed on the base branch (`base_check`) blocks; one with
+  no `base_check` entry leaves the report `incomplete`. A change whose task
+  lists no acceptance criteria blocks, and a sha with no stored run at all is
+  `incomplete`.
 
 The report is rendered as Markdown: results (environments by suites with
 counts), the traceability table (criterion, tests, result), new tests, flaky
 tests and tool versions. The rendering is stored as an artifact (no job; name
-`verification/<sha>.md`), posted as one comment per PR that later builds update
-in place, and shown as the check run `forecrew/verification` on `sha`: `success`
+`verification/<sha>.md`), posted as one comment per PR, written by the App and starting with a hidden
+marker (only the App's own comments are found, since a write token may edit
+anyone's) that later builds update in place, only for the PR's current head
+(a report of an older sha is stored and gets its check run, but leaves the
+comment alone), and shown as the check run `forecrew/verification` on `sha`: `success`
 for `passed`, `failure` for `failed`, `neutral` for `incomplete`. Names from the
 repo are shown as inline code or escaped text, and tables are cut after 100
 rows. The check run needs the GitHub App's **Checks: read & write** permission;
-without it forecrewd logs a warning, once, and keeps the comment.
+without it forecrewd logs a warning, once, and keeps the comment. The check run is set before the comment.
 
 ## Roles
 

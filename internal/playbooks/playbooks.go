@@ -20,6 +20,7 @@ import (
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/verification"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -74,7 +75,10 @@ func Register(registry workflow.Actions, deps Deps) {
 	if deps.Logger == nil {
 		deps.Logger = slog.New(slog.DiscardHandler)
 	}
-	d := &actions{Deps: deps, regs: registers.New(deps.Store, deps.Signals, deps.Now)}
+	d := &actions{Deps: deps, regs: registers.New(deps.Store, deps.Signals, deps.Now), verifier: &verification.Publisher{Store: deps.Store, Evidence: deps.Evidence, Logger: deps.Logger}}
+	if deps.Tracker != nil {
+		d.verifier.Tracker = deps.Tracker
+	}
 	registry["project.register"] = d.registerProject
 	registry["github.open_or_update_pr"] = d.openOrUpdatePR
 	registry["github.merge_pr"] = d.mergePR
@@ -123,4 +127,7 @@ func Register(registry workflow.Actions, deps Deps) {
 type actions struct {
 	Deps
 	regs *registers.Service
+	// verifier is one for all calls, which keeps its warning about a missing
+	// Checks permission to once.
+	verifier *verification.Publisher
 }
