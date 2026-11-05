@@ -5,6 +5,7 @@ package postgres
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -54,6 +55,43 @@ func TestJobsCreateAndQuery(t *testing.T) {
 	}
 	orphan := domain.Job{AccountID: f.account, ProjectID: domain.NewID(), Role: "x", Runtime: "codex"}
 	wantErr(t, repo.Create(ctx, &orphan), store.ErrNotFound)
+}
+
+// The context manifest is stored with the job and comes back with every read
+// of it, also after the job ran.
+func TestJobsContextManifest(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.Jobs()
+	m := &domain.ContextManifest{Budget: 16000, Size: 420, Sections: []domain.ContextSection{
+		{Name: "assumptions", Size: 120, Items: []domain.ContextItem{{ID: "A-4", Size: 100}}},
+		{Name: "notes", Size: 300, Items: []domain.ContextItem{{ID: "7c0b", Path: "notes/7c0b", Size: 290}}, Dropped: []domain.ContextItem{{ID: "9d1e", Size: 5000}}},
+	}}
+	with := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Role: "developer", Runtime: "claude-code", ContextManifest: m}
+	must(t, repo.Create(ctx, &with))
+	without := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Role: "triage", Runtime: "claude-code"}
+	must(t, repo.Create(ctx, &without))
+
+	got, err := repo.Get(ctx, f.account, with.ID)
+	if err != nil || !reflect.DeepEqual(got.ContextManifest, m) {
+		t.Fatalf("Get manifest = %+v, %v; want %+v", got.ContextManifest, err, m)
+	}
+	if got, _ := repo.Get(ctx, f.account, without.ID); got.ContextManifest != nil {
+		t.Errorf("a job without a pack has the manifest %+v", got.ContextManifest)
+	}
+	w := f.newWorker(t, "w1", "runtime:claude-code")
+	leased, err := repo.LeaseNext(ctx, f.account, w.ID, w.Labels, time.Minute)
+	if err != nil || !reflect.DeepEqual(leased.ContextManifest, m) {
+		t.Fatalf("LeaseNext manifest = %+v, %v", leased.ContextManifest, err)
+	}
+	done, err := repo.Complete(ctx, f.account, leased.ID, w.ID, store.JobResult{Status: domain.JobSucceeded})
+	if err != nil || !reflect.DeepEqual(done.ContextManifest, m) {
+		t.Fatalf("Complete manifest = %+v, %v", done.ContextManifest, err)
+	}
+	list, _ := repo.List(ctx, f.account, store.JobFilter{ProjectID: f.project.ID, Limit: 5})
+	if len(list) != 2 || list[1].ContextManifest == nil || list[0].ContextManifest != nil {
+		t.Errorf("List = %+v", list)
+	}
 }
 
 func TestLeaseNextMatchesLabels(t *testing.T) {
