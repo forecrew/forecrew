@@ -54,6 +54,7 @@ type ToolService struct {
 	OpenArtifactFunc       func(context.Context, domain.Actor, string) (domain.Artifact, io.ReadCloser, error)
 	SearchKnowledgeFunc    func(context.Context, domain.Actor, mcp.SearchKnowledgeInput) ([]knowledge.Result, error)
 	DeleteNoteFunc         func(context.Context, domain.Actor, mcp.DeleteNoteInput) (mcp.DeleteNoteOutput, error)
+	ProposeKnowledgeFunc   func(context.Context, domain.Actor, mcp.ProposeKnowledgeInput) (mcp.ProposeKnowledgeOutput, error)
 
 	ListAssumptionsFunc   func(context.Context, domain.Actor, mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error)
 	ResolveAssumptionFunc func(context.Context, domain.Actor, mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error)
@@ -230,6 +231,11 @@ func (s *ToolService) ListDecisions(ctx context.Context, by domain.Actor, in mcp
 // SearchKnowledge implements mcp.ToolService.
 func (s *ToolService) SearchKnowledge(ctx context.Context, by domain.Actor, in mcp.SearchKnowledgeInput) ([]knowledge.Result, error) {
 	return invoke(ctx, s, mcp.ToolSearchKnowledge, by, in, s.SearchKnowledgeFunc)
+}
+
+// ProposeKnowledge implements mcp.ToolService.
+func (s *ToolService) ProposeKnowledge(ctx context.Context, by domain.Actor, in mcp.ProposeKnowledgeInput) (mcp.ProposeKnowledgeOutput, error) {
+	return invoke(ctx, s, mcp.ToolProposeKnowledge, by, in, s.ProposeKnowledgeFunc)
 }
 
 // DeleteNote implements mcp.ToolService.

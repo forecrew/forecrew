@@ -10,6 +10,7 @@ import (
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/knowledge"
+	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
 )
@@ -55,6 +56,27 @@ func (s *Service) SearchKnowledge(ctx context.Context, by domain.Actor, in mcp.S
 		}
 	}
 	return res, err
+}
+
+// ProposeKnowledge implements mcp.ToolService.
+func (s *Service) ProposeKnowledge(ctx context.Context, by domain.Actor, in mcp.ProposeKnowledgeInput) (mcp.ProposeKnowledgeOutput, error) {
+	if s.cfg.Proposals == nil {
+		return mcp.ProposeKnowledgeOutput{}, fmt.Errorf("the knowledge base is not configured: %w", mcp.ErrUnavailable)
+	}
+	p, err := s.project(ctx, by.AccountID, in.Project)
+	if err != nil {
+		return mcp.ProposeKnowledgeOutput{}, err
+	}
+	res, err := s.cfg.Proposals.Human(ctx, by, p, proposals.Input{Section: in.Section, Path: in.Path, Action: in.Action, Body: in.Body, Reason: in.Reason})
+	switch {
+	case errors.Is(err, proposals.ErrInvalid):
+		return mcp.ProposeKnowledgeOutput{}, fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
+	case errors.Is(err, knowledge.ErrPolicyUnknown):
+		return mcp.ProposeKnowledgeOutput{}, fmt.Errorf("%w: %w", err, mcp.ErrUnavailable)
+	case err != nil:
+		return mcp.ProposeKnowledgeOutput{}, err
+	}
+	return mcp.ProposeKnowledgeOutput{Proposal: res.Proposal.Ref(), Status: res.Proposal.Status, Number: res.Number, URL: res.URL}, nil
 }
 
 // DeleteNote implements mcp.ToolService.

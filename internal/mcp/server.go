@@ -219,6 +219,15 @@ func registerTools(srv *sdk.Server, svc ToolService, logger *slog.Logger) {
 			out, err := svc.DeleteNote(ctx, by, in)
 			return result(out, "Note %s deleted.", out.Note), err
 		})
+	register(r, ToolProposeKnowledge, "Propose a change to a curated knowledge section as a human: it goes straight to a pull request. For a protected section you are recorded as approver. Agent notes change with delete_note, the policy file through a pull request of its own.",
+		fieldDocs{
+			"project": "Project name or repo.", "section": "Knowledge section, e.g. architecture.", "path": "Repo path of the entry, inside the section.",
+			"body": "The full new Markdown, without frontmatter; empty to retire.", "reason": "Why the knowledge base should change.",
+			"action": "add, edit or retire; default edit when the entry exists, else add.",
+		}, func(ctx context.Context, by domain.Actor, in ProposeKnowledgeInput) (toolResult, error) {
+			out, err := svc.ProposeKnowledge(ctx, by, in)
+			return result(out, "%s opened as pull request #%d.", out.Proposal, out.Number), err
+		})
 }
 
 // toolResult is what a tool returns to the client: a short text and the

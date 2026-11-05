@@ -8,6 +8,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/knowledge"
+	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
@@ -115,4 +116,42 @@ func TestSearchKnowledgeWrapsAHostileTitle(t *testing.T) {
 	if strings.Contains(strings.Replace(r.Title, hostile, "", 1), hostile) || !strings.Contains(r.Title, hostile) {
 		t.Errorf("title = %q", r.Title)
 	}
+}
+
+func proposalService(f *fixture) *tools.Service {
+	svc := &proposals.Service{Store: f.st, GitHub: f.tracker, Gates: f.gates, Now: f.clock.Now, Policy: func(context.Context, domain.Project) (knowledge.Policy, error) {
+		return knowledge.DefaultPolicy(nil, nil), nil
+	}}
+	return tools.New(tools.Config{Store: f.st, Proposals: svc})
+}
+
+func TestProposeKnowledge(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	must(t, f.tracker.SetHeadOfBranch("acme/app", "main", "head1"))
+	svc := proposalService(f)
+	out, err := svc.ProposeKnowledge(ctx, f.by, mcp.ProposeKnowledgeInput{Project: "app", Section: "vision", Path: "knowledge/vision/why.md", Body: "# Why\n", Reason: "We decided."})
+	must(t, err)
+	if out.Number == 0 || out.URL == "" || out.Status != domain.KnowledgeOpen || !strings.HasPrefix(out.Proposal, "KB-") {
+		t.Fatalf("out = %+v", out)
+	}
+	audits, _ := f.st.Audit().List(ctx, f.account.ID, store.AuditFilter{})
+	approved := false
+	for _, a := range audits {
+		approved = approved || (a.Action == "knowledge.proposal_approved" && a.Actor == f.by.String())
+	}
+	if !approved {
+		t.Errorf("the caller is not the recorded approver: %+v", audits)
+	}
+	_, err = svc.ProposeKnowledge(ctx, f.by, mcp.ProposeKnowledgeInput{Project: "app", Section: "generated", Path: "x", Body: "b", Reason: "r"})
+	wantErr(t, err, mcp.ErrInvalidInput)
+	_, err = svc.ProposeKnowledge(ctx, f.by, mcp.ProposeKnowledgeInput{Project: "nope", Section: "vision", Path: "x", Body: "b", Reason: "r"})
+	wantErr(t, err, mcp.ErrNotFound)
+	_, err = f.svc.ProposeKnowledge(ctx, f.by, mcp.ProposeKnowledgeInput{Project: "app"})
+	wantErr(t, err, mcp.ErrUnavailable)
+	unknown := tools.New(tools.Config{Store: f.st, Proposals: &proposals.Service{Store: f.st, Policy: func(context.Context, domain.Project) (knowledge.Policy, error) {
+		return knowledge.Policy{}, knowledge.ErrPolicyUnknown
+	}}})
+	_, err = unknown.ProposeKnowledge(ctx, f.by, mcp.ProposeKnowledgeInput{Project: "app", Section: "vision", Path: "x", Body: "b", Reason: "r"})
+	wantErr(t, err, mcp.ErrUnavailable)
 }

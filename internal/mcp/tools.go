@@ -76,6 +76,7 @@ const (
 	ToolListDecisions      = "list_decisions"
 	ToolSearchKnowledge    = "search_knowledge"
 	ToolDeleteNote         = "delete_note"
+	ToolProposeKnowledge   = "propose_knowledge"
 	ToolStartCouncil       = "start_council"
 	ToolGetCouncil         = "get_council"
 	ToolAddConstraint      = "add_council_constraint"
@@ -89,7 +90,7 @@ func Tools() []string {
 		ToolApprove, ToolRequestChanges, ToolReject, ToolDispatchJob, ToolListProjects, ToolGetProject,
 		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob, ToolListTokens, ToolRevokeToken, ToolListArtifacts, ToolListTestRuns,
 		ToolListAssumptions, ToolResolveAssumption, ToolListDecisions,
-		ToolSearchKnowledge, ToolDeleteNote,
+		ToolSearchKnowledge, ToolDeleteNote, ToolProposeKnowledge,
 		ToolStartCouncil, ToolGetCouncil, ToolAddConstraint,
 		ToolVerificationReport,
 	}
@@ -154,6 +155,9 @@ type ToolService interface {
 	// DeleteNote deletes an agent note. Curated entries are not notes: they
 	// change through their provider.
 	DeleteNote(ctx context.Context, by domain.Actor, in DeleteNoteInput) (DeleteNoteOutput, error)
+	// ProposeKnowledge sends a human's change to a curated section straight
+	// to a PR. For a protected section the caller is recorded as approver.
+	ProposeKnowledge(ctx context.Context, by domain.Actor, in ProposeKnowledgeInput) (ProposeKnowledgeOutput, error)
 	// StartCouncil starts a council of its own, tied to no goal.
 	StartCouncil(ctx context.Context, by domain.Actor, in StartCouncilInput) (CouncilInfo, error)
 	// GetCouncil shows a council with its contributions, gate and decision.
@@ -191,6 +195,26 @@ type DeleteNoteInput struct {
 type DeleteNoteOutput struct {
 	Note    uuid.UUID `json:"note"`
 	Message string    `json:"message"`
+}
+
+// ProposeKnowledgeInput is the input of propose_knowledge.
+type ProposeKnowledgeInput struct {
+	Project string `json:"project"`
+	Section string `json:"section"`
+	Path    string `json:"path"`
+	Body    string `json:"body"` // the full new Markdown, without frontmatter; empty to retire
+	Reason  string `json:"reason"`
+	// Action is add, edit or retire; empty is edit when the entry exists,
+	// else add.
+	Action domain.KnowledgeAction `json:"action,omitempty"`
+}
+
+// ProposeKnowledgeOutput is the output of propose_knowledge.
+type ProposeKnowledgeOutput struct {
+	Proposal string                         `json:"proposal"` // KB-n
+	Status   domain.KnowledgeProposalStatus `json:"status"`
+	Number   int                            `json:"number"` // the pull request
+	URL      string                         `json:"url"`
 }
 
 // OnboardProjectInput is the input of onboard_project.

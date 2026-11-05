@@ -149,6 +149,8 @@ func TestEndpoints(t *testing.T) {
 		{"GET", "/api/v1/knowledge?project=app&q=queue&section=architecture&kind=note&provider=repo&limit=3", "", 200, mcp.ToolSearchKnowledge,
 			mcp.SearchKnowledgeInput{Project: "app", Query: "queue", Section: "architecture", Kind: "note", Provider: "repo", Limit: 3}},
 		{"DELETE", "/api/v1/knowledge/notes/4bf2c2f4-0000-7000-8000-000000000001", "", 200, mcp.ToolDeleteNote, mcp.DeleteNoteInput{Note: "4bf2c2f4-0000-7000-8000-000000000001"}},
+		{"POST", "/api/v1/knowledge/proposals", `{"project": "app", "section": "lessons", "path": "a.md", "body": "b", "reason": "r", "action": "add"}`, 201, mcp.ToolProposeKnowledge,
+			mcp.ProposeKnowledgeInput{Project: "app", Section: "lessons", Path: "a.md", Body: "b", Reason: "r", Action: domain.KnowledgeAdd}},
 		{"POST", "/api/v1/tokens/old-laptop/revoke", "", 200, mcp.ToolRevokeToken, mcp.RevokeTokenInput{Token: "old-laptop"}},
 		{"GET", "/api/v1/assumptions?project=app&goal=GOAL-1&task=TASK-2&status=unverified&impact=high&verify_by=test", "", 200, mcp.ToolListAssumptions,
 			mcp.ListAssumptionsInput{Project: "app", Goal: "GOAL-1", Task: "TASK-2", Status: "unverified", Impact: "high", VerifyBy: "test"}},

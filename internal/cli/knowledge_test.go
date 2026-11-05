@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -52,5 +54,34 @@ func TestKnowledgeDeleteNote(t *testing.T) {
 	}
 	if _, errOut, code := e.run(t, "knowledge", "delete-note", "gone"); code != 1 || !strings.Contains(errOut, "not found") {
 		t.Errorf("code %d, stderr %q", code, errOut)
+	}
+}
+
+func TestKnowledgePropose(t *testing.T) {
+	e := newRemoteEnv(t)
+	e.svc.ProposeKnowledgeFunc = func(context.Context, domain.Actor, mcp.ProposeKnowledgeInput) (mcp.ProposeKnowledgeOutput, error) {
+		return mcp.ProposeKnowledgeOutput{Proposal: "KB-5", Status: domain.KnowledgeOpen, Number: 12, URL: "https://github.com/acme/app/pull/12"}, nil
+	}
+	file := filepath.Join(t.TempDir(), "body.md")
+	if err := os.WriteFile(file, []byte("# Why\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut, code := e.run(t, "knowledge", "propose", "app", "vision", "knowledge/vision/why.md", "--body-file", file, "--reason", "We decided.")
+	if code != 0 || !strings.Contains(out, "KB-5: https://github.com/acme/app/pull/12") {
+		t.Fatalf("code %d, out %q, stderr %q", code, out, errOut)
+	}
+	calls := e.svc.Calls()
+	want := mcp.ProposeKnowledgeInput{Project: "app", Section: "vision", Path: "knowledge/vision/why.md", Body: "# Why\n", Reason: "We decided."}
+	if len(calls) != 1 || calls[0].Tool != mcp.ToolProposeKnowledge || fmt.Sprint(calls[0].Input) != fmt.Sprint(want) {
+		t.Errorf("calls = %+v", calls)
+	}
+	if _, _, code := e.run(t, "knowledge", "propose", "app", "vision", "a.md", "--action", "retire", "--reason", "Old."); code != 0 {
+		t.Errorf("a retirement needs no body: code %d", code)
+	}
+	if _, errOut, code := e.run(t, "knowledge", "propose", "app", "vision", "a.md"); code == 0 || !strings.Contains(errOut, "reason") {
+		t.Errorf("without a reason: code %d, stderr %q", code, errOut)
+	}
+	if _, _, code := e.run(t, "knowledge", "propose", "app", "vision", "a.md", "--reason", "r", "--body-file", "/nonexistent/x"); code == 0 {
+		t.Error("a missing body file must fail")
 	}
 }

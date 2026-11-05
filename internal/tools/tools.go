@@ -20,6 +20,7 @@ import (
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/knowledge"
+	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
@@ -82,7 +83,9 @@ type Config struct {
 	// unavailable.
 	Search *knowledge.Search
 	Notes  *knowledge.Notes
-	Logger *slog.Logger // defaults to discarding
+	// Proposals serves propose_knowledge; nil answers unavailable.
+	Proposals *proposals.Service
+	Logger    *slog.Logger // defaults to discarding
 }
 
 // Service is the mcp.ToolService.
