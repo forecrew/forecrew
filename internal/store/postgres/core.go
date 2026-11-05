@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 	"uuid"
 
@@ -337,7 +339,15 @@ func (r taskRepo) List(ctx context.Context, accountID uuid.UUID, f store.TaskFil
 	andNot(w, "goal_id = ?", f.GoalID)
 	andNot(w, "spec_id = ?", f.SpecID)
 	andNot(w, "status = ?", string(f.Status))
-	return many(ctx, r.db, scanTask, `SELECT `+taskCols+` FROM tasks`+w.sql("seq, number", f.Limit), w.args...)
+	order := "seq, number"
+	if strings.TrimSpace(f.Text) != "" {
+		w.args = append(w.args, f.Text)
+		doc := "to_tsvector('english', title || ' ' || body)"
+		tsq := "websearch_to_tsquery('english', $" + strconv.Itoa(len(w.args)) + ")"
+		w.conds = append(w.conds, doc+" @@ "+tsq)
+		order = "ts_rank(" + doc + ", " + tsq + ", 32) DESC, number DESC"
+	}
+	return many(ctx, r.db, scanTask, `SELECT `+taskCols+` FROM tasks`+w.sql(order, f.Limit), w.args...)
 }
 
 func (r taskRepo) Update(ctx context.Context, t *domain.Task) error {

@@ -146,10 +146,14 @@ type TaskFilter struct {
 	GoalID    uuid.UUID
 	SpecID    uuid.UUID
 	Status    domain.TaskStatus
-	Limit     int
+	// Text is a full-text query (websearch_to_tsquery syntax) over the title
+	// and body: only tasks that match are listed, best first.
+	Text  string
+	Limit int
 }
 
-// TaskRepo stores tasks. List returns tasks ordered by Seq, then number.
+// TaskRepo stores tasks. List returns tasks ordered by Seq, then number, or
+// by relevance for a filter with Text.
 type TaskRepo interface {
 	Create(ctx context.Context, t *domain.Task) error
 	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Task, error)
@@ -188,6 +192,7 @@ type JobFilter struct {
 	GoalID    uuid.UUID
 	TaskID    uuid.UUID
 	WorkerID  uuid.UUID
+	Role      string
 	Status    domain.JobStatus
 	Limit     int
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"regexp"
 	"slices"
 	"strings"
@@ -60,9 +59,6 @@ const (
 	maxAreas       = 20
 	// excerpt is how much of a task or decision text a pack shows, in runes.
 	excerpt = 600
-	// minSharedWords is how many words a past task shares with the current
-	// one to be called similar.
-	minSharedWords = 2
 )
 
 // testEngineerRole is the role pointed at the assumptions to verify by test.
@@ -299,45 +295,30 @@ func (s packSource) notes(ctx context.Context) (Section, error) {
 	return sec, nil
 }
 
-// similarTasks returns the merged tasks of the project closest to the job's
-// text, with their PR and review outcome. The closeness is the share of
-// distinctive words the two texts have in common: tasks have no search
-// index of their own.
+// similarTasks returns the merged tasks of the project that best match the
+// job's text, with their PR and review outcome: a full-text search of the
+// store for any of its distinctive words, five results.
 func (s packSource) similarTasks(ctx context.Context) (Section, error) {
-	want := wordSet(s.topic)
-	if len(want) == 0 {
+	query := orQuery(s.topic, 10)
+	if query == "" {
 		return Section{}, nil
 	}
-	merged, err := s.b.store.Tasks().List(ctx, s.project.AccountID, store.TaskFilter{ProjectID: s.project.ID, Status: domain.TaskMerged})
+	limit := maxSimilar
+	if s.task != nil {
+		limit++ // the task itself matches its own words
+	}
+	found, err := s.b.store.Tasks().List(ctx, s.project.AccountID, store.TaskFilter{
+		ProjectID: s.project.ID, Status: domain.TaskMerged, Text: query, Limit: limit,
+	})
 	if err != nil {
-		return Section{}, fmt.Errorf("list merged tasks: %w", err)
+		return Section{}, fmt.Errorf("search merged tasks: %w", err)
 	}
-	type scored struct {
-		task  domain.Task
-		score float64
-	}
-	var best []scored
-	for _, t := range merged {
-		if s.task != nil && t.ID == s.task.ID {
+	var sec Section
+	for _, t := range found {
+		if (s.task != nil && t.ID == s.task.ID) || len(sec.Items) == maxSimilar {
 			continue
 		}
-		have := wordSet(t.Title + " " + t.Body)
-		shared := 0
-		for w := range want {
-			if _, ok := have[w]; ok {
-				shared++
-			}
-		}
-		if shared >= minSharedWords {
-			best = append(best, scored{t, float64(shared) / math.Sqrt(float64(len(want)*len(have)))})
-		}
-	}
-	slices.SortFunc(best, func(a, b scored) int {
-		return cmp.Or(cmp.Compare(b.score, a.score), cmp.Compare(b.task.Number, a.task.Number))
-	})
-	var sec Section
-	for _, c := range best[:min(len(best), maxSimilar)] {
-		it, err := s.similarItem(ctx, c.task)
+		it, err := s.similarItem(ctx, t)
 		if err != nil {
 			return Section{}, err
 		}
@@ -428,7 +409,7 @@ func (s packSource) relatedFiles(ctx context.Context) (Section, error) {
 
 // areas returns the areas of the goal's latest finished triage.
 func (s packSource) areas(ctx context.Context) ([]string, error) {
-	jobs, err := s.b.store.Jobs().List(ctx, s.project.AccountID, store.JobFilter{ProjectID: s.project.ID, GoalID: s.goal.ID, Status: domain.JobSucceeded, Limit: 100})
+	jobs, err := s.b.store.Jobs().List(ctx, s.project.AccountID, store.JobFilter{ProjectID: s.project.ID, GoalID: s.goal.ID, Role: "triage", Status: domain.JobSucceeded, Limit: 5})
 	if err != nil {
 		return nil, fmt.Errorf("list the jobs of %s: %w", s.goal.Ref(), err)
 	}
@@ -436,7 +417,7 @@ func (s packSource) areas(ctx context.Context) ([]string, error) {
 		var out struct {
 			Areas []string `json:"areas"`
 		}
-		if j.Role != "triage" || json.Unmarshal(j.Output, &out) != nil {
+		if json.Unmarshal(j.Output, &out) != nil {
 			continue
 		}
 		var areas []string
@@ -467,16 +448,6 @@ func init() {
 		"acceptance add adds added about after before because being between both does done more most other over same very while would") {
 		stopWords[w] = true
 	}
-}
-
-// wordSet returns the distinctive words of text: lower case letters and
-// digits, at least four long, not common ones.
-func wordSet(text string) map[string]struct{} {
-	set := map[string]struct{}{}
-	for _, w := range words(text) {
-		set[w] = struct{}{}
-	}
-	return set
 }
 
 func words(text string) []string {
