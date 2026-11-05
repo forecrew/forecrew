@@ -1,6 +1,7 @@
 role: security-reviewer
 model: strong
 prompt: roles/security-reviewer.md
+toolbox: security
 tools: [repo.read, git.read, run.tests, assumption.record, kb.search, kb.propose, request_access]
 write_paths: []
 produces: [council-contribution, threat-notes]

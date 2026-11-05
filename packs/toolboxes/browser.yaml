@@ -1,0 +1,10 @@
+name: browser
+dockerfile: browser/Dockerfile
+clis:
+  - {name: playwright-mcp, version: playwright-mcp --version}
+# Chromium's sandbox needs privileges the container does not have (no
+# capabilities, no user namespaces); the container is the sandbox.
+mcp_servers:
+  - name: playwright
+    command: playwright-mcp
+    args: [--headless, --no-sandbox, --isolated, --browser, chromium]
