@@ -103,7 +103,7 @@ structs in `internal/domain` and `internal/mcp`.
 | `GET /api/v1/teams/{team}/members` | `list_team_members` | | `200` members: `user_id`, `source`, `created_at` |
 | `POST /api/v1/teams/{team}/members` | `add_team_member` | `{"user": "uuid"}` | `201` member; `404` when the user is not a member of the organization |
 | `DELETE /api/v1/teams/{team}/members/{user}` | `remove_team_member` | | `200` member |
-| `GET /api/v1/role-bindings?project=&subject_kind=&subject=` | `list_role_bindings` | all optional; `subject` needs `subject_kind` | `200` bindings with `id`, `subject_kind`, `subject_id`, `role`, `role_scope`, `project` |
+| `GET /api/v1/role-bindings?project=&subject_kind=&subject=` | `list_role_bindings` | all optional; `subject` needs `subject_kind` | `200` bindings with `id`, `subject_kind`, `subject_id`, `role`, `role_scope`, `project`, without those on projects you cannot read |
 | `POST /api/v1/role-bindings` | `create_role_binding` | `{"subject_kind", "subject", "role", "project"}`; `subject_kind` is `user`, `team` or `service_account`, `subject` a user UUID, a team slug or a service account name (or their UUIDs); without `project` the role applies to the organization | `201` binding; `409` when it exists |
 | `DELETE /api/v1/role-bindings/{binding}` | `delete_role_binding` | | `200` the binding; `409` for the last Owner |
 | `GET /api/v1/service-accounts` | `list_service_accounts` | | `200` service accounts |

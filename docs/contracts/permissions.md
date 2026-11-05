@@ -269,7 +269,7 @@ object up and checks the permission on the object's project.
 | `list_team_members` | `GET /api/v1/teams/{team}/members` | `org.read` |
 | `add_team_member` | `POST /api/v1/teams/{team}/members` | `team.manage`, No escalation |
 | `remove_team_member` | `DELETE /api/v1/teams/{team}/members/{user}` | `team.manage` |
-| `list_role_bindings` | `GET /api/v1/role-bindings` | `org.read`; with a project, `project.read` on it |
+| `list_role_bindings` | `GET /api/v1/role-bindings` | `org.read`; with a project, `project.read` on it. Bindings on projects where the caller lacks `project.read` are left out |
 | `create_role_binding` | `POST /api/v1/role-bindings` | by its subject and scope, No escalation |
 | `delete_role_binding` | `DELETE /api/v1/role-bindings/{binding}` | by its subject and scope, No escalation |
 | `list_service_accounts` | `GET /api/v1/service-accounts` | `org.read` |

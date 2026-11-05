@@ -348,10 +348,19 @@ func (s *Service) ListRoleBindings(ctx context.Context, by domain.Actor, in mcp.
 			return nil, err
 		}
 	}
+	visible, err := s.authz.Projects(ctx, by, domain.PermProjectRead)
+	if err != nil {
+		return nil, err
+	}
 	bindings, err := s.cfg.Store.RoleBindings().List(ctx, by.AccountID, f)
 	if err != nil {
 		return nil, err
 	}
+	// org.read shows who holds what on the organization; a project stays
+	// hidden from who cannot read it, as in list_projects.
+	bindings = slices.DeleteFunc(bindings, func(b domain.RoleBinding) bool {
+		return b.ProjectID != uuid.Nil() && !visible.Has(b.ProjectID)
+	})
 	roles, err := s.cfg.Store.Roles().List(ctx, by.AccountID)
 	if err != nil {
 		return nil, err
