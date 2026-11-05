@@ -4,6 +4,7 @@ package postgres
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"uuid"
 
@@ -110,4 +111,49 @@ func TestTestRunFailures(t *testing.T) {
 	if fails, _ := repo.Failures(ctx, domain.NewID(), run.ID, 0); len(fails) != 0 {
 		t.Fatalf("foreign Failures = %+v", fails)
 	}
+}
+
+func TestVerificationReports(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.VerificationReports()
+	change := domain.Change{AccountID: f.account, ProjectID: f.project.ID, Repo: "acme/forecrew", Number: 4, Branch: "b", BaseRef: "main", HeadSHA: "abc123", State: domain.ChangeOpen, URL: "u"}
+	must(t, f.st.Changes().Upsert(ctx, &change))
+	art := domain.Artifact{AccountID: f.account, ProjectID: f.project.ID, Name: "verification/abc123.md", ContentType: "text/markdown", Size: 1,
+		SHA256: strings.Repeat("a", 64), StorageKey: "verification-" + domain.NewID().String()}
+	must(t, f.st.Artifacts().Put(ctx, &art))
+
+	r := domain.VerificationReport{AccountID: f.account, ProjectID: f.project.ID, ChangeID: change.ID, SHA: "abc123",
+		Status: domain.VerificationIncomplete, Report: []byte(`{"version": 1}`), ArtifactID: art.ID}
+	must(t, repo.Upsert(ctx, &r))
+	if r.ID == uuid.Nil() || r.CreatedAt.IsZero() || r.UpdatedAt.IsZero() {
+		t.Fatalf("Upsert did not fill %+v", r)
+	}
+	again := domain.VerificationReport{AccountID: f.account, ProjectID: f.project.ID, ChangeID: change.ID, SHA: "abc123",
+		Status: domain.VerificationPassed, Report: []byte(`{"version": 2}`)}
+	must(t, repo.Upsert(ctx, &again))
+	if again.ID != r.ID || !again.CreatedAt.Equal(r.CreatedAt) || !again.UpdatedAt.After(r.UpdatedAt) {
+		t.Fatalf("rebuild = %+v, first %+v", again, r)
+	}
+	got, err := repo.Get(ctx, f.account, r.ID)
+	if err != nil || got.Status != domain.VerificationPassed || got.ArtifactID != uuid.Nil() || !strings.Contains(string(got.Report), "2") {
+		t.Fatalf("Get = %+v, %v", got, err)
+	}
+	next := domain.VerificationReport{AccountID: f.account, ProjectID: f.project.ID, ChangeID: change.ID, SHA: "def456", Status: domain.VerificationFailed, Report: []byte(`{}`)}
+	must(t, repo.Upsert(ctx, &next))
+	if got, err := repo.GetBySHA(ctx, f.account, change.ID, "abc123"); err != nil || got.ID != r.ID {
+		t.Fatalf("GetBySHA = %+v, %v", got, err)
+	}
+	if got, err := repo.Latest(ctx, f.account, change.ID); err != nil || got.ID != next.ID {
+		t.Fatalf("Latest = %+v, %v", got, err)
+	}
+	_, err = repo.GetBySHA(ctx, f.account, change.ID, "zzz")
+	wantErr(t, err, store.ErrNotFound)
+	_, err = repo.Latest(ctx, f.account, domain.NewID())
+	wantErr(t, err, store.ErrNotFound)
+	_, err = repo.Get(ctx, domain.NewID(), r.ID)
+	wantErr(t, err, store.ErrNotFound)
+	bad := next
+	bad.ID, bad.ChangeID = uuid.Nil(), domain.NewID()
+	wantErr(t, repo.Upsert(ctx, &bad), store.ErrNotFound)
 }

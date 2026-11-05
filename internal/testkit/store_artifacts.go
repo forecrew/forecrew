@@ -84,11 +84,16 @@ func (r artifactRepo) ListOlderThan(_ context.Context, accountID uuid.UUID, t ti
 }
 
 func (r artifactRepo) Delete(_ context.Context, accountID, id uuid.UUID) error {
-	return r.s.do(func(d *storeData, _ time.Time) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
 		if _, err := d.artifacts.get(accountID, id); err != nil {
 			return err
 		}
 		d.artifacts.rows = slices.DeleteFunc(d.artifacts.rows, func(a domain.Artifact) bool { return a.AccountID == accountID && a.ID == id })
+		for i := range d.verifications.rows {
+			if v := &d.verifications.rows[i]; v.AccountID == accountID && v.ArtifactID == id {
+				v.ArtifactID, v.UpdatedAt = uuid.Nil(), now
+			}
+		}
 		return nil
 	})
 }

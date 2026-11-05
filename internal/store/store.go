@@ -66,6 +66,7 @@ type Store interface {
 	Audit() AuditRepo
 	Artifacts() ArtifactRepo
 	TestRuns() TestRunRepo
+	VerificationReports() VerificationReportRepo
 	Assumptions() AssumptionRepo
 	Decisions() DecisionRepo
 	Knowledge() KnowledgeRepo
@@ -395,10 +396,8 @@ type ArtifactRepo interface {
 }
 
 // The repositories below belong to the testing system
-// (docs/contracts/data-model.md). TestRunRepo is in Store; the others are
-// contracts only: the tasks that first use them add them to Store, with the
-// Postgres implementation and the testkit fake (VerificationReportRepo with
-// verification reports).
+// (docs/contracts/data-model.md); TestRunRepo and VerificationReportRepo are
+// in Store.
 
 // TestRunFilter selects test runs; zero fields match everything.
 type TestRunFilter struct {

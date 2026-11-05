@@ -967,7 +967,7 @@ func TestStoreAssumptionRaiseImpactAndLock(t *testing.T) {
 	g := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Title: "Ship", CreatedBy: "user:me"}
 	must(t, f.st.Goals().Create(ctx, &g))
 	a := domain.Assumption{AccountID: f.account, ProjectID: f.project.ID, GoalID: g.ID, MadeBy: "architect",
-		StatedAssumption: domain.StatedAssumption{Statement: "s", Confidence: domain.LevelLow, Impact: domain.LevelHigh, VerifyBy: domain.VerifyByTest}}
+		Statement: "s", Confidence: domain.LevelLow, Impact: domain.LevelHigh, VerifyBy: domain.VerifyByTest}
 	must(t, repo.Create(ctx, &a))
 	lo := a
 	lo.ID, lo.Impact = uuid.Nil(), domain.LevelLow
@@ -1110,4 +1110,54 @@ func TestStoreCouncilContributions(t *testing.T) {
 		t.Fatalf("critiques = %+v", got)
 	}
 	wantErr(t, repo.SetEvidenceCheck(ctx, f.account, domain.NewID(), nil), store.ErrNotFound)
+}
+
+func TestStoreVerificationReports(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	repo := f.st.VerificationReports()
+	change := domain.Change{AccountID: f.account, ProjectID: f.project.ID, Repo: "acme/app", Number: 3, HeadSHA: "abc123", State: domain.ChangeOpen}
+	must(t, f.st.Changes().Upsert(ctx, &change))
+	art := domain.Artifact{AccountID: f.account, ProjectID: f.project.ID, Name: "verification/abc123.md", ContentType: "text/markdown", StorageKey: "k1"}
+	must(t, f.st.Artifacts().Put(ctx, &art))
+
+	r := domain.VerificationReport{AccountID: f.account, ProjectID: f.project.ID, ChangeID: change.ID, SHA: "abc123",
+		Status: domain.VerificationIncomplete, Report: []byte(`{"version":1}`), ArtifactID: art.ID}
+	must(t, repo.Upsert(ctx, &r))
+	if r.ID == uuid.Nil() || r.CreatedAt.IsZero() || !r.UpdatedAt.Equal(r.CreatedAt) {
+		t.Fatalf("Upsert did not fill %+v", r)
+	}
+	f.clock.Advance(time.Minute)
+	again := domain.VerificationReport{AccountID: f.account, ProjectID: f.project.ID, ChangeID: change.ID, SHA: "abc123",
+		Status: domain.VerificationPassed, Report: []byte(`{"version":1,"x":1}`)}
+	must(t, repo.Upsert(ctx, &again))
+	if again.ID != r.ID || !again.CreatedAt.Equal(r.CreatedAt) || !again.UpdatedAt.After(r.UpdatedAt) {
+		t.Fatalf("rebuild = %+v, first %+v", again, r)
+	}
+	got, err := repo.Get(ctx, f.account, r.ID)
+	if err != nil || got.Status != domain.VerificationPassed || string(got.Report) != `{"version":1,"x":1}` || got.ArtifactID != uuid.Nil() {
+		t.Fatalf("Get = %+v, %v", got, err)
+	}
+	other := domain.VerificationReport{AccountID: f.account, ProjectID: f.project.ID, ChangeID: change.ID, SHA: "def456",
+		Status: domain.VerificationFailed, Report: []byte(`{}`), ArtifactID: art.ID}
+	f.clock.Advance(time.Minute)
+	must(t, repo.Upsert(ctx, &other))
+	if got, err := repo.GetBySHA(ctx, f.account, change.ID, "abc123"); err != nil || got.ID != r.ID {
+		t.Fatalf("GetBySHA = %+v, %v", got, err)
+	}
+	if got, err := repo.Latest(ctx, f.account, change.ID); err != nil || got.ID != other.ID {
+		t.Fatalf("Latest = %+v, %v", got, err)
+	}
+	_, err = repo.GetBySHA(ctx, f.account, change.ID, "zzz")
+	wantErr(t, err, store.ErrNotFound)
+	_, err = repo.Latest(ctx, f.account, domain.NewID())
+	wantErr(t, err, store.ErrNotFound)
+	_, err = repo.Get(ctx, domain.NewID(), r.ID)
+	wantErr(t, err, store.ErrNotFound)
+
+	// Deleting the artifact keeps the report and drops the link.
+	must(t, f.st.Artifacts().Delete(ctx, f.account, art.ID))
+	if got, err := repo.Get(ctx, f.account, other.ID); err != nil || got.ArtifactID != uuid.Nil() || got.Status != domain.VerificationFailed {
+		t.Fatalf("after delete = %+v, %v", got, err)
+	}
 }
