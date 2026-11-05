@@ -31,6 +31,9 @@ func (s *Service) VerificationReport(ctx context.Context, by domain.Actor, in mc
 	if err != nil {
 		return mcp.VerificationInfo{}, err
 	}
+	if err := s.allow(ctx, by, domain.PermJobRead, c.ProjectID); err != nil {
+		return mcp.VerificationInfo{}, err
+	}
 	repo := s.cfg.Store.VerificationReports()
 	current := true
 	r, err := repo.GetBySHA(ctx, by.AccountID, c.ID, strings.ToLower(c.HeadSHA))
