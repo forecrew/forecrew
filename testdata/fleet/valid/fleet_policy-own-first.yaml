@@ -1,0 +1,7 @@
+routing: own_first
+allowed_shapes: [linux-small, forecrew-linux-medium]
+quotas:
+  concurrent_machines: 5
+  monthly_minutes: 10000
+  monthly_budget: 200
+egress: [registry.example.com]

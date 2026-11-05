@@ -1,0 +1,12 @@
+name: linux-small
+provider: home-server
+os: linux
+arch: amd64
+cpu: 2
+memory_mb: 4096
+disk_gb: 20
+image: forecrew-linux
+labels: [go, node, docker, "runtime:claude-code"]
+warm_min: 1
+max: 4
+idle_seconds: 120

@@ -1,0 +1,495 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/forecrew/forecrew/docs/contracts/fleet.schema.json",
+  "title": "Fleet resources",
+  "description": "Shapes, providers, the fleet policy, images and job resources (docs/contracts/fleet.md). These are the specs of the Shape, Provider and FleetPolicy resources and of an image manifest; a shape names its provider and image by name. Not a document schema itself: use the $defs. domain's Validate methods add the rules a schema cannot express.",
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Label, normalized like jobs.needs."
+    },
+    "amount": {
+      "type": "number",
+      "minimum": 0
+    },
+    "secret_ref": {
+      "type": "string",
+      "pattern": "^(env:[A-Z_][A-Z0-9_]{0,127}|secret:[a-z0-9][a-z0-9._/-]{0,127})$",
+      "description": "A reference to a secret, never its value."
+    },
+    "os": {
+      "enum": [
+        "linux",
+        "windows",
+        "macos"
+      ]
+    },
+    "arch": {
+      "enum": [
+        "amd64",
+        "arm64"
+      ]
+    },
+    "image_format": {
+      "enum": [
+        "rootfs",
+        "qcow2",
+        "vhdx",
+        "ami",
+        "tart"
+      ]
+    },
+    "provider_kind": {
+      "enum": [
+        "microvm",
+        "proxmox",
+        "hyperv",
+        "tart",
+        "aws",
+        "fake"
+      ]
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "hosts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[^\\s@]+$"
+      },
+      "description": "Hosts or CIDRs."
+    },
+    "config": {
+      "type": "object",
+      "description": "Non-secret settings of a provider. A secret-looking key holds a reference, at any depth.",
+      "patternProperties": {
+        "(?i)secret|passw(or)?d|token|credential|private[_-]?key|api[_-]?key|access[_-]?key": {
+          "$ref": "#/$defs/secret_ref"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/config_value"
+      }
+    },
+    "config_value": {
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/config_value"
+          }
+        },
+        {
+          "$ref": "#/$defs/config"
+        }
+      ]
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What a job needs of a machine.",
+      "properties": {
+        "min_cpu": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "min_memory_mb": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "min_disk_gb": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gpu": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "provider",
+        "os",
+        "arch",
+        "cpu",
+        "memory_mb",
+        "disk_gb",
+        "image"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "provider": {
+          "$ref": "#/$defs/name"
+        },
+        "os": {
+          "$ref": "#/$defs/os"
+        },
+        "arch": {
+          "$ref": "#/$defs/arch"
+        },
+        "cpu": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "memory_mb": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "disk_gb": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gpu": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pool": {
+          "$ref": "#/$defs/name",
+          "not": {
+            "const": "actions"
+          }
+        },
+        "labels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/label"
+          }
+        },
+        "provider_config": {
+          "$ref": "#/$defs/config"
+        },
+        "image": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}(@[A-Za-z0-9][A-Za-z0-9._+-]{0,63})?$",
+          "description": "Image name, or name@version to pin one."
+        },
+        "price_per_minute": {
+          "$ref": "#/$defs/amount"
+        },
+        "monthly_budget": {
+          "$ref": "#/$defs/amount"
+        },
+        "warm_min": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "idle_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "boot_timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_jobs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_machines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "monthly_budget": {
+          "$ref": "#/$defs/amount"
+        }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "kind": {
+          "$ref": "#/$defs/provider_kind"
+        },
+        "mode": {
+          "enum": [
+            "agent",
+            "direct"
+          ]
+        },
+        "limits": {
+          "$ref": "#/$defs/limits"
+        },
+        "network_allow": {
+          "$ref": "#/$defs/hosts"
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "os": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/os"
+          }
+        },
+        "arch": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/arch"
+          }
+        },
+        "max_cpu": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_memory_mb": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_disk_gb": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_gpu": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_machines": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "image_formats": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/image_format"
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "status"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "warn",
+                  "fail"
+                ]
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "host": {
+          "type": "string"
+        },
+        "cloud_account": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "agent_version": {
+          "type": "string"
+        }
+      }
+    },
+    "fleet_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "routing"
+      ],
+      "properties": {
+        "routing": {
+          "enum": [
+            "own_only",
+            "own_first",
+            "hosted"
+          ]
+        },
+        "allowed_shapes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/name"
+          }
+        },
+        "quotas": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "concurrent_machines": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "monthly_minutes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "monthly_budget": {
+              "$ref": "#/$defs/amount"
+            }
+          }
+        },
+        "egress": {
+          "$ref": "#/$defs/hosts"
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "os",
+        "arch",
+        "format",
+        "uri",
+        "digest",
+        "signature",
+        "built_at"
+      ],
+      "description": "An image manifest, as built by the image pipeline and stored in images.",
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+        },
+        "os": {
+          "$ref": "#/$defs/os"
+        },
+        "arch": {
+          "$ref": "#/$defs/arch"
+        },
+        "format": {
+          "$ref": "#/$defs/image_format"
+        },
+        "uri": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9+.-]*:[^@]+$",
+          "description": "Where to fetch it, without credentials."
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^ed25519:[A-Za-z0-9+/]{86}==$"
+        },
+        "built_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "contents": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "labels": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/label"
+              }
+            },
+            "packages": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "version"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "version": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            },
+            "kernel": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "uri",
+                "digest"
+              ],
+              "properties": {
+                "uri": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "digest": {
+                  "$ref": "#/$defs/digest"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

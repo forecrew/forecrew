@@ -1,0 +1,19 @@
+name: linux-gpu
+provider: aws-frankfurt
+os: linux
+arch: amd64
+cpu: 8
+memory_mb: 32768
+disk_gb: 100
+gpu: 1
+pool: build
+image: forecrew-linux-gpu@2026.11.1
+price_per_minute: 0.21
+monthly_budget: 500
+provider_config:
+  instance_type: g5.2xlarge
+  region: eu-central-1
+  subnet: subnet-0abc
+  spot: true
+  license_key: secret:aws-license
+note: Boots in about a minute.

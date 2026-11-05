@@ -1,0 +1,4 @@
+min_cpu: 4
+min_memory_mb: 16384
+min_disk_gb: 50
+gpu: 1

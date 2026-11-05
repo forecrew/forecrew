@@ -1,0 +1,9 @@
+name: forecrew-linux
+version: 2026.11.1
+os: linux
+arch: arm64
+format: ami
+uri: ami:eu-central-1/ami-0123456789
+digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+signature: ed25519:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==
+built_at: 2026-11-01T10:00:00Z

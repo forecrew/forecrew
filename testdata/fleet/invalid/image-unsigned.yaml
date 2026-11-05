@@ -1,0 +1,9 @@
+name: forecrew-linux
+version: "1"
+os: linux
+arch: amd64
+format: qcow2
+uri: https://images.example.com/a.qcow2
+digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+signature: ""
+built_at: 2026-11-01T10:00:00Z

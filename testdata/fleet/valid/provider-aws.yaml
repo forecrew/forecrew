@@ -1,0 +1,6 @@
+name: aws-frankfurt
+kind: aws
+mode: agent
+limits:
+  max_machines: 20
+  monthly_budget: 4100

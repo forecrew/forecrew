@@ -1,0 +1,336 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/forecrew/forecrew/docs/contracts/fleet-agent-api.schema.json",
+  "title": "Fleet agent API messages",
+  "description": "Request and response bodies of docs/contracts/fleet-agent-api.md. Not a document schema itself: use the $defs. Machines' shapes and images are the records of domain.Shape and domain.Image, so they are not repeated here.",
+  "$defs": {
+    "capabilities": {
+      "type": "object",
+      "description": "domain.ProviderCapabilities; see capabilities in fleet.schema.json."
+    },
+    "join_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "claim",
+        "kind",
+        "facts"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "claim": {
+          "type": "string",
+          "minLength": 43
+        },
+        "kind": {
+          "enum": [
+            "microvm",
+            "proxmox",
+            "hyperv",
+            "tart",
+            "aws",
+            "fake"
+          ]
+        },
+        "facts": {
+          "$ref": "#/$defs/capabilities"
+        }
+      }
+    },
+    "join_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "waiting",
+            "confirmed"
+          ]
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "token": {
+          "type": "string",
+          "pattern": "^fcp_"
+        }
+      },
+      "if": {
+        "properties": {
+          "status": {
+            "const": "confirmed"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "token"
+        ]
+      },
+      "else": {
+        "required": [
+          "retry_after_seconds"
+        ],
+        "not": {
+          "required": [
+            "token"
+          ]
+        }
+      }
+    },
+    "register_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capabilities"
+      ],
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/capabilities"
+        }
+      }
+    },
+    "register_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "status",
+        "limits",
+        "tags",
+        "poll_timeout_seconds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+        },
+        "kind": {
+          "enum": [
+            "microvm",
+            "proxmox",
+            "hyperv",
+            "tart",
+            "aws",
+            "fake"
+          ]
+        },
+        "status": {
+          "enum": [
+            "active",
+            "paused"
+          ]
+        },
+        "limits": {
+          "type": "object"
+        },
+        "tags": {
+          "type": "object"
+        },
+        "poll_timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "poll_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "desired_machine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "machine_id",
+        "shape",
+        "image",
+        "tags",
+        "network_allow"
+      ],
+      "properties": {
+        "machine_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "shape": {
+          "type": "object"
+        },
+        "image": {
+          "type": "object"
+        },
+        "bootstrap": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "server_url",
+            "token"
+          ],
+          "properties": {
+            "server_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "token": {
+              "type": "string",
+              "pattern": "^fcb_"
+            }
+          }
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "network_allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "deadline": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "poll_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generation",
+        "machines"
+      ],
+      "properties": {
+        "generation": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "machines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/desired_machine"
+          }
+        }
+      }
+    },
+    "state_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "booting",
+            "destroyed",
+            "failed"
+          ]
+        },
+        "external_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "error": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "if": {
+        "properties": {
+          "state": {
+            "const": "booting"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "external_id"
+        ]
+      }
+    },
+    "instance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "external_id",
+        "running"
+      ],
+      "properties": {
+        "external_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "machine_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "running": {
+          "type": "boolean"
+        },
+        "tags": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "reconcile_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "instances"
+      ],
+      "properties": {
+        "instances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/instance"
+          }
+        }
+      }
+    },
+    "reconcile_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "destroy"
+      ],
+      "properties": {
+        "destroy": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}
