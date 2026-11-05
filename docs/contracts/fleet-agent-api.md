@@ -250,7 +250,7 @@ agent                          forecrewd
   | register (capabilities)    ->|
   | reconcile (instances)      ->|
   |<- destroy [] ----------------|
-  | poll (generation)          ->|   queue demand, a machine row
+  | poll (generation, have)    ->|   queue demand, a machine row
   |<- machines [m1 + bootstrap] -|
   | Provider.Create(m1)          |
   | state m1 booting           ->|
