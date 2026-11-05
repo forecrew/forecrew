@@ -52,6 +52,7 @@ func ToolAccess() map[string]Access {
 		ToolDeleteNote:         {Permission: domain.PermKnowledgePropose},
 		ToolProposeKnowledge:   {Permission: domain.PermKnowledgePropose},
 		ToolStartCouncil:       {Permission: domain.PermCouncilStart},
+		ToolListCouncils:       {Permission: domain.PermProjectRead},
 		ToolGetCouncil:         {Permission: domain.PermProjectRead},
 		ToolAddConstraint:      {Permission: domain.PermCouncilStart},
 		ToolVerificationReport: {Permission: domain.PermJobRead},

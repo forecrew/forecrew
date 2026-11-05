@@ -65,6 +65,29 @@ func (s *Service) StartCouncil(ctx context.Context, by domain.Actor, in mcp.Star
 	return mcp.CouncilInfo{Council: c, Ref: c.Ref()}, err
 }
 
+// MaxListedCouncils is how many councils list_councils returns.
+const MaxListedCouncils = 200
+
+// ListCouncils implements mcp.ToolService.
+func (s *Service) ListCouncils(ctx context.Context, by domain.Actor, in mcp.ListCouncilsInput) ([]mcp.CouncilInfo, error) {
+	if in.Status != "" && !slices.Contains(domain.CouncilStatuses(), in.Status) {
+		return nil, fmt.Errorf("unknown status %q: %w", in.Status, mcp.ErrInvalidInput)
+	}
+	p, err := s.project(ctx, by.AccountID, in.Project)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := s.cfg.Store.Councils().List(ctx, by.AccountID, store.CouncilFilter{ProjectID: p.ID, Status: in.Status, Limit: MaxListedCouncils})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcp.CouncilInfo, len(cs))
+	for i, c := range cs {
+		out[i] = mcp.CouncilInfo{Council: c, Ref: c.Ref()}
+	}
+	return out, nil
+}
+
 // GetCouncil implements mcp.ToolService.
 func (s *Service) GetCouncil(ctx context.Context, by domain.Actor, in mcp.CouncilRefInput) (mcp.CouncilDetail, error) {
 	c, err := s.council(ctx, by.AccountID, in.Council)

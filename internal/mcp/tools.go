@@ -78,6 +78,7 @@ const (
 	ToolDeleteNote         = "delete_note"
 	ToolProposeKnowledge   = "propose_knowledge"
 	ToolStartCouncil       = "start_council"
+	ToolListCouncils       = "list_councils"
 	ToolGetCouncil         = "get_council"
 	ToolAddConstraint      = "add_council_constraint"
 	ToolVerificationReport = "verification_report"
@@ -91,7 +92,7 @@ func Tools() []string {
 		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob, ToolListTokens, ToolRevokeToken, ToolListArtifacts, ToolListTestRuns,
 		ToolListAssumptions, ToolResolveAssumption, ToolListDecisions,
 		ToolSearchKnowledge, ToolDeleteNote, ToolProposeKnowledge,
-		ToolStartCouncil, ToolGetCouncil, ToolAddConstraint,
+		ToolStartCouncil, ToolListCouncils, ToolGetCouncil, ToolAddConstraint,
 		ToolVerificationReport,
 	}
 }
@@ -160,6 +161,8 @@ type ToolService interface {
 	ProposeKnowledge(ctx context.Context, by domain.Actor, in ProposeKnowledgeInput) (ProposeKnowledgeOutput, error)
 	// StartCouncil starts a council of its own, tied to no goal.
 	StartCouncil(ctx context.Context, by domain.Actor, in StartCouncilInput) (CouncilInfo, error)
+	// ListCouncils lists the councils of a project, newest first.
+	ListCouncils(ctx context.Context, by domain.Actor, in ListCouncilsInput) ([]CouncilInfo, error)
 	// GetCouncil shows a council with its contributions, gate and decision.
 	GetCouncil(ctx context.Context, by domain.Actor, in CouncilRefInput) (CouncilDetail, error)
 	// AddCouncilConstraint adds a constraint to a running council; the next
@@ -255,6 +258,12 @@ type StartCouncilInput struct {
 	// always sits.
 	Roles       []string `json:"roles,omitempty"`
 	Constraints []string `json:"constraints,omitempty"`
+}
+
+// ListCouncilsInput is the input of list_councils.
+type ListCouncilsInput struct {
+	Project string               `json:"project"`          // name or repo, required
+	Status  domain.CouncilStatus `json:"status,omitempty"` // running, decided, failed or canceled
 }
 
 // CouncilRefInput is the input of get_council.

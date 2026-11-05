@@ -184,6 +184,17 @@ func TestCouncilCommands(t *testing.T) {
 		t.Fatalf("input = %+v", in)
 	}
 
+	e.svc.ListCouncilsFunc = func(context.Context, domain.Actor, mcp.ListCouncilsInput) ([]mcp.CouncilInfo, error) {
+		return []mcp.CouncilInfo{{Ref: "COUNCIL-2", Kind: domain.CouncilAdhoc, Status: domain.CouncilRunning, Question: "Which\x1b[31m queue?"}}, nil
+	}
+	out, errOut, code = e.run(t, "councils", "list", "app", "--status", "running")
+	if code != 0 || errOut != "" || !strings.Contains(out, "COUNCIL-2") || !strings.Contains(out, "running") || strings.Contains(out, "\x1b") {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
+	}
+	if in := e.svc.Calls()[1].Input; in != (mcp.ListCouncilsInput{Project: "app", Status: "running"}) {
+		t.Fatalf("input = %+v", in)
+	}
+
 	e.svc.GetCouncilFunc = func(context.Context, domain.Actor, mcp.CouncilRefInput) (mcp.CouncilDetail, error) {
 		return mcp.CouncilDetail{
 			Ref:  "COUNCIL-2",
@@ -218,7 +229,7 @@ func TestCouncilCommands(t *testing.T) {
 	if last.Input != (mcp.AddCouncilConstraintInput{Council: "COUNCIL-2", Constraint: "Stay small"}) {
 		t.Fatalf("input = %+v", last.Input)
 	}
-	for _, args := range [][]string{{"councils", "start", "app"}, {"councils", "show"}, {"councils", "constrain", "COUNCIL-2"}} {
+	for _, args := range [][]string{{"councils", "start", "app"}, {"councils", "list"}, {"councils", "show"}, {"councils", "constrain", "COUNCIL-2"}} {
 		if _, _, code := e.run(t, args...); code == 0 {
 			t.Errorf("%v accepted", args)
 		}

@@ -208,6 +208,7 @@ func TestCallEachTool(t *testing.T) {
 			mcp.ProposeKnowledgeInput{Project: "app", Section: "lessons", Path: "knowledge/lessons/a.md", Body: "b", Reason: "r"}},
 		{mcp.ToolStartCouncil, map[string]any{"project": "app", "question": "Which queue?", "kind": "technical", "roles": []string{"ux"}, "constraints": []string{"c"}},
 			mcp.StartCouncilInput{Project: "app", Question: "Which queue?", Kind: "technical", Roles: []string{"ux"}, Constraints: []string{"c"}}},
+		{mcp.ToolListCouncils, map[string]any{"project": "app", "status": "decided"}, mcp.ListCouncilsInput{Project: "app", Status: "decided"}},
 		{mcp.ToolGetCouncil, map[string]any{"council": "COUNCIL-2"}, mcp.CouncilRefInput{Council: "COUNCIL-2"}},
 		{mcp.ToolAddConstraint, map[string]any{"council": "COUNCIL-2", "constraint": "Stay on Postgres"}, mcp.AddCouncilConstraintInput{Council: "COUNCIL-2", Constraint: "Stay on Postgres"}},
 		{mcp.ToolVerificationReport, map[string]any{"change": "9", "project": "app"}, mcp.VerificationReportInput{Change: "9", Project: "app"}},

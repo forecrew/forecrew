@@ -48,6 +48,7 @@ type ToolService struct {
 	ListArtifactsFunc      func(context.Context, domain.Actor, mcp.JobRefInput) ([]domain.Artifact, error)
 	ListTestRunsFunc       func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error)
 	StartCouncilFunc       func(context.Context, domain.Actor, mcp.StartCouncilInput) (mcp.CouncilInfo, error)
+	ListCouncilsFunc       func(context.Context, domain.Actor, mcp.ListCouncilsInput) ([]mcp.CouncilInfo, error)
 	GetCouncilFunc         func(context.Context, domain.Actor, mcp.CouncilRefInput) (mcp.CouncilDetail, error)
 	AddConstraintFunc      func(context.Context, domain.Actor, mcp.AddCouncilConstraintInput) (mcp.CouncilInfo, error)
 	VerificationReportFunc func(context.Context, domain.Actor, mcp.VerificationReportInput) (mcp.VerificationInfo, error)
@@ -191,6 +192,11 @@ func (s *ToolService) ListArtifacts(ctx context.Context, by domain.Actor, in mcp
 // StartCouncil implements mcp.ToolService.
 func (s *ToolService) StartCouncil(ctx context.Context, by domain.Actor, in mcp.StartCouncilInput) (mcp.CouncilInfo, error) {
 	return invoke(ctx, s, mcp.ToolStartCouncil, by, in, s.StartCouncilFunc)
+}
+
+// ListCouncils implements mcp.ToolService.
+func (s *ToolService) ListCouncils(ctx context.Context, by domain.Actor, in mcp.ListCouncilsInput) ([]mcp.CouncilInfo, error) {
+	return invoke(ctx, s, mcp.ToolListCouncils, by, in, s.ListCouncilsFunc)
 }
 
 // GetCouncil implements mcp.ToolService.
