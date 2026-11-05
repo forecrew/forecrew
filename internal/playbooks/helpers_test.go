@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"uuid"
@@ -119,8 +120,9 @@ func wantErr(t *testing.T, err error, substr string) {
 }
 
 // testRoles resolves the roles whose write paths the actions check, from the
-// shipped role pack.
-func testRoles() roles.Resolver {
+// shipped role pack. The pack is read once: every env registers the actions,
+// and compiling its schemas takes minutes in all under the race detector.
+var testRoles = sync.OnceValue(func() roles.Resolver {
 	defs, err := roles.Load(forecrew.Files)
 	if err != nil {
 		panic(err)
@@ -130,4 +132,4 @@ func testRoles() roles.Resolver {
 		out[name] = roles.Role{Name: name, WritePaths: d.WritePaths}
 	}
 	return out
-}
+})
