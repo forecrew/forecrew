@@ -164,8 +164,17 @@ func contains(t *testing.T, got []string, want ...string) {
 	}
 }
 
-func TestBuildContextSections(t *testing.T) {
-	e := newPackEnv(t)
+// seeded is what newPackEnv's project holds once seed has run.
+type seeded struct {
+	adr, older, newer                      domain.KnowledgeEntry
+	dec                                    domain.Decision
+	goalLevel, forTask, forOther, verified domain.Assumption
+	past                                   domain.Task
+}
+
+// seed fills the knowledge base, the registers and the task history.
+func seed(t *testing.T, e *packEnv) seeded {
+	t.Helper()
 	ctx := context.Background()
 	acc, proj := e.project.AccountID, e.project.ID
 	adr := e.entry(t, "architecture", "docs/adr/0003-tokens.md", "ADR 3: hash tokens", "Store only a hash of every reset token.")
@@ -212,10 +221,17 @@ func TestBuildContextSections(t *testing.T) {
 	tri := domain.Job{AccountID: acc, ProjectID: proj, Role: "triage", Runtime: "claude-code", GoalID: e.goal.ID}
 	must(t, e.st.Jobs().Create(ctx, &tri))
 	leaseAndFinish(t, e, tri, areas)
+	return seeded{adr: adr, older: older, newer: newer, dec: dec, goalLevel: goalLevel, forTask: forTask, forOther: forOther, verified: verified, past: past}
+}
 
-	// The reviewer may read the architecture section.
-	role := roles.Role{Name: "reviewer", Context: allContext, ContextBudget: 16_000}
-	p := e.build(t, role, workflow.JobRequest{TaskID: e.task.ID})
+// The reviewer may read the architecture section.
+var reviewer = func() roles.Role { return roles.Role{Name: "reviewer", Context: allContext, ContextBudget: 16_000} }
+
+func TestBuildContextSections(t *testing.T) {
+	e := newPackEnv(t)
+	sd := seed(t, e)
+	dec, forTask, goalLevel, forOther, verified, past := sd.dec, sd.forTask, sd.goalLevel, sd.forOther, sd.verified, sd.past
+	p := e.build(t, reviewer(), workflow.JobRequest{TaskID: e.task.ID})
 	for _, want := range []string{
 		"# Context\n", "## Decisions", "### " + dec.Ref(), "Where do reset tokens live?", "Reasons: One store. No cache.",
 		"## Assumptions", forTask.Ref(), "verify by test", goalLevel.Ref(), "Reset links are single use.",
@@ -243,7 +259,14 @@ func TestBuildContextSections(t *testing.T) {
 			t.Errorf("%q is not between untrusted-data markers", wrapped)
 		}
 	}
+}
 
+func TestBuildContextManifest(t *testing.T) {
+	e := newPackEnv(t)
+	sd := seed(t, e)
+	dec, forTask, goalLevel, past := sd.dec, sd.forTask, sd.goalLevel, sd.past
+	adr, older, newer := sd.adr, sd.older, sd.newer
+	p := e.build(t, reviewer(), workflow.JobRequest{TaskID: e.task.ID})
 	m := p.Manifest
 	if m == nil || m.Budget != 16_000 || m.Size == 0 || len(m.Sections) != len(allContext) {
 		t.Fatalf("manifest = %+v", m)
@@ -267,7 +290,11 @@ func TestBuildContextSections(t *testing.T) {
 	if got := section(t, p, "knowledge").Items; len(got) == 0 || got[0].Size == 0 {
 		t.Errorf("knowledge = %+v", got)
 	}
+}
 
+func TestBuildContextRoleViews(t *testing.T) {
+	e := newPackEnv(t)
+	forTask := seed(t, e).forTask
 	// The test engineer is pointed at the assumptions to verify by test.
 	te := e.build(t, roles.Role{Name: "test-engineer", Context: []string{contextpack.SectionAssumptions}}, workflow.JobRequest{TaskID: e.task.ID})
 	if got := ids(section(t, te, "assumptions").Items); len(got) != 1 || got[0] != forTask.Ref() {
@@ -448,7 +475,7 @@ func (failJobs) List(context.Context, uuid.UUID, store.JobFilter) ([]domain.Job,
 }
 
 // Only the listing of merged tasks fails: the task of the job is read.
-func (r failTasks) List(ctx context.Context, acc uuid.UUID, f store.TaskFilter) ([]domain.Task, error) {
+func (failTasks) List(context.Context, uuid.UUID, store.TaskFilter) ([]domain.Task, error) {
 	return nil, errRead
 }
 

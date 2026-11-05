@@ -283,17 +283,7 @@ func (f file) check(name string, p *[]string) Definition {
 	if err := f.Resources.Validate(); err != nil {
 		add("%v", err)
 	}
-	for i, c := range f.Context {
-		switch {
-		case !slices.Contains(ContextSections, c):
-			add("context: unknown section %q, want one of %s", c, strings.Join(ContextSections, ", "))
-		case slices.Contains(f.Context[:i], c):
-			add("context: section %q is listed twice", c)
-		}
-	}
-	if f.ContextBudget != 0 && f.ContextBudget < MinContextBudget {
-		add("context_budget must be 0 (the tier's default) or at least %d", MinContextBudget)
-	}
+	f.checkContext(add)
 	var writePaths []string
 	if f.WritePaths != nil {
 		writePaths = *f.WritePaths
@@ -312,6 +302,21 @@ func (f file) check(name string, p *[]string) Definition {
 		Resources:        f.Resources,
 		Context:          f.Context,
 		ContextBudget:    f.ContextBudget,
+	}
+}
+
+// checkContext validates the context pack settings.
+func (f file) checkContext(add func(string, ...any)) {
+	for i, c := range f.Context {
+		switch {
+		case !slices.Contains(ContextSections, c):
+			add("context: unknown section %q, want one of %s", c, strings.Join(ContextSections, ", "))
+		case slices.Contains(f.Context[:i], c):
+			add("context: section %q is listed twice", c)
+		}
+	}
+	if f.ContextBudget != 0 && f.ContextBudget < MinContextBudget {
+		add("context_budget must be 0 (the tier's default) or at least %d", MinContextBudget)
 	}
 }
 

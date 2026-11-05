@@ -145,7 +145,7 @@ func TestFillSectionsBudget(t *testing.T) {
 	}
 }
 
-func TestFillSectionsEdges(t *testing.T) {
+func TestFillSectionsEmpty(t *testing.T) {
 	t.Run("no sections listed", func(t *testing.T) {
 		if b := fillSections(roles.Role{Name: "x", Context: []string{SectionTestPlan}}, allSections()); b.manifest != nil || b.text != "" {
 			t.Errorf("block = %+v", b)
@@ -166,6 +166,9 @@ func TestFillSectionsEdges(t *testing.T) {
 			t.Errorf("block = %q", b.text)
 		}
 	})
+}
+
+func TestFillSectionsTight(t *testing.T) {
 	t.Run("a section whose items were all dropped says so", func(t *testing.T) {
 		role := roles.Role{Name: "x", ContextBudget: 340, Context: []string{SectionNotes}}
 		b := fillSections(role, []Section{bulky(SectionNotes, 2, 2000)})
@@ -181,6 +184,9 @@ func TestFillSectionsEdges(t *testing.T) {
 			t.Errorf("block = %+v, section %+v", b, s)
 		}
 	})
+}
+
+func TestItemRender(t *testing.T) {
 	t.Run("list entries are never cut", func(t *testing.T) {
 		long := Item{Path: strings.Repeat("a/", 100), Label: "`" + strings.Repeat("a/", 100) + "`"}
 		if text, cutDown := long.render(50); text != "" || !cutDown {
