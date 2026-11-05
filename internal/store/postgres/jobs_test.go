@@ -49,6 +49,12 @@ func TestJobsCreateAndQuery(t *testing.T) {
 	if len(list) != 1 || list[0].ID != withGoal.ID || list[0].GoalID != g.ID {
 		t.Fatalf("filtered = %+v", list)
 	}
+	if byRole, _ := repo.List(ctx, f.account, store.JobFilter{ProjectID: f.project.ID, Role: "reviewer"}); len(byRole) != 1 || byRole[0].ID != withGoal.ID {
+		t.Fatalf("by role = %+v, want the reviewer's job only", byRole)
+	}
+	if byRole, _ := repo.List(ctx, f.account, store.JobFilter{ProjectID: f.project.ID, Role: "developer"}); len(byRole) != 1 || byRole[0].ID != j.ID {
+		t.Fatalf("by role = %+v, want the developer's job only", byRole)
+	}
 	list, _ = repo.List(ctx, f.account, store.JobFilter{WorkerID: domain.NewID(), TaskID: domain.NewID()})
 	if len(list) != 0 {
 		t.Fatalf("by worker = %+v", list)
