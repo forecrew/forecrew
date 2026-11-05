@@ -93,7 +93,7 @@ GitHub links of issues, pull requests and gates.
 |------|---------|
 | `onboard_project` | Register a repo (`repo`, optional `name`, optional `default_branch`, default `main`) and start onboarding; returns the project and the onboarding run |
 | `create_goal` | Create a goal (`project`, `title`, `body`, optional `platforms` such as `web`, `ios`, optional `councils`: `product` and `technical`, `[]` for none, which skips the triage that otherwise sizes the goal) and start its playbook |
-| `job_status`, `job_logs` | Inspect a job (with why a queued job waits, e.g. `no online worker in pool control with labels runtime:codex`) and read its events |
+| `job_status`, `job_logs` | Inspect a job (with why a queued job waits, e.g. `no online worker in pool control with labels runtime:codex`; for an agent job its `context_manifest`, what its context pack held, see [knowledge.md](knowledge.md#context-packs)) and read its events |
 | `list_workers` | Workers, their pool, labels, version, whether they are online and the jobs they run |
 | `list_pending_gates` | Decisions waiting for a human: kind (`profile_approval`, `spec_approval`, `merge_approval`, `test_plan_approval` for the onboarding PR with the test strategy, matrix and environments, or `needs_you`), project, goal or task, summary, GitHub link, created time |
 | `approve`, `request_changes`, `reject` | Resolve a gate. `request_changes` needs `feedback` and is not valid on `needs_you` gates (use `approve` to retry, `reject` to stop) |

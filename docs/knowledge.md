@@ -169,6 +169,48 @@ Notes and every entry outside the repo provider's protected sections are
 untrusted: their snippet reaches an agent (job MCP, human MCP) wrapped in
 `<untrusted-data>` markers, and the `untrusted` flag is on every result.
 
+## Context packs
+
+Agents never read the whole knowledge base. When a job is created, its prompt
+gets a `# Context` block with the sections the role's pack lists in
+`context:` ([roles contract](contracts/roles.md)), highest priority first:
+
+| Section | Holds |
+|---------|-------|
+| `knowledge` | the entries and generated facts that best match the task (or, without one, the goal): a search for any of the first ten distinctive words of its title and text, six results |
+| `decisions` | the decisions of the job's goal, then the paths and titles of the project's ADRs (entries of the `architecture` section) |
+| `assumptions` | the open assumptions the task rests on, the goal's own included, high impact first; for a job with a goal only, those of the goal. For the `test-engineer`, only those to verify by test |
+| `similar_tasks` | up to five merged tasks of the project that share at least two distinctive words with the task or goal, closest first, with their PR link and how often the reviewer saw them and the last verdict. Tasks have no search index: forecrewd compares word sets |
+| `notes` | the notes agents wrote for the job's goal, newest first, in full |
+| `related_files` | paths the task text names (words with a `/` or a file extension) and the areas the goal's triage found |
+| `test_plan` | the repo's test matrix, strategy and environments. It is not part of the budget below: it is cut with the prompt when that is too large |
+
+Council jobs get no section but `test_plan`: members read what their stage may
+see with `council.read`.
+
+Searches run as the job's role, so a role never gets an entry of a section its
+`access.read` does not list. When the knowledge policy cannot be read, the
+sections that need it say so and the job starts anyway.
+
+**Budget.** The pack has a size in characters: the role's `context_budget`, or
+the default of the tier `forecrew.yaml` gives the role (fast 6000, strong
+16000, best 32000). Sections are filled in the role's order, item by item, the
+most relevant first. An item that does not fit is cut, with a note, when at
+least 200 characters are left, and dropped otherwise; a section without room
+for its heading is left out. Headings and the wrapping of untrusted text
+count.
+
+**Untrusted text.** Decisions, assumptions, tasks, notes, triage areas and every
+entry outside the repo provider's protected sections are written by agents or
+repos: each reaches the prompt between `<untrusted-data>` markers, and the
+prompt says so. Only refs, dates, validated paths and PR links stand outside.
+
+**Record.** The job stores a manifest, `context_manifest` in `job_status` and
+`GET /api/v1/jobs/{job}` (`forecrew job show` summarizes it): the budget, the
+size and, for each listed section, its size, the `items` that went in (`id` or
+`path`, `size`) and the `dropped` ones with the size they would have had. A
+role without a `context:` list has none.
+
 ## Seeding
 
 After the profile is merged, `knowledge.seed` indexes the mapped paths and a

@@ -155,6 +155,21 @@ func TestJobShowPrintsTestCounts(t *testing.T) {
 	}
 }
 
+func TestJobShowPrintsContext(t *testing.T) {
+	e := newRemoteEnv(t)
+	e.svc.JobStatusFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
+		j := domain.Job{ContextManifest: &domain.ContextManifest{Budget: 16000, Size: 420, Sections: []domain.ContextSection{
+			{Name: "assumptions", Items: []domain.ContextItem{{ID: "A-4"}}},
+			{Name: "notes", Items: []domain.ContextItem{{ID: "n1"}, {ID: "n2"}}, Dropped: []domain.ContextItem{{ID: "n3"}}},
+		}}}
+		return mcp.JobInfo{Job: j, Ref: "JOB-41"}, nil
+	}
+	out, _, code := e.run(t, "job", "show", "JOB-41")
+	if code != 0 || !strings.Contains(out, "Context:") || !strings.Contains(out, "420 of 16000 characters: assumptions 1, notes 2 (+1 dropped)") {
+		t.Errorf("code %d:\n%s", code, out)
+	}
+}
+
 func TestJobTestsStripsControlCharacters(t *testing.T) {
 	e := newRemoteEnv(t)
 	e.svc.ListTestRunsFunc = func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error) {
