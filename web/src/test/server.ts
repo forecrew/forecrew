@@ -1,5 +1,19 @@
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
+import assumptions from "./fixtures/assumptions.json"
+import assumptionResolve from "./fixtures/assumption-resolve.json"
+import councilConstraint from "./fixtures/council-constraint.json"
+import councilConstraintConflict from "./fixtures/council-constraint-conflict.json"
+import councilDecided from "./fixtures/council-decided.json"
+import councilFailed from "./fixtures/council-failed.json"
+import councilPending from "./fixtures/council-pending.json"
+import councilRunning from "./fixtures/council-running.json"
+import councilStart from "./fixtures/council-start.json"
+import councils from "./fixtures/councils.json"
+import councilsEmpty from "./fixtures/councils-empty.json"
+import decisions from "./fixtures/decisions.json"
+import decisionsEmpty from "./fixtures/decisions-empty.json"
+import gatesCouncil from "./fixtures/gates-council.json"
 import gateApprove from "./fixtures/gate-approve.json"
 import gateReject from "./fixtures/gate-reject.json"
 import gateRequestChanges from "./fixtures/gate-request-changes.json"
@@ -64,6 +78,18 @@ export const handlers = [
   http.post("/api/v1/tokens/:id/revoke", ({ params }) =>
     HttpResponse.json(params.id === tokens.find((t) => t.current)?.id ? tokenRevokeSelf : tokenRevoke),
   ),
+  // The fixtures belong to the project app; the others have none.
+  http.get("/api/v1/councils", ({ request }) => HttpResponse.json(new URL(request.url).searchParams.get("project") === "app" ? councils : [])),
+  http.post("/api/v1/councils", () => HttpResponse.json(councilStart, { status: 202 })),
+  http.get("/api/v1/councils/:ref", ({ params }) => {
+    const byRef: Record<string, unknown> = { "COUNCIL-2": councilRunning, "COUNCIL-3": councilDecided, "COUNCIL-4": councilFailed, "COUNCIL-5": councilPending }
+    const found = byRef[String(params.ref)]
+    return found ? HttpResponse.json(found) : HttpResponse.json(errorNotFound, { status: 404 })
+  }),
+  http.post("/api/v1/councils/:ref/constraints", () => HttpResponse.json(councilConstraint)),
+  http.get("/api/v1/assumptions", () => HttpResponse.json(assumptions)),
+  http.post("/api/v1/assumptions/:ref/resolve", () => HttpResponse.json(assumptionResolve)),
+  http.get("/api/v1/decisions", ({ request }) => HttpResponse.json(new URL(request.url).searchParams.get("project") === "app" ? decisions : [])),
   http.get("/api/v1/gates", () => HttpResponse.json(gates)),
   http.post("/api/v1/gates/:ref/approve", () => HttpResponse.json(gateApprove)),
   http.post("/api/v1/gates/:ref/request-changes", () => HttpResponse.json(gateRequestChanges)),
@@ -77,6 +103,8 @@ export const fx = {
   me, session, projects, projectsEmpty, project, projectOnboard, goals, goalsEmpty, goal, goalCreate, jobs, jobsEmpty, job,
   jobQueued, jobFailed, jobDispatch, jobCancel, jobLogs, jobLogsCaughtUp, jobLogsEmpty, jobLogsAllKinds, projectMinimalProfile, projectUnknownCommands, workers, workersEmpty, gates, gatesEmpty, gateApprove,
   gateRequestChanges, gateReject, tokens, tokensEmpty, tokenRevoke, tokenRevokeSelf,
+  councils, councilsEmpty, councilRunning, councilDecided, councilFailed, councilPending, councilStart, councilConstraint,
+  assumptions, assumptionResolve, decisions, decisionsEmpty, gatesCouncil,
 }
 
 /** The recorded error answers. */
@@ -85,6 +113,7 @@ export const errors = {
   notFound: () => HttpResponse.json(errorNotFound, { status: 404 }),
   invalidInput: () => HttpResponse.json(errorInvalidInput, { status: 400 }),
   conflict: () => HttpResponse.json(errorConflict, { status: 409 }),
+  councilEnded: () => HttpResponse.json(councilConstraintConflict, { status: 409 }),
   cancelConflict: () => HttpResponse.json(jobCancelConflict, { status: 409 }),
 }
 

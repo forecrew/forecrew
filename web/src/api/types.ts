@@ -4,7 +4,11 @@
 export type GoalStatus = "draft" | "spec_review" | "planned" | "in_progress" | "done" | "canceled"
 export type TaskStatus = "open" | "in_progress" | "in_review" | "merge_ready" | "merged" | "closed"
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "canceled"
-export type GateKind = "profile_approval" | "spec_approval" | "merge_approval" | "test_plan_approval" | "needs_you"
+export type GateKind =
+  | "profile_approval" | "spec_approval" | "merge_approval" | "test_plan_approval" | "needs_you"
+  | "assumption_review" | "council_decision" | "knowledge_proposal" | "access_request" | "improvement_proposal"
+/** What opened a gate: a playbook step, or a job asking a human (`ask_human`). Absent means a playbook. */
+export type GateOrigin = "playbook" | "ask_human"
 export type GateStatus = "pending" | "approved" | "changes_requested" | "rejected"
 export type ProjectStatus = "registered" | "onboarding" | "onboarded"
 export type ChecksStatus = "failure" | "pending" | "success" | "none" | "unknown"
@@ -79,6 +83,7 @@ export interface Gate {
   id: string
   number: number
   kind: GateKind
+  origin?: GateOrigin
   status: GateStatus
   title: string
   /** Markdown shown to the reviewer. */
@@ -278,6 +283,134 @@ export interface DispatchJobInput {
   pool?: string
   feedback?: string
   include_repo_facts?: boolean
+}
+
+export type CouncilStatus = "running" | "decided" | "failed" | "canceled"
+export type CouncilStage = "proposal" | "critique" | "revision" | "synthesis"
+export type Level = "low" | "medium" | "high"
+export type AssumptionStatus = "unverified" | "verified" | "invalidated" | "accepted"
+
+export const COUNCIL_STAGES: CouncilStage[] = ["proposal", "critique", "revision", "synthesis"]
+export const COUNCIL_KINDS = ["adhoc", "product", "technical", "test_design", "incident", "onboarding"] as const
+
+export interface BriefOption {
+  name: string
+  summary: string
+  pros: string[]
+  cons: string[]
+  cost: Level
+  risk: Level
+}
+
+export interface BriefAssumption {
+  statement: string
+  confidence: Level
+  impact: Level
+  verify_by: "test" | "ask-human" | "research"
+}
+
+/** The decision brief a council ends with. Agent text: show it as text. */
+export interface CouncilBrief {
+  question: string
+  options: BriefOption[]
+  recommendation: string
+  votes: { member: string; option: string; reason: string }[]
+  dissent: { member: string; position: string }[]
+  assumptions: BriefAssumption[]
+  open_questions: string[]
+  reversible: boolean
+  budget_exhausted: boolean
+}
+
+export interface SourceCheck {
+  source: string
+  kind: "path" | "kb" | "url" | "job"
+  status: "ok" | "missing" | "unreachable" | "refused"
+  detail?: string
+}
+
+/** One member's output at one stage. `content` is agent JSON of any shape: read it defensively. */
+export interface Contribution {
+  id: string
+  /** role@runtime */
+  member: string
+  role: string
+  runtime: string
+  stage: CouncilStage
+  round: number
+  content: unknown
+  evidence_check: SourceCheck[] | null
+  created_at: string
+}
+
+export interface Council {
+  id: string
+  project_id: string
+  goal_id?: string
+  /** COUNCIL-<number> */
+  ref: string
+  number: number
+  kind: string
+  question: string
+  constraints: string[] | null
+  status: CouncilStatus
+  brief?: CouncilBrief
+  run_id?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Decision {
+  id: string
+  project_id: string
+  /** DEC-<number> */
+  ref: string
+  number: number
+  goal_id?: string
+  question: string
+  options: { name: string; summary?: string }[] | null
+  choice: string
+  reasons: string
+  dissent?: string
+  /** user:ana, github:ana or policy. */
+  decided_by: string
+  council_id?: string
+  gate_id?: string
+  /** Refs of the assumptions it rests on. */
+  assumptions: string[]
+  created_at: string
+}
+
+export interface CouncilDetail extends Council {
+  contributions: Contribution[]
+  gate?: GateInfo
+  /** The decision that ended it, as stored: it has no ref or assumption refs. */
+  decision?: Omit<Decision, "ref" | "assumptions">
+}
+
+export interface Assumption {
+  id: string
+  /** A-<number> */
+  ref: string
+  number: number
+  made_by: string
+  statement: string
+  confidence: Level
+  impact: Level
+  verify_by: BriefAssumption["verify_by"]
+  status: AssumptionStatus
+  evidence?: string
+  /** The job (JOB-41), else the council's ID, else the spec it came from. */
+  source?: string
+  dependents: { kind: string; id: string }[]
+  created_at: string
+}
+
+export interface StartCouncilInput {
+  project: string
+  question: string
+  kind?: string
+  constraints?: string[]
 }
 
 export interface ErrorBody {

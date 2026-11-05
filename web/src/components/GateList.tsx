@@ -26,6 +26,11 @@ const KIND_CHIP: Record<GateKind, string> = {
   profile_approval: "Profiles",
   test_plan_approval: "Test plans",
   needs_you: "Needs you",
+  assumption_review: "Assumptions",
+  council_decision: "Councils",
+  knowledge_proposal: "Knowledge",
+  access_request: "Access",
+  improvement_proposal: "Improvements",
 }
 
 type Decision = "approve" | "request-changes" | "reject"

@@ -1,4 +1,4 @@
-import type { GateKind, GoalStatus, JobStatus, ProjectStatus, TaskStatus } from "@/api/types"
+import type { CouncilStatus, GateKind, GateOrigin, GoalStatus, JobStatus, Level, ProjectStatus, TaskStatus } from "@/api/types"
 
 /** "5 min", "2 h", "3 d": how long ago an RFC 3339 time was. */
 export function age(iso: string | undefined, now = Date.now()): string {
@@ -30,6 +30,22 @@ export function cost(usd: number | undefined): string {
 }
 
 export const goalRef = (number: number) => `GOAL-${number}`
+export function councilTone(s: CouncilStatus): Tone {
+  return s === "decided" ? "good" : s === "failed" ? "bad" : s === "running" ? "attention" : "neutral"
+}
+export function levelTone(l: Level): Tone {
+  return l === "high" ? "bad" : l === "medium" ? "attention" : "neutral"
+}
+
+/** The council a council_decision gate is about, read from its title ("COUNCIL-5: ..."). */
+export const councilOfGate = (title: string) => /^(COUNCIL-\d+):/.exec(title)?.[1]
+/** The assumption an assumption_review gate is about, read from its title ("Review A-7: ..."). */
+export const assumptionOfGate = (title: string) => /^Review (A-\d+):/.exec(title)?.[1]
+
+/** What the devil's advocate's dissent in a brief starts with (internal/councils DevilsAdvocateDissent). */
+export const MANDATED_DISSENT = "Devil's advocate (mandated dissent): "
+
+export const decisionRef = (number: number) => `DEC-${number}`
 export const jobRef = (number: number) => `JOB-${number}`
 
 export type Stage = "spec" | "planning" | "building" | "review" | "done" | "canceled"
@@ -56,8 +72,17 @@ const GATE_KINDS: Record<GateKind, string> = {
   merge_approval: "Merge approval",
   test_plan_approval: "Test plan approval",
   needs_you: "Needs you",
+  assumption_review: "Assumption review",
+  council_decision: "Council decision",
+  knowledge_proposal: "Knowledge proposal",
+  access_request: "Access request",
+  improvement_proposal: "Improvement proposal",
 }
 export const gateKindLabel = (k: GateKind) => GATE_KINDS[k]
+
+/** A job asking a human (`ask_human`) is a question, kept apart from the escalations of a playbook. */
+export const isQuestion = (g: { kind: GateKind; origin?: GateOrigin }) => g.kind === "needs_you" && g.origin === "ask_human"
+export const gateLabel = (g: { kind: GateKind; origin?: GateOrigin }) => (isQuestion(g) ? "Question" : gateKindLabel(g.kind))
 
 export const words = (s: string) => s.replaceAll("_", " ")
 
@@ -74,6 +99,11 @@ export function jobTone(s: JobStatus): Tone {
 }
 export function projectTone(s: ProjectStatus): Tone {
   return s === "onboarded" ? "good" : s === "onboarding" ? "attention" : "neutral"
+}
+
+/** Splits text into its non-empty lines, trimmed. */
+export function splitLines(s: string): string[] {
+  return s.split("\n").map((l) => l.trim()).filter(Boolean)
 }
 
 /** Splits a comma or space separated list ("web, ios") into its words. */

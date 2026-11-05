@@ -28,6 +28,8 @@ const PAGES = [
   { label: "Home", to: "/" },
   { label: "Inbox", to: "/inbox" },
   { label: "Goals", to: "/goals" },
+  { label: "Councils", to: "/councils" },
+  { label: "Decisions", to: "/decisions" },
   { label: "Projects", to: "/projects" },
   { label: "Jobs", to: "/jobs" },
   { label: "Workers", to: "/workers" },
@@ -47,6 +49,9 @@ function Results({ go }: { go: (to: string, params?: Record<string, string>) => 
         </CommandItem>
         <CommandItem value="onboard repository add project" onSelect={() => go("/projects/new")}>
           Onboard repository
+        </CommandItem>
+        <CommandItem value="start council debate decision question" onSelect={() => go("/councils/new")}>
+          Start a council
         </CommandItem>
       </CommandGroup>
       <CommandGroup heading="Pages">
