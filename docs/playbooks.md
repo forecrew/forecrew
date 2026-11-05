@@ -232,6 +232,8 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `tests.locked_paths` | `task_id` | `{locked_paths}`. The files of every successful `test-engineer` job of the task (`files` and the `file` of every test in its `test-map.json` output; a retry lists only what it changed itself, so all jobs count), as globs that match exactly those paths (`[`, `*`, `?`, `{`, `}` become one-character classes), sorted; `[]` when the task has no such job. Fails for a file name with a backslash or starting with `!`. Pass it as `with.locked_paths` of the developer's `job` step; the JobCreator refuses control characters and backticks in it. |
 | `tests.base_check_request` | `repo`, `base`, `head`, `tests`, optional `files` | `{requests}`. `tests` are the `tests` entries of the test map (`suite`, `id`, `file`). Reads `.forecrew/matrix.yaml` and the environment files at `head`. For every suite the tests belong to and every environment its cells run in, one command job request (the first cell that maps to that environment) that runs the suite on `base` with `overlay` = `head` and the files of `files` and of `tests` together. Only test files may be overlaid: a path the `test-engineer` role may not write (`Makefile`, `go.mod`, `.forecrew/**`, scripts) fails the action. Fails when `head` has no valid matrix or environment, or names no such suite. Use the requests as the `items` of a `foreach` of `kind: command` job steps. |
 | `tests.base_check_result` | `runs`, `tests` | `{new_tests: [{id, failed_on_base}], ok}`. `runs` are the base check's jobs: job IDs, the outputs of job steps (`job_id`), or the rounds of a `foreach` over a job step (`{<step id>: {job_id, ...}}`); an element without a job ID fails the action. `tests` are the same entries as for the request. Reads the test runs the jobs stored. A test failed on base when, in every run of its suite, it has a result and all its results (a repeated id has several) are `failed` or `errored`, or it has no result and the command really failed: `exit_code` above 0 and the run is `errored`, has a `(command)` result, or is not `passed` (a compile error of one package next to an unrelated failing test counts). It does not count when the exit code is 0 (wrong report path, unreadable or empty report), -1 (timeout or not started), or the run is an oversized one (`max_test_results_size`). A test that passed or was skipped, and one whose suite has no run, did not fail on base. `ok` is true when every new test failed on base. |
+| `verification.build` | `change`, `sha`, optional `task_id`, optional `base_check` | `{status, blocking, summary, report_id}`. Builds the verification report of the PR `change` (a number in the run's project) at the head `sha` from the stored test runs of `sha` (all attempts; each run's environment, cell and suite are read from the stored run, never from `with`), the matrix at `sha`, the criteria of the task (`task_id`, else the change's task: the `**AC-n**` items under "Acceptance criteria" in its body), the test map of its successful `test-engineer` jobs and `base_check`, the output of `tests.base_check_result`. See [Verification](#verification). It stores the report (one per change and `sha`, rebuilt in place), renders it as an artifact, updates the PR comment (found by its hidden marker) and sets the check run `forecrew/verification` on `sha`. `status` is `passed`, `failed` or `incomplete`; `blocking` lists why the merge is blocked. Fails when `sha` has no valid matrix. Repeating it with the same data changes nothing. |
+| `verification.rerun_cells` | `report_id` | `{requests}`. The command job requests that run again every required suite of the report that failed or errored and ran once, at the report's `sha` (no overlay), as the `items` of a `foreach` of `kind: command` job steps. A cell that was rerun already is left out, so a report is rerun once. Build the report again afterwards. |
 | `profile.validate` | `profile` and/or `repo` and `ref`, `attempt`, `attempts` | `{valid, errors}`: checks the profile value and/or the profile file of `repo` at `ref`. Fails on the last attempt. |
 | `discover.github` | `repo` | `{integrations, notes, text}`. Reads, with the App's token, the repo's autolinks and the link hosts in the bodies of its 100 most recent issues and pull requests, and outputs the integrations found (confidence and evidence as in the profile). It never contacts the hosts it finds. A read the App may not do is a note, not a failure; `text` is what the analyst is told, empty when nothing was found. Read-only, so idempotent. Use `on_failure: escalate`. |
 | `matrix.plan` | `repo`, `ref`, `scope`, `suites` | `{cells, jobs, errors}`. Reads `.forecrew/matrix.yaml` and the environments its rules name at `ref` and expands them (see [Running a matrix](#running-a-matrix)). Invalid files, a scope that does not fit the matrix, or a matrix over the plan's limits give `errors` as text and empty `cells` and `jobs`, for the playbook to act on; only a read that fails fails the step. Read-only, so idempotent. |
@@ -330,6 +332,37 @@ treat a new test that is missing from the results at `head` as a failure
 The fail-on-base check shows every new test fails without the change: the new
 test files from `head` are run on `base` (`tests.base_check_request`) and
 `tests.base_check_result` reads the stored runs.
+
+### Verification
+
+`verification.build` turns the test runs of a PR head into one report
+([verification.schema.json](contracts/verification.schema.json)), kept in
+`verification_reports` (one per change and `sha`; a rebuild updates it). Rules:
+
+- The latest attempt of a suite in a cell counts (reruns are new jobs of the
+  same cell). A test that failed in an earlier attempt and passed in the latest
+  is **flaky**: listed with its environments, not blocking.
+- A required result (a suite in a cell the matrix's `required` and the suite's
+  `required` ask for) that failed or errored blocks. Results that are not
+  required are shown and never block.
+- A required result with no run yet makes the report `incomplete` (and is in
+  `blocking`). Anything that blocks otherwise makes it `failed`.
+- A criterion with no test in the test map blocks, unless the test engineer
+  listed it `untestable` with a reason. A criterion blocks when its tests fail,
+  did not run in a run that finished, or were all skipped. The test's result is
+  its worst over the required results of its suite (all of them when the suite
+  has no required result).
+- A new test that passed on the base branch (`base_check`) blocks.
+
+The report is rendered as Markdown: results (environments by suites with
+counts), the traceability table (criterion, tests, result), new tests, flaky
+tests and tool versions. The rendering is stored as an artifact (no job; name
+`verification/<sha>.md`), posted as one comment per PR that later builds update
+in place, and shown as the check run `forecrew/verification` on `sha`: `success`
+for `passed`, `failure` for `failed`, `neutral` for `incomplete`. Names from the
+repo are shown as inline code or escaped text, and tables are cut after 100
+rows. The check run needs the GitHub App's **Checks: read & write** permission;
+without it forecrewd logs a warning, once, and keeps the comment.
 
 ## Roles
 
