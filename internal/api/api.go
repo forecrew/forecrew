@@ -91,6 +91,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/decisions", serve(s, http.StatusOK, listDecisionsInput, list(t.ListDecisions)))
 	route("GET /api/v1/knowledge", serve(s, http.StatusOK, searchKnowledgeInput, list(t.SearchKnowledge)))
 	route("DELETE /api/v1/knowledge/notes/{note}", serve(s, http.StatusOK, noteInput, t.DeleteNote))
+	route("POST /api/v1/knowledge/proposals", serve(s, http.StatusCreated, bodyOf[mcp.ProposeKnowledgeInput], t.ProposeKnowledge))
 
 	route("GET /api/v1/workers", serve(s, http.StatusOK, noInput, list(noArg(t.ListWorkers))))
 
@@ -146,6 +147,7 @@ func RouteAccess() map[string]mcp.Access {
 
 		"GET /api/v1/knowledge":                       tool[mcp.ToolSearchKnowledge],
 		"DELETE /api/v1/knowledge/notes/{note}":       tool[mcp.ToolDeleteNote],
+		"POST /api/v1/knowledge/proposals":            tool[mcp.ToolProposeKnowledge],
 		"POST /api/v1/councils":                       tool[mcp.ToolStartCouncil],
 		"GET /api/v1/councils/{council}":              tool[mcp.ToolGetCouncil],
 		"POST /api/v1/councils/{council}/constraints": tool[mcp.ToolAddConstraint],

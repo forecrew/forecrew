@@ -4,11 +4,13 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/mcp"
 )
@@ -58,7 +60,39 @@ func knowledgeCommand(r *remote) *cobra.Command {
 			return nil
 		},
 	})
+	kb.AddCommand(proposeCommand(r))
 	return kb
+}
+
+// proposeCommand sends a human's change to a curated section to a PR.
+func proposeCommand(r *remote) *cobra.Command {
+	var bodyFile, reason, action string
+	cmd := &cobra.Command{
+		Use:   "propose <project> <section> <path>",
+		Short: "Propose a change to a curated section; it goes straight to a pull request",
+		Args:  cobra.ExactArgs(3),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			in := mcp.ProposeKnowledgeInput{Project: args[0], Section: args[1], Path: args[2], Reason: reason, Action: domain.KnowledgeAction(action)}
+			if bodyFile != "" {
+				body, err := os.ReadFile(bodyFile)
+				if err != nil {
+					return err
+				}
+				in.Body = string(body)
+			}
+			var out mcp.ProposeKnowledgeOutput
+			if err := r.call(cmd.Context(), http.MethodPost, "/knowledge/proposals", in, &out); err != nil {
+				return err
+			}
+			cmd.Printf("%s: %s\n", out.Proposal, out.URL)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "file with the full new Markdown, without frontmatter; leave it out to retire")
+	cmd.Flags().StringVar(&reason, "reason", "", "why the knowledge base should change")
+	cmd.Flags().StringVar(&action, "action", "", "add, edit or retire (default edit when the entry exists, else add)")
+	_ = cmd.MarkFlagRequired("reason")
+	return cmd
 }
 
 // printKnowledge prints a result table. FLAGS has untrusted for text that
