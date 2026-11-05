@@ -212,6 +212,29 @@ type CheckStatus struct {
 	Total int        `json:"total"` // check runs plus commit statuses
 }
 
+// CheckConclusion is the result of a check run the App publishes.
+type CheckConclusion string
+
+// Check run conclusions.
+const (
+	ConclusionSuccess CheckConclusion = "success"
+	ConclusionFailure CheckConclusion = "failure"
+	ConclusionNeutral CheckConclusion = "neutral"
+)
+
+// MaxCheckSummary is the longest summary of a check run GitHub accepts, in
+// bytes.
+const MaxCheckSummary = 65535
+
+// CheckRunInput is a completed check run published by the App.
+type CheckRunInput struct {
+	Name       string // the run's name, e.g. forecrew/verification
+	SHA        string // the commit the run is about
+	Conclusion CheckConclusion
+	Title      string
+	Summary    string // markdown; cut to MaxCheckSummary
+}
+
 // MergeMethod is how a PR is merged.
 type MergeMethod string
 
@@ -257,6 +280,9 @@ type Tracker interface {
 
 	// CreateComment comments on an issue or PR conversation.
 	CreateComment(ctx context.Context, repo string, number int, body string) (Comment, error)
+	// UpdateComment replaces the body of the comment with the given ID. The
+	// App can only edit its own comments.
+	UpdateComment(ctx context.Context, repo string, id int64, body string) (Comment, error)
 	// ListComments returns the comments created after since, oldest first.
 	ListComments(ctx context.Context, repo string, number int, since time.Time) ([]Comment, error)
 
@@ -294,6 +320,10 @@ type Tracker interface {
 	Archive(ctx context.Context, repo, ref string) (io.ReadCloser, error)
 	// CheckStatus aggregates the check runs and commit statuses of sha.
 	CheckStatus(ctx context.Context, repo, sha string) (CheckStatus, error)
+	// SetCheckRun creates the completed check run in.Name on in.SHA, or
+	// updates the App's run of that name there. ErrForbidden when the App
+	// lacks the checks permission.
+	SetCheckRun(ctx context.Context, repo string, in CheckRunInput) error
 	// MergePR merges and returns the merge commit SHA; ErrNotMergeable when
 	// GitHub refuses.
 	MergePR(ctx context.Context, repo string, number int, in MergeInput) (string, error)

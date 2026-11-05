@@ -125,7 +125,7 @@ func (c *Client) ListWorkflowRuns(ctx context.Context, repo, file, branch string
 	if err != nil {
 		return nil, err
 	}
-	opts := &gh.ListWorkflowRunsOptions{Event: "workflow_dispatch", Branch: branch, ListOptions: gh.ListOptions{PerPage: 100}}
+	opts := &gh.ListWorkflowRunsOptions{Event: "workflow_dispatch", Branch: branch, PerPage: 100}
 	var out []WorkflowRun
 	for len(out) < MaxListedRuns {
 		runs, resp, err := g.Actions.ListWorkflowRunsByFileName(ctx, owner, name, file, opts)

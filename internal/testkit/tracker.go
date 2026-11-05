@@ -32,6 +32,8 @@ type fakeRepo struct {
 	prs       map[int]*github.PullRequest
 	labels    map[string]github.Label
 	checks    map[string]github.CheckStatus
+	checkRuns map[string]github.CheckRunInput // by sha and name, see SetCheckRun
+	noChecks  bool                            // SetCheckRun fails with github.ErrForbidden
 	reviews   map[int][]github.Review
 	commentID int64
 	branches  map[string]bool
@@ -60,7 +62,7 @@ func (t *Tracker) Install(repo string) {
 	defer t.mu.Unlock()
 	t.repos[strings.ToLower(repo)] = &fakeRepo{
 		issues: map[int]*fakeIssue{}, prs: map[int]*github.PullRequest{}, labels: map[string]github.Label{},
-		checks: map[string]github.CheckStatus{}, reviews: map[int][]github.Review{},
+		checks: map[string]github.CheckStatus{}, checkRuns: map[string]github.CheckRunInput{}, reviews: map[int][]github.Review{},
 		branches: map[string]bool{}, files: map[string][]byte{}, heads: map[string]string{}, commits: map[string]github.Commit{},
 	}
 }
@@ -289,6 +291,60 @@ func (t *Tracker) ListSubIssues(_ context.Context, repo string, parent int) ([]g
 // the bot's own comments emit no event.
 func (t *Tracker) CreateComment(_ context.Context, repo string, number int, body string) (github.Comment, error) {
 	return t.addComment(repo, number, "forecrew[bot]", body, new(Event))
+}
+
+// UpdateComment implements github.Tracker. Only the comments of the bot can
+// be edited.
+func (t *Tracker) UpdateComment(_ context.Context, repo string, id int64, body string) (github.Comment, error) {
+	var out github.Comment
+	err := t.with(repo, func(r *fakeRepo) error {
+		for _, i := range r.issues {
+			for k := range i.comments {
+				if c := &i.comments[k]; c.ID == id {
+					if c.Author != "forecrew[bot]" {
+						return fmt.Errorf("comment %d: %w", id, github.ErrForbidden)
+					}
+					c.Body = body
+					out = *c
+					return nil
+				}
+			}
+		}
+		return fmt.Errorf("comment %d: %w", id, github.ErrNotFound)
+	})
+	return out, err
+}
+
+// SetCheckRun implements github.Tracker: one run per sha and name, replaced
+// by the next call.
+func (t *Tracker) SetCheckRun(_ context.Context, repo string, in github.CheckRunInput) error {
+	return t.with(repo, func(r *fakeRepo) error {
+		if r.noChecks {
+			return fmt.Errorf("check run %s: %w", in.Name, github.ErrForbidden)
+		}
+		r.checkRuns[in.SHA+"\x00"+in.Name] = in
+		return nil
+	})
+}
+
+// CheckRun returns the check run name published on sha by SetCheckRun.
+func (t *Tracker) CheckRun(repo, sha, name string) (github.CheckRunInput, bool) {
+	var out github.CheckRunInput
+	var ok bool
+	_ = t.with(repo, func(r *fakeRepo) error {
+		out, ok = r.checkRuns[sha+"\x00"+name]
+		return nil
+	})
+	return out, ok
+}
+
+// ForbidChecks makes SetCheckRun fail with github.ErrForbidden, as when the
+// App lacks the checks permission.
+func (t *Tracker) ForbidChecks(repo string) error {
+	return t.with(repo, func(r *fakeRepo) error {
+		r.noChecks = true
+		return nil
+	})
 }
 
 // ListComments implements github.Tracker.
