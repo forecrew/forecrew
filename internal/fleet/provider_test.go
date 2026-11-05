@@ -20,6 +20,7 @@ func (fake) Capabilities(context.Context) (domain.ProviderCapabilities, error) {
 	return domain.ProviderCapabilities{}, nil
 }
 func (fake) Create(context.Context, CreateRequest) (Instance, error) { return Instance{}, ErrCapacity }
+func (fake) Update(context.Context, string, UpdateRequest) error     { return nil }
 func (fake) Destroy(context.Context, string) error                   { return nil }
 func (fake) List(context.Context) ([]Instance, error)                { return nil, nil }
 

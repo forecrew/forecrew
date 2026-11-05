@@ -122,6 +122,7 @@ kind (T59, T61–T64), by `internal/testkit`'s fake (T58), and by forecrewd in
 type Provider interface {
 	Capabilities(ctx context.Context) (domain.ProviderCapabilities, error)
 	Create(ctx context.Context, req CreateRequest) (Instance, error)
+	Update(ctx context.Context, externalID string, req UpdateRequest) error
 	Destroy(ctx context.Context, externalID string) error
 	List(ctx context.Context) ([]Instance, error)
 }
@@ -134,6 +135,10 @@ type Provider interface {
   second one: a machine with that ID that already exists is destroyed and
   started again, because a retry carries a new bootstrap token. No room is
   `fleet.ErrCapacity`, which does not fail the machine.
+- **Update** applies new `tags`, `network_allow` and `deadline` to a running
+  machine without restarting it. A warm machine gets its organization's tags and
+  network when it is assigned, and every machine a deadline when it leases a job.
+  Each field is the whole new value, and applying the same values again succeeds.
 - **Destroy** removes the machine with every disk, network device and jail, or
   resets it where the provider reuses a VM (Hyper-V checkpoints). Destroying
   what does not exist succeeds. Either way the machine's row is finished: a

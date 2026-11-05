@@ -56,6 +56,13 @@ type CreateRequest struct {
 	Deadline time.Time `json:"deadline,omitzero"`
 }
 
+// UpdateRequest is what may change on a running machine, each field whole.
+type UpdateRequest struct {
+	Tags         map[string]string `json:"tags"`
+	NetworkAllow []string          `json:"network_allow"`
+	Deadline     time.Time         `json:"deadline,omitzero"` // zero: none
+}
+
 // Instance is a machine as a provider sees it.
 type Instance struct {
 	ExternalID string `json:"external_id"`
@@ -77,6 +84,11 @@ type Provider interface {
 	// is destroyed and started again, so it boots with the token given.
 	// No room is ErrCapacity.
 	Create(ctx context.Context, req CreateRequest) (Instance, error)
+	// Update applies new tags, network allowlist and deadline to a running
+	// machine without restarting it: a warm machine gets its organization's
+	// tags and network when assigned, and any machine a deadline at lease.
+	// Applying the same values again succeeds.
+	Update(ctx context.Context, externalID string, req UpdateRequest) error
 	// Destroy removes the machine with everything it owns, or resets it
 	// where the provider reuses a VM. Destroying what does not exist
 	// succeeds.
