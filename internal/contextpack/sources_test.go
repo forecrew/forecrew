@@ -544,3 +544,70 @@ func TestBuildContextNoteDeletedMeanwhile(t *testing.T) {
 		t.Errorf("Build = %+v, %v", p.Manifest, err)
 	}
 }
+
+// The triage of a goal is found however many jobs the goal ran since.
+func TestBuildContextAreasOfALongGoal(t *testing.T) {
+	e := newPackEnv(t)
+	acc, proj := e.project.AccountID, e.project.ID
+	areas, _ := json.Marshal(map[string]any{"areas": []string{"payments"}})
+	tri := domain.Job{AccountID: acc, ProjectID: proj, Role: "triage", Runtime: "claude-code", GoalID: e.goal.ID}
+	must(t, e.st.Jobs().Create(context.Background(), &tri))
+	leaseAndFinish(t, e, tri, areas)
+	for range 110 {
+		j := domain.Job{AccountID: acc, ProjectID: proj, Role: "developer", Runtime: "claude-code", GoalID: e.goal.ID}
+		must(t, e.st.Jobs().Create(context.Background(), &j))
+		leaseAndFinish(t, e, j, []byte(`{}`))
+	}
+	p := e.build(t, roles.Role{Name: "developer", Context: []string{contextpack.SectionRelatedFiles}}, workflow.JobRequest{GoalID: e.goal.ID})
+	if !strings.Contains(contextBlock(p), "- payments") {
+		t.Errorf("the areas of the triage are missing:\n%s", contextBlock(p))
+	}
+}
+
+// With the policy unreadable the decisions of the goal are still shown, and
+// the prompt says what is missing.
+func TestBuildContextDecisionsWithUnknownPolicy(t *testing.T) {
+	e := newPackEnv(t)
+	dec := domain.Decision{AccountID: e.project.AccountID, ProjectID: e.project.ID, GoalID: e.goal.ID, Question: "Which store?", Choice: "Postgres",
+		Reasons: "One.", DecidedBy: "user:admin", Options: []domain.DecisionOption{}, Assumptions: []uuid.UUID{}}
+	must(t, e.st.Decisions().Create(context.Background(), &dec))
+	e.policyE = knowledge.ErrPolicyUnknown
+	p := e.build(t, roles.Role{Name: "developer", Context: []string{contextpack.SectionDecisions}}, workflow.JobRequest{GoalID: e.goal.ID})
+	b := contextBlock(p)
+	if !strings.Contains(b, "Which store?") || !strings.Contains(b, "Not available now: the knowledge policy") || len(section(t, p, "decisions").Items) != 1 {
+		t.Errorf("block:\n%s", b)
+	}
+}
+
+// Text that people or agents wrote stays between untrusted-data markers in
+// every section; only entries of protected repo sections stand outside.
+func TestBuildContextMarksEveryUntrustedText(t *testing.T) {
+	e := newPackEnv(t)
+	ctx := context.Background()
+	e.entry(t, "architecture", "docs/adr/0003-tokens.md", "ADR TITLE token store", "ADR BODY token store")
+	e.entry(t, "conventions", "CONTRIBUTING.md", "Conventions", "KNOWLEDGE SNIPPET token store")
+	e.entry(t, "vision", "knowledge/vision/why.md", "VISION TITLE token store", "VISION SNIPPET token store")
+	e.assumption(t, e.goal.ID, "ASSUMPTION STATEMENT", domain.LevelMedium, domain.VerifyByTest)
+	areas, _ := json.Marshal(map[string]any{"areas": []string{"TRIAGE AREA"}})
+	tri := domain.Job{AccountID: e.project.AccountID, ProjectID: e.project.ID, Role: "triage", Runtime: "claude-code", GoalID: e.goal.ID}
+	must(t, e.st.Jobs().Create(ctx, &tri))
+	leaseAndFinish(t, e, tri, areas)
+
+	p := e.build(t, roles.Role{Name: "reviewer", Context: allContext}, workflow.JobRequest{TaskID: e.task.ID})
+	block := contextBlock(p)
+	inside := func(text string) bool {
+		i := strings.Index(block, text)
+		return i >= 0 && strings.LastIndex(block[:i], "<untrusted-data ") > strings.LastIndex(block[:i], "</untrusted-data ")
+	}
+	for _, text := range []string{"ASSUMPTION STATEMENT", "TRIAGE AREA", "KNOWLEDGE SNIPPET", "ADR TITLE", "docs/adr/0003-tokens.md"} {
+		if !strings.Contains(block, text) || !inside(text) {
+			t.Errorf("%q is missing or outside untrusted-data markers:\n%s", text, block)
+		}
+	}
+	// Entries of a protected section were approved by a human.
+	for _, text := range []string{"VISION TITLE", "VISION SNIPPET"} {
+		if i := strings.Index(block, text); i < 0 || inside(text) {
+			t.Errorf("%q should be present and unwrapped (at %d):\n%s", text, i, block)
+		}
+	}
+}
