@@ -5,6 +5,8 @@ package postgres
 import (
 	"encoding/json"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"uuid"
 
@@ -261,6 +263,52 @@ func TestBootstrapTokens(t *testing.T) {
 	// One per machine, a hash is a hash.
 	mustFail(t, pool, `INSERT INTO bootstrap_tokens (machine_id, token_hash) VALUES ($1, $2)`, warm, hash32(2))
 	mustFail(t, pool, `UPDATE bootstrap_tokens SET token_hash = '\x01' WHERE machine_id = $1`, warm)
+}
+
+// takeJob is the update of store.MachineRepo.TakeJob's contract.
+const takeJob = `UPDATE machines SET jobs_taken = jobs_taken + 1
+	WHERE id = $1 AND jobs_taken < (SELECT max_jobs FROM shapes WHERE id = machines.shape_id)`
+
+// TestTakeJobLimit: of concurrent leases only max_jobs win, and the schema
+// refuses going past it whatever the query, without trapping a machine whose
+// shape's max_jobs was lowered later.
+func TestTakeJobLimit(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	pool := f.pool
+	prov, shape := fleetRows(t, pool, "a", f.account)
+	must(t, exec(pool, `UPDATE shapes SET max_jobs = 2 WHERE id = $1`, shape))
+	var machine string
+	must(t, pool.QueryRow(ctx, `INSERT INTO machines (account_id, provider_id, shape_id, assigned_at) VALUES ($1, $2, $3, now()) RETURNING id`,
+		f.account, prov, shape).Scan(&machine))
+
+	var won atomic.Int64
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			tag, err := pool.Exec(ctx, takeJob, machine)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			won.Add(tag.RowsAffected())
+		})
+	}
+	wg.Wait()
+	var taken int
+	must(t, pool.QueryRow(ctx, `SELECT jobs_taken FROM machines WHERE id = $1`, machine).Scan(&taken))
+	if won.Load() != 2 || taken != 2 {
+		t.Fatalf("%d leases won, jobs_taken = %d, want 2", won.Load(), taken)
+	}
+
+	mustFail(t, pool, `UPDATE machines SET jobs_taken = 3 WHERE id = $1`, machine)
+	mustFail(t, pool, `INSERT INTO machines (account_id, provider_id, shape_id, assigned_at, jobs_taken) VALUES ($1, $2, $3, now(), 3)`, f.account, prov, shape)
+
+	// Lowering max_jobs stops new jobs and leaves the machine able to go.
+	must(t, exec(pool, `UPDATE shapes SET max_jobs = 1 WHERE id = $1`, shape))
+	mustFail(t, pool, `UPDATE machines SET jobs_taken = 3 WHERE id = $1`, machine)
+	must(t, exec(pool, `UPDATE machines SET state = 'draining' WHERE id = $1`, machine))
+	must(t, exec(pool, `UPDATE machines SET state = 'destroyed', destroyed_at = now() WHERE id = $1`, machine))
 }
 
 func TestFleetConstraints(t *testing.T) {

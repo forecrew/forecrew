@@ -206,9 +206,13 @@ lease only its jobs.
 
 **Leasing.** An ephemeral worker also leases only jobs whose `resources` fit
 its machine's shape (`Shape.Fits`), and only while `jobs_taken` is below the
-shape's `max_jobs` (`Machine.CanTakeJob`); each lease adds one in the same
-transaction (`MachineRepo.TakeJob`). T58 adds this to the leasing query
-(data-model.md). A static worker reports no size, so
+shape's `max_jobs`. `Machine.CanTakeJob` is an early look and two concurrent polls
+can both pass it, so the rule is `MachineRepo.TakeJob`: one conditional update in
+the lease's transaction that adds one `WHERE jobs_taken < max_jobs`, and answers
+`ErrConflict` to the loser, whose lease is given up. `machines_check` refuses
+`jobs_taken` rising past `max_jobs`, so no code path can go over it; a machine
+already past a `max_jobs` lowered later can still drain and be destroyed. T58 adds
+this to the leasing query (data-model.md). A static worker reports no size, so
 `resources` do not restrict it: labels route jobs to it. `job_id` is the job the
 machine last leased. A machine started for a job is not reserved for it: the
 first job that fits takes it, and demand is counted again.

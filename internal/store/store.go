@@ -1056,8 +1056,12 @@ type MachineRepo interface {
 	// MarkUp sets ReadyAt, once, on a booting machine whose worker called
 	// and must wait; the state does not change.
 	MarkUp(ctx context.Context, id uuid.UUID) error
-	// TakeJob records a lease in one update: JobID, the deadline and one
-	// more JobsTaken, and returns the machine as stored.
+	// TakeJob records a lease in one conditional update: JobID, the
+	// deadline and one more JobsTaken, WHERE jobs_taken < (SELECT max_jobs
+	// FROM shapes WHERE id = machines.shape_id), and returns the machine as
+	// stored. ErrConflict when the machine has taken max_jobs already, so of
+	// two concurrent polls only one gets the last job: the caller gives the
+	// lease up. domain.Machine.CanTakeJob is only an early look.
 	TakeJob(ctx context.Context, id, jobID uuid.UUID, deadline time.Time) (domain.Machine, error)
 }
 

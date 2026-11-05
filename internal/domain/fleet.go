@@ -599,6 +599,7 @@ type Machine struct {
 }
 
 // CanTakeJob reports whether the machine may lease another job of shape s.
+// It is an early look: store.MachineRepo.TakeJob is what enforces it.
 func (m Machine) CanTakeJob(s Shape) bool { return m.JobsTaken < s.MaxJobs }
 
 // Warm reports whether the machine is up and waiting for an organization.
