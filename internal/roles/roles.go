@@ -15,11 +15,34 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 )
 
 // ErrUnknownRole means no role has the requested name.
 var ErrUnknownRole = errors.New("unknown role")
+
+// ContextSections are the sections a role's context pack may hold, as a role
+// file's context: lists them. test_plan is the repo's test matrix, strategy
+// and environments; the others are filled from the knowledge base, the
+// registers and the tasks of the project (internal/contextpack).
+var ContextSections = []string{"knowledge", "decisions", "assumptions", "similar_tasks", "notes", "related_files", "test_plan"}
+
+// MinContextBudget is the least size in characters a role may set for its
+// context pack.
+const MinContextBudget = 1000
+
+// DefaultContextBudget returns the size in characters of the context pack of
+// a role that sets none, by tier.
+func DefaultContextBudget(t config.Tier) int {
+	switch t {
+	case config.TierFast:
+		return 6_000
+	case config.TierBest:
+		return 32_000
+	}
+	return 16_000
+}
 
 // Role is a resolved role.
 type Role struct {
@@ -46,6 +69,11 @@ type Role struct {
 	Toolbox *domain.Toolbox
 	// Resources is what the role's jobs need of a machine.
 	Resources domain.Resources
+	// Context lists the sections of the role's context pack, highest
+	// priority first; none means a job without a pack.
+	Context []string
+	// ContextBudget is the pack's size in characters.
+	ContextBudget int
 }
 
 // ReadOnly reports whether the role may not write any path.

@@ -1,6 +1,7 @@
 package roles
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -94,5 +95,7 @@ func (c *Catalog) Resolve(_ context.Context, _, _ uuid.UUID, name string) (Role,
 		Pool:             d.Pool,
 		Toolbox:          d.Toolbox,
 		Resources:        d.Resources,
+		Context:          slices.Clone(d.Context),
+		ContextBudget:    cmp.Or(d.ContextBudget, DefaultContextBudget(c.cfg.Roles[name].Tier)),
 	}, nil
 }

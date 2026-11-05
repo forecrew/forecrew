@@ -90,6 +90,33 @@ func TestCatalogResolve(t *testing.T) {
 	}
 }
 
+// A role's context sections come from its file; the budget defaults to the
+// tier forecrew.yaml gives the role, not the tier of the file.
+func TestCatalogResolveContext(t *testing.T) {
+	c, err := New(forecrew.Files, testConfig())
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx := context.Background()
+	for name, want := range map[string]struct {
+		first  string
+		budget int
+	}{
+		"developer": {"decisions", 16_000}, "reviewer": {"decisions", 32_000}, "triage": {"knowledge", 6_000},
+		"test-engineer": {"test_plan", 16_000}, "onboarding-analyst": {"", 16_000},
+	} {
+		r, err := c.Resolve(ctx, uuid.Nil(), uuid.Nil(), name)
+		if err != nil || r.ContextBudget != want.budget || (want.first == "") != (len(r.Context) == 0) || (want.first != "" && r.Context[0] != want.first) {
+			t.Errorf("Resolve %s: context %v, budget %d, %v; want %q first, budget %d", name, r.Context, r.ContextBudget, err, want.first, want.budget)
+		}
+	}
+	dev, _ := c.Resolve(ctx, uuid.Nil(), uuid.Nil(), "developer")
+	dev.Context[0] = "changed"
+	if again, _ := c.Resolve(ctx, uuid.Nil(), uuid.Nil(), "developer"); again.Context[0] == "changed" {
+		t.Error("Resolve returns a shared context list")
+	}
+}
+
 func TestCatalogResolveErrors(t *testing.T) {
 	cfg := testConfig()
 	delete(cfg.Roles, "architect")

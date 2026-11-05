@@ -18,3 +18,4 @@ escalate_when:
   - a test command cannot be made to write JUnit XML
 max_turns: 80
 timeout: 40m
+context: [test_plan, decisions, knowledge, assumptions, notes]
