@@ -152,6 +152,7 @@ type PRInput struct {
 type PRUpdate struct {
 	Title *string
 	Body  *string
+	State *string // "closed" closes the PR without merging
 }
 
 // ReviewEvent is the verdict of a review.
@@ -305,6 +306,15 @@ type Tracker interface {
 	ListReviews(ctx context.Context, repo string, number int) ([]Review, error)
 	// BranchExists reports whether branch exists in repo.
 	BranchExists(ctx context.Context, repo, branch string) (bool, error)
+	// CreateBranch creates branch at commit sha; a branch that exists is
+	// left as it is.
+	CreateBranch(ctx context.Context, repo, branch, sha string) error
+	// WriteFile creates or updates path on branch with content and reports
+	// whether it changed anything; a file that already holds content is left
+	// alone.
+	WriteFile(ctx context.Context, repo, branch, path string, content []byte, message string) (bool, error)
+	// DeleteFile removes path from branch and reports whether it was there.
+	DeleteFile(ctx context.Context, repo, branch, path, message string) (bool, error)
 	// GetFile returns the content of the file at path in repo at ref (a
 	// branch, tag or commit SHA). ErrNotFound when the file or ref does not
 	// exist or path is a directory.
