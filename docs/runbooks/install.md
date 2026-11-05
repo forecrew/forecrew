@@ -138,6 +138,11 @@ cannot flag entries a push made out of date; see [../knowledge.md](../knowledge.
 Put its ID in `github.app_id` and the logins that may command
 `@forecrew` in `github.allowlist` (empty means nobody).
 
+To show the verification of a pull request as the check run
+`forecrew/verification`, the App also needs the **Checks** write permission.
+Without it the verification is still posted as a PR comment, and forecrewd logs
+a warning once (see [../playbooks.md](../playbooks.md#verification)).
+
 To run command jobs on GitHub-hosted runners (pool `actions`), the App also
 needs the Actions, Contents and Workflows write permissions and the
 **Workflow runs** event; see [actions.md](../actions.md).

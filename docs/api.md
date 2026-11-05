@@ -75,6 +75,7 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/jobs/{job}/cancel` | `cancel_job` | body optional | `200` job (now `canceled`) with `ref`; `409` when the job is not queued or running |
 | `GET /api/v1/jobs/{job}/artifacts` | `list_artifacts` | | `200` artifacts of the job by name: `id`, `name`, `content_type`, `size`, `sha256`, `created_at` |
 | `GET /api/v1/test-runs?job=&project=&change=&sha=&limit=` | `list_test_runs` | at least one of `job`, `change` (a PR number, needs `project`) and `sha`; `limit` defaults to 100, at most 500 | `200` test runs of command jobs, oldest first: `id`, `job_id`, `job_ref`, `change_id`, `sha`, `suite`, `environment`, `cell`, `status`, `counts`, `duration_ms`, `exit_code`, `versions`, `report_artifacts`, `attempt`, `created_at` and `failures` (the cases that failed or errored, at most 100 per run: `name`, `classname`, `status`, `message`, written by the repo's tests and so untrusted data) and `failures_truncated` |
+| `GET /api/v1/changes/{change}/verification?project=` | `verification_report` | `{change}` is a PR number (needs `project`), a PR URL (path-escaped) or a task ref such as `TASK-12` (its newest PR) | `200` the report: `id`, `change` (PR number), `url`, `sha`, `status` (`passed`, `failed`, `incomplete`), `current` (the report is for the PR's head commit; else it is the latest and stale), `report` (see below), `artifact_id` (the rendered Markdown, download it with `GET /api/v1/artifacts/{id}`; absent without evidence storage or after retention), `created_at`, `updated_at`; `404` when the PR is unknown or has no report yet |
 | `GET /api/v1/artifacts/{id}` | | `{id}` is an artifact UUID | `200` the file, streamed; see [Artifact downloads](#artifact-downloads). `404` when it is unknown, of another account, or deleted by retention; `503` without evidence storage |
 | `GET /api/v1/knowledge?project=&q=&section=&kind=&provider=&limit=` | `search_knowledge` | `project` and `q` required; `kind` is `entry`, `note` or `generated`; `limit` defaults to 8, at most 50 | `200` results (an array, `[]` when none) as in [mcp.md](mcp.md): `id`, `kind`, `provider`, `section`, `path`, `title`, `source_url`, `snippet`, `untrusted`, `provenance`, `needs_reverify`, `rank`. Snippets are not wrapped here: check `untrusted` before handing them to an agent |
 | `DELETE /api/v1/knowledge/notes/{note}` | `delete_note` | `{note}` is a note UUID | `200` `{"note": "uuid", "message": "..."}`; `400` when the entry is not an agent note, `404` when unknown |
@@ -194,6 +195,9 @@ The session, returned by login and `me`:
 ```
 
 - `spec` is the latest revision and is absent before the first one.
+- `verification` (on a task, absent when none of its PRs has a report) is
+  `{"status": "failed", "sha": "...", "current": true, "url":
+  "/api/v1/changes/TASK-12/verification"}` for the newest report.
 - `needs` lists the pending gates waiting for a human on the task.
 - `checks` is the aggregate check status of an open PR's head commit:
   `failure` wins over `pending`, which wins over `success`; `none` when there
