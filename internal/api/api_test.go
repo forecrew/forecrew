@@ -160,6 +160,7 @@ func TestEndpoints(t *testing.T) {
 			mcp.ListDecisionsInput{Project: "app", Goal: "GOAL-1", Council: "0192f5a0-0000-7000-8000-00000000000c"}},
 		{"POST", "/api/v1/councils", `{"project":"app","question":"Which queue?","kind":"technical","roles":["ux"]}`, 202, mcp.ToolStartCouncil,
 			mcp.StartCouncilInput{Project: "app", Question: "Which queue?", Kind: "technical", Roles: []string{"ux"}}},
+		{"GET", "/api/v1/councils?project=app&status=running", "", 200, mcp.ToolListCouncils, mcp.ListCouncilsInput{Project: "app", Status: "running"}},
 		{"GET", "/api/v1/councils/COUNCIL-2", "", 200, mcp.ToolGetCouncil, mcp.CouncilRefInput{Council: "COUNCIL-2"}},
 		{"POST", "/api/v1/councils/COUNCIL-2/constraints", `{"constraint":"Stay on Postgres"}`, 200, mcp.ToolAddConstraint, mcp.AddCouncilConstraintInput{Council: "COUNCIL-2", Constraint: "Stay on Postgres"}},
 		{"GET", "/api/v1/changes/9/verification?project=app", "", 200, mcp.ToolVerificationReport, mcp.VerificationReportInput{Change: "9", Project: "app"}},

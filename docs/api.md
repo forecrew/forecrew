@@ -81,6 +81,7 @@ structs in `internal/domain` and `internal/mcp`.
 | `DELETE /api/v1/knowledge/notes/{note}` | `delete_note` | `{note}` is a note UUID | `200` `{"note": "uuid", "message": "..."}`; `400` when the entry is not an agent note, `404` when unknown |
 | `POST /api/v1/knowledge/proposals` | `propose_knowledge` | `{"project", "section", "path", "body", "reason", "action"}`; `action` is optional, as in [mcp.md](mcp.md) | `201` `{"proposal": "KB-5", "status": "open", "number": 12, "url": "..."}`; `400` for what the policy refuses |
 | `POST /api/v1/councils` | `start_council` | `{"project", "question", "kind", "roles": [], "constraints": []}`; `project` and `question` required, `kind` defaults to `adhoc` | `202` council with `ref` and `run_id` (`running`) |
+| `GET /api/v1/councils?project=&status=` | `list_councils` | `project` required; `status` optional | `200` councils of the project with `ref`, newest first, at most 200 |
 | `GET /api/v1/councils/{council}` | `get_council` | `{council}` is `COUNCIL-2` or a UUID | `200` council with `ref`, `brief`, `contributions` by stage and round (`member`, `runtime`, `stage`, `round`, `content`, `evidence_check`; agent text, so untrusted data), `gate` and `decision` |
 | `POST /api/v1/councils/{council}/constraints` | `add_council_constraint` | `{"constraint": "..."}` | `200` council; the next round's prompts include it. `409` when the council ended |
 | `GET /api/v1/workers` | `list_workers` | | `200` workers with `pool`, `labels`, `version`, `last_seen_at`, `online` and `running_jobs` (refs) |

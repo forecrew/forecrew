@@ -46,6 +46,7 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.DeleteNote(ctx, by, mcp.DeleteNoteInput{}); return err },
 		func() error { _, err := s.ProposeKnowledge(ctx, by, mcp.ProposeKnowledgeInput{}); return err },
 		func() error { _, err := s.StartCouncil(ctx, by, mcp.StartCouncilInput{}); return err },
+		func() error { _, err := s.ListCouncils(ctx, by, mcp.ListCouncilsInput{}); return err },
 		func() error { _, err := s.GetCouncil(ctx, by, mcp.CouncilRefInput{}); return err },
 		func() error { _, err := s.AddCouncilConstraint(ctx, by, mcp.AddCouncilConstraintInput{}); return err },
 		func() error { _, err := s.VerificationReport(ctx, by, mcp.VerificationReportInput{}); return err },

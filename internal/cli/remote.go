@@ -317,6 +317,30 @@ func councilsCommand(r *remote) *cobra.Command {
 	start.Flags().StringArrayVar(&roles, "role", nil, "a member instead of the kind's (repeatable)")
 	start.Flags().StringArrayVar(&constraints, "constraint", nil, "what every option must respect (repeatable)")
 	councils.AddCommand(start)
+	var status string
+	list := &cobra.Command{
+		Use:   "list <project>",
+		Short: "List the councils of a project, newest first",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			q := url.Values{"project": {args[0]}}
+			if status != "" {
+				q.Set("status", status)
+			}
+			var items []mcp.CouncilInfo
+			if err := r.call(cmd.Context(), http.MethodGet, "/councils?"+q.Encode(), nil, &items); err != nil {
+				return err
+			}
+			rows := [][]string{{"COUNCIL", "KIND", "STATUS", "QUESTION"}}
+			for _, c := range items {
+				rows = append(rows, []string{c.Ref, string(c.Kind), string(c.Status), safeText(c.Question)})
+			}
+			table(cmd.OutOrStdout(), rows)
+			return nil
+		},
+	}
+	list.Flags().StringVar(&status, "status", "", "running, decided, failed or canceled")
+	councils.AddCommand(list)
 	councils.AddCommand(&cobra.Command{
 		Use:   "show <council>",
 		Short: "Show a council (COUNCIL-2 or UUID)",

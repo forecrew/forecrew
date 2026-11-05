@@ -67,6 +67,29 @@ func TestStartCouncilThatCannotRun(t *testing.T) {
 	}
 }
 
+func TestListCouncils(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	for _, status := range []domain.CouncilStatus{domain.CouncilRunning, domain.CouncilFailed} {
+		c := domain.Council{AccountID: f.account.ID, ProjectID: f.project.ID, Kind: domain.CouncilAdhoc, Question: "q " + string(status), Status: status}
+		must(t, f.st.Councils().Create(ctx, &c))
+	}
+	got, err := f.svc.ListCouncils(ctx, f.by, mcp.ListCouncilsInput{Project: "app"})
+	must(t, err)
+	if len(got) != 2 || got[0].Ref != "COUNCIL-2" || got[1].Ref != "COUNCIL-1" {
+		t.Fatalf("councils = %+v", got)
+	}
+	got, err = f.svc.ListCouncils(ctx, f.by, mcp.ListCouncilsInput{Project: "app", Status: domain.CouncilFailed})
+	must(t, err)
+	if len(got) != 1 || got[0].Ref != "COUNCIL-2" {
+		t.Fatalf("failed councils = %+v", got)
+	}
+	_, err = f.svc.ListCouncils(ctx, f.by, mcp.ListCouncilsInput{Project: "app", Status: "done"})
+	wantErr(t, err, mcp.ErrInvalidInput)
+	_, err = f.svc.ListCouncils(ctx, f.by, mcp.ListCouncilsInput{Project: "nope"})
+	wantErr(t, err, mcp.ErrNotFound)
+}
+
 func TestGetCouncil(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()

@@ -242,6 +242,7 @@ no permission and other people's need the one named; "the gate's" means
 | `delete_note` | `DELETE /api/v1/knowledge/notes/{note}` | `knowledge.propose`, the closest write permission: deleting an agent note curates knowledge, and the catalog has no narrower one |
 | `propose_knowledge` | `POST /api/v1/knowledge/proposals` | `knowledge.propose` and, for a protected section the caller approves, `gate.approve.knowledge_protected` |
 | `start_council` | `POST /api/v1/councils` | `council.start` |
+| `list_councils` | `GET /api/v1/councils` | `project.read` |
 | `get_council` | `GET /api/v1/councils/{council}` | `project.read` |
 | `add_council_constraint` | `POST /api/v1/councils/{council}/constraints` | `council.start` |
 | `list_workers` | `GET /api/v1/workers` | `worker.read` |
