@@ -204,9 +204,11 @@ hash only:
 - bound to the machine, its organization and an expiry of the shape's boot
   timeout;
 - exchanged once for a worker token, at `POST /worker/v1/bootstrap`;
-- minted when it is sent to the provider, because only the hash is kept: each
-  delivery of a machine still `requested` replaces it, and `Provider.Create` is
-  idempotent for that reason;
+- minted when it is delivered to the provider, because only the hash is kept.
+  It is delivered, and so replaced, only for a machine that is `requested` and
+  that the agent does not list as having (fleet-agent-api.md, poll), so a slow
+  `Create` keeps its token. A failed `Create` is delivered again, which is why
+  `Provider.Create` restarts a machine that exists;
 - on an unassigned machine, without organization and expiry: such a token only
   gets `202`, and marks the machine `ready`. Assigning the machine sets both, in
   one update with the machine's, and the waiting worker gets its token. It can

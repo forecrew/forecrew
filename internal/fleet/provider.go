@@ -45,7 +45,7 @@ type CreateRequest struct {
 	MachineID uuid.UUID    `json:"machine_id"`
 	Shape     domain.Shape `json:"shape"`
 	Image     domain.Image `json:"image"`
-	// Bootstrap is nil in a desired machine already started.
+	// Bootstrap is nil in a desired machine the agent already has.
 	Bootstrap *Bootstrap        `json:"bootstrap,omitempty"`
 	Tags      map[string]string `json:"tags"`
 	// NetworkAllow lists hosts or CIDRs the machine may reach beyond the

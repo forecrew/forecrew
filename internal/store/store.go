@@ -1059,8 +1059,10 @@ type MachineRepo interface {
 // BootstrapTokenRepo stores machines' one-time tokens, one per machine.
 type BootstrapTokenRepo interface {
 	// Issue stores t, replacing the machine's token unless that one was
-	// used (ErrConflict): each delivery to a provider mints a new token,
-	// because only hashes are kept.
+	// used (ErrConflict). Only hashes are kept, so delivering a machine to
+	// a provider mints a token, and it is called for that and nothing else:
+	// a machine the agent already has keeps its token (fleet-agent-api.md,
+	// poll).
 	Issue(ctx context.Context, t *domain.BootstrapToken) error
 	// GetByTokenHash is unscoped: the token identifies the machine. Used
 	// and expired tokens are returned too; callers check Usable.
