@@ -29,8 +29,10 @@ technical names; the UI says location and machine type.
 offered to every organization whose policy allows it, and managed only by
 instance admins. Everything else belongs to one organization.
 
-- A shape has the organization of its provider: both the same one, or both
-  instance-wide (trigger `shapes_check`). Neither ever changes organization.
+- A shape or join code has the organization of its provider: both the same
+  one, or both instance-wide (triggers `shapes_check` and
+  `provider_join_codes_check`). Neither a provider nor a shape ever changes
+  organization.
 - Machines of an organization's provider are `own`; machines of an
   instance-wide provider are `hosted` (`domain.Ownership`). Usage records keep
   which it was.
@@ -356,7 +358,8 @@ organization registers its own builds under its ID. The manifest of a build is
 
 `usage_records` (`domain.UsageRecord`), one per assigned machine, written when
 it is destroyed (T65): organization, machine, shape, `ownership`, `minutes`,
-`cost`, `started_at`, `ended_at`. A machine is metered from `assigned_at` to
+`cost`, `started_at`, `ended_at`. A composite key ties the organization and shape
+to the machine's own, so a machine's cost cannot land on another organization. A machine is metered from `assigned_at` to
 `destroyed_at`, so the time a warm machine waits costs nobody; `cost` is
 `minutes` × the shape's `price_per_minute` then. An unassigned machine has no
 record. `UsageRepo.Create` refuses a second record for a machine, so metering

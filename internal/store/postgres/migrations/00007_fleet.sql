@@ -77,19 +77,22 @@ CREATE TABLE shapes (
 );
 CREATE INDEX shapes_provider ON shapes (provider_id);
 
--- A shape and its provider have the same organization, or are both
--- instance-wide.
+-- A shape or join code and its provider have the same organization, or are
+-- both instance-wide. A composite key would not check a NULL organization.
 -- +goose StatementBegin
-CREATE FUNCTION shapes_check() RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE FUNCTION provider_scope_check() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM capacity_providers p WHERE p.id = NEW.provider_id AND p.account_id IS NOT DISTINCT FROM NEW.account_id) THEN
-    RAISE EXCEPTION 'a shape and its provider have the same organization' USING ERRCODE = 'check_violation', CONSTRAINT = 'shapes_check';
+  IF NEW.provider_id IS NOT NULL AND NOT EXISTS (
+       SELECT 1 FROM capacity_providers p WHERE p.id = NEW.provider_id AND p.account_id IS NOT DISTINCT FROM NEW.account_id) THEN
+    RAISE EXCEPTION '% and its provider have the same organization', TG_TABLE_NAME USING ERRCODE = 'check_violation', CONSTRAINT = TG_NAME;
   END IF;
   RETURN NEW;
 END $$;
 -- +goose StatementEnd
 CREATE TRIGGER shapes_check BEFORE INSERT OR UPDATE ON shapes
-  FOR EACH ROW EXECUTE FUNCTION shapes_check();
+  FOR EACH ROW EXECUTE FUNCTION provider_scope_check();
+CREATE TRIGGER provider_join_codes_check BEFORE INSERT OR UPDATE ON provider_join_codes
+  FOR EACH ROW EXECUTE FUNCTION provider_scope_check();
 
 -- A provider or shape in use never changes organization, which would carry
 -- its machines along.
@@ -129,6 +132,7 @@ CREATE TABLE machines (
   updated_at   timestamptz NOT NULL DEFAULT now(),
   UNIQUE (provider_id, external_id),
   UNIQUE (worker_id),
+  UNIQUE (id, account_id, shape_id),             -- what usage_records point at
   FOREIGN KEY (account_id, worker_id) REFERENCES workers (account_id, id),
   FOREIGN KEY (account_id, job_id) REFERENCES jobs (account_id, id),
   CHECK (account_id IS NOT NULL OR (worker_id IS NULL AND job_id IS NULL)),
@@ -224,14 +228,15 @@ CREATE TABLE images (
 CREATE TABLE usage_records (
   id         uuid PRIMARY KEY DEFAULT uuidv7(),
   account_id uuid NOT NULL REFERENCES accounts(id),
-  machine_id uuid NOT NULL UNIQUE REFERENCES machines(id),
-  shape_id   uuid NOT NULL REFERENCES shapes(id),
+  machine_id uuid NOT NULL UNIQUE,
+  shape_id   uuid NOT NULL,
   ownership  text NOT NULL CHECK (ownership IN ('own','hosted')),
   minutes    numeric(12,3) NOT NULL CHECK (minutes >= 0),
   cost       numeric(14,6) NOT NULL CHECK (cost >= 0),
   started_at timestamptz NOT NULL,
   ended_at   timestamptz NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (machine_id, account_id, shape_id) REFERENCES machines (id, account_id, shape_id),
   CHECK (ended_at >= started_at)
 );
 CREATE INDEX usage_records_account ON usage_records (account_id, ended_at);
@@ -245,8 +250,8 @@ DROP FUNCTION bootstrap_tokens_check();
 DROP TABLE machines;
 DROP FUNCTION machines_check();
 DROP TABLE shapes;
-DROP FUNCTION shapes_check();
 DROP TABLE provider_join_codes;
+DROP FUNCTION provider_scope_check();
 DROP TABLE capacity_providers;
 DROP FUNCTION fleet_account_fixed();
 DROP INDEX jobs_account_id;
