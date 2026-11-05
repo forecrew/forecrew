@@ -71,7 +71,7 @@ func (c *Client) UpdatePR(ctx context.Context, repo string, number int, in PRUpd
 	if err != nil {
 		return PullRequest{}, err
 	}
-	p, _, err := g.PullRequests.Edit(ctx, owner, name, number, &gh.PullRequest{Title: in.Title, Body: in.Body})
+	p, _, err := g.PullRequests.Edit(ctx, owner, name, number, &gh.PullRequest{Title: in.Title, Body: in.Body, State: in.State})
 	if err != nil {
 		return PullRequest{}, wrap(fmt.Sprintf("update pull request %s#%d", repo, number), err)
 	}
@@ -231,6 +231,46 @@ func (c *Client) BranchExists(ctx context.Context, repo, branch string) (bool, e
 		return false, nil
 	}
 	return false, wrap(fmt.Sprintf("check branch %q of %s", branch, repo), err)
+}
+
+// CreateBranch implements Tracker. GitHub answers 422 for a ref that exists,
+// which it also does for a commit it does not know, so the ref is looked at
+// first.
+func (c *Client) CreateBranch(ctx context.Context, repo, branch, sha string) error {
+	exists, err := c.BranchExists(ctx, repo, branch)
+	if err != nil || exists {
+		return err
+	}
+	g, owner, name, err := c.repoClient(ctx, repo)
+	if err != nil {
+		return err
+	}
+	_, _, err = g.Git.CreateRef(ctx, owner, name, gh.CreateRef{Ref: "refs/heads/" + branch, SHA: sha})
+	if err != nil {
+		return wrap(fmt.Sprintf("create branch %q of %s", branch, repo), err)
+	}
+	return nil
+}
+
+// DeleteFile implements Tracker.
+func (c *Client) DeleteFile(ctx context.Context, repo, branch, path, message string) (bool, error) {
+	g, owner, name, err := c.repoClient(ctx, repo)
+	if err != nil {
+		return false, err
+	}
+	op := fmt.Sprintf("delete %s on %s of %s", path, branch, repo)
+	cur, _, _, err := g.Repositories.GetContents(ctx, owner, name, path, &gh.RepositoryContentGetOptions{Ref: branch})
+	if statusOf(err) == http.StatusNotFound {
+		return false, nil
+	}
+	if err != nil {
+		return false, wrap(op, err)
+	}
+	opts := &gh.RepositoryContentFileOptions{Message: &message, Branch: &branch, SHA: cur.SHA}
+	if _, _, err = g.Repositories.DeleteFile(ctx, owner, name, path, opts); err != nil {
+		return false, wrap(op, err)
+	}
+	return true, nil
 }
 
 // GetFile implements Tracker.

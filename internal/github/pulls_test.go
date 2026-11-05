@@ -1,7 +1,9 @@
 package github_test
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -381,4 +383,77 @@ func TestGetFile(t *testing.T) {
 	}
 	_, err = e.client.GetFile(ctx, "bad", "main", "x")
 	wantErr(t, err, github.ErrInvalid)
+}
+
+func TestCreateBranch(t *testing.T) {
+	e := newEnv(t)
+	created := ""
+	e.handle("GET /repos/acme/app/git/ref/heads/agent/kb-JOB-1", func(w http.ResponseWriter, _ *http.Request) { http.NotFound(w, nil) })
+	e.handle("POST /repos/acme/app/git/refs", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		noErr(t, json.NewDecoder(r.Body).Decode(&body))
+		created = body["ref"] + "@" + body["sha"]
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprint(w, `{"ref": "x"}`)
+	})
+	noErr(t, e.client.CreateBranch(t.Context(), "acme/app", "agent/kb-JOB-1", "abc"))
+	if created != "refs/heads/agent/kb-JOB-1@abc" {
+		t.Errorf("created = %q", created)
+	}
+
+	e = newEnv(t)
+	e.handle("GET /repos/acme/app/git/ref/heads/main", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `{"ref": "refs/heads/main"}`) })
+	noErr(t, e.client.CreateBranch(t.Context(), "acme/app", "main", "abc")) // exists: no POST
+
+	e = newEnv(t)
+	e.handle("GET /repos/acme/app/git/ref/heads/b", func(w http.ResponseWriter, _ *http.Request) { http.NotFound(w, nil) })
+	e.handle("POST /repos/acme/app/git/refs", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message": "x"}`, http.StatusUnprocessableEntity)
+	})
+	wantErr(t, e.client.CreateBranch(t.Context(), "acme/app", "b", "abc"), github.ErrInvalid)
+	if err := e.client.CreateBranch(t.Context(), "bad", "b", "abc"); !errors.Is(err, github.ErrInvalid) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestDeleteFile(t *testing.T) {
+	e := newEnv(t)
+	e.handle("GET /repos/acme/app/contents/a.md", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"type": "file", "sha": "s1", "content": "", "encoding": "base64"}`)
+	})
+	var body map[string]any
+	e.handle("DELETE /repos/acme/app/contents/a.md", func(w http.ResponseWriter, r *http.Request) {
+		noErr(t, json.NewDecoder(r.Body).Decode(&body))
+		fmt.Fprint(w, `{"commit": {}}`)
+	})
+	found, err := e.client.DeleteFile(t.Context(), "acme/app", "b", "a.md", "Retire a")
+	noErr(t, err)
+	if !found || body["sha"] != "s1" || body["branch"] != "b" || body["message"] != "Retire a" {
+		t.Errorf("found = %v, body = %v", found, body)
+	}
+
+	e = newEnv(t)
+	e.handle("GET /repos/acme/app/contents/a.md", func(w http.ResponseWriter, _ *http.Request) { http.NotFound(w, nil) })
+	found, err = e.client.DeleteFile(t.Context(), "acme/app", "b", "a.md", "m")
+	if err != nil || found {
+		t.Errorf("gone file: %v, %v", found, err)
+	}
+
+	e = newEnv(t)
+	e.handle("GET /repos/acme/app/contents/a.md", func(w http.ResponseWriter, _ *http.Request) { http.Error(w, `{"message": "x"}`, http.StatusForbidden) })
+	_, err = e.client.DeleteFile(t.Context(), "acme/app", "b", "a.md", "m")
+	wantErr(t, err, github.ErrForbidden)
+
+	e = newEnv(t)
+	e.handle("GET /repos/acme/app/contents/a.md", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `{"type": "file", "sha": "s1"}`) })
+	e.handle("DELETE /repos/acme/app/contents/a.md", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message": "x"}`, http.StatusConflict)
+	})
+	_, err = e.client.DeleteFile(t.Context(), "acme/app", "b", "a.md", "m")
+	if err == nil {
+		t.Error("a refused delete must fail")
+	}
+	if _, err = e.client.DeleteFile(t.Context(), "bad", "b", "a.md", "m"); !errors.Is(err, github.ErrInvalid) {
+		t.Errorf("err = %v", err)
+	}
 }

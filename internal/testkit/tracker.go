@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"maps"
@@ -38,6 +39,7 @@ type fakeRepo struct {
 	commentID int64
 	branches  map[string]bool
 	files     map[string][]byte        // by ref and path, see fileKey
+	deleted   map[string][]string      // by branch, see DeleteFile
 	heads     map[string]string        // branch to commit, see SetHeadOfBranch
 	commits   map[string]github.Commit // by path, see SetLastCommit
 	remote    string                   // bare git repository, see UseRemote
@@ -63,7 +65,7 @@ func (t *Tracker) Install(repo string) {
 	t.repos[strings.ToLower(repo)] = &fakeRepo{
 		issues: map[int]*fakeIssue{}, prs: map[int]*github.PullRequest{}, labels: map[string]github.Label{},
 		checks: map[string]github.CheckStatus{}, checkRuns: map[string]github.CheckRunInput{}, reviews: map[int][]github.Review{},
-		branches: map[string]bool{}, files: map[string][]byte{}, heads: map[string]string{}, commits: map[string]github.Commit{},
+		branches: map[string]bool{}, files: map[string][]byte{}, heads: map[string]string{}, commits: map[string]github.Commit{}, deleted: map[string][]string{},
 	}
 }
 
@@ -482,6 +484,10 @@ func (t *Tracker) UpdatePR(_ context.Context, repo string, number int, in github
 		}
 		setIf(&pr.Title, in.Title)
 		setIf(&pr.Body, in.Body)
+		setIf(&pr.State, in.State)
+		if in.State != nil {
+			r.issues[number].issue.State = *in.State
+		}
 		out = *pr
 		return nil
 	})
@@ -562,6 +568,54 @@ func (t *Tracker) GetFile(_ context.Context, repo, ref, path string) ([]byte, er
 	return out, err
 }
 
+// CreateBranch implements github.Tracker: the branch starts with the files
+// set at sha.
+func (t *Tracker) CreateBranch(_ context.Context, repo, branch, sha string) error {
+	return t.with(repo, func(r *fakeRepo) error {
+		if r.branches[branch] {
+			return nil
+		}
+		r.branches[branch] = true
+		r.heads[branch] = sha
+		for p, b := range r.refFiles(sha) {
+			r.files[fileKey(branch, p)] = b
+		}
+		return nil
+	})
+}
+
+// WriteFile implements github.Tracker.
+func (t *Tracker) WriteFile(_ context.Context, repo, branch, path string, content []byte, _ string) (bool, error) {
+	changed := false
+	err := t.with(repo, func(r *fakeRepo) error {
+		if _, inRemote := r.branchSHA(branch); !r.branches[branch] && !inRemote && r.heads[branch] == "" {
+			return fmt.Errorf("write %s on %s: %w", path, branch, github.ErrInvalid)
+		}
+		key := fileKey(branch, path)
+		old, ok := r.files[key]
+		if changed = !ok || !bytes.Equal(old, content); changed {
+			r.files[key] = slices.Clone(content)
+		}
+		return nil
+	})
+	return changed, err
+}
+
+// DeleteFile implements github.Tracker. Merging the branch deletes the file
+// from the base.
+func (t *Tracker) DeleteFile(_ context.Context, repo, branch, path, _ string) (bool, error) {
+	found := false
+	err := t.with(repo, func(r *fakeRepo) error {
+		key := fileKey(branch, path)
+		if _, found = r.files[key]; found {
+			delete(r.files, key)
+			r.deleted[branch] = append(r.deleted[branch], path)
+		}
+		return nil
+	})
+	return found, err
+}
+
 // AddBranch simulates a pushed branch.
 func (t *Tracker) AddBranch(repo, branch string) error {
 	return t.with(repo, func(r *fakeRepo) error {
@@ -612,6 +666,9 @@ func (t *Tracker) MergePR(_ context.Context, repo string, number int, in github.
 				r.files[fileKey(pr.Base, path)] = b
 				r.files[fileKey(sha, path)] = b
 			}
+		}
+		for _, path := range r.deleted[pr.Head] {
+			delete(r.files, fileKey(pr.Base, path))
 		}
 		ev = prClosedEvent(repo, *pr)
 		return nil

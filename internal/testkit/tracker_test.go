@@ -441,3 +441,50 @@ func TestTrackerUpdateCommentAndCheckRun(t *testing.T) {
 	must(t, tr.ForbidChecks("acme/app"))
 	wantErr(t, tr.SetCheckRun(ctx, "acme/app", in), github.ErrForbidden)
 }
+
+func TestTrackerWritesBranches(t *testing.T) {
+	ctx := t.Context()
+	tr := NewTracker(nil)
+	tr.Install("acme/app")
+	must(t, tr.SetFile("acme/app", "head1", "a.md", []byte("a")))
+	must(t, tr.SetHeadOfBranch("acme/app", "main", "head1"))
+	if _, err := tr.WriteFile(ctx, "acme/app", "nope", "x.md", []byte("x"), "m"); !errors.Is(err, github.ErrInvalid) {
+		t.Errorf("write on a missing branch: %v", err)
+	}
+	must(t, tr.CreateBranch(ctx, "acme/app", "kb", "head1"))
+	must(t, tr.CreateBranch(ctx, "acme/app", "kb", "other")) // exists: left alone
+	changed, err := tr.WriteFile(ctx, "acme/app", "kb", "b.md", []byte("b"), "m")
+	must(t, err)
+	again, err := tr.WriteFile(ctx, "acme/app", "kb", "b.md", []byte("b"), "m")
+	must(t, err)
+	if !changed || again {
+		t.Errorf("changed = %v, again = %v", changed, again)
+	}
+	found, err := tr.DeleteFile(ctx, "acme/app", "kb", "a.md", "m")
+	must(t, err)
+	missing, err := tr.DeleteFile(ctx, "acme/app", "kb", "a.md", "m")
+	must(t, err)
+	if !found || missing {
+		t.Errorf("found = %v, missing = %v", found, missing)
+	}
+	must(t, tr.SetFile("acme/app", "main", "a.md", []byte("a")))
+	pr, err := tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "t", Head: "kb", Base: "main"})
+	must(t, err)
+	_, err = tr.MergePR(ctx, "acme/app", pr.Number, github.MergeInput{})
+	must(t, err)
+	if _, err := tr.GetFile(ctx, "acme/app", "main", "a.md"); !errors.Is(err, github.ErrNotFound) {
+		t.Errorf("deleted file after merge: %v", err)
+	}
+	if b, err := tr.GetFile(ctx, "acme/app", "main", "b.md"); err != nil || string(b) != "b" {
+		t.Errorf("written file after merge: %q, %v", b, err)
+	}
+
+	closed := "closed"
+	must(t, tr.CreateBranch(ctx, "acme/app", "kb2", "head1"))
+	pr, err = tr.CreatePR(ctx, "acme/app", github.PRInput{Title: "t", Head: "kb2", Base: "main"})
+	must(t, err)
+	pr, err = tr.UpdatePR(ctx, "acme/app", pr.Number, github.PRUpdate{State: &closed})
+	if err != nil || pr.State != "closed" {
+		t.Errorf("closed PR = %+v, %v", pr, err)
+	}
+}
