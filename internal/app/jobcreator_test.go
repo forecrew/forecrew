@@ -73,6 +73,46 @@ func TestJobCreatorWritingRole(t *testing.T) {
 	}
 }
 
+// A job records what its context pack held, and an assumption of its goal
+// reaches the pack through the register.
+func TestJobCreatorContextManifest(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	goal := domain.Goal{AccountID: f.account.ID, ProjectID: f.project.ID, Title: "Ship it", Body: "Add a thing", CreatedBy: "user:me"}
+	must(t, f.st.Goals().Create(ctx, &goal))
+	a := domain.Assumption{AccountID: f.account.ID, ProjectID: f.project.ID, GoalID: goal.ID, MadeBy: "architect",
+		Statement: "The thing is cheap.", Confidence: domain.LevelLow, Impact: domain.LevelMedium, VerifyBy: domain.VerifyByTest, Status: domain.AssumptionUnverified}
+	must(t, f.st.Assumptions().Create(ctx, &a))
+
+	req := f.request("developer")
+	req.GoalID = goal.ID
+	id, err := f.creator.Create(ctx, req)
+	must(t, err)
+	j, err := f.st.Jobs().Get(ctx, f.account.ID, id)
+	must(t, err)
+	role, err := f.catalog.Resolve(ctx, f.account.ID, f.project.ID, "developer")
+	must(t, err)
+	m := j.ContextManifest
+	if m == nil || m.Budget != role.ContextBudget || m.Size == 0 || len(m.Sections) != len(role.Context) {
+		t.Fatalf("manifest = %+v, want the sections %v", m, role.Context)
+	}
+	for _, s := range m.Sections {
+		if s.Name == "assumptions" && (len(s.Items) != 1 || s.Items[0].ID != a.Ref()) {
+			t.Errorf("assumptions section = %+v, want %s", s, a.Ref())
+		}
+	}
+	if !strings.Contains(j.Spec.Prompt, "The thing is cheap.") {
+		t.Errorf("prompt lacks the assumption:\n%s", j.Spec.Prompt)
+	}
+
+	// A role without sections has no pack to record.
+	id, err = f.creator.Create(ctx, f.request("onboarding-analyst"))
+	must(t, err)
+	if j, err := f.st.Jobs().Get(ctx, f.account.ID, id); err != nil || j.ContextManifest != nil {
+		t.Errorf("manifest of a role without sections = %+v, %v", j.ContextManifest, err)
+	}
+}
+
 func TestJobCreatorLockedPaths(t *testing.T) {
 	f := newFixture(t)
 	req := f.request("developer")
