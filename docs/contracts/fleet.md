@@ -390,4 +390,5 @@ can be retried.
 
 `worker.read` reads machines, providers, shapes, images and usage;
 `worker.manage`, shown as Manage machines, changes providers, shapes and the
-fleet policy (permissions.md). Instance-wide rows are for instance admins.
+fleet policy, except their budget fields, which need `billing.manage`
+(permissions.md, Budget fields). Instance-wide rows are for instance admins.
