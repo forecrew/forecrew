@@ -1,11 +1,13 @@
 package tools_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
@@ -164,4 +166,41 @@ func TestGetGoalLinksTheVerification(t *testing.T) {
 	if v := d.Tasks[0].Verification; v == nil || v.Status != domain.VerificationPassed || !v.Current {
 		t.Fatalf("verification = %+v", v)
 	}
+}
+
+// TestVerificationReportChecksTheProject: every way to name a change resolves
+// to its project, and the caller needs job.read there.
+func TestVerificationReportChecksTheProject(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	task, first, _ := f.newTaskWithReports(t)
+	f.storeReport(t, first, verifiedSHA, domain.VerificationFailed)
+	second := f.secondProject(t)
+	elsewhere, _ := f.member(t, projectScope, domain.RoleViewer, second.ID)
+	role := domain.Role{AccountID: f.account.ID, Name: "goals", Scope: projectScope, Permissions: []domain.Permission{domain.PermGoalRead}, Custom: true}
+	must(t, f.st.Roles().Create(ctx, &role))
+	noJobs, id := f.member(t, "", "", uuid.Nil())
+	must(t, f.st.RoleBindings().Create(ctx, &domain.RoleBinding{AccountID: f.account.ID, SubjectKind: domain.SubjectUser, SubjectID: id, RoleID: role.ID, ProjectID: f.project.ID, CreatedBy: "user:op"}))
+	viewer, _ := f.member(t, projectScope, domain.RoleViewer, f.project.ID)
+
+	for name, in := range map[string]mcp.VerificationReportInput{
+		"number": {Change: "8", Project: "app"},
+		"url":    {Change: first.URL},
+	} {
+		for who, by := range map[string]domain.Actor{"another project": elsewhere, "no job.read": noJobs} {
+			_, err := f.svc.VerificationReport(ctx, by, in)
+			if !errors.Is(err, authz.ErrDenied) {
+				t.Errorf("%s, %s: err = %v", name, who, err)
+			}
+		}
+		if got, err := f.svc.VerificationReport(ctx, viewer, in); err != nil || got.Change != 8 {
+			t.Errorf("%s: viewer = %+v, %v", name, got, err)
+		}
+	}
+	// A task ref means its newest pull request, which has no report here: the
+	// refusal comes first, so it does not tell.
+	_, err := f.svc.VerificationReport(ctx, elsewhere, mcp.VerificationReportInput{Change: task.Ref()})
+	wantErr(t, err, authz.ErrDenied)
+	_, err = f.svc.VerificationReport(ctx, viewer, mcp.VerificationReportInput{Change: task.Ref()})
+	wantErr(t, err, mcp.ErrNotFound)
 }
