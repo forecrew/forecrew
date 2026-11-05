@@ -210,7 +210,7 @@ func New(d Deps) (*App, error) {
 	search := &knowledge.Search{Index: index, Policy: syncer.Policy}
 	kbProposals := &proposals.Service{Store: st, Policy: syncer.Policy, GitHub: d.GitHub, Gates: gateSvc, Roles: catalog, Log: log}
 	jobSvc.WithRegistrar(kbProposals)
-	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0), jobs: jobSvc, knowledge: syncer, councils: seats, models: cfg.ModelOn}
+	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0).WithKnowledge(search).WithAssumptions(regs), jobs: jobSvc, knowledge: syncer, councils: seats, models: cfg.ModelOn}
 
 	actions := workflow.Actions{}
 	var engine *workflow.Engine
