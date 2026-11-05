@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"slices"
@@ -60,8 +61,8 @@ func claudeArgs(spec RunSpec) []string {
 		"--permission-mode", "dontAsk", "--setting-sources", "user",
 		"--tools", strings.Join(baseToolNames(builtin), ","),
 	}
-	if spec.JobMCP != nil {
-		args = append(args, "--mcp-config", claudeMCPConfig(spec.JobMCP.URL), "--strict-mcp-config")
+	if spec.JobMCP != nil || len(spec.MCPServers) > 0 {
+		args = append(args, "--mcp-config", claudeMCPConfig(spec), "--strict-mcp-config")
 	} else {
 		args = append(args, "--disallowedTools", "mcp__*")
 	}
@@ -77,16 +78,37 @@ func claudeArgs(spec RunSpec) []string {
 	return append(args, append([]string{"--allowedTools"}, tools...)...)
 }
 
-// claudeMCPConfig is the --mcp-config of the job MCP gateway. The header
-// refers to the token's environment variable, which Claude Code expands, so
-// the token is not in argv.
-func claudeMCPConfig(url string) string {
-	cfg := map[string]any{"mcpServers": map[string]any{JobMCPServer: map[string]any{
-		"type": "http", "url": url,
-		"headers": map[string]string{"Authorization": "Bearer ${" + JobMCPTokenEnv + "}"},
-		"timeout": jobMCPToolTimeout.Milliseconds(),
-	}}}
-	b, _ := json.Marshal(cfg) // strings and numbers always marshal
+// claudeMCPConfig is the --mcp-config of the job MCP gateway and the stdio
+// servers of the toolbox. The gateway's header and the credentials of a
+// server refer to environment variables, which Claude Code expands, so no
+// secret is in argv.
+func claudeMCPConfig(spec RunSpec) string {
+	servers := map[string]any{}
+	if spec.JobMCP != nil {
+		servers[JobMCPServer] = map[string]any{
+			"type": "http", "url": spec.JobMCP.URL,
+			"headers": map[string]string{"Authorization": "Bearer ${" + JobMCPTokenEnv + "}"},
+			"timeout": jobMCPToolTimeout.Milliseconds(),
+		}
+	}
+	for _, s := range spec.MCPServers {
+		env := maps.Clone(s.Env)
+		if env == nil {
+			env = map[string]string{}
+		}
+		for _, name := range s.CredentialEnv {
+			env[name] = "${" + name + "}"
+		}
+		server := map[string]any{"type": "stdio", "command": s.Command, "args": s.Args}
+		if s.Args == nil {
+			server["args"] = []string{}
+		}
+		if len(env) > 0 {
+			server["env"] = env
+		}
+		servers[s.Name] = server
+	}
+	b, _ := json.Marshal(map[string]any{"mcpServers": servers}) // strings and numbers always marshal
 	return string(b)
 }
 
@@ -107,13 +129,16 @@ func (c *claudeCode) Run(ctx context.Context, spec RunSpec, emit func(domain.Job
 	// Each run gets an empty config dir, so the worker account's own
 	// ~/.claude (allow rules, hooks, settings) cannot widen the permissions
 	// the job was given. Credentials come from the API key in spec.Env.
-	configDir, err := os.MkdirTemp("", "forecrew-claude-")
-	if err != nil {
-		return Result{}, fmt.Errorf("create claude config dir: %w", err)
+	configDir := ContainerHome // empty and private to the container
+	if spec.Container == nil {
+		var err error
+		if configDir, err = os.MkdirTemp("", "forecrew-claude-"); err != nil {
+			return Result{}, fmt.Errorf("create claude config dir: %w", err)
+		}
+		defer func() { _ = os.RemoveAll(configDir) }()
 	}
-	defer func() { _ = os.RemoveAll(configDir) }()
 	r := cliRun{
-		binary: c.cfg.binary("claude"), args: claudeArgs(spec), stdin: spec.Prompt,
+		binary: spec.binary(c.cfg, "claude"), args: claudeArgs(spec), stdin: spec.Prompt,
 		env: []string{"CLAUDE_CONFIG_DIR=" + configDir},
 	}
 	if spec.Endpoint != nil {

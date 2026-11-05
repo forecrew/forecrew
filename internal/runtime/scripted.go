@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -21,6 +22,9 @@ const Scripted = "scripted"
 type Script struct {
 	Events []ScriptEvent `json:"events,omitempty"`
 	Edits  []ScriptEdit  `json:"edits,omitempty"`
+	// Commands run in the work dir after the events and before the edits;
+	// they need a toolbox container (RunSpec.Container).
+	Commands []ScriptCommand `json:"commands,omitempty"`
 	// Text is the final assistant message. When Output is set, it is
 	// appended as a fenced json block, as a real agent would end its answer.
 	Text   string          `json:"text,omitempty"`
@@ -41,6 +45,13 @@ type ScriptEvent struct {
 	// Delay is waited before the event (a Go duration), to test timeouts and
 	// cancellation.
 	Delay domain.Duration `json:"delay,omitempty"`
+}
+
+// ScriptCommand runs a program of the toolbox. Its output goes to the job
+// log as log events, and a failing exit code is logged, not an error: a
+// scanner exits non-zero when it finds something.
+type ScriptCommand struct {
+	Argv []string `json:"argv"`
 }
 
 // ScriptEdit writes (or deletes) one file, relative to the work dir.
@@ -94,6 +105,12 @@ func (s *scripted) Run(ctx context.Context, spec RunSpec, emit func(domain.JobEv
 		}
 		return Result{}, err
 	}
+	if err := runCommands(runCtx, spec, sc.Commands, e); err != nil {
+		if ctx.Err() == nil && runCtx.Err() != nil {
+			return Result{}, fmt.Errorf("%w after %s", ErrTimeout, spec.Timeout)
+		}
+		return Result{}, err
+	}
 	if err := applyEdits(spec.WorkDir, sc.Edits); err != nil {
 		return Result{}, err
 	}
@@ -134,6 +151,33 @@ func replay(ctx context.Context, sc Script, e *emitter) error {
 			data = ev.Data
 		}
 		e.event(ev.Type, ev.Text, data)
+	}
+	return nil
+}
+
+var errNoContainer = errors.New("script commands run only in a toolbox container")
+
+// runCommands runs the script's commands in spec's container, in the work
+// dir, with the environment of Env only.
+func runCommands(ctx context.Context, spec RunSpec, cmds []ScriptCommand, e *emitter) error {
+	if len(cmds) == 0 {
+		return nil
+	}
+	if spec.Container == nil {
+		return errNoContainer
+	}
+	log := func(b []byte) { e.event(domain.EventLog, string(b), nil) }
+	for _, c := range cmds {
+		if len(c.Argv) == 0 {
+			return errors.New("script command has no argv")
+		}
+		e.event(domain.EventLog, "$ "+strings.Join(c.Argv, " "), nil)
+		p := spec.Container.Wrap(Process{Path: c.Argv[0], Args: c.Argv[1:], Dir: spec.WorkDir, Env: spec.baseEnv(Config{})})
+		exit, err := Exec(ctx, p, log, log)
+		if err != nil && !errors.Is(err, ErrRunFailed) {
+			return fmt.Errorf("script command %s: %w", c.Argv[0], err)
+		}
+		e.event(domain.EventLog, fmt.Sprintf("exit code %d", exit.Code), nil)
 	}
 	return nil
 }
