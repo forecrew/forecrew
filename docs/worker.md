@@ -57,6 +57,14 @@ roles and job kinds each pool runs and which credentials its jobs receive:
   forecrewd runs its jobs on GitHub-hosted runners (see [actions.md](actions.md),
   with its costs and limits).
 
+## Machines
+
+The workers above are static: an admin adds them and they stay. A worker on a
+machine of the fleet (docs/contracts/fleet.md) is **ephemeral**: it is made
+when the machine boots, from a one-time token, takes its pool and labels from
+the machine's shape, and goes with the machine. Nothing changes for static
+workers.
+
 ## Jobs
 
 - Each repo has a bare cache under `work_dir/repos/<owner>/<name>.git`; every

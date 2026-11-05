@@ -1,6 +1,6 @@
 # Data model
 
-Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access). Each table maps to a
+Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access, 00007 the fleet). Each table maps to a
 type in `internal/domain` and a repository in `store.Store`; JSON names in
 `domain` equal the column names. The DDL below is the contract; T02 may add
 indexes but not change columns, types or constraints without a contract
@@ -25,15 +25,19 @@ change.
   transaction as the insert, per account and kind, starting at 1.
 - Foreign keys use the default `ON DELETE NO ACTION`; nothing is deleted
   except expired `webhook_deliveries`, by retention `artifacts`, expired
-  `sessions` and `oauth_grants`, unused `oauth_clients`, and the
+  `sessions` and `oauth_grants`, unused `oauth_clients`, the
   membership rows that removing a member, a team or a binding deletes
-  (identity.md).
+  (identity.md), and `images` by retention.
 - `accounts` are organizations (identity.md): storage keeps `account` and
   `account_id`, the API, UI, CLI and docs say organization. Users,
   identities, OAuth clients and grants and sessions are global; every other
   identity table has `account_id`.
 - `jobs.pool` and `workers.pool` hold pool names from config.md `pools`
   (no CHECK: pools are configuration); empty is stored as `build`.
+- `account_id` NULL on `capacity_providers`, `shapes` and `images` means
+  instance-wide, and on `machines` an unassigned warm machine (fleet.md).
+  Triggers keep these rows in one organization, because a composite key
+  cannot check a NULL one.
 - `audit_log` is append-only: triggers reject `UPDATE`, `DELETE` and `TRUNCATE`.
 - pgvector is optional. Migration 00004 creates the extension and
   `knowledge_entries.embedding` only when the extension is installed or
@@ -120,6 +124,7 @@ CREATE TABLE jobs (
   role             text NOT NULL,          -- may be '' for command jobs
   runtime          text NOT NULL,          -- adapter: claude-code | codex | opencode; '' for command jobs
   needs            text[] NOT NULL DEFAULT '{}',
+  resources        jsonb NOT NULL DEFAULT '{}',   -- domain.Resources: what it needs of a machine (fleet.md)
   goal_id          uuid REFERENCES goals(id),
   spec_id          uuid,                   -- FK added after specs
   task_id          uuid,                   -- FK added after tasks
@@ -218,6 +223,7 @@ CREATE TABLE workers (
   account_id   uuid NOT NULL REFERENCES accounts(id),
   name         text NOT NULL,
   pool         text NOT NULL DEFAULT 'build', -- set by an admin, never by the worker
+  ephemeral    boolean NOT NULL DEFAULT false, -- the worker of a machine (fleet.md); false on every static worker
   token_hash   bytea NOT NULL UNIQUE,       -- SHA-256 of the worker token
   labels       text[] NOT NULL DEFAULT '{}',
   version      text NOT NULL DEFAULT '',
@@ -1037,6 +1043,223 @@ CREATE TABLE scim_tokens (
   created_at   timestamptz NOT NULL DEFAULT now(),
   UNIQUE (account_id, name)
 );
+
+-- The fleet (fleet.md). Migration 00007 also adds workers.ephemeral,
+-- jobs.resources and the unique indexes workers (account_id, id) and
+-- jobs (account_id, id) that machines' composite keys point at.
+CREATE TABLE capacity_providers (
+  id            uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id    uuid REFERENCES accounts(id),
+  name          text NOT NULL CHECK (name ~ '^[a-z0-9][a-z0-9._-]{0,63}$'),
+  kind          text NOT NULL CHECK (kind IN ('microvm','proxmox','hyperv','tart','aws','fake')),
+  mode          text NOT NULL DEFAULT 'agent' CHECK (mode IN ('agent','direct')),
+  status        text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','active','paused','revoked')),
+  token_hash    bytea UNIQUE CHECK (octet_length(token_hash) = 32),
+  last_seen_at  timestamptz,
+  capabilities  jsonb NOT NULL DEFAULT '{}',
+  limits        jsonb NOT NULL DEFAULT '{}',
+  network_allow text[] NOT NULL DEFAULT '{}',
+  tags          jsonb NOT NULL DEFAULT '{}',
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE NULLS NOT DISTINCT (account_id, name),
+  CHECK (mode = 'agent' OR token_hash IS NULL),
+  CHECK (mode = 'direct' OR status <> 'active' OR token_hash IS NOT NULL)
+);
+
+CREATE TABLE provider_join_codes (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id  uuid REFERENCES accounts(id),
+  code_hash   bytea NOT NULL UNIQUE CHECK (octet_length(code_hash) = 32),
+  claim_hash  bytea CHECK (octet_length(claim_hash) = 32),
+  kind        text CHECK (kind IN ('microvm','proxmox','hyperv','tart','aws','fake')),
+  facts       jsonb NOT NULL DEFAULT '{}',
+  provider_id uuid REFERENCES capacity_providers(id),
+  expires_at  timestamptz NOT NULL,
+  used_at     timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  CHECK (used_at IS NULL OR provider_id IS NOT NULL),
+  CHECK (provider_id IS NULL OR claim_hash IS NOT NULL)
+);
+
+CREATE TABLE shapes (
+  id                   uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id           uuid REFERENCES accounts(id),
+  provider_id          uuid NOT NULL REFERENCES capacity_providers(id),
+  name                 text NOT NULL CHECK (name ~ '^[a-z0-9][a-z0-9._-]{0,63}$'),
+  os                   text NOT NULL CHECK (os IN ('linux','windows','macos')),
+  arch                 text NOT NULL CHECK (arch IN ('amd64','arm64')),
+  cpu                  integer NOT NULL CHECK (cpu >= 1),
+  memory_mb            integer NOT NULL CHECK (memory_mb >= 1),
+  disk_gb              integer NOT NULL CHECK (disk_gb >= 1),
+  gpu                  integer NOT NULL DEFAULT 0 CHECK (gpu >= 0),
+  pool                 text NOT NULL DEFAULT 'build' CHECK (pool <> 'actions'),
+  labels               text[] NOT NULL DEFAULT '{}',
+  provider_config      jsonb NOT NULL DEFAULT '{}',
+  image                text NOT NULL,
+  price_per_minute     numeric(12,6) NOT NULL DEFAULT 0 CHECK (price_per_minute >= 0),
+  monthly_budget       numeric(14,2) CHECK (monthly_budget >= 0),
+  warm_min             integer NOT NULL DEFAULT 0 CHECK (warm_min >= 0),
+  max                  integer NOT NULL DEFAULT 1 CHECK (max >= 1),
+  idle_seconds         integer NOT NULL DEFAULT 0 CHECK (idle_seconds >= 0),
+  boot_timeout_seconds integer NOT NULL DEFAULT 300 CHECK (boot_timeout_seconds >= 1),
+  max_jobs             integer NOT NULL DEFAULT 1 CHECK (max_jobs >= 1),
+  note                 text NOT NULL DEFAULT '',
+  enabled              boolean NOT NULL DEFAULT true,
+  created_at           timestamptz NOT NULL DEFAULT now(),
+  updated_at           timestamptz NOT NULL DEFAULT now(),
+  UNIQUE NULLS NOT DISTINCT (account_id, name),
+  CHECK (warm_min <= max)
+);
+CREATE INDEX shapes_provider ON shapes (provider_id);
+
+-- A shape and its provider have the same organization, or are both
+-- instance-wide.
+CREATE FUNCTION shapes_check() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM capacity_providers p WHERE p.id = NEW.provider_id AND p.account_id IS NOT DISTINCT FROM NEW.account_id) THEN
+    RAISE EXCEPTION 'a shape and its provider have the same organization' USING ERRCODE = 'check_violation', CONSTRAINT = 'shapes_check';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER shapes_check BEFORE INSERT OR UPDATE ON shapes
+  FOR EACH ROW EXECUTE FUNCTION shapes_check();
+
+-- A provider or shape in use never changes organization, which would carry
+-- its machines along.
+CREATE FUNCTION fleet_account_fixed() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.account_id IS DISTINCT FROM OLD.account_id THEN
+    RAISE EXCEPTION '% keep their organization', TG_TABLE_NAME USING ERRCODE = 'check_violation', CONSTRAINT = 'fleet_account_fixed';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER capacity_providers_account_fixed BEFORE UPDATE ON capacity_providers
+  FOR EACH ROW EXECUTE FUNCTION fleet_account_fixed();
+CREATE TRIGGER shapes_account_fixed BEFORE UPDATE ON shapes
+  FOR EACH ROW EXECUTE FUNCTION fleet_account_fixed();
+
+-- account_id NULL: an unassigned warm machine of an instance-wide shape.
+CREATE TABLE machines (
+  id           uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id   uuid REFERENCES accounts(id),
+  provider_id  uuid NOT NULL REFERENCES capacity_providers(id),
+  shape_id     uuid NOT NULL REFERENCES shapes(id),
+  external_id  text,
+  state        text NOT NULL DEFAULT 'requested'
+               CHECK (state IN ('requested','booting','ready','busy','draining','destroyed','failed')),
+  worker_id    uuid,
+  job_id       uuid,
+  error        text NOT NULL DEFAULT '',
+  assigned_at  timestamptz,
+  ready_at     timestamptz,
+  deadline_at  timestamptz,
+  destroyed_at timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (provider_id, external_id),
+  UNIQUE (worker_id),
+  FOREIGN KEY (account_id, worker_id) REFERENCES workers (account_id, id),
+  FOREIGN KEY (account_id, job_id) REFERENCES jobs (account_id, id),
+  CHECK (account_id IS NOT NULL OR (worker_id IS NULL AND job_id IS NULL)),
+  CHECK ((account_id IS NULL) = (assigned_at IS NULL)),
+  CHECK ((state = 'destroyed') = (destroyed_at IS NOT NULL))
+);
+CREATE INDEX machines_active ON machines (provider_id, shape_id) WHERE state NOT IN ('destroyed','failed');
+CREATE INDEX machines_account ON machines (account_id, created_at);
+
+-- A machine runs a shape of its provider. A machine of an organization's
+-- shape belongs to that organization from the start; a machine of an
+-- instance-wide shape to one organization at most, and that never changes.
+-- A worker only comes from the fleet: ephemeral.
+CREATE FUNCTION machines_check() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+  s shapes%ROWTYPE;
+BEGIN
+  SELECT * INTO s FROM shapes WHERE id = NEW.shape_id;
+  IF s.provider_id IS DISTINCT FROM NEW.provider_id THEN
+    RAISE EXCEPTION 'a machine runs a shape of its provider' USING ERRCODE = 'check_violation', CONSTRAINT = 'machines_check';
+  END IF;
+  IF s.account_id IS NOT NULL AND s.account_id IS DISTINCT FROM NEW.account_id THEN
+    RAISE EXCEPTION 'a machine of an organization''s shape belongs to that organization' USING ERRCODE = 'check_violation', CONSTRAINT = 'machines_check';
+  END IF;
+  IF TG_OP = 'UPDATE' AND OLD.account_id IS NOT NULL AND OLD.account_id IS DISTINCT FROM NEW.account_id THEN
+    RAISE EXCEPTION 'a machine keeps its organization' USING ERRCODE = 'check_violation', CONSTRAINT = 'machines_check';
+  END IF;
+  IF NEW.worker_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM workers w WHERE w.id = NEW.worker_id AND w.ephemeral) THEN
+    RAISE EXCEPTION 'the worker of a machine is ephemeral' USING ERRCODE = 'check_violation', CONSTRAINT = 'machines_check';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER machines_check BEFORE INSERT OR UPDATE ON machines
+  FOR EACH ROW EXECUTE FUNCTION machines_check();
+
+-- account_id and expires_at NULL: the machine is unassigned and the token
+-- can only be told to wait.
+CREATE TABLE bootstrap_tokens (
+  machine_id uuid PRIMARY KEY REFERENCES machines(id),
+  account_id uuid REFERENCES accounts(id),
+  token_hash bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
+  expires_at timestamptz,
+  used_at    timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK ((account_id IS NULL) = (expires_at IS NULL)),
+  CHECK (used_at IS NULL OR account_id IS NOT NULL)
+);
+
+-- A bootstrap token has its machine's organization.
+CREATE FUNCTION bootstrap_tokens_check() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM machines m WHERE m.id = NEW.machine_id AND (NEW.account_id IS NULL OR m.account_id = NEW.account_id)) THEN
+    RAISE EXCEPTION 'a bootstrap token has its machine''s organization' USING ERRCODE = 'check_violation', CONSTRAINT = 'bootstrap_tokens_check';
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER bootstrap_tokens_check BEFORE INSERT OR UPDATE ON bootstrap_tokens
+  FOR EACH ROW EXECUTE FUNCTION bootstrap_tokens_check();
+
+CREATE TABLE fleet_policy (
+  account_id     uuid PRIMARY KEY REFERENCES accounts(id),
+  routing        text NOT NULL DEFAULT 'own_only' CHECK (routing IN ('own_only','own_first','hosted')),
+  allowed_shapes text[] NOT NULL DEFAULT '{}',
+  quotas         jsonb NOT NULL DEFAULT '{}',
+  egress         text[] NOT NULL DEFAULT '{}',
+  plan           text NOT NULL DEFAULT 'free' CHECK (plan IN ('free','paid')),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE images (
+  id         uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id uuid REFERENCES accounts(id),
+  name       text NOT NULL CHECK (name ~ '^[a-z0-9][a-z0-9._-]{0,63}$'),
+  version    text NOT NULL CHECK (version ~ '^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$'),
+  os         text NOT NULL CHECK (os IN ('linux','windows','macos')),
+  arch       text NOT NULL CHECK (arch IN ('amd64','arm64')),
+  format     text NOT NULL CHECK (format IN ('rootfs','qcow2','vhdx','ami','tart')),
+  uri        text NOT NULL,
+  digest     text NOT NULL CHECK (digest ~ '^sha256:[0-9a-f]{64}$'),
+  signature  text NOT NULL,
+  contents   jsonb NOT NULL DEFAULT '{}',
+  built_at   timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE NULLS NOT DISTINCT (account_id, name, version, arch, format)
+);
+
+CREATE TABLE usage_records (
+  id         uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id uuid NOT NULL REFERENCES accounts(id),
+  machine_id uuid NOT NULL UNIQUE REFERENCES machines(id),
+  shape_id   uuid NOT NULL REFERENCES shapes(id),
+  ownership  text NOT NULL CHECK (ownership IN ('own','hosted')),
+  minutes    numeric(12,3) NOT NULL CHECK (minutes >= 0),
+  cost       numeric(14,6) NOT NULL CHECK (cost >= 0),
+  started_at timestamptz NOT NULL,
+  ended_at   timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK (ended_at >= started_at)
+);
+CREATE INDEX usage_records_account ON usage_records (account_id, ended_at);
 ```
 
 ## Leasing query
@@ -1063,6 +1286,10 @@ WHERE id = (
 RETURNING *;
 ```
 
+From T58 an ephemeral worker also leases only jobs whose `resources` fit its
+machine's shape, and at most the shape's `max_jobs` in all (fleet.md,
+Machines). `resources` do not restrict a static worker.
+
 `Jobs.Release` (Nack) requeues with `domain.Job.Release`: `Requeue` plus
 `run_after = now() + domain.RetryBackoff(attempts)` (30 s base, doubling, 10 min
 cap). `RequeueExpired` does not delay the job.
@@ -1083,7 +1310,7 @@ cap). `RequeueExpired` does not delay the job.
 | Spec | specs | `Specs()` |
 | Task | tasks | `Tasks()` |
 | Change | changes | `Changes()` |
-| Job, JobSpec, Usage, ContextManifest | jobs | `Jobs()` |
+| Job, JobSpec, Usage, ContextManifest, Resources | jobs | `Jobs()` |
 | JobEvent | job_events | `JobEvents()` |
 | Gate | gates | `Gates()` |
 | Signal | signals | `Signals()` |
@@ -1117,4 +1344,12 @@ cap). `RequeueExpired` does not delay the job.
 | OAuthClient, OAuthGrant | oauth_clients, oauth_grants | `store.OAuthRepo` (added to `Store` by T55) |
 | VerifiedDomain | verified_domains | `store.VerifiedDomainRepo` (added to `Store` by T56) |
 | SCIMToken | scim_tokens | `store.SCIMTokenRepo` (T56) |
+| CapacityProvider, ProviderLimits, ProviderCapabilities | capacity_providers | `store.CapacityProviderRepo` (added to `Store` by T58) |
+| ProviderJoinCode | provider_join_codes | `store.ProviderJoinCodeRepo` (T59) |
+| Shape | shapes | `store.ShapeRepo` (T58) |
+| Machine | machines | `store.MachineRepo` (T58) |
+| BootstrapToken | bootstrap_tokens | `store.BootstrapTokenRepo` (T58) |
+| FleetPolicy, FleetQuotas | fleet_policy | `store.FleetPolicyRepo` (T58) |
+| Image, ImageContents | images | `store.ImageRepo` (T60) |
+| UsageRecord | usage_records | `store.UsageRepo` (T65) |
 | (human ref numbers) | ref_counters | used by `Create` |

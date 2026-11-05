@@ -27,7 +27,8 @@ Every request carries `Authorization: Bearer <worker token>`. forecrewd hashes
 the token (SHA-256), looks it up with `Workers.GetByTokenHash` and rejects
 unknown or revoked workers with `401`. The token also identifies the account.
 Tokens are printed once by `forecrew worker add` and look like
-`fcw_<43 base64url chars>` (see conventions.md).
+`fcw_<43 base64url chars>` (see conventions.md). The worker on a machine gets
+its token from `POST /worker/v1/bootstrap` instead.
 
 ## Errors
 
@@ -50,6 +51,34 @@ Non-2xx responses have this body:
 
 The worker retries 5xx and network errors with exponential backoff (1 s up to
 30 s). It never retries 4xx except 401 after a config reload.
+
+## POST /worker/v1/bootstrap
+
+The first call of the worker on a machine (fleet.md, T58), the only one with
+another credential: `Authorization: Bearer <bootstrap token>`, a one-time
+`fcb_` token that reached the guest through its provider. Request:
+`{"version": "v0.1.0"}`.
+
+Response `200`, once: forecrewd marks the token used, creates the worker with
+`ephemeral` true and a new token, links it to the machine and moves the machine
+to `ready`. The worker keeps the token in memory and goes on as any worker;
+`labels` are its configured labels, on top of which it adds its own. A worker
+that restarts cannot come back, and its machine is replaced.
+
+```json
+{"worker_token": "fcw_...", "name": "machine-018f4e2a", "labels": ["amd64", "docker", "linux"], "max_jobs": 1}
+```
+
+Response `202`: the machine is warm and has no organization yet. The token stays
+unused and the machine counts as `ready`; the worker asks again after
+`retry_after_seconds`.
+
+```json
+{"retry_after_seconds": 5}
+```
+
+`401 unauthorized`: unknown, used or expired token. Neither the token nor the
+answer is ever logged.
 
 ## POST /worker/v1/poll
 
@@ -104,7 +133,8 @@ is fixed when it is created: from its role pack's `pool` (roles.md) for
 agent jobs, and from its environment for command jobs (provider `actions`
 → `actions`, otherwise `build`). forecrewd refuses to create a job whose
 role or kind its pool's policy does not allow. Pool `actions` has no
-workers: forecrewd itself runs its jobs on GitHub-hosted runners.
+workers: forecrewd itself runs its jobs on GitHub-hosted runners. The worker
+on a machine gets its shape's pool (fleet.md).
 
 Response `200`:
 

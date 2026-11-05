@@ -27,6 +27,8 @@ max_turns: 120
 timeout: 60m
 pool: build          # optional, default build
 toolbox: security    # optional, packs/toolboxes/security.yaml
+resources:           # optional, what its jobs need of a machine
+  min_memory_mb: 8192
 ```
 
 ## Fields
@@ -46,6 +48,7 @@ toolbox: security    # optional, packs/toolboxes/security.yaml
 | `timeout` | Go duration | yes | Positive, e.g. `30m`. |
 | `pool` | string | no, default `build` | Worker pool the role's jobs run in (config.md `pools`, worker-api.md Pools). A `domain.ValidName`; whether the pool exists and allows the role is checked when a job is created. Read-only reasoning roles (councils, triage, architect, product-owner) belong in `control`; a read-only role that runs the tests, such as `reviewer`, stays in `build`. |
 | `toolbox` | string | no | Name of a toolbox, `packs/toolboxes/<name>.yaml` (toolbox.schema.json); it must exist. The role's agent jobs run inside the toolbox image, with its CLIs and MCP servers, on a worker with the `docker` label (from T48). The resolved toolbox is the spec's `toolbox`. |
+| `resources` | mapping | no | What the role's jobs need of a machine: `min_cpu`, `min_memory_mb`, `min_disk_gb`, `gpu`, integers ≥ 0. Copied to `jobs.resources`; it picks the shape (fleet.md). |
 | `context` | mapping | no | Reserved for the context pack settings of T38 (which knowledge sections and registers a job sees). Must be absent or empty until then. |
 
 ## Job MCP tools
