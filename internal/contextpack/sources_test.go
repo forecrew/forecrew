@@ -208,6 +208,19 @@ func seed(t *testing.T, e *packEnv) seeded {
 	must(t, e.st.Tasks().UpdateStatus(ctx, acc, past.ID, domain.TaskInProgress, domain.TaskInReview))
 	must(t, e.st.Tasks().UpdateStatus(ctx, acc, past.ID, domain.TaskInReview, domain.TaskMergeReady))
 	must(t, e.st.Tasks().UpdateStatus(ctx, acc, past.ID, domain.TaskMergeReady, domain.TaskMerged))
+	// A merged task with the same words in another project is no neighbour.
+	elsewhere := domain.Project{AccountID: acc, Name: "elsewhere", Repo: "acme/elsewhere", DefaultBranch: "main", Status: domain.ProjectOnboarded}
+	must(t, e.st.Projects().Create(ctx, &elsewhere))
+	eg := domain.Goal{AccountID: acc, ProjectID: elsewhere.ID, Title: "Other", Body: "x", Status: domain.GoalPlanned}
+	must(t, e.st.Goals().Create(ctx, &eg))
+	es := domain.Spec{AccountID: acc, ProjectID: elsewhere.ID, GoalID: eg.ID, Revision: 1, Body: "x"}
+	must(t, e.st.Specs().Create(ctx, &es))
+	et := domain.Task{AccountID: acc, ProjectID: elsewhere.ID, GoalID: eg.ID, SpecID: es.ID, Seq: 1, Title: "Add token store ELSEWHERE", Body: "Store session tokens in Postgres.", Status: domain.TaskOpen}
+	must(t, e.st.Tasks().Create(ctx, &et))
+	for _, to := range []domain.TaskStatus{domain.TaskInProgress, domain.TaskInReview, domain.TaskMergeReady, domain.TaskMerged} {
+		must(t, e.st.Tasks().UpdateStatus(ctx, acc, et.ID, et.Status, to))
+		et.Status = to
+	}
 	unrelated := domain.Task{AccountID: acc, ProjectID: proj, GoalID: e.goal.ID, SpecID: e.spec.ID, Seq: 3, Title: "Rename colours", Body: "Cosmetic.", Status: domain.TaskOpen}
 	must(t, e.st.Tasks().Create(ctx, &unrelated))
 	must(t, e.st.Changes().Upsert(ctx, &domain.Change{AccountID: acc, ProjectID: proj, TaskID: past.ID, Repo: "acme/app", Number: 17, Branch: "agent/task-2", BaseRef: "trunk",
@@ -246,7 +259,7 @@ func TestBuildContextSections(t *testing.T) {
 		}
 	}
 	block := p.Prompt[strings.Index(p.Prompt, "# Context\n"):]
-	for _, absent := range []string{forOther.Ref(), verified.Ref(), "Other goal", "not ours", "Rename colours", "Unrelated", "- `app/`", "e.g", "and/or", "Why"} {
+	for _, absent := range []string{forOther.Ref(), verified.Ref(), "Other goal", "not ours", "Rename colours", "ELSEWHERE", "Unrelated", "- `app/`", "e.g", "and/or", "Why"} {
 		if strings.Contains(block, absent) {
 			t.Errorf("context has %q:\n%s", absent, block)
 		}

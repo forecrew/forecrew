@@ -324,6 +324,21 @@ func TestTaskTextSearch(t *testing.T) {
 			must(t, f.st.Tasks().UpdateStatus(ctx, f.account, tk.ID, domain.TaskOpen, domain.TaskInProgress))
 		}
 	}
+	// A merged task with the same words in another project is never listed.
+	other := f.newProject(t, f.account, "other")
+	og := domain.Goal{AccountID: f.account, ProjectID: other.ID, Title: "Ship it", CreatedBy: "user:me"}
+	must(t, f.st.Goals().Create(ctx, &og))
+	osp := domain.Spec{AccountID: f.account, ProjectID: other.ID, GoalID: og.ID, Revision: 1, Body: "spec"}
+	must(t, f.st.Specs().Create(ctx, &osp))
+	ot := domain.Task{AccountID: f.account, ProjectID: other.ID, GoalID: og.ID, SpecID: osp.ID, Seq: 1, Title: "Add token store", Body: "Hash reset tokens in Postgres."}
+	must(t, f.st.Tasks().Create(ctx, &ot))
+	for _, to := range []domain.TaskStatus{domain.TaskInProgress, domain.TaskInReview, domain.TaskMergeReady, domain.TaskMerged} {
+		must(t, f.st.Tasks().UpdateStatus(ctx, f.account, ot.ID, ot.Status, to))
+		ot.Status = to
+	}
+	if got, err := f.st.Tasks().List(ctx, f.account, store.TaskFilter{ProjectID: other.ID, Text: "token", Status: domain.TaskMerged}); err != nil || len(got) != 1 || got[0].ID != ot.ID {
+		t.Fatalf("search of the other project = %+v, %v", got, err)
+	}
 	titles := func(q store.TaskFilter) []string {
 		q.ProjectID = f.project.ID
 		list, err := f.st.Tasks().List(ctx, f.account, q)
