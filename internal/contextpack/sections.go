@@ -3,6 +3,7 @@ package contextpack
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -154,23 +155,9 @@ func fillSections(role roles.Role, candidates []Section, maxBytes int) packBlock
 	if maxBytes > 0 {
 		left.bytes = maxBytes
 	}
-	var names []string
-	for _, n := range role.Context {
-		if n != SectionTestPlan {
-			names = append(names, n)
-		}
-	}
-	if len(names) == 0 {
+	cands := listed(role, candidates)
+	if len(cands) == 0 {
 		return packBlock{}
-	}
-	cands := make([]Section, len(names))
-	for i, n := range names {
-		cands[i] = Section{Name: n}
-		for _, c := range candidates {
-			if c.Name == n {
-				cands[i] = c
-			}
-		}
 	}
 	intro := "\n" + contextIntro
 	left = left.minus(measure(intro))
@@ -204,6 +191,23 @@ func fillSections(role roles.Role, candidates []Section, maxBytes int) packBlock
 	text := intro + b.String() + omittedLine(missing, false)
 	m.Size = utf8.RuneCountInString(text)
 	return packBlock{text: text, untrusted: untrusted, manifest: m}
+}
+
+// listed returns the candidates of the sections role lists, in its order, an
+// empty one for a section without candidates. The test plan is not one.
+func listed(role roles.Role, candidates []Section) []Section {
+	var out []Section
+	for _, n := range role.Context {
+		if n == SectionTestPlan {
+			continue
+		}
+		c := Section{Name: n}
+		if i := slices.IndexFunc(candidates, func(c Section) bool { return c.Name == n }); i >= 0 {
+			c = candidates[i]
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // omittedLine says which of cands had no room. With worst it is the longest
@@ -252,6 +256,44 @@ func leftOut(dropped, placed int) string {
 	return fmt.Sprintf("%s more left out for the budget.\n", count(dropped))
 }
 
+// fillItems writes the items that fit room, keeping room for the line that
+// says how many were left out; it records them in sec, the others as dropped.
+// It returns the text and whether an item in it is untrusted.
+func fillItems(items []Item, room space, sec *domain.ContextSection) (string, bool) {
+	explain := measure("\n" + leftOut(len(items), 1))
+	var body strings.Builder
+	untrusted := false
+	prevEntry := false // the last item written is a list entry
+	for i, it := range items {
+		// A blank line sets an item off from the list entry before it.
+		lead := ""
+		if prevEntry && it.Body != "" {
+			lead = "\n"
+		}
+		avail := room
+		if i < len(items)-1 || len(sec.Dropped) > 0 {
+			avail = room.minus(explain) // a later item may be left out
+		}
+		item, _ := it.render(unbounded)
+		if !avail.fits(measure(lead + item + it.gap())) {
+			item = ""
+			if limit := avail.minus(measure(lead + it.gap())); limit.chars >= minTruncated && limit.bytes >= minTruncated {
+				item, _ = it.render(limit)
+			}
+			if item == "" {
+				sec.Dropped = append(sec.Dropped, it.manifest(utf8.RuneCountInString(fullText(it))))
+				continue
+			}
+		}
+		body.WriteString(lead + item + it.gap())
+		sec.Items = append(sec.Items, it.manifest(utf8.RuneCountInString(item)))
+		room = room.minus(measure(lead + item + it.gap()))
+		prevEntry = it.Body == ""
+		untrusted = untrusted || it.Untrusted
+	}
+	return body.String(), untrusted
+}
+
 // fillSection fills a section in at most room. It returns the manifest
 // entry, the text and whether an item in it is untrusted. A section without
 // items and note has no text; neither has one that has no room for its
@@ -276,41 +318,13 @@ func fillSection(cand Section, room space) (sec domain.ContextSection, text stri
 		return omitted(cand), "", false
 	}
 	room = room.minus(measure(head + note))
-	var body strings.Builder
-	prevEntry := false // the last item written is a list entry
-	for i, it := range cand.Items {
-		// A blank line sets an item off from the list entry before it.
-		lead := ""
-		if prevEntry && it.Body != "" {
-			lead = "\n"
-		}
-		avail := room
-		if i < len(cand.Items)-1 || len(sec.Dropped) > 0 {
-			avail = room.minus(explain) // a later item may be left out
-		}
-		item, _ := it.render(unbounded)
-		if !avail.fits(measure(lead + item + it.gap())) {
-			item = ""
-			if limit := avail.minus(measure(lead + it.gap())); limit.chars >= minTruncated && limit.bytes >= minTruncated {
-				item, _ = it.render(limit)
-			}
-			if item == "" {
-				sec.Dropped = append(sec.Dropped, it.manifest(utf8.RuneCountInString(fullText(it))))
-				continue
-			}
-		}
-		body.WriteString(lead + item + it.gap())
-		sec.Items = append(sec.Items, it.manifest(utf8.RuneCountInString(item)))
-		room = room.minus(measure(lead + item + it.gap()))
-		prevEntry = it.Body == ""
-		untrusted = untrusted || it.Untrusted
-	}
-	text = head + strings.TrimRight(body.String(), "\n")
-	if body.Len() > 0 {
+	body, untrusted := fillItems(cand.Items, room, &sec)
+	text = head + strings.TrimRight(body, "\n")
+	if body != "" {
 		text += "\n"
 	}
 	if len(sec.Dropped) > 0 {
-		if body.Len() > 0 {
+		if body != "" {
 			text += "\n"
 		}
 		text += leftOut(len(sec.Dropped), len(sec.Items))
