@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"net"
 	"net/url"
 	"os"
@@ -146,9 +147,12 @@ func (b *toolboxRun) configure() error {
 	if r.spec.JobMCP != nil {
 		b.secrets[runtime.JobMCPTokenEnv] = true
 	}
-	for k := range b.secrets {
-		if slices.ContainsFunc(b.dj.d.env, func(kv string) bool { n, _, _ := strings.Cut(kv, "="); return strings.EqualFold(n, k) }) {
-			return fmt.Errorf("the credential variable %s is also a variable of the Docker client; rename it in forecrew.yaml", k)
+	if k := runtime.KeyEnv(r.spec.Runtime); k != "" {
+		b.secrets[k] = true // the worker's own key, when the spec has none
+	}
+	for _, k := range slices.Sorted(maps.Keys(b.secrets)) {
+		if reservedCredential(k) {
+			return fmt.Errorf("the credential variable %s is one the Docker client or the loader reads (DOCKER_*, LD_*, proxy and system variables); rename it in forecrew.yaml", k)
 		}
 	}
 	b.literal = append(filterEnv(r.w.cfg.Environ, func(name string) bool {
@@ -157,6 +161,19 @@ func (b *toolboxRun) configure() error {
 	}), "HOME="+runtime.ContainerHome, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1", "GIT_OPTIONAL_LOCKS=0")
 	_, b.gateway = containerURL(r.w.cfg.Client.JobMCPURL())
 	return nil
+}
+
+// reservedCredential reports whether a credential may not be named name: the
+// value travels in the environment of the docker client, where these
+// variables would change how it connects, loads or runs (DOCKER_*, the
+// variables of the worker's own allowlist, LD_*, proxies).
+func reservedCredential(name string) bool {
+	n := strings.ToUpper(name)
+	switch {
+	case commandEnvNames[n], n == "XDG_RUNTIME_DIR", strings.HasPrefix(n, "DOCKER_"), strings.HasPrefix(n, "LD_"), strings.HasPrefix(n, "LC_"):
+		return true
+	}
+	return strings.HasSuffix(n, "_PROXY") || n == "NO_PROXY"
 }
 
 // JobMCPURL returns the address of the job MCP gateway as the container

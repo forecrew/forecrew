@@ -230,3 +230,11 @@ func TestScriptedCommandErrors(t *testing.T) {
 		t.Errorf("missing docker: %v", err)
 	}
 }
+
+func TestKeyEnv(t *testing.T) {
+	for adapter, want := range map[string]string{ClaudeCode: "ANTHROPIC_API_KEY", Codex: "CODEX_API_KEY", Scripted: ""} {
+		if got := KeyEnv(adapter); got != want {
+			t.Errorf("KeyEnv(%s) = %q, want %q", adapter, got, want)
+		}
+	}
+}

@@ -439,6 +439,12 @@ func (r *jobRun) agentStep(ctx context.Context, prompt string) (comp Completion,
 	}
 	r.ev.text(domain.EventStatus, "running")
 	res, err := r.runAgent(ctx, prompt, box)
+	if box != nil {
+		// A killed docker client (after a timeout) leaves its container
+		// running, and it could swap a file between the checks of the evidence
+		// and its upload: it is gone before either.
+		box.cleanup(ctx)
+	}
 	if cause := r.uploadEvidence(ctx); cause != nil {
 		r.stop(cause)
 		return Completion{}, true
@@ -453,6 +459,16 @@ func (r *jobRun) agentStep(ctx context.Context, prompt string) (comp Completion,
 	}
 	comp.Output = res.Output
 	return comp, false
+}
+
+// envValue returns the value of the variable name in environ, or "".
+func envValue(environ []string, name string) string {
+	for _, kv := range slices.Backward(environ) {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == name {
+			return v
+		}
+	}
+	return ""
 }
 
 // containerNotRun reports whether err says `docker run` itself failed (the
@@ -505,6 +521,13 @@ func (r *jobRun) runAgent(ctx context.Context, prompt string, box *toolboxRun) (
 	var servers []domain.MCPServer
 	if box != nil {
 		container, servers = box, box.toolbox.MCPServers
+		// A key held by the worker itself, not sent in the spec, is handed to
+		// the container by name like the others.
+		if k := runtime.KeyEnv(r.spec.Runtime); k != "" && env[k] == "" {
+			if v := envValue(r.w.cfg.Environ, k); v != "" {
+				env[k] = v
+			}
+		}
 	}
 	r.w.reaper.agentStarted()
 	res, err := adapter.Run(ctx, runtime.RunSpec{
