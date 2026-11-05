@@ -810,7 +810,8 @@ type ImageContents struct {
 }
 
 // Image is a built, signed machine image. AccountID zero is an
-// instance-wide image; an organization may register its own builds.
+// instance-wide image; an organization may register its own builds. Only a
+// person registers one, never a fleet agent (fleet.md, Images).
 type Image struct {
 	ID        uuid.UUID   `json:"id"`
 	AccountID uuid.UUID   `json:"account_id,omitzero"`

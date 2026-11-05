@@ -17,7 +17,7 @@ import (
 // provider without them keeps the same facts its own way.
 const (
 	TagMachine = "forecrew:machine" // the machine ID
-	TagOrg     = "forecrew:org"     // the organization's slug, when assigned
+	TagOrg     = "forecrew:org"     // the organization's ID, when assigned; a slug can change
 	TagJob     = "forecrew:job"     // the job's ref, when known
 )
 
