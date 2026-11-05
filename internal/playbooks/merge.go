@@ -21,9 +21,11 @@ type mergeOutput struct {
 // mergePR is the action github.merge_pr. It merges with.repo's pull request
 // with.number with a squash merge unless it is already merged. Only a head
 // whose checks succeeded, or that has none, is merged. The action fails when
-// the PR was closed without merging, when the checks of its head failed or
-// are still running, when with.check_profile is set and the profile file at
-// the head is invalid, and when GitHub refuses the merge; a step with
+// the PR was closed without merging, when with.sha is set and the head moved
+// away from it, so a push after an approval is not merged unreviewed, when the
+// checks of its head failed or are still running, when with.check_profile is
+// set and the profile file at the head is invalid, and when GitHub refuses
+// the merge; a step with
 // on_failure: escalate then lets a human fix it and retry. After merging it
 // records the change as merged and publishes pr.merged, as the webhook will
 // when GitHub reports the same fact.
@@ -32,6 +34,8 @@ func (a *actions) mergePR(ctx context.Context, call workflow.ActionCall) (any, e
 		Repo         string `json:"repo"`
 		Number       int    `json:"number"`
 		CheckProfile bool   `json:"check_profile"`
+		// SHA is the head that was approved; empty merges whatever the head is.
+		SHA string `json:"sha"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -45,6 +49,8 @@ func (a *actions) mergePR(ctx context.Context, call workflow.ActionCall) (any, e
 		return mergeOutput{Merged: true, AlreadyMerged: true, SHA: pr.MergeSHA}, nil
 	case pr.State != "open":
 		return nil, fmt.Errorf("pull request %s#%d was closed without merging", with.Repo, with.Number)
+	case with.SHA != "" && pr.HeadSHA != with.SHA:
+		return nil, fmt.Errorf("not merging %s#%d: its head moved from %s to %s after the approval", with.Repo, with.Number, with.SHA, pr.HeadSHA)
 	}
 	checks, err := a.Tracker.CheckStatus(ctx, with.Repo, pr.HeadSHA)
 	if err != nil {

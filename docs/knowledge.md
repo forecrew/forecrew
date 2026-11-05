@@ -233,7 +233,9 @@ sections, and the strictest owner wins:
 feedback is in the audit log for a new proposal. A PR merged or closed on
 GitHub at any point settles the proposals (`pr.merged`, `pr.closed`, the
 webhook and the poller). forecrewd merges with `github.merge_pr`, so branch
-rules that demand a human review make it escalate to a `needs_you` gate.
+rules that demand a human review make it escalate to a `needs_you` gate. It
+merges only the head it sent for review: after a push to the branch the merge
+escalates too, and a human closes the PR or merges it on GitHub.
 
 **Humans** use `propose_knowledge`: straight to a PR `agent/kb-KB-n`, no job
 and no gate, merged on GitHub like any PR. For a protected section the caller

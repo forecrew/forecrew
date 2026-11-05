@@ -57,6 +57,21 @@ func TestMergePR(t *testing.T) {
 	}
 }
 
+// A head that moved after the approval was not what was approved.
+func TestMergePRRefusesAMovedHead(t *testing.T) {
+	v := newEnv(t)
+	n, sha := v.openPR(t)
+	must(t, v.tracker.SetHeadSHA("acme/app", n, "pushed-later"))
+	_, err := v.call(t, "github.merge_pr", map[string]any{"repo": "acme/app", "number": n, "sha": sha})
+	wantErr(t, err, "head moved")
+	if pr, _ := v.tracker.GetPR(t.Context(), "acme/app", n); pr.Merged {
+		t.Error("a moved head was merged")
+	}
+	if _, err = v.call(t, "github.merge_pr", map[string]any{"repo": "acme/app", "number": n, "sha": "pushed-later"}); err != nil {
+		t.Errorf("the head that was approved: %v", err)
+	}
+}
+
 func TestMergePRSkipsMergedPR(t *testing.T) {
 	v := newEnv(t)
 	n, _ := v.openPR(t)

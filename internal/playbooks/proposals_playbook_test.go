@@ -121,6 +121,34 @@ func TestProtectedProposalWaitsForAHuman(t *testing.T) {
 	}
 }
 
+// A push after the human's approval is not what the human approved: the run
+// escalates and the PR stays unmerged. Rejecting the escalation closes it.
+func TestPushAfterApprovalIsNotMerged(t *testing.T) {
+	f := newProposalFlow(t, "architect", uuid.Nil())
+	k := f.propose(t, "vision", "knowledge/vision/why.md")
+	r := f.start(t, "repo")
+	r.decide(t, domain.GateKnowledgeProposal, mcp.ToolApprove, "")
+	r.waitStep(t, "merged/0/checks", domain.StepWaiting)
+	pr := f.pr(t)
+	must(t, f.tracker.SetHeadSHA("acme/app", pr.Number, "pushed-later"))
+	checksDone(t, r, pr)
+
+	g := r.pendingGate(t, domain.GateNeedsYou)
+	if got, _ := f.tracker.GetPR(t.Context(), "acme/app", pr.Number); got.Merged {
+		t.Fatal("a head nobody approved was merged")
+	}
+	if _, err := r.gates.Decide(t.Context(), r.human, mcp.ToolReject, mcp.GateDecisionInput{Gate: g.Ref()}); err != nil {
+		t.Fatal(err)
+	}
+	r.waitRun(t, domain.RunCanceled)
+	if got, _ := f.tracker.GetPR(t.Context(), "acme/app", pr.Number); got.Merged || got.State != "closed" {
+		t.Errorf("pr = %+v", got)
+	}
+	if f.status(t, k) != domain.KnowledgeRejected {
+		t.Errorf("status = %s", f.status(t, k))
+	}
+}
+
 func TestRejectedProposalClosesItsPR(t *testing.T) {
 	f := newProposalFlow(t, "architect", uuid.Nil())
 	k := f.propose(t, "vision", "knowledge/vision/why.md")
