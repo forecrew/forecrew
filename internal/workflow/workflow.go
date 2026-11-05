@@ -44,6 +44,9 @@ type JobRequest struct {
 	// write paths allow it (the tests written from the spec). They are put
 	// in the job spec.
 	LockedPaths []string `json:"locked_paths,omitempty" yaml:"locked_paths,omitempty"`
+	// ProposalReview makes the job the review of a knowledge proposal by the
+	// section's owner role: read-only, with the reviewer's verdict as output.
+	ProposalReview bool `json:"proposal_review,omitempty" yaml:"proposal_review,omitempty"`
 	// Council makes the job a turn of a council: the creator replaces the
 	// role's job with the council step's (councils.Set.Job).
 	Council *CouncilTurn `json:"council,omitempty" yaml:"council,omitempty"`
