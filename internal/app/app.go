@@ -35,6 +35,7 @@ import (
 	"github.com/forecrew/forecrew/internal/jobmcp"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/knowledge"
+	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/playbooks"
 	"github.com/forecrew/forecrew/internal/registers"
@@ -207,12 +208,14 @@ func New(d Deps) (*App, error) {
 	}
 	notes := &knowledge.Notes{Store: st, Index: index, Now: d.Now, Log: log}
 	search := &knowledge.Search{Index: index, Policy: syncer.Policy}
+	kbProposals := &proposals.Service{Store: st, Policy: syncer.Policy, GitHub: d.GitHub, Gates: gateSvc, Roles: catalog, Now: d.Now, Log: log}
+	jobSvc.WithRegistrar(kbProposals)
 	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0), jobs: jobSvc, knowledge: syncer, councils: seats, models: cfg.ModelOn}
 
 	actions := workflow.Actions{}
 	var engine *workflow.Engine
 	playbooks.Register(actions, playbooks.Deps{
-		Store: st, Tracker: d.GitHub, Signals: bus, Sizing: cfg.Sizing, Roles: catalog, Knowledge: syncer, Now: d.Now, Actions: d.Actions, Packs: d.Files,
+		Store: st, Tracker: d.GitHub, Signals: bus, Sizing: cfg.Sizing, Roles: catalog, Knowledge: syncer, Proposals: kbProposals, Now: d.Now, Actions: d.Actions, Packs: d.Files,
 		Config: cfg, Councils: seats, Gates: gateSvc, Evidence: ev, Logger: log,
 		Runs: lateStarter(func() *workflow.Engine { return engine }),
 	})
@@ -223,13 +226,13 @@ func New(d Deps) (*App, error) {
 		return nil, fmt.Errorf("start workflow engine: %w", err)
 	}
 	toolSvc := tools.New(tools.Config{
-		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes,
+		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes, Proposals: kbProposals,
 		Registers: regs, Councils: seats, Logger: log,
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
-	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Tracker: d.GitHub, Knowledge: syncs, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
+	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Tracker: d.GitHub, Knowledge: syncs, Proposals: kbProposals, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
 	jobGateway := jobmcp.New(jobmcp.Config{
-		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Search: search, Notes: notes, Logger: log, Version: d.Version, Now: d.Now,
+		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Search: search, Notes: notes, Proposals: kbProposals, Logger: log, Version: d.Version, Now: d.Now,
 	})
 	workers := workerapi.New(workerapi.Config{
 		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Endpoint: workerapi.RuntimeEndpoint(cfg), Pools: cfg.Pools, Logger: log,
