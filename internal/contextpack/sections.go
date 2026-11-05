@@ -58,8 +58,9 @@ type Item struct {
 type Section struct {
 	Name  string
 	Items []Item
-	// Note is trusted text shown instead of items when the section cannot be
-	// filled, e.g. because the knowledge policy cannot be read now.
+	// Note is trusted text shown after the items, or alone when there are
+	// none, when the section could not be filled completely, e.g. because the
+	// knowledge policy cannot be read now.
 	Note string
 }
 
