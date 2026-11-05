@@ -416,8 +416,13 @@ func TestTrackerUpdateCommentAndCheckRun(t *testing.T) {
 	if cs, _ := tr.ListComments(ctx, "acme/app", issue.Number, time.Time{}); len(cs) != 2 || cs[0].Body != "v2" {
 		t.Fatalf("comments = %+v", cs)
 	}
-	_, err = tr.UpdateComment(ctx, "acme/app", theirs.ID, "x")
-	wantErr(t, err, github.ErrForbidden)
+	if bot, err := tr.Bot(ctx); err != nil || bot != TrackerBot || mine.Author != bot {
+		t.Fatalf("Bot = %q, %v", bot, err)
+	}
+	// Like a write token, the fake edits anybody's comment.
+	if c, err := tr.UpdateComment(ctx, "acme/app", theirs.ID, "x"); err != nil || c.Author != "ana" || c.Body != "x" {
+		t.Fatalf("UpdateComment = %+v, %v", c, err)
+	}
 	_, err = tr.UpdateComment(ctx, "acme/app", 999, "x")
 	wantErr(t, err, github.ErrNotFound)
 	_, err = tr.UpdateComment(ctx, "acme/none", 1, "x")

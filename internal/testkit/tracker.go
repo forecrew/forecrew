@@ -290,20 +290,24 @@ func (t *Tracker) ListSubIssues(_ context.Context, repo string, parent int) ([]g
 // CreateComment implements github.Tracker. The author is "forecrew[bot]";
 // the bot's own comments emit no event.
 func (t *Tracker) CreateComment(_ context.Context, repo string, number int, body string) (github.Comment, error) {
-	return t.addComment(repo, number, "forecrew[bot]", body, new(Event))
+	return t.addComment(repo, number, TrackerBot, body, new(Event))
 }
 
-// UpdateComment implements github.Tracker. Only the comments of the bot can
-// be edited.
+// TrackerBot is the login of the bot that makes the comments of the fake
+// tracker.
+const TrackerBot = "forecrew[bot]"
+
+// Bot implements github.Tracker.
+func (t *Tracker) Bot(context.Context) (string, error) { return TrackerBot, nil }
+
+// UpdateComment implements github.Tracker. Like a token with write access,
+// it edits any comment.
 func (t *Tracker) UpdateComment(_ context.Context, repo string, id int64, body string) (github.Comment, error) {
 	var out github.Comment
 	err := t.with(repo, func(r *fakeRepo) error {
 		for _, i := range r.issues {
 			for k := range i.comments {
 				if c := &i.comments[k]; c.ID == id {
-					if c.Author != "forecrew[bot]" {
-						return fmt.Errorf("comment %d: %w", id, github.ErrForbidden)
-					}
 					c.Body = body
 					out = *c
 					return nil
