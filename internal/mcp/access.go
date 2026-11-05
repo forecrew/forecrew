@@ -19,7 +19,8 @@ type Access struct {
 	// of its kind, on its project.
 	Gate bool
 	// Own means the call works on the caller's own records without a
-	// permission (their tokens, their session).
+	// permission (their tokens, their session), within the scopes of its
+	// credential.
 	Own bool
 	// Target means the permission depends on what the call is about (the
 	// subject and scope of a role binding); the tool decides it.
@@ -29,10 +30,14 @@ type Access struct {
 }
 
 // Check is the check of the entry points, before the call runs: by holds the
-// permission somewhere. They do not know the project yet; the tool checks
-// the project, and the Gate, Own and Target cases, through the same engine.
+// permission somewhere, or for Own records a credential that may read. They
+// do not know the project yet; the tool checks the project, and the Gate, Own
+// and Target cases, through the same engine.
 func (a Access) Check(ctx context.Context, e *authz.Engine, by domain.Actor) error {
-	if a.Permission == "" || a.Own {
+	switch {
+	case a.Own:
+		return e.AuthorizeScope(ctx, by, domain.ScopeRead)
+	case a.Permission == "":
 		return nil
 	}
 	return e.AuthorizeAnywhere(ctx, by, a.Permission)

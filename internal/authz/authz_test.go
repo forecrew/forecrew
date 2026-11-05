@@ -270,6 +270,34 @@ func TestTokenStates(t *testing.T) {
 	}
 }
 
+func TestAuthorizeScope(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	_, id := f.user(t)
+	read := f.token(t, domain.MCPToken{Name: "read", OwnerKind: domain.SubjectUser, OwnerID: id, Scopes: []domain.Scope{domain.ScopeRead}})
+	by := mcp.TokenActor(read)
+	must(t, f.engine.AuthorizeScope(ctx, by, domain.ScopeRead))
+	err := f.engine.AuthorizeScope(ctx, by, domain.ScopeWrite)
+	if !errors.Is(err, authz.ErrDenied) || !strings.Contains(err.Error(), "write") {
+		t.Fatalf("err = %v", err)
+	}
+	entries, err := f.st.Audit().List(ctx, f.account, store.AuditFilter{})
+	must(t, err)
+	if len(entries) != 1 || entries[0].Action != "access.denied" || entries[0].Credential != by.Credential.String() || !strings.Contains(string(entries[0].Data), `"scope":"write"`) {
+		t.Fatalf("audit = %+v", entries)
+	}
+	must(t, f.engine.AuthorizeScope(ctx, domain.UserActor(f.account, id, domain.Credential{Kind: domain.CredentialSession, ID: domain.NewID()}), domain.ScopeAdmin))
+
+	// A grant has no scopes until T55, and a denied read is not audited.
+	grant := domain.UserActor(f.account, id, domain.Credential{Kind: domain.CredentialOAuthGrant, ID: domain.NewID()})
+	if err := f.engine.AuthorizeScope(ctx, grant, domain.ScopeRead); !errors.Is(err, authz.ErrDenied) {
+		t.Fatalf("grant = %v", err)
+	}
+	if entries, _ = f.st.Audit().List(ctx, f.account, store.AuditFilter{}); len(entries) != 1 {
+		t.Errorf("audit = %+v", entries)
+	}
+}
+
 func TestOwnerlessToken(t *testing.T) {
 	f := newFixture(t)
 	admin := f.token(t, domain.MCPToken{Name: "legacy"})
@@ -510,6 +538,9 @@ func TestStoreErrors(t *testing.T) {
 	}
 	if _, err := e.EffectiveOf(ctx, by); !errors.Is(err, boom) {
 		t.Errorf("EffectiveOf = %v", err)
+	}
+	if err := e.AuthorizeScope(ctx, by, domain.ScopeRead); !errors.Is(err, boom) {
+		t.Errorf("AuthorizeScope = %v", err)
 	}
 	e = authz.New(failing{f.st, f.st.RoleBindings(), failingTokens{f.st.MCPTokens(), boom}}, nil)
 	ownerless := domain.Actor{AccountID: f.account, Kind: domain.ActorMCP, Name: "x"}

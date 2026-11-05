@@ -337,6 +337,59 @@ func TestTokensOfTheCaller(t *testing.T) {
 	}
 }
 
+// TestOwnTokensStayWithinTheScopes: own records need no role, but a read
+// token cannot take its owner's other tokens down.
+func TestOwnTokensStayWithinTheScopes(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	_, id := f.member(t, orgScope, domain.RoleViewer, uuid.Nil())
+	create := func(name string, scope domain.Scope) domain.MCPToken {
+		tok := domain.MCPToken{AccountID: f.account.ID, Name: name, TokenHash: mcp.HashToken(name), OwnerKind: domain.SubjectUser, OwnerID: id, Scopes: []domain.Scope{scope}}
+		must(t, f.st.MCPTokens().Create(ctx, &tok))
+		return tok
+	}
+	read := create("read", domain.ScopeRead)
+	sibling := create("sibling", domain.ScopeAdmin)
+	write := create("write", domain.ScopeWrite)
+
+	if list, err := f.svc.ListTokens(ctx, mcp.TokenActor(read)); err != nil || len(list) != 3 {
+		t.Fatalf("a read token lists %+v, %v", list, err)
+	}
+	for _, ref := range []string{sibling.ID.String(), "sibling"} {
+		_, err := f.svc.RevokeToken(ctx, mcp.TokenActor(read), mcp.RevokeTokenInput{Token: ref})
+		wantErr(t, err, authz.ErrDenied)
+	}
+	if tokens, _ := f.st.MCPTokens().List(ctx, f.account.ID); !tokens[2].RevokedAt.IsZero() {
+		t.Fatalf("sibling = %+v", tokens[2])
+	}
+	if got, _ := f.auditOf(ctx, t); !slices.Contains(got, "access.denied") {
+		t.Errorf("audit = %v", got)
+	}
+
+	grant := domain.UserActor(f.account.ID, id, domain.Credential{Kind: domain.CredentialOAuthGrant, ID: domain.NewID()})
+	_, err := f.svc.RevokeToken(ctx, grant, mcp.RevokeTokenInput{Token: sibling.ID.String()})
+	wantErr(t, err, authz.ErrDenied)
+	_, err = f.svc.ListTokens(ctx, grant)
+	wantErr(t, err, authz.ErrDenied)
+
+	out, err := f.svc.RevokeToken(ctx, mcp.TokenActor(write), mcp.RevokeTokenInput{Token: sibling.ID.String()})
+	must(t, err)
+	if out.Self || out.Token.ID != sibling.ID {
+		t.Errorf("revoked = %+v", out)
+	}
+	// The token in use can always end itself.
+	out, err = f.svc.RevokeToken(ctx, mcp.TokenActor(read), mcp.RevokeTokenInput{Token: read.ID.String()})
+	must(t, err)
+	if !out.Self {
+		t.Errorf("revoked = %+v", out)
+	}
+	// A session has no scopes to meet.
+	session := domain.UserActor(f.account.ID, id, domain.Credential{Kind: domain.CredentialSession, ID: domain.NewID()})
+	if _, err = f.svc.RevokeToken(ctx, session, mcp.RevokeTokenInput{Token: write.ID.String()}); err != nil {
+		t.Error(err)
+	}
+}
+
 func TestTeamsTools(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()

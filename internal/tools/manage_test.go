@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 )
@@ -94,10 +95,13 @@ func TestTokens(t *testing.T) {
 	if !out.Self || !strings.Contains(out.Message, "token you are using") || out.Token.Current {
 		t.Errorf("revoke own token = %+v", out)
 	}
-	list, err = f.svc.ListTokens(ctx, f.by)
+	// A revoked token gets no further than Authenticate; nothing is left of it here.
+	_, err = f.svc.ListTokens(ctx, f.by)
+	wantErr(t, err, authz.ErrDenied)
+	stored, err := f.st.MCPTokens().List(ctx, f.account.ID)
 	must(t, err)
-	if list[0].RevokedAt.IsZero() || list[0].Current {
-		t.Errorf("own token after revoke = %+v", list[0])
+	if stored[0].RevokedAt.IsZero() {
+		t.Errorf("own token after revoke = %+v", stored[0])
 	}
 	want := []string{"mcp:laptop token.revoked", "mcp:laptop token.revoked"}
 	if got := f.auditActions(t); !slices.Equal(got, want) {
