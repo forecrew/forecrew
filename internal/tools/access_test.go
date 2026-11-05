@@ -256,6 +256,34 @@ func TestContributorApprovesSpecsNotMerges(t *testing.T) {
 	wantErr(t, err, mcp.ErrInvalidInput)
 }
 
+func TestGoalLeavesGatesOutWithoutGateRead(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	goal := f.newGoal(t, "g")
+	spec := domain.Spec{AccountID: f.account.ID, ProjectID: f.project.ID, GoalID: goal.ID, Revision: 1, Body: "s"}
+	must(t, f.st.Specs().Create(ctx, &spec))
+	task := domain.Task{AccountID: f.account.ID, ProjectID: f.project.ID, GoalID: goal.ID, SpecID: spec.ID, Seq: 1, Title: "t", Status: domain.TaskOpen}
+	must(t, f.st.Tasks().Create(ctx, &task))
+	_, err := f.gates.Open(ctx, gates.OpenRequest{AccountID: f.account.ID, ProjectID: f.project.ID, Kind: domain.GateMergeApproval, Title: "secret", GoalID: goal.ID, TaskID: task.ID})
+	must(t, err)
+	role := domain.Role{AccountID: f.account.ID, Name: "goals", Scope: projectScope, Permissions: []domain.Permission{domain.PermGoalRead}, Custom: true}
+	must(t, f.st.Roles().Create(ctx, &role))
+	by, id := f.member(t, "", "", uuid.Nil())
+	must(t, f.st.RoleBindings().Create(ctx, &domain.RoleBinding{AccountID: f.account.ID, SubjectKind: domain.SubjectUser, SubjectID: id, RoleID: role.ID, ProjectID: f.project.ID, CreatedBy: "user:op"}))
+
+	d, err := f.svc.GetGoal(ctx, by, mcp.GoalRefInput{Goal: goal.Ref()})
+	must(t, err)
+	if d.Gates == nil || len(d.Gates) != 0 || len(d.Tasks) != 1 || len(d.Tasks[0].Needs) != 0 {
+		t.Fatalf("gates = %+v, tasks = %+v", d.Gates, d.Tasks)
+	}
+	viewer, _ := f.member(t, projectScope, domain.RoleViewer, f.project.ID)
+	d, err = f.svc.GetGoal(ctx, viewer, mcp.GoalRefInput{Goal: goal.Ref()})
+	must(t, err)
+	if len(d.Gates) != 1 || len(d.Tasks[0].Needs) != 1 {
+		t.Fatalf("gates = %+v, tasks = %+v", d.Gates, d.Tasks)
+	}
+}
+
 func TestServiceAccountNeverResolvesAGate(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
