@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/store"
@@ -29,10 +30,10 @@ func HashToken(token string) []byte {
 }
 
 // Authenticate returns middleware that requires "Authorization: Bearer
-// <token>" with a known, unrevoked MCP/API token. It looks the token up by
-// hash, records its use, and attaches an ActorMCP actor (token name, account
-// ID) to the request context; see ActorFromContext. Failures answer 401 in the
-// API error format. It serves the MCP endpoint and /api/v1.
+// <token>" with a known MCP/API token that is neither revoked nor expired. It
+// looks the token up by hash, records its use, and attaches the token's actor
+// (TokenActor) to the request context; see ActorFromContext. Failures answer
+// 401 in the API error format. It serves the MCP endpoint and /api/v1.
 func Authenticate(tokens store.MCPTokenRepo, logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +45,7 @@ func Authenticate(tokens store.MCPTokenRepo, logger *slog.Logger) func(http.Hand
 			}
 			t, err := tokens.GetByTokenHash(r.Context(), HashToken(token))
 			switch {
-			case errors.Is(err, store.ErrNotFound) || (err == nil && !t.RevokedAt.IsZero()):
+			case errors.Is(err, store.ErrNotFound) || (err == nil && !t.Usable(time.Now())):
 				writeAuthError(w, http.StatusUnauthorized, "unauthorized", "invalid or revoked token")
 				return
 			case err != nil:
@@ -55,10 +56,21 @@ func Authenticate(tokens store.MCPTokenRepo, logger *slog.Logger) func(http.Hand
 			if err := tokens.Touch(r.Context(), t.AccountID, t.ID); err != nil {
 				logger.WarnContext(r.Context(), "touch token", "account_id", t.AccountID, "error", err)
 			}
-			actor := domain.Actor{AccountID: t.AccountID, Kind: domain.ActorMCP, Name: t.Name}
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), actorKey{}, actor)))
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), actorKey{}, TokenActor(t))))
 		})
 	}
+}
+
+// TokenActor is who acts with t: its owner, through the token, or mcp:<name>
+// for a token without an owner.
+func TokenActor(t domain.MCPToken) domain.Actor {
+	switch t.OwnerKind {
+	case domain.SubjectUser:
+		return domain.UserActor(t.AccountID, t.OwnerID, domain.Credential{Kind: domain.CredentialToken, ID: t.ID})
+	case domain.SubjectServiceAccount:
+		return domain.ServiceAccountActor(t.AccountID, t.OwnerID, t.ID)
+	}
+	return domain.Actor{AccountID: t.AccountID, Kind: domain.ActorMCP, Name: t.Name}
 }
 
 func writeAuthError(w http.ResponseWriter, status int, code, message string) {
