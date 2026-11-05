@@ -105,6 +105,9 @@ func (r jobRepo) GetByNumber(ctx context.Context, accountID uuid.UUID, number in
 func (r jobRepo) List(ctx context.Context, accountID uuid.UUID, f store.JobFilter) ([]domain.Job, error) {
 	w := newWhere(accountID)
 	andNot(w, "project_id = ?", f.ProjectID)
+	if f.InProjects != nil {
+		w.and("project_id = ANY(?)", f.InProjects)
+	}
 	andNot(w, "goal_id = ?", f.GoalID)
 	andNot(w, "task_id = ?", f.TaskID)
 	andNot(w, "worker_id = ?", f.WorkerID)

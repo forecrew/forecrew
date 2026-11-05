@@ -190,5 +190,20 @@ func migrationsFS() fs.FS {
 	return sub
 }
 
+// Teams implements store.Store.
+func (s *Store) Teams() store.TeamRepo { return teamRepo{s.db} }
+
+// ServiceAccounts implements store.Store.
+func (s *Store) ServiceAccounts() store.ServiceAccountRepo { return serviceAccountRepo{s.db} }
+
+// Roles implements store.Store.
+func (s *Store) Roles() store.RoleRepo { return roleRepo{s.db} }
+
+// RoleBindings implements store.Store.
+func (s *Store) RoleBindings() store.RoleBindingRepo { return roleBindingRepo{s.db} }
+
+// Directory implements store.Store.
+func (s *Store) Directory() store.DirectoryRepo { return directoryRepo{s.db} }
+
 // Knowledge implements store.Store.
 func (s *Store) Knowledge() store.KnowledgeRepo { return knowledgeRepo{s.db, s.vec} }

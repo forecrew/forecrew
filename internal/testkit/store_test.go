@@ -1211,3 +1211,23 @@ func TestStoreTaskTextSearch(t *testing.T) {
 		t.Errorf("a blank text lists every task: %v", got)
 	}
 }
+
+// fakeAccessSeed seeds the fake.
+type fakeAccessSeed struct{ st *Store }
+
+func (s fakeAccessSeed) Member(_ *testing.T, accountID uuid.UUID) uuid.UUID {
+	return s.st.AddMember(accountID, domain.User{Name: "someone"}, "").ID
+}
+
+func (s fakeAccessSeed) SetStatus(_ *testing.T, accountID, userID uuid.UUID, status domain.MembershipStatus) {
+	s.st.SetMemberStatus(accountID, userID, status)
+}
+
+func (s fakeAccessSeed) Link(_ *testing.T, _, userID uuid.UUID, id int64, login string) {
+	s.st.LinkGitHub(userID, id, login)
+}
+
+func TestAccessStore(t *testing.T) {
+	f := newFixture(t)
+	AccessStoreSuite(t, f.st, fakeAccessSeed{f.st}, f.account, f.project.ID)
+}
