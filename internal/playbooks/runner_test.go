@@ -62,14 +62,19 @@ func (r *runner) finishJob(t *testing.T, id uuid.UUID, output []byte, sha string
 	must(t, err)
 	leased, err := r.st.Jobs().LeaseNext(ctx, r.account, r.worker.ID, j.RequiredLabels(), time.Hour)
 	must(t, err)
-	done, err := r.st.Jobs().Complete(ctx, r.account, leased.ID, r.worker.ID, store.JobResult{Status: domain.JobSucceeded, Output: output, HeadSHA: sha, CostUSD: cost})
-	must(t, err)
-	if r.register != nil {
-		must(t, r.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error { return r.register.JobCompleted(ctx, tx, done) }))
-	}
-	if sha != "" && leased.Spec.Branch != "" { // the worker pushed the branch
+	if sha != "" && leased.Spec.Branch != "" { // the worker pushes the branch before it reports
 		must(t, r.tracker.AddBranch(leased.Spec.Repo, leased.Spec.Branch))
 	}
+	// As the job service does, finish the job and register its assumptions in
+	// one transaction: the engine reads a finished job at once (it does not
+	// wait for the signal), and must find its gates open.
+	must(t, r.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		done, err := tx.Jobs().Complete(ctx, r.account, leased.ID, r.worker.ID, store.JobResult{Status: domain.JobSucceeded, Output: output, HeadSHA: sha, CostUSD: cost})
+		if err != nil || r.register == nil {
+			return err
+		}
+		return r.register.JobCompleted(ctx, tx, done)
+	}))
 	r.publish(t, &domain.JobCompleted{JobID: leased.ID, Status: domain.JobSucceeded})
 }
 
