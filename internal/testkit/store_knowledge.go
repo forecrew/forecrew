@@ -179,7 +179,7 @@ func (r knowledgeRepo) ExpireGoalNotes(_ context.Context, accountID uuid.UUID, g
 
 func (r knowledgeRepo) Search(_ context.Context, accountID uuid.UUID, q store.KnowledgeQuery) ([]store.KnowledgeHit, error) {
 	return read(r.s, func(d *storeData) ([]store.KnowledgeHit, error) {
-		pos, neg := queryWords(q.Text)
+		wq := queryWords(q.Text)
 		hits := []store.KnowledgeHit{}
 		for _, e := range d.knowledge.rows {
 			if !visible(e, accountID, q) {
@@ -187,7 +187,7 @@ func (r knowledgeRepo) Search(_ context.Context, accountID uuid.UUID, q store.Kn
 			}
 			rank, ok := 0.0, true
 			if strings.TrimSpace(q.Text) != "" {
-				rank, ok = score(e, d.embeddings[e.ID], q, pos, neg)
+				rank, ok = score(e, d.embeddings[e.ID], q, wq)
 			}
 			if ok {
 				hits = append(hits, store.KnowledgeHit{Entry: e, Rank: rank, Snippet: snippet(e.Body)})
@@ -203,8 +203,8 @@ func (r knowledgeRepo) Search(_ context.Context, accountID uuid.UUID, q store.Kn
 // score ranks e for a text query: its word match, mixed with the cosine
 // similarity of its embedding (vec, nil without one) as the Postgres store
 // does. ok is false when e is no hit.
-func score(e domain.KnowledgeEntry, vec []float32, q store.KnowledgeQuery, pos, neg []string) (rank float64, ok bool) {
-	rank, ok = textRank(e, pos, neg)
+func score(e domain.KnowledgeEntry, vec []float32, q store.KnowledgeQuery, wq wordQuery) (rank float64, ok bool) {
+	rank, ok = textRank(e, wq)
 	if vec == nil || len(q.Embedding) == 0 {
 		return rank, ok
 	}
@@ -234,38 +234,54 @@ func words(s string) []string {
 	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
 }
 
-// queryWords splits a websearch query into the words that must occur and
-// the words that must not.
-func queryWords(text string) (pos, neg []string) {
+// wordQuery is a parsed websearch query: the words that must occur (or, with
+// any, of which one must) and the words that must not.
+type wordQuery struct {
+	pos, neg []string
+	any      bool
+}
+
+// queryWords splits a websearch query into its words. An "or" between words
+// makes any one of them enough.
+func queryWords(text string) wordQuery {
+	var q wordQuery
 	for f := range strings.FieldsSeq(text) {
 		if w, ok := strings.CutPrefix(f, "-"); ok {
-			neg = append(neg, words(w)...)
+			q.neg = append(q.neg, words(w)...)
 			continue
 		}
-		pos = append(pos, words(f)...)
+		if strings.EqualFold(f, "or") {
+			q.any = true
+			continue
+		}
+		q.pos = append(q.pos, words(f)...)
 	}
-	return pos, neg
+	return q
 }
 
 // textRank is 1 for a title hit and 0.5 for a body hit of the best word, in
-// [0, 1): a match needs every positive word and no negative one.
-func textRank(e domain.KnowledgeEntry, pos, neg []string) (float64, bool) {
+// [0, 1): a match needs every positive word (one of them for an "or" query)
+// and no negative one.
+func textRank(e domain.KnowledgeEntry, q wordQuery) (float64, bool) {
 	title, body := words(e.Title), words(e.Body)
-	if len(pos) == 0 {
+	if len(q.pos) == 0 {
 		return 0, false
 	}
-	score := 0.0
-	for _, w := range pos {
+	score, hit := 0.0, false
+	for _, w := range q.pos {
 		switch {
 		case slices.Contains(title, w):
-			score += 1
+			score, hit = score+1, true
 		case slices.Contains(body, w):
-			score += 0.5
-		default:
+			score, hit = score+0.5, true
+		case !q.any:
 			return 0, false
 		}
 	}
-	for _, w := range neg {
+	if !hit {
+		return 0, false
+	}
+	for _, w := range q.neg {
 		if slices.Contains(title, w) || slices.Contains(body, w) {
 			return 0, false
 		}
