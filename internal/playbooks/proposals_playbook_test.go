@@ -149,6 +149,19 @@ func TestPushAfterApprovalIsNotMerged(t *testing.T) {
 	}
 }
 
+// When a human decides anyway an owner's review would only cost a job: a PR
+// with a role-owned and a protected section goes straight to the gate.
+func TestNoReviewJobWhenAHumanDecides(t *testing.T) {
+	f := newProposalFlow(t, "developer", uuid.Nil())
+	f.propose(t, "architecture", "docs/adr/2.md")
+	f.propose(t, "vision", "knowledge/vision/why.md")
+	r := f.start(t, "repo")
+	r.pendingGate(t, domain.GateKnowledgeProposal)
+	if reqs := r.jobs.Requests(); len(reqs) != 0 {
+		t.Errorf("review jobs = %+v", reqs)
+	}
+}
+
 func TestRejectedProposalClosesItsPR(t *testing.T) {
 	f := newProposalFlow(t, "architect", uuid.Nil())
 	k := f.propose(t, "vision", "knowledge/vision/why.md")
