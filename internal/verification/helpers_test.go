@@ -57,6 +57,8 @@ type run struct {
 	sha      string
 	change   uuid.UUID
 	results  []domain.TestResult
+	// overlay makes it the run of a base check: new tests laid over a base.
+	overlay bool
 }
 
 func pass(names ...string) []domain.TestResult { return results(domain.TestPassed, names...) }
@@ -87,6 +89,9 @@ func (f *fixture) add(r run) domain.TestRun {
 	f.t.Helper()
 	f.clock.Advance(time.Minute)
 	j := domain.Job{AccountID: f.acc.ID, ProjectID: f.proj.ID, Kind: domain.JobKindCommand, Spec: domain.JobSpec{Repo: "acme/app", Kind: domain.JobKindCommand}}
+	if r.overlay {
+		j.Spec.Overlay = &domain.Overlay{Ref: "head", Paths: []string{"a_test.go"}}
+	}
 	must(f.t, f.st.Jobs().Create(f.t.Context(), &j))
 	if r.sha == "" {
 		r.sha = sha
