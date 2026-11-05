@@ -130,6 +130,7 @@ func (s *knowledgeSuite) search() {
 		{"all notes", store.KnowledgeQuery{Text: "queue", Kinds: notes, AllNotes: true}, 3, ""},
 		{"entries of a section", store.KnowledgeQuery{Text: "queue", Kinds: []domain.KnowledgeKind{domain.KnowledgeEntryKind}, Sections: []string{"architecture"}}, 1, s.adr.Path},
 		{"an exclusion", store.KnowledgeQuery{Text: "queue -slow", Kinds: notes, GoalID: s.g1.ID}, 1, ""},
+		{"either of two words", store.KnowledgeQuery{Text: "lease or contributing"}, 2, ""},
 		{"nothing", store.KnowledgeQuery{Text: "nothingmatches"}, 0, ""},
 		{"a section without text", store.KnowledgeQuery{Sections: []string{"conventions"}}, 1, ""},
 	}
