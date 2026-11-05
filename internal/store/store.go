@@ -1076,10 +1076,13 @@ type BootstrapTokenRepo interface {
 	// GetByTokenHash is unscoped: the token identifies the machine. Used
 	// and expired tokens are returned too; callers check Usable.
 	GetByTokenHash(ctx context.Context, hash []byte) (domain.BootstrapToken, error)
-	// Assign binds an unassigned token to its organization, with an expiry.
+	// Assign binds an unassigned token to its organization, with an expiry
+	// counted from now. The machine is assigned first, in the same
+	// transaction.
 	Assign(ctx context.Context, machineID, accountID uuid.UUID, expiresAt time.Time) error
 	// Consume marks the token used; ErrConflict when it is not
-	// domain.BootstrapToken.Usable, so two callers cannot both use it.
+	// domain.BootstrapToken.Usable or its machine is not booting, so two
+	// callers cannot both use it and a finished machine gets no worker.
 	Consume(ctx context.Context, hash []byte) (domain.BootstrapToken, error)
 }
 
