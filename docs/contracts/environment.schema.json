@@ -97,6 +97,17 @@
       "propertyNames": {"minLength": 1},
       "additionalProperties": {"type": "string", "minLength": 1}
     },
+    "resources": {
+      "description": "What jobs in this environment need of a machine (fleet.md): it picks the shape. Not for provider actions.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min_cpu": {"type": "integer", "minimum": 0},
+        "min_memory_mb": {"type": "integer", "minimum": 0},
+        "min_disk_gb": {"type": "integer", "minimum": 0},
+        "gpu": {"type": "integer", "minimum": 0}
+      }
+    },
     "services": {
       "description": "Service name -> container started next to the job on a per-job network. Only for provider docker; machine and actions refuse them.",
       "type": "object",

@@ -1,0 +1,6 @@
+version: 1
+name: actions-resources
+provider: actions
+runs_on: ubuntu-24.04
+resources:
+  min_cpu: 8

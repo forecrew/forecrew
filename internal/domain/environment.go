@@ -46,6 +46,9 @@ type Environment struct {
 	// Versions maps a tool name to the command whose output is recorded as
 	// its version, e.g. go -> "go version".
 	Versions map[string]string `json:"versions,omitempty"`
+	// Resources is what its jobs need of a machine (fleet.md); actions
+	// runners have a fixed size, so not for provider actions.
+	Resources Resources `json:"resources,omitzero"`
 	// Services run next to the job, e.g. a database.
 	Services map[string]Service `json:"services,omitempty"`
 }
@@ -74,6 +77,10 @@ func (e Environment) Validate() error {
 		p.addf("name %q must match %s", e.Name, nameRE)
 	}
 	e.checkProvider(&p)
+	e.Resources.check(&p)
+	if e.Provider == ProviderActions && e.Resources != (Resources{}) {
+		p.addf("provider actions has no resources: runners have a fixed size")
+	}
 	p.checkPaths("dockerfile", nonEmpty(e.Dockerfile))
 	p.checkPaths("context", nonEmpty(e.Context))
 	p.checkPaths("devcontainer", nonEmpty(e.Devcontainer))

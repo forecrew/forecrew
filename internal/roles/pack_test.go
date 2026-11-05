@@ -137,13 +137,16 @@ func TestLoadValid(t *testing.T) {
 }
 
 func TestLoadPoolAndToolbox(t *testing.T) {
-	fsys := packFS(validRole + "pool: control\ntoolbox: security\ncontext: {}\n")
+	fsys := packFS(validRole + "pool: control\ntoolbox: security\ncontext: {}\nresources: {min_cpu: 4, min_memory_mb: 8192, min_disk_gb: 50, gpu: 1}\n")
 	fsys["packs/toolboxes/security.yaml"] = &fstest.MapFile{Data: []byte("name: security\nimage: ghcr.io/x/security:1\nneeds: [Linux]\n")}
 	defs, err := Load(fsys)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	d := defs["dev"]
+	if want := (domain.Resources{MinCPU: 4, MinMemoryMB: 8192, MinDiskGB: 50, GPU: 1}); d.Resources != want {
+		t.Fatalf("resources = %+v", d.Resources)
+	}
 	if d.Pool != "control" || d.Toolbox == nil || d.Toolbox.Image != "ghcr.io/x/security:1" || !slices.Equal(d.Toolbox.Needs, []string{"linux"}) {
 		t.Fatalf("definition = %+v", d)
 	}

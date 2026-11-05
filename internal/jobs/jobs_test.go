@@ -225,6 +225,26 @@ func TestCreatePools(t *testing.T) {
 	}
 }
 
+// A command job asks for what its environment says; an agent job keeps what
+// its role gave it.
+func TestCreateResources(t *testing.T) {
+	f := newFixture(t)
+	want := domain.Resources{MinMemoryMB: 8192}
+	j, err := f.svc.Create(t.Context(), system, domain.Job{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.JobKindCommand,
+		Spec: domain.JobSpec{Repo: "acme/app", Command: &domain.CommandSpec{Shell: "make test"},
+			Environment: &domain.Environment{Name: "e", Provider: domain.ProviderMachine, Resources: want}}})
+	must(t, err)
+	if j.Resources != want {
+		t.Fatalf("command job = %+v", j.Resources)
+	}
+	j, err = f.svc.Create(t.Context(), system, domain.Job{AccountID: f.account, ProjectID: f.project.ID, Role: "reviewer", Runtime: "codex",
+		Resources: want, Spec: domain.JobSpec{Repo: "acme/app"}})
+	must(t, err)
+	if j.Resources != want {
+		t.Fatalf("agent job = %+v", j.Resources)
+	}
+}
+
 // A job of pool actions has no labels to need: its needs are dropped, so no
 // worker label can keep it queued for ever.
 func TestCreateActionsJobDropsNeeds(t *testing.T) {

@@ -91,6 +91,9 @@ type Definition struct {
 	// Toolbox is the role's toolbox from packs/toolboxes, resolved; nil
 	// without one.
 	Toolbox *domain.Toolbox
+	// Resources is what the role's jobs need of a machine (resources: in
+	// the role file).
+	Resources domain.Resources
 }
 
 // AllowedTools returns the runtime tools the definition's tools allow,
@@ -106,19 +109,20 @@ func (d Definition) AllowedTools() []string {
 
 // file is the YAML shape of a role file.
 type file struct {
-	Role             string        `yaml:"role"`
-	Model            config.Tier   `yaml:"model"`
-	Prompt           string        `yaml:"prompt"`
-	Tools            []string      `yaml:"tools"`
-	WritePaths       *[]string     `yaml:"write_paths"`
-	Produces         []string      `yaml:"produces"`
-	OutputSchema     string        `yaml:"output_schema"`
-	DefinitionOfDone []string      `yaml:"definition_of_done"`
-	EscalateWhen     []string      `yaml:"escalate_when"`
-	MaxTurns         int           `yaml:"max_turns"`
-	Timeout          time.Duration `yaml:"timeout"`
-	Pool             string        `yaml:"pool"`
-	Toolbox          string        `yaml:"toolbox"`
+	Role             string           `yaml:"role"`
+	Model            config.Tier      `yaml:"model"`
+	Prompt           string           `yaml:"prompt"`
+	Tools            []string         `yaml:"tools"`
+	WritePaths       *[]string        `yaml:"write_paths"`
+	Produces         []string         `yaml:"produces"`
+	OutputSchema     string           `yaml:"output_schema"`
+	DefinitionOfDone []string         `yaml:"definition_of_done"`
+	EscalateWhen     []string         `yaml:"escalate_when"`
+	MaxTurns         int              `yaml:"max_turns"`
+	Timeout          time.Duration    `yaml:"timeout"`
+	Pool             string           `yaml:"pool"`
+	Toolbox          string           `yaml:"toolbox"`
+	Resources        domain.Resources `yaml:"resources"`
 	// Context is reserved for the context pack settings of T38; it must be
 	// empty until they are defined.
 	Context map[string]any `yaml:"context"`
@@ -268,6 +272,9 @@ func (f file) check(name string, p *[]string) Definition {
 	if f.Pool != "" && !domain.ValidName(f.Pool) {
 		add("pool %q is not a valid pool name", f.Pool)
 	}
+	if err := f.Resources.Validate(); err != nil {
+		add("%v", err)
+	}
 	if len(f.Context) > 0 {
 		add("context is reserved and must be empty for now")
 	}
@@ -286,6 +293,7 @@ func (f file) check(name string, p *[]string) Definition {
 		MaxTurns:         f.MaxTurns,
 		Timeout:          f.Timeout,
 		Pool:             domain.OrDefaultPool(f.Pool),
+		Resources:        f.Resources,
 	}
 }
 

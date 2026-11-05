@@ -43,6 +43,8 @@ type Role struct {
 	// Toolbox is the image the role's jobs run in; nil means the worker's
 	// host.
 	Toolbox *domain.Toolbox
+	// Resources is what the role's jobs need of a machine.
+	Resources domain.Resources
 }
 
 // ReadOnly reports whether the role may not write any path.

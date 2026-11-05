@@ -1,0 +1,8 @@
+version: 1
+name: gpu-train
+provider: machine
+needs: [cuda]
+resources:
+  min_cpu: 8
+  min_memory_mb: 32768
+  gpu: 1
