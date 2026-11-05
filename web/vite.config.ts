@@ -27,6 +27,8 @@ export default defineConfig({
     // Every file renders the whole app: more workers than the cores can spare
     // starve the first test of each file under coverage and time it out.
     maxWorkers: "50%",
+    // The pages render the whole app: 5 s is too short on a busy machine.
+    testTimeout: 30000,
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],

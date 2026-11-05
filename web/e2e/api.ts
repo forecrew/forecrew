@@ -20,9 +20,9 @@ export interface Calls {
  * loggedIn is false and turns on after POST /session. Gate decisions remove
  * the gate from the list; canceling a job turns the job page into the canceled job.
  */
-export async function mockApi(page: Page, opts: { loggedIn?: boolean } = {}): Promise<Calls> {
+export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: string } = {}): Promise<Calls> {
   let loggedIn = opts.loggedIn ?? true
-  let gates = fixture("gates") as { ref: string }[]
+  let gates = fixture(opts.gates ?? "gates") as { ref: string }[]
   let canceled = false
   let revoked = false
   const calls: Calls = { log: [] }
@@ -75,6 +75,16 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean } = {}): Pr
     const known = routes[`${req.method()} ${path}`]
     if (known) return json(route, fixture(known))
     if (req.method() === "GET" && path === "/gates") return json(route, gates)
+    // The council fixtures belong to the project app.
+    if (req.method() === "GET" && (path === "/councils" || path === "/decisions")) {
+      return json(route, url.searchParams.get("project") === "app" ? fixture(path === "/councils" ? "councils" : "decisions") : [])
+    }
+    const council = /^\/councils\/COUNCIL-(\d)$/.exec(path)
+    if (req.method() === "GET" && council) {
+      const names: Record<string, string> = { "2": "running", "3": "decided", "4": "failed", "5": "pending" }
+      return json(route, names[council[1]!] ? fixture(`council-${names[council[1]!]}`) : fixture("error-not-found"), names[council[1]!] ? 200 : 404)
+    }
+    if (req.method() === "GET" && path === "/assumptions") return json(route, fixture("assumptions"))
     if (req.method() === "GET" && path.startsWith("/projects/")) return json(route, fixture("project"))
     if (req.method() === "GET" && /^\/goals\/[^/]+$/.test(path)) return json(route, fixture("goal"))
     if (req.method() === "GET" && /^\/jobs\/[^/]+\/logs$/.test(path)) {
