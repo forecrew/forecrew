@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os/exec"
 	goruntime "runtime"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/analyzer"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/runtime"
@@ -50,8 +52,9 @@ func newFromConfig(ctx context.Context, cfg *config.Worker, environ []string, ve
 	if dockerBin != "" && !cfg.RegistryAuth {
 		dockerHost = newDockerCLI(dockerBin, cfg.WorkDir, environ).host(ctx)
 	}
+	toolboxes, _ := fs.Sub(forecrew.Files, "packs/toolboxes") // the path exists in the embedded files
 	return New(Config{
-		RegistryAuth: cfg.RegistryAuth, DockerHost: dockerHost,
+		Toolboxes: toolboxes, RegistryAuth: cfg.RegistryAuth, DockerHost: dockerHost,
 		DockerBin: dockerBin, ImageMaxAge: time.Duration(cfg.ImagePruneDays) * 24 * time.Hour,
 		Client: NewClient(cfg.ServerURL, cfg.Token, nil), Labels: labels, Version: version,
 		WorkDir: cfg.WorkDir, MaxJobs: cfg.MaxJobs,

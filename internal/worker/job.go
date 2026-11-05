@@ -382,8 +382,21 @@ func (r *jobRun) execute(ctx context.Context) Completion {
 		}
 	}
 
+	var box *toolboxRun
+	if r.spec.Toolbox != nil {
+		var done *Completion
+		box, done = r.startToolbox(ctx)
+		if box != nil {
+			// The container and the job's network die with the run, in all
+			// outcomes.
+			defer box.cleanup(ctx)
+		}
+		if done != nil {
+			return *done
+		}
+	}
 	r.ev.text(domain.EventStatus, "running")
-	res, err := r.runAgent(ctx, prompt)
+	res, err := r.runAgent(ctx, prompt, box)
 	if cause := r.uploadEvidence(ctx); cause != nil {
 		r.stop(cause)
 		return Completion{}
@@ -391,7 +404,7 @@ func (r *jobRun) execute(ctx context.Context) Completion {
 	comp := Completion{Usage: res.Usage, CostUSD: res.CostUSD}
 	if err != nil {
 		comp.Status, comp.Error = StatusFailed, r.red.String(err.Error())
-		if errors.Is(err, runtime.ErrNotInstalled) || errors.Is(err, runtime.ErrUnknownAdapter) {
+		if errors.Is(err, runtime.ErrNotInstalled) || errors.Is(err, runtime.ErrUnknownAdapter) || (box != nil && containerNotRun(err)) {
 			comp.Status = StatusRetry
 		}
 		return comp
@@ -431,6 +444,14 @@ func (r *jobRun) execute(ctx context.Context) Completion {
 	return comp
 }
 
+// containerNotRun reports whether err says `docker run` itself failed (the
+// daemon could not start the container) rather than the agent: the job is
+// given back.
+func containerNotRun(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, fmt.Sprintf("exit status %d", dockerFailed)) && strings.Contains(msg, "docker: ")
+}
+
 // withFacts appends the analyzer facts of the checkout to the prompt.
 func (r *jobRun) withFacts(ctx context.Context, prompt string) (string, error) {
 	facts, err := r.w.cfg.Analyzer.Analyze(ctx, r.dir)
@@ -444,9 +465,10 @@ func (r *jobRun) withFacts(ctx context.Context, prompt string) (string, error) {
 	return prompt + "\n\n## Repo facts\n\n```json\n" + string(b) + "\n```\n", nil
 }
 
-// runAgent runs the runtime adapter in the worktree and, when it returns,
+// runAgent runs the runtime adapter in the worktree (in the toolbox container
+// box, when there is one) and, when it returns,
 // kills the processes it left behind.
-func (r *jobRun) runAgent(ctx context.Context, prompt string) (runtime.Result, error) {
+func (r *jobRun) runAgent(ctx context.Context, prompt string, box *toolboxRun) (runtime.Result, error) {
 	adapter, err := r.w.cfg.Runtimes.Get(r.spec.Runtime)
 	if err != nil {
 		return runtime.Result{}, err
@@ -464,6 +486,14 @@ func (r *jobRun) runAgent(ctx context.Context, prompt string) (runtime.Result, e
 		// configuration refers to the variable.
 		env[runtime.JobMCPTokenEnv] = m.Token
 		gateway = &runtime.JobMCP{URL: r.w.cfg.Client.JobMCPURL()}
+		if box != nil {
+			gateway.URL = box.JobMCPURL()
+		}
+	}
+	var container runtime.Container
+	var servers []domain.MCPServer
+	if box != nil {
+		container, servers = box, box.toolbox.MCPServers
 	}
 	r.w.reaper.agentStarted()
 	res, err := adapter.Run(ctx, runtime.RunSpec{
@@ -471,6 +501,7 @@ func (r *jobRun) runAgent(ctx context.Context, prompt string) (runtime.Result, e
 		AllowedTools: r.spec.AllowedTools, MaxTurns: r.spec.MaxTurns,
 		Timeout: time.Duration(r.spec.Timeout), Env: env, JobMCP: gateway, EvidenceDir: r.scratch,
 		Endpoint: r.spec.Endpoint,
+		MCPServers: servers, Container: container,
 	}, r.ev.add)
 	if n := r.w.reaper.agentDone(mark); n > 0 {
 		r.log.Warn("killed processes the agent left running", "count", n)

@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
 
-.PHONY: build test test-integration test-docker lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live
+.PHONY: build test test-integration test-docker test-toolbox-browser lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
@@ -19,6 +19,11 @@ test-integration:
 # Needs a Docker engine: the worker's environments run in containers.
 test-docker:
 	go test -race -count=1 -tags docker ./internal/worker/
+
+# Needs a Docker engine and downloads Chromium (a few hundred MB): the smoke
+# test of the browser toolbox, not part of test-docker.
+test-toolbox-browser:
+	go test -count=1 -tags 'docker browser' -run Browser ./internal/worker/
 
 # actionlint checks the workflow Forecrew installs in projects; it is skipped
 # where it is not installed (CI installs it).

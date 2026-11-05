@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"io/fs"
 	"log/slog"
 	"path/filepath"
 	"time"
@@ -60,6 +61,10 @@ type Config struct {
 	// RegistryAuth lets Docker use the operator's registry logins; without
 	// it Docker runs with an empty config in work_dir/docker-config.
 	RegistryAuth bool
+	// Toolboxes holds the files of packs/toolboxes (Dockerfiles and what they
+	// copy), the build contexts of the toolbox images; nil means this
+	// worker can only pull toolbox images.
+	Toolboxes fs.FS
 	// DockerHost is the daemon endpoint of the operator's Docker context,
 	// kept when the config is replaced; see newFromConfig.
 	DockerHost string
