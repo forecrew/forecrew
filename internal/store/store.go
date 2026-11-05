@@ -443,9 +443,9 @@ type VerificationReportRepo interface {
 // (AssumptionRepo, DecisionRepo, CouncilRepo, KnowledgeRepo and
 // KnowledgeProposalRepo are in it): ProposalRepo by T50, with the
 // Postgres implementation and the testkit fake. goals.kind and goals.size
-// are read and written by GoalRepo from T35 (Size) and T41 (Kind),
-// and jobs.context_manifest by JobRepo from T38; until then they keep their
-// defaults (feature, NULL). gates.origin and jobs.job_mcp_token_hash are
+// are read and written by GoalRepo from T35 (Size) and T41 (Kind); until
+// then they keep their defaults (feature, NULL). jobs.context_manifest is
+// read and written by JobRepo (T38). gates.origin and jobs.job_mcp_token_hash are
 // read and written by GateRepo and JobRepo (T47).
 
 // CouncilFilter selects councils; zero fields match everything.
