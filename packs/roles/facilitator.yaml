@@ -1,7 +1,7 @@
 role: facilitator
 model: best
 prompt: roles/facilitator.md
-tools: [repo.read, git.read, assumption.record, kb.search]
+tools: [repo.read, git.read, assumption.record, kb.search, kb.propose, request_access]
 write_paths: []
 produces: [council-brief]
 output_schema: schemas/council-brief.json

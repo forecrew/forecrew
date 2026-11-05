@@ -9,6 +9,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/jobmcp"
 	"github.com/forecrew/forecrew/internal/knowledge"
+	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/runtime"
 	"github.com/forecrew/forecrew/internal/testkit"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -147,5 +148,89 @@ func TestKbSearchWrapsAHostileTitle(t *testing.T) {
 	text := res.Content[0].(*sdk.TextContent).Text
 	if i := strings.Index(text, hostile); i < strings.Index(text, "<untrusted-data") {
 		t.Errorf("the title reaches the text bare: %q", text)
+	}
+}
+
+var proposalTools = []string{runtime.JobMCPTool("kb_propose"), runtime.JobMCPTool("request_access")}
+
+const gatewayPolicy = `version: 1
+sections:
+  architecture: {paths: ["docs/adr/**"], owner: architect}
+  vision: {owner: human, protected: true}
+  closed: {owner: architect, access: {propose: [architect], read: [architect]}}
+`
+
+func withProposals(cfg *jobmcp.Config) {
+	policy, err := knowledge.ParsePolicy([]byte(gatewayPolicy))
+	if err != nil {
+		panic(err)
+	}
+	cfg.Proposals = &proposals.Service{Store: cfg.Store, Gates: cfg.Gates, Policy: func(context.Context, domain.Project) (knowledge.Policy, error) { return policy, nil }}
+}
+
+func TestKbPropose(t *testing.T) {
+	e := newEnv(t, withProposals)
+	_, tok := e.leaseGoal(t, e.task.GoalID, proposalTools...)
+	cs := e.connect(t, tok, nil)
+	in := map[string]any{"section": "architecture", "path": "docs/adr/2.md", "action": "add", "body": "# ADR\n", "reason": "We chose it."}
+	res, out := call(t, cs, "kb_propose", in)
+	if res.IsError || out["status"] != "queued" || out["batch"] != "per_goal" || !strings.HasPrefix(out["proposal"].(string), "KB-") || !strings.Contains(out["message"].(string), "learn") {
+		t.Fatalf("kb_propose = %+v / %v", res, out)
+	}
+	in["section"], in["path"] = "vision", "knowledge/vision/a.md"
+	if res, out = call(t, cs, "kb_propose", in); res.IsError || out["batch"] != "standalone" {
+		t.Errorf("protected = %+v / %v", res, out)
+	}
+	in["section"], in["path"] = "closed", "knowledge/closed/a.md"
+	res, out = call(t, cs, "kb_propose", in)
+	if !res.IsError || out["error"].(map[string]any)["code"] != jobmcp.CodeForbidden {
+		t.Errorf("not allowed = %+v / %v", res, out)
+	}
+	in["section"], in["path"], in["action"] = "architecture", "docs/adr/9.md", "edit"
+	res, out = call(t, cs, "kb_propose", in)
+	if !res.IsError || out["error"].(map[string]any)["code"] != jobmcp.CodeInvalidInput {
+		t.Errorf("no such entry = %+v / %v", res, out)
+	}
+}
+
+func TestRequestAccess(t *testing.T) {
+	e := newEnv(t, withProposals)
+	_, tok := e.leaseGoal(t, e.task.GoalID, proposalTools...)
+	cs := e.connect(t, tok, nil)
+	res, out := call(t, cs, "request_access", map[string]any{"section": "closed", "level": "propose", "reason": "I know this code."})
+	if res.IsError || out["status"] != "pending" || !strings.HasPrefix(out["gate"].(string), "GATE-") {
+		t.Fatalf("request_access = %+v / %v", res, out)
+	}
+	res, out = call(t, cs, "request_access", map[string]any{"section": "architecture", "level": "read", "reason": "r"})
+	if !res.IsError || out["error"].(map[string]any)["code"] != jobmcp.CodeInvalidInput {
+		t.Errorf("a level the role has = %+v / %v", res, out)
+	}
+}
+
+func TestProposalToolsUnavailable(t *testing.T) {
+	e := newEnv(t)
+	_, tok := e.leaseGoal(t, e.task.GoalID, proposalTools...)
+	cs := e.connect(t, tok, nil)
+	for tool, in := range map[string]map[string]any{
+		"kb_propose":     {"section": "architecture", "path": "a.md", "action": "add", "body": "b", "reason": "r"},
+		"request_access": {"section": "architecture", "level": "read", "reason": "r"},
+	} {
+		if res, out := call(t, cs, tool, in); !res.IsError || out["error"].(map[string]any)["code"] != jobmcp.CodeUnavailable {
+			t.Errorf("%s = %+v / %v", tool, res, out)
+		}
+	}
+}
+
+func TestProposalToolsWithoutAPolicy(t *testing.T) {
+	e := newEnv(t, func(cfg *jobmcp.Config) {
+		cfg.Proposals = &proposals.Service{Store: cfg.Store, Policy: func(context.Context, domain.Project) (knowledge.Policy, error) {
+			return knowledge.Policy{}, knowledge.ErrPolicyUnknown
+		}}
+	})
+	_, tok := e.leaseGoal(t, e.task.GoalID, proposalTools...)
+	cs := e.connect(t, tok, nil)
+	res, out := call(t, cs, "kb_propose", map[string]any{"section": "a", "path": "a.md", "action": "add", "body": "b", "reason": "r"})
+	if !res.IsError || out["error"].(map[string]any)["code"] != jobmcp.CodeUnavailable {
+		t.Errorf("kb_propose = %+v / %v", res, out)
 	}
 }

@@ -1,7 +1,7 @@
 role: ux
 model: strong
 prompt: roles/ux.md
-tools: [repo.read, git.read, assumption.record, kb.search]
+tools: [repo.read, git.read, assumption.record, kb.search, kb.propose, request_access]
 write_paths: []
 produces: [council-contribution]
 output_schema: schemas/council-proposal.json

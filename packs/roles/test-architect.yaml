@@ -1,7 +1,7 @@
 role: test-architect
 model: best
 prompt: roles/test-architect.md
-tools: [repo.read, repo.write, git.read, git.commit, run.tests, assumption.record, kb.search, notes.write]
+tools: [repo.read, repo.write, git.read, git.commit, run.tests, assumption.record, kb.search, notes.write, kb.propose, request_access]
 write_paths: [".forecrew/matrix.yaml", ".forecrew/test-strategy.md"]
 produces: [test-strategy, matrix]
 output_schema: schemas/test-plan.json

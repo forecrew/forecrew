@@ -1,7 +1,7 @@
 role: onboarding-analyst
 model: strong
 prompt: roles/onboarding-analyst.md
-tools: [repo.read, repo.write, git.read, git.commit, run.tests, assumption.record, kb.search, notes.write]
+tools: [repo.read, repo.write, git.read, git.commit, run.tests, assumption.record, kb.search, notes.write, kb.propose, request_access]
 write_paths: [".forecrew/**"]
 produces: [profile]
 output_schema: schemas/profile-draft.json
