@@ -1,0 +1,16 @@
+name: forecrew-linux
+version: 2026.11.1
+os: linux
+arch: amd64
+format: rootfs
+uri: https://images.example.com/forecrew-linux-2026.11.1.ext4
+digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+signature: ed25519:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==
+built_at: 2026-11-01T10:00:00Z
+contents:
+  labels: [docker, "runtime:claude-code", "runtime:codex"]
+  packages:
+    - {name: git, version: 2.51.0}
+  kernel:
+    uri: https://images.example.com/vmlinux-6.12
+    digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa

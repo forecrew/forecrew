@@ -1,0 +1,8 @@
+name: bsd-small
+provider: home-server
+os: freebsd
+arch: amd64
+cpu: 2
+memory_mb: 4096
+disk_gb: 20
+image: forecrew-bsd

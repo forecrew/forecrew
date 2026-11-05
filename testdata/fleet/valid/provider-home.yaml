@@ -1,0 +1,7 @@
+name: home-server
+kind: microvm
+limits:
+  max_machines: 4
+network_allow: [10.0.0.5, 192.168.1.0/24]
+tags:
+  owner: gianmaria

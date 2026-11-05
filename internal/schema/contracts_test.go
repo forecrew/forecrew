@@ -60,6 +60,97 @@ func TestCatalogFixtures(t *testing.T) {
 	}
 }
 
+// checkDef validates instance against one $def of a contract schema.
+func checkDef(t *testing.T, file, def string, instance any) error {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "contracts", file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["$ref"] = "#/$defs/" + def
+	sch, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Check(file, string(sch), instance)
+}
+
+// TestFleetFixtures checks testdata/fleet against fleet.schema.json: a
+// file <def>-<case>.yaml is an instance of that $def.
+func TestFleetFixtures(t *testing.T) {
+	seen := map[string]bool{}
+	for _, outcome := range []string{"valid", "invalid"} {
+		files, _ := filepath.Glob(filepath.Join("..", "..", "testdata", "fleet", outcome, "*.yaml"))
+		for _, f := range files {
+			def, _, _ := strings.Cut(filepath.Base(f), "-")
+			seen[outcome+" "+def] = true
+			data, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, inst, err := DecodeYAML(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = checkDef(t, "fleet.schema.json", def, inst)
+			if (outcome == "valid") != (err == nil) || (err != nil && !errors.Is(err, ErrInvalid)) {
+				t.Errorf("%s: %v", f, err)
+			}
+		}
+	}
+	for _, def := range []string{"shape", "provider", "fleet_policy", "image", "resources"} {
+		if !seen["valid "+def] || !seen["invalid "+def] {
+			t.Errorf("%s lacks valid or invalid fixtures", def)
+		}
+	}
+}
+
+// TestFleetAgentSchemas: the messages of fleet-agent-api.md accept and
+// refuse sample bodies.
+func TestFleetAgentSchemas(t *testing.T) {
+	id := `"018f4e2a-7b1c-7000-8000-000000000001"`
+	desired := `{"machine_id": ` + id + `, "shape": {}, "image": {}, "tags": {"forecrew:machine": "x"}, "network_allow": []`
+	tests := []struct {
+		def, instance string
+		ok            bool
+	}{
+		{"join_request", `{"code": "K7PQ-2M4X", "claim": "` + strings.Repeat("a", 43) + `", "kind": "microvm", "facts": {"host": "nas"}}`, true},
+		{"join_request", `{"code": "K7PQ-2M4X", "claim": "short", "kind": "microvm", "facts": {}}`, false},
+		{"join_response", `{"status": "waiting", "retry_after_seconds": 5}`, true},
+		{"join_response", `{"status": "waiting", "retry_after_seconds": 5, "token": "fcp_x"}`, false},
+		{"join_response", `{"status": "confirmed", "token": "fcp_x"}`, true},
+		{"join_response", `{"status": "confirmed"}`, false},
+		{"register_request", `{"capabilities": {"os": ["linux"]}}`, true},
+		{"register_request", `{}`, false},
+		{"register_response", `{"id": ` + id + `, "name": "home", "kind": "microvm", "status": "paused", "limits": {}, "tags": {}, "poll_timeout_seconds": 30}`, true},
+		{"poll_request", `{"generation": 7}`, true},
+		{"poll_response", `{"generation": 8, "machines": [` + desired + `}]}`, true},
+		{"poll_response", `{"generation": 8, "machines": [` + desired + `, "bootstrap": {"server_url": "https://f.example.com", "token": "fcb_x"}}]}`, true},
+		{"poll_response", `{"generation": 8, "machines": [` + desired + `, "bootstrap": {"server_url": "https://f.example.com", "token": "fcw_x"}}]}`, false},
+		{"poll_response", `{"machines": []}`, false},
+		{"state_report", `{"state": "booting", "external_id": "vm-1"}`, true},
+		{"state_report", `{"state": "booting"}`, false},
+		{"state_report", `{"state": "failed", "error": "no KVM"}`, true},
+		{"state_report", `{"state": "ready"}`, false},
+		{"reconcile_request", `{"instances": [{"external_id": "vm-1", "machine_id": ` + id + `, "running": true}]}`, true},
+		{"reconcile_request", `{"instances": [{"machine_id": ` + id + `, "running": true}]}`, false},
+		{"reconcile_response", `{"destroy": ["vm-1"]}`, true},
+	}
+	for _, tt := range tests {
+		inst, err := DecodeJSON([]byte(tt.instance))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := checkDef(t, "fleet-agent-api.schema.json", tt.def, inst); (err == nil) != tt.ok {
+			t.Errorf("%s %s: %v", tt.def, tt.instance, err)
+		}
+	}
+}
+
 // jobMCPTools are the tools of docs/contracts/job-mcp.md.
 var jobMCPTools = []string{"kb_search", "kb_propose", "request_access", "assumption_record", "evidence_attach",
 	"notes_write", "ask_human", "report_progress", "council_read"}
