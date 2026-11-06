@@ -23,6 +23,7 @@ const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: bo
   { name: "project", path: "/projects/app", ready: "app" },
   { name: "jobs", path: "/jobs", ready: "Jobs" },
   { name: "job", path: "/jobs/JOB-41", ready: /JOB-41/ },
+  { name: "quality", path: "/quality", ready: "Quality" },
   { name: "workers", path: "/workers", ready: "Workers" },
   { name: "tokens", path: "/tokens", ready: "Tokens" },
 ]

@@ -13,6 +13,9 @@ export type GateStatus = "pending" | "approved" | "changes_requested" | "rejecte
 export type ProjectStatus = "registered" | "onboarding" | "onboarded"
 export type ChecksStatus = "failure" | "pending" | "success" | "none" | "unknown"
 
+export type VerificationStatus = "passed" | "failed" | "incomplete"
+export type TestRunStatus = "passed" | "failed" | "errored"
+
 export const GOAL_STATUSES: GoalStatus[] = ["draft", "spec_review", "planned", "in_progress", "done", "canceled"]
 export const JOB_STATUSES: JobStatus[] = ["queued", "running", "succeeded", "failed", "canceled"]
 
@@ -63,6 +66,15 @@ export interface Change {
   checks?: ChecksStatus
 }
 
+/** The verification of a task's newest pull request that has a report (get_goal). */
+export interface VerificationRef {
+  status: VerificationStatus
+  sha: string
+  /** The report is for the pull request's head commit. */
+  current: boolean
+  url: string
+}
+
 export interface Task {
   id: string
   ref: string
@@ -75,6 +87,7 @@ export interface Task {
   /** Refs of the pending gates waiting for a human. */
   needs: string[]
   changes: Change[]
+  verification?: VerificationRef
   iterations: number
   cost_usd: number
 }
@@ -179,6 +192,8 @@ export interface Job {
   needs: string[]
   goal_id?: string
   task_id?: string
+  /** Absent or "agent" for an agent job. */
+  kind?: "agent" | "command"
   spec: JobSpec
   attempts: number
   max_attempts: number
@@ -204,8 +219,115 @@ export interface Job {
 /** The answer of job_status. */
 export interface JobInfo extends Job {
   ref: string
+  /** The test runs of a command job's latest attempt added up. */
+  tests?: TestSummary
   reason?: string
   worker_name?: string
+}
+
+export interface TestCounts {
+  passed: number
+  failed: number
+  skipped: number
+  errored: number
+}
+
+export interface TestSummary extends TestCounts {
+  runs: number
+  status: TestRunStatus
+}
+
+/** A file a job produced (list_artifacts). */
+export interface Artifact {
+  id: string
+  name: string
+  content_type: string
+  size: number
+  sha256: string
+  created_at: string
+}
+
+/** A failed or errored test case. Names and messages are written by the repo's tests: untrusted text. */
+export interface TestFailure {
+  name: string
+  classname: string
+  status: "failed" | "errored"
+  message?: string
+}
+
+/** The latest attempt of one suite in one matrix cell of an environment (project_quality). */
+export interface QualityCell {
+  /** Empty for the worker's host. */
+  environment: string
+  cell: Record<string, string>
+  suite: string
+  status: TestRunStatus
+  counts: TestCounts
+  /** JOB-41 */
+  job: string
+  failures: TestFailure[]
+  failures_truncated?: boolean
+}
+
+export interface QualityChange {
+  number: number
+  url: string
+  branch: string
+  sha: string
+  task?: string
+  cells: QualityCell[]
+  verification?: VerificationInfo
+}
+
+export interface QualityInfo {
+  project: string
+  default_branch: string
+  baseline?: { sha: string; cells: QualityCell[] }
+  changes: QualityChange[]
+}
+
+export interface VerificationResult {
+  environment: string
+  cell: Record<string, string>
+  suite: string
+  required: boolean
+  status: TestRunStatus | "missing"
+  counts: TestCounts
+  job?: string
+}
+
+export interface VerificationCriterion {
+  status: "passed" | "failed" | "untested"
+  /** Test -> its worst result. */
+  tests: Record<string, string>
+  untestable?: string
+}
+
+/** docs/contracts/verification.schema.json. */
+export interface VerificationReport {
+  version: number
+  sha: string
+  status: VerificationStatus
+  results: VerificationResult[]
+  criteria: Record<string, VerificationCriterion>
+  new_tests: Record<string, boolean>
+  flaky: { test: string; environments: string[] }[]
+  environments: Record<string, { versions: Record<string, string> }>
+  blocking: string[]
+}
+
+/** The answer of verification_report. */
+export interface VerificationInfo {
+  id: string
+  change: number
+  url: string
+  sha: string
+  status: VerificationStatus
+  /** The report is for the pull request's head commit; otherwise it is stale. */
+  current: boolean
+  report: VerificationReport
+  /** The rendered Markdown, when stored. */
+  artifact_id?: string
 }
 
 export type JobEventType = "status" | "log" | "message" | "tool_call" | "tool_result" | "usage" | "error"

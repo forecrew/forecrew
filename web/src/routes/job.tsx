@@ -1,7 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
-import { keys, useGoal, useJob, useJobLog } from "@/api/queries"
+import { artifactUrl } from "@/api/client"
+import { keys, useArtifacts, useGoal, useJob, useJobLog } from "@/api/queries"
 import type { JobEvent, JobInfo } from "@/api/types"
 import { Age } from "@/components/Age"
 import { Async } from "@/components/Async"
@@ -10,7 +11,7 @@ import { PageHeader } from "@/components/PageHeader"
 import { StatusBadge } from "@/components/StatusBadge"
 import { Button } from "@/components/ui/button"
 import { CancelJob, cancelable } from "@/components/CancelJob"
-import { count, cost, jobTone } from "@/lib/format"
+import { count, cost, countsText, fileSize, jobTone, resultTone } from "@/lib/format"
 
 const USAGE_PARTS: [string, string][] = [
   ["input_tokens", "input"],
@@ -95,7 +96,13 @@ function JobMeta({ job }: { job: JobInfo }) {
           ·{" "}
         </>
       ) : null}
-      worker <span className="font-mono">{job.worker_name ?? "none"}</span> · model <span className="font-mono">{job.spec.model}</span>
+      worker <span className="font-mono">{job.worker_name ?? "none"}</span>
+      {job.spec.model ? (
+        <>
+          {" "}
+          · model <span className="font-mono">{job.spec.model}</span>
+        </>
+      ) : null}
     </>
   )
 }
@@ -127,6 +134,44 @@ function Output({ output }: { output: unknown }) {
   )
 }
 
+/** The files a job produced, to download. An agent job shows the list only when it has files. */
+function Artifacts({ job }: { job: JobInfo }) {
+  const q = useArtifacts(job.ref)
+  const command = job.kind === "command"
+  if (!q.data) {
+    return command && q.isError ? (
+      <p role="alert" className="text-sm text-destructive">
+        Could not load the artifacts: {q.error.message}
+      </p>
+    ) : null
+  }
+  if (q.data.length === 0 && !command) return null
+  return (
+    <section aria-labelledby="job-artifacts">
+      <h2 id="job-artifacts" className="mb-2 text-lg font-semibold">
+        Artifacts
+      </h2>
+      {q.data.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No artifacts.</p>
+      ) : (
+        <ul aria-label="Artifacts" className="divide-y rounded-xl border bg-card text-sm">
+          {q.data.map((a) => (
+            <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 p-3">
+              <a href={artifactUrl(a.id)} download={a.name.split("/").pop()} className="font-mono break-all text-primary underline underline-offset-2">
+                {a.name}
+                <span className="sr-only"> (download)</span>
+              </a>
+              <span className="text-muted-foreground">
+                {fileSize(a.size)} · {a.content_type || "unknown type"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
 export function JobPage() {
   const { ref } = useParams({ from: "/app/jobs/$ref" })
   const qc = useQueryClient()
@@ -148,7 +193,7 @@ export function JobPage() {
             Jobs
           </Link>
           <PageHeader
-            title={`${j.ref} · ${j.role}`}
+            title={`${j.ref} · ${j.role || j.kind || "job"}`}
             badge={<StatusBadge tone={jobTone(j.status)}>{j.status}</StatusBadge>}
             meta={<JobMeta job={j} />}
           >
@@ -169,6 +214,7 @@ export function JobPage() {
                   <EventLog events={log.data?.events ?? []} running={running} />
                 )}
               </section>
+              <Artifacts job={j} />
             </div>
             <div className="space-y-6">
               <dl className="grid gap-x-4 gap-y-2 rounded-xl border bg-card p-4 text-sm sm:grid-cols-[7rem_1fr] lg:grid-cols-[6rem_1fr]">
@@ -185,6 +231,15 @@ export function JobPage() {
                       {j.needs.map((n) => (
                         <StatusBadge key={n}>{n}</StatusBadge>
                       ))}
+                    </dd>
+                  </>
+                ) : null}
+                {j.tests ? (
+                  <>
+                    <dt className="text-muted-foreground">Tests</dt>
+                    <dd>
+                      <StatusBadge tone={resultTone(j.tests.status)}>{j.tests.status}</StatusBadge> {countsText(j.tests)}
+                      {j.tests.runs > 1 ? ` in ${j.tests.runs} suites` : ""}
                     </dd>
                   </>
                 ) : null}
@@ -208,8 +263,12 @@ export function JobPage() {
                     </dd>
                   </>
                 ) : null}
-                <dt className="text-muted-foreground">Runtime</dt>
-                <dd className="font-mono">{j.runtime}</dd>
+                {j.runtime ? (
+                  <>
+                    <dt className="text-muted-foreground">Runtime</dt>
+                    <dd className="font-mono">{j.runtime}</dd>
+                  </>
+                ) : null}
                 <dt className="text-muted-foreground">Repository</dt>
                 <dd className="font-mono">
                   {j.spec.repo}

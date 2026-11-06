@@ -529,6 +529,7 @@ func fixtureCases() []fixtureCase {
 			e.svc.JobStatusFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
 				j := fixtureJob(45, domain.JobFailed, "", 1, at(-40))
 				j.Kind, j.Runtime, j.FinishedAt, j.CostUSD = domain.JobKindCommand, "", at(-35), 0
+				j.Spec.Runtime, j.Spec.Model = "", ""
 				return mcp.JobInfo{Job: j, Ref: "JOB-45", WorkerName: "build-box-1",
 					Tests: &mcp.TestSummary{Runs: 1, Status: domain.TestRunFailed, Passed: 7, Failed: 2, Skipped: 1}}, nil
 			}
@@ -536,14 +537,14 @@ func fixtureCases() []fixtureCase {
 		{"quality", "GET", "/api/v1/quality?project=app", "", 200, "bearer", nil},
 		{"quality-empty", "GET", "/api/v1/quality?project=app", "", 200, "bearer", func(e *env) {
 			e.svc.ProjectQualityFunc = func(context.Context, domain.Actor, mcp.ProjectInput) (mcp.QualityInfo, error) {
-				return mcp.QualityInfo{Project: "app", DefaultBranch: "main"}, nil
+				return mcp.QualityInfo{Project: "app", DefaultBranch: "main", Changes: []mcp.QualityChange{}}, nil
 			}
 		}},
 		{"quality-baseline-only", "GET", "/api/v1/quality?project=app", "", 200, "bearer", func(e *env) {
 			get := e.svc.ProjectQualityFunc
 			e.svc.ProjectQualityFunc = func(ctx context.Context, by domain.Actor, in mcp.ProjectInput) (mcp.QualityInfo, error) {
 				q, err := get(ctx, by, in)
-				q.Changes = nil
+				q.Changes = []mcp.QualityChange{}
 				return q, err
 			}
 		}},

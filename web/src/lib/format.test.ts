@@ -1,4 +1,4 @@
-import { assumptionOfGate, councilOfGate, councilTone, cost, count, decisionRef, gateLabel, isQuestion, isRefOrId, levelTone, until, goalRef, goalTone, jobRef, jobTone, projectTone, splitLines, splitList, stageOf, taskTone, words } from "./format"
+import { cellLabel, countsText, envLabel, fileSize, resultTone, verificationTone, assumptionOfGate, councilOfGate, councilTone, cost, count, decisionRef, gateLabel, isQuestion, isRefOrId, levelTone, until, goalRef, goalTone, jobRef, jobTone, projectTone, splitLines, splitList, stageOf, taskTone, words } from "./format"
 import { safeRedirect } from "./redirect"
 
 test("refs", () => {
@@ -111,4 +111,30 @@ describe("council helpers", () => {
     expect(decisionRef(9)).toBe("DEC-9")
     expect(splitLines(" a \n\n b\n")).toEqual(["a", "b"])
   })
+})
+
+test("file sizes", () => {
+  expect(fileSize(12)).toBe("12 B")
+  expect(fileSize(1536)).toBe("1.5 KB")
+  expect(fileSize(20480)).toBe("20 KB")
+  expect(fileSize(1572864)).toBe("1.5 MB")
+})
+
+test("counts text leaves out zero counts but passed", () => {
+  expect(countsText({ passed: 0, failed: 0, skipped: 0, errored: 0 })).toBe("0 passed")
+  expect(countsText({ passed: 1200, failed: 2, skipped: 3, errored: 4 })).toBe("1,200 passed, 2 failed, 4 errored, 3 skipped")
+})
+
+test("cells and environments", () => {
+  expect(cellLabel({ os: "linux", go: "1.26" })).toBe("go=1.26, os=linux")
+  expect(cellLabel({})).toBe("")
+  expect(envLabel("")).toBe("host")
+  expect(envLabel("linux")).toBe("linux")
+})
+
+test("verification and result tones", () => {
+  expect(verificationTone("passed")).toBe("good")
+  expect(verificationTone("failed")).toBe("bad")
+  expect(verificationTone("incomplete")).toBe("attention")
+  expect([resultTone("passed"), resultTone("errored"), resultTone("missing"), resultTone("skipped")]).toEqual(["good", "bad", "attention", "neutral"])
 })

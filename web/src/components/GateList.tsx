@@ -9,6 +9,7 @@ import { ExternalLink } from "@/components/ExternalLink"
 import { Field } from "@/components/Field"
 import { Markdown } from "@/components/Markdown"
 import { StatusBadge } from "@/components/StatusBadge"
+import { VerificationSection } from "@/components/Verification"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -208,6 +209,7 @@ function GateCard({ gate, selected, mode, setMode, onSelect, note, setNote, onDe
             ) : null}
           </div>
           <GateBody gate={gate} assumption={assumption} council={council} />
+          {gate.kind === "merge_approval" && gate.url ? <VerificationSection change={gate.url} title={`${gate.ref} verification`} /> : null}
           {shown === null ? (
             <Field key="note" label={w.note} error={refused ? "This council had its human round: approve or reject its brief." : error}>
               {(p) => <Textarea {...p} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />}

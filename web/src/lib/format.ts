@@ -1,4 +1,4 @@
-import type { CouncilStatus, GateKind, GateOrigin, GoalStatus, JobStatus, Level, ProjectStatus, TaskStatus } from "@/api/types"
+import type { CouncilStatus, GateKind, GateOrigin, GoalStatus, JobStatus, Level, ProjectStatus, TaskStatus, VerificationStatus } from "@/api/types"
 
 /** "5 min", "2 h", "3 d": how long ago an RFC 3339 time was. */
 export function age(iso: string | undefined, now = Date.now()): string {
@@ -118,4 +118,39 @@ export function isRefOrId(kind: "GOAL" | "TASK", s: string): boolean {
   const [prefix, num, ...rest] = s.split("-")
   if (prefix?.toUpperCase() === kind && rest.length === 0 && /^\d+$/.test(num ?? "") && Number(num) >= 1) return true
   return UUID.test(s)
+}
+
+export function verificationTone(s: VerificationStatus): Tone {
+  return s === "passed" ? "good" : s === "failed" ? "bad" : "attention"
+}
+/** The tone of a test result in the quality grid. */
+export function resultTone(s: string): Tone {
+  return s === "passed" ? "good" : s === "failed" || s === "errored" ? "bad" : s === "missing" ? "attention" : "neutral"
+}
+
+/** An environment as shown: "" is the worker's host. */
+export const envLabel = (environment: string) => environment || "host"
+
+/** A matrix cell as "go=1.26, os=linux", "" when it has no axes. */
+export function cellLabel(cell: Record<string, string>): string {
+  return Object.keys(cell)
+    .sort()
+    .map((k) => `${k}=${cell[k]}`)
+    .join(", ")
+}
+
+/** "20 KB": a file size in bytes. */
+export function fileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/** "7 passed, 2 failed": the counts that are not zero (passed always). */
+export function countsText(c: { passed: number; failed: number; skipped: number; errored: number }): string {
+  const parts = [`${count(c.passed)} passed`]
+  if (c.failed) parts.push(`${count(c.failed)} failed`)
+  if (c.errored) parts.push(`${count(c.errored)} errored`)
+  if (c.skipped) parts.push(`${count(c.skipped)} skipped`)
+  return parts.join(", ")
 }

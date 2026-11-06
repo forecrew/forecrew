@@ -1,4 +1,5 @@
 import { Link, useParams } from "@tanstack/react-router"
+import { useState } from "react"
 import { useGoal, useGoalJobs, useWorkers } from "@/api/queries"
 import type { GoalDetail } from "@/api/types"
 import { Age } from "@/components/Age"
@@ -12,8 +13,9 @@ import { StatusBadge } from "@/components/StatusBadge"
 import { TableWrap } from "@/components/TableWrap"
 import { cn } from "cn"
 import { buttonVariants } from "@/components/ui/button"
+import { VerificationSection } from "@/components/Verification"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { cost, gateKindLabel, goalTone, jobRef, jobTone, stageOf, taskTone, words, type Tone } from "@/lib/format"
+import { cost, gateKindLabel, goalTone, jobRef, jobTone, stageOf, taskTone, verificationTone, words, type Tone } from "@/lib/format"
 
 const CHECKS: Record<string, { label: string; tone: Tone }> = {
   success: { label: "checks passing", tone: "good" },
@@ -21,6 +23,19 @@ const CHECKS: Record<string, { label: string; tone: Tone }> = {
   failure: { label: "checks failing", tone: "bad" },
   none: { label: "no checks", tone: "neutral" },
   unknown: { label: "checks unknown", tone: "neutral" },
+}
+
+/** The verification of a task, fetched when it is opened. */
+function TaskVerification({ task }: { task: GoalDetail["tasks"][number] }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <details onToggle={(e) => setOpen(e.currentTarget.open)} className="rounded-xl border bg-card p-3 text-sm">
+      <summary className="cursor-pointer py-1 font-medium">
+        <span className="font-mono">{task.ref}</span> verification: {task.verification?.status}
+      </summary>
+      {open ? <VerificationSection change={task.ref} title={`${task.ref} verification`} /> : null}
+    </details>
+  )
 }
 
 function TaskRow({ task }: { task: GoalDetail["tasks"][number] }) {
@@ -51,6 +66,16 @@ function TaskRow({ task }: { task: GoalDetail["tasks"][number] }) {
               </li>
             ))}
           </ul>
+        ) : (
+          <span className="text-muted-foreground">none</span>
+        )}
+      </TableCell>
+      <TableCell>
+        {task.verification ? (
+          <StatusBadge tone={verificationTone(task.verification.status)}>
+            {task.verification.status}
+            {task.verification.current ? "" : " (stale)"}
+          </StatusBadge>
         ) : (
           <span className="text-muted-foreground">none</span>
         )}
@@ -170,6 +195,7 @@ export function GoalPage() {
                       <TableHead>Needs</TableHead>
                       <TableHead>Issue</TableHead>
                       <TableHead>Pull request</TableHead>
+                      <TableHead>Verification</TableHead>
                       <TableHead className="text-right">Iterations</TableHead>
                       <TableHead className="text-right">Cost</TableHead>
                     </TableRow>
@@ -185,6 +211,19 @@ export function GoalPage() {
               <p className="text-muted-foreground">No tasks yet.</p>
             )}
           </section>
+
+          {d.tasks.some((t) => t.verification) ? (
+            <section aria-labelledby="verification" className="mb-8 space-y-2">
+              <h2 id="verification" className="text-lg font-semibold">
+                Verification
+              </h2>
+              {d.tasks
+                .filter((t) => t.verification)
+                .map((t) => (
+                  <TaskVerification key={t.ref} task={t} />
+                ))}
+            </section>
+          ) : null}
 
           <section aria-labelledby="goal-jobs" className="mb-8">
             <h2 id="goal-jobs" className="mb-2 text-lg font-semibold">

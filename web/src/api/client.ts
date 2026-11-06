@@ -1,7 +1,7 @@
 import type {
-  Assumption, AssumptionStatus, Council, CouncilDetail, CouncilStatus, Decision, StartCouncilInput,
+  Artifact, Assumption, AssumptionStatus, Council, CouncilDetail, CouncilStatus, Decision, StartCouncilInput,
   CreateGoalInput, DispatchJobInput, ErrorBody, Gate, GateInfo, Goal, GoalDetail, GoalStatus, Job, JobInfo,
-  JobLogs, JobStatus, OnboardInput, OnboardResult, Project, RevokeResult, Session, Token, Worker,
+  JobLogs, JobStatus, OnboardInput, OnboardResult, Project, QualityInfo, RevokeResult, Session, Token, VerificationInfo, Worker,
 } from "./types"
 
 /** An error answer of the API. */
@@ -61,6 +61,8 @@ function query(params: Record<string, string | number | undefined>): string {
 }
 
 const seg = encodeURIComponent
+/** Where an artifact is downloaded from. */
+export const artifactUrl = (id: string) => `/api/v1/artifacts/${seg(id)}`
 // Project names may be owner/name: the server takes the rest of the path.
 const projectPath = (name: string) => name.split("/").map(seg).join("/")
 
@@ -85,6 +87,13 @@ export const api = {
     request<JobLogs>("GET", `/api/v1/jobs/${seg(ref)}/logs${query({ after_seq: afterSeq, limit })}`),
   dispatchJob: (input: DispatchJobInput) => request<Job>("POST", "/api/v1/jobs", input),
   cancelJob: (ref: string) => request<JobInfo>("POST", `/api/v1/jobs/${seg(ref)}/cancel`),
+
+  listArtifacts: (job: string) => request<Artifact[]>("GET", `/api/v1/jobs/${seg(job)}/artifacts`),
+
+  getQuality: (project: string) => request<QualityInfo>("GET", `/api/v1/quality${query({ project })}`),
+  /** change is a PR number (with project), a PR URL or a task ref. */
+  getVerification: (change: string, project?: string) =>
+    request<VerificationInfo>("GET", `/api/v1/changes/${seg(change)}/verification${query({ project })}`),
 
   listWorkers: () => request<Worker[]>("GET", "/api/v1/workers"),
 

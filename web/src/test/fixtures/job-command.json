@@ -21,8 +21,8 @@
     "branch": "agent/task-12",
     "role": "",
     "write_paths": null,
-    "runtime": "claude-code",
-    "model": "claude-sonnet-5",
+    "runtime": "",
+    "model": "",
     "prompt": "Implement TASK-12.",
     "allowed_tools": [
       "Read",
