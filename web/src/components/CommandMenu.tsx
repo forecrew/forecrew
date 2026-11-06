@@ -33,6 +33,8 @@ const PAGES = [
   { label: "Projects", to: "/projects" },
   { label: "Jobs", to: "/jobs" },
   { label: "Quality", to: "/quality" },
+  { label: "Assumptions", to: "/assumptions" },
+  { label: "Knowledge", to: "/knowledge" },
   { label: "Workers", to: "/workers" },
   { label: "Tokens", to: "/tokens" },
 ] as const

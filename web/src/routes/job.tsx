@@ -9,6 +9,7 @@ import { Async } from "@/components/Async"
 import { ExternalLink } from "@/components/ExternalLink"
 import { PageHeader } from "@/components/PageHeader"
 import { StatusBadge } from "@/components/StatusBadge"
+import { WhyLink } from "@/components/WhyLink"
 import { Button } from "@/components/ui/button"
 import { CancelJob, cancelable } from "@/components/CancelJob"
 import { count, cost, countsText, fileSize, jobTone, resultTone } from "@/lib/format"
@@ -122,6 +123,14 @@ function TaskRow({ job }: { job: JobInfo }) {
   )
 }
 
+/** Why does this job exist: the trace of its task, else of its goal. */
+function JobWhy({ job }: { job: JobInfo }) {
+  const goal = useGoal(job.goal_id ?? "", Boolean(job.goal_id))
+  if (!goal.data) return null
+  const task = job.task_id ? goal.data.tasks.find((t) => t.id === job.task_id) : undefined
+  return <WhyLink to={task?.ref ?? goal.data.ref} />
+}
+
 /** The output of a job as formatted JSON, folded away: it can be long. */
 function Output({ output }: { output: unknown }) {
   return (
@@ -197,6 +206,7 @@ export function JobPage() {
             badge={<StatusBadge tone={jobTone(j.status)}>{j.status}</StatusBadge>}
             meta={<JobMeta job={j} />}
           >
+            <JobWhy job={j} />
             {cancelable(j.status) ? <CancelJob jobRef={j.ref} /> : null}
           </PageHeader>
           <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1fr_22rem]">

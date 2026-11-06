@@ -8,7 +8,8 @@ review code; the UI links to it.
 Screens: Home (what needs me, is everything healthy), Inbox (decide gates,
 filtered by project; a goal page decides its own pending gates with the same
 cards), Goals, Councils, Decisions, Projects, Jobs, Quality, Workers and Tokens (dig into detail; a queued or
-running job can be canceled from the job page and from the job tables), and a
+running job can be canceled from the job page and from the job tables),
+Assumptions, Knowledge and the trace ("why does this exist?"), and a
 command menu (Ctrl+K or Cmd+K) to jump anywhere or start a goal, a council or
 an onboarding.
 
@@ -88,6 +89,27 @@ left out, not faked:
   the report of the current commit waits for and has no result for reads
   "required, no result" in the grid and in the environment tiles. Live updates,
   the trace view and coverage change are not part of it.
+- **Trace** (`/trace/:ref`). The chain behind a goal, task, spec, council,
+  decision, change or assumption, from `GET /api/v1/trace`: a vertical list in
+  the order things happened (goal, councils, spec revisions, decisions, tasks,
+  pull requests, verification, merge) with each step's origin, the assumptions
+  under the steps they affect, and the selected step's detail beside it. An
+  assumption is verified, accepted or invalidated in place, with its evidence.
+  Goal, task, gate and job pages link it ("Why?"); a gate or job links the
+  trace of its task, else of its goal.
+- **Assumptions.** The register with filters for status and impact (and the
+  sidebar's project; without one every project's register is listed), each item
+  with what rests on it, its evidence and the same inline resolution.
+- **Knowledge.** For the sidebar's project (the only project, when there is
+  one): entries (sections with provider, location, owner and whether protected;
+  search with kind and provider filters; an entry with its provenance, last
+  verified date, a "needs re-verify" badge and the link to its source),
+  proposals (pull requests or the gate to decide, and a form that calls
+  `propose_knowledge`), agent notes (the project's, or the project's and one
+  goal's, which can be deleted after a confirmation) and the integrations of
+  the approved profile with their status. A search hit shows its excerpt; the
+  listing has whole entries. The "save as lesson" box on gate feedback waits for
+  the lessons flag of T39.
 - **Job.** A back link, the title with the state badge and a line with goal,
   worker and model, the log beside the details, the cost and the tokens; Cancel
   stays at the top right. A command job shows its test counts and has no
@@ -147,7 +169,7 @@ To run the end-to-end tests with a Chromium you already have, set
 web/src
   api/          types.ts (written from docs/api.md), client.ts (the only place that calls fetch), queries.ts (TanStack Query hooks)
   components/   shared components; components/ui is shadcn's (added with its CLI, not edited; see Look)
-  routes/       one file per page (goals.tsx has the list and the New goal form)
+  routes/       one file per page (goals.tsx has the list and the New goal form; knowledge.tsx has the entries and knowledge-tabs.tsx the other views)
   lib/          formatting and small helpers
   router.tsx    TanStack Router tree; the login redirect and the 401 handling
   test/         MSW server, render helper, fixtures/

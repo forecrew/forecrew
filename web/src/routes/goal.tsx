@@ -10,6 +10,7 @@ import { Markdown } from "@/components/Markdown"
 import { GateList } from "@/components/GateList"
 import { PageHeader } from "@/components/PageHeader"
 import { StatusBadge } from "@/components/StatusBadge"
+import { WhyLink } from "@/components/WhyLink"
 import { TableWrap } from "@/components/TableWrap"
 import { cn } from "cn"
 import { buttonVariants } from "@/components/ui/button"
@@ -43,7 +44,7 @@ function TaskRow({ task }: { task: GoalDetail["tasks"][number] }) {
   return (
     <TableRow>
       <TableCell>
-        <span className="font-mono">{task.ref}</span> {task.title}
+        <span className="font-mono">{task.ref}</span> {task.title} <WhyLink to={task.ref} />
       </TableCell>
       <TableCell>
         <StatusBadge tone={taskTone(task.status)}>{words(task.status)}</StatusBadge>
@@ -143,6 +144,7 @@ export function GoalPage() {
       {(d) => (
         <>
           <PageHeader title={`${d.ref} · ${d.goal.title}`}>
+            <WhyLink to={d.ref} />
             <Link to="/councils/new" search={{ project: d.project, question: `${d.ref}: ${d.goal.title}` }} className={cn(buttonVariants({ variant: "outline" }))}>
               Start a council
             </Link>
@@ -155,6 +157,9 @@ export function GoalPage() {
             </Link>
             {d.goal.platforms?.length ? <span>Platforms: {d.goal.platforms.join(", ")}</span> : null}
             {d.url ? <ExternalLink href={d.url}>Goal issue</ExternalLink> : null}
+            <Link to="/knowledge" search={{ project: d.project, tab: "notes", goal: d.ref }} className="text-primary underline underline-offset-2">
+              Agent notes
+            </Link>
             <span className="ml-auto font-medium">Total cost {cost(d.cost_usd)}</span>
           </div>
 
