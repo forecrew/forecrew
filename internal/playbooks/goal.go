@@ -3,6 +3,7 @@ package playbooks
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"uuid"
 
@@ -16,6 +17,7 @@ import (
 const (
 	labelGoal  = "forecrew:goal"
 	labelTask  = "forecrew:task"
+	labelBug   = "forecrew:bug"
 	labelNeeds = "needs:"
 )
 
@@ -39,6 +41,33 @@ func (a *actions) loadGoal(ctx context.Context, run domain.WorkflowRun, id uuid.
 	return g, nil
 }
 
+// goalIssueOf returns the issue the goal has already, with forecrew:bug on it
+// for a bug.
+func (a *actions) goalIssueOf(ctx context.Context, repo string, g domain.Goal) (github.Issue, error) {
+	issue, err := a.Tracker.GetIssue(ctx, repo, g.IssueNumber)
+	if err != nil {
+		return issue, fmt.Errorf("get issue %s#%d: %w", repo, g.IssueNumber, err)
+	}
+	if g.Kind == domain.GoalBug && !slices.Contains(issue.Labels, labelBug) {
+		if err := a.Tracker.AddLabels(ctx, repo, issue.Number, labelBug); err != nil {
+			return issue, fmt.Errorf("label issue %s#%d: %w", repo, issue.Number, err)
+		}
+	}
+	return issue, nil
+}
+
+// intakeLabels returns the labels of the goal's issue, creating forecrew:bug
+// for a bug.
+func (a *actions) intakeLabels(ctx context.Context, repo string, g domain.Goal) ([]string, error) {
+	if g.Kind != domain.GoalBug {
+		return []string{labelGoal}, nil
+	}
+	if err := a.ensureLabel(ctx, repo, labelBug, "d73a4a", "A bug Forecrew fixes"); err != nil {
+		return nil, err
+	}
+	return []string{labelGoal, labelBug}, nil
+}
+
 // intakeOutput is the output of goal.intake.
 type intakeOutput struct {
 	IssueNumber   int    `json:"issue_number"`
@@ -48,7 +77,8 @@ type intakeOutput struct {
 
 // goalIntake is the action goal.intake. It makes sure the labels
 // forecrew:goal and forecrew:task exist in with.repo and opens the GitHub
-// issue that mirrors the goal with.goal_id, labeled forecrew:goal, unless
+// issue that mirrors the goal with.goal_id, labeled forecrew:goal (and
+// forecrew:bug for a bug, which a person's issue gets too), unless
 // the goal has one already. It outputs the issue's number and URL and the
 // project's default branch.
 func (a *actions) goalIntake(ctx context.Context, call workflow.ActionCall) (any, error) {
@@ -76,15 +106,21 @@ func (a *actions) goalIntake(ctx context.Context, call workflow.ActionCall) (any
 	if err := a.ensureLabel(ctx, p.Repo, labelTask, "1d76db", "A task of a Forecrew goal"); err != nil {
 		return nil, err
 	}
+	// A bug's issue carries forecrew:bug too, also when it was a person's
+	// issue before the @forecrew bug command.
+	labels, err := a.intakeLabels(ctx, p.Repo, g)
+	if err != nil {
+		return nil, err
+	}
 	var issue github.Issue
 	if g.IssueNumber > 0 {
-		issue, err = a.Tracker.GetIssue(ctx, p.Repo, g.IssueNumber)
+		issue, err = a.goalIssueOf(ctx, p.Repo, g)
 		if err != nil {
-			return nil, fmt.Errorf("get issue %s#%d: %w", p.Repo, g.IssueNumber, err)
+			return nil, err
 		}
 	} else {
 		issue, err = a.Tracker.CreateIssue(ctx, p.Repo, github.IssueInput{
-			Title: g.Ref() + ": " + g.Title, Body: g.Body, Labels: []string{labelGoal},
+			Title: g.Ref() + ": " + g.Title, Body: g.Body, Labels: labels,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("open the issue of %s: %w", g.Ref(), err)
