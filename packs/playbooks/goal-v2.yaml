@@ -433,7 +433,7 @@ steps:
                   - id: merge
                     type: action
                     action: github.merge_pr
-                    with: {repo: '${inputs.repo}', number: '${item}', require_verification: true}
+                    with: {repo: '${inputs.repo}', number: '${item}', sha: '${steps.assess.output.sha}', require_verification: true}
                     on_failure: escalate
           - id: done
             type: action

@@ -488,9 +488,9 @@ func (r *v2Run) verifyAgain(t *testing.T) {
 	r.commands(t, 3, failedRun)
 }
 
-// The merge gate cannot be passed for a head with no passed report, even when
-// a human approves: github.merge_pr refuses it and a needs_you gate asks.
-func TestGoalV2MergeRefusedWithoutAPassedReport(t *testing.T) {
+// What the human approved is the head that was verified: a push after the
+// approval is not merged, and a needs_you gate asks.
+func TestGoalV2MergeRefusesAHeadThatMoved(t *testing.T) {
 	r := startGoalV2(t)
 	r.designed(t)
 	r.push(t, 1)
@@ -500,12 +500,11 @@ func TestGoalV2MergeRefusedWithoutAPassedReport(t *testing.T) {
 	r.review(t, 0, 1, 1, approveReview())
 	r.pendingGate(t, domain.GateMergeApproval)
 
-	// A push after the report: the head has no report any more.
 	must(t, r.tracker.SetHeadSHA("acme/app", pr.Number, "pushed-by-a-human"))
 	must(t, r.tracker.SetCheckStatus("acme/app", "pushed-by-a-human", github.ChecksSuccess, 1))
 	r.decide(t, domain.GateMergeApproval, mcp.ToolApprove, "")
 	g := r.pendingGate(t, domain.GateNeedsYou)
-	if !strings.Contains(g.Summary, "pushed-by-a-human has no verification report") || r.prNow(t, pr.Number).Merged {
+	if !strings.Contains(g.Summary, "its head moved from "+v2sha(1)+" to pushed-by-a-human") || r.prNow(t, pr.Number).Merged {
 		t.Errorf("gate = %+v, merged = %v", g, r.prNow(t, pr.Number).Merged)
 	}
 }

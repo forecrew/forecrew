@@ -59,6 +59,15 @@ func TestGoalAssessNamesTheDevelopersCommit(t *testing.T) {
 	if s := toMap(t, out)["gate_summary"].(string); !strings.Contains(s, " at abc123.") || strings.Contains(s, pr.HeadSHA) {
 		t.Errorf("summary:\n%s", s)
 	}
+	if got := toMap(t, out)["sha"]; got != "abc123" {
+		t.Errorf("sha = %v, want the developer's commit", got)
+	}
+	// Rework opens no gate: no commit to hold the merge to.
+	out, err = p.call(t, "goal.assess", assessWith(pr, "failure", approveReview()))
+	must(t, err)
+	if got, ok := toMap(t, out)["sha"]; ok {
+		t.Errorf("rework output has sha %v", got)
+	}
 }
 
 func TestGoalAssessRework(t *testing.T) {
