@@ -160,9 +160,16 @@ func TestApproveAndChanges(t *testing.T) {
 	if out, _, code := e.run(t, "changes", "GATE-7", "add", "more tests"); code != 0 || out != "GATE-7 is changes_requested\n" {
 		t.Errorf("changes: code %d, %q", code, out)
 	}
+	if _, _, code := e.run(t, "approve", "GATE-7", "--feedback", "keep the lock order", "--save-as-lesson"); code != 0 {
+		t.Errorf("approve as a lesson: code %d", code)
+	}
+	if _, _, code := e.run(t, "changes", "GATE-7", "name", "it", "--save-as-lesson"); code != 0 {
+		t.Errorf("changes as a lesson: code %d", code)
+	}
 	calls := e.svc.Calls()
-	want := []mcp.GateDecisionInput{{Gate: "GATE-7"}, {Gate: "GATE-7", Feedback: "ship it"}, {Gate: "GATE-7", Feedback: "add more tests"}}
-	if len(calls) != 3 {
+	want := []mcp.GateDecisionInput{{Gate: "GATE-7"}, {Gate: "GATE-7", Feedback: "ship it"}, {Gate: "GATE-7", Feedback: "add more tests"},
+		{Gate: "GATE-7", Feedback: "keep the lock order", SaveAsLesson: true}, {Gate: "GATE-7", Feedback: "name it", SaveAsLesson: true}}
+	if len(calls) != 5 {
 		t.Fatalf("calls = %+v", calls)
 	}
 	for i, c := range calls {
@@ -174,7 +181,7 @@ func TestApproveAndChanges(t *testing.T) {
 	if out, _, code := e.run(t, "reject", "GATE-7", "--feedback", "not now"); code != 0 || out != "GATE-7 is rejected\n" {
 		t.Errorf("reject: code %d, %q", code, out)
 	}
-	if got := e.svc.Calls(); len(got) != 4 || got[3].Tool != mcp.ToolReject || got[3].Input != (mcp.GateDecisionInput{Gate: "GATE-7", Feedback: "not now"}) {
+	if got := e.svc.Calls(); len(got) != 6 || got[5].Tool != mcp.ToolReject || got[5].Input != (mcp.GateDecisionInput{Gate: "GATE-7", Feedback: "not now"}) {
 		t.Errorf("reject call = %+v", got)
 	}
 	if _, _, code := e.run(t, "changes", "GATE-7"); code != 1 {

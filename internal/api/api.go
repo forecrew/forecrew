@@ -478,14 +478,15 @@ func jobLogsInput(r *http.Request) (mcp.JobLogsInput, error) {
 
 func gateDecisionInput(r *http.Request) (mcp.GateDecisionInput, error) {
 	var body struct {
-		Feedback string `json:"feedback"`
+		Feedback     string `json:"feedback"`
+		SaveAsLesson bool   `json:"save_as_lesson"`
 	}
 	if r.ContentLength != 0 {
 		if err := decode(r, &body); err != nil {
 			return mcp.GateDecisionInput{}, err
 		}
 	}
-	return mcp.GateDecisionInput{Gate: r.PathValue("gate"), Feedback: body.Feedback}, nil
+	return mcp.GateDecisionInput{Gate: r.PathValue("gate"), Feedback: body.Feedback, SaveAsLesson: body.SaveAsLesson}, nil
 }
 
 func listAssumptionsInput(r *http.Request) (mcp.ListAssumptionsInput, error) {

@@ -240,33 +240,47 @@ func listCommand[T any](r *remote, use, short, path string, print func(w io.Writ
 
 func decideCommand(r *remote, name, action, short string) *cobra.Command {
 	var feedback string
+	var lesson bool
 	cmd := &cobra.Command{
 		Use:   name + " <gate>",
 		Short: short,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return decide(cmd, r, args[0], action, feedback)
+			return decide(cmd, r, args[0], action, feedback, lesson)
 		},
 	}
 	cmd.Flags().StringVar(&feedback, "feedback", "", "note recorded with the decision")
+	if action == "approve" {
+		cmd.Flags().BoolVar(&lesson, "save-as-lesson", false, "also propose the feedback as a lesson (needs --feedback)")
+	}
 	return cmd
 }
 
 func changesCommand(r *remote) *cobra.Command {
-	return &cobra.Command{
+	var lesson bool
+	cmd := &cobra.Command{
 		Use:   "changes <gate> <feedback>",
 		Short: "Ask for changes on a gate",
 		Args:  cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return decide(cmd, r, args[0], "request-changes", strings.Join(args[1:], " "))
+			return decide(cmd, r, args[0], "request-changes", strings.Join(args[1:], " "), lesson)
 		},
 	}
+	cmd.Flags().BoolVar(&lesson, "save-as-lesson", false, "also propose the feedback as a lesson")
+	return cmd
 }
 
-func decide(cmd *cobra.Command, r *remote, gate, action, feedback string) error {
-	var body any
+func decide(cmd *cobra.Command, r *remote, gate, action, feedback string, lesson bool) error {
+	fields := map[string]any{}
 	if feedback != "" {
-		body = map[string]string{"feedback": feedback}
+		fields["feedback"] = feedback
+	}
+	if lesson {
+		fields["save_as_lesson"] = true
+	}
+	var body any
+	if len(fields) > 0 {
+		body = fields
 	}
 	var g domain.Gate
 	if err := r.call(cmd.Context(), http.MethodPost, "/gates/"+url.PathEscape(gate)+"/"+action, body, &g); err != nil {

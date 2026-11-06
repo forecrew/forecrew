@@ -220,3 +220,24 @@ func TestPathRules(t *testing.T) {
 		}
 	}
 }
+
+func TestEntryPath(t *testing.T) {
+	p, err := knowledge.ParsePolicy([]byte(`version: 1
+providers:
+  wiki: {kind: confluence, instance: acme.atlassian.net}
+sections:
+  lessons: {paths: ["!knowledge/lessons/old/**", "knowledge/lessons/**"]}
+  adr: {paths: ["docs/adr/*", "docs/adr/*/*.md"]}
+  handbook: {paths: ["**/guide.md"]}
+  conventions: {paths: [CONTRIBUTING.md]}
+  runbooks: {provider: wiki, paths: ["space:ENG"]}
+  notes: {}
+`))
+	must(t, err)
+	for section, want := range map[string]string{"lessons": "knowledge/lessons/gate-7.md", "adr": "docs/adr/gate-7.md", "handbook": "", "conventions": "", "runbooks": "", "notes": "", "nope": ""} {
+		got, ok := p.EntryPath(section, "gate-7.md")
+		if got != want || ok != (want != "") {
+			t.Errorf("EntryPath(%s) = %q, %v; want %q", section, got, ok, want)
+		}
+	}
+}

@@ -103,11 +103,18 @@ func (r *RepoProposer) entry(ctx context.Context, p domain.Project, k domain.Kno
 			return nil, err
 		}
 	}
-	role := k.ProposedBy
+	role, source := k.ProposedBy, origin
 	if k.JobID == uuid.Nil() {
 		role = "human"
+		if k.GateID != uuid.Nil() { // a lesson saved from the feedback of a gate
+			g, err := r.Store.Gates().Get(ctx, k.AccountID, k.GateID)
+			if err != nil {
+				return nil, fmt.Errorf("gate of %s: %w", k.Ref(), err)
+			}
+			source = g.Ref()
+		}
 	}
-	meta, err := yaml.Marshal(map[string]string{"author_role": role, "source": origin, "created": created.UTC().Format("2006-01-02")})
+	meta, err := yaml.Marshal(map[string]string{"author_role": role, "source": source, "created": created.UTC().Format("2006-01-02")})
 	if err != nil {
 		return nil, err
 	}

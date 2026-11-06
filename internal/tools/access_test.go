@@ -256,6 +256,11 @@ func TestContributorApprovesSpecsNotMerges(t *testing.T) {
 	if denied != 3 {
 		t.Errorf("denials audited = %d", denied)
 	}
+	// A lesson is a proposal made as the caller: it is checked as one, and here
+	// it gets as far as the gate service, which has no lesson saver.
+	more := f.gateOn(t, domain.GateSpecApproval, f.project.ID)
+	_, err = f.svc.Approve(ctx, by, mcp.GateDecisionInput{Gate: more.Ref(), Feedback: "keep it", SaveAsLesson: true})
+	wantErr(t, err, mcp.ErrInvalidInput)
 	_, err = f.svc.Approve(ctx, by, mcp.GateDecisionInput{Gate: "GATE-99"})
 	wantErr(t, err, mcp.ErrNotFound)
 	_, err = f.svc.Approve(ctx, by, mcp.GateDecisionInput{})

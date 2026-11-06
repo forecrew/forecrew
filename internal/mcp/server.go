@@ -32,6 +32,7 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 	r := registrar{srv: srv, engine: engine, access: ToolAccess(), logger: logger}
 	project := "Project name or repo (owner/name)."
 	gate := "Gate ref (GATE-7) or UUID."
+	saveAsLesson := "Also propose the feedback as an entry of the lessons section, with this gate as its source. Needs feedback; the project's knowledge policy must have a lessons section in the repo."
 	job := "Job ref (JOB-41) or UUID."
 	goal := "Goal ref (GOAL-3) or UUID."
 
@@ -100,11 +101,11 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 			return list("gates", g, "%d pending gates.", len(g)), err
 		})
 	register(r, ToolApprove, "Approve a pending gate. On a needs_you gate this retries the stuck work.",
-		fieldDocs{"gate": gate, "feedback": "Optional note recorded with the decision."}, gateTool(svc.Approve))
+		fieldDocs{"gate": gate, "feedback": "Optional note recorded with the decision.", "save_as_lesson": saveAsLesson}, gateTool(svc.Approve))
 	register(r, ToolRequestChanges, "Ask for changes on a pending profile, spec, merge or test plan gate; feedback is required and goes to the next revision. Not valid on needs_you gates: use approve to retry or reject to stop.",
-		fieldDocs{"gate": gate, "feedback": "What to change. Required."}, gateTool(svc.RequestChanges), "feedback")
+		fieldDocs{"gate": gate, "feedback": "What to change. Required.", "save_as_lesson": saveAsLesson}, gateTool(svc.RequestChanges), "feedback")
 	register(r, ToolReject, "Reject a pending gate. On a needs_you gate this stops the work.",
-		fieldDocs{"gate": gate, "feedback": "Optional reason recorded with the decision."}, gateTool(svc.Reject))
+		fieldDocs{"gate": gate, "feedback": "Optional reason recorded with the decision.", "save_as_lesson": "Not for reject."}, gateTool(svc.Reject))
 	register(r, ToolDispatchJob, "Queue an ad-hoc job of a read-only role on a project, optionally tied to a goal or task and limited to workers with the needed labels.",
 		fieldDocs{
 			"project": project, "role": "Name of a read-only role, for example reviewer.",

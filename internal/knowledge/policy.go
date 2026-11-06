@@ -268,6 +268,35 @@ func (p Policy) alsoHolding(section, file string) []string {
 	return out
 }
 
+// EntryPath returns the repo path of a new entry called name in section: the
+// first folder of the section's globs (dir/** or dir/*) that holds it as an
+// entry. False for a section that is unknown, outside the repo or without such
+// a folder.
+func (p Policy) EntryPath(section, name string) (string, bool) {
+	s, ok := p.Sections[section]
+	if !ok || Reserved(section) || p.Providers[s.Provider].Kind != domain.ProviderKindRepo {
+		return "", false
+	}
+	for _, g := range s.Paths {
+		dir, ok := strings.CutSuffix(g, "/**")
+		if !ok {
+			dir, ok = strings.CutSuffix(g, "/*")
+		}
+		if !ok || strings.HasPrefix(dir, "!") || strings.ContainsAny(dir, "*?[{") {
+			continue
+		}
+		if file := dir + "/" + name; Indexable(s.Paths, file, 0) && p.checkEntry(section, file) {
+			return file, true
+		}
+	}
+	return "", false
+}
+
+// checkEntry reports whether file is a path a proposal to section may name.
+func (p Policy) checkEntry(section, file string) bool {
+	return checkRepoPath(section, p.Sections[section], file) == nil
+}
+
 // Has reports whether role holds level (read, propose or write) on section.
 func (p Policy) Has(section, level, role string) bool {
 	s := p.Sections[section]

@@ -76,6 +76,9 @@ type Input struct {
 	Action  domain.KnowledgeAction
 	Body    string
 	Reason  string
+	// Gate is the gate whose feedback a human's proposal saves (Human
+	// only): the entry names it as its source.
+	Gate uuid.UUID
 }
 
 // Submit records a proposal of job j. What the policy refuses is dropped
@@ -242,7 +245,7 @@ func (s *Service) Human(ctx context.Context, by domain.Actor, project domain.Pro
 	}
 	k := domain.KnowledgeProposal{
 		AccountID: project.AccountID, ProjectID: project.ID, Provider: t.Provider, Section: in.Section, Path: in.Path, Action: in.Action,
-		Body: in.Body, Reason: in.Reason, ProposedBy: by.String(), Batch: domain.BatchStandalone, Status: domain.KnowledgeQueued,
+		Body: in.Body, Reason: in.Reason, ProposedBy: by.String(), Batch: domain.BatchStandalone, Status: domain.KnowledgeQueued, GateID: in.Gate,
 	}
 	if err := k.Validate(); err != nil {
 		return HumanResult{}, fmt.Errorf("%w: %w", ErrInvalid, err)

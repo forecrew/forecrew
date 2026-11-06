@@ -148,6 +148,7 @@ func TestEndpoints(t *testing.T) {
 		{"GET", "/api/v1/gates?project=app", "", 200, mcp.ToolListPendingGates, mcp.ProjectFilterInput{Project: "app"}},
 		{"POST", "/api/v1/gates/GATE-7/approve", `{"feedback":"ok"}`, 200, mcp.ToolApprove, mcp.GateDecisionInput{Gate: "GATE-7", Feedback: "ok"}},
 		{"POST", "/api/v1/gates/GATE-7/approve", "", 200, mcp.ToolApprove, mcp.GateDecisionInput{Gate: "GATE-7"}},
+		{"POST", "/api/v1/gates/GATE-7/approve", `{"feedback":"keep it","save_as_lesson":true}`, 200, mcp.ToolApprove, mcp.GateDecisionInput{Gate: "GATE-7", Feedback: "keep it", SaveAsLesson: true}},
 		{"POST", "/api/v1/gates/GATE-7/request-changes", `{"feedback":"more tests"}`, 200, mcp.ToolRequestChanges, mcp.GateDecisionInput{Gate: "GATE-7", Feedback: "more tests"}},
 		{"POST", "/api/v1/gates/GATE-7/reject", `{}`, 200, mcp.ToolReject, mcp.GateDecisionInput{Gate: "GATE-7"}},
 		{"POST", "/api/v1/jobs/JOB-41/cancel", "", 200, mcp.ToolCancelJob, mcp.JobRefInput{Job: "JOB-41"}},

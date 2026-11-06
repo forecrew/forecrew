@@ -42,6 +42,9 @@ func TestGateDecisionInvalidInput(t *testing.T) {
 		{name: "no gate", tool: ToolApprove, in: GateDecisionInput{}, want: "gate is required"},
 		{name: "no feedback", tool: ToolRequestChanges, in: GateDecisionInput{Gate: "GATE-1"}, want: "feedback is required"},
 		{name: "not a gate tool", tool: ToolListJobs, in: GateDecisionInput{Gate: "GATE-1"}, want: "not a gate tool"},
+		{name: "a lesson without feedback", tool: ToolApprove, in: GateDecisionInput{Gate: "GATE-1", SaveAsLesson: true}, want: "save_as_lesson"},
+		{name: "a lesson of blank feedback", tool: ToolRequestChanges, in: GateDecisionInput{Gate: "GATE-1", Feedback: " \n", SaveAsLesson: true}, want: "save_as_lesson"},
+		{name: "a lesson from a rejection", tool: ToolReject, in: GateDecisionInput{Gate: "GATE-1", Feedback: "no", SaveAsLesson: true}, want: "save_as_lesson"},
 	}
 	for _, tt := range tests {
 		_, err := GateDecision(tt.tool, domain.GateSpecApproval, tt.in)

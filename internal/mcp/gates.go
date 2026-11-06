@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/forecrew/forecrew/internal/domain"
 )
@@ -12,10 +13,15 @@ import (
 //   - gate is required;
 //   - request_changes needs feedback;
 //   - request_changes is not allowed on needs_you gates, which are approved
-//     (retry) or rejected (stop).
+//     (retry) or rejected (stop);
+//   - save_as_lesson is for approve and request_changes, and needs feedback:
+//     the feedback is the lesson.
 func GateDecision(tool string, kind domain.GateKind, in GateDecisionInput) (domain.GateStatus, error) {
 	if in.Gate == "" {
 		return "", fmt.Errorf("%s: gate is required: %w", tool, ErrInvalidInput)
+	}
+	if in.SaveAsLesson && (tool == ToolReject || strings.TrimSpace(in.Feedback) == "") {
+		return "", fmt.Errorf("%s: save_as_lesson is for approve and request_changes with feedback, which is the lesson: %w", tool, ErrInvalidInput)
 	}
 	var decision domain.GateStatus
 	switch tool {
