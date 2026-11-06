@@ -24,8 +24,9 @@ type mergeOutput struct {
 // the PR was closed without merging, when with.sha is set and the head moved
 // away from it, so a push after an approval is not merged unreviewed, when the
 // checks of its head failed or are still running, when with.check_profile is
-// set and the profile file at the head is invalid, and when GitHub refuses
-// the merge; a step with
+// set and the profile file at the head is invalid, when with.require_verification
+// is set and the head has no verification report with the status passed, and
+// when GitHub refuses the merge; a step with
 // on_failure: escalate then lets a human fix it and retry. After merging it
 // records the change as merged and publishes pr.merged, as the webhook will
 // when GitHub reports the same fact.
@@ -36,6 +37,10 @@ func (a *actions) mergePR(ctx context.Context, call workflow.ActionCall) (any, e
 		CheckProfile bool   `json:"check_profile"`
 		// SHA is the head that was approved; empty merges whatever the head is.
 		SHA string `json:"sha"`
+		// RequireVerification refuses a head whose verification report is
+		// not passed. The status decides, not the check run: an incomplete
+		// report is a neutral check run, which counts as passed.
+		RequireVerification bool `json:"require_verification"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -69,6 +74,11 @@ func (a *actions) mergePR(ctx context.Context, call workflow.ActionCall) (any, e
 		}
 		if problem != "" {
 			return nil, fmt.Errorf("not merging %s#%d: %s: fix it and approve again", with.Repo, with.Number, problem)
+		}
+	}
+	if with.RequireVerification {
+		if err := a.requireVerified(ctx, call.Run.AccountID, with.Repo, with.Number, pr.HeadSHA); err != nil {
+			return nil, err
 		}
 	}
 	sha, err := a.Tracker.MergePR(ctx, with.Repo, with.Number, github.MergeInput{Method: github.MergeSquash, SHA: pr.HeadSHA})
