@@ -440,7 +440,32 @@ func (g *Engine) change(ctx context.Context, e *Env, cur current, a Area, w Want
 		return nil, out, err
 	}
 	out.describe(ctx, e, a, old, want)
+	if err := g.markReused(ctx, e.Actor.AccountID, out.steps); err != nil {
+		return nil, out, err
+	}
 	return &c, out, nil
+}
+
+// markReused says on the plan which secure fields name a secret that is saved
+// already: nothing is asked for and nothing is replaced.
+func (g *Engine) markReused(ctx context.Context, accountID uuid.UUID, steps []domain.ConfigStep) error {
+	if g.cfg.Secrets == nil {
+		return nil
+	}
+	for i, s := range steps {
+		if s.Kind != domain.ConfigStepSecret {
+			continue
+		}
+		ok, err := g.cfg.Secrets.Has(ctx, secretScope(s, accountID), s.Secret)
+		if err != nil {
+			return err
+		}
+		if ok {
+			steps[i].Reuses = true
+			steps[i].Detail = "Uses the secret already saved as " + s.Secret + ". Nothing is replaced. To change it, name a new one."
+		}
+	}
+	return nil
 }
 
 // describe fills in what the area says about a change.
@@ -479,20 +504,71 @@ func secretScope(step domain.ConfigStep, accountID uuid.UUID) uuid.UUID {
 	return accountID
 }
 
-// fill marks the secure fields the store holds.
+// stagedName is where a value entered for a plan waits for its confirmation,
+// so entering it never touches a live secret.
+func stagedName(planID uuid.UUID, name string) string {
+	return "staged/" + planID.String() + "/" + name
+}
+
+// valueName is the entry a step of plan id needs.
+func valueName(id uuid.UUID, s domain.ConfigStep) string {
+	if s.Reuses {
+		return s.Secret
+	}
+	return stagedName(id, s.Secret)
+}
+
+// fill marks the secure fields that have their value.
 func (g *Engine) fill(ctx context.Context, p domain.ConfigPlan) (domain.ConfigPlan, error) {
 	p.Steps = slices.Clone(p.Steps)
 	for i, s := range p.Steps {
 		if s.Kind != domain.ConfigStepSecret || g.cfg.Secrets == nil {
 			continue
 		}
-		ok, err := g.cfg.Secrets.Has(ctx, secretScope(s, p.AccountID), s.Secret)
+		ok, err := g.cfg.Secrets.Has(ctx, secretScope(s, p.AccountID), valueName(p.ID, s))
 		if err != nil {
 			return p, err
 		}
 		p.Steps[i].Filled = ok
 	}
 	return p, nil
+}
+
+// dropStaged removes what was entered for a plan that will not apply. It runs
+// before the plan moves: losing a value of a plan that stays open only means
+// entering it again.
+func (g *Engine) dropStaged(ctx context.Context, p domain.ConfigPlan) error {
+	if g.cfg.Secrets == nil {
+		return nil
+	}
+	for _, s := range p.Steps {
+		if s.Kind == domain.ConfigStepSecret && !s.Reuses {
+			if err := g.cfg.Secrets.Delete(ctx, secretScope(s, p.AccountID), stagedName(p.ID, s.Secret)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// promoteStaged makes the values of a plan live, in its transaction. A name
+// taken since the plan was made is refused: nothing live is replaced.
+func (g *Engine) promoteStaged(ctx context.Context, tx store.Store, by domain.Actor, p domain.ConfigPlan) error {
+	done := map[string]bool{}
+	for _, s := range p.Steps {
+		if s.Kind != domain.ConfigStepSecret || s.Reuses || done[s.Secret] {
+			continue
+		}
+		done[s.Secret] = true
+		err := g.cfg.Secrets.Promote(ctx, tx.Secrets(), by, secretScope(s, p.AccountID), stagedName(p.ID, s.Secret), s.Secret)
+		if errors.Is(err, secrets.ErrExists) {
+			return fmt.Errorf("%s was saved since this plan was made; rebuild it: %w", s.Secret, mcp.ErrConflict)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func audit(ctx context.Context, st store.Store, by domain.Actor, action string, p domain.ConfigPlan, extra map[string]any) error {
@@ -705,6 +781,9 @@ func (g *Engine) Cancel(ctx context.Context, by domain.Actor, id uuid.UUID) (Vie
 	if !from.Open() {
 		return View{}, fmt.Errorf("the plan is %s: %w", from, mcp.ErrConflict)
 	}
+	if err := g.dropStaged(ctx, p); err != nil {
+		return View{}, err
+	}
 	p.Status = domain.ConfigPlanCanceled
 	if err := g.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := tx.ConfigPlans().Move(ctx, &p, from); err != nil {
@@ -717,8 +796,9 @@ func (g *Engine) Cancel(ctx context.Context, by domain.Actor, id uuid.UUID) (Vie
 	return g.view(ctx, e, p)
 }
 
-// PutSecret stores the value of a secure field of an open plan. The value
-// goes to the secret store and nowhere else; only its name is audited.
+// PutSecret stages the value of a secure field of an open plan: it goes to
+// the secret store and nowhere else, under a name of the plan, and becomes
+// live when the plan is applied. Only its name is audited.
 func (g *Engine) PutSecret(ctx context.Context, by domain.Actor, id uuid.UUID, name string, value []byte) (View, error) {
 	if g.cfg.Secrets == nil {
 		return View{}, fmt.Errorf("the secret store is not configured (%s): %w", config.EnvSecretKey, mcp.ErrUnavailable)
@@ -735,10 +815,21 @@ func (g *Engine) PutSecret(ctx context.Context, by domain.Actor, id uuid.UUID, n
 	if i < 0 {
 		return View{}, invalid("the plan has no secure field %q", name)
 	}
+	step := p.Steps[i]
+	if step.Reuses {
+		return View{}, fmt.Errorf("this plan uses the secret saved as %s; to change it, name a new one: %w", name, mcp.ErrConflict)
+	}
 	if err := g.authorize(ctx, e, p); err != nil {
 		return View{}, err
 	}
-	if err := g.cfg.Secrets.Put(ctx, by, secretScope(p.Steps[i], by.AccountID), name, value); err != nil {
+	scope := secretScope(step, by.AccountID)
+	switch live, err := g.cfg.Secrets.Has(ctx, scope, name); {
+	case err != nil:
+		return View{}, err
+	case live:
+		return View{}, fmt.Errorf("%s was saved since this plan was made; rebuild it: %w", name, mcp.ErrConflict)
+	}
+	if err := g.cfg.Secrets.Put(ctx, by, scope, stagedName(p.ID, name), value); err != nil {
 		if errors.Is(err, secrets.ErrInvalid) {
 			return View{}, fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
 		}
@@ -804,7 +895,7 @@ func (g *Engine) checkSecrets(ctx context.Context, p domain.ConfigPlan) error {
 		if g.cfg.Secrets == nil {
 			return fmt.Errorf("the secret store is not configured (%s): %w", config.EnvSecretKey, mcp.ErrUnavailable)
 		}
-		ok, err := g.cfg.Secrets.Has(ctx, secretScope(s, p.AccountID), s.Secret)
+		ok, err := g.cfg.Secrets.Has(ctx, secretScope(s, p.AccountID), valueName(p.ID, s))
 		if err != nil {
 			return err
 		}
@@ -893,6 +984,9 @@ func (g *Engine) applyIn(ctx context.Context, tx store.Store, by domain.Actor, p
 			return nil, fmt.Errorf("open the pull request: %w", err)
 		}
 	}
+	if err := g.promoteStaged(ctx, tx, by, *p); err != nil {
+		return nil, err
+	}
 	from := p.Status
 	p.Status, p.AppliedBy, p.AppliedAt = domain.ConfigPlanApplied, by.String(), g.cfg.Now()
 	if err := tx.ConfigPlans().Move(ctx, p, from); err != nil {
@@ -915,6 +1009,49 @@ func markReverted(ctx context.Context, tx store.Store, p domain.ConfigPlan) erro
 	}
 	orig.Status = domain.ConfigPlanReverted
 	return tx.ConfigPlans().Move(ctx, &orig, domain.ConfigPlanApplied)
+}
+
+// SweepBatch is how many expired plans one sweep takes.
+const SweepBatch = 200
+
+// SweepEvery is how often expired plans are swept.
+const SweepEvery = time.Hour
+
+// Sweep marks the open plans past their expiry and drops the values staged
+// for them. It returns how many plans it took.
+func (g *Engine) Sweep(ctx context.Context) (int, error) {
+	rows, err := g.cfg.Store.ConfigPlans().ListExpired(ctx, g.cfg.Now(), SweepBatch)
+	if err != nil {
+		return 0, err
+	}
+	for i, p := range rows {
+		if err := g.dropStaged(ctx, p); err != nil {
+			return i, err
+		}
+		from := p.Status
+		p.Status = domain.ConfigPlanExpired
+		// An apply that won the race is what happened: nothing to do.
+		if err := g.cfg.Store.ConfigPlans().Move(ctx, &p, from); err != nil && !errors.Is(err, store.ErrConflict) {
+			return i, err
+		}
+	}
+	return len(rows), nil
+}
+
+// RunSweep sweeps at once and then every interval until ctx is done.
+func (g *Engine) RunSweep(ctx context.Context, every time.Duration) {
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		if _, err := g.Sweep(ctx); err != nil {
+			g.cfg.Logger.ErrorContext(ctx, "sweep expired plans", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }
 
 // Revert makes a new plan with the previous values of an applied one. It is

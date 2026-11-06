@@ -67,7 +67,7 @@ permissions needed, what it affects, a cost hint, and whether it can be
 reverted. It is valid for 24 hours; past that it reads as `expired`.
 
 - `pending` -> `awaiting_approval` -> `applied` -> `reverted`, or `canceled`
-  while open.
+  while open. An hourly sweep stores `expired` and drops what the plan staged.
 - **Validation** refuses the whole plan with every problem. A spec with a key
   the schema does not have is refused: nobody can propose a setting that does
   not exist.
@@ -128,10 +128,17 @@ The assistant never sees or asks for a secret.
 
 - `store:name` in a spec refers to the secret store, in the organization of the
   resource. A plan with such a reference gets a step `secret_required`, and
-  cannot be confirmed until the store holds the value.
+  cannot be confirmed until its value is there.
 - The value goes to `PUT /api/v1/config/plans/{plan}/secrets/{secret}` or
-  `forecrew config secret`, and from there to the store. It is write-only: no
-  API returns it, and `export` shows the reference. There is no MCP tool for it.
+  `forecrew config secret`, and from there to the store, staged under
+  `staged/<plan>/<name>`. It is write-only: no API returns it, and `export` shows
+  the reference. There is no MCP tool for it.
+- **Nothing live changes before confirmation.** Applying moves a staged value to
+  its name in the plan's transaction. A name that is saved already is never
+  replaced: a step naming one says `reuses`, its plan uses the value there and
+  takes no input, and a name taken after the plan was made refuses the plan. To
+  change a secret, name a new one; the old value stays for a revert.
+- Canceling a plan drops what it staged, and so does the sweep of expired plans.
 - A provider never gets a `secret_required` step. Its plan has a `connect` step:
   the machine gets its token over its own connection.
 - `internal/secrets` encrypts values with AES-256-GCM under

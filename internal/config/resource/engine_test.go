@@ -522,6 +522,9 @@ func TestSecretRequired(t *testing.T) {
 	if string(got) != "the-value" {
 		t.Errorf("value = %q", got)
 	}
+	if ok, _ := w.vault.Has(ctx, w.account.ID, "staged/"+p.ID.String()+"/conn-okta"); ok {
+		t.Error("the staged value is still there")
+	}
 	entries, _ := w.st.Audit().List(ctx, w.account.ID, store.AuditFilter{})
 	for _, e := range entries {
 		if strings.Contains(string(e.Data), "the-value") {
@@ -538,6 +541,86 @@ func TestSecretRequired(t *testing.T) {
 	w.apply(w.owner, p)
 	if got := w.spec("connection", "okta"); !strings.Contains(got, `"enabled":false`) {
 		t.Errorf("connection = %s", got)
+	}
+}
+
+// TestSecretsAreStaged: entering a value touches nothing live, a step that
+// names a saved secret says so, and what a dropped plan staged goes with it.
+func TestSecretsAreStaged(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	acc := w.account.ID
+	conn := func(ref, issuer string) map[string]any {
+		return map[string]any{"kind": "oidc", "issuer": issuer, "client_id": "abc", "client_secret_ref": ref, "jit": map[string]any{"enabled": false}, "enabled": true}
+	}
+	check(t, w.vault.Put(ctx, w.owner, acc, "conn-live", []byte("live")))
+
+	// The name is saved: the plan says so, and asks for nothing.
+	reuse := w.plan(w.owner, wanted(t, "connection", "okta", conn("store:conn-live", "https://a.example.com")))
+	if s := reuse.Steps[0]; !s.Reuses || !s.Filled || !strings.Contains(s.Detail, "already saved") {
+		t.Fatalf("step = %+v", s)
+	}
+	_, err := w.engine.PutSecret(ctx, w.owner, reuse.ID, "conn-live", []byte("attack"))
+	wantErr(t, err, mcp.ErrConflict)
+	if got, _ := w.vault.Get(ctx, acc, "conn-live"); string(got) != "live" {
+		t.Fatalf("a live secret changed before anyone confirmed: %q", got)
+	}
+
+	// Two plans race for a free name: the second finds it taken and
+	// replaces nothing.
+	first := w.plan(w.owner, wanted(t, "connection", "one", conn("store:conn-new", "https://a.example.com")))
+	second := w.plan(w.owner, wanted(t, "connection", "two", conn("store:conn-new", "https://b.example.com")))
+	_, err = w.engine.PutSecret(ctx, w.owner, first.ID, "conn-new", []byte("first"))
+	check(t, err)
+	_, err = w.engine.PutSecret(ctx, w.owner, second.ID, "conn-new", []byte("second"))
+	check(t, err)
+	if ok, _ := w.vault.Has(ctx, acc, "conn-new"); ok {
+		t.Fatal("a value went live before its plan was confirmed")
+	}
+	w.apply(w.owner, first)
+	_, err = w.engine.Apply(ctx, w.owner, resource.Confirmation{Plan: second.ID})
+	wantErr(t, err, mcp.ErrConflict)
+	if got, _ := w.vault.Get(ctx, acc, "conn-new"); string(got) != "first" {
+		t.Errorf("value = %q", got)
+	}
+	if w.spec("connection", "two") != "" {
+		t.Error("half a plan applied")
+	}
+	third := w.plan(w.owner, wanted(t, "connection", "three", conn("store:conn-third", "https://c.example.com")))
+	_, err = w.engine.PutSecret(ctx, w.owner, third.ID, "conn-third", []byte("v"))
+	check(t, err)
+
+	// A canceled plan leaves nothing.
+	staged := "staged/" + second.ID.String() + "/conn-new"
+	if ok, _ := w.vault.Has(ctx, acc, staged); !ok {
+		t.Fatal("nothing staged")
+	}
+	_, err = w.engine.Cancel(ctx, w.owner, second.ID)
+	check(t, err)
+	if ok, _ := w.vault.Has(ctx, acc, staged); ok {
+		t.Error("a canceled plan left its value")
+	}
+
+	// An expired one neither.
+	w.now = w.now.Add(resource.DefaultPlanTTL + time.Minute)
+	n, err := w.engine.Sweep(ctx)
+	check(t, err)
+	if n != 2 { // third, and reuse
+		t.Errorf("swept %d", n)
+	}
+	if ok, _ := w.vault.Has(ctx, acc, "staged/"+third.ID.String()+"/conn-third"); ok {
+		t.Error("an expired plan left its value")
+	}
+	got, err := w.st.ConfigPlans().Get(ctx, acc, third.ID)
+	check(t, err)
+	if got.Status != domain.ConfigPlanExpired {
+		t.Errorf("status = %s", got.Status)
+	}
+	if got, _ := w.vault.Get(ctx, acc, "conn-live"); string(got) != "live" {
+		t.Errorf("a reused secret went with its plan: %q", got)
+	}
+	if n, err := w.engine.Sweep(ctx); err != nil || n != 0 {
+		t.Errorf("a second sweep: %d, %v", n, err)
 	}
 }
 

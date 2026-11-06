@@ -41,7 +41,7 @@ CREATE UNIQUE INDEX assistant_messages_turn ON assistant_messages (job_id, autho
 CREATE TABLE config_plans (
   id                uuid PRIMARY KEY DEFAULT uuidv7(),
   account_id        uuid NOT NULL REFERENCES accounts(id),
-  status            text NOT NULL CHECK (status IN ('pending','awaiting_approval','applied','canceled','reverted')),
+  status            text NOT NULL CHECK (status IN ('pending','awaiting_approval','applied','canceled','reverted','expired')),
   source            text NOT NULL CHECK (source IN ('form','assistant','yaml','cli','mcp')),
   client            text NOT NULL DEFAULT '',
   title             text NOT NULL,

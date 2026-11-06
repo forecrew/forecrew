@@ -1252,6 +1252,9 @@ type ConfigPlanRepo interface {
 	Create(ctx context.Context, p *domain.ConfigPlan) error
 	Get(ctx context.Context, accountID, id uuid.UUID) (domain.ConfigPlan, error)
 	List(ctx context.Context, accountID uuid.UUID, f ConfigPlanFilter) ([]domain.ConfigPlan, error)
+	// ListExpired is unscoped: it returns up to limit open plans of every
+	// organization past their expiry at now, for the sweep.
+	ListExpired(ctx context.Context, now time.Time, limit int) ([]domain.ConfigPlan, error)
 	// Move is the compare-and-set of a plan's status: it writes Status,
 	// Changes, AppliedBy, AppliedAt and PRURL of p when the stored status is
 	// from.

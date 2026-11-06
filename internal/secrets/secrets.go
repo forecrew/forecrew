@@ -29,6 +29,8 @@ var (
 	ErrNotFound = errors.New("secret not found")
 	// ErrInvalid means a bad name, value or key.
 	ErrInvalid = errors.New("invalid secret")
+	// ErrExists means the name of a promotion is taken.
+	ErrExists = errors.New("secret exists")
 	// ErrCorrupt means a value does not decrypt: another key, or a row
 	// moved to another name or organization.
 	ErrCorrupt = errors.New("secret does not decrypt")
@@ -45,6 +47,9 @@ type Store interface {
 	// Get returns a value for the server's own use.
 	Get(ctx context.Context, accountID uuid.UUID, name string) ([]byte, error)
 	Delete(ctx context.Context, accountID uuid.UUID, name string) error
+	// Promote moves the value of from to the name to, which must be free
+	// (ErrExists), working on repo so it joins the caller's transaction.
+	Promote(ctx context.Context, repo store.SecretRepo, by domain.Actor, accountID uuid.UUID, from, to string) error
 }
 
 // Encrypted is the Store of values encrypted in the database.
@@ -96,6 +101,10 @@ func validName(name string) error {
 
 // Put implements Store.
 func (e *Encrypted) Put(ctx context.Context, by domain.Actor, accountID uuid.UUID, name string, value []byte) error {
+	return e.put(ctx, e.repo, by, accountID, name, value)
+}
+
+func (e *Encrypted) put(ctx context.Context, repo store.SecretRepo, by domain.Actor, accountID uuid.UUID, name string, value []byte) error {
 	if err := validName(name); err != nil {
 		return err
 	}
@@ -106,10 +115,30 @@ func (e *Encrypted) Put(ctx context.Context, by domain.Actor, accountID uuid.UUI
 	if _, err := rand.Read(nonce); err != nil {
 		return fmt.Errorf("nonce: %w", err)
 	}
-	return e.repo.Put(ctx, &domain.StoredSecret{
+	return repo.Put(ctx, &domain.StoredSecret{
 		AccountID: accountID, Name: name, Nonce: nonce, UpdatedBy: by.String(),
 		Ciphertext: e.aead.Seal(nil, nonce, value, additional(accountID, name)),
 	})
+}
+
+// Promote implements Store. A value is bound to its name, so it is encrypted
+// again under the new one.
+func (e *Encrypted) Promote(ctx context.Context, repo store.SecretRepo, by domain.Actor, accountID uuid.UUID, from, to string) error {
+	_, err := repo.Get(ctx, accountID, to)
+	if err == nil {
+		return fmt.Errorf("%s: %w", to, ErrExists)
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	value, err := e.get(ctx, repo, accountID, from)
+	if err != nil {
+		return err
+	}
+	if err := e.put(ctx, repo, by, accountID, to, value); err != nil {
+		return err
+	}
+	return repo.Delete(ctx, accountID, from)
 }
 
 // Has implements Store.
@@ -123,7 +152,11 @@ func (e *Encrypted) Has(ctx context.Context, accountID uuid.UUID, name string) (
 
 // Get implements Store.
 func (e *Encrypted) Get(ctx context.Context, accountID uuid.UUID, name string) ([]byte, error) {
-	row, err := e.repo.Get(ctx, accountID, name)
+	return e.get(ctx, e.repo, accountID, name)
+}
+
+func (e *Encrypted) get(ctx context.Context, repo store.SecretRepo, accountID uuid.UUID, name string) ([]byte, error) {
+	row, err := repo.Get(ctx, accountID, name)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, fmt.Errorf("%s: %w", name, ErrNotFound)
 	}

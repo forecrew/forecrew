@@ -245,7 +245,7 @@ The MCP tools `config_*` and `assistant_*` over REST
 | `POST /api/v1/config/plans/{plan}/request-approval` | `config_apply` | |
 | `POST /api/v1/config/plans/{plan}/revert` | `config_revert` | |
 | `POST /api/v1/config/plans/{plan}/cancel` | `config_cancel` | |
-| `PUT /api/v1/config/plans/{plan}/secrets/{secret}` | | `{"value"}`; write-only |
+| `PUT /api/v1/config/plans/{plan}/secrets/{secret}` | | `{"value"}`; write-only. Staged until the plan is applied; `409` when the secret is saved already |
 | `POST /api/v1/assistant/messages` | `assistant_send` | `{"conversation", "message", "project", "page"}`; `202` |
 | `GET /api/v1/assistant/conversations` | `assistant_list` | `?limit=` |
 | `GET /api/v1/assistant/conversations/{conversation}` | `assistant_get` | |

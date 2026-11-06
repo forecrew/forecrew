@@ -386,7 +386,7 @@ func TestConfigPlan(t *testing.T) {
 	if _, err := ConfigPlanApplied.Transition(ConfigPlanPending); !errors.Is(err, ErrInvalidTransition) {
 		t.Errorf("Transition = %v", err)
 	}
-	if len(ConfigPlanStatuses()) != 5 || len(ConfigPlanSources()) != 5 {
+	if len(ConfigPlanStatuses()) != 6 || len(ConfigPlanSources()) != 5 {
 		t.Error("statuses or sources changed")
 	}
 	if !ConfigFromMCP.BrowserOnly() || !ConfigFromAssistant.BrowserOnly() || ConfigFromCLI.BrowserOnly() {
