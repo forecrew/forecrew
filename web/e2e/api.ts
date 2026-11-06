@@ -43,6 +43,7 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
       loggedIn = false
       return route.fulfill({ status: 204 })
     }
+    if (req.method() === "POST" && path === "/auth/discover") return json(route, fixture("auth-discover"))
     if (!loggedIn) return json(route, fixture("error-unauthorized"), 401)
 
     const decision = /^\/gates\/([^/]+)\/(approve|request-changes|reject)$/.exec(path)

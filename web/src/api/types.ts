@@ -31,8 +31,27 @@ export interface Account {
 
 /** Answer of POST /session and GET /me. */
 export interface Session {
-  token: string
-  account: Account
+  /** Name of the token, when the caller uses one. */
+  token?: string
+  user?: { id: string; name: string; email?: string }
+  /** The current organization; a session may not have picked one yet. */
+  account?: Account
+  organizations?: { id: string; name: string; slug: string }[]
+}
+
+/** A way to sign in, from POST /auth/discover. */
+export interface SignInConnection {
+  id: string
+  kind: string
+  name: string
+  login_url: string
+}
+
+/** Answer of POST /auth/discover. */
+export interface Discovery {
+  connections: SignInConnection[]
+  redirect?: string
+  token_login: boolean
 }
 
 export interface Goal {

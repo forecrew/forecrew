@@ -19,7 +19,7 @@ export default defineConfig({
   },
   server: {
     // make web-dev: a local forecrewd on localhost, where the Secure cookie works.
-    proxy: { "/api": { target: process.env.FORECREW_URL ?? "http://localhost:8080", changeOrigin: false } },
+    proxy: Object.fromEntries(["/api", "/auth"].map((p) => [p, { target: process.env.FORECREW_URL ?? "http://localhost:8080", changeOrigin: false }])),
   },
   preview: { headers: { "Content-Security-Policy": csp } },
   test: {

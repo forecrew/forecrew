@@ -5,6 +5,7 @@ test("log in, open the inbox and approve a gate", async ({ page }) => {
   const calls = await mockApi(page, { loggedIn: false })
   await page.goto("/inbox")
   await expect(page).toHaveURL(/\/login\?redirect=%2Finbox/)
+  await expect(page.getByRole("link", { name: "Sign in with github" })).toHaveAttribute("href", /^\/auth\/.+\/login$/)
   await page.getByLabel("API token").fill("fcm_example")
   await page.getByRole("button", { name: "Log in" }).click()
 

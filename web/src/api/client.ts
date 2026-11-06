@@ -1,6 +1,6 @@
 import type {
   Artifact, Assumption, AssumptionStatus, Council, CouncilDetail, CouncilStatus, Decision, StartCouncilInput,
-  CreateGoalInput, DispatchJobInput, ErrorBody, Gate, GateInfo, Goal, GoalDetail, GoalStatus, Job, JobInfo,
+  CreateGoalInput, Discovery, DispatchJobInput, ErrorBody, Gate, GateInfo, Goal, GoalDetail, GoalStatus, Job, JobInfo,
   JobLogs, JobStatus, OnboardInput, OnboardResult, Project, QualityInfo, RevokeResult, Session, Token, VerificationInfo, Worker,
 } from "./types"
 
@@ -68,6 +68,7 @@ const projectPath = (name: string) => name.split("/").map(seg).join("/")
 
 export const api = {
   login: (token: string) => request<Session>("POST", "/api/v1/session", { token }, { login: true }),
+  discover: (input: { org?: string; invite?: string }) => request<Discovery>("POST", "/api/v1/auth/discover", input, { login: true }),
   logout: () => request<void>("DELETE", "/api/v1/session", undefined, { login: true }),
   me: () => request<Session>("GET", "/api/v1/me"),
 
