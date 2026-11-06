@@ -76,7 +76,7 @@ and moves the machine to `ready`, all in one transaction. The worker keeps the t
 that restarts cannot come back, and its machine is replaced.
 
 ```json
-{"worker_token": "fcw_...", "name": "machine-018f4e2a", "labels": ["amd64", "docker", "linux"], "max_jobs": 1}
+{"worker_token": "fcw_...", "name": "machine-7c1e9a0b42d6", "labels": ["amd64", "docker", "linux"], "max_jobs": 1}
 ```
 
 Response `202`: wait. Either the machine has no organization yet, or the guest
