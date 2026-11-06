@@ -133,7 +133,7 @@ describe("trace page", () => {
     const one: Trace = { focus: "A-6", nodes: [{ ...trace.nodes.find((n) => n.id === "A-4")!, id: "A-6", status: "invalidated" }], edges: [] }
     server.use(http.get("/api/v1/trace", () => HttpResponse.json(one)))
     await renderApp("/trace/A-6")
-    expect(await screen.findByText("This record belongs to no goal.")).toBeInTheDocument()
+    expect(await screen.findByText("No goal chain to show: this record has no goal, or you may not read it.")).toBeInTheDocument()
     const detail = screen.getByRole("region", { name: /Links are sent/ })
     expect(within(detail).queryByRole("button", { name: /Verify/ })).not.toBeInTheDocument() // invalidated: final
     expect(within(screen.getByRole("list", { name: "Trace" })).getByRole("button", { name: /A-6/ })).toBeInTheDocument()
