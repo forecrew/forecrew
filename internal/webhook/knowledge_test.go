@@ -153,3 +153,27 @@ func TestClosedPRSettlesItsProposals(t *testing.T) {
 		t.Errorf("change = %+v", got)
 	}
 }
+
+func TestPRClosedRejectsTestPlanApprovalGate(t *testing.T) {
+	e := newEnv(t)
+	e.addChange(9, "abc123")
+	g := e.openGate(domain.GateTestPlanApproval, 9)
+	payload := strings.ReplaceAll(string(fixture(t, "pull_request_closed.json")), `"number": 7`, `"number": 9`)
+	payload = strings.ReplaceAll(payload, `"number":7`, `"number":9`)
+	e.send("tp1", "pull_request", []byte(payload))
+	if got := e.gate(g); got.Status != domain.GateRejected {
+		t.Errorf("test plan gate = %s, want rejected", got.Status)
+	}
+}
+
+func TestMergedPRApprovesTestPlanApprovalGate(t *testing.T) {
+	e := newEnv(t)
+	e.addChange(9, "abc123")
+	g := e.openGate(domain.GateTestPlanApproval, 9)
+	payload := strings.ReplaceAll(string(fixture(t, "pull_request_merged.json")), `"number": 7`, `"number": 9`)
+	payload = strings.ReplaceAll(payload, `"number":7`, `"number":9`)
+	e.send("tp2", "pull_request", []byte(payload))
+	if got := e.gate(g); got.Status != domain.GateApproved {
+		t.Errorf("test plan gate = %s, want approved", got.Status)
+	}
+}
