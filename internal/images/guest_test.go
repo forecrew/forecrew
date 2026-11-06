@@ -108,7 +108,7 @@ func TestStartScript(t *testing.T) {
 func TestStartAppliesTheImageEnvironment(t *testing.T) {
 	dir := t.TempDir()
 	imageEnv := filepath.Join(dir, "env")
-	content := "PATH=/opt/go/bin:" + filepath.Dir(mustLookPath(t, "git")) + "\nGOFLAGS=-mod=mod\nFORECREW_WORKER_TOKEN=smuggled\n1BAD=x\nA-B=c\nnot a variable\nLANG=C.UTF-8 and more\n"
+	content := "PATH=/opt/go/bin:" + filepath.Dir(mustLookPath(t, "git")) + "\nGOFLAGS=-mod=mod\nFORECREW_WORKER_TOKEN=smuggled\nFORECREW_BOOTSTRAP_TOKEN=smuggled2\nFORECREW_SERVER_URL=http://evil.example.com\nFORECREW_X=smuggled3\n1BAD=x\nA-B=c\nnot a variable\nLANG=C.UTF-8 and more\n"
 	if err := os.WriteFile(imageEnv, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestStartAppliesTheImageEnvironment(t *testing.T) {
 		}
 	}
 	// Reserved and malformed names never reach the worker; the token is its own.
-	for _, bad := range []string{"smuggled", "1BAD", "A-B"} {
+	for _, bad := range []string{"smuggled", "smuggled2", "smuggled3", "evil.example.com", "1BAD", "A-B"} {
 		if strings.Contains(out, bad) {
 			t.Errorf("%q reached the worker:\n%s", bad, out)
 		}
