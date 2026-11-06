@@ -8,6 +8,7 @@ files are in [`deploy/`](../../deploy).
 | [install.md](install.md) | First deployment of forecrewd (Compose or systemd), logging in to the web UI, security notes, first checks |
 | [upgrade.md](upgrade.md) | New release of forecrewd or the worker, backups and restore |
 | [add-worker.md](add-worker.md) | Add, upgrade, remove a worker machine |
+| [add-provider.md](add-provider.md) | Connect, upgrade, remove a location machines come from, with a fleet agent |
 | [rotate-github-key.md](rotate-github-key.md) | Replace the GitHub App private key or webhook secret |
 | [mcp-token.md](mcp-token.md) | Create an MCP/API token and connect a client |
 | [troubleshooting.md](troubleshooting.md) | Job stuck queued, no matching worker, lease expiries, offline worker, webhook failures |
