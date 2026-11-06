@@ -20,6 +20,7 @@ import (
 	"github.com/forecrew/forecrew/internal/jobmcp"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/runtime"
+	"github.com/forecrew/forecrew/internal/secrets"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/tools"
@@ -550,7 +551,7 @@ func TestSecretRequired(t *testing.T) {
 	if string(got) != "the-value" {
 		t.Errorf("value = %q", got)
 	}
-	if ok, _ := w.vault.Has(ctx, w.account.ID, "staged/"+p.ID.String()+"/conn-okta"); ok {
+	if ok, _ := w.vault.Has(ctx, w.account.ID, secrets.StagedName(p.ID, "conn-okta")); ok {
 		t.Error("the staged value is still there")
 	}
 	entries, _ := w.st.Audit().List(ctx, w.account.ID, store.AuditFilter{})
@@ -629,7 +630,7 @@ func TestSecretsAreStaged(t *testing.T) {
 	check(t, err)
 
 	// A canceled plan leaves nothing.
-	staged := "staged/" + second.ID.String() + "/conn-new"
+	staged := secrets.StagedName(second.ID, "conn-new")
 	if ok, _ := w.vault.Has(ctx, acc, staged); !ok {
 		t.Fatal("nothing staged")
 	}
@@ -646,7 +647,7 @@ func TestSecretsAreStaged(t *testing.T) {
 	if n != 2 { // third, and reuse
 		t.Errorf("swept %d", n)
 	}
-	if ok, _ := w.vault.Has(ctx, acc, "staged/"+third.ID.String()+"/conn-third"); ok {
+	if ok, _ := w.vault.Has(ctx, acc, secrets.StagedName(third.ID, "conn-third")); ok {
 		t.Error("an expired plan left its value")
 	}
 	got, err := w.st.ConfigPlans().Get(ctx, acc, third.ID)
@@ -659,6 +660,50 @@ func TestSecretsAreStaged(t *testing.T) {
 	}
 	if n, err := w.engine.Sweep(ctx); err != nil || n != 0 {
 		t.Errorf("a second sweep: %d, %v", n, err)
+	}
+}
+
+// TestAPlanCannotReachAnotherPlansStagedValue is the A/B case: plan A staged a
+// value nobody confirmed, and plan B tries to send it to its own issuer.
+func TestAPlanCannotReachAnotherPlansStagedValue(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	acc := w.account.ID
+	conn := func(ref, issuer string) map[string]any {
+		return map[string]any{"kind": "oidc", "issuer": issuer, "client_id": "abc", "client_secret_ref": ref, "jit": map[string]any{"enabled": false}, "enabled": true}
+	}
+	a := w.plan(w.owner, wanted(t, "connection", "a", conn("store:conn-a", "https://a.example.com")))
+	_, err := w.engine.PutSecret(ctx, w.owner, a.ID, "conn-a", []byte("unconfirmed"))
+	check(t, err)
+	staged := secrets.StagedName(a.ID, "conn-a")
+
+	// Plan B names it, as a connection and as an instance connection.
+	_, err = w.engine.Plan(ctx, w.owner, resource.PlanRequest{Source: domain.ConfigFromCLI, Changes: []mcp.ConfigWanted{
+		wanted(t, "connection", "b", conn("store:"+staged, "https://evil.example.com"))}})
+	wantErr(t, err, mcp.ErrInvalidInput)
+	rs, err := w.engine.Get(ctx, w.owner, "auth", "auth")
+	check(t, err)
+	var auth map[string]any
+	check(t, json.Unmarshal(rs[0].Spec, &auth))
+	auth["connections"] = map[string]any{"b": map[string]any{"kind": "oidc", "issuer": "https://evil.example.com", "client_id": "c", "client_secret_ref": "store:" + staged}}
+	_, err = w.engine.Plan(ctx, w.owner, resource.PlanRequest{Source: domain.ConfigFromCLI, Changes: []mcp.ConfigWanted{wanted(t, "auth", "auth", auth)}})
+	wantErr(t, err, mcp.ErrInvalidInput)
+	if rows, _ := w.st.ConfigPlans().List(ctx, acc, store.ConfigPlanFilter{Open: true}); len(rows) != 1 {
+		t.Errorf("plans = %+v", rows)
+	}
+
+	// Nor can anything be created there, through a plan or the store.
+	_, err = w.engine.PutSecret(ctx, w.owner, a.ID, staged, []byte("planted"))
+	wantErr(t, err, mcp.ErrInvalidInput)
+	wantErr(t, w.vault.Put(ctx, w.owner, acc, domain.StagedSecretPrefix+a.ID.String()+"/x", []byte("planted")), secrets.ErrInvalid)
+	if ok, _ := w.vault.Has(ctx, acc, domain.StagedSecretPrefix+a.ID.String()+"/x"); ok {
+		t.Error("a value was created in the reserved names")
+	}
+
+	// The staged value is untouched, and plan A still applies with it.
+	w.apply(w.owner, a)
+	if got, err := w.vault.Get(ctx, acc, "conn-a"); err != nil || string(got) != "unconfirmed" {
+		t.Fatalf("value = %q, %v", got, err)
 	}
 }
 

@@ -117,30 +117,62 @@ func TestPromote(t *testing.T) {
 	st := testkit.NewStore(time.Now)
 	s, _ := secrets.New(st.Secrets(), key)
 	acc, by := domain.NewID(), domain.SystemActor(domain.NewID(), "t")
-	if err := s.Put(ctx, by, acc, "staged/p/x", []byte("v")); err != nil {
+	plan, other := domain.NewID(), domain.NewID()
+	if err := s.Stage(ctx, by, acc, plan, "x", []byte("v")); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Promote(ctx, st.Secrets(), by, acc, "staged/p/x", "x"); err != nil {
+	if err := s.Promote(ctx, st.Secrets(), by, acc, secrets.StagedName(plan, "x"), "x"); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := s.Get(ctx, acc, "x"); err != nil || string(got) != "v" {
 		t.Fatalf("Get = %q, %v", got, err)
 	}
-	if ok, _ := s.Has(ctx, acc, "staged/p/x"); ok {
+	if ok, _ := s.Has(ctx, acc, secrets.StagedName(plan, "x")); ok {
 		t.Error("the staged value is still there")
 	}
 	// A live value is never replaced.
-	if err := s.Put(ctx, by, acc, "staged/q/x", []byte("other")); err != nil {
+	if err := s.Stage(ctx, by, acc, other, "x", []byte("other")); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Promote(ctx, st.Secrets(), by, acc, "staged/q/x", "x"); !errors.Is(err, secrets.ErrExists) {
+	if err := s.Promote(ctx, st.Secrets(), by, acc, secrets.StagedName(other, "x"), "x"); !errors.Is(err, secrets.ErrExists) {
 		t.Fatalf("Promote over a live value: %v", err)
 	}
 	if got, _ := s.Get(ctx, acc, "x"); string(got) != "v" {
 		t.Errorf("Get = %q", got)
 	}
-	if err := s.Promote(ctx, st.Secrets(), by, acc, "staged/none", "y"); !errors.Is(err, secrets.ErrNotFound) {
+	if err := s.Promote(ctx, st.Secrets(), by, acc, secrets.StagedName(plan, "none"), "y"); !errors.Is(err, secrets.ErrNotFound) {
 		t.Fatalf("Promote of nothing: %v", err)
+	}
+}
+
+// TestStagedNamesAreReserved: only Stage writes there, and no reference reads
+// there.
+func TestStagedNamesAreReserved(t *testing.T) {
+	ctx := context.Background()
+	st := testkit.NewStore(time.Now)
+	s, _ := secrets.New(st.Secrets(), key)
+	acc, by, plan := domain.NewID(), domain.SystemActor(domain.NewID(), "t"), domain.NewID()
+	if err := s.Stage(ctx, by, acc, plan, "x", []byte("unconfirmed")); err != nil {
+		t.Fatal(err)
+	}
+	staged := secrets.StagedName(plan, "x")
+	if err := s.Put(ctx, by, acc, staged, []byte("planted")); !errors.Is(err, secrets.ErrInvalid) {
+		t.Fatalf("Put over a staged value: %v", err)
+	}
+	if err := s.Put(ctx, by, acc, "staged/other/x", []byte("planted")); !errors.Is(err, secrets.ErrInvalid) {
+		t.Fatalf("Put of a staged name: %v", err)
+	}
+	if _, err := secrets.Resolve(ctx, s, acc, domain.SecretRefStore+staged); !errors.Is(err, secrets.ErrInvalid) {
+		t.Fatalf("Resolve of a staged value: %v", err)
+	}
+	if err := s.Stage(ctx, by, acc, plan, staged, []byte("v")); !errors.Is(err, secrets.ErrInvalid) {
+		t.Fatalf("Stage of a staged name: %v", err)
+	}
+	if err := s.Stage(ctx, by, acc, plan, strings.Repeat("a", 120), []byte("v")); !errors.Is(err, secrets.ErrInvalid) {
+		t.Fatalf("Stage of a name too long to stage: %v", err)
+	}
+	if err := s.Stage(ctx, by, acc, plan, "y", nil); !errors.Is(err, secrets.ErrInvalid) {
+		t.Fatalf("Stage of nothing: %v", err)
 	}
 }
 

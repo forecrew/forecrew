@@ -132,7 +132,8 @@ for `github`), the `client_id`, the client secret **by reference**, `jit`
 - **The secret store** adds a third form, `store:name`, which resolves in
   the connection's own organization (at instance level for an instance
   connection), so it is allowed on every connection: it reaches no other
-  organization's values and none of forecrewd's own. See
+  organization's values and none of forecrewd's own. Names starting `staged/`
+  are reserved and refused. See
   [config-resources.md](config-resources.md), Secrets.
 - **Instance-level connections** come from `auth.connections` in
   forecrew.yaml and are usable by every organization (for example the GitHub

@@ -415,6 +415,20 @@ func wantedResource(a Area, old *Resource, w Wanted) (*Resource, error) {
 	return &Resource{Kind: a.Kind, Name: w.Name, Spec: spec}, nil
 }
 
+// refuseStaged keeps a plan off the values other plans staged, whatever the
+// area's own check says: they are not confirmed, and not this plan's.
+func refuseStaged(a Area, want Resource) error {
+	if a.Secrets == nil {
+		return nil
+	}
+	for _, s := range a.Secrets(want) {
+		if strings.HasPrefix(s.Ref, domain.SecretRefStore+domain.StagedSecretPrefix) {
+			return invalid("%s is a reserved name of the secret store", s.Ref)
+		}
+	}
+	return nil
+}
+
 func (g *Engine) change(ctx context.Context, e *Env, cur current, a Area, w Wanted) (*domain.ConfigChange, planned, error) {
 	var out planned
 	old, err := cur.find(ctx, e, a, w.Name)
@@ -430,6 +444,9 @@ func (g *Engine) change(ctx context.Context, e *Env, cur current, a Area, w Want
 		return nil, out, nil
 	}
 	if want != nil {
+		if err := refuseStaged(a, *want); err != nil {
+			return nil, out, err
+		}
 		if err := a.Validate(ctx, e, old, *want); err != nil {
 			return nil, out, err
 		}
@@ -512,18 +529,12 @@ func secretScope(step domain.ConfigStep, accountID uuid.UUID) uuid.UUID {
 	return accountID
 }
 
-// stagedName is where a value entered for a plan waits for its confirmation,
-// so entering it never touches a live secret.
-func stagedName(planID uuid.UUID, name string) string {
-	return "staged/" + planID.String() + "/" + name
-}
-
 // valueName is the entry a step of plan id needs.
 func valueName(id uuid.UUID, s domain.ConfigStep) string {
 	if s.Reuses {
 		return s.Secret
 	}
-	return stagedName(id, s.Secret)
+	return secrets.StagedName(id, s.Secret)
 }
 
 // fill marks the secure fields that have their value.
@@ -551,7 +562,7 @@ func (g *Engine) dropStaged(ctx context.Context, p domain.ConfigPlan) error {
 	}
 	for _, s := range p.Steps {
 		if s.Kind == domain.ConfigStepSecret && !s.Reuses {
-			if err := g.cfg.Secrets.Delete(ctx, secretScope(s, p.AccountID), stagedName(p.ID, s.Secret)); err != nil {
+			if err := g.cfg.Secrets.Delete(ctx, secretScope(s, p.AccountID), secrets.StagedName(p.ID, s.Secret)); err != nil {
 				return err
 			}
 		}
@@ -568,7 +579,7 @@ func (g *Engine) promoteStaged(ctx context.Context, tx store.Store, by domain.Ac
 			continue
 		}
 		done[s.Secret] = true
-		err := g.cfg.Secrets.Promote(ctx, tx.Secrets(), by, secretScope(s, p.AccountID), stagedName(p.ID, s.Secret), s.Secret)
+		err := g.cfg.Secrets.Promote(ctx, tx.Secrets(), by, secretScope(s, p.AccountID), secrets.StagedName(p.ID, s.Secret), s.Secret)
 		if errors.Is(err, secrets.ErrExists) {
 			return fmt.Errorf("%s was saved since this plan was made; rebuild it: %w", s.Secret, mcp.ErrConflict)
 		}
@@ -837,7 +848,7 @@ func (g *Engine) PutSecret(ctx context.Context, by domain.Actor, id uuid.UUID, n
 	case live:
 		return View{}, fmt.Errorf("%s was saved since this plan was made; rebuild it: %w", name, mcp.ErrConflict)
 	}
-	if err := g.cfg.Secrets.Put(ctx, by, scope, stagedName(p.ID, name), value); err != nil {
+	if err := g.cfg.Secrets.Stage(ctx, by, scope, p.ID, name, value); err != nil {
 		if errors.Is(err, secrets.ErrInvalid) {
 			return View{}, fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
 		}
