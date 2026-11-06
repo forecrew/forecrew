@@ -28,9 +28,10 @@ import (
 
 // remote is the connection of the commands that call /api/v1.
 type remote struct {
-	env   Env
-	url   string
-	token string // --token; the environment variable when empty
+	env    Env
+	url    string
+	urlSet bool   // --url or the environment variable named the server
+	token  string // --token; the environment variable, then the login, when empty
 }
 
 // apiError is an error answer of /api/v1.
@@ -50,9 +51,9 @@ func (e *apiError) Error() string {
 // send sends a request to /api/v1 and returns the response, whatever its
 // status; the caller closes the body.
 func (r *remote) send(ctx context.Context, method, path string, body any) (*http.Response, error) {
-	token := cmp.Or(r.token, r.env.Getenv(EnvToken))
-	if token == "" {
-		return nil, errors.New("no token: set " + EnvToken + " or pass --token")
+	base, token, err := r.target()
+	if err != nil {
+		return nil, err
 	}
 	var rd io.Reader
 	if body != nil {
@@ -62,14 +63,14 @@ func (r *remote) send(ctx context.Context, method, path string, body any) (*http
 		}
 		rd = bytes.NewReader(b)
 	}
-	u, err := url.Parse(r.url)
+	u, err := url.Parse(base)
 	if err != nil || u.Host == "" {
-		return nil, fmt.Errorf("bad --url %q", r.url)
+		return nil, fmt.Errorf("bad --url %q", base)
 	}
 	if u.Scheme == "http" && !slices.Contains([]string{"localhost", "127.0.0.1", "::1"}, u.Hostname()) {
 		return nil, fmt.Errorf("refusing to send the token over plain http to %s: use an https URL", u.Host)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(r.url, "/")+"/api/v1"+path, rd)
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(base, "/")+"/api/v1"+path, rd)
 	if err != nil {
 		return nil, fmt.Errorf("bad --url: %w", err)
 	}
@@ -87,6 +88,35 @@ func (r *remote) send(ctx context.Context, method, path string, body any) (*http
 	}
 	return resp, nil
 }
+
+// target returns the server to call and the token to send: --token or the
+// environment, else the token of the login (forecrew login). The token of a
+// login goes to the server it was made for and to no other.
+func (r *remote) target() (base, token string, err error) {
+	if token = cmp.Or(r.token, r.env.Getenv(EnvToken)); token != "" {
+		return r.url, token, nil
+	}
+	creds, ok := newCredStore(r.env)
+	if !ok {
+		return "", "", errNoToken
+	}
+	st, err := creds.load()
+	if err != nil {
+		return "", "", err
+	}
+	if st.Server == "" || st.Current == "" {
+		return "", "", errNoToken
+	}
+	if r.urlSet && strings.TrimRight(r.url, "/") != st.Server {
+		return "", "", fmt.Errorf("you are logged in to %s, not %s: run forecrew login --server %s, or set %s", st.Server, r.url, r.url, EnvToken)
+	}
+	if token, err = creds.token(st, st.Current); err != nil {
+		return "", "", fmt.Errorf("the token of your login to %s is gone: run forecrew login again", st.Current)
+	}
+	return st.Server, token, nil
+}
+
+var errNoToken = errors.New("no token: run forecrew login, or set " + EnvToken + " or pass --token")
 
 // failure turns an error answer into an *apiError.
 func failure(resp *http.Response) error {
@@ -149,7 +179,7 @@ func newRemote(env Env) *remote {
 	if url == "" {
 		url = DefaultURL
 	}
-	return &remote{env: env, url: url}
+	return &remote{env: env, url: url, urlSet: env.Getenv(EnvURL) != ""}
 }
 
 // bind adds the connection flags to the root command.
@@ -157,6 +187,7 @@ func (r *remote) bind(root *cobra.Command) {
 	root.PersistentFlags().StringVar(&r.url, "url", r.url, "base URL of forecrewd ("+EnvURL+")")
 	root.PersistentFlags().StringVar(&r.token, "token", "", "API token; prefer "+EnvToken+", a flag shows in the process list")
 	root.PersistentPreRun = func(cmd *cobra.Command, _ []string) {
+		r.urlSet = r.urlSet || cmd.Flag("url").Changed
 		if cmd.Flag("token").Changed {
 			fmt.Fprintln(cmd.ErrOrStderr(), "warning: --token is visible to other users in the process list; set "+EnvToken+" instead")
 		}
@@ -189,7 +220,7 @@ func (r *remote) commands() []*cobra.Command {
 		teamsCommand(r),
 		bindingsCommand(r),
 		serviceAccountsCommand(r),
-		membersCommand(r), auditCommand(r), connectionsCommand(r),
+		membersCommand(r), auditCommand(r), connectionsCommand(r), loginCommand(r), logoutCommand(r), whoamiCommand(r),
 		knowledgeCommand(r),
 		councilsCommand(r),
 		verificationCommand(r),

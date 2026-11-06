@@ -6,6 +6,27 @@ service account; only its hash is stored. A request with it can do what its
 scopes allow and its owner may do, so it stops working when the owner is disabled
 or is no longer an active member.
 
+## Log in from a machine
+
+`forecrew login --server https://forecrew.example.com` opens your browser, you
+confirm what is being allowed, and the CLI keeps a personal token named after
+the machine (`cli-<host name>`) with the highest scope your roles allow. The
+browser is sent back to a port of `127.0.0.1` that the CLI listens on, with a
+one-time code that the CLI redeems with its PKCE verifier. The token is kept in
+the OS keychain; where there is none (a server over SSH), in
+`~/.config/forecrew/credentials.json`, which only you can read. On a machine
+without a browser, open the printed address on another one and paste the code
+the page shows into the terminal.
+
+```sh
+forecrew whoami                  # who you are, the organization, your roles
+forecrew org switch other-org    # use your login to another organization, or log in to it
+forecrew logout                  # revoke the token on the server and forget it (--all: every organization)
+```
+
+`FORECREW_TOKEN` and `--token` still win over a login. A login's token is only
+sent to the server it was made for.
+
 ## Create
 
 With a token you have, or from the API while signed in in a browser:

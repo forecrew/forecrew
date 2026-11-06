@@ -302,7 +302,7 @@ func newOrgCommand(env Env, r *remote) *cobra.Command {
 		},
 	}
 	create.Flags().StringVar(&slug, "slug", "", "slug in URLs; derived from the name by default")
-	org.AddCommand(create, orgUpdateCommand(r))
+	org.AddCommand(create, orgUpdateCommand(r), orgSwitchCommand(r))
 	return org
 }
 
