@@ -267,6 +267,31 @@ func TestContributorApprovesSpecsNotMerges(t *testing.T) {
 	wantErr(t, err, mcp.ErrInvalidInput)
 }
 
+// A lesson is a proposal made as the caller, so resolving a gate with
+// save_as_lesson needs knowledge.propose besides the gate's permission: without
+// it the call is denied and the gate stays pending.
+func TestSaveAsLessonNeedsKnowledgePropose(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	role := domain.Role{AccountID: f.account.ID, Name: "specs", Scope: projectScope, Permissions: []domain.Permission{domain.PermProjectRead, domain.PermGateRead, domain.PermGateApproveSpec}, Custom: true}
+	must(t, f.st.Roles().Create(ctx, &role))
+	by, id := f.member(t, "", "", uuid.Nil())
+	must(t, f.st.RoleBindings().Create(ctx, &domain.RoleBinding{AccountID: f.account.ID, SubjectKind: domain.SubjectUser, SubjectID: id, RoleID: role.ID, ProjectID: f.project.ID, CreatedBy: "user:op"}))
+	g := f.gateOn(t, domain.GateSpecApproval, f.project.ID)
+
+	_, err := f.svc.Approve(ctx, by, mcp.GateDecisionInput{Gate: g.Ref(), Feedback: "keep it", SaveAsLesson: true})
+	wantErr(t, err, authz.ErrDenied)
+	_, err = f.svc.RequestChanges(ctx, by, mcp.GateDecisionInput{Gate: g.Ref(), Feedback: "keep it", SaveAsLesson: true})
+	wantErr(t, err, authz.ErrDenied)
+	if cur, err := f.gates.Get(ctx, f.account.ID, g.ID); err != nil || cur.Status != domain.GatePending {
+		t.Errorf("gate = %+v, %v", cur, err)
+	}
+	// The same call without the lesson is allowed.
+	if resolved, err := f.svc.Approve(ctx, by, mcp.GateDecisionInput{Gate: g.Ref(), Feedback: "fine"}); err != nil || resolved.Status != domain.GateApproved {
+		t.Errorf("without the lesson: %+v, %v", resolved, err)
+	}
+}
+
 func TestGoalLeavesGatesOutWithoutGateRead(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()

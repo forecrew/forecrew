@@ -755,11 +755,16 @@ func TestCitedNotesAreKeptWhenTheirGoalExpires(t *testing.T) {
 	}
 	cited, plain, foreign := note("notes/a", domain.NoteScopeGoal, goal.ID), note("notes/b", domain.NoteScopeGoal, goal.ID), note("notes/c", domain.NoteScopeGoal, other.ID)
 	project := note("notes/d", domain.NoteScopeProject, uuid.Nil())
+	elsewhere := domain.Project{AccountID: e.account, Name: "other", Repo: "acme/other", DefaultBranch: "main", Status: domain.ProjectRegistered}
+	must(t, e.st.Projects().Create(ctx, &elsewhere))
+	abroad := domain.KnowledgeEntry{AccountID: e.account, ProjectID: elsewhere.ID, Provider: domain.ProviderInternal, Path: "notes/e", Section: domain.SectionNotes,
+		Title: "e", Body: "b", Scope: domain.NoteScopeProject}
+	must(t, e.st.Knowledge().Upsert(ctx, &abroad))
 
 	j := e.job(t, "knowledge-curator", goal.ID)
 	in := add("architecture", "docs/adr/2.md")
 	in.Reason = "Learned in the goal: note:" + cited.ID.String() + ", note:" + foreign.ID.String() + ", note:" + project.ID.String() +
-		", note:" + cited.ID.String() + ", note:" + uuid.New().String() + " and docs/adr/1.md"
+		", note:" + cited.ID.String() + ", note:" + abroad.ID.String() + ", note:" + uuid.New().String() + " and docs/adr/1.md"
 	_, err := e.svc.Submit(ctx, j, in)
 	must(t, err)
 
@@ -779,6 +784,9 @@ func TestCitedNotesAreKeptWhenTheirGoalExpires(t *testing.T) {
 	}
 	if got, ok := have(project); !ok || got.PromotedAt.IsZero() {
 		t.Errorf("the cited project note = %+v, %v", got, ok)
+	}
+	if got, err := e.st.Knowledge().Get(ctx, e.account, abroad.ID); err != nil || !got.PromotedAt.IsZero() {
+		t.Errorf("a note of another project was promoted: %+v, %v", got, err)
 	}
 	if _, ok := have(plain); ok {
 		t.Error("a note nobody cited survived its goal")
