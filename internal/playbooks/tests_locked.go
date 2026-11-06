@@ -58,10 +58,15 @@ type lockedPathsOutput struct {
 // testsLockedPaths is the action tests.locked_paths. It returns, as
 // locked_paths, every file the successful test-engineer jobs of the task
 // created or changed or put a test in (a retry reports only what it changed
-// itself, so all jobs count), or [] when there is none.
+// itself, so all jobs count), or [] when there is none. A with.iteration above
+// 1 is the rerun of a developer round that a human approved after the
+// developer escalated about a locked test: that round runs without the lock,
+// so the action returns [].
 func (a *actions) testsLockedPaths(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		TaskID uuid.UUID `json:"task_id"`
+		// Iteration is the round of the loop around the developer's job.
+		Iteration int `json:"iteration"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -69,6 +74,9 @@ func (a *actions) testsLockedPaths(ctx context.Context, call workflow.ActionCall
 	t, err := a.loadTask(ctx, call.Run, with.TaskID)
 	if err != nil {
 		return nil, err
+	}
+	if with.Iteration > 1 {
+		return lockedPathsOutput{LockedPaths: []string{}}, nil
 	}
 	jobs, err := a.Store.Jobs().List(ctx, t.AccountID, store.JobFilter{TaskID: t.ID, Status: domain.JobSucceeded})
 	if err != nil {
