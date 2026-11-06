@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/retry"
 	"github.com/forecrew/forecrew/internal/runtime"
 	"github.com/forecrew/forecrew/internal/testreport"
 )
@@ -302,27 +302,10 @@ func (c *Client) backoff(n int) time.Duration {
 	if hi <= 0 {
 		hi = DefaultBackoffMax
 	}
-	d := lo
-	for range n - 1 {
-		if d >= hi {
-			break
-		}
-		d *= 2
-	}
-	d = min(d, hi)
-	return d/2 + rand.N(d/2+1) //nolint:gosec // jitter, not security
+	return retry.Backoff(n, lo, hi)
 }
 
-func sleep(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-t.C:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
+func sleep(ctx context.Context, d time.Duration) error { return retry.Sleep(ctx, d) }
 
 // once posts in as JSON to path and decodes a 200 answer into out (when
 // non-nil). It returns the status code of a successful call.
