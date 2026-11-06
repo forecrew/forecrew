@@ -116,15 +116,18 @@ func New(cfg Config) *Server {
 }
 
 // Handler returns the routes under /worker/v1/, behind worker
-// authentication.
+// authentication, and the bootstrap route, which has its own credential.
 func (s *Server) Handler() http.Handler {
+	outer := http.NewServeMux()
+	outer.HandleFunc("POST "+bootstrapPath, s.bootstrap)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST "+pollPath, s.poll)
 	mux.HandleFunc("POST /worker/v1/jobs/{job_id}/heartbeat", s.heartbeat)
 	mux.HandleFunc("POST /worker/v1/jobs/{job_id}/events", s.events)
 	mux.HandleFunc("PUT /worker/v1/jobs/{job_id}/artifacts/{name...}", s.uploadArtifact)
 	mux.HandleFunc("POST /worker/v1/jobs/{job_id}/complete", s.complete)
-	return s.authenticate(mux)
+	outer.Handle("/", s.authenticate(mux))
+	return outer
 }
 
 type workerKey struct{}

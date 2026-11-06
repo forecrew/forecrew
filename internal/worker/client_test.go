@@ -203,3 +203,47 @@ func TestBackoff(t *testing.T) {
 		t.Errorf("default backoff(1) = %v", d)
 	}
 }
+
+func TestClientBootstrap(t *testing.T) {
+	var calls atomic.Int32
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/worker/v1/bootstrap" {
+			t.Errorf("path = %s", r.URL.Path)
+		}
+		switch calls.Add(1) {
+		case 1:
+			writeErr(w, http.StatusInternalServerError, "internal", "try again")
+		case 2:
+			w.WriteHeader(http.StatusAccepted)
+			_, _ = w.Write([]byte(`{"retry_after_seconds": 5}`))
+		default:
+			_, _ = w.Write([]byte(`{"worker_token": "fcw_new", "name": "machine-1", "labels": ["linux"], "max_jobs": 2}`))
+		}
+	})
+	c.BootstrapWait = time.Millisecond
+	g, err := c.Bootstrap(t.Context(), "v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.WorkerToken != "fcw_new" || g.Name != "machine-1" || g.MaxJobs != 2 || len(g.Labels) != 1 || calls.Load() != 3 {
+		t.Fatalf("grant = %+v after %d calls", g, calls.Load())
+	}
+}
+
+func TestClientBootstrapRefused(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeErr(w, http.StatusUnauthorized, "unauthorized", "no")
+	})
+	if _, err := c.Bootstrap(t.Context(), "v1"); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestClientBootstrapStopsWithContext(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusAccepted) })
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	if _, err := c.Bootstrap(ctx, "v1"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v", err)
+	}
+}

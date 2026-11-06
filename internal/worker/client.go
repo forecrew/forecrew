@@ -66,6 +66,9 @@ type Client struct {
 	// BackoffMin and BackoffMax bound the retry delays; zero means the
 	// Default values.
 	BackoffMin, BackoffMax time.Duration
+	// BootstrapWait is the wait between Bootstrap calls while forecrewd says
+	// to wait; zero means bootstrapRetry.
+	BootstrapWait time.Duration
 }
 
 // NewClient returns a client for the forecrewd at serverURL. httpClient may
@@ -106,6 +109,50 @@ func (c *Client) Poll(ctx context.Context, labels []string, freeSlots int, versi
 	}
 	lease.SentAt = sent
 	return &lease, nil
+}
+
+// bootstrapRetry is how long Bootstrap waits when told to wait, the
+// retry_after_seconds forecrewd sends.
+const bootstrapRetry = 5 * time.Second
+
+// Grant is what the worker on a machine gets for its bootstrap token.
+// WorkerToken is a secret.
+type Grant struct {
+	WorkerToken string   `json:"worker_token"`
+	Name        string   `json:"name"`
+	Labels      []string `json:"labels"`
+	MaxJobs     int      `json:"max_jobs"`
+}
+
+// Bootstrap trades the client's bootstrap token for a worker token, waiting
+// as long as forecrewd says to: the machine may have no organization yet. It
+// returns ErrUnauthorized when the token is refused, and retries anything
+// else: a machine has nothing better to do.
+func (c *Client) Bootstrap(ctx context.Context, version string) (Grant, error) {
+	req := struct {
+		Version string `json:"version"`
+	}{version}
+	for failures := 1; ; {
+		var g Grant
+		status, err := c.once(ctx, "/worker/v1/bootstrap", req, &g)
+		if err == nil && status != http.StatusAccepted {
+			return g, nil
+		}
+		if err != nil && !retryable(err) {
+			return Grant{}, err
+		}
+		wait := bootstrapRetry
+		switch {
+		case err != nil:
+			wait = c.backoff(failures)
+			failures++
+		case c.BootstrapWait > 0:
+			wait = c.BootstrapWait
+		}
+		if err := sleep(ctx, wait); err != nil {
+			return Grant{}, err
+		}
+	}
 }
 
 // Heartbeat actions.

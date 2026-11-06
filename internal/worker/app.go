@@ -69,6 +69,11 @@ func Run(ctx context.Context, cfg *config.Worker, environ []string, version stri
 	if _, err := newGitClient("git", nil, environ, "").version(ctx); err != nil {
 		return fmt.Errorf("git is required: %w", err)
 	}
+	if cfg.BootstrapToken != "" {
+		if err := bootstrap(ctx, cfg, version, logger); err != nil {
+			return err
+		}
+	}
 	w := newFromConfig(ctx, cfg, environ, version, logger)
 	logger.Info("forecrew-worker started", "version", version, "name", cfg.Name, "server_url", cfg.ServerURL,
 		"labels", w.cfg.Labels, "max_jobs", cfg.MaxJobs, "work_dir", cfg.WorkDir)
@@ -81,6 +86,21 @@ func Run(ctx context.Context, cfg *config.Worker, environ []string, version stri
 		logger.Info("forecrew-worker stopped")
 	}
 	return err
+}
+
+// bootstrap trades the machine's one-time token for what the worker needs,
+// which stays in memory: a worker that restarts cannot come back, and its
+// machine is replaced.
+func bootstrap(ctx context.Context, cfg *config.Worker, version string, logger *slog.Logger) error {
+	logger.Info("forecrew-worker bootstrapping", "version", version, "server_url", cfg.ServerURL)
+	g, err := NewClient(cfg.ServerURL, cfg.BootstrapToken, nil).Bootstrap(ctx, version)
+	if err != nil {
+		return fmt.Errorf("bootstrap: %w", err)
+	}
+	cfg.Token, cfg.BootstrapToken = g.WorkerToken, ""
+	cfg.Name, cfg.MaxJobs = g.Name, g.MaxJobs
+	cfg.Labels = append(cfg.Labels, g.Labels...)
+	return nil
 }
 
 // ErrCheckFailed means Check found a problem; the details are in its output.
