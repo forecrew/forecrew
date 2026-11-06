@@ -167,6 +167,10 @@ func (r *remote) bind(root *cobra.Command) {
 func (r *remote) commands() []*cobra.Command {
 	return []*cobra.Command{
 		listCommand(r, "workers", "List workers", "/workers", printWorkers),
+		machinesCommand(r),
+		listCommand(r, "shapes", "List the machine types offered to the organization", "/shapes", printShapes),
+		listCommand(r, "providers", "List the locations machines come from", "/providers", printProviders),
+		fleetCommand(r),
 		listCommand(r, "projects", "List projects", "/projects", printProjects),
 		onboardCommand(r),
 		tokensCommand(r), invitationsCommand(r),

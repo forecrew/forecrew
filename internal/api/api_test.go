@@ -141,6 +141,10 @@ func TestEndpoints(t *testing.T) {
 		{"GET", "/api/v1/jobs/JOB-41", "", 200, mcp.ToolJobStatus, mcp.JobRefInput{Job: "JOB-41"}},
 		{"GET", "/api/v1/jobs/JOB-41/logs?after_seq=7&limit=10", "", 200, mcp.ToolJobLogs, mcp.JobLogsInput{Job: "JOB-41", AfterSeq: 7, Limit: 10}},
 		{"GET", "/api/v1/workers", "", 200, mcp.ToolListWorkers, nil},
+		{"GET", "/api/v1/machines?state=busy&limit=5", "", 200, mcp.ToolListMachines, mcp.ListMachinesInput{State: "busy", Limit: 5}},
+		{"GET", "/api/v1/shapes", "", 200, mcp.ToolListShapes, nil},
+		{"GET", "/api/v1/providers", "", 200, mcp.ToolListProviders, nil},
+		{"GET", "/api/v1/fleet", "", 200, mcp.ToolFleetOverview, nil},
 		{"GET", "/api/v1/gates?project=app", "", 200, mcp.ToolListPendingGates, mcp.ProjectFilterInput{Project: "app"}},
 		{"POST", "/api/v1/gates/GATE-7/approve", `{"feedback":"ok"}`, 200, mcp.ToolApprove, mcp.GateDecisionInput{Gate: "GATE-7", Feedback: "ok"}},
 		{"POST", "/api/v1/gates/GATE-7/approve", "", 200, mcp.ToolApprove, mcp.GateDecisionInput{Gate: "GATE-7"}},
@@ -222,7 +226,7 @@ func TestEndpoints(t *testing.T) {
 
 func TestListsAreArrays(t *testing.T) {
 	e := newEnv(t)
-	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts", "/api/v1/test-runs?sha=abc", "/api/v1/assumptions?project=app", "/api/v1/decisions?project=app", "/api/v1/knowledge?project=app&q=x"} {
+	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/machines", "/api/v1/shapes", "/api/v1/providers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts", "/api/v1/test-runs?sha=abc", "/api/v1/assumptions?project=app", "/api/v1/decisions?project=app", "/api/v1/knowledge?project=app&q=x"} {
 		if r := e.do(t, "GET", path, "", "bearer"); strings.TrimSpace(r.body) != "[]" {
 			t.Errorf("GET %s = %q, want []", path, r.body)
 		}

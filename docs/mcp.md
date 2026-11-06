@@ -93,8 +93,12 @@ GitHub links of issues, pull requests and gates.
 |------|---------|
 | `onboard_project` | Register a repo (`repo`, optional `name`, optional `default_branch`, default `main`) and start onboarding: a profile for approval, then a test strategy, matrix and environments for approval (`test_plan_approval`), then a baseline run of the existing tests on every target, whose failures are filed as issues (the playbooks' [onboarding](playbooks.md#the-onboarding-playbook)). With `refresh: true`, for a project that is `onboarded`, only the test part runs again; a refresh already running for the project, or no entry for `test-architect` or `environment-engineer` under `roles`, is `invalid_input`. Returns the project and the run. CLI: `forecrew onboard <owner/name> [--name] [--default-branch] [--refresh]` |
 | `create_goal` | Create a goal (`project`, `title`, `body`, optional `platforms` such as `web`, `ios`, optional `councils`: `product` and `technical`, `[]` for none, which skips the triage that otherwise sizes the goal) and start its playbook |
-| `job_status`, `job_logs` | Inspect a job (with why a queued job waits, e.g. `no online worker in pool control with labels runtime:codex`; for an agent job its `context_manifest`, what its context pack held, see [knowledge.md](knowledge.md#context-packs)) and read its events |
+| `job_status`, `job_logs` | Inspect a job and read its events. A queued job that waits has `reason`, a sentence for people, and `reason_code`, one of the codes under [Why a job waits](#why-a-job-waits). An agent job has its `context_manifest`, what its context pack held, see [knowledge.md](knowledge.md#context-packs) |
 | `list_workers` | Workers, their pool, labels, version, whether they are online and the jobs they run |
+| `list_machines` | Machines of the organization (optional `state`, `limit`, default 100, at most 500): those that exist, or those of one state, with `name`, `shape`, `provider` and `job_ref` |
+| `list_shapes` | Machine types offered to the organization: its own and the instance-wide ones, with `provider` and `ownership`. `provider_config` is left out on instance-wide shapes |
+| `list_providers` | Locations machines come from: the organization's own and the instance-wide ones, with `online` and `ownership`. Host, cloud account, checks, tags and network are left out on instance-wide ones |
+| `fleet_overview` | Whether jobs have somewhere to run: `headline`, `working`, `waiting`, `spend` (absent while everything is free), `routing`, `locations` (providers and static workers in one list: `kind` `location` or `computer`, `name`, `runs`, `status`, `in_use`, `capacity`, `cost`), `queue` (`ref`, `role`, `code`, `sentence`) and `running` (`ref`, `role`, `machine`, `location`, `minutes`) |
 | `list_pending_gates` | Decisions waiting for a human: kind (`profile_approval`, `spec_approval`, `merge_approval`, `test_plan_approval` for the onboarding PR with the test strategy, matrix and environments, or `needs_you`), project, goal or task, summary, GitHub link, created time and `can_resolve`, whether you may resolve it |
 | `approve`, `request_changes`, `reject` | Resolve a gate. `request_changes` needs `feedback` and is not valid on `needs_you` gates (use `approve` to retry, `reject` to stop) |
 | `dispatch_job` | Queue an ad-hoc job of a read-only role (`project`, `role`, optional `prompt` with the instructions, `needs`, `pool`, `goal`, `task`). `pool` defaults to the role's pool; a pool whose policy does not run the role is `invalid_input` (docs/worker.md, Pools) |
@@ -173,6 +177,24 @@ when the autonomy policy accepts a council's recommendation
 (`decided_by: policy`). A decision on a council's gate has the `council`, and
 approving it is deciding for the recommendation: the question, options, choice
 and dissent are the brief's. A merge decision rests on the assumptions of its task.
+
+### Why a job waits
+
+The server writes every sentence, so the job page, the Machines page and the
+CLI show the same one. A job never fails for want of a machine. On the command
+line: `forecrew fleet`, `forecrew machines [--state]`, `forecrew shapes` and
+`forecrew providers`.
+
+| `reason_code` | Example sentence | Means |
+|---------------|------------------|-------|
+| `booting` | Starting a machine, about 20 seconds | A machine is on its way for it |
+| `queue` | Third in line for Linux Medium | Its machine type is at its `max`, or every static worker that can run it is busy |
+| `location_offline` | Only Mac Mini can run this, and it is offline | Every location that could run it is offline or paused |
+| `no_machine_type` | Nothing here runs Windows with 16 GB | No shape or worker offers what it asks |
+| `machine_limit` | At your limit of 5 machines at once | The organization's or the location's limit of machines at once |
+| `budget` | This month's limit of CHF 200 is used up | A monthly budget or minutes quota of the organization, shape or location |
+| `policy` | Cloud could run this, but your policy keeps jobs on your machines | Routing or `allowed_shapes` rule out the only shape that fits |
+| `trust_zone` | No machine in the Reasoning zone is online | Nothing of its pool exists or is online |
 
 ### Planned tools
 

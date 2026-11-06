@@ -20,6 +20,7 @@ import (
 	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/evidence"
+	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobs"
@@ -67,6 +68,12 @@ type JobService interface {
 	Workers(ctx context.Context, accountID uuid.UUID) ([]jobs.WorkerView, error)
 }
 
+// FleetService serves the fleet's read model; *fleet.Controller implements
+// it.
+type FleetService interface {
+	Overview(ctx context.Context, accountID uuid.UUID) (fleet.Overview, error)
+}
+
 // Checker reads from GitHub; github.Tracker implements it.
 type Checker interface {
 	IsInstalled(ctx context.Context, repo string) (bool, error)
@@ -99,7 +106,9 @@ type Config struct {
 	Notes  *knowledge.Notes
 	// Proposals serves propose_knowledge; nil answers unavailable.
 	Proposals *proposals.Service
-	Logger    *slog.Logger // defaults to discarding
+	// Fleet serves fleet_overview; nil answers unavailable.
+	Fleet  FleetService
+	Logger *slog.Logger // defaults to discarding
 	// GitHubUserID turns a GitHub login into its stable ID, wrapping
 	// auth.ErrNoGitHubUser for an unknown login; invitations by login answer
 	// unavailable without it.
