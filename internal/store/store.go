@@ -91,6 +91,8 @@ type Store interface {
 	Connections() ConnectionRepo
 	VerifiedDomains() VerifiedDomainRepo
 	Sessions() SessionRepo
+	OAuthGrants() OAuthGrantRepo
+	SCIMTokens() SCIMTokenRepo
 	CapacityProviders() CapacityProviderRepo
 	Shapes() ShapeRepo
 	Machines() MachineRepo
@@ -1041,12 +1043,20 @@ type OAuthRepo interface {
 	RevokeByUser(ctx context.Context, accountID, userID uuid.UUID) error
 }
 
+// OAuthGrantRepo is the part of OAuthRepo that ending a member's access
+// needs, until the whole of it joins Store.
+type OAuthGrantRepo interface {
+	// RevokeByUser revokes the user's grants in the organization.
+	RevokeByUser(ctx context.Context, accountID, userID uuid.UUID) error
+}
+
 // SCIMTokenRepo stores SCIM bearer tokens. Name is unique per
 // organization.
 type SCIMTokenRepo interface {
 	Create(ctx context.Context, t *domain.SCIMToken) error
 	// GetByTokenHash is unscoped; revoked tokens are returned too.
 	GetByTokenHash(ctx context.Context, hash []byte) (domain.SCIMToken, error)
+	// List returns the organization's tokens, revoked ones too, oldest first.
 	List(ctx context.Context, accountID uuid.UUID) ([]domain.SCIMToken, error)
 	Touch(ctx context.Context, accountID, id uuid.UUID) error
 	Revoke(ctx context.Context, accountID, id uuid.UUID) error

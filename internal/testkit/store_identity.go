@@ -23,6 +23,8 @@ type identityData struct {
 	connections table[domain.Connection]
 	domains     table[domain.VerifiedDomain]
 	sessions    table[domain.Session]
+	grants      table[domain.OAuthGrant]
+	scimTokens  table[domain.SCIMToken]
 }
 
 func newIdentityData() identityData {
@@ -34,6 +36,8 @@ func newIdentityData() identityData {
 		connections: table[domain.Connection]{key: func(r domain.Connection) (uuid.UUID, uuid.UUID) { return uuid.Nil(), r.ID }},
 		domains:     table[domain.VerifiedDomain]{key: func(r domain.VerifiedDomain) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		sessions:    table[domain.Session]{key: func(r domain.Session) (uuid.UUID, uuid.UUID) { return r.UserID, r.ID }},
+		grants:      table[domain.OAuthGrant]{key: func(r domain.OAuthGrant) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		scimTokens:  table[domain.SCIMToken]{key: func(r domain.SCIMToken) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 	}
 }
 
@@ -45,6 +49,8 @@ func (i identityData) clone() identityData {
 	i.connections = i.connections.clone()
 	i.domains = i.domains.clone()
 	i.sessions = i.sessions.clone()
+	i.grants = i.grants.clone()
+	i.scimTokens = i.scimTokens.clone()
 	return i
 }
 
@@ -55,6 +61,8 @@ func invitationsT(d *storeData) *table[domain.Invitation] { return &d.identity.i
 func connectionsT(d *storeData) *table[domain.Connection] { return &d.identity.connections }
 func domainsT(d *storeData) *table[domain.VerifiedDomain] { return &d.identity.domains }
 func sessionsT(d *storeData) *table[domain.Session]       { return &d.identity.sessions }
+func grantsT(d *storeData) *table[domain.OAuthGrant]      { return &d.identity.grants }
+func scimTokensT(d *storeData) *table[domain.SCIMToken]   { return &d.identity.scimTokens }
 
 // Users implements store.Store.
 func (s *Store) Users() store.UserRepo { return userRepo{s} }
@@ -573,6 +581,82 @@ func (r tokenRepo) RevokeByOwner(_ context.Context, accountID uuid.UUID, kind do
 			if t.AccountID == accountID && t.OwnerKind == kind && t.OwnerID == ownerID && t.RevokedAt.IsZero() {
 				t.RevokedAt = now
 			}
+		}
+		return nil
+	})
+}
+
+// OAuthGrants implements store.Store.
+func (s *Store) OAuthGrants() store.OAuthGrantRepo { return grantRepo{s} }
+
+type grantRepo struct{ s *Store }
+
+func (r grantRepo) RevokeByUser(_ context.Context, accountID, userID uuid.UUID) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		for i := range d.identity.grants.rows {
+			g := &d.identity.grants.rows[i]
+			if g.AccountID == accountID && g.UserID == userID && g.RevokedAt.IsZero() {
+				g.RevokedAt = now
+			}
+		}
+		return nil
+	})
+}
+
+// AddOAuthGrant stores a grant, which only T55's flows create for real.
+func (s *Store) AddOAuthGrant(g domain.OAuthGrant) domain.OAuthGrant {
+	g.ID = newID(g.ID)
+	_ = s.do(func(d *storeData, now time.Time) error {
+		g.CreatedAt = now
+		d.identity.grants.insert(g)
+		return nil
+	})
+	return g
+}
+
+// OAuthGrant returns a grant stored by AddOAuthGrant as it is now.
+func (s *Store) OAuthGrant(accountID, id uuid.UUID) (domain.OAuthGrant, error) {
+	return getRow(s, grantsT, accountID, id)
+}
+
+// SCIMTokens implements store.Store.
+func (s *Store) SCIMTokens() store.SCIMTokenRepo { return scimTokenRepo{s} }
+
+type scimTokenRepo struct{ s *Store }
+
+func (r scimTokenRepo) Create(_ context.Context, t *domain.SCIMToken) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		if d.identity.scimTokens.exists(func(x domain.SCIMToken) bool {
+			return (x.AccountID == t.AccountID && x.Name == t.Name) || bytes.Equal(x.TokenHash, t.TokenHash)
+		}) {
+			return fmt.Errorf("scim token %s: %w", t.Name, store.ErrConflict)
+		}
+		t.ID = newID(t.ID)
+		t.CreatedAt = now
+		d.identity.scimTokens.insert(*t)
+		return nil
+	})
+}
+
+func (r scimTokenRepo) GetByTokenHash(_ context.Context, hash []byte) (domain.SCIMToken, error) {
+	return findRow(r.s, scimTokensT, func(t domain.SCIMToken) bool { return bytes.Equal(t.TokenHash, hash) })
+}
+
+func (r scimTokenRepo) List(_ context.Context, accountID uuid.UUID) ([]domain.SCIMToken, error) {
+	return listRows(r.s, scimTokensT, 0, func(t domain.SCIMToken) bool { return t.AccountID == accountID })
+}
+
+func (r scimTokenRepo) Touch(_ context.Context, accountID, id uuid.UUID) error {
+	return update(r.s, scimTokensT, accountID, id, func(t *domain.SCIMToken, now time.Time) error {
+		t.LastUsedAt = now
+		return nil
+	})
+}
+
+func (r scimTokenRepo) Revoke(_ context.Context, accountID, id uuid.UUID) error {
+	return update(r.s, scimTokensT, accountID, id, func(t *domain.SCIMToken, now time.Time) error {
+		if t.RevokedAt.IsZero() {
+			t.RevokedAt = now
 		}
 		return nil
 	})
