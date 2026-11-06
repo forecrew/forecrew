@@ -27,12 +27,16 @@ func (s *Service) ProjectQuality(ctx context.Context, by domain.Actor, in mcp.Pr
 	}
 	out := mcp.QualityInfo{Project: p.Name, DefaultBranch: p.DefaultBranch, Changes: []mcp.QualityChange{}}
 	refs := map[uuid.UUID]string{} // job ID -> JOB-41
-	if out.Baseline, err = s.baseline(ctx, by.AccountID, p, refs); err != nil {
-		return out, err
-	}
 	changes, err := s.cfg.Store.Changes().List(ctx, by.AccountID, store.ChangeFilter{ProjectID: p.ID, State: domain.ChangeOpen})
 	if err != nil {
 		return out, fmt.Errorf("open changes of %s: %w", p.Name, err)
+	}
+	heads := map[string]bool{}
+	for _, c := range changes {
+		heads[strings.ToLower(c.HeadSHA)] = true
+	}
+	if out.Baseline, err = s.baseline(ctx, by.AccountID, p, heads, refs); err != nil {
+		return out, err
 	}
 	slices.SortFunc(changes, func(a, b domain.Change) int { return b.CreatedAt.Compare(a.CreatedAt) })
 	for _, c := range changes[:min(len(changes), mcp.MaxQualityChanges)] {
@@ -44,9 +48,8 @@ func (s *Service) ProjectQuality(ctx context.Context, by domain.Actor, in mcp.Pr
 			}
 			q.Task = t.Ref()
 		}
-		runs, err := s.cfg.Store.TestRuns().List(ctx, by.AccountID, store.TestRunFilter{
-			ProjectID: p.ID, ChangeID: c.ID, SHA: strings.ToLower(c.HeadSHA), Limit: MaxTestRunLimit,
-		})
+		// The runs of the head commit that count for the report.
+		runs, err := verification.Runs(ctx, s.cfg.Store, by.AccountID, p.ID, c.ID, strings.ToLower(c.HeadSHA))
 		if err != nil {
 			return out, fmt.Errorf("test runs of %s#%d: %w", c.Repo, c.Number, err)
 		}
@@ -65,42 +68,33 @@ func (s *Service) ProjectQuality(ctx context.Context, by domain.Actor, in mcp.Pr
 	return out, nil
 }
 
-// baseline returns the results of the newest commit tested outside a pull
-// request (the onboarding baseline); nil when there is none.
-func (s *Service) baseline(ctx context.Context, accountID uuid.UUID, p domain.Project, refs map[uuid.UUID]string) (*mcp.QualityBaseline, error) {
-	all, err := s.cfg.Store.TestRuns().List(ctx, accountID, store.TestRunFilter{ProjectID: p.ID, Limit: MaxTestRunLimit})
+// baseline returns the results of the commit of the newest run outside a
+// pull request and outside a base check, skipping the heads of open pull
+// requests: a run records no branch, so this is the latest run outside a pull
+// request, not necessarily one on the default branch. Nil when there is none.
+func (s *Service) baseline(ctx context.Context, accountID uuid.UUID, p domain.Project, heads map[string]bool, refs map[uuid.UUID]string) (*mcp.QualityBaseline, error) {
+	newest, err := s.cfg.Store.TestRuns().List(ctx, accountID, store.TestRunFilter{ProjectID: p.ID, NoChange: true, Newest: true, Limit: MaxTestRunLimit})
 	if err != nil {
 		return nil, fmt.Errorf("test runs of %s: %w", p.Name, err)
 	}
-	var runs []domain.TestRun
-	for _, r := range all {
-		if r.ChangeID == uuid.Nil() {
-			runs = append(runs, r)
+	for _, r := range newest {
+		if heads[r.SHA] || verification.BaseCheck(ctx, s.cfg.Store, r) {
+			continue
 		}
+		runs, err := verification.Runs(ctx, s.cfg.Store, accountID, p.ID, uuid.Nil(), r.SHA)
+		if err != nil {
+			return nil, err
+		}
+		cells, err := s.qualityCells(ctx, accountID, runs, refs)
+		return &mcp.QualityBaseline{SHA: r.SHA, Cells: cells}, err
 	}
-	if len(runs) == 0 {
-		return nil, nil
-	}
-	sha := slices.MaxFunc(runs, func(a, b domain.TestRun) int { return a.CreatedAt.Compare(b.CreatedAt) }).SHA
-	runs = slices.DeleteFunc(runs, func(r domain.TestRun) bool { return r.SHA != sha })
-	cells, err := s.qualityCells(ctx, accountID, runs, refs)
-	return &mcp.QualityBaseline{SHA: sha, Cells: cells}, err
+	return nil, nil
 }
 
 // qualityCells keeps the newest attempt of each suite in each cell of each
-// environment, in a stable order, with its failed cases.
+// environment (verification.Latest), in a stable order, with its failed cases.
 func (s *Service) qualityCells(ctx context.Context, accountID uuid.UUID, runs []domain.TestRun, refs map[uuid.UUID]string) ([]mcp.QualityCell, error) {
-	latest := map[string]domain.TestRun{}
-	for _, r := range runs {
-		k := r.Environment + "\x00" + verification.CellKey(r.Cell) + "\x00" + r.Suite
-		if old, ok := latest[k]; !ok || r.CreatedAt.After(old.CreatedAt) {
-			latest[k] = r
-		}
-	}
-	kept := make([]domain.TestRun, 0, len(latest))
-	for _, r := range latest {
-		kept = append(kept, r)
-	}
+	kept := verification.Latest(runs)
 	slices.SortFunc(kept, func(a, b domain.TestRun) int {
 		return cmp.Or(cmp.Compare(a.Suite, b.Suite), cmp.Compare(a.Environment, b.Environment),
 			cmp.Compare(verification.CellKey(a.Cell), verification.CellKey(b.Cell)))

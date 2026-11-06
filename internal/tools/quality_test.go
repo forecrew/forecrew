@@ -2,11 +2,13 @@ package tools_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/tools"
 )
 
 // qualityRun stores a run of a suite in an environment for a commit.
@@ -19,6 +21,17 @@ func (f *fixture) qualityRun(t *testing.T, change domain.Change, sha, suite, env
 		Status: status, Counts: counts, Attempt: attempt}
 	must(t, f.st.TestRuns().Create(t.Context(), &r, results))
 	return j
+}
+
+// overlayRun stores a run of a base check job: it lays files over another ref.
+func (f *fixture) overlayRun(t *testing.T, sha, suite string, status domain.TestRunStatus) {
+	t.Helper()
+	j := domain.Job{AccountID: f.account.ID, ProjectID: f.project.ID, Kind: domain.JobKindCommand,
+		Spec: domain.JobSpec{Repo: "acme/app", Kind: domain.JobKindCommand, Overlay: &domain.Overlay{}}}
+	must(t, f.st.Jobs().Create(t.Context(), &j))
+	f.clock.Advance(time.Minute)
+	r := domain.TestRun{AccountID: f.account.ID, ProjectID: f.project.ID, JobID: j.ID, SHA: sha, Suite: suite, Status: status, Attempt: 1}
+	must(t, f.st.TestRuns().Create(t.Context(), &r, nil))
 }
 
 func TestProjectQuality(t *testing.T) {
@@ -43,7 +56,13 @@ func TestProjectQuality(t *testing.T) {
 	must(t, f.st.Changes().Upsert(ctx, &merged))
 	f.qualityRun(t, merged, "mmm0001", "unit", "", 1, domain.TestRunPassed, domain.TestCounts{Passed: 1})
 	// A run of an earlier head of the open PR does not show.
-	f.qualityRun(t, open, "earlier", "unit", "", 1, domain.TestRunFailed, domain.TestCounts{Failed: 7})
+	f.qualityRun(t, open, "earlier", "slow", "", 1, domain.TestRunFailed, domain.TestCounts{Failed: 7})
+	// Another pull request's run at the same sha, and a base check, do not count.
+	f.qualityRun(t, merged, open.HeadSHA, "other-pr", "", 1, domain.TestRunFailed, domain.TestCounts{Failed: 5})
+	f.overlayRun(t, open.HeadSHA, "unit", domain.TestRunPassed)
+	f.overlayRun(t, "base001", "e2e", domain.TestRunPassed)
+	// A run at the head of the open PR that was not tied to it counts for the PR, not for the baseline.
+	f.qualityRun(t, domain.Change{}, open.HeadSHA, "untied", "", 1, domain.TestRunPassed, domain.TestCounts{Passed: 2})
 	f.qualityRun(t, open, open.HeadSHA, "unit", "", 1, domain.TestRunFailed, domain.TestCounts{Failed: 1},
 		domain.TestResult{Name: "TestBad", Status: domain.TestFailed, Message: "no"})
 	f.storeReport(t, open, open.HeadSHA, domain.VerificationFailed)
@@ -64,11 +83,14 @@ func TestProjectQuality(t *testing.T) {
 		t.Errorf("unit cell = %+v", c)
 	}
 
+	if b.SHA == open.HeadSHA {
+		t.Fatalf("the head of an open pull request is the baseline: %+v", b)
+	}
 	if len(got.Changes) != 1 {
 		t.Fatalf("changes = %+v, want only the open pull request", got.Changes)
 	}
 	c := got.Changes[0]
-	if c.Number != 9 || c.Task != task.Ref() || c.SHA != open.HeadSHA || len(c.Cells) != 1 || c.Cells[0].Counts.Failed != 1 || len(c.Cells[0].Failures) != 1 {
+	if c.Number != 9 || c.Task != task.Ref() || c.SHA != open.HeadSHA || len(c.Cells) != 2 || c.Cells[0].Suite != "unit" || c.Cells[0].Counts.Failed != 1 || len(c.Cells[0].Failures) != 1 || c.Cells[1].Suite != "untied" {
 		t.Errorf("change = %+v", c)
 	}
 	if c.Verification == nil || c.Verification.Status != domain.VerificationFailed || !c.Verification.Current {
@@ -113,5 +135,38 @@ func TestProjectQualityErrors(t *testing.T) {
 	// The other account has a project of the same name, and sees none of it.
 	if got, err := f.svc.ProjectQuality(t.Context(), other, mcp.ProjectInput{Project: "app"}); err != nil || got.Baseline != nil || len(got.Changes) != 0 {
 		t.Errorf("another account sees %+v, %v", got, err)
+	}
+}
+
+// The baseline is the newest run outside a pull request, however many older
+// runs there are.
+func TestProjectQualityBaselineIsTheNewestPastTheLimit(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	j := domain.Job{AccountID: f.account.ID, ProjectID: f.project.ID, Kind: domain.JobKindCommand, Spec: domain.JobSpec{Repo: "acme/app", Kind: domain.JobKindCommand}}
+	must(t, f.st.Jobs().Create(ctx, &j))
+	for i := range tools.MaxTestRunLimit + 20 {
+		r := domain.TestRun{AccountID: f.account.ID, ProjectID: f.project.ID, JobID: j.ID, SHA: "old0001", Suite: fmt.Sprintf("s%d", i), Status: domain.TestRunPassed, Attempt: 1}
+		must(t, f.st.TestRuns().Create(ctx, &r, nil))
+	}
+	f.clock.Advance(time.Hour)
+	f.qualityRun(t, domain.Change{}, "new0001", "unit", "", 1, domain.TestRunFailed, domain.TestCounts{Failed: 1})
+	got, err := f.svc.ProjectQuality(ctx, f.by, mcp.ProjectInput{Project: "app"})
+	if err != nil || got.Baseline == nil || got.Baseline.SHA != "new0001" || len(got.Baseline.Cells) != 1 {
+		t.Fatalf("baseline = %+v, %v", got.Baseline, err)
+	}
+}
+
+// Only runs of base checks and of open pull requests heads: no baseline.
+func TestProjectQualityHasNoBaselineFromBaseChecksOrPullRequestHeads(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	open := domain.Change{AccountID: f.account.ID, ProjectID: f.project.ID, Repo: "acme/app", Number: 5, HeadSHA: "head001", State: domain.ChangeOpen}
+	must(t, f.st.Changes().Upsert(ctx, &open))
+	f.overlayRun(t, "base001", "unit", domain.TestRunPassed)
+	f.qualityRun(t, domain.Change{}, "head001", "unit", "", 1, domain.TestRunPassed, domain.TestCounts{Passed: 1})
+	got, err := f.svc.ProjectQuality(ctx, f.by, mcp.ProjectInput{Project: "app"})
+	if err != nil || got.Baseline != nil {
+		t.Fatalf("baseline = %+v, %v", got.Baseline, err)
 	}
 }
