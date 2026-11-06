@@ -103,6 +103,13 @@ func (a *actions) goalSummary(ctx context.Context, g domain.Goal, tasks []domain
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s\n## Done\n\n%s is delivered: %d %s merged.\n", summaryMarker(g), g.Ref(), len(tasks), plural(len(tasks), "task"))
 	section(&b, "Tasks", lines, "- ")
+	if g.Kind == domain.GoalBug {
+		named, err := a.regressionTests(ctx, tasks)
+		if err != nil {
+			return "", err
+		}
+		section(&b, "Regression tests", named, "- ")
+	}
 	fmt.Fprintf(&b, "\nCost of the %d jobs of the goal: $%.2f.\n", len(jobs), total)
 	return b.String(), nil
 }
@@ -247,4 +254,22 @@ func (a *actions) closeIssue(ctx context.Context, repo string, number int, marke
 		return fmt.Errorf("close issue %s#%d: %w", repo, number, err)
 	}
 	return nil
+}
+
+// regressionTests names the tests the test engineer wrote for the tasks, as
+// "`id` (suite, file)".
+func (a *actions) regressionTests(ctx context.Context, tasks []domain.Task) ([]string, error) {
+	var named []string
+	for _, t := range tasks {
+		docs, err := a.testerOutputs(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		var out testsMapOutput
+		unionTests(docs, &out)
+		for _, x := range out.Tests {
+			named = append(named, fmt.Sprintf("`%s` (%s, %s)", strings.NewReplacer("`", "'", "\n", " ").Replace(x.ID), x.Suite, x.File))
+		}
+	}
+	return slices.Compact(named), nil
 }
