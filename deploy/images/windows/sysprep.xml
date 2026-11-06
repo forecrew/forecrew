@@ -10,7 +10,7 @@
         <RunSynchronousCommand wcm:action="add">
           <Order>1</Order>
           <Description>Give the built-in Administrator a random password and disable it</Description>
-          <Path>powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = [guid]::NewGuid().ToString('N') + 'aA1!'; net user Administrator $p; net user Administrator /active:no"</Path>
+          <Path>powershell -NoProfile -ExecutionPolicy Bypass -Command "$p = [guid]::NewGuid().ToString('N') + 'aA1!'; net user Administrator $p /y; net user Administrator /active:no"</Path>
         </RunSynchronousCommand>
       </RunSynchronous>
     </component>

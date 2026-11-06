@@ -63,13 +63,17 @@ Register-ScheduledTask -TaskName 'ForecrewWorker' -Action $action -Trigger $trig
 & "$root\forecrew-worker.exe" version
 if ($LASTEXITCODE -ne 0) { throw 'forecrew-worker does not run' }
 
-# Packer's shutdown command runs this last. It starts a detached script and
-# returns, because turning WinRM off ends the session that called it. The
-# detached one removes the build's remote access, then runs sysprep: a new SID
-# for every clone, and sysprep.xml gives the Administrator of each clone a
-# random password and disables it, so no machine shares the build's password.
+# Packer's shutdown command runs finish.ps1 last. It registers a one-shot
+# scheduled task that runs as SYSTEM and starts it, then returns: a child of the
+# WinRM shell would die with it when WinRM goes off, a scheduled task does not.
+# The task removes the build's remote access, then runs sysprep: a new SID for
+# every clone, and sysprep.xml gives the Administrator of each clone a random
+# password and disables it, so no machine shares the build's password.
 @'
-Start-Process -WindowStyle Hidden -FilePath powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\ProgramData\Forecrew\sysprep-run.ps1'
+$action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\Forecrew\sysprep-run.ps1'
+$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -RunLevel Highest
+Register-ScheduledTask -TaskName 'ForecrewSysprep' -Action $action -Principal $principal -Force | Out-Null
+Start-ScheduledTask -TaskName 'ForecrewSysprep'
 '@ | Set-Content -LiteralPath (Join-Path $root 'finish.ps1') -Encoding ascii
 @'
 Start-Sleep -Seconds 10
@@ -77,5 +81,6 @@ winrm set winrm/config/service '@{AllowUnencrypted="false"}'
 Disable-NetFirewallRule -DisplayName 'WinRM-HTTP' -ErrorAction SilentlyContinue
 Stop-Service WinRM -Force
 Set-Service WinRM -StartupType Disabled
+Unregister-ScheduledTask -TaskName 'ForecrewSysprep' -Confirm:$false
 & "$env:SystemRoot\System32\Sysprep\sysprep.exe" /generalize /oobe /shutdown /quiet /unattend:C:\ProgramData\Forecrew\sysprep.xml
 '@ | Set-Content -LiteralPath (Join-Path $root 'sysprep-run.ps1') -Encoding ascii

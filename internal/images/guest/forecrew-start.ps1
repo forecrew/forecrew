@@ -5,7 +5,8 @@
 # when the worker ends: it is thrown away after its jobs. On Windows the folder
 # is on the machine's own disk, not in RAM: only SYSTEM and administrators may
 # read it (the ACL set here and at image build), the provider delivers the file
-# into the running machine (WinRM, Hyper-V guest services) once it is assigned,
+# into the running machine (Hyper-V PowerShell Direct; the image turns WinRM off)
+# once it is assigned,
 # never in the image or on a host share, and the disk is destroyed with the
 # machine.
 $ErrorActionPreference = 'Stop'
