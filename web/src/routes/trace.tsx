@@ -162,7 +162,7 @@ export function TracePage() {
                     to the merged change.
                   </>
                 ) : (
-                  "This record belongs to no goal."
+                  "No goal chain to show: this record has no goal, or you may not read it."
                 )
               }
             />
