@@ -86,6 +86,9 @@ sizing:                                       # optional; these are the defaults
     impact: [medium, high]
     components: 2
 
+testing:                                      # optional; default: no project
+  projects: []                                # e.g. [app]: its goals run goal-v2, with the testing system
+
 auth:                                         # optional; these are the defaults
   session_idle: 168h
   session_absolute: 720h
@@ -186,6 +189,7 @@ custom endpoint receives the repo code in the prompts and the runtime's key.
 | `sizing.product.reversibility` | list of `easy` \| `hard` \| `irreversible` | no | `[hard, irreversible]` | Reversibilities that give a goal the product council. |
 | `sizing.technical.impact` | list of `low` \| `medium` \| `high` | no | `[medium, high]` | Impacts that give a goal the technical council. |
 | `sizing.technical.components` | integer ≥ 1 | no | `2` | Distinct areas (paths or components) the triage names that give a goal the technical council; `0` or absent keeps the default. |
+| `testing.projects` | list of project names | no | empty | Projects whose new goals run the `goal-v2` playbook: tests from the spec before the code, a test matrix run on every PR head and a verification report that gates the merge (playbooks.md). Every other project, and every goal that already runs, keeps the `goal` playbook. Names are the projects' names (`list_projects`); a name that is not a project yet does nothing. |
 | `auth` | object | no | defaults below | Sign-in, sessions and tokens ([identity.md](identity.md); `config.Auth`). |
 | `auth.session_idle` | Go duration | no | `168h` (7 days) | A browser session not used for this long ends. At most `session_absolute`. |
 | `auth.session_absolute` | Go duration | no | `720h` (30 days) | A browser session ends this long after sign-in, used or not. |
