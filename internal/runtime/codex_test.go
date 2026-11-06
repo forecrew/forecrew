@@ -79,7 +79,7 @@ func TestCodexSuccess(t *testing.T) {
 	if !slices.Equal(r.Args, wantArgs) {
 		t.Errorf("args = %q", r.Args)
 	}
-	if r.Stdin != "do the work" || r.Dir != spec.WorkDir {
+	if r.Stdin != "do the work" || r.Dir != realPath(t, spec.WorkDir) {
 		t.Errorf("record = %+v", r)
 	}
 }
@@ -159,14 +159,9 @@ func TestCodexFailures(t *testing.T) {
 }
 
 func TestCodexTimeoutAndDetect(t *testing.T) {
-	pidfile := filepath.Join(t.TempDir(), "pid")
-	a := newFakeCodex("FAKE_HANG=1", "FAKE_PIDFILE="+pidfile)
-	spec := codexSpec()
-	spec.Timeout = 500 * time.Millisecond
-	if _, _, err := collect(t, a, spec); !errors.Is(err, ErrTimeout) {
-		t.Fatalf("err = %v, want ErrTimeout", err)
-	}
-	assertChildGone(t, pidfile)
+	a := runToTimeout(t, codexSpec(), func(pidfile string) Adapter {
+		return newFakeCodex("FAKE_HANG=1", "FAKE_PIDFILE="+pidfile)
+	})
 
 	if v, err := a.Detect(context.Background()); err != nil || v != "9.9.9 (Fake CLI)" {
 		t.Errorf("Detect = %q, %v", v, err)
@@ -183,16 +178,7 @@ func TestCodexTimeoutAndDetect(t *testing.T) {
 func TestCodexCancellation(t *testing.T) {
 	pidfile := filepath.Join(t.TempDir(), "pid")
 	a := newFakeCodex("FAKE_HANG=1", "FAKE_PIDFILE="+pidfile)
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		for range 200 {
-			if _, err := os.Stat(pidfile); err == nil {
-				break
-			}
-			time.Sleep(25 * time.Millisecond)
-		}
-		cancel()
-	}()
+	ctx := cancelWhenStarted(t, pidfile)
 	spec := codexSpec()
 	spec.WorkDir = t.TempDir()
 	if _, err := a.Run(ctx, spec, func(domain.JobEvent) {}); !errors.Is(err, context.Canceled) {

@@ -83,7 +83,7 @@ func TestClaudeEvidenceDir(t *testing.T) {
 
 func assertClaudeInvocation(t *testing.T, r fakeRecord, spec RunSpec) {
 	t.Helper()
-	if r.Stdin != "do the work" || r.APIKey != "sk-ant-test-SECRETSECRET" || r.Dir != spec.WorkDir {
+	if r.Stdin != "do the work" || r.APIKey != "sk-ant-test-SECRETSECRET" || r.Dir != realPath(t, spec.WorkDir) {
 		t.Errorf("record = %+v", r)
 	}
 	wantArgs := []string{
@@ -252,34 +252,15 @@ func TestClaudeRedactsErrors(t *testing.T) {
 }
 
 func TestClaudeTimeoutKillsProcessGroup(t *testing.T) {
-	pidfile := filepath.Join(t.TempDir(), "pid")
-	a := newFakeClaude("FAKE_HANG=1", "FAKE_PIDFILE="+pidfile)
-	spec := claudeSpec()
-	spec.Timeout = 500 * time.Millisecond
-	start := time.Now()
-	_, _, err := collect(t, a, spec)
-	if !errors.Is(err, ErrTimeout) {
-		t.Fatalf("err = %v, want ErrTimeout", err)
-	}
-	if d := time.Since(start); d > 10*time.Second {
-		t.Errorf("took %s", d)
-	}
-	assertChildGone(t, pidfile)
+	runToTimeout(t, claudeSpec(), func(pidfile string) Adapter {
+		return newFakeClaude("FAKE_HANG=1", "FAKE_PIDFILE="+pidfile)
+	})
 }
 
 func TestClaudeCancellationKillsProcessGroup(t *testing.T) {
 	pidfile := filepath.Join(t.TempDir(), "pid")
 	a := newFakeClaude("FAKE_HANG=1", "FAKE_PIDFILE="+pidfile)
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		for range 200 {
-			if _, err := os.Stat(pidfile); err == nil {
-				break
-			}
-			time.Sleep(25 * time.Millisecond)
-		}
-		cancel()
-	}()
+	ctx := cancelWhenStarted(t, pidfile)
 	spec := claudeSpec()
 	spec.WorkDir = t.TempDir()
 	_, err := a.Run(ctx, spec, func(domain.JobEvent) {})

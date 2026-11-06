@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -195,4 +196,55 @@ func readRecord(t *testing.T, path string) fakeRecord {
 		t.Fatal(err)
 	}
 	return r
+}
+
+// cancelWhenStarted returns a context that is cancelled once the fake CLI has
+// written its child's pid file, so a run is never cancelled before the child
+// it must kill exists. It gives up waiting, and cancels, after a minute.
+func cancelWhenStarted(t *testing.T, pidfile string) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() {
+		defer cancel()
+		deadline := time.Now().Add(time.Minute)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(pidfile); err == nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	return ctx
+}
+
+// runToTimeout runs a hanging fake CLI under a job timeout and checks that
+// the run ends with ErrTimeout and that the child is gone. The timeout runs
+// from the start of the run, and a race-built fake CLI can take longer than
+// it to start under load; a run that was killed before its child existed
+// proves nothing, so it is repeated with twice the timeout until the child
+// was seen. newAdapter gets the pid file path. It returns the last adapter.
+func runToTimeout(t *testing.T, spec RunSpec, newAdapter func(pidfile string) Adapter) Adapter {
+	t.Helper()
+	timeout := 500 * time.Millisecond
+	for range 6 {
+		pidfile := filepath.Join(t.TempDir(), "pid")
+		a := newAdapter(pidfile)
+		spec.Timeout = timeout
+		start := time.Now()
+		_, _, err := collect(t, a, spec)
+		if !errors.Is(err, ErrTimeout) {
+			t.Fatalf("err = %v, want ErrTimeout", err)
+		}
+		if d := time.Since(start); d > timeout+10*time.Second {
+			t.Errorf("took %s", d)
+		}
+		if _, err := os.Stat(pidfile); err == nil {
+			assertChildGone(t, pidfile)
+			return a
+		}
+		timeout *= 2
+	}
+	t.Fatal("fake CLI never started its child before the timeout")
+	return nil
 }
