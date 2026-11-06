@@ -204,6 +204,22 @@ func decodeLimited(rw http.ResponseWriter, r *http.Request, v any, allowEmpty bo
 	return false
 }
 
+// Decode reads a JSON body of at most MaxBodyBytes into v, or answers the error
+// itself and returns false. The fleet agent API has the errors of this one.
+func Decode(rw http.ResponseWriter, r *http.Request, v any) bool { return decode(rw, r, v, false) }
+
+// WriteJSON answers with v as JSON.
+func WriteJSON(rw http.ResponseWriter, status int, v any) { writeJSON(rw, status, v) }
+
+// WriteError answers with the API's error body.
+func WriteError(rw http.ResponseWriter, status int, code, message string) {
+	writeError(rw, status, code, message)
+}
+
+// ClientGone reports whether err is the request context ending, which is not
+// a server error.
+func ClientGone(ctx context.Context, err error) bool { return clientGone(ctx, err) }
+
 func writeJSON(rw http.ResponseWriter, status int, v any) {
 	rw.Header().Set("Content-Type", "application/json")
 	rw.WriteHeader(status)

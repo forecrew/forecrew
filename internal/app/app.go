@@ -34,6 +34,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/evidence"
 	"github.com/forecrew/forecrew/internal/fleet"
+	"github.com/forecrew/forecrew/internal/fleetapi"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/images"
@@ -375,7 +376,8 @@ func New(d Deps) (*App, error) {
 	if cfg.Server.TLSDomain != "" {
 		a.certs = newCertManager(cfg.Server.TLSDomain, cfg.Server.CertCacheDir)
 	}
-	a.handler = a.routes(workers.Handler(), jobGateway.Handler(),
+	agents := fleetapi.New(fleetapi.Config{Store: st, Fleet: machines, Logger: log, Now: d.Now})
+	a.handler = a.routes(workers.Handler(), agents.Handler(), jobGateway.Handler(),
 		mcp.NewHandler(toolSvc, st, access, d.Version, log),
 		api.New(api.Config{
 			Tools: toolSvc, Artifacts: toolSvc, Images: toolSvc, Store: st, Authz: access, Auth: a.auth, Logger: log, PublicURL: cfg.Server.PublicBaseURL,
@@ -456,7 +458,7 @@ func checkRoles(books map[string]*workflow.Playbook, c *roles.Catalog) error {
 func (a *App) Handler() http.Handler { return a.handler }
 
 // routes mounts everything on one mux; "/" is the web UI.
-func (a *App) routes(workers, jobMCP, mcpHandler, apiHandler http.Handler) http.Handler {
+func (a *App) routes(workers, agents, jobMCP, mcpHandler, apiHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if a.d.Ping != nil {
@@ -468,6 +470,7 @@ func (a *App) routes(workers, jobMCP, mcpHandler, apiHandler http.Handler) http.
 		fmt.Fprintln(w, "ok")
 	})
 	mux.Handle("/worker/v1/", workers)
+	mux.Handle("/fleet/v1/", agents)
 	mux.Handle("/auth/", a.auth.Handler())
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle("/mcp", mcpHandler)
