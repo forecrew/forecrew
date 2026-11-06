@@ -22,7 +22,8 @@ var _ knowledge.Proposer = (*RepoProposer)(nil)
 // RepoProposer is the review flow of the repo provider: forecrewd itself
 // writes the change through the GitHub API on agent/kb-<job> (agent/kb-KB-n
 // for a human's proposal, which has no job), so no agent run is needed, and
-// keeps one PR per branch. The proposals of one job share its PR.
+// keeps one PR per branch. The proposals of one job share its PR, and the
+// per_goal proposals of a goal share its learn PR agent/learn-GOAL-n.
 type RepoProposer struct {
 	Store  store.Store
 	GitHub github.Tracker
@@ -59,7 +60,11 @@ func (r *RepoProposer) Propose(ctx context.Context, k domain.KnowledgeProposal) 
 	if err != nil {
 		return "", err
 	}
-	pr, err := openPR(ctx, r.GitHub, p.Repo, github.PRInput{Title: "Knowledge: " + origin, Head: branch, Base: p.DefaultBranch}, marker(k), prSection(k, origin))
+	title := "Knowledge: " + origin
+	if k.Batch == domain.BatchPerGoal {
+		title = "Learnings of " + origin
+	}
+	pr, err := openPR(ctx, r.GitHub, p.Repo, github.PRInput{Title: title, Head: branch, Base: p.DefaultBranch}, marker(k), prSection(k, origin))
 	if err != nil {
 		return "", err
 	}
@@ -73,10 +78,20 @@ func (r *RepoProposer) Propose(ctx context.Context, k domain.KnowledgeProposal) 
 	return strconv.Itoa(pr.Number), nil
 }
 
-// branch returns the branch of k and the ref of where it comes from: its
-// job, or itself for a human's.
+// LearnBranch is the branch of the learn PR of a goal.
+func LearnBranch(g domain.Goal) string { return "agent/learn-" + g.Ref() }
+
+// branch returns the branch of k and the ref of where it comes from: the
+// goal's learn PR for a per_goal proposal, its job, or itself for a human's.
 func (r *RepoProposer) branch(ctx context.Context, k domain.KnowledgeProposal) (branch, origin string, err error) {
 	origin = k.Ref()
+	if k.Batch == domain.BatchPerGoal {
+		g, err := r.Store.Goals().Get(ctx, k.AccountID, k.GoalID)
+		if err != nil {
+			return "", "", fmt.Errorf("goal of %s: %w", k.Ref(), err)
+		}
+		return LearnBranch(g), g.Ref(), nil
+	}
 	if k.JobID != uuid.Nil() {
 		j, err := r.Store.Jobs().Get(ctx, k.AccountID, k.JobID)
 		if err != nil {

@@ -35,7 +35,7 @@ rejected.
 
 | Type | Fields | What it does |
 |------|--------|--------------|
-| `job` | `with`, `on_failure` | Creates a job through `workflow.JobCreator`, then waits for its `job.completed`. `with` takes the json keys of `workflow.JobRequest` (`role` required; `account_id`, `project_id` are set by the engine; `goal_id` and `task_id` default to the run's; `pool` picks the worker pool and defaults to the role pack's `pool`, and a pool whose policy does not run the role fails the step (docs/worker.md, Pools); `prompt` adds instructions to the job's prompt and must be literal text written in the playbook: a `${...}` reference in it is refused when the playbook loads, because the prompt is rendered as trusted instructions; `locked_paths`, a list of globs, goes into the job spec and the prompt: the job fails if it changes a matching file, see Locked tests). Fails when the job fails or is canceled. |
+| `job` | `with`, `on_failure` | Creates a job through `workflow.JobCreator`, then waits for its `job.completed`. `with` takes the json keys of `workflow.JobRequest` (`role` required; `account_id`, `project_id` are set by the engine; `goal_id` and `task_id` default to the run's; `pool` picks the worker pool and defaults to the role pack's `pool`, and a pool whose policy does not run the role fails the step (docs/worker.md, Pools); `task` makes the job a read-only task of the role instead of its usual work (`packs/tasks/<role>.<task>.md` with its output schema `<role>.<task>.json`; the knowledge curator has `retro` and `curate`); `prompt` adds instructions to the job's prompt and must be literal text written in the playbook: a `${...}` reference in it is refused when the playbook loads, because the prompt is rendered as trusted instructions; `locked_paths`, a list of globs, goes into the job spec and the prompt: the job fails if it changes a matching file, see Locked tests). Fails when the job fails or is canceled. |
 | `action` | `action`, `with`, `on_failure` | Calls the Go function registered under `action` in `workflow.Actions` with the resolved `with`. Its result is the step output; an error fails the step. |
 | `gate` | `with`, `on_failure` | Opens a gate and waits for `gate.resolved`. `with` takes the json keys of `gates.OpenRequest`: `kind`, `title`, `subject_repo` (required), `summary`, `subject_number`, `goal_id`, `spec_id`, `task_id`, `job_id`. |
 | `wait` | `with`, `timeout`, `on_failure` | Waits for a signal. `with.signal` is the kind and the remaining keys build its key with the `domain` helpers: `checks.completed` (`repo`, `sha`), `pr.merged` / `pr.closed` (`repo`, `number`), `job.completed` (`job_id`), `gate.resolved` (`gate_id`), `council.decided` (`council_id`). The first signal stored under the key completes the step, so for a PR either merged or closed does (the output's `signal` says which). On `job.completed` the step follows the job-step rules: it outputs the job's values and fails when the job did not succeed. On `gate.resolved` it outputs the gate's values but does not apply the gate-decision rules below. A wait for `gate.resolved` (like a gate step) finds the gate resolved when the signal was lost; the other waits have no lost-signal fallback. `timeout` (Go duration, e.g. `30m`) fails the step after that long; zero waits forever. |
@@ -268,6 +268,10 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `knowledge.decide` | `job_id`, `provider` | `{if_merge, if_follow}`. Anything but an approved gate rejects the proposals and closes the PR. `if_merge` holds the PR when forecrewd merges it, `if_follow` when it is owned by `codeowners`, whose reviewers and a human merge it. Both are empty without an open PR. |
 | `knowledge.settle` | `job_id`, `provider` | `{failed}`. Last step and `finally` step: a merged PR or an approved gate accepts the proposals, a closed PR rejects them. In a run that failed or was canceled what is still in review is rejected and the PR closed. |
 | `knowledge.access_pr` | `gate_id`, `section`, `level`, `role` | `{opened, number, url}`. When the `access_request` gate was approved and the policy does not grant it yet, opens a PR `agent/kb-access-GATE-n` that adds the role to the section's access list. A human merges it; the policy is never changed directly. |
+| `goal.retro_context` | `goal_id` | `{text, notes}`. The goal's history for the retro job: spec revisions, what humans answered at the goal's gates, the reviews that asked for changes, the jobs that failed or were canceled, costs by role and the goal's notes with their ids. Everything a person or agent wrote is marked as data, each text cut and each list bounded. Reads only. |
+| `goal.learn` | `goal_id` | `{proposals, files, number, branch, head_sha, gate, if_gate}`. The learn step: writes in one PR `agent/learn-GOAL-n` the goal's register files (`.forecrew/assumptions/A-n.yaml`, `docs/decisions/DEC-n.md`, as `registers.Export` gives them, only when they differ from the default branch) and the goal's queued `per_goal` proposals for the repo (`entry`: provenance frontmatter, then the body; source `GOAL-n`). It checks them against the policy again first: what the policy no longer allows, or a section that became protected, is rejected and audited. Proposals for a provider without a review flow wait at the gate. Opens one `knowledge_proposal` gate, with the call's key as ID, for the PR and those proposals; `gate` is its ID (empty when there was nothing to send) and `if_gate` holds it for a `foreach`. Idempotent for its key. |
+| `goal.learn_decide` | `goal_id`, `gate` | `{if_merge, if_follow}`. Anything but an approved gate closes the learn PR and rejects the proposals; an approval accepts the ones copied across by hand and says how the PR gets merged (`if_follow` when a section it changes is owned by `codeowners`). |
+| `goal.learn_settle` | `goal_id` | `{failed}`. Last step and `finally` step of `learn`: a merged PR accepts what is in review, a closed one rejects it; in a run that failed or was canceled the PR is closed and what is in review rejected. |
 
 ### Command jobs
 
@@ -419,7 +423,7 @@ profile, the goal, spec and task, the step's `prompt` and feedback.
 | `reviewer` | nothing | `review-verdict.json` | profile, goal, spec, task |
 | `test-architect` | `.forecrew/matrix.yaml`, `.forecrew/test-strategy.md` | `test-plan.json`: summary, every axis with its reason, matrix changes with reasons, assumptions, open questions | profile, spec when given, test plan |
 | `environment-engineer` | `.forecrew/environments/**` | `environments.json`: summary, every environment with its provider and reason, assumptions | profile, test plan |
-| `knowledge-curator` | `knowledge/**` | `knowledge-seed.json`: summary, the entries it wrote with their sources, the sections it skipped, assumptions | profile |
+| `knowledge-curator` | `knowledge/**` (never the protected sections or the policy file) | `knowledge-seed.json`: summary, the entries it wrote with their sources, the sections it skipped, assumptions | profile. Two read-only tasks, `retro` (`knowledge-curator.retro.json`: summary, the proposals it made, assumptions) and `curate` (`knowledge-curator.curate.json`: summary, `reverified` entries, `drop_notes`, proposals, assumptions); both read the history or the work list in their `feedback` and propose with `kb_propose` |
 | `test-engineer` | test files only: `**/*_test.*`, `**/*.test.*`, `**/test_*.*`, `*.spec.*` and `*_spec.*` with code extensions, and `tests/`, `test/`, `__tests__/` and `testdata/` directories; never `.forecrew/**`, `.github/**`, `vendor/`, `node_modules/`, nor dependency, lock, build, Docker, script or CI files at any depth (`go.mod`, `package.json`, `*.lock`, `Makefile`, `Dockerfile`, `*.sh`, ...) | `test-map.json`: per test its criterion, suite, JUnit id (`<classname>::<name>`) and file; every file created or changed (`files`, the paths later locked for the developer and applied on the base); untestable criteria with reasons; assumptions | profile, goal, spec, task with its criteria, test plan |
 
 Every output also has `escalation` (null unless the role stopped for a
@@ -433,6 +437,29 @@ The council roles (`facilitator`, `devils-advocate`, `market-researcher`,
 `security-reviewer`, `ux`) and the council packs that seat them, with other
 roles in a council mode, are described in [councils.md](councils.md). They
 run in the `council` playbook.
+
+## The learn playbook
+
+`packs/playbooks/learn.yaml`, inputs `repo` and `goal_id`, closes a goal that is
+done with a retro. It is not wired into the goal playbook yet: a run is
+started for a goal with the engine, as councils are.
+
+1. `goal.retro_context` writes the goal's history.
+2. A `knowledge-curator` job with `task: retro` reads it and the code, searches
+   the knowledge base and proposes lessons and other entries with `kb_propose`,
+   at most eight, citing in a reason the notes worth keeping as `note:<id>`
+   (they are promoted). Its proposals belong to the goal (`per_goal`), as do the
+   ones the goal's other jobs made, and wait.
+3. `goal.learn` writes the PR `agent/learn-GOAL-n` and opens the
+   `knowledge_proposal` gate. The gate is always a human's: the PR also holds the
+   registers, which have no owner role.
+4. After the decision `goal.learn_decide`, the merge after the checks of the
+   head that was approved (`github.merge_pr`), or CODEOWNERS and a human on
+   GitHub, and `goal.learn_settle`.
+
+## The curate playbook
+
+See [knowledge.md](knowledge.md#upkeep).
 
 ## The onboarding playbook
 
