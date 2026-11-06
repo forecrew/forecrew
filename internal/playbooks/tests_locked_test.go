@@ -55,6 +55,14 @@ func TestTestsLockedPaths(t *testing.T) {
 	// A retry reports only what it changed itself: the first job still counts.
 	p.testerJob(t, "test-engineer", task[0], `{"files":["pkg/b_test.go","pkg/a_test.go","web/[id]/x{1}*?.test.ts","pkg/a_test.go"]}`)
 	p.testerJob(t, "test-engineer", task[1], `{"files":["other_test.go"]}`)
+	// The rerun a human approved runs without the lock; the first round has it.
+	for iteration, locked := range map[int]bool{0: true, 1: true, 2: false, 3: false} {
+		out, err = p.call(t, "tests.locked_paths", map[string]any{"task_id": task[0].ID.String(), "iteration": iteration})
+		must(t, err)
+		if n := len(toMap(t, out)["locked_paths"].([]any)); (n > 0) != locked {
+			t.Errorf("iteration %d: %d locked paths, locked = %v", iteration, n, locked)
+		}
+	}
 	out, err = p.call(t, "tests.locked_paths", with(task[0]))
 	must(t, err)
 	var got struct {
