@@ -123,7 +123,7 @@ type Build struct {
 // unsigned manifest, checked by Validate.
 func NewManifest(b Build) (Manifest, error) {
 	m := Manifest{Name: b.Name, Version: b.Version, OS: b.OS, Arch: b.Arch, Format: b.Format, URI: b.URI, Digest: b.Digest,
-		BuiltAt: b.BuiltAt.UTC(), Contents: domain.ImageContents{Labels: domain.NormalizeLabels(b.Labels), Packages: b.Packages}}
+		BuiltAt: b.BuiltAt.UTC().Truncate(time.Second), Contents: domain.ImageContents{Labels: domain.NormalizeLabels(b.Labels), Packages: b.Packages}}
 	if (b.File == "") == (b.Digest == "") {
 		return Manifest{}, errors.New("exactly one of the image file and the digest is needed")
 	}

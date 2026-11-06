@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -358,7 +359,7 @@ func TestConvertChecksWhatTheImageNeeds(t *testing.T) {
 	if err == nil {
 		t.Fatal("an empty image converted")
 	}
-	for _, want := range []string{"sh (", "ip (iproute2", "git (", "CA certificates", "claude", "codex", "opencode"} {
+	for _, want := range []string{"sh (", "git (", "CA certificates", "claude", "codex", "opencode"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("no %q in %v", want, err)
 		}
@@ -457,5 +458,50 @@ func TestGuestErrors(t *testing.T) {
 	files, err := Guest(worker, nil)
 	if err != nil || len(files) != 4 {
 		t.Fatalf("no labels: %d files, %v", len(files), err)
+	}
+}
+
+// toolboxBaseTar is the layout of packs/toolboxes/base: Node's slim Debian
+// image with git and CA certificates, and the agent CLIs under
+// /opt/forecrew-cli/node_modules/.bin, which its PATH names. It has no ip.
+func toolboxBaseTar(t *testing.T) []byte {
+	return makeTar(t,
+		entry{name: "bin/", typ: tar.TypeDir, mode: 0o755},
+		entry{name: "bin/sh", typ: tar.TypeReg, mode: 0o755, content: "sh"},
+		entry{name: "usr/bin/git", typ: tar.TypeReg, mode: 0o755, content: "git"},
+		entry{name: "usr/local/bin/node", typ: tar.TypeReg, mode: 0o755, content: "node"},
+		entry{name: "etc/ssl/certs/ca-certificates.crt", typ: tar.TypeReg, mode: 0o644, content: "certs"},
+		entry{name: "opt/forecrew-cli/node_modules/.bin/claude", typ: tar.TypeSymlink, link: "../@anthropic-ai/claude-code/cli.js"},
+		entry{name: "opt/forecrew-cli/node_modules/.bin/codex", typ: tar.TypeSymlink, link: "../@openai/codex/bin/codex.js"},
+		entry{name: "opt/forecrew-cli/node_modules/.bin/opencode", typ: tar.TypeSymlink, link: "../opencode-ai/bin/opencode"},
+	)
+}
+
+func TestConvertAcceptsForecrewsToolboxBase(t *testing.T) {
+	c := &Converter{CacheDir: t.TempDir(), Mke2fs: stubMke2fs(t, "1.47.4", false)}
+	env := []string{"PATH=/opt/forecrew-cli/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
+	res, err := c.ConvertTar(t.Context(), bytes.NewReader(toolboxBaseTar(t)), "toolbox", "id", Request{Env: env})
+	if err != nil {
+		t.Fatalf("the toolbox base was refused: %v", err)
+	}
+	// ip is missing, which only warns: the kernel's ip= can configure the network.
+	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "ip (") {
+		t.Errorf("warnings = %v", res.Warnings)
+	}
+	// Without the image's PATH the CLIs are not found: the layout is the reason, not the image.
+	if _, err := c.ConvertTar(t.Context(), bytes.NewReader(toolboxBaseTar(t)), "no-path", "id2", Request{}); err == nil || !strings.Contains(err.Error(), "claude") {
+		t.Errorf("without the PATH: %v", err)
+	}
+}
+
+func TestPathDirs(t *testing.T) {
+	got := pathDirs([]string{"HOME=/root", "PATH=/opt/x/.bin:/usr/bin::/../etc/./y/:relative"})
+	for _, want := range []string{"opt/x/.bin", "usr/bin", "etc/y", "relative", "bin"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("no %q in %v", want, got)
+		}
+	}
+	if len(pathDirs(nil)) != len(commandDirs) {
+		t.Error("no PATH changes the directories")
 	}
 }
