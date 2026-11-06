@@ -71,7 +71,7 @@ func TestTestsMap(t *testing.T) {
 	if want := []string{"e2e/flow_test.go", "pkg/a_test.go", "pkg/testdata/in.json"}; !slices.Equal(got.Files, want) {
 		t.Errorf("files = %v, want %v", got.Files, want)
 	}
-	if !slices.Equal(got.Suites, []string{"e2e", "unit"}) || len(got.Tests) != 2 || got.Tests[0].ID != "pkg::TestAC1" || got.Tests[1].File != "e2e/flow_test.go" {
+	if !slices.Equal(got.Suites, []string{"e2e", "unit"}) || len(got.Tests) != 2 || got.Tests[0].ID != "e2e::Flow" || got.Tests[1].File != "pkg/a_test.go" {
 		t.Errorf("tests = %+v, suites %v", got.Tests, got.Suites)
 	}
 }
@@ -152,9 +152,9 @@ func TestTestsMapStrayTests(t *testing.T) {
 	if got.Ready || !strings.Contains(got.Feedback, "pkg::TestGhost (AC-9)") || strings.Contains(got.Feedback, "Missing") || len(got.IfArchitect) != 0 {
 		t.Errorf("map = %+v", got)
 	}
-	// A retry that maps it to a real criterion does not make the first mapping go away.
+	// A retry that maps it to a real criterion replaces the first mapping.
 	p.tester(t, task, `{"files":[],"tests":[{"criterion":"AC-1","suite":"unit","id":"pkg::TestGhost","file":"a_test.go"}],"untestable":[],"escalation":null}`)
-	if got := p.testsMap(t, task); got.Ready {
+	if got := p.testsMap(t, task); !got.Ready || len(got.Tests) != 3 {
 		t.Errorf("map = %+v", got)
 	}
 }
@@ -216,4 +216,27 @@ func TestTestsMapChecksTheMatrix(t *testing.T) {
 	s.register()
 	_, err := s.call(t, "tests.map", map[string]any{"task_id": task.ID.String(), "repo": "acme/app"})
 	wantErr(t, err, "connection reset")
+}
+
+// A later job's entries for a test replace all earlier entries for its id; a
+// test keeps its several entries within one job. The verification reads the
+// same corrected map.
+func TestTestsMapRetryReplacesEntries(t *testing.T) {
+	p := newVerified(t)
+	p.tester(t, p.task, `{"files":["a_test.go"],"tests":[{"criterion":"AC-1","suite":"unit","id":"pkg::TestA","file":"a_test.go"},{"criterion":"AC-9","suite":"unit","id":"pkg::TestB","file":"a_test.go"}],"untestable":[],"escalation":null}`)
+	// The retry corrects TestB's criterion and maps TestA to two criteria.
+	p.tester(t, p.task, `{"files":[],"tests":[{"criterion":"AC-2","suite":"unit","id":"pkg::TestB","file":"a_test.go"},`+
+		`{"criterion":"AC-1","suite":"unit","id":"pkg::TestA","file":"a_test.go"},{"criterion":"AC-2","suite":"unit","id":"pkg::TestA","file":"a_test.go"}],"untestable":[],"escalation":null}`)
+	got := p.testsMap(t, p.task)
+	if !got.Ready || len(got.Tests) != 2 {
+		t.Errorf("map = %+v", got)
+	}
+	p.addRun(t, "linux-go", "linux", "unit", testResults(domain.TestPassed, "pkg::TestA", "pkg::TestB")...)
+	p.addRun(t, "win", "windows", "unit", testResults(domain.TestPassed, "pkg::TestA", "pkg::TestB")...)
+	p.addRun(t, "linux-go", "linux", "e2e", testResults(domain.TestPassed, "e2e::Flow")...)
+	rep := p.build(t, map[string]any{"base_check": map[string]any{"ok": true, "new_tests": []any{
+		map[string]any{"id": "pkg::TestA", "failed_on_base": true}, map[string]any{"id": "pkg::TestB", "failed_on_base": true}}}})
+	if rep.Status != "passed" {
+		t.Errorf("report = %+v", rep)
+	}
 }

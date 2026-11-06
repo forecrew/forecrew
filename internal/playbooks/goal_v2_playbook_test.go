@@ -590,3 +590,30 @@ func TestGoalV2InvalidMatrixAsksAHuman(t *testing.T) {
 		t.Errorf("gate = %+v", g)
 	}
 }
+
+// A retry corrects the test map: its entry for a test replaces the earlier
+// ones, so a test mapped to a criterion the task lacks is fixed by listing it
+// again, and the design is ready without a human.
+func TestGoalV2CorrectedRetryBecomesReady(t *testing.T) {
+	r := startGoalV2(t)
+	r.oneTask(t)
+	wrong := testMap(nil)
+	wrong["tests"].([]any)[1].(map[string]any)["criterion"] = "AC-9" // AC-2 is left without a test too
+	r.writeTests(t, 1, wrong)
+	// The retry lists only the test it corrects.
+	fixed := testMap(nil)
+	fixed["tests"] = fixed["tests"].([]any)[1:]
+	fixed["files"] = []any{"e2e/flow_test.go"}
+	again := r.writeTests(t, 2, fixed)
+	if !strings.Contains(again.Feedback, "pkg::TestAC1") && !strings.Contains(again.Feedback, "AC-9") {
+		t.Errorf("the retry was not told what was wrong: %q", again.Feedback)
+	}
+	r.waitStep(t, testsStep+"2/tmap", domain.StepSucceeded)
+	if r.startedStep(t, testsStep+"3/") {
+		t.Error("a third round of test design started")
+	}
+	dev := r.push(t, 1)
+	if !slices.Equal(dev.LockedPaths, lockedFiles) {
+		t.Errorf("developer request = %+v", dev)
+	}
+}
