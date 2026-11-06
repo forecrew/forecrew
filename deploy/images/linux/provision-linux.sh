@@ -41,7 +41,15 @@ rm -f "/tmp/$node_tar"
 # package-lock.json, owned by root so the agents cannot change them.
 install -d -m 0755 /opt/forecrew-cli
 install -m 0644 /tmp/package.json /tmp/package-lock.json /opt/forecrew-cli/
-(cd /opt/forecrew-cli && npm ci --omit=dev --no-audit --no-fund && npm cache clean --force)
+# Optional dependencies carry the native binaries (opencode's platform packages),
+# so they are asked for by name. On failure, say what npm saw.
+if ! (cd /opt/forecrew-cli && npm ci --omit=dev --include=optional --no-audit --no-fund); then
+	echo "provision-linux.sh: npm ci failed; node $(node --version), npm $(npm --version), $(uname -m)" >&2
+	find /opt/forecrew-cli/node_modules -maxdepth 1 2>&1 | head -30 >&2
+	(cd /opt/forecrew-cli && npm config list 2>&1 | head -20 >&2; env | grep -i '^npm_' >&2) || true
+	exit 1
+fi
+(cd /opt/forecrew-cli && npm cache clean --force)
 for cli in claude codex opencode; do
 	ln -sf "/opt/forecrew-cli/node_modules/.bin/$cli" "/usr/local/bin/$cli"
 	"$cli" --version >/dev/null
