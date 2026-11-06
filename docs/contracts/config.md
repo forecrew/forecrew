@@ -51,6 +51,7 @@ roles:
   environment-engineer: {runtime: claude, tier: strong}
   test-engineer:        {runtime: claude, tier: strong}
   triage:               {runtime: claude, tier: fast}
+  assistant:            {runtime: claude, tier: strong}
 
 policy:
   allow_same_vendor_review: false
@@ -244,6 +245,7 @@ get no council. A goal created with councils (create_goal) is not triaged.
 | each `runtimes.*.credential_env` entry | yes | Runtime credentials, e.g. `ANTHROPIC_API_KEY`, `CODEX_API_KEY`. |
 | `FORECREW_EVIDENCE_ACCESS_KEY_ID` | when `evidence` is set | Access key of the evidence bucket. |
 | `FORECREW_EVIDENCE_SECRET_ACCESS_KEY` | when `evidence` is set | Secret key of the evidence bucket. Never logged. |
+| `FORECREW_SECRET_KEY` | no | Key of the secret store: 32 random bytes in base64 (`openssl rand -base64 32`). Without it secure fields answer `503` and `store:` references cannot be saved. Losing it loses the stored secrets. Never logged. |
 | `FORECREW_EMBEDDINGS_API_KEY` | no | OpenAI API key for knowledge embeddings (`text-embedding-3-small`, 1536 dimensions). Without it knowledge search ranks by words only. When set, and only where the database has pgvector, the text of knowledge entries and notes and every search query are sent to OpenAI (docs/knowledge.md). Never logged. |
 | each `auth.connections.*.client_secret_ref` `env:NAME` | yes | Client secret of the connection, e.g. `FORECREW_GITHUB_CLIENT_SECRET`. Read when used, kept in memory only, never logged. |
 
@@ -300,3 +302,14 @@ On top of `labels` the worker adds, when polling:
 | `FORECREW_BOOTSTRAP_TOKEN` | on a machine, in place of the worker token | One-time token of a machine (fleet.md). The worker trades it at start for its token, name, labels and `max_jobs`. |
 
 forecrew-worker takes the config path from `run --config` (default `worker.yaml`).
+
+## Stored settings
+
+`pools`, `runtimes` and `auth` are also configuration resources
+([config-resources.md](config-resources.md)). A change is stored in
+`config_settings` and goes over the file's value, entry by entry for `pools`
+and `runtimes` and as a whole for `auth`; the file stays the bootstrap
+default, and `config_get` shows a value set only by the file with origin
+`file`. forecrewd reads them at startup (`Config.WithSettings`), with the
+checks of this file. A stored value that no longer passes is ignored with an
+error in the log, so a bad setting never stops the server.

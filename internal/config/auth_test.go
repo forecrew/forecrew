@@ -73,7 +73,7 @@ func TestParseAuthInvalid(t *testing.T) {
 		want    string
 	}{
 		{name: "missing env secret", want: "auth.connections.github: FORECREW_GITHUB_CLIENT_SECRET is not set"},
-		{name: "secret value in the file", replace: [2]string{"env:FORECREW_GITHUB_CLIENT_SECRET", "ghs_0123456789abcdef"}, env: secret, want: "client_secret_ref must be env:NAME or secret:name"},
+		{name: "secret value in the file", replace: [2]string{"env:FORECREW_GITHUB_CLIENT_SECRET", "ghs_0123456789abcdef"}, env: secret, want: "client_secret_ref must be env:NAME, secret:name or store:name"},
 		{name: "client_secret field", replace: [2]string{"client_secret_ref: secret:okta-client", "client_secret: x"}, env: secret, want: "field client_secret not found"},
 		{name: "jit on an instance connection", replace: [2]string{"group_claim: groups", "jit: {enabled: true}"}, env: secret, want: "field jit not found"},
 		{name: "bad kind", replace: [2]string{"kind: oidc", "kind: saml"}, env: secret, want: "auth.connections.okta"},
