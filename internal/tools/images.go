@@ -97,7 +97,7 @@ func (s *Service) AddImage(ctx context.Context, by domain.Actor, in images.AddIn
 	if in.Instance {
 		account, scope = uuid.Nil(), ScopeInstance
 	}
-	img := in.Manifest.Image(account)
+	img := in.Image(account)
 	if img.BuiltAt.IsZero() {
 		return mcp.ImageInfo{}, fmt.Errorf("built_at is required: %w", mcp.ErrInvalidInput)
 	}

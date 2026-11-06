@@ -183,74 +183,97 @@ func prepareTar(src io.Reader, files []File, dst string) (tarStats, error) {
 		return tarStats{}, err
 	}
 	defer func() { _ = f.Close() }()
-	w := tar.NewWriter(f)
-	replaced := map[string]bool{}
+	c := &tarCopier{w: tar.NewWriter(f), replaced: map[string]bool{}, dirs: map[string]bool{".": true}}
 	for _, file := range files {
-		replaced[path.Clean(file.Path)] = true
+		c.replaced[path.Clean(file.Path)] = true
 	}
-	var st tarStats
-	dirs := map[string]bool{".": true}
-	r := tar.NewReader(src)
+	if err := c.copy(tar.NewReader(src)); err != nil {
+		return c.st, err
+	}
+	if err := c.add(files); err != nil {
+		return c.st, err
+	}
+	if err := c.w.Close(); err != nil {
+		return c.st, err
+	}
+	return c.st, f.Close()
+}
+
+type tarCopier struct {
+	w        *tar.Writer
+	replaced map[string]bool // paths the added files take over
+	dirs     map[string]bool // directories written so far
+	st       tarStats
+}
+
+// copy writes the entries of r that belong in the file system.
+func (c *tarCopier) copy(r *tar.Reader) error {
 	for {
 		h, err := r.Next()
 		if errors.Is(err, io.EOF) {
-			break
+			return nil
 		}
 		if err != nil {
-			return st, fmt.Errorf("read image tar: %w", err)
+			return fmt.Errorf("read image tar: %w", err)
 		}
 		name := path.Clean(strings.TrimPrefix(h.Name, "/"))
 		if name == ".." || strings.HasPrefix(name, "../") {
-			return st, fmt.Errorf("image tar entry %q leaves the root", h.Name)
+			return fmt.Errorf("image tar entry %q leaves the root", h.Name)
 		}
-		if replaced[name] && h.Typeflag != tar.TypeDir {
+		if c.replaced[name] && h.Typeflag != tar.TypeDir {
 			continue
 		}
-		if st.entries++; st.entries > maxTarEntries {
-			return st, fmt.Errorf("image has more than %d files", maxTarEntries)
+		if c.st.entries++; c.st.entries > maxTarEntries {
+			return fmt.Errorf("image has more than %d files", maxTarEntries)
 		}
-		switch h.Typeflag {
-		case tar.TypeReg, tar.TypeDir, tar.TypeSymlink, tar.TypeLink:
-		default:
-			continue
-		}
-		if h.Typeflag == tar.TypeReg {
-			if st.bytes += h.Size; st.bytes > maxTarBytes {
-				return st, fmt.Errorf("image is larger than %d GB", maxTarBytes>>30)
-			}
-		}
-		if h.Typeflag == tar.TypeDir {
-			dirs[name] = true
-		}
-		h.Name, h.Uname, h.Gname, h.PAXRecords, h.Format = name, "", "", nil, tar.FormatUnknown
-		if h.Typeflag == tar.TypeLink {
-			h.Linkname = path.Clean(strings.TrimPrefix(h.Linkname, "/"))
-		}
-		if err := w.WriteHeader(h); err != nil {
-			return st, err
-		}
-		if _, err := io.Copy(w, r); err != nil {
-			return st, fmt.Errorf("copy image tar: %w", err)
+		if err := c.entry(h, name, r); err != nil {
+			return err
 		}
 	}
+}
+
+func (c *tarCopier) entry(h *tar.Header, name string, r io.Reader) error {
+	switch h.Typeflag {
+	case tar.TypeReg:
+		if c.st.bytes += h.Size; c.st.bytes > maxTarBytes {
+			return fmt.Errorf("image is larger than %d GB", maxTarBytes>>30)
+		}
+	case tar.TypeDir:
+		c.dirs[name] = true
+	case tar.TypeSymlink, tar.TypeLink:
+	default:
+		return nil // device nodes, sockets and pipes
+	}
+	h.Name, h.Uname, h.Gname, h.PAXRecords, h.Format = name, "", "", nil, tar.FormatUnknown
+	if h.Typeflag == tar.TypeLink {
+		h.Linkname = path.Clean(strings.TrimPrefix(h.Linkname, "/"))
+	}
+	if err := c.w.WriteHeader(h); err != nil {
+		return err
+	}
+	if _, err := io.CopyN(c.w, r, h.Size); err != nil {
+		return fmt.Errorf("copy image tar: %w", err)
+	}
+	return nil
+}
+
+// add writes the added files, each after its missing parent directories.
+func (c *tarCopier) add(files []File) error {
 	for _, file := range files {
 		name := path.Clean(file.Path)
-		if err := addDirs(w, dirs, path.Dir(name), &st); err != nil {
-			return st, err
+		if err := addDirs(c.w, c.dirs, path.Dir(name), &c.st); err != nil {
+			return err
 		}
-		if err := w.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: name, Mode: file.Mode, Size: int64(len(file.Data))}); err != nil {
-			return st, err
+		if err := c.w.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: name, Mode: file.Mode, Size: int64(len(file.Data))}); err != nil {
+			return err
 		}
-		if _, err := w.Write(file.Data); err != nil {
-			return st, err
+		if _, err := c.w.Write(file.Data); err != nil {
+			return err
 		}
-		st.bytes += int64(len(file.Data))
-		st.entries++
+		c.st.bytes += int64(len(file.Data))
+		c.st.entries++
 	}
-	if err := w.Close(); err != nil {
-		return st, err
-	}
-	return st, f.Close()
+	return nil
 }
 
 // addDirs writes the directory dir and its missing parents, shallowest first.
