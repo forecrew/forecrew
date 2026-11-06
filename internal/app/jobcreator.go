@@ -48,7 +48,7 @@ type pathSource interface {
 }
 
 // CuratorRole is the role that writes the fallback knowledge/** folder.
-const CuratorRole = "knowledge-curator"
+const CuratorRole = knowledge.CuratorRole
 
 // ReviewerRole is the role whose verdict schema reviews of knowledge
 // proposals answer with.

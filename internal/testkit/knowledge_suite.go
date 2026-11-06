@@ -21,7 +21,9 @@ func KnowledgeStoreSuite(t *testing.T, st store.Store, account, project uuid.UUI
 	s.search()
 	s.embeddings(embeddings)
 	s.reverify()
+	s.hits()
 	s.expiry()
+	s.promotion()
 	s.newestGoalNoteFirst()
 }
 
@@ -226,6 +228,53 @@ func (s *knowledgeSuite) expiry() {
 	mustT(t, s.repo.Delete(ctx, s.account, s.n3.ID))
 	if err := s.repo.Delete(ctx, s.account, s.n3.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("second Delete = %v", err)
+	}
+}
+
+// hits: every search that returns an entry counts once.
+func (s *knowledgeSuite) hits() {
+	t, ctx := s.t, s.t.Context()
+	mustT(t, s.repo.CountHits(ctx, s.account, []uuid.UUID{s.adr.ID, s.n3.ID}))
+	mustT(t, s.repo.CountHits(ctx, s.account, []uuid.UUID{s.adr.ID}))
+	for e, want := range map[*domain.KnowledgeEntry]int{s.adr: 2, s.n3: 1, s.conv: 0} {
+		if got, err := s.repo.Get(ctx, s.account, e.ID); err != nil || got.Hits != want {
+			t.Errorf("hits of %s = %d, %v, want %d", e.Path, got.Hits, err, want)
+		}
+	}
+	// An edit does not forget them.
+	again := *s.adr
+	again.Body = "We lease jobs with SELECT FOR UPDATE SKIP LOCKED, for now."
+	mustT(t, s.repo.Upsert(ctx, &again))
+	if got, _ := s.repo.Get(ctx, s.account, s.adr.ID); got.Hits != 2 {
+		t.Errorf("hits after an upsert = %d, want 2", got.Hits)
+	}
+}
+
+// promotion: a promoted note never expires; only notes can be promoted.
+func (s *knowledgeSuite) promotion() {
+	t, ctx := s.t, s.t.Context()
+	timed := *s.n2
+	timed.ExpiresAt = time.Now().Add(-time.Hour)
+	mustT(t, s.repo.Upsert(ctx, &timed))
+	mustT(t, s.repo.MarkPromoted(ctx, s.account, []uuid.UUID{s.n2.ID, s.conv.ID}))
+	got, err := s.repo.Get(ctx, s.account, s.n2.ID)
+	if err != nil || got.PromotedAt.IsZero() || !got.ExpiresAt.IsZero() {
+		t.Fatalf("promoted note = %+v, %v", got, err)
+	}
+	if got, _ := s.repo.Get(ctx, s.account, s.conv.ID); !got.PromotedAt.IsZero() {
+		t.Errorf("an entry was promoted: %+v", got)
+	}
+	mustT(t, s.st.Goals().UpdateStatus(ctx, s.account, s.g2.ID, domain.GoalDraft, domain.GoalCanceled))
+	if n, err := s.repo.ExpireGoalNotes(ctx, s.account, time.Hour); err != nil || n != 0 {
+		t.Errorf("ExpireGoalNotes stamped a promoted note: %d, %v", n, err)
+	}
+	if n, err := s.repo.DeleteExpired(ctx, s.account, time.Now().Add(1000*time.Hour)); err != nil || n != 0 {
+		t.Errorf("DeleteExpired removed a promoted note: %d, %v", n, err)
+	}
+	// Promoting again keeps the first time.
+	mustT(t, s.repo.MarkPromoted(ctx, s.account, []uuid.UUID{s.n2.ID}))
+	if again, _ := s.repo.Get(ctx, s.account, s.n2.ID); !again.PromotedAt.Equal(got.PromotedAt) {
+		t.Errorf("promoted_at moved: %v -> %v", got.PromotedAt, again.PromotedAt)
 	}
 }
 

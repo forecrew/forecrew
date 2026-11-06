@@ -10,6 +10,10 @@ import (
 	"github.com/forecrew/forecrew/internal/store"
 )
 
+// CuratorRole is the role that tends the knowledge base. Its searches do not
+// count as reads, which tell the curator what nobody found.
+const CuratorRole = "knowledge-curator"
+
 // Search is the knowledge search shared by the job MCP tool kb_search and
 // the human tools search_knowledge.
 type Search struct {
@@ -88,6 +92,7 @@ func (s *Search) Run(ctx context.Context, q Query) ([]Result, error) {
 		return nil, err
 	}
 	var out []Result
+	var found []uuid.UUID
 	for _, h := range hits {
 		e := h.Entry
 		if q.Role != "" && !CanRead(policy, e.Section, q.Role) {
@@ -98,8 +103,14 @@ func (s *Search) Run(ctx context.Context, q Query) ([]Result, error) {
 			Snippet: h.Snippet, Untrusted: Untrusted(policy, e), Provenance: provenanceOf(e), NeedsReverify: e.NeedsReverify,
 			ReverifyReason: e.ReverifyReason, Scope: e.Scope, GoalID: e.GoalID, Tags: e.Tags, ExpiresAt: e.ExpiresAt, Rank: h.Rank,
 		})
+		found = append(found, e.ID)
 		if len(out) == limit {
 			break
+		}
+	}
+	if len(found) > 0 && q.Role != CuratorRole {
+		if err := s.Index.Store.Knowledge().CountHits(ctx, q.Project.AccountID, found); err != nil {
+			return nil, err
 		}
 	}
 	return out, nil

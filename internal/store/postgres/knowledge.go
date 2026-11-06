@@ -61,15 +61,15 @@ type knowledgeRepo struct {
 }
 
 var knowledgeCols = `id, account_id, project_id, provider, path, source_url, version, section, title, body, body_hash, provenance,
-	generated, needs_reverify, reverify_reason, ` + ctext("scope") + `, ` + cuuid("goal_id") + `, ` + ctime("expires_at") + `, tags,
+	generated, needs_reverify, reverify_reason, hits, ` + ctext("scope") + `, ` + cuuid("goal_id") + `, ` + ctime("expires_at") + `, tags, ` + ctime("promoted_at") + `,
 	synced_at, created_at, updated_at`
 
 func scanKnowledge(row pgx.Row) (e domain.KnowledgeEntry, err error) {
 	var prov []byte
 	err = row.Scan(&e.ID, &e.AccountID, &e.ProjectID, &e.Provider, &e.Path, &e.SourceURL, &e.Version, &e.Section, &e.Title, &e.Body,
-		&e.BodyHash, &prov, &e.Generated, &e.NeedsReverify, &e.ReverifyReason, &e.Scope, &e.GoalID, &e.ExpiresAt, &e.Tags,
-		&e.SyncedAt, &e.CreatedAt, &e.UpdatedAt)
-	utc(&e.SyncedAt, &e.CreatedAt, &e.UpdatedAt, &e.ExpiresAt)
+		&e.BodyHash, &prov, &e.Generated, &e.NeedsReverify, &e.ReverifyReason, &e.Hits, &e.Scope, &e.GoalID, &e.ExpiresAt, &e.Tags,
+		&e.PromotedAt, &e.SyncedAt, &e.CreatedAt, &e.UpdatedAt)
+	utc(&e.SyncedAt, &e.CreatedAt, &e.UpdatedAt, &e.ExpiresAt, &e.PromotedAt)
 	if err != nil {
 		return e, err
 	}
@@ -182,14 +182,25 @@ func (r knowledgeRepo) MarkReverify(ctx context.Context, accountID uuid.UUID, id
 	return mapErr(err)
 }
 
+func (r knowledgeRepo) MarkPromoted(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `UPDATE knowledge_entries SET promoted_at = coalesce(promoted_at, now()), expires_at = NULL, updated_at = now()
+		WHERE account_id = $1 AND provider = 'internal' AND id = ANY($2)`, accountID, ids)
+	return mapErr(err)
+}
+
+func (r knowledgeRepo) CountHits(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `UPDATE knowledge_entries SET hits = hits + 1 WHERE account_id = $1 AND id = ANY($2)`, accountID, ids)
+	return mapErr(err)
+}
+
 func (r knowledgeRepo) DeleteExpired(ctx context.Context, accountID uuid.UUID, t time.Time) (int, error) {
-	tag, err := r.db.Exec(ctx, `DELETE FROM knowledge_entries WHERE account_id = $1 AND provider = 'internal' AND expires_at < $2`, accountID, t.UTC())
+	tag, err := r.db.Exec(ctx, `DELETE FROM knowledge_entries WHERE account_id = $1 AND provider = 'internal' AND promoted_at IS NULL AND expires_at < $2`, accountID, t.UTC())
 	return int(tag.RowsAffected()), mapErr(err)
 }
 
 func (r knowledgeRepo) ExpireGoalNotes(ctx context.Context, accountID uuid.UUID, grace time.Duration) (int, error) {
 	tag, err := r.db.Exec(ctx, `UPDATE knowledge_entries k SET expires_at = g.updated_at + make_interval(secs => $2)
-		FROM goals g WHERE k.goal_id = g.id AND k.account_id = $1 AND g.account_id = $1 AND k.expires_at IS NULL
+		FROM goals g WHERE k.goal_id = g.id AND k.account_id = $1 AND g.account_id = $1 AND k.expires_at IS NULL AND k.promoted_at IS NULL
 			AND g.status IN ('done', 'canceled')`, accountID, grace.Seconds())
 	return int(tag.RowsAffected()), mapErr(err)
 }
@@ -286,9 +297,9 @@ func scanHit(row pgx.Row) (store.KnowledgeHit, error) {
 	var prov []byte
 	e := &h.Entry
 	err := row.Scan(&e.ID, &e.AccountID, &e.ProjectID, &e.Provider, &e.Path, &e.SourceURL, &e.Version, &e.Section, &e.Title, &e.Body,
-		&e.BodyHash, &prov, &e.Generated, &e.NeedsReverify, &e.ReverifyReason, &e.Scope, &e.GoalID, &e.ExpiresAt, &e.Tags,
-		&e.SyncedAt, &e.CreatedAt, &e.UpdatedAt, &h.Rank, &h.Snippet)
-	utc(&e.SyncedAt, &e.CreatedAt, &e.UpdatedAt, &e.ExpiresAt)
+		&e.BodyHash, &prov, &e.Generated, &e.NeedsReverify, &e.ReverifyReason, &e.Hits, &e.Scope, &e.GoalID, &e.ExpiresAt, &e.Tags,
+		&e.PromotedAt, &e.SyncedAt, &e.CreatedAt, &e.UpdatedAt, &h.Rank, &h.Snippet)
+	utc(&e.SyncedAt, &e.CreatedAt, &e.UpdatedAt, &e.ExpiresAt, &e.PromotedAt)
 	if err != nil {
 		return h, err
 	}

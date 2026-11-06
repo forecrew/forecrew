@@ -655,13 +655,18 @@ type KnowledgeRepo interface {
 	WithoutEmbedding(ctx context.Context, accountID, projectID uuid.UUID, limit int) ([]domain.KnowledgeEntry, error)
 	// MarkReverify sets needs_reverify with the reason on the entries.
 	MarkReverify(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID, reason string) error
-	// DeleteExpired deletes the notes whose ExpiresAt is before t and
-	// returns how many.
+	// MarkPromoted stamps the notes among ids as promoted and clears their
+	// expiry: a promoted note never expires. Other ids are ignored.
+	MarkPromoted(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID) error
+	// CountHits adds one to the hits of the entries.
+	CountHits(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID) error
+	// DeleteExpired deletes the notes whose ExpiresAt is before t, except
+	// the promoted ones, and returns how many.
 	DeleteExpired(ctx context.Context, accountID uuid.UUID, t time.Time) (int, error)
 	// List returns the rows that match f, ordered by section and path.
 	List(ctx context.Context, accountID uuid.UUID, f KnowledgeFilter) ([]domain.KnowledgeEntry, error)
-	// ExpireGoalNotes gives the goal notes without an expiry whose goal is
-	// done or canceled the expiry grace after the goal's last change, and
+	// ExpireGoalNotes gives the goal notes without an expiry, not promoted,
+	// whose goal is done or canceled the expiry grace after the goal's last change, and
 	// returns how many it stamped.
 	ExpireGoalNotes(ctx context.Context, accountID uuid.UUID, grace time.Duration) (int, error)
 }

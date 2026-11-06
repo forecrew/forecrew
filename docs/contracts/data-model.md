@@ -1,6 +1,6 @@
 # Data model
 
-Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access, 00007 the fleet, 00008 invitation GitHub ID). Each table maps to a
+Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access, 00007 the fleet, 00008 invitation GitHub ID, 00009 knowledge note hits and promotion). Each table maps to a
 type in `internal/domain` and a repository in `store.Store`; JSON names in
 `domain` equal the column names. The DDL below is the contract; T02 may add
 indexes but not change columns, types or constraints without a contract
@@ -582,10 +582,12 @@ CREATE TABLE knowledge_entries (
   generated       boolean NOT NULL DEFAULT false,
   needs_reverify  boolean NOT NULL DEFAULT false,
   reverify_reason text NOT NULL DEFAULT '',       -- commit and paths that changed
+  hits            integer NOT NULL DEFAULT 0 CHECK (hits >= 0),  -- searches that returned the entry
   scope           text CHECK (scope IN ('goal','project')),  -- notes only
   goal_id         uuid REFERENCES goals(id),      -- goal notes only
   expires_at      timestamptz,                    -- notes only
   tags            text[] NOT NULL DEFAULT '{}',   -- notes only
+  promoted_at     timestamptz,                    -- notes only: proposed for a curated section; never expires
   synced_at       timestamptz NOT NULL DEFAULT now(),
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
@@ -597,7 +599,8 @@ CREATE TABLE knowledge_entries (
   CHECK ((provider = 'internal') = (scope IS NOT NULL)),
   CHECK ((coalesce(scope, '') = 'goal') = (goal_id IS NOT NULL)),
   CHECK (provider = 'internal' OR (expires_at IS NULL AND tags = '{}')),
-  CHECK (generated = (section = 'generated'))
+  CHECK (generated = (section = 'generated')),
+  CHECK (promoted_at IS NULL OR provider = 'internal')
 );
 -- Query with: search @@ websearch_to_tsquery('english', $q), ranked by ts_rank(search, query).
 CREATE INDEX knowledge_entries_search   ON knowledge_entries USING gin (search);
