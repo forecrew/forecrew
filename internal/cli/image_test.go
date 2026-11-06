@@ -65,91 +65,129 @@ func TestImageListCommand(t *testing.T) {
 	}
 }
 
-func TestImageBuildAddAndPrune(t *testing.T) {
-	e := newRemoteEnv(t)
+// imageWork is the files of an image build in a temporary directory.
+type imageWork struct {
+	dir, disk, manifest, key, pub, trusted string
+	args                                   []string // image manifest ... --out <manifest>
+}
+
+func newImageWork(t *testing.T) imageWork {
+	t.Helper()
 	dir := t.TempDir()
-	disk := filepath.Join(dir, "linux.qcow2")
-	if err := os.WriteFile(disk, []byte("disk"), 0o600); err != nil {
+	w := imageWork{dir: dir, disk: filepath.Join(dir, "linux.qcow2"), manifest: filepath.Join(dir, "m.json"),
+		key: filepath.Join(dir, "k"), pub: filepath.Join(dir, "k.pub"), trusted: filepath.Join(dir, "trusted")}
+	if err := os.WriteFile(w.disk, []byte("disk"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifest, key, pub, trusted := filepath.Join(dir, "m.json"), filepath.Join(dir, "k"), filepath.Join(dir, "k.pub"), filepath.Join(dir, "trusted")
+	w.args = []string{"image", "manifest", "--name", "linux", "--version", "2026.1", "--os", "linux", "--arch", "amd64", "--format", "qcow2",
+		"--file", w.disk, "--uri", "https://images.example.com/linux.qcow2", "--label", "docker", "--package", "git=2.50", "--built-at", "2026-03-04T05:06:07Z"}
+	return w
+}
+
+func (w imageWork) manifestArgs(extra ...string) []string {
+	return append(append([]string{}, w.args...), extra...)
+}
+
+func TestImageKeysSignAndVerify(t *testing.T) {
+	e := newRemoteEnv(t)
+	w := newImageWork(t)
 
 	// Keys: the public line is printed and written; a key is never replaced.
-	out, errOut, code := e.run(t, "image", "keygen", "--out", key, "--public", pub)
+	out, errOut, code := e.run(t, "image", "keygen", "--out", w.key, "--public", w.pub)
 	if code != 0 || !strings.HasPrefix(out, "ed25519:") || errOut != "" {
 		t.Fatalf("keygen: code %d, %q, %q", code, out, errOut)
 	}
-	if _, _, code := e.run(t, "image", "keygen", "--out", key); code == 0 {
+	if _, _, code := e.run(t, "image", "keygen", "--out", w.key); code == 0 {
 		t.Error("keygen replaced a key")
 	}
-	pubLine, _ := os.ReadFile(pub)
-	if err := os.WriteFile(trusted, append([]byte("# project\n"), pubLine...), 0o600); err != nil {
+	pubLine, _ := os.ReadFile(w.pub)
+	if err := os.WriteFile(w.trusted, append([]byte("# project\n"), pubLine...), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	// An unsigned manifest cannot be registered; signing it fixes that.
-	args := []string{"image", "manifest", "--name", "linux", "--version", "2026.1", "--os", "linux", "--arch", "amd64", "--format", "qcow2",
-		"--file", disk, "--uri", "https://images.example.com/linux.qcow2", "--label", "docker", "--package", "git=2.50", "--built-at", "2026-03-04T05:06:07Z", "--out", manifest}
-	if _, errOut, code := e.run(t, args...); code != 0 {
+	if _, errOut, code := e.run(t, w.manifestArgs("--out", w.manifest)...); code != 0 {
 		t.Fatalf("manifest: %d %s", code, errOut)
 	}
-	if _, errOut, code := e.run(t, "image", "add", manifest); code == 0 || !strings.Contains(errOut, "not signed") {
-		t.Errorf("unsigned add: %d %s", code, errOut)
+	if _, _, code := e.run(t, "image", "verify", w.manifest, "--trusted", w.trusted); code == 0 {
+		t.Error("verified an unsigned manifest")
 	}
-	if _, errOut, code := e.run(t, "image", "verify", manifest, "--trusted", trusted); code == 0 {
-		t.Errorf("verified an unsigned manifest: %s", errOut)
-	}
-	if _, errOut, code := e.run(t, "image", "sign", manifest, "--key", key); code != 0 {
+	if _, errOut, code := e.run(t, "image", "sign", w.manifest, "--key", w.key); code != 0 {
 		t.Fatalf("sign: %d %s", code, errOut)
 	}
-	if out, errOut, code := e.run(t, "image", "verify", manifest, "--trusted", trusted, "--file", disk); code != 0 || !strings.Contains(out, "linux@2026.1") {
+	if out, errOut, code := e.run(t, "image", "verify", w.manifest, "--trusted", w.trusted, "--file", w.disk); code != 0 || !strings.Contains(out, "linux@2026.1") {
 		t.Fatalf("verify: %d %q %s", code, out, errOut)
 	}
 	// A different file, or a different key, fails.
-	if err := os.WriteFile(disk, []byte("tampered"), 0o600); err != nil {
+	if err := os.WriteFile(w.disk, []byte("tampered"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, code := e.run(t, "image", "verify", manifest, "--trusted", trusted, "--file", disk); code == 0 {
+	if _, _, code := e.run(t, "image", "verify", w.manifest, "--trusted", w.trusted, "--file", w.disk); code == 0 {
 		t.Error("verified a tampered file")
 	}
-	other := filepath.Join(dir, "other")
+	other := filepath.Join(w.dir, "other")
 	if err := os.WriteFile(other, []byte(images.FormatPublicKey(mustPub(t))+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, code := e.run(t, "image", "verify", manifest, "--trusted", other); code == 0 {
+	if _, _, code := e.run(t, "image", "verify", w.manifest, "--trusted", other); code == 0 {
 		t.Error("verified with the wrong key")
 	}
+}
 
-	out, errOut, code = e.run(t, "image", "add", manifest, "--instance")
+func TestImageManifestOptions(t *testing.T) {
+	e := newRemoteEnv(t)
+	w := newImageWork(t)
+	if _, _, code := e.run(t, "image", "keygen", "--out", w.key); code != 0 {
+		t.Fatal("keygen")
+	}
+	// Signing in one step, and standard output without --out.
+	signed := filepath.Join(w.dir, "signed.json")
+	if _, errOut, code := e.run(t, w.manifestArgs("--out", signed, "--key", w.key)...); code != 0 {
+		t.Fatalf("manifest --key: %d %s", code, errOut)
+	}
+	if m, err := readManifest(signed); err != nil || !m.Signed() {
+		t.Errorf("signed manifest: %+v, %v", m, err)
+	}
+	if stdout, _, code := e.run(t, w.args...); code != 0 || !strings.Contains(stdout, `"name": "linux"`) {
+		t.Errorf("manifest to stdout: %d %q", code, stdout)
+	}
+	for _, bad := range [][]string{
+		{"--package", "nothing"}, {"--built-at", "yesterday"}, {"--format", "iso"}, {"--key", filepath.Join(w.dir, "none")},
+	} {
+		if _, _, code := e.run(t, w.manifestArgs(bad...)...); code == 0 {
+			t.Errorf("manifest accepted %v", bad)
+		}
+	}
+	if _, _, code := e.run(t, "image", "sign", filepath.Join(w.dir, "none.json"), "--key", w.key); code == 0 {
+		t.Error("signed a missing manifest")
+	}
+}
+
+func TestImageAddAndDelete(t *testing.T) {
+	e := newRemoteEnv(t)
+	w := newImageWork(t)
+	if _, _, code := e.run(t, "image", "keygen", "--out", w.key); code != 0 {
+		t.Fatal("keygen")
+	}
+	if _, _, code := e.run(t, w.manifestArgs("--out", w.manifest)...); code != 0 {
+		t.Fatal("manifest")
+	}
+	// An unsigned manifest cannot be registered.
+	if _, errOut, code := e.run(t, "image", "add", w.manifest); code == 0 || !strings.Contains(errOut, "not signed") {
+		t.Errorf("unsigned add: %d %s", code, errOut)
+	}
+	if _, _, code := e.run(t, "image", "sign", w.manifest, "--key", w.key); code != 0 {
+		t.Fatal("sign")
+	}
+	out, errOut, code := e.run(t, "image", "add", w.manifest, "--instance")
 	if code != 0 || !strings.Contains(out, "Registered linux@2026.1 (linux, amd64, qcow2)") {
 		t.Fatalf("add: %d %q %s", code, out, errOut)
 	}
 	if len(e.images.added) != 1 || !e.images.added[0].Instance || e.images.added[0].Contents.Packages[0].Name != "git" || !e.images.added[0].Signed() {
 		t.Errorf("added = %+v", e.images.added)
 	}
-	if _, _, code := e.run(t, "image", "add", filepath.Join(dir, "missing.json")); code == 0 {
+	if _, _, code := e.run(t, "image", "add", filepath.Join(w.dir, "missing.json")); code == 0 {
 		t.Error("missing manifest accepted")
 	}
-
-	// Signing in one step.
-	signed := filepath.Join(dir, "signed.json")
-	if _, errOut, code := e.run(t, append(args[:len(args)-1], signed, "--key", key)...); code != 0 {
-		t.Fatalf("manifest --key: %d %s", code, errOut)
-	}
-	if m, err := readManifest(signed); err != nil || !m.Signed() {
-		t.Errorf("signed manifest: %+v, %v", m, err)
-	}
-	if stdout, _, code := e.run(t, args[:len(args)-2]...); code != 0 || !strings.Contains(stdout, `"name": "linux"`) {
-		t.Errorf("manifest to stdout: %d %q", code, stdout)
-	}
-	for _, bad := range [][]string{
-		{"--package", "nothing"}, {"--built-at", "yesterday"}, {"--format", "iso"}, {"--key", filepath.Join(dir, "none")},
-	} {
-		if _, _, code := e.run(t, append(append([]string{}, args[:len(args)-2]...), bad...)...); code == 0 {
-			t.Errorf("manifest accepted %v", bad)
-		}
-	}
-
 	out, _, code = e.run(t, "image", "delete", "abc")
 	if code != 0 || !strings.Contains(out, "Removed linux@x") || e.images.deleted[0] != "abc" {
 		t.Errorf("delete: %d %q %v", code, out, e.images.deleted)

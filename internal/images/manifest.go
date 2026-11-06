@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 	"uuid"
 
@@ -18,7 +19,7 @@ const MaxManifestBytes = 1 << 20
 
 // placeholderSignature stands in for the signature of a manifest that is
 // not signed yet, only to run Image.Validate over everything else.
-const placeholderSignature = "ed25519:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+var placeholderSignature = "ed25519:" + strings.Repeat("A", 86) + "=="
 
 // Manifest is what a build leaves next to its image: $defs/image of
 // fleet.schema.json. A build on a host (a Windows image from a user's ISO)
