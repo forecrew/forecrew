@@ -213,3 +213,47 @@ func TestUpdateOrganization(t *testing.T) {
 		t.Errorf("audit = %+v", entries)
 	}
 }
+
+func TestListAudit(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	owner, ownerID := f.named(t, "olga", orgScope, domain.RoleOwner, uuid.Nil())
+	admin, _ := f.named(t, "ana", orgScope, domain.RoleAdmin, uuid.Nil())
+	viewer, _ := f.named(t, "vera", orgScope, domain.RoleViewer, uuid.Nil())
+	_, err := f.svc.CreateTeam(ctx, owner, mcp.CreateTeamInput{Name: "Core"})
+	must(t, err)
+	f.clock.Advance(time.Hour)
+	sa, err := f.svc.CreateServiceAccount(ctx, admin, mcp.CreateServiceAccountInput{Name: "ci"})
+	must(t, err)
+	must(t, f.st.Audit().Append(ctx, &domain.AuditEntry{AccountID: f.account.ID, Actor: "github:octo", Action: "gate.resolved", SubjectType: "gate"}))
+
+	got, err := f.svc.ListAudit(ctx, admin, mcp.ListAuditInput{})
+	must(t, err)
+	if len(got) != 3 || got[0].Action != "gate.resolved" || got[0].ActorName != "" || got[1].ActorName != "ana" || got[2].ActorName != "olga" {
+		t.Fatalf("entries = %+v", got)
+	}
+	since := t0.Add(30 * time.Minute).Format(time.RFC3339)
+	for name, tt := range map[string]struct {
+		in   mcp.ListAuditInput
+		want int
+	}{
+		"actor":   {mcp.ListAuditInput{Actor: "user:" + ownerID.String()}, 1},
+		"action":  {mcp.ListAuditInput{Action: "team.created"}, 1},
+		"type":    {mcp.ListAuditInput{SubjectType: "service_account"}, 1},
+		"subject": {mcp.ListAuditInput{Subject: sa.ID.String()}, 1},
+		"since":   {mcp.ListAuditInput{Since: since}, 2},
+		"until":   {mcp.ListAuditInput{Until: since}, 1},
+		"limit":   {mcp.ListAuditInput{Limit: 1}, 1},
+	} {
+		if got, err := f.svc.ListAudit(ctx, admin, tt.in); err != nil || len(got) != tt.want {
+			t.Errorf("%s: %d entries, %v, want %d", name, len(got), err, tt.want)
+		}
+	}
+	for name, in := range map[string]mcp.ListAuditInput{"time": {Since: "yesterday"}, "until": {Until: "x"}, "subject": {Subject: "x"}, "limit": {Limit: 9999}} {
+		_, err := f.svc.ListAudit(ctx, admin, in)
+		wantErr(t, err, mcp.ErrInvalidInput)
+		_ = name
+	}
+	_, err = f.svc.ListAudit(ctx, viewer, mcp.ListAuditInput{})
+	wantErr(t, err, authz.ErrDenied)
+}

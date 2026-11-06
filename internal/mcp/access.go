@@ -145,6 +145,7 @@ func ToolAccess() map[string]Access {
 		ToolSetMemberSuspended: {Permission: domain.PermMemberManage},
 		ToolRemoveMember:       {Permission: domain.PermMemberManage},
 		ToolUpdateOrganization: {Permission: domain.PermOrgManage},
+		ToolListAudit:          {Permission: domain.PermAuditRead},
 	}
 }
 

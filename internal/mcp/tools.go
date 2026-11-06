@@ -177,6 +177,7 @@ func Tools() []string {
 		ToolConfigPlans, ToolConfigGetPlan, ToolConfigCancel, ToolAssistantSend, ToolAssistantGet, ToolAssistantList,
 		ToolCreateProvider, ToolRevokeProvider, ToolCreateJoinCode, ToolListJoinCodes, ToolConfirmJoin,
 		ToolListMembers, ToolSetMemberSuspended, ToolRemoveMember, ToolUpdateOrganization,
+		ToolListAudit,
 	}
 }
 

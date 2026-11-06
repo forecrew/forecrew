@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 	"uuid"
 
 	"github.com/spf13/cobra"
@@ -126,5 +128,48 @@ func orgUpdateCommand(r *remote) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&in.Name, "name", "", "new name")
 	cmd.Flags().StringVar(&in.Slug, "slug", "", "new slug; links that carry the old one stop working")
+	return cmd
+}
+
+// auditCommand shows the audit log, newest first.
+func auditCommand(r *remote) *cobra.Command {
+	var in mcp.ListAuditInput
+	cmd := &cobra.Command{
+		Use:   "audit",
+		Short: "Show the audit log of the organization, newest first",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			q := url.Values{}
+			for k, v := range map[string]string{"actor": in.Actor, "action": in.Action, "subject_type": in.SubjectType, "subject": in.Subject, "since": in.Since, "until": in.Until} {
+				if v != "" {
+					q.Set(k, v)
+				}
+			}
+			if in.Limit > 0 {
+				q.Set("limit", strconv.Itoa(in.Limit))
+			}
+			var items []mcp.AuditInfo
+			if err := r.call(cmd.Context(), http.MethodGet, "/audit?"+q.Encode(), nil, &items); err != nil {
+				return err
+			}
+			rows := [][]string{{"TIME", "ACTOR", "ACTION", "SUBJECT"}}
+			for _, e := range items {
+				actor := e.Actor
+				if e.ActorName != "" {
+					actor = e.ActorName
+				}
+				rows = append(rows, []string{e.CreatedAt.UTC().Format(time.RFC3339), safeText(actor), safeText(e.Action), safeText(e.SubjectType) + " " + e.SubjectID.String()})
+			}
+			table(cmd.OutOrStdout(), rows)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&in.Actor, "actor", "", "only this actor, for example user:<id>")
+	cmd.Flags().StringVar(&in.Action, "action", "", "only this action")
+	cmd.Flags().StringVar(&in.SubjectType, "subject-type", "", "only this kind of subject")
+	cmd.Flags().StringVar(&in.Subject, "subject", "", "only this subject (UUID)")
+	cmd.Flags().StringVar(&in.Since, "since", "", "from this RFC 3339 time")
+	cmd.Flags().StringVar(&in.Until, "until", "", "before this RFC 3339 time")
+	cmd.Flags().IntVar(&in.Limit, "limit", 0, "at most this many entries; default 100, at most 500")
 	return cmd
 }

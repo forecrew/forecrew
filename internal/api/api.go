@@ -204,6 +204,7 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/members/{user}/suspend", serve(s, http.StatusOK, setMemberInput(true), t.SetMemberSuspended))
 	route("POST /api/v1/members/{user}/resume", serve(s, http.StatusOK, setMemberInput(false), t.SetMemberSuspended))
 	route("DELETE /api/v1/members/{user}", serve(s, http.StatusOK, memberInput, t.RemoveMember))
+	route("GET /api/v1/audit", serve(s, http.StatusOK, listAuditInput, list(t.ListAudit)))
 	route("PATCH /api/v1/organization", serve(s, http.StatusOK, bodyOf[mcp.UpdateOrganizationInput], t.UpdateOrganization))
 
 	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
@@ -344,6 +345,7 @@ func RouteAccess() map[string]mcp.Access {
 		"POST /api/v1/members/{user}/resume":                 tool[mcp.ToolSetMemberSuspended],
 		"DELETE /api/v1/members/{user}":                      tool[mcp.ToolRemoveMember],
 		"PATCH /api/v1/organization":                         tool[mcp.ToolUpdateOrganization],
+		"GET /api/v1/audit":                                  tool[mcp.ToolListAudit],
 	}
 }
 
@@ -583,6 +585,13 @@ func setMemberInput(suspended bool) func(*http.Request) (mcp.SetMemberInput, err
 	return func(r *http.Request) (mcp.SetMemberInput, error) {
 		return mcp.SetMemberInput{User: r.PathValue("user"), Suspended: suspended}, nil
 	}
+}
+
+func listAuditInput(r *http.Request) (mcp.ListAuditInput, error) {
+	q := r.URL.Query()
+	limit, err := intParam(q.Get("limit"), "limit")
+	return mcp.ListAuditInput{Actor: q.Get("actor"), Action: q.Get("action"), SubjectType: q.Get("subject_type"), Subject: q.Get("subject"),
+		Since: q.Get("since"), Until: q.Get("until"), Limit: int(limit)}, err
 }
 
 func noteInput(r *http.Request) (mcp.DeleteNoteInput, error) {

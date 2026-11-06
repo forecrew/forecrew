@@ -277,6 +277,7 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolSetMemberSuspended, map[string]any{"user": "u", "suspended": true}, mcp.SetMemberInput{User: "u", Suspended: true}},
 		{mcp.ToolRemoveMember, map[string]any{"user": "u"}, mcp.MemberRefInput{User: "u"}},
 		{mcp.ToolUpdateOrganization, map[string]any{"name": "Acme", "slug": "acme"}, mcp.UpdateOrganizationInput{Name: "Acme", Slug: "acme"}},
+		{mcp.ToolListAudit, map[string]any{"action": "member.removed", "limit": 5}, mcp.ListAuditInput{Action: "member.removed", Limit: 5}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))
