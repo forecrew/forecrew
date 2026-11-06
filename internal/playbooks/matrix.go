@@ -44,7 +44,8 @@ type unrunnableJob struct {
 // errors of the step. With with.only_runnable, jobs that no online worker of
 // their pool has the labels for are moved from jobs to unrunnable, because a
 // queued job nobody can lease would hold its run forever. It reads and
-// changes nothing, so it is idempotent.
+// changes nothing, so it is idempotent. With with.strict, invalid files fail
+// the step instead (the error quotes them as untrusted data).
 func (a *actions) matrixPlan(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		Repo   string   `json:"repo"`
@@ -53,6 +54,9 @@ func (a *actions) matrixPlan(ctx context.Context, call workflow.ActionCall) (any
 		Suites []string `json:"suites"`
 		// OnlyRunnable leaves out the jobs no online worker can run.
 		OnlyRunnable bool `json:"only_runnable"`
+		// Strict makes invalid files an error of the step, which a playbook
+		// can escalate, instead of errors in the output.
+		Strict bool `json:"strict"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -70,6 +74,8 @@ func (a *actions) matrixPlan(ctx context.Context, call workflow.ActionCall) (any
 		cells, err = matrix.Expand(m, envs, scope)
 	}
 	switch {
+	case errors.Is(err, matrix.ErrInvalid) && with.Strict:
+		return nil, fmt.Errorf("the test matrix of %s at %s is invalid:\n%s", with.Repo, with.Ref, contextpack.WrapUntrusted("matrix error", err.Error()))
 	case errors.Is(err, matrix.ErrInvalid):
 		return matrixPlanOutput{Cells: []matrix.Cell{}, Jobs: []matrix.Job{}, Errors: err.Error()}, nil
 	case err != nil:
