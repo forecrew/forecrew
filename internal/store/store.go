@@ -1279,6 +1279,9 @@ type SecretRepo interface {
 	Put(ctx context.Context, s *domain.StoredSecret) error
 	Get(ctx context.Context, accountID uuid.UUID, name string) (domain.StoredSecret, error)
 	Delete(ctx context.Context, accountID uuid.UUID, name string) error
+	// ListStale is unscoped: it returns up to limit secrets of every scope
+	// encrypted under another key than keyID, for a rotation.
+	ListStale(ctx context.Context, keyID string, limit int) ([]domain.StoredSecret, error)
 }
 
 // ConversationRepo stores conversations with the assistant.

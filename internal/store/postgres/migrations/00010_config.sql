@@ -93,6 +93,7 @@ CREATE TABLE secrets (
   id         uuid PRIMARY KEY DEFAULT uuidv7(),
   account_id uuid REFERENCES accounts(id),
   name       text NOT NULL CHECK (name ~ '^[a-z0-9][a-z0-9._/-]{0,127}$' AND name !~ '\.\.'),
+  key_id     text NOT NULL,                 -- which key encrypted it (secrets.KeyID)
   nonce      bytea NOT NULL,
   ciphertext bytea NOT NULL,
   updated_by text NOT NULL,

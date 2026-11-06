@@ -145,6 +145,12 @@ func (r secretRepo) Get(_ context.Context, accountID uuid.UUID, name string) (do
 	})
 }
 
+func (r secretRepo) ListStale(_ context.Context, keyID string, limit int) ([]domain.StoredSecret, error) {
+	return read(r.s, func(d *storeData) ([]domain.StoredSecret, error) {
+		return d.secrets.filter(limit, func(s domain.StoredSecret) bool { return s.KeyID != keyID }), nil
+	})
+}
+
 func (r secretRepo) Delete(_ context.Context, accountID uuid.UUID, name string) error {
 	return r.s.do(func(d *storeData, _ time.Time) error {
 		i := slices.IndexFunc(d.secrets.rows, func(x domain.StoredSecret) bool { return x.AccountID == accountID && x.Name == name })

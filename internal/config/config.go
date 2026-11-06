@@ -36,6 +36,8 @@ const (
 	EnvGitHubWebhookSecret = "FORECREW_GITHUB_WEBHOOK_SECRET" // #nosec G101 -- variable name, not a secret
 	// EnvSecretKey holds the key of the secret store: 32 bytes in base64.
 	EnvSecretKey = "FORECREW_SECRET_KEY" // #nosec G101 -- variable name, not a secret
+	// EnvSecretKeyPrevious holds the key being rotated out, the same way.
+	EnvSecretKeyPrevious = "FORECREW_SECRET_KEY_PREVIOUS" // #nosec G101 -- variable name, not a secret
 )
 
 // Defaults applied by Load.
@@ -74,9 +76,12 @@ type Config struct {
 	DatabaseURL string `yaml:"-"`
 	// SecretKey comes from FORECREW_SECRET_KEY; without it the secret store
 	// is off.
-	SecretKey string             `yaml:"-"`
-	GitHub    GitHub             `yaml:"github"`
-	Runtimes  map[string]Runtime `yaml:"runtimes"`
+	SecretKey string `yaml:"-"`
+	// SecretKeyPrevious comes from FORECREW_SECRET_KEY_PREVIOUS: values under
+	// it still read, and forecrewd moves them to SecretKey at startup.
+	SecretKeyPrevious string             `yaml:"-"`
+	GitHub            GitHub             `yaml:"github"`
+	Runtimes          map[string]Runtime `yaml:"runtimes"`
 	// ModelTiers maps tier -> vendor -> model name.
 	ModelTiers map[Tier]map[string]string `yaml:"model_tiers"`
 	Roles      map[string]Role            `yaml:"roles"`
@@ -208,6 +213,7 @@ func Parse(data []byte, getenv func(string) string) (*Config, error) {
 	}
 	c.DatabaseURL = getenv(EnvDatabaseURL)
 	c.SecretKey = getenv(EnvSecretKey)
+	c.SecretKeyPrevious = getenv(EnvSecretKeyPrevious)
 	c.GitHub.PrivateKey = getenv(EnvGitHubPrivateKey)
 	c.GitHub.WebhookSecret = getenv(EnvGitHubWebhookSecret)
 	for name, rt := range c.Runtimes {
