@@ -102,6 +102,11 @@ func (r *jobRun) startToolbox(parent context.Context) (box *toolboxRun, done *Co
 		c := r.retry("this worker has no Docker engine (no docker label), needed by toolbox %s", t.Name)
 		return nil, &c
 	}
+	if r.spec.Runtime == runtime.Opencode {
+		// The base image has no opencode, and its adapter adds the endpoint
+		// key to the environment itself, where nothing would pass it by name.
+		return nil, fail("toolbox %s: the opencode runtime does not run in a toolbox container yet; give the role a runtime of claude-code or codex", t.Name)
+	}
 	user, err := dockerUser()
 	if err != nil {
 		return nil, fail("%v", err)
@@ -152,6 +157,9 @@ func (b *toolboxRun) configure() error {
 	}
 	if k := runtime.KeyEnv(r.spec.Runtime); k != "" {
 		b.secrets[k] = true // the worker's own key, when the spec has none
+	}
+	if e := r.spec.Endpoint; e != nil && e.KeyEnv != "" {
+		b.secrets[e.KeyEnv] = true // the key of a custom endpoint
 	}
 	for _, k := range slices.Sorted(maps.Keys(b.secrets)) {
 		if reservedCredential(k) {

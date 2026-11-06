@@ -534,7 +534,7 @@ func (r *jobRun) runAgent(ctx context.Context, prompt string, box *toolboxRun) (
 		WorkDir: r.dir, Model: r.spec.Model, Prompt: prompt, OutputSchema: r.spec.OutputSchema,
 		AllowedTools: r.spec.AllowedTools, MaxTurns: r.spec.MaxTurns,
 		Timeout: time.Duration(r.spec.Timeout), Env: env, JobMCP: gateway, EvidenceDir: r.scratch,
-		Endpoint: r.spec.Endpoint,
+		Endpoint:   r.spec.Endpoint,
 		MCPServers: servers, Container: container,
 	}, r.ev.add)
 	if n := r.w.reaper.agentDone(mark); n > 0 {
