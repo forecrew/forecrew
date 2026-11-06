@@ -11,10 +11,14 @@ import (
 )
 
 type mapOut struct {
-	Ready       bool     `json:"ready"`
-	IfArchitect []string `json:"if_architect"`
-	Feedback    string   `json:"feedback"`
-	Tests       []struct {
+	Ready       bool `json:"ready"`
+	IfArchitect []struct {
+		TaskID string   `json:"task_id"`
+		Branch string   `json:"branch"`
+		Needs  []string `json:"needs"`
+	} `json:"if_architect"`
+	Feedback string `json:"feedback"`
+	Tests    []struct {
 		Suite string `json:"suite"`
 		ID    string `json:"id"`
 		File  string `json:"file"`
@@ -25,7 +29,7 @@ type mapOut struct {
 
 func (p *planned) testsMap(t *testing.T, task domain.Task) mapOut {
 	t.Helper()
-	out, err := p.call(t, "tests.map", map[string]any{"task_id": task.ID.String()})
+	out, err := p.call(t, "tests.map", map[string]any{"task_id": task.ID.String(), "needs": []string{"go", "linux"}})
 	must(t, err)
 	b, _ := json.Marshal(out)
 	var got mapOut
@@ -103,8 +107,8 @@ func TestTestsMapUntestableAndEscalation(t *testing.T) {
 		if got.Ready || len(got.IfArchitect) == 1 != tt.architect || !strings.Contains(got.Feedback, "<untrusted-data") || !strings.Contains(got.Feedback, tt.escalation) {
 			t.Errorf("escalation %q = %+v", tt.escalation, got)
 		}
-		if tt.architect && got.IfArchitect[0] != task.ID.String() {
-			t.Errorf("if_architect = %v", got.IfArchitect)
+		if tt.architect && (got.IfArchitect[0].TaskID != task.ID.String() || got.IfArchitect[0].Branch != "agent/TASK-1" || !slices.Equal(got.IfArchitect[0].Needs, []string{"go", "linux"})) {
+			t.Errorf("if_architect = %+v", got.IfArchitect)
 		}
 		// A later job that does not escalate makes it ready again.
 		r.tester(t, task, `{"files":[],"tests":[{"criterion":"AC-1","suite":"unit","id":"T","file":"a_test.go"},{"criterion":"AC-2","suite":"unit","id":"U","file":"a_test.go"}],"untestable":[],"escalation":null}`)
