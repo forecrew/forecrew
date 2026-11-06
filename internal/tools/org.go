@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/authz"
@@ -232,4 +233,94 @@ func (s *Service) UpdateOrganization(ctx context.Context, by domain.Actor, in mc
 		return s.audit(ctx, tx, by, uuid.Nil(), "organization.updated", "organization", a.ID, map[string]any{"name": a.Name, "slug": a.Slug, "was_slug": was})
 	})
 	return a, conflict(err, "an organization with slug "+a.Slug+" exists")
+}
+
+// Sizes of list_audit.
+const (
+	DefaultAuditLimit = 100
+	MaxAuditLimit     = 500
+)
+
+func parseTime(name, v string) (time.Time, error) {
+	if v == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return t, fmt.Errorf("%s %q is not an RFC 3339 time: %w", name, v, mcp.ErrInvalidInput)
+	}
+	return t, nil
+}
+
+// ListAudit implements mcp.ToolService.
+func (s *Service) ListAudit(ctx context.Context, by domain.Actor, in mcp.ListAuditInput) ([]mcp.AuditInfo, error) {
+	if err := s.allowOrg(ctx, by, domain.PermAuditRead); err != nil {
+		return nil, err
+	}
+	f := store.AuditFilter{Actor: in.Actor, Action: in.Action, SubjectType: in.SubjectType, Limit: DefaultAuditLimit}
+	var err error
+	if f.Since, err = parseTime("since", in.Since); err != nil {
+		return nil, err
+	}
+	if f.Until, err = parseTime("until", in.Until); err != nil {
+		return nil, err
+	}
+	if in.Subject != "" {
+		if f.SubjectID, err = uuid.Parse(in.Subject); err != nil {
+			return nil, fmt.Errorf("subject %q is not a UUID: %w", in.Subject, mcp.ErrInvalidInput)
+		}
+	}
+	if in.Limit < 0 || in.Limit > MaxAuditLimit {
+		return nil, fmt.Errorf("limit must be between 1 and %d: %w", MaxAuditLimit, mcp.ErrInvalidInput)
+	}
+	if in.Limit > 0 {
+		f.Limit = in.Limit
+	}
+	entries, err := s.cfg.Store.Audit().List(ctx, by.AccountID, f)
+	if err != nil {
+		return nil, err
+	}
+	names, err := s.actorNames(ctx, by.AccountID, entries)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcp.AuditInfo, len(entries))
+	for i, e := range entries {
+		out[i] = mcp.AuditInfo{AuditEntry: e, ActorName: names[e.Actor]}
+	}
+	return out, nil
+}
+
+// actorNames names the people and service accounts that acted in entries.
+func (s *Service) actorNames(ctx context.Context, accountID uuid.UUID, entries []domain.AuditEntry) (map[string]string, error) {
+	names := map[string]string{}
+	var users []uuid.UUID
+	var accounts []domain.ServiceAccount
+	for _, e := range entries {
+		a, err := domain.ParseActor(e.Actor)
+		if err != nil {
+			continue
+		}
+		id, ok := a.SubjectID()
+		switch {
+		case !ok:
+		case a.Kind == domain.ActorUser:
+			users = append(users, id)
+		case a.Kind == domain.ActorServiceAccount && accounts == nil:
+			if accounts, err = s.cfg.Store.ServiceAccounts().List(ctx, accountID); err != nil {
+				return nil, err
+			}
+		}
+	}
+	found, err := s.cfg.Store.Users().ListByIDs(ctx, users)
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range found {
+		names["user:"+u.ID.String()] = u.Name
+	}
+	for _, a := range accounts {
+		names["service_account:"+a.ID.String()] = a.Name
+	}
+	return names, nil
 }

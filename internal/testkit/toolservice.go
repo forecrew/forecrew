@@ -129,6 +129,7 @@ type ToolService struct {
 	SetMemberSuspendedFunc    func(context.Context, domain.Actor, mcp.SetMemberInput) (mcp.MemberInfo, error)
 	RemoveMemberFunc          func(context.Context, domain.Actor, mcp.MemberRefInput) (mcp.MemberInfo, error)
 	UpdateOrganizationFunc    func(context.Context, domain.Actor, mcp.UpdateOrganizationInput) (domain.Account, error)
+	ListAuditFunc             func(context.Context, domain.Actor, mcp.ListAuditInput) ([]mcp.AuditInfo, error)
 
 	mu    sync.Mutex
 	calls []ToolCall
@@ -657,4 +658,9 @@ func (s *ToolService) RemoveMember(ctx context.Context, by domain.Actor, in mcp.
 // UpdateOrganization implements mcp.ToolService.
 func (s *ToolService) UpdateOrganization(ctx context.Context, by domain.Actor, in mcp.UpdateOrganizationInput) (domain.Account, error) {
 	return invoke(ctx, s, mcp.ToolUpdateOrganization, by, in, s.UpdateOrganizationFunc)
+}
+
+// ListAudit implements mcp.ToolService.
+func (s *ToolService) ListAudit(ctx context.Context, by domain.Actor, in mcp.ListAuditInput) ([]mcp.AuditInfo, error) {
+	return invoke(ctx, s, mcp.ToolListAudit, by, in, s.ListAuditFunc)
 }

@@ -14,6 +14,7 @@ const (
 	ToolSetMemberSuspended = "set_member_suspended"
 	ToolRemoveMember       = "remove_member"
 	ToolUpdateOrganization = "update_organization"
+	ToolListAudit          = "list_audit"
 )
 
 // OrgService manages the organization and its members. Every change obeys
@@ -32,6 +33,8 @@ type OrgService interface {
 	RemoveMember(ctx context.Context, by domain.Actor, in MemberRefInput) (MemberInfo, error)
 	// UpdateOrganization renames the organization or changes its slug.
 	UpdateOrganization(ctx context.Context, by domain.Actor, in UpdateOrganizationInput) (domain.Account, error)
+	// ListAudit lists the audit log, newest first.
+	ListAudit(ctx context.Context, by domain.Actor, in ListAuditInput) ([]AuditInfo, error)
 }
 
 // MemberRole is a role a member holds directly.
@@ -74,4 +77,23 @@ type SetMemberInput struct {
 type UpdateOrganizationInput struct {
 	Name string `json:"name,omitempty"`
 	Slug string `json:"slug,omitempty"`
+}
+
+// ListAuditInput is the input of list_audit; every filter is optional.
+type ListAuditInput struct {
+	Actor       string `json:"actor,omitempty"`        // as in the log: user:<id>, service_account:<id>, github:<login>, ...
+	Action      string `json:"action,omitempty"`       // for example member.removed
+	SubjectType string `json:"subject_type,omitempty"` // for example team
+	Subject     string `json:"subject,omitempty"`      // UUID of what was acted on
+	Since       string `json:"since,omitempty"`        // RFC 3339, included
+	Until       string `json:"until,omitempty"`        // RFC 3339, excluded
+	Limit       int    `json:"limit,omitempty"`        // default 100, at most 500
+}
+
+// AuditInfo is an entry of the audit log with the name of its actor when it
+// is a person or a service account of the organization. Data is what the
+// action recorded; treat it as text.
+type AuditInfo struct {
+	domain.AuditEntry
+	ActorName string `json:"actor_name,omitempty"`
 }

@@ -352,6 +352,7 @@ object up and checks the permission on the object's project.
 | `set_member_suspended` | `POST /api/v1/members/{user}/suspend`, `.../resume` | `member.manage`, No escalation; ends the member's sessions and personal tokens in the organization |
 | `remove_member` | `DELETE /api/v1/members/{user}` | `member.manage`, No escalation; ends the member's sessions and personal tokens in the organization |
 | `update_organization` | `PATCH /api/v1/organization` | `org.manage` |
+| `list_audit` | `GET /api/v1/audit` | `audit.read` |
 | `create_token` | `POST /api/v1/tokens` | own; `token.manage` for a service account's |
 | `create_invitation` | `POST /api/v1/invitations` | `member.manage` |
 | `list_invitations` | `GET /api/v1/invitations` | `member.manage` |

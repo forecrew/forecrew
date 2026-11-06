@@ -44,3 +44,12 @@ func TestMembersCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestAuditCommand(t *testing.T) {
+	e := newRemoteEnv(t)
+	e.svc.ListAuditFunc = func(context.Context, domain.Actor, mcp.ListAuditInput) ([]mcp.AuditInfo, error) {
+		return []mcp.AuditInfo{{AuditEntry: domain.AuditEntry{Actor: "user:x", Action: "team.created", SubjectType: "team\x1b[2J", SubjectID: domain.NewID()}, ActorName: "Ana"}}, nil
+	}
+	e.check(t, []string{"audit", "--actor", "user:x", "--action", "team.created", "--subject-type", "team", "--subject", "s", "--since", "a", "--until", "b", "--limit", "5"}, "Ana    team.created  team [2J",
+		mcp.ToolListAudit, mcp.ListAuditInput{Actor: "user:x", Action: "team.created", SubjectType: "team", Subject: "s", Since: "a", Until: "b", Limit: 5})
+}
