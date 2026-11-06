@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
 
-.PHONY: build test test-integration test-docker test-toolbox-browser lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live
+.PHONY: build test test-integration test-docker test-toolbox-browser test-kvm images-validate lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
@@ -24,6 +24,16 @@ test-docker:
 # test of the browser toolbox, not part of test-docker.
 test-toolbox-browser:
 	go test -count=1 -tags 'docker browser' -run Browser ./internal/worker/
+
+# Needs /dev/kvm, qemu, Docker with alpine:latest, mke2fs 1.47.1 or newer and a
+# kernel (FORECREW_TEST_KERNEL, see internal/images/boot_kvm_test.go): boots a
+# converted root filesystem and checks that its worker reaches a fake server.
+test-kvm:
+	go test -count=1 -tags kvm -run Boots ./internal/images/
+
+# packer validate on every image template (deploy/images/README.md).
+images-validate:
+	./deploy/images/validate.sh
 
 # actionlint checks the workflow Forecrew installs in projects; it is skipped
 # where it is not installed (CI installs it).
