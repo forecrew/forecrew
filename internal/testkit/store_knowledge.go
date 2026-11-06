@@ -348,7 +348,7 @@ func (r knowledgeProposalRepo) GetByNumber(_ context.Context, accountID uuid.UUI
 func (r knowledgeProposalRepo) List(_ context.Context, accountID uuid.UUID, f store.KnowledgeProposalFilter) ([]domain.KnowledgeProposal, error) {
 	return listRows(r.s, kbProposalsT, f.Limit, func(k domain.KnowledgeProposal) bool {
 		return k.AccountID == accountID && zeroOr(f.ProjectID, k.ProjectID) && zeroOr(f.GoalID, k.GoalID) && zeroOr(f.JobID, k.JobID) &&
-			zeroOr(f.ChangeID, k.ChangeID) && zeroOr(f.Batch, k.Batch) && zeroOr(f.Status, k.Status)
+			zeroOr(f.ChangeID, k.ChangeID) && zeroOr(f.GateID, k.GateID) && zeroOr(f.Batch, k.Batch) && zeroOr(f.Status, k.Status)
 	})
 }
 

@@ -641,6 +641,7 @@ type KnowledgeProposalFilter struct {
 	GoalID    uuid.UUID
 	JobID     uuid.UUID
 	ChangeID  uuid.UUID
+	GateID    uuid.UUID
 	Batch     domain.KnowledgeBatch
 	Status    domain.KnowledgeProposalStatus
 	Limit     int

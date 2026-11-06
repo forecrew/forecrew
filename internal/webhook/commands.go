@@ -195,7 +195,7 @@ func (e *engine) runCommand(ctx context.Context, p domain.Project, ev github.Eve
 		return err
 	}
 	if access.Gate {
-		if ok, err := e.permitted(ctx, ev, by, authz.GatePermission(g), func() error { return e.Authz.AuthorizeGate(ctx, by, g) }); !ok {
+		if ok, err := e.permitted(ctx, ev, by, e.Authz.GatePermission(ctx, g), func() error { return e.Authz.AuthorizeGate(ctx, by, g) }); !ok {
 			return err
 		}
 	}

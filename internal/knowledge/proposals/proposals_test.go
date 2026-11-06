@@ -631,3 +631,51 @@ func TestJobCompletedStartsOneRunPerProvider(t *testing.T) {
 		}
 	}
 }
+
+func TestGateProtected(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	proposal := func(section, path string, gate uuid.UUID) {
+		t.Helper()
+		k := domain.KnowledgeProposal{AccountID: e.account, ProjectID: e.project.ID, Provider: "repo", Section: section, Path: path, Action: domain.KnowledgeAdd,
+			Body: "b", Reason: "r", ProposedBy: "developer", Batch: domain.BatchStandalone, Status: domain.KnowledgeOpen, GateID: gate}
+		must(t, e.st.KnowledgeProposals().Create(ctx, &k))
+	}
+	gate := func() domain.Gate {
+		t.Helper()
+		g := domain.Gate{AccountID: e.account, ProjectID: e.project.ID, Kind: domain.GateKnowledgeProposal, Title: "t", SubjectRepo: "acme/app"}
+		must(t, e.st.Gates().Create(ctx, &g))
+		return g
+	}
+	want := func(name string, g domain.Gate, protected bool) {
+		t.Helper()
+		got, err := e.svc.GateProtected(ctx, g)
+		if err != nil || got != protected {
+			t.Errorf("%s = %v, %v", name, got, err)
+		}
+	}
+	open := gate()
+	proposal("architecture", "docs/adr/8.md", open.ID)
+	want("a section that is not protected", open, false)
+
+	guarded := gate()
+	proposal("vision", "knowledge/vision/a.md", guarded.ID)
+	want("a protected section", guarded, true)
+
+	mixed := gate()
+	proposal("architecture", "docs/adr/9.md", mixed.ID)
+	proposal("vision", "knowledge/vision/b.md", mixed.ID)
+	want("the strictest of several", mixed, true)
+
+	want("no proposals", gate(), true)
+
+	moved := gate()
+	proposal("gone", "docs/gone.md", moved.ID)
+	want("a section the policy no longer has", moved, true)
+
+	boom := errors.New("boom")
+	e.svc.Policy = func(context.Context, domain.Project) (knowledge.Policy, error) { return knowledge.Policy{}, boom }
+	if got, err := e.svc.GateProtected(ctx, open); !got || !errors.Is(err, boom) {
+		t.Errorf("without a policy = %v, %v", got, err)
+	}
+}

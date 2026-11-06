@@ -304,6 +304,41 @@ func (s *Service) Decide(ctx context.Context, b Batch) (Decision, error) {
 	return out, nil
 }
 
+// GateProtected reports whether a knowledge_proposal gate is about a protected
+// section: one of the proposals linked to it is, by the policy of now. A gate
+// without proposals, or with one the policy no longer places, counts as
+// protected, because nothing shows that it is not.
+func (s *Service) GateProtected(ctx context.Context, g domain.Gate) (bool, error) {
+	ks, err := s.Store.KnowledgeProposals().List(ctx, g.AccountID, store.KnowledgeProposalFilter{GateID: g.ID})
+	if err != nil {
+		return true, err
+	}
+	if len(ks) == 0 {
+		return true, nil
+	}
+	p, err := s.Store.Projects().Get(ctx, g.AccountID, g.ProjectID)
+	if err != nil {
+		return true, err
+	}
+	policy, err := s.Policy(ctx, p)
+	if err != nil {
+		return true, err
+	}
+	for _, k := range ks {
+		t, err := policy.Target(k.Section, k.Path, "")
+		if errors.Is(err, knowledge.ErrRefused) {
+			return true, nil
+		}
+		if err != nil {
+			return true, err
+		}
+		if t.Protected {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func gateOf(ks []domain.KnowledgeProposal) uuid.UUID {
 	for _, k := range ks {
 		if k.GateID != uuid.Nil() {
