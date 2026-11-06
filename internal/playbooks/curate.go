@@ -13,6 +13,7 @@ import (
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testreport"
 	"github.com/forecrew/forecrew/internal/workflow"
@@ -24,6 +25,7 @@ const (
 	curateMaxStale    = 30
 	curateMaxNotes    = 30
 	curateExcerpt     = 400
+	curateLine        = 200
 )
 
 // verifyWindow is knowledge.verify_window.
@@ -74,6 +76,24 @@ type curateOutput struct {
 	Notes    int      `json:"notes"`
 }
 
+// curatorReads returns whether the curator may read a section under the
+// project's policy: what a closed section holds does not reach its prompt.
+// Without a knowledge base there is no policy to apply.
+func (a *actions) curatorReads(ctx context.Context, run domain.WorkflowRun) (func(section string) bool, error) {
+	if a.Knowledge == nil {
+		return func(string) bool { return true }, nil
+	}
+	p, err := a.Store.Projects().Get(ctx, run.AccountID, run.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("get project: %w", err)
+	}
+	policy, err := a.Knowledge.Policy(ctx, p)
+	if err != nil {
+		return nil, fmt.Errorf("read the knowledge policy: %w", err)
+	}
+	return func(section string) bool { return knowledge.CanRead(policy, section, knowledge.CuratorRole) }, nil
+}
+
 // curatePrepare is the action curate.prepare. It lists, for the curator job,
 // the entries marked needs_reverify, the entries whose last_verified is older
 // than knowledge.verify_window, and the project notes older than the window
@@ -85,12 +105,16 @@ func (a *actions) curatePrepare(ctx context.Context, call workflow.ActionCall) (
 	if err != nil {
 		return nil, fmt.Errorf("list the knowledge entries: %w", err)
 	}
+	canRead, err := a.curatorReads(ctx, call.Run)
+	if err != nil {
+		return nil, err
+	}
 	now, window := a.Now(), a.verifyWindow()
 	var marked, stale, notes []domain.KnowledgeEntry
 	curated := 0
 	for _, e := range entries {
 		switch {
-		case e.Generated:
+		case e.Generated, !canRead(e.Section):
 		case e.Provider == domain.ProviderInternal:
 			if unreadNote(e, now, window) {
 				notes = append(notes, e)
@@ -130,14 +154,26 @@ func (a *actions) curatePrepare(ctx context.Context, call workflow.ActionCall) (
 			fmt.Fprintf(&b, "\n(%d more left out)\n", len(notes)-i)
 			break
 		}
-		fmt.Fprintf(&b, "\nnote:%s %q, written by %s on %s:\n", n.ID, contextpack.OneLine(n.Title), contextpack.OneLine(n.Provenance.AuthorRole), noteAge(n).UTC().Format("2006-01-02"))
-		b.WriteString(contextpack.WrapUntrusted("note "+n.ID.String(), testreport.Clip(n.Body, curateExcerpt)))
+		fmt.Fprintf(&b, "\nnote:%s, written on %s:\n", n.ID, noteAge(n).UTC().Format("2006-01-02"))
+		b.WriteString(contextpack.WrapUntrusted("note "+n.ID.String(), noteText(n)))
 	}
 	out.Text = b.String()
 	return out, nil
 }
 
-// listEntries writes up to max entries as list items, each with an excerpt.
+// noteText is a note as a reader sees it, all of it written by an agent: the
+// title, who wrote it, its tags and the start of its body.
+func noteText(n domain.KnowledgeEntry) string {
+	head := "title: " + testreport.Clip(contextpack.OneLine(n.Title), curateLine) + "\nwritten by: " + testreport.Clip(contextpack.OneLine(n.Provenance.AuthorRole), curateLine)
+	if len(n.Tags) > 0 {
+		head += "\ntags: " + testreport.Clip(contextpack.OneLine(strings.Join(n.Tags, ", ")), curateLine)
+	}
+	return head + "\n\n" + testreport.Clip(n.Body, curateExcerpt)
+}
+
+// listEntries writes up to max entries as list items. The path, the reason
+// and the excerpt are text of the repo and of commits: they sit in one block
+// marked as data, cut to a length.
 func listEntries(b *strings.Builder, entries []domain.KnowledgeEntry, max int, why func(domain.KnowledgeEntry) string) {
 	if len(entries) == 0 {
 		b.WriteString("None.\n")
@@ -147,8 +183,9 @@ func listEntries(b *strings.Builder, entries []domain.KnowledgeEntry, max int, w
 			fmt.Fprintf(b, "\n(%d more left out; they come back next time)\n", len(entries)-i)
 			return
 		}
-		fmt.Fprintf(b, "\n- section %s, provider %s, path %s. %s\n", e.Section, e.Provider, contextpack.OneLine(e.Path), why(e))
-		b.WriteString(contextpack.WrapUntrusted("entry "+e.Path, testreport.Clip(e.Body, curateExcerpt)))
+		fmt.Fprintf(b, "\n- section %s, provider %s:\n", e.Section, e.Provider)
+		text := "path: " + testreport.Clip(contextpack.OneLine(e.Path), curateLine) + "\n" + testreport.Clip(contextpack.OneLine(why(e)), curateLine) + "\n\n" + testreport.Clip(e.Body, curateExcerpt)
+		b.WriteString(contextpack.WrapUntrusted("entry "+e.ID.String(), text))
 	}
 }
 
@@ -229,8 +266,12 @@ func (a *actions) clearReverify(ctx context.Context, run domain.WorkflowRun, pat
 	if err != nil {
 		return false, err
 	}
+	canRead, err := a.curatorReads(ctx, run)
+	if err != nil {
+		return false, err
+	}
 	i := slices.IndexFunc(entries, func(e domain.KnowledgeEntry) bool {
-		return e.Path == path && e.Provider != domain.ProviderInternal && !e.Generated
+		return e.Path == path && e.Provider != domain.ProviderInternal && !e.Generated && canRead(e.Section)
 	})
 	if i < 0 {
 		return false, nil

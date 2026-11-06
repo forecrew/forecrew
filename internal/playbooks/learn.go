@@ -230,12 +230,8 @@ func retroNotes(notes []domain.KnowledgeEntry) string {
 			b.WriteString("\n(more notes left out; kb_search finds them)\n")
 			break
 		}
-		fmt.Fprintf(&b, "\nnote:%s %q, written by %s", n.ID, contextpack.OneLine(n.Title), contextpack.OneLine(n.Provenance.AuthorRole))
-		if len(n.Tags) > 0 {
-			fmt.Fprintf(&b, ", tags %s", contextpack.OneLine(strings.Join(n.Tags, ", ")))
-		}
-		b.WriteString(":\n")
-		b.WriteString(contextpack.WrapUntrusted("note "+n.ID.String(), testreport.Clip(n.Body, retroText)))
+		fmt.Fprintf(&b, "\nnote:%s:\n", n.ID)
+		b.WriteString(contextpack.WrapUntrusted("note "+n.ID.String(), noteText(n)))
 	}
 	return b.String()
 }
