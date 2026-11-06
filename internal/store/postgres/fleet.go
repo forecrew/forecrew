@@ -29,6 +29,9 @@ func (s *Store) BootstrapTokens() store.BootstrapTokenRepo { return bootstrapTok
 // FleetPolicies implements store.Store.
 func (s *Store) FleetPolicies() store.FleetPolicyRepo { return fleetPolicyRepo{s.db} }
 
+// ProviderJoinCodes implements store.Store.
+func (s *Store) ProviderJoinCodes() store.ProviderJoinCodeRepo { return joinCodeRepo{s.db} }
+
 // sameOrg is the condition that finds the rows of an organization, or the
 // instance-wide ones for the zero ID; $1 is the ID, or NULL through opt.
 const sameOrg = `account_id IS NOT DISTINCT FROM $1`
@@ -159,7 +162,7 @@ func (r capacityProviderRepo) SetStatus(ctx context.Context, id uuid.UUID, statu
 }
 
 func (r capacityProviderRepo) SetToken(ctx context.Context, id uuid.UUID, hash []byte) error {
-	return mustUpdate(ctx, r.db, `UPDATE capacity_providers SET token_hash = $2, status = 'active', updated_at = now() WHERE id = $1`, id, hash)
+	return mustUpdate(ctx, r.db, `UPDATE capacity_providers SET token_hash = $2, status = 'active', updated_at = now() WHERE id = $1 AND status <> 'revoked'`, id, hash)
 }
 
 func (r capacityProviderRepo) Seen(ctx context.Context, id uuid.UUID, capabilities *domain.ProviderCapabilities) error {
@@ -487,4 +490,76 @@ func (r fleetPolicyRepo) Put(ctx context.Context, p *domain.FleetPolicy) error {
 		ON CONFLICT (account_id) DO UPDATE SET routing = $2, allowed_shapes = $3, quotas = $4, egress = $5, plan = $6, updated_at = now()
 		RETURNING created_at, updated_at`,
 		p.AccountID, string(p.Routing), strs(p.AllowedShapes), quotas, strs(p.Egress), string(p.Plan)).Scan(&p.CreatedAt, &p.UpdatedAt))
+}
+
+// ---- join codes
+
+type joinCodeRepo struct{ db dbtx }
+
+var joinCodeCols = `id, ` + cuuid("account_id") + `, code_hash, claim_hash, COALESCE(kind, ''), facts, ` + cuuid("provider_id") + `, expires_at, ` + ctime("used_at") + `, created_at`
+
+func scanJoinCode(row pgx.Row) (c domain.ProviderJoinCode, err error) {
+	var facts []byte
+	err = row.Scan(&c.ID, &c.AccountID, &c.CodeHash, &c.ClaimHash, &c.Kind, &facts, &c.ProviderID, &c.ExpiresAt, &c.UsedAt, &c.CreatedAt)
+	if err != nil {
+		return c, err
+	}
+	utc(&c.ExpiresAt, &c.UsedAt, &c.CreatedAt)
+	if err := json.Unmarshal(facts, &c.Facts); err != nil {
+		return c, fmt.Errorf("decode join code facts: %w", err)
+	}
+	return c, nil
+}
+
+func (r joinCodeRepo) Create(ctx context.Context, c *domain.ProviderJoinCode) error {
+	c.ID = newID(c.ID)
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO provider_join_codes (id, account_id, code_hash, expires_at) VALUES ($1, $2, $3, $4) RETURNING created_at`,
+		c.ID, opt(c.AccountID), c.CodeHash, c.ExpiresAt.UTC()).Scan(&c.CreatedAt))
+}
+
+func (r joinCodeRepo) Get(ctx context.Context, id uuid.UUID) (domain.ProviderJoinCode, error) {
+	return one(ctx, r.db, scanJoinCode, `SELECT `+joinCodeCols+` FROM provider_join_codes WHERE id = $1`, id)
+}
+
+func (r joinCodeRepo) List(ctx context.Context, accountID uuid.UUID) ([]domain.ProviderJoinCode, error) {
+	return many(ctx, r.db, scanJoinCode, `SELECT `+joinCodeCols+` FROM provider_join_codes WHERE `+sameOrg+` ORDER BY created_at DESC, id DESC`, opt(accountID))
+}
+
+func (r joinCodeRepo) GetByCodeHash(ctx context.Context, hash []byte) (domain.ProviderJoinCode, error) {
+	return one(ctx, r.db, scanJoinCode, `SELECT `+joinCodeCols+` FROM provider_join_codes WHERE code_hash = $1`, hash)
+}
+
+// changed answers ErrConflict when an update of code id found no row it may
+// change, and ErrNotFound when there is no such code.
+func (r joinCodeRepo) changed(ctx context.Context, id uuid.UUID, q string, args ...any) error {
+	tag, err := r.db.Exec(ctx, q, args...)
+	if err != nil {
+		return mapErr(err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	if _, err := r.Get(ctx, id); err != nil {
+		return err
+	}
+	return fmt.Errorf("join code %s: %w", id, store.ErrConflict)
+}
+
+func (r joinCodeRepo) Claim(ctx context.Context, id uuid.UUID, claimHash []byte, kind domain.ProviderKind, facts domain.ProviderCapabilities) error {
+	raw, err := json.Marshal(facts)
+	if err != nil {
+		return fmt.Errorf("encode join code facts: %w", err)
+	}
+	return r.changed(ctx, id, `UPDATE provider_join_codes SET claim_hash = $2, kind = $3, facts = $4
+		WHERE id = $1 AND used_at IS NULL AND provider_id IS NULL AND expires_at > now() AND (claim_hash IS NULL OR claim_hash = $2)`,
+		id, claimHash, string(kind), raw)
+}
+
+func (r joinCodeRepo) Confirm(ctx context.Context, id, providerID uuid.UUID) error {
+	return r.changed(ctx, id, `UPDATE provider_join_codes SET provider_id = $2
+		WHERE id = $1 AND used_at IS NULL AND provider_id IS NULL AND claim_hash IS NOT NULL AND expires_at > now()`, id, providerID)
+}
+
+func (r joinCodeRepo) MarkUsed(ctx context.Context, id uuid.UUID) error {
+	return r.changed(ctx, id, `UPDATE provider_join_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL AND provider_id IS NOT NULL`, id)
 }

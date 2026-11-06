@@ -95,6 +95,7 @@ type Store interface {
 	ConfigSettings() ConfigSettingRepo
 	Secrets() SecretRepo
 	Conversations() ConversationRepo
+	ProviderJoinCodes() ProviderJoinCodeRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
 	// must use the ctx passed to fn.
@@ -1036,9 +1037,8 @@ type SCIMTokenRepo interface {
 }
 
 // The fleet repositories (docs/contracts/fleet.md, data-model.md, migration
-// 00007). ProviderJoinCodeRepo and UsageRepo are contracts only
-// until they join Store, each with the Postgres implementation and the
-// testkit fake: ProviderJoinCodeRepo by T59 and UsageRepo by T65. They serve a controller that works across organizations, so the calls
+// 00007). UsageRepo is a contract only until it joins Store, with the Postgres
+// implementation and the testkit fake, by T65. They serve a controller that works across organizations, so the calls
 // that find a provider, machine or token by its ID or hash are unscoped; the
 // zero account ID means the instance-wide rows.
 
@@ -1061,7 +1061,7 @@ type CapacityProviderRepo interface {
 	// SetStatus moves a provider to status; ErrConflict when it is revoked.
 	SetStatus(ctx context.Context, id uuid.UUID, status domain.ProviderStatus) error
 	// SetToken stores the hash of a new token and makes the provider
-	// active.
+	// active; ErrNotFound when it is revoked, which is for good.
 	SetToken(ctx context.Context, id uuid.UUID, hash []byte) error
 	// Seen records contact: LastSeenAt = now and, when not nil, the
 	// capabilities as reported.
@@ -1071,13 +1071,20 @@ type CapacityProviderRepo interface {
 // ProviderJoinCodeRepo stores join codes (fleet-agent-api.md, Joining).
 type ProviderJoinCodeRepo interface {
 	Create(ctx context.Context, c *domain.ProviderJoinCode) error
+	// Get is unscoped; callers check the organization.
+	Get(ctx context.Context, id uuid.UUID) (domain.ProviderJoinCode, error)
+	// List returns an organization's codes, or the instance-wide ones for
+	// the zero ID, newest first, those that are used or expired too.
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.ProviderJoinCode, error)
 	// GetByCodeHash is unscoped: the code identifies the organization.
 	GetByCodeHash(ctx context.Context, hash []byte) (domain.ProviderJoinCode, error)
 	// Claim records the facts of the agent holding claimHash. The first
 	// claim binds the code; another claim fails with ErrConflict, as does
-	// an expired or used code.
+	// an expired, used or confirmed code: a person confirmed what they saw.
 	Claim(ctx context.Context, id uuid.UUID, claimHash []byte, kind domain.ProviderKind, facts domain.ProviderCapabilities) error
-	// Confirm links the code to the provider a person confirmed.
+	// Confirm links a claimed code to the provider a person confirmed;
+	// ErrConflict when it is not claimed, was confirmed already, or is used
+	// or expired.
 	Confirm(ctx context.Context, id, providerID uuid.UUID) error
 	// MarkUsed records that the token was handed over; ErrConflict when it
 	// already was, so it is handed over once.
