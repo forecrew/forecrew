@@ -12,6 +12,7 @@ import (
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/verification"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -538,5 +539,39 @@ func TestGoalV2MergeRefusesAHeadThatMoved(t *testing.T) {
 	g := r.pendingGate(t, domain.GateNeedsYou)
 	if !strings.Contains(g.Summary, "its head moved from "+v2sha(1)+" to pushed-by-a-human") || r.prNow(t, pr.Number).Merged {
 		t.Errorf("gate = %+v, merged = %v", g, r.prNow(t, pr.Number).Merged)
+	}
+}
+
+// The merge gate is open and the head's report is no longer passed (it was
+// rebuilt, say, with a cell that has no result): approving must not merge, and
+// a needs_you gate asks. Only the report's status stops it: the checks pass.
+func TestGoalV2MergeRefusesAReportThatIsNotPassed(t *testing.T) {
+	for _, status := range []domain.VerificationStatus{domain.VerificationIncomplete, domain.VerificationFailed} {
+		t.Run(string(status), func(t *testing.T) {
+			r := startGoalV2(t)
+			r.designed(t)
+			r.push(t, 1)
+			pr := r.prAt(t, 1)
+			r.checks(t, 0, 1, 1, domain.ChecksSuccess)
+			r.verify(t, passedRun, 0, nil)
+			r.review(t, 0, 1, 1, approveReview())
+			r.pendingGate(t, domain.GateMergeApproval)
+
+			stored, err := r.st.VerificationReports().GetBySHA(t.Context(), r.account, mustChange(t, r, pr.Number).ID, v2sha(1))
+			must(t, err)
+			rep, err := verification.Parse(stored.Report)
+			must(t, err)
+			rep.Status, rep.Blocking = status, []string{"unit in win (os=windows) has no result yet"}
+			stored.Report, err = rep.JSON()
+			must(t, err)
+			stored.Status = status
+			must(t, r.st.VerificationReports().Upsert(t.Context(), &stored))
+
+			r.decide(t, domain.GateMergeApproval, mcp.ToolApprove, "")
+			g := r.pendingGate(t, domain.GateNeedsYou)
+			if !strings.Contains(g.Summary, "the verification of "+v2sha(1)+" is "+string(status)) || r.prNow(t, pr.Number).Merged {
+				t.Errorf("gate = %+v, merged = %v", g, r.prNow(t, pr.Number).Merged)
+			}
+		})
 	}
 }
