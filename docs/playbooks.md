@@ -811,7 +811,7 @@ It is `goal` with these differences, task by task:
 
 `packs/playbooks/bugfix.yaml` fixes a bug: reproduce, a failing regression test,
 the fix, verification, review, and a merge with your approval. `report_bug`
-(MCP, `POST /api/v1/bugs`, `forecrew report-bug`) creates a goal of kind `bug`
+(MCP, `POST /api/v1/bugs`, `forecrew bugs report`) creates a goal of kind `bug`
 (`goals.kind`) and starts it; so does `@forecrew bug` in a comment on an issue,
 which makes that issue the goal's issue. It uses the testing system, so like
 `goal-v2` it is only for the projects listed in `testing.projects`; for any

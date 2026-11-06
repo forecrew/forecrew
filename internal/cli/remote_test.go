@@ -222,7 +222,7 @@ func TestReportBugCommand(t *testing.T) {
 	e.svc.ReportBugFunc = func(context.Context, domain.Actor, mcp.ReportBugInput) (domain.Goal, error) {
 		return domain.Goal{Number: 5, Title: "Crash", Status: domain.GoalDraft}, nil
 	}
-	out, errOut, code := e.run(t, "report-bug", "app", "Crash", "--body", "On save", "--platform", "web", "--platform", "ios")
+	out, errOut, code := e.run(t, "bugs", "report", "app", "Crash", "--body", "On save", "--platform", "web", "--platform", "ios")
 	if code != 0 || out != "GOAL-5 reported: Crash (draft)\n" || errOut != "" {
 		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
 	}
@@ -237,7 +237,7 @@ func TestReportBugCommand(t *testing.T) {
 	e.svc.ReportBugFunc = func(context.Context, domain.Actor, mcp.ReportBugInput) (domain.Goal, error) {
 		return domain.Goal{}, fmt.Errorf("no testing: %w", mcp.ErrInvalidInput)
 	}
-	if _, errOut, code := e.run(t, "report-bug", "app", "Crash"); code != 1 || !strings.Contains(errOut, "no testing") {
+	if _, errOut, code := e.run(t, "bugs", "report", "app", "Crash"); code != 1 || !strings.Contains(errOut, "no testing") {
 		t.Errorf("code %d, stderr %q", code, errOut)
 	}
 }
