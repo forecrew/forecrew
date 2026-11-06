@@ -35,7 +35,13 @@ engine](#the-engine).
   whatever role they hold. A `knowledge_proposal` gate is protected when one
   of the proposals linked to it through `gate_id` is in a protected section,
   by the policy of now; a gate without proposals, or one that cannot be
-  placed or read, counts as protected.
+  placed or read, counts as protected. The learn gate of a goal ("Learnings
+  of GOAL-n") also carries the goal's register files, `.forecrew/assumptions/A-n.yaml`
+  and `docs/decisions/DEC-n.md`, which it names from the goal's assumptions
+  and decisions as they are now: it is protected when a section whose globs
+  hold one of them, whatever its file type and case, is protected, and a
+  learn gate without proposals is protected only by its files. A section
+  owned by `codeowners` that holds one leaves the merge to its reviewers.
 - **Access requests:** an agent asks with `request_access`, which opens an
   `access_request` gate; only a person with `gate.approve.access_request`
   answers it, and what it grants still merges as a pull request.
