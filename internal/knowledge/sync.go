@@ -78,8 +78,10 @@ var ErrPolicyUnknown = errors.New("the knowledge policy of the project is unknow
 
 // Policy returns the policy of the project as of its last Sync. A project
 // not synced since forecrewd started has none in memory, so the policy is
-// loaded from the default branch head; when that fails the answer is
-// ErrPolicyUnknown, never a default that would open protected sections.
+// loaded from the default branch head; when that fails (a missing branch
+// or repo included) the answer is ErrPolicyUnknown, never a default that
+// would open protected sections. The default holds only for a readable
+// repo without a policy file, or a repo without commits.
 func (s *Syncer) Policy(ctx context.Context, p domain.Project) (Policy, error) {
 	if v, ok := s.policies.Load(p.ID); ok {
 		return v.(Policy), nil
@@ -90,10 +92,12 @@ func (s *Syncer) Policy(ctx context.Context, p domain.Project) (Policy, error) {
 		return v.(Policy), nil
 	}
 	head, err := s.API.HeadSHA(ctx, p.Repo, p.DefaultBranch)
-	if errors.Is(err, github.ErrEmptyRepo) || errors.Is(err, github.ErrNotFound) {
-		// No commit or no such branch: there is no policy file and no
-		// file to protect, so the default policy holds. It is not kept,
-		// because the first commit may bring a policy.
+	if errors.Is(err, github.ErrEmptyRepo) {
+		// No commit at all: there is no policy file and no file to
+		// protect, so the default policy holds. It is not kept, because
+		// the first commit may bring a policy. A 404 is not this case: a
+		// renamed default branch or lost access to the repo hides a
+		// policy that may be restrictive, so it is an error below.
 		return DefaultPolicy(nil, nil), nil
 	}
 	if err != nil {

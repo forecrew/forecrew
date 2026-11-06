@@ -268,23 +268,47 @@ func TestGeneratedTakesNoProposals(t *testing.T) {
 
 var errTest = errors.New("boom")
 
-// An empty repo or a missing branch has no policy file and nothing to
-// protect, so the default policy holds (and is not kept); only a read error
-// leaves the policy unknown.
+// A repo without commits has no policy file and nothing to protect, so the
+// default policy holds (and is not kept); a 404 on the branch or repo and
+// any other read error leave the policy unknown.
 func TestPolicyOfAnEmptyRepo(t *testing.T) {
 	e := newSyncEnv(t) // the fake has no branch yet
-	for _, err := range []error{github.ErrEmptyRepo, github.ErrNotFound} {
+	api := &headErr{SyncAPI: e.tr, err: github.ErrEmptyRepo}
+	s := &knowledge.Syncer{Store: e.st, Index: &knowledge.Index{Store: e.st}, API: api, Now: e.clock.Now}
+	pol, perr := s.Policy(t.Context(), e.project)
+	if perr != nil || len(knowledge.MissingSections(pol)) != len(knowledge.SeedSections) {
+		t.Errorf("empty repo: policy = %+v, %v", pol, perr)
+	}
+	for _, err := range []error{github.ErrNotFound, errors.New("502")} {
 		api := &headErr{SyncAPI: e.tr, err: err}
 		s := &knowledge.Syncer{Store: e.st, Index: &knowledge.Index{Store: e.st}, API: api, Now: e.clock.Now}
-		pol, perr := s.Policy(t.Context(), e.project)
-		if perr != nil || len(knowledge.MissingSections(pol)) != len(knowledge.SeedSections) {
-			t.Errorf("%v: policy = %+v, %v", err, pol, perr)
+		if _, perr := s.Policy(t.Context(), e.project); !errors.Is(perr, knowledge.ErrPolicyUnknown) {
+			t.Errorf("%v: err = %v, want ErrPolicyUnknown", err, perr)
 		}
 	}
-	api := &headErr{SyncAPI: e.tr, err: errors.New("502")}
-	s := &knowledge.Syncer{Store: e.st, Index: &knowledge.Index{Store: e.st}, API: api, Now: e.clock.Now}
-	if _, err := s.Policy(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
-		t.Errorf("a read error: %v", err)
+}
+
+// A restrictive policy must not become the default when the default branch
+// was renamed or the repo is no longer readable (404 on the branch): the
+// policy is unknown, so search refuses and a job's write paths cannot be
+// computed.
+func TestPolicyFailsClosedOnBranch404(t *testing.T) {
+	e := newSyncEnv(t)
+	e.commit(t, "h1", map[string]string{
+		knowledge.PolicyFile: "version: 1\nsections:\n  handbook:\n    paths: [\"handbook/**\"]\n    protected: true\n    access:\n      read: [architect]\n",
+		"handbook/a.md":      "# Handbook\nsecret plans\n",
+	})
+	api := &headErr{SyncAPI: e.tr, err: fmt.Errorf("get branch: %w", github.ErrNotFound)}
+	restarted := &knowledge.Syncer{Store: e.st, Index: &knowledge.Index{Store: e.st}, API: api, Now: e.clock.Now}
+	if _, err := restarted.Policy(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+		t.Fatalf("Policy = %v, want ErrPolicyUnknown", err)
+	}
+	if _, err := restarted.MappedPaths(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+		t.Errorf("MappedPaths = %v, want ErrPolicyUnknown", err)
+	}
+	search := &knowledge.Search{Index: restarted.Index, Policy: restarted.Policy}
+	if _, err := search.Run(t.Context(), knowledge.Query{Project: e.project, Text: "secret", Role: "developer"}); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+		t.Errorf("search = %v, want ErrPolicyUnknown", err)
 	}
 }
 
