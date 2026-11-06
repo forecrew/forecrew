@@ -17,7 +17,7 @@ describe("quality page", () => {
   test("empty: no baseline and no open pull requests", async () => {
     use(fx.qualityEmpty)
     await renderApp("/quality?project=app")
-    expect(await screen.findByText("No baseline yet: nothing has been tested on main.")).toBeInTheDocument()
+    expect(await screen.findByText("No baseline yet: no run outside a pull request.")).toBeInTheDocument()
     expect(screen.getByText("No open pull requests.")).toBeInTheDocument()
     expect(screen.queryByRole("article")).not.toBeInTheDocument()
   })
@@ -25,9 +25,10 @@ describe("quality page", () => {
   test("baseline only: the grid with text for every result", async () => {
     use(fx.qualityBaselineOnly)
     await renderApp("/quality?project=app")
-    const baseline = await screen.findByRole("article", { name: /Baseline on main/ })
+    const baseline = await screen.findByRole("article", { name: /Latest run outside a pull request/ })
     expect(within(baseline).getByText("0123456")).toBeInTheDocument()
-    expect(within(baseline).getByText("48 passed, 1 failed, 0 skipped, 0 flaky")).toBeInTheDocument()
+    // flakiness is known only from a report
+    expect(within(baseline).getByText("48 passed, 1 failed, 0 skipped")).toBeInTheDocument()
     const grid = within(baseline).getByRole("region", { name: /results table/ })
     expect(within(grid).getByRole("columnheader", { name: "linux" })).toBeInTheDocument()
     expect(within(grid).getByRole("link", { name: /go=1.26: passed, 40 passed/ })).toHaveAttribute("href", "/jobs/JOB-30")
@@ -47,10 +48,13 @@ describe("quality page", () => {
 
     // suites by environments: host is the empty environment
     const grid = within(pr).getByRole("region", { name: /results table/ })
-    expect(within(grid).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Suite", "host", "linux1 flaky"])
+    expect(within(grid).getAllByRole("columnheader").map((h) => h.textContent)).toEqual(["Suite", "host", "linux1 flaky", "macos"])
     const e2e = within(grid).getByText("e2e").closest("tr")!
     expect(within(e2e).getByRole("link", { name: /failed, 7 passed, 2 failed/ })).toHaveAttribute("href", "/jobs/JOB-45")
-    expect(within(e2e).getByText("no result")).toBeInTheDocument()
+    expect(within(e2e).getAllByText("no result")).toHaveLength(2)
+    // a cell the current report has no result for, not required
+    const unit = within(grid).getByText("unit").closest("tr")!
+    expect(within(unit).getAllByText("no result")).toHaveLength(2)
     const lint = within(grid).getByText("lint").closest("tr")!
     expect(within(lint).getByRole("link", { name: /passed, 1 passed/ })).toHaveAttribute("href", "/jobs/JOB-46")
 
@@ -65,6 +69,25 @@ describe("quality page", () => {
     expect(within(report).getByRole("list", { name: "Flaky tests" })).toHaveTextContent("web::login redirects in linux")
     expect(within(report).getByText(/Criteria: 2 of 3 covered, untested: AC-3/)).toBeInTheDocument()
     expect(within(report).getByRole("list", { name: "Blocking reasons" })).toHaveTextContent("AC-3 has no test")
+  })
+
+  test("shows a required cell with no result in the grid, and not when the report is stale", async () => {
+    const withMissing = structuredClone(fx.quality) as typeof fx.quality
+    const v = withMissing.changes[0]!.verification!
+    v.report.results[2]!.required = true
+    use(withMissing)
+    const { unmount } = await renderApp("/quality?project=app")
+    const pr = await screen.findByRole("article", { name: /Pull request #9/ })
+    const grid = within(pr).getByRole("region", { name: /results table/ })
+    expect(within(grid).getByText("required, no result")).toHaveClass("text-destructive")
+    unmount()
+
+    v.current = false
+    use(withMissing)
+    await renderApp("/quality?project=app")
+    const stale = await screen.findByRole("article", { name: /Pull request #9/ })
+    expect(within(within(stale).getByRole("region", { name: /results table/ })).queryByText("required, no result")).not.toBeInTheDocument()
+    expect(within(stale).getByText(/stale/)).toBeInTheDocument()
   })
 
   test("a pull request with no results and no report says so", async () => {

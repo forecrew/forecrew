@@ -32,6 +32,7 @@ function TaskVerification({ task }: { task: GoalDetail["tasks"][number] }) {
     <details onToggle={(e) => setOpen(e.currentTarget.open)} className="rounded-xl border bg-card p-3 text-sm">
       <summary className="cursor-pointer py-1 font-medium">
         <span className="font-mono">{task.ref}</span> verification: {task.verification?.status}
+        {task.verification?.current ? "" : " (stale: not the latest commit)"}
       </summary>
       {open ? <VerificationSection change={task.ref} title={`${task.ref} verification`} /> : null}
     </details>

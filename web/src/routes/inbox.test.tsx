@@ -306,12 +306,13 @@ describe("verification on merge cards", () => {
     expect(asked).toHaveLength(1)
   })
 
-  test("shows nothing when the pull request has no report yet", async () => {
+  test("says so when the pull request has no report yet", async () => {
     server.use(http.get("/api/v1/changes/:change/verification", errors.notFound))
     await renderApp("/inbox")
     const first = await screen.findByRole("article", { name: /GATE-9/ })
-    await waitFor(() => expect(within(first).queryByRole("alert")).not.toBeInTheDocument())
+    expect(await within(first).findByText("No verification report yet.")).toBeInTheDocument()
     expect(within(first).queryByRole("region", { name: /verification/ })).not.toBeInTheDocument()
+    expect(within(first).queryByRole("alert")).not.toBeInTheDocument()
   })
 
   test("says when the verification cannot be loaded", async () => {

@@ -18,7 +18,9 @@ function flakyByEnv(v?: VerificationInfo): Record<string, number> {
 
 function Subject({ id, title, cells, verification, children }: { id: string; title: React.ReactNode; cells: QualityCell[]; verification?: VerificationInfo; children?: React.ReactNode }) {
   const t = totals(cells)
-  const flaky = verification?.report.flaky.length ?? 0
+  // Flakiness is known only from a report; a report of an earlier commit says nothing about these cells.
+  const flaky = verification?.report.flaky.length
+  const missing = verification?.current ? verification.report.results.filter((x) => x.status === "missing") : []
   return (
     <article aria-labelledby={id} className="space-y-3 rounded-xl border bg-card p-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -27,14 +29,14 @@ function Subject({ id, title, cells, verification, children }: { id: string; tit
         </h3>
         {children}
       </div>
-      {cells.length === 0 ? (
+      {cells.length === 0 && missing.length === 0 ? (
         <p className="text-sm text-muted-foreground">No test results yet.</p>
       ) : (
         <>
           <p className="text-sm">
-            {count(t.passed)} passed, {count(t.failed)} failed, {count(t.skipped)} skipped, {flaky} flaky
+            {count(t.passed)} passed, {count(t.failed)} failed, {count(t.skipped)} skipped{flaky === undefined ? "" : `, ${flaky} flaky`}
           </p>
-          <CellGrid cells={cells} label={`${id} results`} flaky={flakyByEnv(verification)} />
+          <CellGrid cells={cells} label={`${id} results`} flaky={flakyByEnv(verification)} missing={missing} />
           <FailureList cells={cells} label={`${id} failing tests`} />
         </>
       )}
@@ -54,12 +56,12 @@ function ProjectQuality({ name }: { name: string }) {
         {(d) => (
           <div className="space-y-4">
             {d.baseline ? (
-              <Subject id={`${name}-baseline`} title={<>Baseline on {d.default_branch}</>} cells={d.baseline.cells}>
+              <Subject id={`${name}-baseline`} title={<>Latest run outside a pull request</>} cells={d.baseline.cells}>
                 <span className="font-mono text-xs text-muted-foreground">{d.baseline.sha.slice(0, 7)}</span>
               </Subject>
             ) : (
               <p className="rounded-xl border border-dashed bg-card p-4 text-sm text-muted-foreground">
-                No baseline yet: nothing has been tested on {d.default_branch}.
+                No baseline yet: no run outside a pull request.
               </p>
             )}
             {d.changes.length === 0 ? <p className="text-sm text-muted-foreground">No open pull requests.</p> : null}
@@ -90,7 +92,7 @@ function ProjectQuality({ name }: { name: string }) {
   )
 }
 
-/** Test health per project: the baseline on the default branch and every open pull request. The project comes from the sidebar switcher. */
+/** Test health per project: the latest run outside a pull request (the baseline) and every open pull request. The project comes from the sidebar switcher. */
 export function QualityPage() {
   const { project = "" } = useSearch({ from: "/app/quality" })
   const projects = useProjects()

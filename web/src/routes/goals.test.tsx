@@ -258,6 +258,7 @@ describe("goal page verification", () => {
     await user.click(within(section).getByText(/TASK-12/))
     expect(await within(section).findByRole("region", { name: "TASK-12 verification" })).toHaveTextContent("AC-3 has no test")
     expect(asked.filter((a) => a.startsWith("TASK-"))).toEqual(["TASK-12"])
+    expect(section.querySelector("summary")).not.toHaveTextContent("stale")
     expect(within(section).queryByText(/TASK-13/)).not.toBeInTheDocument()
   })
 
@@ -267,6 +268,7 @@ describe("goal page verification", () => {
     server.use(http.get("/api/v1/goals/:ref", () => HttpResponse.json(stale)))
     const { unmount } = await renderApp("/goals/GOAL-3")
     expect(await screen.findByText("failed (stale)")).toBeInTheDocument()
+    expect(document.querySelector("summary")).toHaveTextContent("verification: failed (stale: not the latest commit)")
     unmount()
 
     const none = structuredClone(fx.goal)

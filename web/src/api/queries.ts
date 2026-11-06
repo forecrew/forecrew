@@ -109,7 +109,14 @@ export const useAssumptions = (project: string, enabled = true) =>
     enabled,
     ...poll,
   })
-export const useArtifacts = (job: string) => useQuery({ queryKey: keys.artifacts(job), queryFn: () => api.listArtifacts(job) })
+/** The files of a job; they refresh every 5 s while the job is not finished. */
+export const useArtifacts = (job: string, live = false) =>
+  useQuery({
+    queryKey: keys.artifacts(job),
+    queryFn: () => api.listArtifacts(job),
+    refetchInterval: live ? POLL_MS : false,
+    refetchIntervalInBackground: false,
+  })
 export const useQuality = (project: string) => useQuery({ queryKey: keys.quality(project), queryFn: () => api.getQuality(project), ...poll })
 /** The verification report of a change; a 404 (no report yet) is an error the caller can read. */
 export const useVerification = (change: string, project = "", enabled = true) =>

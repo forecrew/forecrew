@@ -4,13 +4,27 @@ import type { VerificationInfo } from "@/api/types"
 import { StatusBadge } from "@/components/StatusBadge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { TableWrap } from "@/components/TableWrap"
-import { resultTone, verificationTone } from "@/lib/format"
+import { cellLabel, resultTone, verificationTone } from "@/lib/format"
 
 /** The criteria that have a result, and the untested ones. */
 export function coverage(report: VerificationInfo["report"]) {
   const all = Object.entries(report.criteria)
   const untested = all.filter(([, c]) => c.status === "untested" && !c.untestable).map(([id]) => id)
   return { total: all.length, covered: all.filter(([, c]) => c.status !== "untested").length, untested }
+}
+
+/** The environments of a report, from its results and its tool versions, with the cells that have no result. */
+function environmentTiles(r: VerificationInfo["report"]) {
+  const names = [...new Set([...Object.keys(r.environments), ...r.results.map((x) => x.environment)])].sort()
+  return names.map((name) => {
+    const versions = Object.entries(r.environments[name]?.versions ?? {})
+      .map(([k, v]) => `${k} ${v}`)
+      .join(", ")
+    const missing = r.results
+      .filter((x) => x.environment === name && x.status === "missing")
+      .map((x) => ({ label: [x.suite, cellLabel(x.cell)].filter(Boolean).join(" "), required: x.required }))
+    return { name, versions, missing }
+  })
 }
 
 /**
@@ -22,7 +36,7 @@ export function coverage(report: VerificationInfo["report"]) {
 export function VerificationPanel({ info, title }: { info: VerificationInfo; title: string }) {
   const r = info.report
   const cov = coverage(r)
-  const envs = Object.entries(r.environments)
+  const envs = environmentTiles(r)
   const criteria = Object.entries(r.criteria)
   return (
     <section aria-label={title} className="space-y-3 rounded-lg border p-3 text-sm">
@@ -45,16 +59,22 @@ export function VerificationPanel({ info, title }: { info: VerificationInfo; tit
         </ul>
       ) : null}
       {envs.length ? (
-        <p>
-          <span className="text-muted-foreground">Environments: </span>
-          {envs.map(([name, e], i) => (
-            <span key={name}>
-              {i ? "; " : ""}
-              <span className="font-mono">{name || "host"}</span>
-              {Object.keys(e.versions).length ? ` (${Object.entries(e.versions).map(([k, v]) => `${k} ${v}`).join(", ")})` : ""}
-            </span>
-          ))}
-        </p>
+        <div>
+          <p className="text-muted-foreground">Environments:</p>
+          <ul aria-label={`${title} environments`} className="mt-1 flex flex-wrap gap-2">
+            {envs.map((e) => (
+              <li key={e.name} className="rounded-lg border p-2">
+                <span className="font-mono">{e.name || "host"}</span>
+                {e.versions ? <span className="text-muted-foreground"> ({e.versions})</span> : null}
+                {e.missing.map((m) => (
+                  <p key={m.label} className={m.required ? "font-medium text-destructive" : "text-muted-foreground"}>
+                    {m.label}: {m.required ? "required, no result" : "no result"}
+                  </p>
+                ))}
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       {criteria.length ? (
         <div className="space-y-1">
@@ -115,8 +135,8 @@ export function VerificationPanel({ info, title }: { info: VerificationInfo; tit
 
 /**
  * The verification of a change fetched by number (with project), PR URL or
- * task ref. Nothing is shown while it loads or when the change has no report
- * yet (a 404); another error is said in words.
+ * task ref. Nothing is shown while it loads; a change with no report yet (a
+ * 404) says so, and another error is said in words.
  */
 export function VerificationSection({ change, project, title }: { change: string; project?: string; title: string }) {
   const q = useVerification(change, project)
@@ -127,6 +147,7 @@ export function VerificationSection({ change, project, title }: { change: string
       </p>
     )
   }
+  if (q.isError) return <p className="text-sm text-muted-foreground">No verification report yet.</p>
   if (!q.data) return null
   return <VerificationPanel info={q.data} title={title} />
 }

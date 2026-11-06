@@ -372,4 +372,19 @@ describe("job page artifacts and tests", () => {
     expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument()
     expect(within(screen.getByRole("list", { name: "Artifacts" })).getAllByRole("link")).toHaveLength(2)
   })
+
+  test("refreshes the artifacts of a running job", async () => {
+    let calls = 0
+    server.use(
+      http.get("/api/v1/jobs/:ref", () => HttpResponse.json({ ...fx.jobCommand, status: "running" })),
+      http.get("/api/v1/jobs/:ref/artifacts", () => {
+        calls++
+        return HttpResponse.json(calls > 1 ? fx.jobArtifacts : fx.jobArtifactsEmpty)
+      }),
+    )
+    await renderApp("/jobs/JOB-45")
+    expect(await screen.findByText("No artifacts.")).toBeInTheDocument()
+    expect(await screen.findByRole("list", { name: "Artifacts" }, { timeout: 8000 })).toBeInTheDocument()
+    expect(calls).toBeGreaterThan(1)
+  }, 15000)
 })

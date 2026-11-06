@@ -136,7 +136,7 @@ function Output({ output }: { output: unknown }) {
 
 /** The files a job produced, to download. An agent job shows the list only when it has files. */
 function Artifacts({ job }: { job: JobInfo }) {
-  const q = useArtifacts(job.ref)
+  const q = useArtifacts(job.ref, job.status === "running" || job.status === "queued")
   const command = job.kind === "command"
   if (!q.data) {
     return command && q.isError ? (
