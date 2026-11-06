@@ -1,0 +1,49 @@
+{
+  "sections": [
+    {
+      "name": "architecture",
+      "provider": "repo",
+      "provider_kind": "repo",
+      "paths": [
+        "docs/adr/**"
+      ],
+      "owner": "architect",
+      "protected": false
+    },
+    {
+      "name": "conventions",
+      "provider": "wiki",
+      "provider_kind": "confluence",
+      "instance": "acme.atlassian.net",
+      "paths": [
+        "ENG/Conventions"
+      ],
+      "owner": "human",
+      "protected": false
+    },
+    {
+      "name": "vision",
+      "provider": "repo",
+      "provider_kind": "repo",
+      "paths": [
+        "knowledge/vision/**"
+      ],
+      "owner": "human",
+      "protected": true
+    },
+    {
+      "name": "notes",
+      "provider": "internal",
+      "provider_kind": "internal",
+      "paths": [],
+      "protected": false
+    },
+    {
+      "name": "generated",
+      "paths": [],
+      "protected": false
+    }
+  ],
+  "entries": []
+}
+

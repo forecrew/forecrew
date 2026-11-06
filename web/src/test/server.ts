@@ -1,5 +1,8 @@
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
+import assumptionRegister from "./fixtures/assumption-register.json"
+import assumptionRegisterEmpty from "./fixtures/assumption-register-empty.json"
+import assumptionRegisterResolve from "./fixtures/assumption-register-resolve.json"
 import assumptions from "./fixtures/assumptions.json"
 import assumptionResolve from "./fixtures/assumption-resolve.json"
 import councilConstraint from "./fixtures/council-constraint.json"
@@ -14,6 +17,16 @@ import councilsEmpty from "./fixtures/councils-empty.json"
 import decisions from "./fixtures/decisions.json"
 import decisionsEmpty from "./fixtures/decisions-empty.json"
 import gatesCouncil from "./fixtures/gates-council.json"
+import knowledgeEntries from "./fixtures/knowledge-entries.json"
+import knowledgeEntriesEmpty from "./fixtures/knowledge-entries-empty.json"
+import knowledgeNoteDelete from "./fixtures/knowledge-note-delete.json"
+import knowledgeNotes from "./fixtures/knowledge-notes.json"
+import knowledgeProposals from "./fixtures/knowledge-proposals.json"
+import knowledgeProposalsEmpty from "./fixtures/knowledge-proposals-empty.json"
+import knowledgePropose from "./fixtures/knowledge-propose.json"
+import knowledgeSearch from "./fixtures/knowledge-search.json"
+import knowledgeSearchEmpty from "./fixtures/knowledge-search-empty.json"
+import trace from "./fixtures/trace.json"
 import gateApprove from "./fixtures/gate-approve.json"
 import gateReject from "./fixtures/gate-reject.json"
 import gateRequestChanges from "./fixtures/gate-request-changes.json"
@@ -101,6 +114,19 @@ export const handlers = [
   http.post("/api/v1/councils/:ref/constraints", () => HttpResponse.json(councilConstraint)),
   http.get("/api/v1/assumptions", () => HttpResponse.json(assumptions)),
   http.post("/api/v1/assumptions/:ref/resolve", () => HttpResponse.json(assumptionResolve)),
+  http.get("/api/v1/trace", () => HttpResponse.json(trace)),
+  http.get("/api/v1/knowledge/entries", ({ request }) => {
+    const q = new URL(request.url).searchParams
+    const kind = q.get("kind")
+    const section = q.get("section")
+    return HttpResponse.json(
+      kind === "note" ? knowledgeNotes : { ...knowledgeEntries, entries: knowledgeEntries.entries.filter((e) => !section || e.section === section) },
+    )
+  }),
+  http.get("/api/v1/knowledge/proposals", () => HttpResponse.json(knowledgeProposals)),
+  http.post("/api/v1/knowledge/proposals", () => HttpResponse.json(knowledgePropose, { status: 201 })),
+  http.get("/api/v1/knowledge", () => HttpResponse.json(knowledgeSearch)),
+  http.delete("/api/v1/knowledge/notes/:id", () => HttpResponse.json(knowledgeNoteDelete)),
   http.get("/api/v1/decisions", ({ request }) => HttpResponse.json(new URL(request.url).searchParams.get("project") === "app" ? decisions : [])),
   http.get("/api/v1/gates", () => HttpResponse.json(gates)),
   http.post("/api/v1/gates/:ref/approve", () => HttpResponse.json(gateApprove)),
@@ -117,6 +143,8 @@ export const fx = {
   gateRequestChanges, gateReject, jobArtifacts, jobArtifactsEmpty, jobCommand, quality, qualityBaselineOnly, qualityEmpty, verification, tokens, tokensEmpty, tokenRevoke, tokenRevokeSelf,
   councils, councilsEmpty, councilRunning, councilDecided, councilFailed, councilPending, councilStart, councilConstraint,
   assumptions, assumptionResolve, decisions, decisionsEmpty, gatesCouncil,
+  trace, assumptionRegister, assumptionRegisterEmpty, assumptionRegisterResolve, knowledgeEntries, knowledgeEntriesEmpty, knowledgeNotes,
+  knowledgeNoteDelete, knowledgeProposals, knowledgeProposalsEmpty, knowledgePropose, knowledgeSearch, knowledgeSearchEmpty,
 }
 
 /** The recorded error answers. */

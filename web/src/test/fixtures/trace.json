@@ -1,0 +1,193 @@
+{
+  "focus": "TASK-12",
+  "goal": "GOAL-3",
+  "nodes": [
+    {
+      "id": "GOAL-3",
+      "kind": "goal",
+      "title": "Sign in with an email link",
+      "status": "in_progress",
+      "summary": "Let users sign in without a password.",
+      "url": "https://github.com/acme/app/issues/5",
+      "at": "2026-03-01T07:00:00Z"
+    },
+    {
+      "id": "COUNCIL-1",
+      "kind": "council",
+      "title": "Which mailer?",
+      "status": "decided",
+      "summary": "Use the existing mailer.",
+      "at": "2026-03-01T07:10:00Z",
+      "attrs": {
+        "kind": "technical"
+      }
+    },
+    {
+      "id": "SPEC-1",
+      "kind": "spec",
+      "title": "Spec revision 1",
+      "summary": "Users can sign in with an email link.",
+      "at": "2026-03-01T07:20:00Z"
+    },
+    {
+      "id": "SPEC-2",
+      "kind": "spec",
+      "title": "Spec revision 2",
+      "summary": "Say what happens to expired links.",
+      "at": "2026-03-01T07:50:00Z"
+    },
+    {
+      "id": "DEC-1",
+      "kind": "decision",
+      "title": "Which mailer?",
+      "status": "existing mailer",
+      "summary": "It is already in production.",
+      "at": "2026-03-01T07:30:00Z",
+      "attrs": {
+        "decided_by": "user:ana"
+      }
+    },
+    {
+      "id": "DEC-2",
+      "kind": "decision",
+      "title": "Approve the spec",
+      "status": "approved",
+      "at": "2026-03-01T08:00:00Z",
+      "attrs": {
+        "decided_by": "mcp:laptop"
+      }
+    },
+    {
+      "id": "TASK-12",
+      "kind": "task",
+      "title": "Send the sign-in link",
+      "status": "merged",
+      "url": "https://github.com/acme/app/issues/6",
+      "at": "2026-03-01T08:40:00Z"
+    },
+    {
+      "id": "acme/app#9",
+      "kind": "change",
+      "title": "Pull request #9",
+      "status": "merged",
+      "url": "https://github.com/acme/app/pull/9",
+      "at": "2026-03-01T10:20:00Z",
+      "attrs": {
+        "branch": "agent/task-12"
+      }
+    },
+    {
+      "id": "verification:acme/app#9",
+      "kind": "verification",
+      "title": "Verification of #9",
+      "status": "passed",
+      "at": "2026-03-01T11:00:00Z",
+      "attrs": {
+        "sha": "abc123"
+      }
+    },
+    {
+      "id": "merge:acme/app#9",
+      "kind": "merge",
+      "title": "Merged #9",
+      "status": "merged",
+      "url": "https://github.com/acme/app/pull/9",
+      "at": "2026-03-01T11:10:00Z"
+    },
+    {
+      "id": "A-4",
+      "kind": "assumption",
+      "title": "Links are sent by the existing mailer.",
+      "status": "unverified",
+      "at": "2026-03-01T08:00:00Z",
+      "attrs": {
+        "confidence": "medium",
+        "impact": "high",
+        "made_by": "architect",
+        "verify_by": "test"
+      }
+    },
+    {
+      "id": "A-5",
+      "kind": "assumption",
+      "title": "Admins \u003cb\u003enever\u003c/b\u003e sign in with a password.",
+      "status": "accepted",
+      "at": "2026-03-01T08:10:00Z",
+      "attrs": {
+        "confidence": "low",
+        "evidence": "Ana accepts the risk.",
+        "impact": "medium",
+        "made_by": "product-owner",
+        "verify_by": "ask-human"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "GOAL-3",
+      "to": "COUNCIL-1",
+      "label": "asked"
+    },
+    {
+      "from": "GOAL-3",
+      "to": "SPEC-1",
+      "label": "written"
+    },
+    {
+      "from": "SPEC-1",
+      "to": "SPEC-2",
+      "label": "revised"
+    },
+    {
+      "from": "COUNCIL-1",
+      "to": "DEC-1",
+      "label": "decided"
+    },
+    {
+      "from": "DEC-1",
+      "to": "SPEC-1",
+      "label": "informs"
+    },
+    {
+      "from": "SPEC-2",
+      "to": "DEC-2",
+      "label": "decided"
+    },
+    {
+      "from": "SPEC-2",
+      "to": "TASK-12",
+      "label": "planned"
+    },
+    {
+      "from": "TASK-12",
+      "to": "acme/app#9",
+      "label": "built"
+    },
+    {
+      "from": "acme/app#9",
+      "to": "verification:acme/app#9",
+      "label": "verified"
+    },
+    {
+      "from": "verification:acme/app#9",
+      "to": "merge:acme/app#9",
+      "label": "merged"
+    },
+    {
+      "from": "A-4",
+      "to": "TASK-12",
+      "label": "affects"
+    },
+    {
+      "from": "A-4",
+      "to": "GOAL-3",
+      "label": "affects"
+    },
+    {
+      "from": "A-5",
+      "to": "SPEC-2",
+      "label": "affects"
+    }
+  ]
+}
+

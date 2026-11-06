@@ -1,0 +1,22 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000110",
+    "kind": "entry",
+    "provider": "repo",
+    "section": "architecture",
+    "path": "docs/adr/0001-queue.md",
+    "title": "Jobs wait in Postgres",
+    "source_url": "https://github.com/acme/app/blob/main/docs/adr/0001-queue.md",
+    "snippet": "Jobs wait in a Postgres table.",
+    "untrusted": true,
+    "provenance": {
+      "author_role": "architect",
+      "source": "JOB-12",
+      "created": "2026-02-26T00:40:00Z",
+      "last_verified": "2026-02-26T17:20:00Z"
+    },
+    "needs_reverify": false,
+    "rank": 0.5
+  }
+]
+

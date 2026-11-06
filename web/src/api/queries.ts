@@ -1,6 +1,9 @@
 import { keepPreviousData, queryOptions, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { api } from "./client"
-import type { AssumptionStatus, CouncilStatus, GateInfo, GoalStatus, JobEvent, JobStatus, StartCouncilInput } from "./types"
+import type {
+  Assumption, AssumptionStatus, CouncilStatus, GateInfo, GoalStatus, JobEvent, JobStatus, KnowledgeKind, KnowledgeProposalStatus, Level,
+  StartCouncilInput,
+} from "./types"
 
 /** Lists refresh every 5 s. TanStack Query pauses polling while the tab is hidden. */
 export const POLL_MS = 5000
@@ -27,6 +30,11 @@ export const keys = {
   verification: (change: string, project: string) => ["verification", change, project] as const,
   workers: ["workers"] as const,
   tokens: ["tokens"] as const,
+  trace: (ref: string) => ["trace", ref] as const,
+  assumptionRegister: (project: string, status: string, impact: string) => ["assumption-register", project, status, impact] as const,
+  knowledge: (project: string, section: string, kind: string, provider: string, goal: string) => ["knowledge", project, section, kind, provider, goal] as const,
+  knowledgeSearch: (project: string, q: string, section: string, kind: string, provider: string) => ["knowledge-search", project, q, section, kind, provider] as const,
+  knowledgeProposals: (project: string, status: string) => ["knowledge-proposals", project, status] as const,
 }
 
 const poll = { refetchInterval: POLL_MS, refetchIntervalInBackground: false }
@@ -222,5 +230,73 @@ export function useDecide() {
     },
     onSettled: () =>
       Promise.all(["gates", "goal", "council", "councils", "decisions", "assumptions"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
+  })
+}
+
+export const useTrace = (ref: string) => useQuery({ queryKey: keys.trace(ref), queryFn: () => api.getTrace(ref), ...poll })
+
+/**
+ * The assumptions of one project, or of every project when none is chosen
+ * (the register lists a project at a time), by number within each.
+ */
+export const useAssumptionRegister = (project: string, status: AssumptionStatus | "", impact: Level | "") =>
+  useQuery({
+    queryKey: keys.assumptionRegister(project, status, impact),
+    queryFn: async (): Promise<Assumption[]> => {
+      const names = project ? [project] : (await api.listProjects()).map((p) => p.name)
+      const lists = await Promise.all(names.map((name) => api.listAssumptions({ project: name, status, impact })))
+      return lists.flat()
+    },
+    placeholderData: keepPreviousData,
+    ...poll,
+  })
+
+/** Verifies, accepts or invalidates an assumption; the register, traces and goals refresh, and so do the gates (a review gate is decided with it). */
+export function useResolveAssumption() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { ref: string; status: "verified" | "invalidated" | "accepted"; evidence?: string }) =>
+      api.resolveAssumption(v.ref, v.status, v.evidence),
+    onSettled: () => Promise.all(["assumption-register", "assumptions", "trace", "goal", "gates"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
+  })
+}
+
+export const useKnowledge = (project: string, f: { section?: string; kind?: KnowledgeKind | ""; provider?: string; goal?: string } = {}) =>
+  useQuery({
+    queryKey: keys.knowledge(project, f.section ?? "", f.kind ?? "", f.provider ?? "", f.goal ?? ""),
+    queryFn: () => api.listKnowledge({ project, ...f }),
+    enabled: project !== "",
+    placeholderData: keepPreviousData,
+    ...poll,
+  })
+export const useKnowledgeSearch = (project: string, q: string, f: { section?: string; kind?: KnowledgeKind | ""; provider?: string } = {}) =>
+  useQuery({
+    queryKey: keys.knowledgeSearch(project, q, f.section ?? "", f.kind ?? "", f.provider ?? ""),
+    queryFn: () => api.searchKnowledge({ project, q, ...f }),
+    enabled: project !== "" && q.trim() !== "",
+  })
+export const useKnowledgeProposals = (project: string, status: KnowledgeProposalStatus | "" = "") =>
+  useQuery({
+    queryKey: keys.knowledgeProposals(project, status),
+    queryFn: () => api.listKnowledgeProposals({ project, status }),
+    enabled: project !== "",
+    ...poll,
+  })
+
+/** Proposes a change to a curated section; the proposals and the gates refresh. */
+export function useProposeKnowledge() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: api.proposeKnowledge,
+    onSettled: () => Promise.all(["knowledge-proposals", "gates"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
+  })
+}
+
+/** Deletes an agent note; the knowledge lists refresh. */
+export function useDeleteNote() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.deleteNote(id),
+    onSettled: () => Promise.all(["knowledge", "knowledge-search"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
   })
 }
