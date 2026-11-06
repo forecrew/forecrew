@@ -10,7 +10,6 @@ import (
 	"strings"
 	"uuid"
 
-	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
@@ -141,19 +140,6 @@ func (s *Service) sendPerGoal(ctx context.Context, policy knowledge.Policy, live
 	return nil
 }
 
-// gateProposals puts the proposals in review at gate g, in the transaction
-// that stores it: its decision must find them.
-func gateProposals(ctx context.Context, tx store.Store, ks []domain.KnowledgeProposal, g domain.Gate) error {
-	for _, k := range ks {
-		from := k.Status
-		k.Status, k.GateID = domain.KnowledgeOpen, g.ID
-		if err := tx.KnowledgeProposals().Update(ctx, &k, from); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // livePerGoal returns the per_goal proposals of the goal that wait for its
 // learn step (queued), or were sent by an earlier try of it (open), after the
 // policy of this moment was applied again: the ones it no longer allows, or
@@ -163,29 +149,18 @@ func (s *Service) livePerGoal(ctx context.Context, goal domain.Goal, policy know
 	if err != nil {
 		return nil, err
 	}
-	var live []domain.KnowledgeProposal
+	var open []domain.KnowledgeProposal
 	for _, k := range all {
-		if k.Status != domain.KnowledgeQueued && k.Status != domain.KnowledgeOpen {
-			continue
+		if k.Status == domain.KnowledgeQueued || k.Status == domain.KnowledgeOpen {
+			open = append(open, k)
 		}
-		t, err := policy.Target(k.Section, k.Path, k.ProposedBy)
-		if err == nil && t.Protected && k.Status == domain.KnowledgeQueued {
-			err = fmt.Errorf("section %s is protected now, and its changes go to a human on their own: %w", k.Section, knowledge.ErrRefused)
-		}
-		if errors.Is(err, knowledge.ErrRefused) {
-			in := Input{Section: k.Section, Path: k.Path, Action: k.Action}
-			if err := errors.Join(s.drop(ctx, s.Store, k.AccountID, k.ProjectID, "knowledge_proposal", k.ID, in, k.ProposedBy, err),
-				s.finish(ctx, []domain.KnowledgeProposal{k}, domain.KnowledgeRejected, err.Error())); err != nil {
-				return nil, err
-			}
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		live = append(live, k)
 	}
-	return live, nil
+	return s.recheck(ctx, policy, open, func(k domain.KnowledgeProposal, t knowledge.Target) error {
+		if t.Protected && k.Status == domain.KnowledgeQueued {
+			return fmt.Errorf("section %s is protected now, and its changes go to a human on their own: %w", k.Section, knowledge.ErrRefused)
+		}
+		return nil
+	})
 }
 
 // writeRegisters writes the register files that differ from the default
@@ -252,14 +227,7 @@ func learnSummary(goal domain.Goal, out Learned, ks []domain.KnowledgeProposal, 
 		}
 		b.WriteString("\n")
 	}
-	for _, k := range ks {
-		fmt.Fprintf(&b, "### %s: %s %s (section %s, provider %s)\n\nProposed by %s.\n\n", k.Ref(), k.Action, contextpack.OneLine(k.Path), k.Section, k.Provider, k.ProposedBy)
-		b.WriteString(contextpack.WrapUntrusted(k.Ref()+" reason", k.Reason))
-		if k.ChangeID == uuid.Nil() && k.Body != "" {
-			b.WriteString("\nThis provider has no review flow here: approving says you copied the change across.\n\n")
-			b.WriteString(contextpack.WrapUntrusted(k.Ref()+" body", k.Body))
-		}
-	}
+	writeProposals(&b, ks, func(k domain.KnowledgeProposal) bool { return k.ChangeID == uuid.Nil() })
 	return b.String()
 }
 
@@ -340,7 +308,7 @@ func (s *Service) LearnDecide(ctx context.Context, b LearnBatch, gate string) (L
 			return out, err
 		}
 		if g.Status != domain.GateApproved {
-			return out, s.rejectLearn(ctx, p, goal, ks, number, "rejected at "+g.Ref()+": "+g.Feedback)
+			return out, s.reject(ctx, p, ks, number, "the learn step of "+goal.Ref(), "rejected at "+g.Ref()+": "+g.Feedback)
 		}
 	}
 	var copied, repoKs []domain.KnowledgeProposal
@@ -384,30 +352,6 @@ func (s *Service) LearnDecide(ctx context.Context, b LearnBatch, gate string) (L
 	return out, nil
 }
 
-// rejectLearn closes the learn PR if it is open and rejects ks. A PR that was
-// merged meanwhile accepts them.
-func (s *Service) rejectLearn(ctx context.Context, p domain.Project, goal domain.Goal, ks []domain.KnowledgeProposal, number int, why string) error {
-	if number > 0 {
-		pr, err := s.GitHub.GetPR(ctx, p.Repo, number)
-		if err != nil {
-			return fmt.Errorf("get pull request %s#%d: %w", p.Repo, number, err)
-		}
-		if pr.Merged {
-			return s.finish(ctx, ks, domain.KnowledgeAccepted, "the pull request was merged")
-		}
-		if pr.State == "open" {
-			if _, err := s.GitHub.CreateComment(ctx, p.Repo, number, "The learn step of "+goal.Ref()+" was rejected: closing."); err != nil {
-				return err
-			}
-			closed := "closed"
-			if _, err := s.GitHub.UpdatePR(ctx, p.Repo, number, github.PRUpdate{State: &closed}); err != nil {
-				return fmt.Errorf("close pull request %s#%d: %w", p.Repo, number, err)
-			}
-		}
-	}
-	return s.finish(ctx, ks, domain.KnowledgeRejected, why)
-}
-
 // LearnSettle records how the learn step ended. failed is set when the run did
 // not get to the end: the PR is closed and what is still in review rejected.
 // Otherwise a merged PR accepts the proposals and a closed one rejects them.
@@ -417,20 +361,7 @@ func (s *Service) LearnSettle(ctx context.Context, b LearnBatch, failed bool) er
 		return err
 	}
 	if failed {
-		return s.rejectLearn(ctx, p, goal, ks, number, "the learn step did not finish")
+		return s.reject(ctx, p, ks, number, "the learn step of "+goal.Ref(), "the learn step did not finish")
 	}
-	if number == 0 {
-		return s.finish(ctx, ks, domain.KnowledgeAccepted, "a human copied the change across")
-	}
-	pr, err := s.GitHub.GetPR(ctx, p.Repo, number)
-	if err != nil {
-		return fmt.Errorf("get pull request %s#%d: %w", p.Repo, number, err)
-	}
-	switch {
-	case pr.Merged:
-		return s.finish(ctx, ks, domain.KnowledgeAccepted, "the pull request was merged")
-	case pr.State != "open":
-		return s.finish(ctx, ks, domain.KnowledgeRejected, "the pull request was closed")
-	}
-	return fmt.Errorf("pull request %s#%d of %s is still open", p.Repo, number, goal.Ref())
+	return s.settleAt(ctx, p, ks, number, goal.Ref())
 }
