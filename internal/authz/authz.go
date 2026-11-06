@@ -434,6 +434,17 @@ func (e *Engine) AuthorizeGate(ctx context.Context, by domain.Actor, g domain.Ga
 	return e.Authorize(ctx, by, p, res)
 }
 
+// AuthorizeProtectedKnowledge returns nil when by may change a protected
+// section of a project: the proposal of a person goes straight to a pull
+// request with them as its approver, so this is resolving a protected gate.
+func (e *Engine) AuthorizeProtectedKnowledge(ctx context.Context, by domain.Actor, projectID uuid.UUID) error {
+	p, res := domain.PermGateApproveKnowledgeProtected, Project(by.AccountID, projectID)
+	if !mayResolve(by) {
+		return e.deny(ctx, by, p, res)
+	}
+	return e.Authorize(ctx, by, p, res)
+}
+
 // Covers returns nil when by holds every permission of role on res, the rule
 // of No escalation: nobody gives a permission they lack or acts on someone
 // who holds more than they do. Otherwise the error wraps ErrDenied and names

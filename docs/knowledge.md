@@ -275,7 +275,7 @@ sections, and the strictest owner wins:
 
 | Owner of a section | What happens |
 |--------------------|--------------|
-| protected, or `human` | A `knowledge_proposal` gate on the PR; approving merges it. |
+| protected, or `human` | A `knowledge_proposal` gate on the PR; approving merges it. Resolving it needs `gate.approve.knowledge_protected` for a protected section, else `gate.approve.knowledge`. |
 | a role | A read-only review job of that role on the branch, answering with the reviewer's verdict. `approve` merges it after the checks; any other verdict, or a review that cannot be read, opens the human gate. A role the project does not have counts as `human`. |
 | `codeowners` | Nothing of Forecrew's own: GitHub requests the CODEOWNERS reviewers for the changed paths and a human merges. The branch rules must allow PRs from the App, and must not stop a reviewer from merging. |
 
@@ -289,7 +289,8 @@ escalates too, and a human closes the PR or merges it on GitHub.
 
 **Humans** use `propose_knowledge`: straight to a PR `agent/kb-KB-n`, no job
 and no gate, merged on GitHub like any PR. For a protected section the caller
-is recorded as approver (`knowledge.proposal_approved` and a PR comment).
+needs `gate.approve.knowledge_protected` and is recorded as approver
+(`knowledge.proposal_approved` and a PR comment).
 
 ## Access requests
 

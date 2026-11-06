@@ -460,6 +460,29 @@ func TestKnowledgeGatesFollowTheirProposals(t *testing.T) {
 	}
 }
 
+func TestAuthorizeProtectedKnowledge(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	maintainer, id := f.user(t)
+	testkit.Bind(t, f.st, f.account, domain.SubjectUser, id, domain.RoleScopeProject, domain.RoleMaintainer, f.app.ID)
+	must(t, f.engine.AuthorizeProtectedKnowledge(ctx, maintainer, f.app.ID))
+	if err := f.engine.AuthorizeProtectedKnowledge(ctx, maintainer, f.api.ID); !errors.Is(err, authz.ErrDenied) {
+		t.Errorf("another project: %v", err)
+	}
+	contributor, cid := f.user(t)
+	testkit.Bind(t, f.st, f.account, domain.SubjectUser, cid, domain.RoleScopeProject, domain.RoleContributor, f.app.ID)
+	if err := f.engine.AuthorizeProtectedKnowledge(ctx, contributor, f.app.ID); !errors.Is(err, authz.ErrDenied) {
+		t.Errorf("contributor: %v", err)
+	}
+	sa := domain.ServiceAccount{AccountID: f.account, Name: "ci", CreatedBy: "user:op"}
+	must(t, f.st.ServiceAccounts().Create(ctx, &sa))
+	testkit.Bind(t, f.st, f.account, domain.SubjectServiceAccount, sa.ID, domain.RoleScopeProject, domain.RoleMaintainer, f.app.ID)
+	robot := domain.Actor{AccountID: f.account, Kind: domain.ActorServiceAccount, Name: sa.ID.String()}
+	if err := f.engine.AuthorizeProtectedKnowledge(ctx, robot, f.app.ID); !errors.Is(err, authz.ErrDenied) {
+		t.Errorf("service account: %v", err)
+	}
+}
+
 func TestDenialsOfWritesAreAudited(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()

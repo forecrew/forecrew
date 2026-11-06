@@ -70,7 +70,16 @@ func (s *Service) ProposeKnowledge(ctx context.Context, by domain.Actor, in mcp.
 	if err != nil {
 		return mcp.ProposeKnowledgeOutput{}, err
 	}
-	res, err := s.cfg.Proposals.Human(ctx, by, p, proposals.Input{Section: in.Section, Path: in.Path, Action: in.Action, Body: in.Body, Reason: in.Reason})
+	if err := s.allow(ctx, by, domain.PermKnowledgePropose, p.ID); err != nil {
+		return mcp.ProposeKnowledgeOutput{}, err
+	}
+	res, err := s.cfg.Proposals.Human(ctx, by, p, proposals.Input{Section: in.Section, Path: in.Path, Action: in.Action, Body: in.Body, Reason: in.Reason},
+		func(protected bool) error {
+			if !protected {
+				return nil
+			}
+			return s.authz.AuthorizeProtectedKnowledge(ctx, by, p.ID)
+		})
 	switch {
 	case errors.Is(err, proposals.ErrInvalid):
 		return mcp.ProposeKnowledgeOutput{}, fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)

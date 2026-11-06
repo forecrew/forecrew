@@ -83,6 +83,9 @@ func (e *env) job(t *testing.T, role string, goal uuid.UUID) domain.Job {
 	return j
 }
 
+// anyone lets every caller propose: who may is up to the tools.
+func anyone(bool) error { return nil }
+
 func add(section, path string) proposals.Input {
 	return proposals.Input{Section: section, Path: path, Action: domain.KnowledgeAdd, Body: "# New\n\nText.\n", Reason: "We learned it."}
 }
@@ -207,7 +210,7 @@ func TestGeneratedEntriesCannotBeProposedTo(t *testing.T) {
 			t.Errorf("%s %s: err = %v", in.Action, in.Path, err)
 		}
 		by := domain.Actor{AccountID: e.account, Kind: domain.ActorUser, Name: "ana"}
-		if _, err := e.svc.Human(ctx, by, e.project, in); !errors.Is(err, proposals.ErrInvalid) {
+		if _, err := e.svc.Human(ctx, by, e.project, in, anyone); !errors.Is(err, proposals.ErrInvalid) {
 			t.Errorf("human %s %s: err = %v", in.Action, in.Path, err)
 		}
 	}
@@ -517,9 +520,9 @@ func TestPRClosed(t *testing.T) {
 	e := newEnv(t)
 	ctx := t.Context()
 	by := domain.Actor{AccountID: e.account, Kind: domain.ActorUser, Name: "ana"}
-	merged, err := e.svc.Human(ctx, by, e.project, add("architecture", "docs/adr/2.md"))
+	merged, err := e.svc.Human(ctx, by, e.project, add("architecture", "docs/adr/2.md"), anyone)
 	must(t, err)
-	closed, err := e.svc.Human(ctx, by, e.project, add("architecture", "docs/adr/3.md"))
+	closed, err := e.svc.Human(ctx, by, e.project, add("architecture", "docs/adr/3.md"), anyone)
 	must(t, err)
 	must(t, e.svc.PRClosed(ctx, e.account, "acme/app", merged.Number, true))
 	must(t, e.svc.PRClosed(ctx, e.account, "acme/app", closed.Number, false))
@@ -538,7 +541,7 @@ func TestHumanProposal(t *testing.T) {
 	ctx := t.Context()
 	by := domain.Actor{AccountID: e.account, Kind: domain.ActorUser, Name: "ana"}
 
-	res, err := e.svc.Human(ctx, by, e.project, add("vision", "knowledge/vision/a.md"))
+	res, err := e.svc.Human(ctx, by, e.project, add("vision", "knowledge/vision/a.md"), anyone)
 	must(t, err)
 	if res.Number == 0 || res.URL == "" || res.Proposal.Status != domain.KnowledgeOpen || res.Proposal.ProposedBy != by.String() {
 		t.Fatalf("result = %+v", res)
@@ -560,12 +563,12 @@ func TestHumanProposal(t *testing.T) {
 	}
 
 	// Not protected: nobody is recorded. The action follows from the index.
-	res, err = e.svc.Human(ctx, by, e.project, proposals.Input{Section: "architecture", Path: "docs/adr/1.md", Body: "# Better\n", Reason: "r"})
+	res, err = e.svc.Human(ctx, by, e.project, proposals.Input{Section: "architecture", Path: "docs/adr/1.md", Body: "# Better\n", Reason: "r"}, anyone)
 	must(t, err)
 	if res.Proposal.Action != domain.KnowledgeEdit || len(e.audited(t, "knowledge.proposal_approved")) != 1 {
 		t.Errorf("result = %+v", res)
 	}
-	res, err = e.svc.Human(ctx, by, e.project, proposals.Input{Section: "architecture", Path: "docs/adr/7.md", Body: "# New\n", Reason: "r"})
+	res, err = e.svc.Human(ctx, by, e.project, proposals.Input{Section: "architecture", Path: "docs/adr/7.md", Body: "# New\n", Reason: "r"}, anyone)
 	must(t, err)
 	if res.Proposal.Action != domain.KnowledgeAdd {
 		t.Errorf("result = %+v", res)
@@ -577,7 +580,7 @@ func TestHumanProposal(t *testing.T) {
 		"no review flow":  add("runbooks", "space:ENG/page:1"),
 		"no reason":       {Section: "architecture", Path: "docs/adr/8.md", Body: "x"},
 	} {
-		if _, err := e.svc.Human(ctx, by, e.project, in); !errors.Is(err, proposals.ErrInvalid) {
+		if _, err := e.svc.Human(ctx, by, e.project, in, anyone); !errors.Is(err, proposals.ErrInvalid) {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}
@@ -595,7 +598,7 @@ func TestHumanProposalThatCannotBeSentIsRejected(t *testing.T) {
 	e := newEnv(t)
 	e.svc.GitHub = failingTracker{e.tracker}
 	by := domain.Actor{AccountID: e.account, Kind: domain.ActorUser, Name: "ana"}
-	if _, err := e.svc.Human(t.Context(), by, e.project, add("architecture", "docs/adr/2.md")); err == nil {
+	if _, err := e.svc.Human(t.Context(), by, e.project, add("architecture", "docs/adr/2.md"), anyone); err == nil {
 		t.Fatal("want an error")
 	}
 	rows, err := e.st.KnowledgeProposals().List(t.Context(), e.account, store.KnowledgeProposalFilter{})
@@ -629,6 +632,27 @@ func TestJobCompletedStartsOneRunPerProvider(t *testing.T) {
 		if r.Playbook != proposals.PlaybookProposal || !strings.Contains(string(r.Inputs), j.ID.String()) {
 			t.Errorf("run = %+v", r)
 		}
+	}
+}
+
+func TestHumanAsksBeforeAnythingIsStored(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	by := domain.Actor{AccountID: e.account, Kind: domain.ActorUser, Name: "ana"}
+	refused := errors.New("refused")
+	var told []bool
+	check := func(protected bool) error { told = append(told, protected); return refused }
+	if _, err := e.svc.Human(ctx, by, e.project, add("vision", "knowledge/vision/a.md"), check); !errors.Is(err, refused) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := e.svc.Human(ctx, by, e.project, add("architecture", "docs/adr/2.md"), check); !errors.Is(err, refused) {
+		t.Fatalf("err = %v", err)
+	}
+	if len(told) != 2 || !told[0] || told[1] {
+		t.Errorf("told = %v", told)
+	}
+	if got, _ := e.st.KnowledgeProposals().List(ctx, e.account, store.KnowledgeProposalFilter{}); len(got) != 0 {
+		t.Errorf("stored %+v", got)
 	}
 }
 
