@@ -2,14 +2,17 @@ package playbooks_test
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/testsys"
 	"github.com/forecrew/forecrew/internal/workflow"
@@ -200,4 +203,117 @@ steps:
 	if !slices.Equal(reqs[2].Needs, []string{"win", "windows"}) {
 		t.Errorf("needs = %v", reqs[2].Needs)
 	}
+}
+
+// only_runnable keeps the jobs an online worker of the pool has the labels
+// for and names the others.
+func TestMatrixPlanOnlyRunnable(t *testing.T) {
+	v := newEnv(t)
+	v.setMatrix(t, "abc")
+	with := map[string]any{"repo": "acme/app", "ref": "abc", "scope": "all", "only_runnable": true}
+	plan := func() map[string]any {
+		out, err := v.call(t, "matrix.plan", with)
+		must(t, err)
+		return toMap(t, out)
+	}
+	addWorker := func(name, pool string, labels ...string) uuid.UUID {
+		w := domain.Worker{AccountID: v.account, Name: name, Pool: pool, TokenHash: []byte(name)}
+		must(t, v.st.Workers().Create(t.Context(), &w))
+		must(t, v.st.Workers().Seen(t.Context(), v.account, w.ID, labels, "1"))
+		return w.ID
+	}
+
+	// Nobody is online: every job is out, and the text names the labels.
+	m := plan()
+	if got := keys(t, m["jobs"]); len(got) != 0 {
+		t.Fatalf("jobs = %v", got)
+	}
+	if got := keys(t, m["unrunnable"]); !slices.Equal(got, []string{"os=linux/unit", "os=linux/smoke", "os=windows/unit"}) {
+		t.Errorf("unrunnable = %v", got)
+	}
+	for _, want := range []string{"- no online worker in pool build has the labels lin, linux: os=linux/unit, os=linux/smoke", "- no online worker in pool build has the labels win, windows: os=windows/unit"} {
+		if !strings.Contains(m["missing"].(string), want) {
+			t.Errorf("missing = %q, want %q", m["missing"], want)
+		}
+	}
+
+	// A worker of another pool, or lacking a label, does not help.
+	addWorker("ctl", "control", "lin", "linux")
+	addWorker("half", "", "lin")
+	if got := keys(t, plan()["jobs"]); len(got) != 0 {
+		t.Errorf("jobs = %v", got)
+	}
+
+	addWorker("linux-box", "", "lin", "linux", "go")
+	m = plan()
+	if got := keys(t, m["jobs"]); !slices.Equal(got, []string{"os=linux/unit", "os=linux/smoke"}) {
+		t.Errorf("jobs = %v", got)
+	}
+	if got := keys(t, m["unrunnable"]); !slices.Equal(got, []string{"os=windows/unit"}) || !strings.Contains(m["missing"].(string), "win, windows") || strings.Contains(m["missing"].(string), "linux") {
+		t.Errorf("unrunnable = %v, missing %q", got, m["missing"])
+	}
+
+	// A worker that stopped polling is offline.
+	v.clock.Advance(domain.OnlineWindow + time.Second)
+	if got := keys(t, plan()["jobs"]); len(got) != 0 {
+		t.Errorf("jobs = %v", got)
+	}
+
+	// Without the option nothing is left out.
+	delete(with, "only_runnable")
+	m = plan()
+	if len(keys(t, m["jobs"])) != 3 || len(keys(t, m["unrunnable"])) != 0 || m["missing"] != "" {
+		t.Errorf("plan = %v", m)
+	}
+}
+
+// Jobs of pool actions need no worker, and a docker environment needs the
+// docker label.
+func TestMatrixPlanRunnableByPool(t *testing.T) {
+	v := newEnv(t)
+	m := `version: 1
+axes: {os: [linux, mac]}
+environments:
+  - {match: {os: mac}, environment: gh}
+  - {match: {}, environment: box}
+suites:
+  - {name: unit, command: [make, test], level: unit, reports: [unit.xml]}
+`
+	must(t, v.tracker.SetFile("acme/app", "abc", testsys.MatrixFile, []byte(m)))
+	must(t, v.tracker.SetFile("acme/app", "abc", testsys.EnvironmentsDir+"/gh.yaml", []byte("version: 1\nname: gh\nprovider: actions\nruns_on: macos-latest\n")))
+	must(t, v.tracker.SetFile("acme/app", "abc", testsys.EnvironmentsDir+"/box.yaml", []byte("version: 1\nname: box\nprovider: docker\nimage: golang:1.27\n")))
+	with := map[string]any{"repo": "acme/app", "ref": "abc", "scope": "all", "only_runnable": true}
+	out, err := v.call(t, "matrix.plan", with)
+	must(t, err)
+	got := toMap(t, out)
+	if jobs := keys(t, got["jobs"]); !slices.Equal(jobs, []string{"os=mac/unit"}) || !strings.Contains(got["missing"].(string), "the labels docker, linux: os=linux/unit") {
+		t.Fatalf("jobs = %v, missing %q", jobs, got["missing"])
+	}
+	w := domain.Worker{AccountID: v.account, Name: "w", TokenHash: []byte("w")}
+	must(t, v.st.Workers().Create(t.Context(), &w))
+	must(t, v.st.Workers().Seen(t.Context(), v.account, w.ID, []string{"docker", "linux"}, "1"))
+	out, err = v.call(t, "matrix.plan", with)
+	must(t, err)
+	if jobs := keys(t, toMap(t, out)["jobs"]); len(jobs) != 2 {
+		t.Errorf("jobs = %v", jobs)
+	}
+}
+
+func TestMatrixPlanWorkersFail(t *testing.T) {
+	v := newEnv(t)
+	v.setMatrix(t, "abc")
+	v.st = failingWorkers{Store: v.st}
+	v.register()
+	_, err := v.call(t, "matrix.plan", map[string]any{"repo": "acme/app", "ref": "abc", "scope": "all", "only_runnable": true})
+	wantErr(t, err, "list workers")
+}
+
+type failingWorkers struct{ store.Store }
+
+func (failingWorkers) Workers() store.WorkerRepo { return brokenWorkers{} }
+
+type brokenWorkers struct{ store.WorkerRepo }
+
+func (brokenWorkers) List(context.Context, uuid.UUID) ([]domain.Worker, error) {
+	return nil, errors.New("db down")
 }
