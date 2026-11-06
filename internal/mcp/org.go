@@ -15,6 +15,9 @@ const (
 	ToolRemoveMember       = "remove_member"
 	ToolUpdateOrganization = "update_organization"
 	ToolListAudit          = "list_audit"
+	ToolListConnections    = "list_connections"
+	ToolCreateConnection   = "create_connection"
+	ToolSetConnection      = "set_connection_enabled"
 )
 
 // OrgService manages the organization and its members. Every change obeys
@@ -35,6 +38,15 @@ type OrgService interface {
 	UpdateOrganization(ctx context.Context, by domain.Actor, in UpdateOrganizationInput) (domain.Account, error)
 	// ListAudit lists the audit log, newest first.
 	ListAudit(ctx context.Context, by domain.Actor, in ListAuditInput) ([]AuditInfo, error)
+	// ListConnections lists the ways to sign in: the organization's own and
+	// the instance's, which come from the server file.
+	ListConnections(ctx context.Context, by domain.Actor) ([]ConnectionInfo, error)
+	// CreateConnection adds a sign-in connection of the organization, turned
+	// off until a test sign-in has worked.
+	CreateConnection(ctx context.Context, by domain.Actor, in CreateConnectionInput) (ConnectionInfo, error)
+	// SetConnectionEnabled turns an organization's connection on, which needs
+	// a test sign-in that worked, or off.
+	SetConnectionEnabled(ctx context.Context, by domain.Actor, in SetConnectionInput) (ConnectionInfo, error)
 }
 
 // MemberRole is a role a member holds directly.
@@ -96,4 +108,37 @@ type ListAuditInput struct {
 type AuditInfo struct {
 	domain.AuditEntry
 	ActorName string `json:"actor_name,omitempty"`
+}
+
+// ConnectionInfo is a sign-in connection. An instance connection comes
+// without its client ID and secret reference.
+type ConnectionInfo struct {
+	domain.Connection
+	Instance bool `json:"instance"` // from the server file, not changed here
+	// Tested says a test sign-in worked; an organization's connection can be
+	// enabled only once it has.
+	Tested bool `json:"tested"`
+	// RedirectURL is what the identity provider must allow as redirect address.
+	RedirectURL string `json:"redirect_url"`
+	// TestURL starts a test sign-in in the browser; only for an organization's
+	// connection.
+	TestURL string `json:"test_url,omitempty"`
+}
+
+// CreateConnectionInput is the input of create_connection.
+type CreateConnectionInput struct {
+	Kind   domain.ConnectionKind `json:"kind"`             // github, google, microsoft or oidc
+	Name   string                `json:"name"`             // lowercase, unique in the organization
+	Issuer string                `json:"issuer,omitempty"` // https URL; empty for github and google
+	// ClientID is the OAuth client ID registered at the provider.
+	ClientID string `json:"client_id"`
+	// ClientSecretRef names where forecrewd reads the client secret:
+	// env:FORECREW_CONN_NAME or secret:conn-name. It is never the secret.
+	ClientSecretRef string `json:"client_secret_ref"`
+}
+
+// SetConnectionInput is the input of set_connection_enabled.
+type SetConnectionInput struct {
+	Connection string `json:"connection"` // name or UUID
+	Enabled    bool   `json:"enabled"`
 }

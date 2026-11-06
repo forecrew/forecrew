@@ -324,3 +324,125 @@ func (s *Service) actorNames(ctx context.Context, accountID uuid.UUID, entries [
 	}
 	return names, nil
 }
+
+// connectionInfo describes c. An instance connection comes from the server
+// file and does not tell its client ID and secret reference.
+func (s *Service) connectionInfo(c domain.Connection, tested map[uuid.UUID]bool) mcp.ConnectionInfo {
+	base := strings.TrimRight(s.cfg.PublicURL, "/") + "/auth/" + c.ID.String()
+	info := mcp.ConnectionInfo{Connection: c, Instance: c.AccountID == uuid.Nil(), Tested: tested[c.ID], RedirectURL: base + "/callback"}
+	if info.Instance {
+		info.ClientID, info.ClientSecretRef = "", ""
+	} else {
+		info.TestURL = base + "/login?test=1"
+	}
+	return info
+}
+
+// testedConnections returns the connections of the organization with a
+// test sign-in that worked.
+func (s *Service) testedConnections(ctx context.Context, accountID uuid.UUID) (map[uuid.UUID]bool, error) {
+	entries, err := s.cfg.Store.Audit().List(ctx, accountID, store.AuditFilter{Action: "connection.tested"})
+	if err != nil {
+		return nil, err
+	}
+	tested := map[uuid.UUID]bool{}
+	for _, e := range entries {
+		tested[e.SubjectID] = true
+	}
+	return tested, nil
+}
+
+// ListConnections implements mcp.ToolService.
+func (s *Service) ListConnections(ctx context.Context, by domain.Actor) ([]mcp.ConnectionInfo, error) {
+	if err := s.allowOrg(ctx, by, domain.PermConnectionManage); err != nil {
+		return nil, err
+	}
+	own, err := s.cfg.Store.Connections().List(ctx, by.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	instance, err := s.cfg.Store.Connections().List(ctx, uuid.Nil())
+	if err != nil {
+		return nil, err
+	}
+	tested, err := s.testedConnections(ctx, by.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcp.ConnectionInfo, 0, len(instance)+len(own))
+	for _, c := range slices.Concat(instance, own) {
+		out = append(out, s.connectionInfo(c, tested))
+	}
+	return out, nil
+}
+
+// CreateConnection implements mcp.ToolService. It never sets JIT or a group
+// claim: those are enterprise, and what a connection trusts is subject to No
+// escalation.
+func (s *Service) CreateConnection(ctx context.Context, by domain.Actor, in mcp.CreateConnectionInput) (mcp.ConnectionInfo, error) {
+	if err := s.allowOrg(ctx, by, domain.PermConnectionManage); err != nil {
+		return mcp.ConnectionInfo{}, err
+	}
+	c := domain.Connection{AccountID: by.AccountID, Kind: in.Kind, Name: in.Name, Issuer: strings.TrimSpace(in.Issuer), ClientID: strings.TrimSpace(in.ClientID), ClientSecretRef: in.ClientSecretRef}
+	if err := c.Validate(); err != nil {
+		return mcp.ConnectionInfo{}, fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
+	}
+	err := s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		if err := tx.Connections().Create(ctx, &c); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, by, uuid.Nil(), "connection.created", "connection", c.ID, map[string]any{"name": c.Name, "kind": c.Kind, "issuer": c.Issuer})
+	})
+	if err != nil {
+		return mcp.ConnectionInfo{}, conflict(err, "a connection named "+c.Name+" exists")
+	}
+	return s.connectionInfo(c, nil), nil
+}
+
+// SetConnectionEnabled implements mcp.ToolService.
+func (s *Service) SetConnectionEnabled(ctx context.Context, by domain.Actor, in mcp.SetConnectionInput) (mcp.ConnectionInfo, error) {
+	if err := s.allowOrg(ctx, by, domain.PermConnectionManage); err != nil {
+		return mcp.ConnectionInfo{}, err
+	}
+	if in.Connection == "" {
+		return mcp.ConnectionInfo{}, fmt.Errorf("connection is required: %w", mcp.ErrInvalidInput)
+	}
+	own, err := s.cfg.Store.Connections().List(ctx, by.AccountID)
+	if err != nil {
+		return mcp.ConnectionInfo{}, err
+	}
+	i := slices.IndexFunc(own, func(c domain.Connection) bool { return c.ID.String() == in.Connection || c.Name == in.Connection })
+	if i < 0 {
+		instance, err := s.cfg.Store.Connections().List(ctx, uuid.Nil())
+		if err != nil {
+			return mcp.ConnectionInfo{}, err
+		}
+		if slices.ContainsFunc(instance, func(c domain.Connection) bool { return c.ID.String() == in.Connection || c.Name == in.Connection }) {
+			return mcp.ConnectionInfo{}, fmt.Errorf("connection %s comes from the server file and is not changed here: %w", in.Connection, mcp.ErrInvalidInput)
+		}
+		return mcp.ConnectionInfo{}, fmt.Errorf("connection %s: %w", in.Connection, mcp.ErrNotFound)
+	}
+	c := own[i]
+	tested, err := s.testedConnections(ctx, by.AccountID)
+	if err != nil {
+		return mcp.ConnectionInfo{}, err
+	}
+	if in.Enabled && !tested[c.ID] {
+		return mcp.ConnectionInfo{}, fmt.Errorf("connection %s has no test sign-in that worked yet: open its test_url and sign in once: %w", c.Name, mcp.ErrConflict)
+	}
+	c.Enabled = in.Enabled
+	action := "connection.disabled"
+	if in.Enabled {
+		action = "connection.enabled"
+	}
+	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		if err := tx.Connections().Update(ctx, &c); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, by, uuid.Nil(), action, "connection", c.ID, map[string]any{"name": c.Name})
+	})
+	if err != nil {
+		return mcp.ConnectionInfo{}, err
+	}
+	return s.connectionInfo(c, tested), nil
+}

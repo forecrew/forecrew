@@ -1199,3 +1199,59 @@ func (f *fixture) newBrowser2KeepRedirect() {
 	f.newBrowser()
 	f.browser.CheckRedirect = hook
 }
+
+// A connection is tested before it is enabled: an administrator of its
+// organization signs in through it, sees what the provider says, nobody is
+// signed in, and the test is audited.
+func TestConnectionTestSignIn(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	admin := f.member("ana@acme.example")
+	testkit.Bind(t, f.st, f.org.ID, domain.SubjectUser, admin.ID, domain.RoleScopeOrganization, domain.RoleAdmin, uuid.Nil())
+	plain := f.member("pia@acme.example")
+	conn := domain.Connection{AccountID: f.org.ID, Kind: domain.ConnectionOIDC, Name: "okta", Issuer: f.oidc.URL, ClientID: clientID, ClientSecretRef: "env:" + secretEnv}
+	must(t, f.st.Connections().Create(ctx, &conn))
+
+	// Nobody is signed in: refused, and a disabled connection is no sign-in.
+	if status, _ := f.signIn(conn, "?test=1"); status != http.StatusForbidden {
+		t.Fatalf("test without a session = %d", status)
+	}
+	if status, _ := f.signIn(conn, ""); status != http.StatusNotFound {
+		t.Fatalf("a disabled connection signs in = %d", status)
+	}
+
+	// An administrator signs in through the instance connection first.
+	f.claims("sub-admin", "ana@acme.example", true)
+	f.signIn(f.inst, "")
+	session := f.sessionToken()
+	f.claims("sub-test", "someone@okta.example", true)
+	status, body := f.signIn(conn, "?test=1")
+	if status != http.StatusOK || !strings.Contains(body, "Sign-in works") || !strings.Contains(body, "someone@okta.example") {
+		t.Fatalf("test = %d %s", status, body)
+	}
+	if f.sessionToken() != session {
+		t.Error("the test changed the session")
+	}
+	if _, err := f.st.Identities().GetBySubject(ctx, conn.ID, "sub-test"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("the test linked an identity: %v", err)
+	}
+	entries, err := f.st.Audit().List(ctx, f.org.ID, store.AuditFilter{Action: "connection.tested"})
+	if err != nil || len(entries) != 1 || entries[0].SubjectID != conn.ID || entries[0].Actor != "user:"+admin.ID.String() {
+		t.Fatalf("audit = %+v, %v", entries, err)
+	}
+
+	// A member without connection.manage, and a connection of the instance, are refused.
+	f.newBrowser()
+	f.claims("sub-plain", "pia@acme.example", true)
+	f.signIn(f.inst, "")
+	if status, _ := f.signIn(conn, "?test=1"); status != http.StatusForbidden {
+		t.Errorf("test by a member = %d", status)
+	}
+	_ = plain
+	f.newBrowser()
+	f.claims("sub-admin", "ana@acme.example", true)
+	f.signIn(f.inst, "")
+	if status, _ := f.signIn(f.inst, "?test=1"); status != http.StatusForbidden {
+		t.Errorf("test of an instance connection = %d", status)
+	}
+}

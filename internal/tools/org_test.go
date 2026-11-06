@@ -1,6 +1,7 @@
 package tools_test
 
 import (
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/tools"
 )
 
 // named adds a member with a name and an email.
@@ -256,4 +258,72 @@ func TestListAudit(t *testing.T) {
 	}
 	_, err = f.svc.ListAudit(ctx, viewer, mcp.ListAuditInput{})
 	wantErr(t, err, authz.ErrDenied)
+}
+
+func TestConnectionTools(t *testing.T) {
+	f := newFixture(t, func(c *tools.Config) { c.PublicURL = "https://forecrew.example/" })
+	ctx := t.Context()
+	admin, _ := f.named(t, "ana", orgScope, domain.RoleAdmin, uuid.Nil())
+	viewer, _ := f.named(t, "vera", orgScope, domain.RoleViewer, uuid.Nil())
+	must(t, f.st.Connections().UpsertInstance(ctx, &domain.Connection{Kind: domain.ConnectionGitHub, Name: "github", ClientID: "secret-id", ClientSecretRef: "env:GITHUB_SECRET", Enabled: true}))
+	in := mcp.CreateConnectionInput{Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://acme.okta.com", ClientID: "c1", ClientSecretRef: "env:FORECREW_CONN_OKTA"}
+
+	c, err := f.svc.CreateConnection(ctx, admin, in)
+	must(t, err)
+	if c.Enabled || c.Tested || c.Instance || c.ClientSecretRef != in.ClientSecretRef ||
+		c.RedirectURL != "https://forecrew.example/auth/"+c.ID.String()+"/callback" || c.TestURL != "https://forecrew.example/auth/"+c.ID.String()+"/login?test=1" {
+		t.Fatalf("connection = %+v", c)
+	}
+	_, err = f.svc.CreateConnection(ctx, admin, in)
+	wantErr(t, err, mcp.ErrConflict)
+	for name, bad := range map[string]mcp.CreateConnectionInput{
+		"secret value":      {Kind: in.Kind, Name: "x", Issuer: in.Issuer, ClientID: "c", ClientSecretRef: "hunter2"},
+		"outside namespace": {Kind: in.Kind, Name: "x", Issuer: in.Issuer, ClientID: "c", ClientSecretRef: "env:DATABASE_URL"},
+		"http issuer":       {Kind: in.Kind, Name: "x", Issuer: "http://acme.okta.com", ClientID: "c", ClientSecretRef: in.ClientSecretRef},
+		"kind":              {Kind: "saml", Name: "x", ClientID: "c", ClientSecretRef: in.ClientSecretRef},
+	} {
+		if _, err := f.svc.CreateConnection(ctx, admin, bad); !errors.Is(err, mcp.ErrInvalidInput) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+
+	// Turning it on needs a test sign-in that worked.
+	_, err = f.svc.SetConnectionEnabled(ctx, admin, mcp.SetConnectionInput{Connection: "okta", Enabled: true})
+	wantErr(t, err, mcp.ErrConflict)
+	must(t, f.st.Audit().Append(ctx, &domain.AuditEntry{AccountID: f.account.ID, Actor: admin.String(), Action: "connection.tested", SubjectType: "connection", SubjectID: c.ID}))
+	on, err := f.svc.SetConnectionEnabled(ctx, admin, mcp.SetConnectionInput{Connection: c.ID.String(), Enabled: true})
+	must(t, err)
+	if !on.Enabled || !on.Tested {
+		t.Fatalf("enabled = %+v", on)
+	}
+	off, err := f.svc.SetConnectionEnabled(ctx, admin, mcp.SetConnectionInput{Connection: "okta"})
+	must(t, err)
+	if off.Enabled {
+		t.Fatalf("disabled = %+v", off)
+	}
+
+	list, err := f.svc.ListConnections(ctx, admin)
+	must(t, err)
+	if len(list) != 2 || !list[0].Instance || list[0].ClientID != "" || list[0].ClientSecretRef != "" || list[0].TestURL != "" || list[1].Name != "okta" || !list[1].Tested {
+		t.Fatalf("list = %+v", list)
+	}
+	_, err = f.svc.SetConnectionEnabled(ctx, admin, mcp.SetConnectionInput{Connection: "github", Enabled: false})
+	wantErr(t, err, mcp.ErrInvalidInput)
+	_, err = f.svc.SetConnectionEnabled(ctx, admin, mcp.SetConnectionInput{Connection: "ghost"})
+	wantErr(t, err, mcp.ErrNotFound)
+	_, err = f.svc.SetConnectionEnabled(ctx, admin, mcp.SetConnectionInput{})
+	wantErr(t, err, mcp.ErrInvalidInput)
+
+	for name, call := range map[string]func() error{
+		"list":   func() error { _, err := f.svc.ListConnections(ctx, viewer); return err },
+		"create": func() error { _, err := f.svc.CreateConnection(ctx, viewer, in); return err },
+		"set": func() error {
+			_, err := f.svc.SetConnectionEnabled(ctx, viewer, mcp.SetConnectionInput{Connection: "okta"})
+			return err
+		},
+	} {
+		if err := call(); !errors.Is(err, authz.ErrDenied) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
 }

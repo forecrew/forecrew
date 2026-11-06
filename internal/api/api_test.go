@@ -250,6 +250,11 @@ func TestEndpoints(t *testing.T) {
 		{"DELETE", "/api/v1/members/u1", "", 200, mcp.ToolRemoveMember, mcp.MemberRefInput{User: "u1"}},
 		{"GET", "/api/v1/audit?actor=user%3Ax&action=team.created&subject_type=team&subject=s&since=2026-01-01T00%3A00%3A00Z&until=2026-02-01T00%3A00%3A00Z&limit=5", "", 200, mcp.ToolListAudit,
 			mcp.ListAuditInput{Actor: "user:x", Action: "team.created", SubjectType: "team", Subject: "s", Since: "2026-01-01T00:00:00Z", Until: "2026-02-01T00:00:00Z", Limit: 5}},
+		{"GET", "/api/v1/connections", "", 200, mcp.ToolListConnections, nil},
+		{"POST", "/api/v1/connections", `{"kind":"oidc","name":"okta","issuer":"https://acme.okta.com","client_id":"c","client_secret_ref":"env:FORECREW_CONN_OKTA"}`, 201, mcp.ToolCreateConnection,
+			mcp.CreateConnectionInput{Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://acme.okta.com", ClientID: "c", ClientSecretRef: "env:FORECREW_CONN_OKTA"}},
+		{"POST", "/api/v1/connections/okta/enable", "", 200, mcp.ToolSetConnection, mcp.SetConnectionInput{Connection: "okta", Enabled: true}},
+		{"POST", "/api/v1/connections/okta/disable", "", 200, mcp.ToolSetConnection, mcp.SetConnectionInput{Connection: "okta"}},
 		{"PATCH", "/api/v1/organization", `{"name":"Acme Inc","slug":"acme-inc"}`, 200, mcp.ToolUpdateOrganization, mcp.UpdateOrganizationInput{Name: "Acme Inc", Slug: "acme-inc"}},
 	}
 	seen := map[string]bool{}
@@ -277,7 +282,7 @@ func TestEndpoints(t *testing.T) {
 
 func TestListsAreArrays(t *testing.T) {
 	e := newEnv(t)
-	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/machines", "/api/v1/shapes", "/api/v1/providers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts", "/api/v1/test-runs?sha=abc", "/api/v1/assumptions?project=app", "/api/v1/decisions?project=app", "/api/v1/knowledge?project=app&q=x", "/api/v1/members", "/api/v1/audit"} {
+	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/machines", "/api/v1/shapes", "/api/v1/providers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts", "/api/v1/test-runs?sha=abc", "/api/v1/assumptions?project=app", "/api/v1/decisions?project=app", "/api/v1/knowledge?project=app&q=x", "/api/v1/members", "/api/v1/audit", "/api/v1/connections"} {
 		if r := e.do(t, "GET", path, "", "bearer"); strings.TrimSpace(r.body) != "[]" {
 			t.Errorf("GET %s = %q, want []", path, r.body)
 		}

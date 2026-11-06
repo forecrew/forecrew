@@ -22,6 +22,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
@@ -81,9 +82,10 @@ type Config struct {
 
 // Service signs people in and resolves sessions.
 type Service struct {
-	cfg  Config
-	mu   sync.Mutex
-	oidc map[string]*oidc.Provider // by issuer: discovery and JWKS are cached
+	cfg   Config
+	authz *authz.Engine
+	mu    sync.Mutex
+	oidc  map[string]*oidc.Provider // by issuer: discovery and JWKS are cached
 }
 
 // New returns the service.
@@ -119,7 +121,7 @@ func New(cfg Config) *Service {
 		cfg.Auth.SessionAbsolute = config.DefaultSessionAbsolute
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
-	return &Service{cfg: cfg, oidc: map[string]*oidc.Provider{}}
+	return &Service{cfg: cfg, authz: authz.New(cfg.Store, cfg.Logger), oidc: map[string]*oidc.Provider{}}
 }
 
 // NewToken returns a random token: 32 bytes, base64url without padding.

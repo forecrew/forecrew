@@ -178,6 +178,7 @@ func Tools() []string {
 		ToolCreateProvider, ToolRevokeProvider, ToolCreateJoinCode, ToolListJoinCodes, ToolConfirmJoin,
 		ToolListMembers, ToolSetMemberSuspended, ToolRemoveMember, ToolUpdateOrganization,
 		ToolListAudit,
+		ToolListConnections, ToolCreateConnection, ToolSetConnection,
 	}
 }
 

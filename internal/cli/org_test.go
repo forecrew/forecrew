@@ -48,8 +48,35 @@ func TestMembersCommands(t *testing.T) {
 func TestAuditCommand(t *testing.T) {
 	e := newRemoteEnv(t)
 	e.svc.ListAuditFunc = func(context.Context, domain.Actor, mcp.ListAuditInput) ([]mcp.AuditInfo, error) {
-		return []mcp.AuditInfo{{AuditEntry: domain.AuditEntry{Actor: "user:x", Action: "team.created", SubjectType: "team\x1b[2J", SubjectID: domain.NewID()}, ActorName: "Ana"}}, nil
+		return []mcp.AuditInfo{{Actor: "user:x", Action: "team.created", SubjectType: "team\x1b[2J", SubjectID: domain.NewID(), ActorName: "Ana"}}, nil
 	}
 	e.check(t, []string{"audit", "--actor", "user:x", "--action", "team.created", "--subject-type", "team", "--subject", "s", "--since", "a", "--until", "b", "--limit", "5"}, "Ana    team.created  team [2J",
 		mcp.ToolListAudit, mcp.ListAuditInput{Actor: "user:x", Action: "team.created", SubjectType: "team", Subject: "s", Since: "a", Until: "b", Limit: 5})
+}
+
+func TestConnectionsCommands(t *testing.T) {
+	e := newRemoteEnv(t)
+	okta := mcp.ConnectionInfo{Name: "okta", Kind: domain.ConnectionOIDC, Issuer: "https://acme.okta.com", Enabled: true, Tested: true,
+		RedirectURL: "https://f.example/auth/1/callback", TestURL: "https://f.example/auth/1/login?test=1"}
+	gh := mcp.ConnectionInfo{Name: "github", Kind: domain.ConnectionGitHub, Instance: true}
+	e.svc.ListConnectionsFunc = func(context.Context, domain.Actor, any) ([]mcp.ConnectionInfo, error) {
+		return []mcp.ConnectionInfo{gh, okta}, nil
+	}
+	e.svc.CreateConnectionFunc = func(context.Context, domain.Actor, mcp.CreateConnectionInput) (mcp.ConnectionInfo, error) {
+		return okta, nil
+	}
+	e.svc.SetConnectionFunc = func(_ context.Context, _ domain.Actor, in mcp.SetConnectionInput) (mcp.ConnectionInfo, error) {
+		okta.Enabled = in.Enabled
+		return okta, nil
+	}
+	out, _, code := e.run(t, "connections")
+	for _, want := range []string{"github  github  -", "server file", "okta    oidc    https://acme.okta.com  on     yes     organization"} {
+		if code != 0 || !strings.Contains(out, want) {
+			t.Errorf("code %d, output lacks %q:\n%s", code, want, out)
+		}
+	}
+	e.check(t, []string{"connections", "add", "okta", "--issuer", "https://acme.okta.com", "--client-id", "c", "--secret-ref", "env:FORECREW_CONN_OKTA"},
+		"login?test=1", mcp.ToolCreateConnection, mcp.CreateConnectionInput{Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://acme.okta.com", ClientID: "c", ClientSecretRef: "env:FORECREW_CONN_OKTA"})
+	e.check(t, []string{"connections", "enable", "okta"}, "connection okta is on", mcp.ToolSetConnection, mcp.SetConnectionInput{Connection: "okta", Enabled: true})
+	e.check(t, []string{"connections", "disable", "okta"}, "connection okta is off", mcp.ToolSetConnection, mcp.SetConnectionInput{Connection: "okta"})
 }
