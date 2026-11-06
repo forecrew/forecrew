@@ -133,6 +133,12 @@ func TestServiceAccountsCommands(t *testing.T) {
 	e.check(t, []string{"service-accounts", "enable", "ci"}, "enabled", mcp.ToolSetServiceAccount, mcp.SetServiceAccountInput{ServiceAccount: "ci"})
 }
 
+func TestCouncilsListWithoutAProject(t *testing.T) {
+	e := newRemoteEnv(t)
+	e.check(t, []string{"councils", "list"}, "COUNCIL", mcp.ToolListCouncils, mcp.ListCouncilsInput{})
+	e.check(t, []string{"councils", "list", "app", "--status", "running"}, "COUNCIL", mcp.ToolListCouncils, mcp.ListCouncilsInput{Project: "app", Status: domain.CouncilRunning})
+}
+
 func TestAccessCommandsPassOnErrors(t *testing.T) {
 	e := newRemoteEnv(t)
 	boom := fmt.Errorf("team.manage is needed: %w", mcp.ErrInvalidInput)

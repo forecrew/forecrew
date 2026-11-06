@@ -76,6 +76,9 @@ func (r councilRepo) GetByNumber(ctx context.Context, accountID uuid.UUID, numbe
 func (r councilRepo) List(ctx context.Context, accountID uuid.UUID, f store.CouncilFilter) ([]domain.Council, error) {
 	w := newWhere(accountID)
 	andNot(w, "project_id = ?", f.ProjectID)
+	if f.InProjects != nil {
+		w.and("project_id = ANY(?)", f.InProjects)
+	}
 	andNot(w, "goal_id = ?", f.GoalID)
 	andNot(w, "gate_id = ?", f.GateID)
 	andNot(w, "status = ?", string(f.Status))

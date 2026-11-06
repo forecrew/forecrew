@@ -188,7 +188,8 @@ type ToolService interface {
 	ProposeKnowledge(ctx context.Context, by domain.Actor, in ProposeKnowledgeInput) (ProposeKnowledgeOutput, error)
 	// StartCouncil starts a council of its own, tied to no goal.
 	StartCouncil(ctx context.Context, by domain.Actor, in StartCouncilInput) (CouncilInfo, error)
-	// ListCouncils lists the councils of a project, newest first.
+	// ListCouncils lists councils newest first: of a project, or of every
+	// project the caller may read.
 	ListCouncils(ctx context.Context, by domain.Actor, in ListCouncilsInput) ([]CouncilInfo, error)
 	// GetCouncil shows a council with its contributions, gate and decision.
 	GetCouncil(ctx context.Context, by domain.Actor, in CouncilRefInput) (CouncilDetail, error)
@@ -385,8 +386,8 @@ type StartCouncilInput struct {
 
 // ListCouncilsInput is the input of list_councils.
 type ListCouncilsInput struct {
-	Project string               `json:"project"`          // name or repo, required
-	Status  domain.CouncilStatus `json:"status,omitempty"` // running, decided, failed or canceled
+	Project string               `json:"project,omitempty"` // name or repo; every project the caller may read when empty
+	Status  domain.CouncilStatus `json:"status,omitempty"`  // running, decided, failed or canceled
 }
 
 // CouncilRefInput is the input of get_council.

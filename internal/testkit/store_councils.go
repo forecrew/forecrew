@@ -67,7 +67,7 @@ func (r councilRepo) GetByNumber(_ context.Context, accountID uuid.UUID, number 
 func (r councilRepo) List(_ context.Context, accountID uuid.UUID, f store.CouncilFilter) ([]domain.Council, error) {
 	return read(r.s, func(d *storeData) ([]domain.Council, error) {
 		out := d.councils.newest(f.Limit, func(c domain.Council) bool {
-			return c.AccountID == accountID && zeroOr(f.ProjectID, c.ProjectID) && zeroOr(f.GoalID, c.GoalID) && zeroOr(f.GateID, c.GateID) && zeroOr(f.Status, c.Status)
+			return c.AccountID == accountID && zeroOr(f.ProjectID, c.ProjectID) && (f.InProjects == nil || slices.Contains(f.InProjects, c.ProjectID)) && zeroOr(f.GoalID, c.GoalID) && zeroOr(f.GateID, c.GateID) && zeroOr(f.Status, c.Status)
 		})
 		for i := range out {
 			out[i] = copied(out[i])

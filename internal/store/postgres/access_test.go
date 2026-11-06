@@ -40,6 +40,23 @@ func TestAccess(t *testing.T) {
 	testkit.AccessStoreSuite(t, f.st, accessSeed{f}, f.account, f.project.ID)
 }
 
+func TestCouncilsInProjects(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	c := domain.Council{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.CouncilAdhoc, Question: "q", Status: domain.CouncilRunning}
+	must(t, f.st.Councils().Create(ctx, &c))
+	for _, tt := range []struct {
+		in   []uuid.UUID
+		want int
+	}{{nil, 1}, {[]uuid.UUID{}, 0}, {[]uuid.UUID{f.project.ID}, 1}, {[]uuid.UUID{domain.NewID()}, 0}} {
+		got, err := f.st.Councils().List(ctx, f.account, store.CouncilFilter{InProjects: tt.in})
+		must(t, err)
+		if len(got) != tt.want {
+			t.Errorf("InProjects %v = %d councils", tt.in, len(got))
+		}
+	}
+}
+
 func TestJobsInProjects(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()

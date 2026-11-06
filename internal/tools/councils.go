@@ -76,17 +76,32 @@ func (s *Service) ListCouncils(ctx context.Context, by domain.Actor, in mcp.List
 	if in.Status != "" && !slices.Contains(domain.CouncilStatuses(), in.Status) {
 		return nil, fmt.Errorf("unknown status %q: %w", in.Status, mcp.ErrInvalidInput)
 	}
-	p, err := s.project(ctx, by.AccountID, in.Project)
+	f := store.CouncilFilter{Status: in.Status, Limit: MaxListedCouncils}
+	var err error
+	if f.ProjectID, err = s.optionalProject(ctx, by.AccountID, in.Project); err != nil {
+		return nil, err
+	}
+	visible, err := s.scope(ctx, by, domain.PermProjectRead, f.ProjectID)
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.cfg.Store.Councils().List(ctx, by.AccountID, store.CouncilFilter{ProjectID: p.ID, Status: in.Status, Limit: MaxListedCouncils})
+	if !visible.All {
+		f.InProjects = visible.IDs
+	}
+	cs, err := s.cfg.Store.Councils().List(ctx, by.AccountID, f)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]mcp.CouncilInfo, len(cs))
 	for i, c := range cs {
 		c.Brief = nil // agent text: it is read with get_council, which marks it untrusted
+		readsGates, err := s.readsGates(ctx, by, c.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		if !readsGates {
+			c.GateID = uuid.Nil()
+		}
 		out[i] = mcp.CouncilInfo{Council: c, Ref: c.Ref()}
 	}
 	return out, nil

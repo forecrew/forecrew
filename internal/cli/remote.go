@@ -323,11 +323,14 @@ func councilsCommand(r *remote) *cobra.Command {
 	councils.AddCommand(start)
 	var status string
 	list := &cobra.Command{
-		Use:   "list <project>",
-		Short: "List the councils of a project, newest first",
-		Args:  cobra.ExactArgs(1),
+		Use:   "list [project]",
+		Short: "List councils, newest first, of a project or of every project you may read",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			q := url.Values{"project": {args[0]}}
+			q := url.Values{}
+			if len(args) == 1 {
+				q.Set("project", args[0])
+			}
 			if status != "" {
 				q.Set("status", status)
 			}
