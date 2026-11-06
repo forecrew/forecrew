@@ -161,7 +161,7 @@ func imageSignCommand() *cobra.Command {
 }
 
 func imageVerifyCommand() *cobra.Command {
-	var trusted, file string
+	var trusted, file, kernel string
 	cmd := &cobra.Command{
 		Use:   "verify <manifest.json> --trusted <public-keys-file> [--file <image>]",
 		Short: "Check a manifest's signature, and an image file against its digest, as a fleet agent does",
@@ -180,9 +180,12 @@ func imageVerifyCommand() *cobra.Command {
 				return err
 			}
 			img := m.Image(domain.NewID())
-			if file != "" {
-				err = images.VerifyFile(img, file, keys)
-			} else {
+			switch {
+			case file != "":
+				err = images.VerifyFile(img, file, kernel, keys)
+			case kernel != "":
+				return errors.New("--kernel needs --file: the kernel is checked with its image")
+			default:
 				err = images.Verify(img, keys)
 			}
 			if err != nil {
@@ -194,6 +197,7 @@ func imageVerifyCommand() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&trusted, "trusted", "", "file of trusted public keys, one ed25519:<base64> per line (required)")
 	cmd.Flags().StringVar(&file, "file", "", "also check this image file against the signed digest")
+	cmd.Flags().StringVar(&kernel, "kernel", "", "also check this kernel file (a rootfs image) against the signed kernel digest")
 	_ = cmd.MarkFlagRequired("trusted")
 	return cmd
 }
@@ -237,6 +241,9 @@ func imageRootfsCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			for _, w := range res.Warnings {
+				cmd.PrintErrln("warning:", w)
+			}
 			cmd.Println(res.Path)
 			return nil
 		},
@@ -249,7 +256,7 @@ func imageRootfsCommand() *cobra.Command {
 	f.StringSliceVar(&labels, "label", nil, "a label the image offers, for example docker or runtime:codex (repeatable)")
 	f.StringVar(&cache, "cache", "", "where converted files are kept; default the user cache directory")
 	f.StringVar(&mke2fs, "mke2fs", "", "the mke2fs command; default the one on PATH")
-	f.StringSliceVar(&envs, "env", nil, "with --tar: a NAME=value the image's processes get (a Docker image's own environment is read from Docker)")
+	f.StringArrayVar(&envs, "env", nil, "with --tar: a NAME=value the image's processes get (a Docker image's own environment is read from Docker)")
 	f.BoolVar(&noCLIs, "no-agent-clis", false, "do not require the agent CLIs: the image is for command jobs only")
 	f.IntVar(&size, "size", 0, "file system size in MB; default sized from the content")
 	_ = cmd.MarkFlagRequired("worker")

@@ -48,6 +48,10 @@ if [ -f /etc/forecrew/modules ]; then
 fi
 
 ip_addr=$(cmdline_value forecrew.ip)
+if [ -n "$ip_addr" ] && ! command -v ip >/dev/null 2>&1; then
+	say "ip is not in the image: forecrew.ip is ignored; use the kernel's ip= to configure the network"
+	ip_addr=""
+fi
 if [ -n "$ip_addr" ]; then
 	nic=""
 	for n in /sys/class/net/*; do

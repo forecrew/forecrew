@@ -67,7 +67,7 @@ func TestVerifyFile(t *testing.T) {
 		{"bad encoding", badBase64, []ed25519.PublicKey{pub}, ErrSignature},
 		{"short key is ignored", img, []ed25519.PublicKey{{1, 2}}, ErrSignature},
 	} {
-		if err := VerifyFile(tt.img, path, tt.keys); !errors.Is(err, tt.want) {
+		if err := VerifyFile(tt.img, path, "", tt.keys); !errors.Is(err, tt.want) {
 			t.Errorf("%s: %v, want %v", tt.name, err, tt.want)
 		}
 	}
@@ -76,10 +76,10 @@ func TestVerifyFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("disk contents, changed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifyFile(img, path, []ed25519.PublicKey{pub}); !errors.Is(err, ErrDigest) {
+	if err := VerifyFile(img, path, "", []ed25519.PublicKey{pub}); !errors.Is(err, ErrDigest) {
 		t.Fatalf("tampered file: %v", err)
 	}
-	if err := VerifyFile(img, filepath.Join(t.TempDir(), "missing"), []ed25519.PublicKey{pub}); err == nil {
+	if err := VerifyFile(img, filepath.Join(t.TempDir(), "missing"), "", []ed25519.PublicKey{pub}); err == nil {
 		t.Fatal("missing file verified")
 	}
 	if _, err := FileDigest(filepath.Join(t.TempDir(), "missing")); err == nil {
@@ -135,30 +135,36 @@ func TestKeys(t *testing.T) {
 
 func TestSignatureCoversKernelAndBuildTime(t *testing.T) {
 	pub, key, _ := GenerateKey()
+	disk := writeFile(t, "root.ext4", "rootfs")
 	kernel := writeFile(t, "vmlinux", "kernel")
+	dd, _ := FileDigest(disk)
 	kd, _ := FileDigest(kernel)
 	img := testkit.TestImage(uuid.Nil(), "linux", "1", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	img.Digest = dd
 	img.Contents.Kernel.Digest = kd
 	img.Signature = Sign(key, img)
 	keys := []ed25519.PublicKey{pub}
-	if err := Verify(img, keys); err != nil {
-		t.Fatal(err)
-	}
-	if err := VerifyKernel(img, kernel); err != nil {
-		t.Fatalf("right kernel: %v", err)
+	if err := VerifyFile(img, disk, kernel, keys); err != nil {
+		t.Fatalf("right files: %v", err)
 	}
 
 	// An organization admin swaps the kernel under an instance image: the
 	// manifest still names a kernel, but not the one that was signed.
 	swapped := img
 	swapped.Contents.Kernel = &domain.ImageKernel{URI: img.Contents.Kernel.URI, Digest: "sha256:" + strings.Repeat("ee", 32)}
-	if err := Verify(swapped, keys); !errors.Is(err, ErrSignature) {
+	if err := VerifyFile(swapped, disk, kernel, keys); !errors.Is(err, ErrSignature) {
 		t.Errorf("swapped kernel digest: %v", err)
 	}
-	// Or leaves the digest and serves another file.
+	// Or leaves the digest and serves another file, or none.
 	other := writeFile(t, "other", "another kernel")
-	if err := VerifyKernel(img, other); !errors.Is(err, ErrDigest) {
+	if err := VerifyFile(img, disk, other, keys); !errors.Is(err, ErrDigest) || !strings.Contains(err.Error(), "kernel") {
 		t.Errorf("another kernel file: %v", err)
+	}
+	if err := VerifyFile(img, disk, "", keys); !errors.Is(err, ErrDigest) {
+		t.Errorf("no kernel file: %v", err)
+	}
+	if err := VerifyFile(img, disk, filepath.Join(t.TempDir(), "missing"), keys); err == nil {
+		t.Error("missing kernel verified")
 	}
 	// A re-dated build is another signature.
 	redated := img
@@ -171,13 +177,5 @@ func TestSignatureCoversKernelAndBuildTime(t *testing.T) {
 	precise.BuiltAt = img.BuiltAt.Add(123456789)
 	if err := Verify(precise, keys); err != nil {
 		t.Errorf("sub-second build time: %v", err)
-	}
-	noKernel := img
-	noKernel.Contents.Kernel = nil
-	if err := VerifyKernel(noKernel, kernel); !errors.Is(err, ErrDigest) {
-		t.Errorf("no kernel: %v", err)
-	}
-	if err := VerifyKernel(img, filepath.Join(t.TempDir(), "missing")); err == nil {
-		t.Error("missing kernel verified")
 	}
 }

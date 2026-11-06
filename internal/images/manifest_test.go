@@ -38,6 +38,13 @@ func TestNewManifest(t *testing.T) {
 		t.Fatalf("manifest = %+v", m)
 	}
 
+	// The build time is kept to the second, as the signature covers it.
+	precise := good
+	precise.BuiltAt = built.Add(987654321)
+	if pm, err := NewManifest(precise); err != nil || !pm.BuiltAt.Equal(built) {
+		t.Errorf("built_at = %v, %v", pm.BuiltAt, err)
+	}
+
 	// Sign, encode, parse and register: the same image comes back.
 	_, key, _ := GenerateKey()
 	signed := m.SignedWith(key)

@@ -124,6 +124,9 @@ func TestImageKeysSignAndVerify(t *testing.T) {
 	if _, _, code := e.run(t, "image", "verify", w.manifest, "--trusted", w.trusted, "--file", w.disk); code == 0 {
 		t.Error("verified a tampered file")
 	}
+	if _, errOut, code := e.run(t, "image", "verify", w.manifest, "--trusted", w.trusted, "--kernel", w.disk); code == 0 || !strings.Contains(errOut, "--file") {
+		t.Errorf("--kernel alone: %d %s", code, errOut)
+	}
 	other := filepath.Join(w.dir, "other")
 	if err := os.WriteFile(other, []byte(images.FormatPublicKey(mustPub(t))+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -261,6 +264,10 @@ func TestImageRootfsCommand(t *testing.T) {
 	if st, err := os.Stat(strings.TrimSpace(out)); err != nil || st.Size() != 600<<20 {
 		t.Errorf("file: %v, %v", st, err)
 	}
+	// A missing ip only warns.
+	if !strings.Contains(errOut, "warning: the image lacks ip") {
+		t.Errorf("no warning about ip: %q", errOut)
+	}
 	// The agent CLIs are required unless the image is for command jobs.
 	if _, errOut, code := e.run(t, "image", "rootfs", "--tar", tarball, "--name", "agents", "--worker", worker, "--cache", cache, "--mke2fs", stub); code == 0 || !strings.Contains(errOut, "claude") {
 		t.Errorf("agent image without CLIs: %d %s", code, errOut)
@@ -284,7 +291,7 @@ func tinyTar(t *testing.T) []byte {
 	w := tar.NewWriter(&b)
 	for _, h := range []*tar.Header{
 		{Name: "bin/", Typeflag: tar.TypeDir, Mode: 0o755}, {Name: "bin/sh", Typeflag: tar.TypeReg, Mode: 0o755, Size: 2},
-		{Name: "bin/ip", Typeflag: tar.TypeReg, Mode: 0o755, Size: 2}, {Name: "bin/git", Typeflag: tar.TypeReg, Mode: 0o755, Size: 2},
+		{Name: "bin/git", Typeflag: tar.TypeReg, Mode: 0o755, Size: 2},
 		{Name: "etc/ssl/certs/ca-certificates.crt", Typeflag: tar.TypeReg, Mode: 0o644, Size: 2},
 	} {
 		if err := w.WriteHeader(h); err != nil {
