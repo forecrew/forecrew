@@ -73,6 +73,39 @@ func TestWorkersCommand(t *testing.T) {
 	}
 }
 
+func TestOnboardCommand(t *testing.T) {
+	e := newRemoteEnv(t)
+	run := domain.NewID()
+	e.svc.OnboardProjectFunc = func(_ context.Context, _ domain.Actor, in mcp.OnboardProjectInput) (mcp.OnboardProjectOutput, error) {
+		return mcp.OnboardProjectOutput{Project: domain.Project{Repo: in.Repo}, RunID: run}, nil
+	}
+	out, errOut, code := e.run(t, "onboard", "acme/app", "--name", "App", "--default-branch", "trunk")
+	if code != 0 || errOut != "" || out != "Onboarding of acme/app started (run "+run.String()+")\n" {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
+	}
+	if in := e.svc.Calls()[0].Input.(mcp.OnboardProjectInput); in != (mcp.OnboardProjectInput{Repo: "acme/app", Name: "App", DefaultBranch: "trunk"}) {
+		t.Errorf("input = %+v", in)
+	}
+	out, _, code = e.run(t, "onboard", "acme/app", "--refresh")
+	if code != 0 || !strings.HasPrefix(out, "Refresh of the tests of acme/app started") {
+		t.Fatalf("code %d, stdout %q", code, out)
+	}
+	if in := e.svc.Calls()[1].Input.(mcp.OnboardProjectInput); in != (mcp.OnboardProjectInput{Repo: "acme/app", Refresh: true}) {
+		t.Errorf("input = %+v", in)
+	}
+	for _, args := range [][]string{{"onboard"}, {"onboard", "a", "b"}} {
+		if _, _, code := e.run(t, args...); code == 0 {
+			t.Errorf("%v accepted", args)
+		}
+	}
+	e.svc.OnboardProjectFunc = func(context.Context, domain.Actor, mcp.OnboardProjectInput) (mcp.OnboardProjectOutput, error) {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("project app is registered: %w", mcp.ErrInvalidInput)
+	}
+	if _, errOut, code := e.run(t, "onboard", "acme/app", "--refresh"); code == 0 || !strings.Contains(errOut, "registered") {
+		t.Errorf("code %d, stderr %q", code, errOut)
+	}
+}
+
 func TestProjectsCommand(t *testing.T) {
 	e := newRemoteEnv(t)
 	e.svc.ListProjectsFunc = func(context.Context, domain.Actor, any) ([]domain.Project, error) {

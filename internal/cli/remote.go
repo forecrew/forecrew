@@ -168,6 +168,7 @@ func (r *remote) commands() []*cobra.Command {
 	return []*cobra.Command{
 		listCommand(r, "workers", "List workers", "/workers", printWorkers),
 		listCommand(r, "projects", "List projects", "/projects", printProjects),
+		onboardCommand(r),
 		tokensCommand(r),
 		listCommand(r, "gates", "List the gates waiting for a decision", "/gates", printGates),
 		decideCommand(r, "approve", "approve", "Approve a gate (GATE-7 or UUID); on a needs_you gate this retries"),
@@ -185,6 +186,35 @@ func (r *remote) commands() []*cobra.Command {
 		councilsCommand(r),
 		verificationCommand(r),
 	}
+}
+
+// onboardCommand onboards a repo, or with --refresh runs the tests part of
+// onboarding again for an onboarded project.
+func onboardCommand(r *remote) *cobra.Command {
+	var name, branch string
+	var refresh bool
+	cmd := &cobra.Command{
+		Use:   "onboard <owner/name>",
+		Short: "Onboard a repo: a profile, then a test plan and a baseline run of its tests (--refresh: only the tests part, again)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			in := mcp.OnboardProjectInput{Repo: args[0], Name: name, DefaultBranch: branch, Refresh: refresh}
+			var out mcp.OnboardProjectOutput
+			if err := r.call(cmd.Context(), http.MethodPost, "/projects", in, &out); err != nil {
+				return err
+			}
+			what := "Onboarding of"
+			if refresh {
+				what = "Refresh of the tests of"
+			}
+			cmd.Printf("%s %s started (run %s)\n", what, safeText(out.Project.Repo), out.RunID)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&name, "name", "", "project name; defaults to the repo name")
+	cmd.Flags().StringVar(&branch, "default-branch", "", "default branch of a repo that is registered by this call; defaults to main")
+	cmd.Flags().BoolVar(&refresh, "refresh", false, "run only the tests part of onboarding again, for a project that is onboarded")
+	return cmd
 }
 
 func listCommand[T any](r *remote, use, short, path string, print func(w io.Writer, items []T)) *cobra.Command {
