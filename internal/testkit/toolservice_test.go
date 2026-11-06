@@ -74,6 +74,12 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.ListShapes(ctx, by); return err },
 		func() error { _, err := s.ListProviders(ctx, by); return err },
 		func() error { _, err := s.FleetOverview(ctx, by); return err },
+		func() error { _, err := s.GetTrace(ctx, by, mcp.GetTraceInput{}); return err },
+		func() error {
+			_, err := s.ListKnowledgeProposals(ctx, by, mcp.ListKnowledgeProposalsInput{})
+			return err
+		},
+		func() error { _, err := s.ListKnowledge(ctx, by, mcp.ListKnowledgeInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

@@ -28,44 +28,47 @@ type ToolCall struct {
 type ToolService struct {
 	Gates *Gates
 
-	OnboardProjectFunc     func(context.Context, domain.Actor, mcp.OnboardProjectInput) (mcp.OnboardProjectOutput, error)
-	CreateGoalFunc         func(context.Context, domain.Actor, mcp.CreateGoalInput) (domain.Goal, error)
-	JobStatusFunc          func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error)
-	JobLogsFunc            func(context.Context, domain.Actor, mcp.JobLogsInput) (mcp.JobLogsOutput, error)
-	ListWorkersFunc        func(context.Context, domain.Actor, any) ([]mcp.WorkerInfo, error)
-	ListMachinesFunc       func(context.Context, domain.Actor, mcp.ListMachinesInput) ([]mcp.MachineInfo, error)
-	ListShapesFunc         func(context.Context, domain.Actor, any) ([]mcp.ShapeInfo, error)
-	ListProvidersFunc      func(context.Context, domain.Actor, any) ([]mcp.ProviderInfo, error)
-	FleetOverviewFunc      func(context.Context, domain.Actor, any) (fleet.Overview, error)
-	ListPendingGatesFunc   func(context.Context, domain.Actor, mcp.ProjectFilterInput) ([]mcp.GateInfo, error)
-	ApproveFunc            func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
-	RequestChangesFunc     func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
-	RejectFunc             func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
-	DispatchJobFunc        func(context.Context, domain.Actor, mcp.DispatchJobInput) (domain.Job, error)
-	ListProjectsFunc       func(context.Context, domain.Actor, any) ([]domain.Project, error)
-	GetProjectFunc         func(context.Context, domain.Actor, mcp.ProjectInput) (domain.Project, error)
-	ListGoalsFunc          func(context.Context, domain.Actor, mcp.ListGoalsInput) ([]domain.Goal, error)
-	GetGoalFunc            func(context.Context, domain.Actor, mcp.GoalRefInput) (mcp.GoalDetail, error)
-	ListJobsFunc           func(context.Context, domain.Actor, mcp.ListJobsInput) ([]domain.Job, error)
-	CancelJobFunc          func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error)
-	ListTokensFunc         func(context.Context, domain.Actor, any) ([]mcp.TokenInfo, error)
-	RevokeTokenFunc        func(context.Context, domain.Actor, mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error)
-	CreateTokenFunc        func(context.Context, domain.Actor, mcp.CreateTokenInput) (mcp.CreateTokenOutput, error)
-	CreateInvitationFunc   func(context.Context, domain.Actor, mcp.CreateInvitationInput) (mcp.CreateInvitationOutput, error)
-	ListInvitationsFunc    func(context.Context, domain.Actor, any) ([]domain.Invitation, error)
-	RevokeInvitationFunc   func(context.Context, domain.Actor, mcp.InvitationRefInput) (domain.Invitation, error)
-	ListArtifactsFunc      func(context.Context, domain.Actor, mcp.JobRefInput) ([]domain.Artifact, error)
-	ListTestRunsFunc       func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error)
-	StartCouncilFunc       func(context.Context, domain.Actor, mcp.StartCouncilInput) (mcp.CouncilInfo, error)
-	ListCouncilsFunc       func(context.Context, domain.Actor, mcp.ListCouncilsInput) ([]mcp.CouncilInfo, error)
-	GetCouncilFunc         func(context.Context, domain.Actor, mcp.CouncilRefInput) (mcp.CouncilDetail, error)
-	AddConstraintFunc      func(context.Context, domain.Actor, mcp.AddCouncilConstraintInput) (mcp.CouncilInfo, error)
-	VerificationReportFunc func(context.Context, domain.Actor, mcp.VerificationReportInput) (mcp.VerificationInfo, error)
-	ProjectQualityFunc     func(context.Context, domain.Actor, mcp.ProjectInput) (mcp.QualityInfo, error)
-	OpenArtifactFunc       func(context.Context, domain.Actor, string) (domain.Artifact, io.ReadCloser, error)
-	SearchKnowledgeFunc    func(context.Context, domain.Actor, mcp.SearchKnowledgeInput) ([]knowledge.Result, error)
-	DeleteNoteFunc         func(context.Context, domain.Actor, mcp.DeleteNoteInput) (mcp.DeleteNoteOutput, error)
-	ProposeKnowledgeFunc   func(context.Context, domain.Actor, mcp.ProposeKnowledgeInput) (mcp.ProposeKnowledgeOutput, error)
+	OnboardProjectFunc         func(context.Context, domain.Actor, mcp.OnboardProjectInput) (mcp.OnboardProjectOutput, error)
+	CreateGoalFunc             func(context.Context, domain.Actor, mcp.CreateGoalInput) (domain.Goal, error)
+	JobStatusFunc              func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error)
+	JobLogsFunc                func(context.Context, domain.Actor, mcp.JobLogsInput) (mcp.JobLogsOutput, error)
+	ListWorkersFunc            func(context.Context, domain.Actor, any) ([]mcp.WorkerInfo, error)
+	ListMachinesFunc           func(context.Context, domain.Actor, mcp.ListMachinesInput) ([]mcp.MachineInfo, error)
+	ListShapesFunc             func(context.Context, domain.Actor, any) ([]mcp.ShapeInfo, error)
+	ListProvidersFunc          func(context.Context, domain.Actor, any) ([]mcp.ProviderInfo, error)
+	FleetOverviewFunc          func(context.Context, domain.Actor, any) (fleet.Overview, error)
+	ListPendingGatesFunc       func(context.Context, domain.Actor, mcp.ProjectFilterInput) ([]mcp.GateInfo, error)
+	ApproveFunc                func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
+	RequestChangesFunc         func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
+	RejectFunc                 func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
+	DispatchJobFunc            func(context.Context, domain.Actor, mcp.DispatchJobInput) (domain.Job, error)
+	ListProjectsFunc           func(context.Context, domain.Actor, any) ([]domain.Project, error)
+	GetProjectFunc             func(context.Context, domain.Actor, mcp.ProjectInput) (domain.Project, error)
+	ListGoalsFunc              func(context.Context, domain.Actor, mcp.ListGoalsInput) ([]domain.Goal, error)
+	GetGoalFunc                func(context.Context, domain.Actor, mcp.GoalRefInput) (mcp.GoalDetail, error)
+	ListJobsFunc               func(context.Context, domain.Actor, mcp.ListJobsInput) ([]domain.Job, error)
+	CancelJobFunc              func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error)
+	ListTokensFunc             func(context.Context, domain.Actor, any) ([]mcp.TokenInfo, error)
+	RevokeTokenFunc            func(context.Context, domain.Actor, mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error)
+	CreateTokenFunc            func(context.Context, domain.Actor, mcp.CreateTokenInput) (mcp.CreateTokenOutput, error)
+	CreateInvitationFunc       func(context.Context, domain.Actor, mcp.CreateInvitationInput) (mcp.CreateInvitationOutput, error)
+	ListInvitationsFunc        func(context.Context, domain.Actor, any) ([]domain.Invitation, error)
+	RevokeInvitationFunc       func(context.Context, domain.Actor, mcp.InvitationRefInput) (domain.Invitation, error)
+	ListArtifactsFunc          func(context.Context, domain.Actor, mcp.JobRefInput) ([]domain.Artifact, error)
+	ListTestRunsFunc           func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error)
+	StartCouncilFunc           func(context.Context, domain.Actor, mcp.StartCouncilInput) (mcp.CouncilInfo, error)
+	ListCouncilsFunc           func(context.Context, domain.Actor, mcp.ListCouncilsInput) ([]mcp.CouncilInfo, error)
+	GetCouncilFunc             func(context.Context, domain.Actor, mcp.CouncilRefInput) (mcp.CouncilDetail, error)
+	AddConstraintFunc          func(context.Context, domain.Actor, mcp.AddCouncilConstraintInput) (mcp.CouncilInfo, error)
+	VerificationReportFunc     func(context.Context, domain.Actor, mcp.VerificationReportInput) (mcp.VerificationInfo, error)
+	ProjectQualityFunc         func(context.Context, domain.Actor, mcp.ProjectInput) (mcp.QualityInfo, error)
+	OpenArtifactFunc           func(context.Context, domain.Actor, string) (domain.Artifact, io.ReadCloser, error)
+	SearchKnowledgeFunc        func(context.Context, domain.Actor, mcp.SearchKnowledgeInput) ([]knowledge.Result, error)
+	DeleteNoteFunc             func(context.Context, domain.Actor, mcp.DeleteNoteInput) (mcp.DeleteNoteOutput, error)
+	ProposeKnowledgeFunc       func(context.Context, domain.Actor, mcp.ProposeKnowledgeInput) (mcp.ProposeKnowledgeOutput, error)
+	GetTraceFunc               func(context.Context, domain.Actor, mcp.GetTraceInput) (mcp.Trace, error)
+	ListKnowledgeFunc          func(context.Context, domain.Actor, mcp.ListKnowledgeInput) (mcp.KnowledgeListing, error)
+	ListKnowledgeProposalsFunc func(context.Context, domain.Actor, mcp.ListKnowledgeProposalsInput) ([]mcp.KnowledgeProposalInfo, error)
 
 	ListAssumptionsFunc   func(context.Context, domain.Actor, mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error)
 	ResolveAssumptionFunc func(context.Context, domain.Actor, mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error)
@@ -270,6 +273,11 @@ func (s *ToolService) GetCouncil(ctx context.Context, by domain.Actor, in mcp.Co
 	return invoke(ctx, s, mcp.ToolGetCouncil, by, in, s.GetCouncilFunc)
 }
 
+// GetTrace implements mcp.ToolService.
+func (s *ToolService) GetTrace(ctx context.Context, by domain.Actor, in mcp.GetTraceInput) (mcp.Trace, error) {
+	return invoke(ctx, s, mcp.ToolGetTrace, by, in, s.GetTraceFunc)
+}
+
 // AddCouncilConstraint implements mcp.ToolService.
 func (s *ToolService) AddCouncilConstraint(ctx context.Context, by domain.Actor, in mcp.AddCouncilConstraintInput) (mcp.CouncilInfo, error) {
 	return invoke(ctx, s, mcp.ToolAddConstraint, by, in, s.AddConstraintFunc)
@@ -308,6 +316,16 @@ func (s *ToolService) ListDecisions(ctx context.Context, by domain.Actor, in mcp
 // SearchKnowledge implements mcp.ToolService.
 func (s *ToolService) SearchKnowledge(ctx context.Context, by domain.Actor, in mcp.SearchKnowledgeInput) ([]knowledge.Result, error) {
 	return invoke(ctx, s, mcp.ToolSearchKnowledge, by, in, s.SearchKnowledgeFunc)
+}
+
+// ListKnowledgeProposals implements mcp.ToolService.
+func (s *ToolService) ListKnowledgeProposals(ctx context.Context, by domain.Actor, in mcp.ListKnowledgeProposalsInput) ([]mcp.KnowledgeProposalInfo, error) {
+	return invoke(ctx, s, mcp.ToolListKnowledgeProposals, by, in, s.ListKnowledgeProposalsFunc)
+}
+
+// ListKnowledge implements mcp.ToolService.
+func (s *ToolService) ListKnowledge(ctx context.Context, by domain.Actor, in mcp.ListKnowledgeInput) (mcp.KnowledgeListing, error) {
+	return invoke(ctx, s, mcp.ToolListKnowledge, by, in, s.ListKnowledgeFunc)
 }
 
 // ProposeKnowledge implements mcp.ToolService.

@@ -246,3 +246,134 @@ func TestProposeKnowledge(t *testing.T) {
 	_, err = unknown.ProposeKnowledge(ctx, f.by, mcp.ProposeKnowledgeInput{Project: "app", Section: "vision", Path: "x", Body: "b", Reason: "r"})
 	wantErr(t, err, mcp.ErrUnavailable)
 }
+
+func TestListKnowledgeProposals(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := testkit.Goal(t, f.st, f.account.ID, f.project.ID, "g")
+	ch := domain.Change{AccountID: f.account.ID, ProjectID: f.project.ID, Repo: "acme/app", Number: 12, Branch: "b", HeadSHA: "a", State: domain.ChangeOpen, URL: "https://github.com/acme/app/pull/12"}
+	must(t, f.st.Changes().Upsert(ctx, &ch))
+	gate := domain.Gate{AccountID: f.account.ID, ProjectID: f.project.ID, Kind: domain.GateKnowledgeProposal, Title: "KB", SubjectRepo: "acme/app", GoalID: g.ID}
+	must(t, f.st.Gates().Create(ctx, &gate))
+	for _, k := range []domain.KnowledgeProposal{
+		{Section: "vision", Path: "a.md", Action: domain.KnowledgeEdit, Body: "b", Reason: "r", ProposedBy: "architect", Batch: domain.BatchStandalone, GoalID: g.ID, ChangeID: ch.ID, Status: domain.KnowledgeOpen},
+		{Section: "vision", Path: "b.md", Action: domain.KnowledgeAdd, Body: "b", Reason: "r", ProposedBy: "architect", Batch: domain.BatchPerGoal, GateID: gate.ID, Status: domain.KnowledgeOpen},
+		{Section: "vision", Path: "c.md", Action: domain.KnowledgeAdd, Body: "b", Reason: "r", ProposedBy: "architect", Batch: domain.BatchPerGoal, Status: domain.KnowledgeQueued},
+	} {
+		k.AccountID, k.ProjectID, k.Provider = f.account.ID, f.project.ID, "repo"
+		must(t, f.st.KnowledgeProposals().Create(ctx, &k))
+	}
+	got, err := f.svc.ListKnowledgeProposals(ctx, f.by, mcp.ListKnowledgeProposalsInput{Project: "app"})
+	must(t, err)
+	if len(got) != 3 || got[0].Ref != "KB-3" || got[2].Ref != "KB-1" {
+		t.Fatalf("proposals = %+v", got)
+	}
+	if got[2].URL != ch.URL || got[2].GoalRef != g.Ref() || got[1].Gate == nil || got[1].Gate.Ref != gate.Ref() || got[1].Gate.GoalRef != g.Ref() || got[0].Gate != nil {
+		t.Errorf("links = %+v", got)
+	}
+	got, err = f.svc.ListKnowledgeProposals(ctx, f.by, mcp.ListKnowledgeProposalsInput{Project: "app", Status: domain.KnowledgeOpen, Limit: 1})
+	if err != nil || len(got) != 1 || got[0].Ref != "KB-2" {
+		t.Errorf("open, limit 1: %+v, %v", got, err)
+	}
+	got, err = f.svc.ListKnowledgeProposals(ctx, f.by, mcp.ListKnowledgeProposalsInput{Project: "app", Goal: g.Ref()})
+	if err != nil || len(got) != 1 || got[0].Ref != "KB-1" {
+		t.Errorf("goal: %+v, %v", got, err)
+	}
+	for name, in := range map[string]mcp.ListKnowledgeProposalsInput{
+		"no project": {}, "unknown project": {Project: "nope"}, "bad status": {Project: "app", Status: "done"},
+		"limit": {Project: "app", Limit: tools.MaxProposalLimit + 1}, "negative": {Project: "app", Limit: -1}, "unknown goal": {Project: "app", Goal: "GOAL-99"},
+	} {
+		if _, err := f.svc.ListKnowledgeProposals(ctx, f.by, in); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+}
+
+func TestListKnowledgeProposalsHidesGatesWithoutGateRead(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	gate := f.gateOn(t, domain.GateKnowledgeProposal, f.project.ID)
+	k := domain.KnowledgeProposal{AccountID: f.account.ID, ProjectID: f.project.ID, Provider: "repo", Section: "vision", Path: "a.md", Action: domain.KnowledgeAdd,
+		Body: "b", Reason: "r", ProposedBy: "architect", Batch: domain.BatchStandalone, GateID: gate.ID, Status: domain.KnowledgeOpen}
+	must(t, f.st.KnowledgeProposals().Create(ctx, &k))
+	role := domain.Role{AccountID: f.account.ID, Name: "reads", Scope: projectScope, Permissions: []domain.Permission{domain.PermProjectRead}, Custom: true}
+	must(t, f.st.Roles().Create(ctx, &role))
+	reader, id := f.member(t, "", "", uuid.Nil())
+	must(t, f.st.RoleBindings().Create(ctx, &domain.RoleBinding{AccountID: f.account.ID, SubjectKind: domain.SubjectUser, SubjectID: id, RoleID: role.ID, ProjectID: f.project.ID, CreatedBy: "user:op"}))
+	got, err := f.svc.ListKnowledgeProposals(ctx, reader, mcp.ListKnowledgeProposalsInput{Project: "app"})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("proposals = %+v, %v", got, err)
+	}
+	if got[0].Gate != nil || got[0].GateID != uuid.Nil() {
+		t.Errorf("a caller without gate.read saw the gate: %+v", got[0])
+	}
+	got, err = f.svc.ListKnowledgeProposals(ctx, f.by, mcp.ListKnowledgeProposalsInput{Project: "app"})
+	if err != nil || got[0].Gate == nil || got[0].Gate.Ref != gate.Ref() {
+		t.Errorf("an owner saw %+v, %v", got, err)
+	}
+}
+
+func TestListKnowledge(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	svc, notes := knowledgeService(f)
+	g := testkit.Goal(t, f.st, f.account.ID, f.project.ID, "g")
+	other := testkit.Goal(t, f.st, f.account.ID, f.project.ID, "other")
+	job := func(goal domain.Goal) domain.Job {
+		j := domain.Job{AccountID: f.account.ID, ProjectID: f.project.ID, GoalID: goal.ID, Role: "developer", Runtime: "claude-code"}
+		must(t, f.st.Jobs().Create(ctx, &j))
+		return testkit.Lease(t, f.st, j)
+	}
+	_, err := notes.Write(ctx, job(g), knowledge.NoteInput{Scope: domain.NoteScopeGoal, Title: "Spool", Body: "The spool is flaky."})
+	must(t, err)
+	_, err = notes.Write(ctx, job(other), knowledge.NoteInput{Scope: domain.NoteScopeGoal, Title: "Other", Body: "Elsewhere."})
+	must(t, err)
+	_, err = notes.Write(ctx, job(g), knowledge.NoteInput{Scope: domain.NoteScopeProject, Title: "Everyone", Body: "For all."})
+	must(t, err)
+
+	got, err := svc.ListKnowledge(ctx, f.by, mcp.ListKnowledgeInput{Project: "app", Kind: domain.KnowledgeNoteKind, Goal: g.Ref(), Limit: 10})
+	must(t, err)
+	if len(got.Entries) != 2 || got.Entries[0].Body == "" || got.Entries[0].Section != "notes" {
+		t.Fatalf("goal notes = %+v", got.Entries)
+	}
+	names := map[string]knowledgeSection{}
+	for _, s := range got.Sections {
+		names[s.Name] = knowledgeSection{s.Provider, len(s.Paths)}
+	}
+	if names["notes"].provider != "internal" || names["generated"].provider != "" || names["vision"].paths != 1 {
+		t.Errorf("sections = %+v", got.Sections)
+	}
+	// Without a goal only the project's notes.
+	got, err = svc.ListKnowledge(ctx, f.by, mcp.ListKnowledgeInput{Project: "app", Section: "notes", Provider: "internal"})
+	if err != nil || len(got.Entries) != 1 || got.Entries[0].Title != "Everyone" {
+		t.Fatalf("project notes = %+v, %v", got.Entries, err)
+	}
+	// Through MCP the untrusted text is wrapped.
+	got, err = svc.ListKnowledge(ctx, f.by, mcp.ListKnowledgeInput{Project: "app", Kind: domain.KnowledgeNoteKind, WrapUntrusted: true})
+	if err != nil || !strings.Contains(got.Entries[0].Body, "<untrusted-data") || !strings.Contains(got.Entries[0].Snippet, "<untrusted-data") {
+		t.Fatalf("wrapped = %+v, %v", got.Entries, err)
+	}
+
+	for name, in := range map[string]mcp.ListKnowledgeInput{
+		"no project": {}, "unknown project": {Project: "nope"}, "bad kind": {Project: "app", Kind: "page"},
+		"limit": {Project: "app", Limit: tools.MaxListLimit + 1}, "negative": {Project: "app", Limit: -1}, "unknown goal": {Project: "app", Goal: "GOAL-99"},
+	} {
+		if _, err := svc.ListKnowledge(ctx, f.by, in); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+	if _, err := f.svc.ListKnowledge(ctx, f.by, mcp.ListKnowledgeInput{Project: "app"}); !errors.Is(err, mcp.ErrUnavailable) {
+		t.Errorf("without a knowledge base: %v", err)
+	}
+	unknown := tools.New(tools.Config{Store: f.st, Search: &knowledge.Search{Index: &knowledge.Index{Store: f.st}, Policy: func(context.Context, domain.Project) (knowledge.Policy, error) {
+		return knowledge.Policy{}, knowledge.ErrPolicyUnknown
+	}}})
+	if _, err := unknown.ListKnowledge(ctx, f.by, mcp.ListKnowledgeInput{Project: "app"}); !errors.Is(err, mcp.ErrUnavailable) {
+		t.Errorf("unknown policy: %v", err)
+	}
+}
+
+type knowledgeSection struct {
+	provider string
+	paths    int
+}

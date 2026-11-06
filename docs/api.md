@@ -113,6 +113,8 @@ structs in `internal/domain` and `internal/mcp`.
 | `GET /api/v1/artifacts/{id}` | | `{id}` is an artifact UUID | `200` the file, streamed; see [Artifact downloads](#artifact-downloads). `404` when it is unknown, of another account, or deleted by retention; `503` without evidence storage |
 | `GET /api/v1/knowledge?project=&q=&section=&kind=&provider=&limit=` | `search_knowledge` | `project` and `q` required; `kind` is `entry`, `note` or `generated`; `limit` defaults to 8, at most 50 | `200` results (an array, `[]` when none) as in [mcp.md](mcp.md): `id`, `kind`, `provider`, `section`, `path`, `title`, `source_url`, `snippet`, `untrusted`, `provenance`, `needs_reverify`, `rank`. Snippets are not wrapped here: check `untrusted` before handing them to an agent |
 | `DELETE /api/v1/knowledge/notes/{note}` | `delete_note` | `{note}` is a note UUID | `200` `{"note": "uuid", "message": "..."}`; `400` when the entry is not an agent note, `404` when unknown |
+| `GET /api/v1/knowledge/entries?project=&section=&kind=&provider=&goal=&limit=` | `list_knowledge` | `project` required; `goal` with `kind=note` adds that goal's notes to the project's; `limit` defaults to 50, at most 200 | `200` `{"sections": [...], "entries": [...]}`. `sections`: `name`, `provider`, `provider_kind`, `instance`, `paths` (repo globs or the provider's locations), `owner`, `protected`; `notes` and `generated` are always there. `entries`, by section and path: the fields of a search result (`id`, `kind`, `provider`, `section`, `path`, `title`, `source_url`, `snippet`, `untrusted`, `provenance`, `needs_reverify`, notes' `scope`, `goal_id`, `tags`, `expires_at`) and `body`, the whole Markdown. Bodies are not wrapped here: check `untrusted`, and show them as text |
+| `GET /api/v1/knowledge/proposals?project=&goal=&status=&limit=` | `list_knowledge_proposals` | `project` required; `status` is `queued`, `open`, `accepted` or `rejected`; `limit` defaults to 50, at most 200 | `200` proposals (an array), newest first: `ref`, `section`, `path`, `action`, `body`, `reason`, `proposed_by`, `status`, `batch`, `goal_ref`, `external_ref`, `url` (the pull request, for the repo provider) and `gate` (the `knowledge_proposal` gate a human decides, as in `GET /api/v1/gates`). `body` and `reason` are agent or human text: show them as text |
 | `POST /api/v1/knowledge/proposals` | `propose_knowledge` | `{"project", "section", "path", "body", "reason", "action"}`; `action` is optional, as in [mcp.md](mcp.md) | `201` `{"proposal": "KB-5", "status": "open", "number": 12, "url": "..."}`; `400` for what the policy refuses |
 | `POST /api/v1/councils` | `start_council` | `{"project", "question", "kind", "roles": [], "constraints": []}`; `project` and `question` required, `kind` defaults to `adhoc` | `202` council with `ref` and `run_id` (`running`) |
 | `GET /api/v1/councils?project=&status=` | `list_councils` | both optional | `200` councils of the project, or of every project you may read, with `ref`, newest first, at most 200, without their briefs (`get_council` has them as untrusted data); no `gate_id` without `gate.read`. `403` for a project you cannot read |
@@ -197,10 +199,28 @@ never touched.
 | `GET /api/v1/assumptions?project=&goal=&task=&status=&impact=&verify_by=` | `list_assumptions` | `project` required | `200` assumptions, by number |
 | `POST /api/v1/assumptions/{assumption}/resolve` | `resolve_assumption` | `{"status", "evidence"}` | `200` assumption |
 | `GET /api/v1/decisions?project=&goal=&council=` | `list_decisions` | `project` required | `200` decisions, by number |
+| `GET /api/v1/trace?ref=` | `get_trace` | `ref` required: a goal, spec, task, council, assumption or decision ref, or a change as `owner/name#12` (URL-encode the `#`) or its UUID | `200` `{"focus", "goal", "nodes", "edges"}`; `404` for an unknown ref or a change tied to no task |
 
 Assumptions and decisions are named by ref (`A-42`, `DEC-9`) or UUID; see
 [mcp.md](mcp.md#assumption-and-decision-registers) for what they hold.
 `GET /api/v1/goals/{goal}` has the goal's assumptions as `assumptions`.
+
+The trace answers "why does this exist?" from the tables above, with nothing
+stored for it. `nodes` are in the order things happened: the goal, its
+councils, its spec revisions, its decisions, its tasks, their changes with
+the newest verification report and the merge, and its assumptions. Each has
+`id` (its ref: `GOAL-3`, `SPEC-2`, `DEC-1`, `acme/app#12`, `A-4`;
+`verification:<change>` and `merge:<change>` have none of their own), `kind`
+(`goal`, `council`, `spec`, `decision`, `task`, `change`, `verification`,
+`merge`, `assumption`), `title`, `status`, `summary` (at most 600
+characters), `url` (GitHub), `at` and `attrs` (decision: `decided_by`,
+`dissent`; assumption: `impact`, `confidence`, `verify_by`, `made_by`,
+`evidence`). `edges` say what follows from what (`from`, `to`, `label`);
+an assumption points at the nodes it affects, or at the goal when none of
+the nodes is one of its dependents. `focus` is the node asked for. A
+council, assumption or decision of no goal is a trace of one node and no
+`goal`. Titles, summaries and attributes are written by agents: show them as
+text.
 
 ### Planned endpoints
 

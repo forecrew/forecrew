@@ -100,6 +100,10 @@ func (r specRepo) Get(_ context.Context, accountID, id uuid.UUID) (domain.Spec, 
 	return getRow(r.s, specsT, accountID, id)
 }
 
+func (r specRepo) GetByNumber(_ context.Context, accountID uuid.UUID, number int64) (domain.Spec, error) {
+	return findRow(r.s, specsT, func(sp domain.Spec) bool { return sp.AccountID == accountID && sp.Number == number })
+}
+
 func (r specRepo) ListByGoal(_ context.Context, accountID, goalID uuid.UUID) ([]domain.Spec, error) {
 	specs, err := listRows(r.s, specsT, 0, func(sp domain.Spec) bool { return sp.AccountID == accountID && sp.GoalID == goalID })
 	slices.SortFunc(specs, func(a, b domain.Spec) int { return cmp.Compare(a.Revision, b.Revision) })

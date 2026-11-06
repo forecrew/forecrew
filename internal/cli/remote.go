@@ -190,6 +190,7 @@ func (r *remote) commands() []*cobra.Command {
 		councilsCommand(r),
 		verificationCommand(r),
 		qualityCommand(r),
+		traceCommand(r),
 	}
 }
 

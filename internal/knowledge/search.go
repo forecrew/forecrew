@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"slices"
+	"strings"
 	"time"
 	"uuid"
 
@@ -71,6 +72,27 @@ type Result struct {
 // Run searches. Sections the role may not read are left out, whatever the
 // section filter says.
 func (s *Search) Run(ctx context.Context, q Query) ([]Result, error) {
+	ls, err := s.List(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	var out []Result
+	for _, l := range ls {
+		out = append(out, l.Result)
+	}
+	return out, nil
+}
+
+// Listing is a hit with the whole body of its entry, for a person who reads
+// it.
+type Listing struct {
+	Result
+	Body string `json:"body"`
+}
+
+// List is Run with the body of every entry. An empty query text lists by
+// section and path, with the start of the body as the snippet.
+func (s *Search) List(ctx context.Context, q Query) ([]Listing, error) {
 	policy, err := s.Policy(ctx, q.Project)
 	if err != nil {
 		return nil, err
@@ -91,24 +113,26 @@ func (s *Search) Run(ctx context.Context, q Query) ([]Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []Result
+	var out []Listing
 	var found []uuid.UUID
 	for _, h := range hits {
 		e := h.Entry
 		if q.Role != "" && !CanRead(policy, e.Section, q.Role) {
 			continue
 		}
-		out = append(out, Result{
+		out = append(out, Listing{Body: e.Body, Result: Result{
 			ID: e.ID, Kind: e.Kind(), Provider: e.Provider, Section: e.Section, Path: e.Path, Title: e.Title, SourceURL: e.SourceURL,
 			Snippet: h.Snippet, Untrusted: Untrusted(policy, e), Provenance: provenanceOf(e), NeedsReverify: e.NeedsReverify,
 			ReverifyReason: e.ReverifyReason, Scope: e.Scope, GoalID: e.GoalID, Tags: e.Tags, ExpiresAt: e.ExpiresAt, Rank: h.Rank,
-		})
+		}})
 		found = append(found, e.ID)
 		if len(out) == limit {
 			break
 		}
 	}
-	if len(found) > 0 && q.Role != CuratorRole {
+	// Only a search is a hit: listing a section by path, as a person browsing
+	// does, is not, and would keep notes nobody found from expiring.
+	if len(found) > 0 && q.Role != CuratorRole && strings.TrimSpace(q.Text) != "" {
 		// A read that could not be counted is no reason to refuse it.
 		if err := s.Index.Store.Knowledge().CountHits(ctx, q.Project.AccountID, found); err != nil {
 			s.Index.log().WarnContext(ctx, "count knowledge hits", "error", err)

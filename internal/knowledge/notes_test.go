@@ -256,3 +256,21 @@ func TestSearchSurvivesACountThatFails(t *testing.T) {
 		t.Errorf("results = %+v, %v", res, err)
 	}
 }
+
+// Listing by path, as a person browsing does, is no search and no read.
+func TestBrowsingCountsNoHits(t *testing.T) {
+	e := newNotesEnv(t)
+	ctx := t.Context()
+	n, err := e.notes.Write(ctx, e.job(t, "developer", e.g1), knowledge.NoteInput{Scope: domain.NoteScopeProject, Title: "Spool trick", Body: "The spool is flushed at exit."})
+	must(t, err)
+	ls, err := e.search.List(ctx, knowledge.Query{Project: e.project, Kinds: []domain.KnowledgeKind{domain.KnowledgeNoteKind}, AllGoals: true, Limit: 10})
+	must(t, err)
+	if len(ls) != 1 || ls[0].ID != n.ID {
+		t.Fatalf("list = %+v", ls)
+	}
+	got, err := e.st.Knowledge().Get(ctx, e.project.AccountID, n.ID)
+	must(t, err)
+	if got.Hits != 0 {
+		t.Errorf("hits = %d, want 0 after browsing", got.Hits)
+	}
+}

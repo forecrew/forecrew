@@ -129,6 +129,20 @@ func TestEveryToolChecksTheProject(t *testing.T) {
 			_, err := f.svc.GetCouncil(ctx, by, mcp.CouncilRefInput{Council: council.Ref})
 			return err
 		},
+		"get_trace/goal": func() error { _, err := f.svc.GetTrace(ctx, by, mcp.GetTraceInput{Ref: goal}); return err },
+		"get_trace/council": func() error {
+			_, err := f.svc.GetTrace(ctx, by, mcp.GetTraceInput{Ref: council.Ref})
+			return err
+		},
+		"get_trace/assumption": func() error { _, err := f.svc.GetTrace(ctx, by, mcp.GetTraceInput{Ref: w.as[0].Ref()}); return err },
+		"list_knowledge": func() error {
+			_, err := svc.ListKnowledge(ctx, by, mcp.ListKnowledgeInput{Project: "app"})
+			return err
+		},
+		"list_knowledge_proposals": func() error {
+			_, err := f.svc.ListKnowledgeProposals(ctx, by, mcp.ListKnowledgeProposalsInput{Project: "app"})
+			return err
+		},
 		"add_constraint": func() error {
 			_, err := f.svc.AddCouncilConstraint(ctx, by, mcp.AddCouncilConstraintInput{Council: council.Ref, Constraint: "c"})
 			return err
