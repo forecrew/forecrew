@@ -39,14 +39,10 @@ func newPackEnv(t *testing.T) *packEnv {
 	t.Helper()
 	f := newFixture(t, "user:admin")
 	e := &packEnv{fixture: f, task: f.task}
-	e.policy = knowledge.Policy{
-		Providers: map[string]knowledge.Provider{knowledge.RepoProvider: {Kind: domain.ProviderKindRepo}},
-		Sections: map[string]knowledge.Section{
-			"architecture": {Provider: knowledge.RepoProvider, Access: knowledge.Access{Read: []string{"architect", "reviewer"}}},
-			"conventions":  {Provider: knowledge.RepoProvider, Access: knowledge.Access{Read: []string{knowledge.Everyone}}},
-			"vision":       {Provider: knowledge.RepoProvider, Protected: true, Access: knowledge.Access{Read: []string{knowledge.Everyone}}},
-		},
-	}
+	// The policy as a repo's file gives it, defaults applied by the parser.
+	policy, err := knowledge.ParsePolicy([]byte("version: 1\nsections:\n  architecture:\n    access: {read: [architect, reviewer]}\n  conventions: {}\n  vision:\n    protected: true\n"))
+	must(t, err)
+	e.policy = policy
 	e.search = &knowledge.Search{
 		Index:  &knowledge.Index{Store: f.st},
 		Policy: func(context.Context, domain.Project) (knowledge.Policy, error) { return e.policy, e.policyE },
