@@ -1,0 +1,461 @@
+description: The goal playbook with the testing system. Like goal, and for each task a test engineer writes the tests from the spec before the code and locks them for the developer, every PR head runs the test matrix and the fail-on-base check into a verification report, and a human can merge only a head whose report passed.
+inputs: [repo, goal_id, platforms]
+steps:
+  # The goal's GitHub issue, with the labels of the playbook.
+  - id: intake
+    type: action
+    action: goal.intake
+    with: {repo: '${inputs.repo}', goal_id: '${inputs.goal_id}'}
+    on_failure: escalate
+
+  # One round per review: write the spec, put it in the goal issue, ask for
+  # approval. Changes requested start a new round with the feedback; the
+  # fourth round needs a needs_you gate, as every one after it.
+  - id: spec
+    type: loop
+    max_iterations: 3
+    until: steps.spec_gate.output.decision == approved
+    on_failure: escalate
+    steps:
+      - id: write
+        type: job
+        with:
+          role: product-owner
+          repo: '${inputs.repo}'
+          goal_id: '${inputs.goal_id}'
+          feedback: '${steps.spec_gate.output.feedback}'
+        on_failure: escalate
+      - id: render
+        type: action
+        action: goal.spec
+        with: {goal_id: '${inputs.goal_id}', job_id: '${steps.write.job_id}', spec: '${steps.write.output}'}
+        on_failure: escalate
+      - id: spec_gate
+        type: gate
+        with:
+          kind: spec_approval
+          title: 'Approve the spec (revision ${steps.render.output.revision})'
+          summary: '${steps.render.output.summary}'
+          subject_repo: '${inputs.repo}'
+          subject_number: '${steps.intake.output.issue_number}'
+          spec_id: '${steps.render.output.spec_id}'
+
+  # The tasks of the approved spec, each with an issue under the goal's. The
+  # architect gets a second try, with what is wrong with its plan (such as
+  # the criteria no task covers); after that a needs_you gate asks a human and
+  # approving it reruns the architect once more.
+  - id: architecture
+    type: loop
+    max_iterations: 2
+    until: steps.plan.output.valid
+    on_failure: escalate
+    steps:
+      - id: design
+        type: job
+        with:
+          role: architect
+          repo: '${inputs.repo}'
+          goal_id: '${inputs.goal_id}'
+          spec_id: '${steps.render.output.spec_id}'
+          feedback: '${steps.plan.output.errors}'
+        on_failure: escalate
+      - id: plan
+        type: action
+        action: goal.plan
+        with:
+          goal_id: '${inputs.goal_id}'
+          spec_id: '${steps.render.output.spec_id}'
+          platforms: '${inputs.platforms}'
+          plan: '${steps.design.output}'
+          spec: '${steps.write.output}'
+        on_failure: escalate
+
+  # The tasks one after the other. Inside a foreach over a list, ${item} is
+  # that list's element, so the steps of the inner foreaches read the task
+  # from the outputs of "round".
+  - id: tasks
+    type: foreach
+    items: '${steps.plan.output.tasks}'
+    steps:
+      # The tests of the task, from its criteria, before any code: a test
+      # engineer writes them on the task's branch. One that stops because the
+      # matrix or a suite must change first is answered by the test architect
+      # (a foreach over what tests.map names), and the engineer then runs
+      # again with the escalation as feedback. The second round that is not
+      # ready needs a needs_you gate.
+      - id: tests
+        type: loop
+        max_iterations: 2
+        until: steps.tmap.output.ready
+        on_failure: escalate
+        steps:
+          - id: write_tests
+            type: job
+            with:
+              role: test-engineer
+              repo: '${inputs.repo}'
+              branch: '${item.branch}'
+              needs: '${item.needs}'
+              task_id: '${item.id}'
+              spec_id: '${steps.render.output.spec_id}'
+              feedback: '${steps.tmap.output.feedback}'
+            on_failure: escalate
+          - id: tmap
+            type: action
+            action: tests.map
+            with: {task_id: '${item.id}', needs: '${item.needs}'}
+          - id: matrix_work
+            type: foreach
+            items: '${steps.tmap.output.if_architect}'
+            steps:
+              - id: test_plan
+                type: job
+                with:
+                  role: test-architect
+                  repo: '${inputs.repo}'
+                  branch: '${item.branch}'
+                  needs: '${item.needs}'
+                  task_id: '${item.task_id}'
+                  spec_id: '${steps.render.output.spec_id}'
+                  feedback: '${steps.tmap.output.feedback}'
+                on_failure: escalate
+      # One delivery per merge decision: build a PR that passes its checks
+      # and its review, then ask a human to merge it. Changes requested at
+      # the gate start a new delivery with the feedback; the sixth needs a
+      # needs_you gate.
+      - id: delivery
+        type: loop
+        max_iterations: 5
+        until: steps.done.output.done
+        on_failure: escalate
+        steps:
+          # One round per developer job. A round whose checks failed or whose
+          # review asks for changes is followed by a rework round with their
+          # feedback; the fourth round needs a needs_you gate.
+          - id: build
+            type: loop
+            max_iterations: 3
+            until: steps.assess.output.done
+            on_failure: escalate
+            steps:
+              - id: round
+                type: action
+                action: goal.round
+                with:
+                  task_id: '${item.id}'
+                  iteration: '${iteration}'
+                  human: '${steps.done.output.feedback}'
+                  review: '${steps.assess.output.feedback}'
+              # A developer that stops with an escalation leaves no PR text
+              # (pr_text comments the reason on the task's issue): the loop
+              # runs out of its round and a needs_you gate asks a human;
+              # approving it reruns the developer, without the lock on the
+              # tests for that round (a developer that believes a locked test
+              # is wrong escalates; the lock is back in the next round). A
+              # developer that changes a locked test fails its job instead,
+              # which also opens a needs_you gate, and the rerun keeps the lock.
+              - id: dev
+                type: loop
+                max_iterations: 1
+                until: steps.pr_text.output.ready
+                on_failure: escalate
+                steps:
+                  - id: locked
+                    type: action
+                    action: tests.locked_paths
+                    with: {task_id: '${item.id}', iteration: '${iteration}'}
+                  - id: develop
+                    type: job
+                    with:
+                      role: developer
+                      repo: '${inputs.repo}'
+                      branch: '${steps.round.output.branch}'
+                      needs: '${item.needs}'
+                      task_id: '${item.id}'
+                      spec_id: '${steps.render.output.spec_id}'
+                      feedback: '${steps.round.output.feedback}'
+                      locked_paths: '${steps.locked.output.locked_paths}'
+                    on_failure: escalate
+                  - id: pr_text
+                    type: action
+                    action: goal.pr_text
+                    with: {task_id: '${item.id}', result: '${steps.develop.output}'}
+              - id: pr
+                type: action
+                action: github.open_or_update_pr
+                with:
+                  repo: '${inputs.repo}'
+                  title: '${steps.pr_text.output.title}'
+                  body: '${steps.pr_text.output.body}'
+                  head: '${steps.round.output.branch}'
+                  base: '${steps.intake.output.default_branch}'
+                  # The earlier round's PR: closed on GitHub fails the run;
+                  # merged there skips the steps below (the list is empty).
+                  previous: '${steps.pr.output.number}'
+                  task_id: '${item.id}'
+              - id: gated
+                type: foreach
+                items: '${steps.pr.output.if_open}'
+                steps:
+                  - id: in_review
+                    type: action
+                    action: goal.task_move
+                    with: {task_id: '${steps.round.output.task_id}', to: in_review}
+                  # The checks of the PR head; "none" means the repo has no
+                  # checks. A timeout opens a needs_you gate.
+                  - id: checks
+                    type: wait
+                    timeout: 1h
+                    on_failure: escalate
+                    with: {signal: checks.completed, repo: '${inputs.repo}', sha: '${steps.develop.head_sha}'}
+                  # The verification of the head: the required cells of the
+                  # matrix plus the suites of the new tests, the new tests on
+                  # the base branch, one rerun of the failed cells, and the
+                  # report. Only jobs a worker can run are started, since a
+                  # queued job nobody can lease would hold the run forever;
+                  # a report that is still incomplete (a missing worker, a
+                  # base check without its runs) opens a needs_you gate that
+                  # names what is missing, and approving it runs the matrix
+                  # again, at most three times before the loop's own gate.
+                  - id: verify
+                    type: loop
+                    max_iterations: 3
+                    until: steps.status.output.complete
+                    on_failure: escalate
+                    steps:
+                      - id: vtests
+                        type: action
+                        action: tests.map
+                        with: {task_id: '${steps.round.output.task_id}'}
+                      - id: mplan
+                        type: action
+                        action: matrix.plan
+                        with:
+                          repo: '${inputs.repo}'
+                          ref: '${steps.develop.head_sha}'
+                          scope: required
+                          suites: '${steps.vtests.output.suites}'
+                          only_runnable: true
+                        on_failure: escalate
+                      - id: cells
+                        type: foreach
+                        parallel: 8
+                        items: '${steps.mplan.output.jobs}'
+                        steps:
+                          - id: cell_run
+                            type: job
+                            with:
+                              kind: command
+                              repo: '${inputs.repo}'
+                              base_ref: '${steps.develop.head_sha}'
+                              task_id: '${steps.round.output.task_id}'
+                              from: '${item}'
+                            on_failure: escalate
+                      # Every new test must fail on the base branch without
+                      # the change, with the test files laid over it.
+                      - id: base_request
+                        type: action
+                        action: tests.base_check_request
+                        with:
+                          repo: '${inputs.repo}'
+                          base: '${steps.intake.output.default_branch}'
+                          head: '${steps.develop.head_sha}'
+                          tests: '${steps.vtests.output.tests}'
+                          files: '${steps.vtests.output.files}'
+                          only_runnable: true
+                        on_failure: escalate
+                      - id: base_cells
+                        type: foreach
+                        parallel: 8
+                        items: '${steps.base_request.output.runnable}'
+                        steps:
+                          - id: base_run
+                            type: job
+                            with:
+                              kind: command
+                              repo: '${inputs.repo}'
+                              base_ref: '${steps.intake.output.default_branch}'
+                              overlay: '${item.overlay}'
+                              task_id: '${steps.round.output.task_id}'
+                              from: '${item}'
+                            on_failure: escalate
+                      - id: base_result
+                        type: action
+                        action: tests.base_check_result
+                        with:
+                          runs: '${steps.base_cells.output}'
+                          tests: '${steps.vtests.output.tests}'
+                          requests: '${steps.base_request.output.requests}'
+                      - id: first
+                        type: action
+                        action: verification.build
+                        with:
+                          change: '${steps.pr.output.number}'
+                          sha: '${steps.develop.head_sha}'
+                          task_id: '${steps.round.output.task_id}'
+                          base_check: '${steps.base_result.output}'
+                        on_failure: escalate
+                      # A cell that failed runs once more: a test that then
+                      # passes is flaky and does not block.
+                      - id: reruns
+                        type: action
+                        action: verification.rerun_cells
+                        with: {report_id: '${steps.first.output.report_id}'}
+                      - id: rerun_cells
+                        type: foreach
+                        parallel: 8
+                        items: '${steps.reruns.output.requests}'
+                        steps:
+                          - id: rerun_run
+                            type: job
+                            with:
+                              kind: command
+                              repo: '${inputs.repo}'
+                              base_ref: '${steps.develop.head_sha}'
+                              task_id: '${steps.round.output.task_id}'
+                              from: '${item}'
+                            on_failure: escalate
+                      - id: final
+                        type: action
+                        action: verification.build
+                        with:
+                          change: '${steps.pr.output.number}'
+                          sha: '${steps.develop.head_sha}'
+                          task_id: '${steps.round.output.task_id}'
+                          base_check: '${steps.base_result.output}'
+                        on_failure: escalate
+                      - id: status
+                        type: action
+                        action: verification.read
+                        with: {change: '${steps.pr.output.number}', sha: '${steps.develop.head_sha}'}
+                      - id: workers
+                        type: foreach
+                        items: '${steps.status.output.if_incomplete}'
+                        steps:
+                          - id: workers_gate
+                            type: gate
+                            with:
+                              kind: needs_you
+                              title: 'Verification of ${steps.round.output.ref} is incomplete'
+                              summary: "${steps.status.output.text}\n\n${steps.mplan.output.missing}\n${steps.base_request.output.missing}\n\nBring a worker with those labels online, or fix what is missing, then approve to run the matrix again. Reject to stop the run."
+                              subject_repo: '${inputs.repo}'
+                              subject_number: '${steps.pr.output.number}'
+                              task_id: '${steps.round.output.task_id}'
+                  # The reviewer only reads the branch and only comments; it
+                  # is told what the verification found.
+                  - id: review
+                    type: job
+                    with:
+                      role: reviewer
+                      repo: '${inputs.repo}'
+                      branch: '${steps.round.output.branch}'
+                      task_id: '${steps.round.output.task_id}'
+                      spec_id: '${steps.render.output.spec_id}'
+                      feedback: '${steps.status.output.text}'
+                    on_failure: escalate
+                  - id: post
+                    type: action
+                    action: goal.review_post
+                    with: {repo: '${inputs.repo}', number: '${steps.pr.output.number}', review: '${steps.review.output}'}
+                  # A human accepts or rejects the high-impact assumptions the
+                  # task rests on before the round is assessed; the gates were
+                  # opened when the jobs that stated them finished. The loop
+                  # asks again after every decision, because a human who asks
+                  # for changes opens a new review; it ends when no review is
+                  # pending or the PR was merged or closed on GitHub (which
+                  # also sends back the task's reviews). A wait that nobody
+                  # answers opens a needs_you gate.
+                  - id: reviewed
+                    type: loop
+                    max_iterations: 10
+                    until: steps.hold.output.clear
+                    on_failure: escalate
+                    steps:
+                      - id: hold
+                        type: action
+                        action: goal.hold
+                        with: {task_id: '${steps.round.output.task_id}', repo: '${inputs.repo}', number: '${steps.pr.output.number}'}
+                      - id: waiting
+                        type: foreach
+                        items: '${steps.hold.output.gates}'
+                        steps:
+                          - id: assumption_wait
+                            type: wait
+                            timeout: 72h
+                            on_failure: escalate
+                            with: {signal: gate.resolved, gate_id: '${item}'}
+              # Done when the PR is ready for the merge gate or merged on
+              # GitHub; otherwise it outputs the feedback of the rework.
+              - id: assess
+                type: action
+                action: goal.assess
+                with:
+                  repo: '${inputs.repo}'
+                  number: '${steps.pr.output.number}'
+                  checks: '${steps.gated.output.0.checks.output.conclusion}'
+                  review: '${steps.gated.output.0.review.output}'
+                  result: '${steps.develop.output}'
+                  sha: '${steps.develop.head_sha}'
+                  task_id: '${steps.round.output.task_id}'
+                  job_id: '${steps.develop.job_id}'
+                  require_verification: true
+
+          # The merge gate, skipped when the PR was merged on GitHub meanwhile.
+          # Merging it there approves; closing it rejects. Approving here
+          # merges it, unless GitHub merged it already.
+          - id: approval
+            type: foreach
+            items: '${steps.assess.output.if_ready}'
+            steps:
+              - id: ready
+                type: action
+                action: goal.task_move
+                with: {task_id: '${steps.round.output.task_id}', to: merge_ready}
+              - id: merge_gate
+                type: gate
+                with:
+                  kind: merge_approval
+                  title: 'Merge ${steps.round.output.ref}: ${steps.round.output.title}'
+                  summary: '${steps.assess.output.gate_summary}'
+                  subject_repo: '${inputs.repo}'
+                  subject_number: '${item}'
+                  task_id: '${steps.round.output.task_id}'
+              - id: verdict
+                type: action
+                action: goal.if_approved
+                with: {decision: '${steps.merge_gate.output.decision}', number: '${item}'}
+              # The human approved, so a failure here asks for help and never
+              # undoes the approval.
+              - id: merge_if
+                type: foreach
+                items: '${steps.verdict.output.if_approved}'
+                steps:
+                  - id: merge
+                    type: action
+                    action: github.merge_pr
+                    with: {repo: '${inputs.repo}', number: '${item}', require_verification: true}
+                    on_failure: escalate
+          - id: done
+            type: action
+            action: goal.task_done
+            with:
+              task_id: '${item.id}'
+              repo: '${inputs.repo}'
+              number: '${steps.pr.output.number}'
+              feedback: '${steps.approval.output.0.merge_gate.output.feedback}'
+            on_failure: escalate
+
+  # The summary on the goal issue, with the cost of all jobs.
+  - id: close
+    type: action
+    action: goal.close
+    with: {goal_id: '${inputs.goal_id}'}
+    on_failure: escalate
+
+# A rejected or failed run cancels the goal, closes its unmerged tasks and
+# closes their issues. Merged pull requests stay merged.
+finally:
+  - id: settle
+    type: action
+    action: goal.settle
+    with: {goal_id: '${inputs.goal_id}'}
