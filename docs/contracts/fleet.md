@@ -354,7 +354,7 @@ the sum of what applies.
 ## Images
 
 `images` (`domain.Image`): `name`, `version`, `os`, `arch`, `format` (`rootfs`,
-`qcow2`, `vhdx`, `ami`, `tart`), `uri` (where to fetch it, without credentials, with a scheme of `https`, `http`, `s3`, `gs`, `file`, `oci` or `ami`;
+`qcow2`, `vhdx`, `ami`, `tart`), `uri` (where to fetch it, without credentials, with a scheme of `https`, `http` (both with a host), `s3`, `gs`, `oci` or `ami`, and no credential-looking key in its query, such as `X-Amz-Signature`;
 an AMI is `ami:<region>/<id>`), `digest` (`sha256:<hex>` of the image file; for
 an AMI or a Tart image, which are not one file, of the build's manifest),
 `signature`,

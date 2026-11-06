@@ -954,14 +954,32 @@ func checkURI(p *problems, field, s string) {
 	u, err := url.Parse(s)
 	if err != nil || u.Scheme == "" || u.User != nil {
 		p.addf("%s must be an absolute URI without credentials", field)
-	} else if !slices.Contains(imageURISchemes, strings.ToLower(u.Scheme)) {
+		return
+	}
+	scheme := strings.ToLower(u.Scheme)
+	switch {
+	case !slices.Contains(imageURISchemes, scheme):
 		p.addf("%s: scheme %q is not one of %s", field, u.Scheme, strings.Join(imageURISchemes, ", "))
+	case (scheme == "http" || scheme == "https") && u.Host == "":
+		p.addf("%s: an http(s) URI needs a host", field)
+	}
+	// A signed URL carries its credential in the query: it would sit in the
+	// database, the API and the logs.
+	for key := range u.Query() {
+		if secretKeyRE.MatchString(key) || signedURLKeyRE.MatchString(key) {
+			p.addf("%s: the query has a key that looks like a credential (%q): use a URI without one", field, key)
+		}
 	}
 }
 
+// signedURLKeyRE matches the query keys of pre-signed URLs (AWS, Google, and
+// the plain signature parameters).
+var signedURLKeyRE = regexp.MustCompile(`(?i)^(x-amz-.*|x-goog-.*|signature|sig|sas)$`)
+
 // imageURISchemes are where an image or kernel may be fetched from: HTTP(S),
-// object storage, a local file, an OCI registry (Tart) and an AMI.
-var imageURISchemes = []string{"https", "http", "s3", "gs", "file", "oci", "ami"}
+// object storage, an OCI registry (Tart) and an AMI. Not file: a path on the
+// host that reads it is not a place an organization may point other hosts at.
+var imageURISchemes = []string{"https", "http", "s3", "gs", "oci", "ami"}
 
 // secretKeyRE matches config keys that would hold a secret.
 var secretKeyRE = regexp.MustCompile(`(?i)secret|passw(or)?d|token|credential|private[_-]?key|api[_-]?key|access[_-]?key`)
