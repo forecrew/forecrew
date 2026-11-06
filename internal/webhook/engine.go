@@ -30,6 +30,9 @@ type Deps struct {
 	// Proposals settles the knowledge proposals of closed PRs; nil leaves
 	// them to their runs.
 	Proposals ProposalFollower
+	// Bugs starts the bug-fix playbook for @forecrew bug; nil answers that
+	// the command is not available.
+	Bugs BugReporter
 	// Allowed reports whether a GitHub login may command @forecrew in an
 	// organization nobody has a role in yet; see commander.
 	Allowed func(login string) bool
@@ -46,6 +49,13 @@ type Deps struct {
 // runs on the goroutine that handles webhooks.
 type KnowledgeSyncer interface {
 	Request(p domain.Project, before, head string)
+}
+
+// BugReporter makes an issue the goal issue of a bug goal and starts the
+// bug-fix playbook; *tools.Service implements it. It does not check
+// permissions: the command has.
+type BugReporter interface {
+	ReportIssueAsBug(ctx context.Context, by domain.Actor, p domain.Project, issue github.Issue) (domain.Goal, error)
 }
 
 // ProposalFollower settles the knowledge proposals of a closed PR;

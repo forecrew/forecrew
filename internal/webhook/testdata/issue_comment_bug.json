@@ -1,0 +1,15 @@
+{
+  "action": "created",
+  "issue": {
+    "number": 1
+  },
+  "comment": {
+    "body": "It crashes on save. @forecrew bug"
+  },
+  "repository": {
+    "full_name": "Acme/App"
+  },
+  "sender": {
+    "login": "octocat"
+  }
+}
