@@ -80,21 +80,7 @@ func (a *actions) testsBaseCheckRequest(ctx context.Context, call workflow.Actio
 	if err != nil {
 		return nil, err
 	}
-	// One request per suite and environment: the first cell that has it.
-	type slot struct{ suite, env string }
-	done := map[slot]bool{}
-	for _, c := range cells {
-		for _, j := range c.Jobs() {
-			if k := (slot{j.Suite, j.Environment.Name}); !done[k] {
-				done[k] = true
-				env, cmd := j.Environment, j.Command
-				out.Requests = append(out.Requests, workflow.JobRequest{
-					Kind: domain.JobKindCommand, Repo: with.Repo, BaseRef: with.Base, Needs: j.Needs, Command: &cmd, Environment: &env,
-					Cell: j.Cell, Suite: j.Suite, Overlay: overlay,
-				})
-			}
-		}
-	}
+	out.Requests = baseRequests(cells, with.Repo, with.Base, overlay)
 	for name := range suites {
 		if !slices.ContainsFunc(out.Requests, func(r workflow.JobRequest) bool { return r.Suite == name }) {
 			return nil, fmt.Errorf("%s: suite %q runs in no cell", testsys.MatrixFile, name)
@@ -107,6 +93,28 @@ func (a *actions) testsBaseCheckRequest(ctx context.Context, call workflow.Actio
 		}
 	}
 	return out, nil
+}
+
+// baseRequests returns one command job request per suite and environment of
+// the cells: the first cell that has it, running the suite on base with the
+// overlay laid over it.
+func baseRequests(cells []matrix.Cell, repo, base string, overlay *domain.Overlay) []workflow.JobRequest {
+	type slot struct{ suite, env string }
+	done := map[slot]bool{}
+	out := []workflow.JobRequest{}
+	for _, c := range cells {
+		for _, j := range c.Jobs() {
+			if k := (slot{j.Suite, j.Environment.Name}); !done[k] {
+				done[k] = true
+				env, cmd := j.Environment, j.Command
+				out = append(out, workflow.JobRequest{
+					Kind: domain.JobKindCommand, Repo: repo, BaseRef: base, Needs: j.Needs, Command: &cmd, Environment: &env,
+					Cell: j.Cell, Suite: j.Suite, Overlay: overlay,
+				})
+			}
+		}
+	}
+	return out
 }
 
 // dropUnrunnableRequests keeps in out.Runnable the requests an online worker

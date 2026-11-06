@@ -170,17 +170,23 @@ func TestVerificationReadErrors(t *testing.T) {
 	wantErr(t, err, "get the verification report")
 }
 
+// assessVerified calls goal.assess with require_verification for the PR.
+func assessVerified(t *testing.T, v *verified, pr github.PullRequest, extra map[string]any) (map[string]any, error) {
+	t.Helper()
+	with := assessWith(pr, "success", approveReview())
+	with["require_verification"] = true
+	with["task_id"] = v.task.ID.String()
+	maps.Copy(with, extra)
+	out, err := v.call(t, "goal.assess", with)
+	if err != nil {
+		return nil, err
+	}
+	return toMap(t, out), nil
+}
+
 func TestGoalAssessVerification(t *testing.T) {
 	assess := func(v *verified, pr github.PullRequest, extra map[string]any) (map[string]any, error) {
-		with := assessWith(pr, "success", approveReview())
-		with["require_verification"] = true
-		with["task_id"] = v.task.ID.String()
-		maps.Copy(with, extra)
-		out, err := v.call(t, "goal.assess", with)
-		if err != nil {
-			return nil, err
-		}
-		return toMap(t, out), nil
+		return assessVerified(t, v, pr, extra)
 	}
 
 	t.Run("passed shows the status and the link", func(t *testing.T) {
@@ -224,6 +230,13 @@ func TestGoalAssessVerification(t *testing.T) {
 			t.Errorf("feedback = %s", fb)
 		}
 	})
+}
+
+func TestGoalAssessVerificationEdges(t *testing.T) {
+	assess := func(v *verified, pr github.PullRequest, extra map[string]any) (map[string]any, error) {
+		return assessVerified(t, v, pr, extra)
+	}
+
 	t.Run("incomplete and missing are errors", func(t *testing.T) {
 		v := newVerified(t)
 		pr := v.atHead(t)
