@@ -343,7 +343,46 @@ func (s *Service) ConfigPlanFor(ctx context.Context, j domain.Job, in jobmcp.Con
 	if i := slices.IndexFunc(messages, func(m domain.AssistantMessage) bool { return m.JobID == j.ID && m.Author == domain.AssistantUser }); i >= 0 {
 		request = messages[i].Body
 	}
+	untrusted, err := s.untrustedText(ctx, j, in.BasedOn)
+	if err != nil {
+		return domain.ConfigPlan{}, err
+	}
 	p, err := s.config.Plan(ctx, by, cfgres.PlanRequest{Title: in.Title, Request: request, Source: domain.ConfigFromAssistant, Changes: in.Changes,
-		Untrusted: in.BasedOn, ConversationID: c.ID, JobID: j.ID})
+		Untrusted: untrusted, ConversationID: c.ID, JobID: j.ID})
 	return p, toolError(err)
+}
+
+// unverifiedTools are the job tools whose results hold text nobody verified,
+// with what the plan's line calls it.
+var unverifiedTools = map[string]string{"kb_search": "the project's knowledge", "config_read": "the configuration"}
+
+// untrustedText is the plan's line on unverified text. The server writes it
+// from the gateway's audit of the job's calls, which outlive a restart: the
+// model can add to it, in basedOn, but not leave it out.
+func (s *Service) untrustedText(ctx context.Context, j domain.Job, basedOn string) (string, error) {
+	entries, err := s.cfg.Store.Audit().List(ctx, j.AccountID, store.AuditFilter{SubjectID: j.ID})
+	if err != nil {
+		return "", err
+	}
+	var sources []string
+	for _, e := range entries {
+		var call struct {
+			Tool   string `json:"tool"`
+			Status string `json:"status"`
+		}
+		if e.Action != jobmcp.AuditCall || json.Unmarshal(e.Data, &call) != nil || call.Status != "ok" {
+			continue
+		}
+		if name, ok := unverifiedTools[call.Tool]; ok {
+			sources = append(sources, name)
+		}
+	}
+	if basedOn = contextpack.OneLine(basedOn); basedOn != "" {
+		sources = append(sources, basedOn)
+	}
+	if len(sources) == 0 {
+		return "", nil
+	}
+	slices.Sort(sources)
+	return "Based on text from " + strings.Join(slices.Compact(sources), ", ") + ", which is not verified", nil
 }
