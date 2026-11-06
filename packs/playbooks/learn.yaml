@@ -1,0 +1,64 @@
+description: Close a goal with a retro. A knowledge-curator job reads what happened (spec revisions, what humans and the reviewer asked to change, failures, costs, the notes agents shared) and proposes lessons and other knowledge, promoting the notes worth keeping. Then one PR agent/learn-GOAL-n carries the goal's assumptions and decisions as files and the repo proposals of the goal, with a knowledge_proposal gate; proposals for other providers go to them or to the same gate. Started for a goal that is done; the goal playbook starts it.
+inputs: [repo, goal_id]
+steps:
+  - id: history
+    type: action
+    action: goal.retro_context
+    with: {goal_id: '${inputs.goal_id}'}
+    on_failure: escalate
+  # A read-only job of the curator: it proposes with kb_propose, which queues
+  # the proposals for goal.learn (they belong to the goal).
+  - id: retro
+    type: job
+    with:
+      role: knowledge-curator
+      task: retro
+      repo: '${inputs.repo}'
+      goal_id: '${inputs.goal_id}'
+      feedback: '${steps.history.output.text}'
+    on_failure: escalate
+  - id: learn
+    type: action
+    action: goal.learn
+    with: {goal_id: '${inputs.goal_id}'}
+    on_failure: escalate
+  # A human approves the PR and the proposals that wait for a copy.
+  - id: human
+    type: foreach
+    items: '${steps.learn.output.if_gate}'
+    steps:
+      - {id: decision, type: wait, with: {signal: gate.resolved, gate_id: '${item}'}}
+  - id: decide
+    type: action
+    action: goal.learn_decide
+    with: {goal_id: '${inputs.goal_id}', gate: '${steps.learn.output.gate}'}
+    on_failure: escalate
+  - id: merged
+    type: foreach
+    items: '${steps.decide.output.if_merge}'
+    steps:
+      # The checks of the head that was approved; "none" means the repo has
+      # no checks. A timeout opens a needs_you gate.
+      - id: checks
+        type: wait
+        timeout: 1h
+        on_failure: escalate
+        with: {signal: checks.completed, repo: '${inputs.repo}', sha: '${steps.learn.output.head_sha}'}
+      - id: merge
+        type: action
+        action: github.merge_pr
+        with: {repo: '${inputs.repo}', number: '${item}', sha: '${steps.learn.output.head_sha}'}
+        on_failure: escalate
+  # CODEOWNERS reviewers approve on GitHub and a human merges.
+  - id: followed
+    type: foreach
+    items: '${steps.decide.output.if_follow}'
+    steps:
+      - {id: pr, type: wait, with: {signal: pr.merged, repo: '${inputs.repo}', number: '${item}'}}
+  - id: settle
+    type: action
+    action: goal.learn_settle
+    with: {goal_id: '${inputs.goal_id}'}
+    on_failure: escalate
+finally:
+  - {id: abandon, type: action, action: goal.learn_settle, with: {goal_id: '${inputs.goal_id}'}}

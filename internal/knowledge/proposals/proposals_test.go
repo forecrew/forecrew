@@ -842,3 +842,181 @@ func TestSaveLesson(t *testing.T) {
 		t.Errorf("no lessons section: %v", err)
 	}
 }
+
+// learn is a goal with a job that proposed to the sections given; Learn has
+// sent them and the learn gate is open.
+func learn(t *testing.T, e *env, files map[string][]byte, in ...proposals.Input) (proposals.LearnBatch, proposals.Learned, []domain.KnowledgeProposal) {
+	t.Helper()
+	goal := testkit.Goal(t, e.st, e.account, e.project.ID, "g")
+	j := e.job(t, "architect", goal.ID)
+	var ks []domain.KnowledgeProposal
+	for _, i := range in {
+		k, err := e.svc.Submit(t.Context(), j, i)
+		must(t, err)
+		ks = append(ks, k)
+	}
+	b := proposals.LearnBatch{AccountID: e.account, ProjectID: e.project.ID, GoalID: goal.ID}
+	out, err := e.svc.Learn(t.Context(), b, domain.NewID(), files)
+	must(t, err)
+	return b, out, ks
+}
+
+func (e *env) resolveGate(t *testing.T, id string, decision domain.GateStatus) {
+	t.Helper()
+	gid, err := uuid.Parse(id)
+	must(t, err)
+	_, err = e.gates.Resolve(t.Context(), domain.Actor{AccountID: e.account, Kind: domain.ActorUser, Name: "ana"}, gid, decision, "because")
+	must(t, err)
+}
+
+var learnFiles = map[string][]byte{".forecrew/assumptions/A-1.yaml": []byte("id: A-1\n")}
+
+// An approved learn gate: the proposals that wait for a human's copy are
+// accepted, and the PR is merged by forecrewd.
+func TestLearnDecideApproved(t *testing.T) {
+	ctx := t.Context()
+	e := newEnv(t)
+	b, out, ks := learn(t, e, learnFiles, add("architecture", "docs/adr/2.md"), add("runbooks", "space:ENG/page:1"))
+	e.resolveGate(t, out.Gate, domain.GateApproved)
+	d, err := e.svc.LearnDecide(ctx, b, out.Gate)
+	must(t, err)
+	if len(d.IfMerge) != 1 || d.IfMerge[0] != out.Number || len(d.IfFollow) != 0 {
+		t.Fatalf("decision = %+v, PR %d", d, out.Number)
+	}
+	if got := e.get(t, ks[1]); got.Status != domain.KnowledgeAccepted {
+		t.Errorf("the copied proposal = %s", got.Status)
+	}
+	if got := e.get(t, ks[0]); got.Status != domain.KnowledgeOpen {
+		t.Errorf("the PR's proposal = %s", got.Status)
+	}
+	_, err = e.tracker.MergePR(ctx, "acme/app", out.Number, github.MergeInput{})
+	must(t, err)
+	must(t, e.svc.LearnSettle(ctx, b, false))
+	if got := e.get(t, ks[0]); got.Status != domain.KnowledgeAccepted {
+		t.Errorf("after the merge = %s", got.Status)
+	}
+	// A decision on a PR that is merged merges nothing more.
+	if d, err = e.svc.LearnDecide(ctx, b, out.Gate); err != nil || len(d.IfMerge)+len(d.IfFollow) != 0 {
+		t.Errorf("after the merge: %+v, %v", d, err)
+	}
+}
+
+// A section owned by CODEOWNERS leaves the merge to its reviewers and a human.
+func TestLearnDecideCodeownersFollow(t *testing.T) {
+	e := newEnv(t)
+	b, out, _ := learn(t, e, learnFiles, add("conventions", "CONTRIBUTING.md"))
+	e.resolveGate(t, out.Gate, domain.GateApproved)
+	d, err := e.svc.LearnDecide(t.Context(), b, out.Gate)
+	must(t, err)
+	if len(d.IfFollow) != 1 || len(d.IfMerge) != 0 {
+		t.Errorf("decision = %+v", d)
+	}
+}
+
+func TestLearnDecideRejected(t *testing.T) {
+	ctx := t.Context()
+	e := newEnv(t)
+	b, out, ks := learn(t, e, learnFiles, add("architecture", "docs/adr/2.md"), add("runbooks", "space:ENG/page:1"))
+	e.resolveGate(t, out.Gate, domain.GateRejected)
+	d, err := e.svc.LearnDecide(ctx, b, out.Gate)
+	must(t, err)
+	pr, _ := e.tracker.GetPR(ctx, "acme/app", out.Number)
+	if len(d.IfMerge)+len(d.IfFollow) != 0 || pr.State != "closed" {
+		t.Errorf("decision = %+v, pr = %+v", d, pr)
+	}
+	for _, k := range ks {
+		if got := e.get(t, k); got.Status != domain.KnowledgeRejected {
+			t.Errorf("%s = %s", k.Ref(), got.Status)
+		}
+	}
+	// A repeated call has nothing left to do.
+	if _, err := e.svc.LearnDecide(ctx, b, out.Gate); err != nil {
+		t.Error(err)
+	}
+}
+
+// Nothing to send opens no gate and no PR, and there is nothing to decide.
+func TestLearnDecideWithNothingToSend(t *testing.T) {
+	ctx := t.Context()
+	e := newEnv(t)
+	b, out, _ := learn(t, e, nil)
+	if out.Gate != "" || out.Number != 0 || len(out.IfGate) != 0 {
+		t.Fatalf("learned = %+v", out)
+	}
+	if d, err := e.svc.LearnDecide(ctx, b, ""); err != nil || len(d.IfMerge)+len(d.IfFollow) != 0 {
+		t.Errorf("decision = %+v, %v", d, err)
+	}
+	must(t, e.svc.LearnSettle(ctx, b, false))
+	must(t, e.svc.LearnSettle(ctx, b, true))
+	if _, err := e.svc.LearnDecide(ctx, b, "not a uuid"); err == nil {
+		t.Error("a bad gate id")
+	}
+}
+
+func TestLearnSettle(t *testing.T) {
+	ctx := t.Context()
+	files := learnFiles
+	setup := func(t *testing.T) (*env, proposals.LearnBatch, proposals.Learned, domain.KnowledgeProposal) {
+		e := newEnv(t)
+		b, out, ks := learn(t, e, files, add("architecture", "docs/adr/2.md"))
+		return e, b, out, ks[0]
+	}
+	t.Run("closed", func(t *testing.T) {
+		e, b, out, k := setup(t)
+		must(t, e.tracker.ClosePR("acme/app", out.Number))
+		must(t, e.svc.LearnSettle(ctx, b, false))
+		if got := e.get(t, k); got.Status != domain.KnowledgeRejected {
+			t.Errorf("proposal = %s", got.Status)
+		}
+	})
+	t.Run("still open", func(t *testing.T) {
+		e, b, _, _ := setup(t)
+		if err := e.svc.LearnSettle(ctx, b, false); err == nil {
+			t.Error("an open PR is not settled")
+		}
+	})
+	t.Run("the run failed", func(t *testing.T) {
+		e, b, out, k := setup(t)
+		must(t, e.svc.LearnSettle(ctx, b, true))
+		pr, _ := e.tracker.GetPR(ctx, "acme/app", out.Number)
+		if got := e.get(t, k); got.Status != domain.KnowledgeRejected || pr.State != "closed" {
+			t.Errorf("proposal = %s, pr = %+v", got.Status, pr)
+		}
+	})
+	t.Run("the run failed after a merge", func(t *testing.T) {
+		e, b, out, k := setup(t)
+		_, err := e.tracker.MergePR(ctx, "acme/app", out.Number, github.MergeInput{})
+		must(t, err)
+		must(t, e.svc.LearnSettle(ctx, b, true))
+		if got := e.get(t, k); got.Status != domain.KnowledgeAccepted {
+			t.Errorf("proposal = %s", got.Status)
+		}
+	})
+}
+
+// Learn is called again after a crash: the same files and proposals, the same
+// PR and gate; and a goal or a project that does not exist is an error.
+func TestLearnRepeatsAndErrors(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	files := map[string][]byte{"docs/decisions/DEC-1.md": []byte("# DEC-1\n")}
+	goal := testkit.Goal(t, e.st, e.account, e.project.ID, "g")
+	j := e.job(t, "architect", goal.ID)
+	_, err := e.svc.Submit(ctx, j, add("architecture", "docs/adr/2.md"))
+	must(t, err)
+	b := proposals.LearnBatch{AccountID: e.account, ProjectID: e.project.ID, GoalID: goal.ID}
+	key := domain.NewID()
+	first, err := e.svc.Learn(ctx, b, key, files)
+	must(t, err)
+	second, err := e.svc.Learn(ctx, b, key, files)
+	must(t, err)
+	if first.Gate == "" || first.Gate != second.Gate || first.Number != second.Number || len(second.Proposals) != 1 || len(second.Files) != 1 {
+		t.Errorf("first %+v, second %+v", first, second)
+	}
+	if _, err := e.svc.Learn(ctx, proposals.LearnBatch{AccountID: e.account, ProjectID: e.project.ID, GoalID: domain.NewID()}, key, files); err == nil {
+		t.Error("a goal that does not exist")
+	}
+	if _, err := e.svc.Learn(ctx, proposals.LearnBatch{AccountID: e.account, ProjectID: domain.NewID(), GoalID: goal.ID}, key, files); err == nil {
+		t.Error("a project that does not exist")
+	}
+}
