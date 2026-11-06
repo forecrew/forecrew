@@ -348,6 +348,10 @@ object up and checks the permission on the object's project.
 | `create_service_account` | `POST /api/v1/service-accounts` | `service_account.manage` |
 | `update_service_account` | `PATCH /api/v1/service-accounts/{service_account}` | `service_account.manage` |
 | `set_service_account_disabled` | `POST /api/v1/service-accounts/{service_account}/disable`, `.../enable` | `service_account.manage`, No escalation |
+| `list_members` | `GET /api/v1/members` | `org.read`; emails only with `member.manage`; a project the caller cannot read is not named |
+| `set_member_suspended` | `POST /api/v1/members/{user}/suspend`, `.../resume` | `member.manage`, No escalation; ends the member's sessions and personal tokens in the organization |
+| `remove_member` | `DELETE /api/v1/members/{user}` | `member.manage`, No escalation; ends the member's sessions and personal tokens in the organization |
+| `update_organization` | `PATCH /api/v1/organization` | `org.manage` |
 | `create_token` | `POST /api/v1/tokens` | own; `token.manage` for a service account's |
 | `create_invitation` | `POST /api/v1/invitations` | `member.manage` |
 | `list_invitations` | `GET /api/v1/invitations` | `member.manage` |

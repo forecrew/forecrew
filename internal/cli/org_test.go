@@ -1,0 +1,46 @@
+package cli
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"uuid"
+
+	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/mcp"
+)
+
+func TestMembersCommands(t *testing.T) {
+	e := newRemoteEnv(t)
+	marta := mcp.MemberInfo{UserID: domain.NewID(), Name: "Marta Rossi\x1b[2J", Email: "marta@acme.test", Status: domain.MembershipActive,
+		Roles: []mcp.MemberRole{{Role: "member"}, {Role: "maintainer", Project: "app"}}, Teams: []string{"mobile"}}
+	luca := mcp.MemberInfo{UserID: domain.NewID(), Name: "Luca", Status: domain.MembershipSuspended}
+	twin := mcp.MemberInfo{UserID: domain.NewID(), Name: "Luca"}
+	e.svc.ListMembersFunc = func(context.Context, domain.Actor, any) ([]mcp.MemberInfo, error) {
+		return []mcp.MemberInfo{marta, luca, twin}, nil
+	}
+	e.svc.SetMemberSuspendedFunc = func(_ context.Context, _ domain.Actor, in mcp.SetMemberInput) (mcp.MemberInfo, error) {
+		return marta, nil
+	}
+	e.svc.RemoveMemberFunc = func(context.Context, domain.Actor, mcp.MemberRefInput) (mcp.MemberInfo, error) { return marta, nil }
+	e.svc.UpdateOrganizationFunc = func(_ context.Context, _ domain.Actor, in mcp.UpdateOrganizationInput) (domain.Account, error) {
+		return domain.Account{Name: in.Name, Slug: in.Slug}, nil
+	}
+
+	out, _, code := e.run(t, "members")
+	for _, want := range []string{"Marta Rossi [2J", "marta@acme.test", "member,maintainer@app", "mobile", "suspended"} {
+		if code != 0 || !strings.Contains(out, want) {
+			t.Errorf("code %d, output lacks %q:\n%s", code, want, out)
+		}
+	}
+	e.check(t, []string{"members", "suspend", "marta@acme.test"}, "is suspended", mcp.ToolSetMemberSuspended, mcp.SetMemberInput{User: marta.UserID.String(), Suspended: true})
+	e.check(t, []string{"members", "resume", marta.UserID.String()}, "is active again", mcp.ToolSetMemberSuspended, mcp.SetMemberInput{User: marta.UserID.String()})
+	e.check(t, []string{"members", "remove", "marta rossi\x1b[2j"}, "was removed", mcp.ToolRemoveMember, mcp.MemberRefInput{User: marta.UserID.String()})
+	e.check(t, []string{"org", "update", "--name", "Acme", "--slug", "acme"}, "organization Acme updated (slug acme)", mcp.ToolUpdateOrganization, mcp.UpdateOrganizationInput{Name: "Acme", Slug: "acme"})
+
+	for ref, want := range map[string]string{"ghost": `no member "ghost"`, "luca": `2 members are called "luca"`, uuid.New().String(): "no member"} {
+		if _, errOut, code := e.run(t, "members", "remove", ref); code == 0 || !strings.Contains(errOut, want) {
+			t.Errorf("%s: code %d, stderr %q, want %q", ref, code, errOut, want)
+		}
+	}
+}

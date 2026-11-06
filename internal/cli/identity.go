@@ -274,8 +274,8 @@ func auditInOrganizations(ctx context.Context, env Env, tx store.Store, userID u
 	return nil
 }
 
-func newOrgCommand(env Env) *cobra.Command {
-	org := &cobra.Command{Use: "org", Short: "Create organizations on the server"}
+func newOrgCommand(env Env, r *remote) *cobra.Command {
+	org := &cobra.Command{Use: "org", Short: "Create organizations on the server, or change yours"}
 	var slug string
 	create := &cobra.Command{
 		Use:   "create <name>",
@@ -302,7 +302,7 @@ func newOrgCommand(env Env) *cobra.Command {
 		},
 	}
 	create.Flags().StringVar(&slug, "slug", "", "slug in URLs; derived from the name by default")
-	org.AddCommand(create)
+	org.AddCommand(create, orgUpdateCommand(r))
 	return org
 }
 

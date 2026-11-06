@@ -125,6 +125,10 @@ type ToolService struct {
 	AssistantSendFunc         func(context.Context, domain.Actor, mcp.AssistantSendInput) (mcp.AssistantView, error)
 	AssistantGetFunc          func(context.Context, domain.Actor, mcp.AssistantRefInput) (mcp.AssistantView, error)
 	AssistantListFunc         func(context.Context, domain.Actor, mcp.AssistantListInput) ([]domain.AssistantConversation, error)
+	ListMembersFunc           func(context.Context, domain.Actor, any) ([]mcp.MemberInfo, error)
+	SetMemberSuspendedFunc    func(context.Context, domain.Actor, mcp.SetMemberInput) (mcp.MemberInfo, error)
+	RemoveMemberFunc          func(context.Context, domain.Actor, mcp.MemberRefInput) (mcp.MemberInfo, error)
+	UpdateOrganizationFunc    func(context.Context, domain.Actor, mcp.UpdateOrganizationInput) (domain.Account, error)
 
 	mu    sync.Mutex
 	calls []ToolCall
@@ -633,4 +637,24 @@ func (s *ToolService) AssistantGet(ctx context.Context, by domain.Actor, in mcp.
 // AssistantList implements mcp.ToolService.
 func (s *ToolService) AssistantList(ctx context.Context, by domain.Actor, in mcp.AssistantListInput) ([]domain.AssistantConversation, error) {
 	return invoke(ctx, s, mcp.ToolAssistantList, by, in, s.AssistantListFunc)
+}
+
+// ListMembers implements mcp.ToolService.
+func (s *ToolService) ListMembers(ctx context.Context, by domain.Actor) ([]mcp.MemberInfo, error) {
+	return invoke[any](ctx, s, mcp.ToolListMembers, by, nil, s.ListMembersFunc)
+}
+
+// SetMemberSuspended implements mcp.ToolService.
+func (s *ToolService) SetMemberSuspended(ctx context.Context, by domain.Actor, in mcp.SetMemberInput) (mcp.MemberInfo, error) {
+	return invoke(ctx, s, mcp.ToolSetMemberSuspended, by, in, s.SetMemberSuspendedFunc)
+}
+
+// RemoveMember implements mcp.ToolService.
+func (s *ToolService) RemoveMember(ctx context.Context, by domain.Actor, in mcp.MemberRefInput) (mcp.MemberInfo, error) {
+	return invoke(ctx, s, mcp.ToolRemoveMember, by, in, s.RemoveMemberFunc)
+}
+
+// UpdateOrganization implements mcp.ToolService.
+func (s *ToolService) UpdateOrganization(ctx context.Context, by domain.Actor, in mcp.UpdateOrganizationInput) (domain.Account, error) {
+	return invoke(ctx, s, mcp.ToolUpdateOrganization, by, in, s.UpdateOrganizationFunc)
 }

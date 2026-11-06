@@ -244,6 +244,11 @@ func TestEndpoints(t *testing.T) {
 		{"POST", "/api/v1/service-accounts/ci/enable", "", 200, mcp.ToolSetServiceAccount, mcp.SetServiceAccountInput{ServiceAccount: "ci"}},
 		{"GET", "/api/v1/changes/https%3A%2F%2Fgithub.com%2Facme%2Fapp%2Fpull%2F9/verification", "", 200, mcp.ToolVerificationReport, mcp.VerificationReportInput{Change: "https://github.com/acme/app/pull/9"}},
 		{"GET", "/api/v1/quality?project=app", "", 200, mcp.ToolProjectQuality, mcp.ProjectInput{Project: "app"}},
+		{"GET", "/api/v1/members", "", 200, mcp.ToolListMembers, nil},
+		{"POST", "/api/v1/members/u1/suspend", "", 200, mcp.ToolSetMemberSuspended, mcp.SetMemberInput{User: "u1", Suspended: true}},
+		{"POST", "/api/v1/members/u1/resume", "", 200, mcp.ToolSetMemberSuspended, mcp.SetMemberInput{User: "u1"}},
+		{"DELETE", "/api/v1/members/u1", "", 200, mcp.ToolRemoveMember, mcp.MemberRefInput{User: "u1"}},
+		{"PATCH", "/api/v1/organization", `{"name":"Acme Inc","slug":"acme-inc"}`, 200, mcp.ToolUpdateOrganization, mcp.UpdateOrganizationInput{Name: "Acme Inc", Slug: "acme-inc"}},
 	}
 	seen := map[string]bool{}
 	for i, tt := range tests {
@@ -270,7 +275,7 @@ func TestEndpoints(t *testing.T) {
 
 func TestListsAreArrays(t *testing.T) {
 	e := newEnv(t)
-	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/machines", "/api/v1/shapes", "/api/v1/providers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts", "/api/v1/test-runs?sha=abc", "/api/v1/assumptions?project=app", "/api/v1/decisions?project=app", "/api/v1/knowledge?project=app&q=x"} {
+	for _, path := range []string{"/api/v1/projects", "/api/v1/workers", "/api/v1/machines", "/api/v1/shapes", "/api/v1/providers", "/api/v1/gates", "/api/v1/goals", "/api/v1/jobs", "/api/v1/tokens", "/api/v1/jobs/JOB-1/artifacts", "/api/v1/test-runs?sha=abc", "/api/v1/assumptions?project=app", "/api/v1/decisions?project=app", "/api/v1/knowledge?project=app&q=x", "/api/v1/members"} {
 		if r := e.do(t, "GET", path, "", "bearer"); strings.TrimSpace(r.body) != "[]" {
 			t.Errorf("GET %s = %q, want []", path, r.body)
 		}
