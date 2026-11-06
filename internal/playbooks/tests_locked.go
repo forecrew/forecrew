@@ -3,12 +3,14 @@ package playbooks
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -43,10 +45,14 @@ type testMapDoc struct {
 	Escalation *string `json:"escalation"`
 }
 
-// latestForBug keeps only the latest output when the task is the fix of a bug:
-// each round of the reproduction starts over, so a test an earlier round wrote
-// and a human sent back (it passed on the base branch) must not count for the
-// tests, the base check, the lock or the verification, whatever its name.
+// latestForBug keeps only the latest output's tests when the task is the fix
+// of a bug: each round of the reproduction starts over, so a test an earlier
+// round wrote and a human sent back (it passed on the base branch) must not
+// count for the tests, the base check, the lock or the verification, whatever
+// its name. The files are another matter: a retry lists only the files it
+// changed itself, so a fixture an earlier round wrote is still needed, by the
+// new test or by the suite. The latest output's files are joined by the files
+// of the earlier rounds that are still at the head of the task's branch.
 func (a *actions) latestForBug(ctx context.Context, t domain.Task, docs []testMapDoc) ([]testMapDoc, error) {
 	if len(docs) < 2 {
 		return docs, nil
@@ -58,7 +64,28 @@ func (a *actions) latestForBug(ctx context.Context, t domain.Task, docs []testMa
 	if g.Kind != domain.GoalBug {
 		return docs, nil
 	}
-	return docs[len(docs)-1:], nil
+	p, err := a.Store.Projects().Get(ctx, t.AccountID, t.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("get project: %w", err)
+	}
+	latest := docs[len(docs)-1]
+	files := slices.Clone(latest.Files)
+	for _, doc := range docs[:len(docs)-1] {
+		for _, f := range doc.Files {
+			if slices.Contains(files, f) {
+				continue
+			}
+			_, err := a.Tracker.GetFile(ctx, p.Repo, taskBranch(t), f)
+			switch {
+			case err == nil:
+				files = append(files, f)
+			case !errors.Is(err, github.ErrNotFound):
+				return nil, fmt.Errorf("read %s at %s: %w", f, taskBranch(t), err)
+			}
+		}
+	}
+	latest.Files = files
+	return []testMapDoc{latest}, nil
 }
 
 // testerOutputs returns the outputs of the successful test-engineer jobs of
