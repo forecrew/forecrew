@@ -64,6 +64,36 @@ func (a *actions) testsMap(ctx context.Context, call workflow.ActionCall) (any, 
 		return nil, err
 	}
 	out := testsMapOutput{IfArchitect: []architectJob{}, Tests: []newTest{}, Files: []string{}, Suites: []string{}}
+	covered := unionTests(docs, &out)
+	var uncovered []string
+	for _, c := range taskCriteria(t.Body) {
+		if !covered[c] {
+			uncovered = append(uncovered, c)
+		}
+	}
+	var feedback []string
+	switch {
+	case len(docs) == 0:
+		feedback = append(feedback, "No test engineer job has finished for this task.")
+	case docs[len(docs)-1].Escalation != nil && strings.TrimSpace(*docs[len(docs)-1].Escalation) != "":
+		esc := *docs[len(docs)-1].Escalation
+		feedback = append(feedback, "The test engineer stopped and asked for a decision:\n"+contextpack.WrapUntrusted("test engineer escalation", esc))
+		if needsMatrix(esc) {
+			out.IfArchitect = append(out.IfArchitect, architectJob{TaskID: t.ID, Branch: taskBranch(t), Needs: append([]string{}, with.Needs...)})
+		}
+	}
+	if len(docs) > 0 && len(uncovered) > 0 {
+		feedback = append(feedback, fmt.Sprintf("Every acceptance criterion needs a test or an untestable entry with a reason. Missing: %s.", strings.Join(uncovered, ", ")))
+	}
+	out.Feedback = strings.Join(feedback, "\n\n")
+	out.Ready = len(feedback) == 0
+	return out, nil
+}
+
+// unionTests fills the tests, files and suites of out from the outputs of the
+// test engineer's jobs and returns the criteria they cover: those with a test
+// and those listed untestable with a reason.
+func unionTests(docs []testMapDoc, out *testsMapOutput) map[string]bool {
 	covered := map[string]bool{}
 	for _, doc := range docs {
 		out.Files = append(out.Files, doc.Files...)
@@ -84,27 +114,12 @@ func (a *actions) testsMap(ctx context.Context, call workflow.ActionCall) (any, 
 	out.Files = slices.Compact(out.Files)
 	slices.Sort(out.Suites)
 	out.Suites = slices.Compact(out.Suites)
-	var uncovered []string
-	for _, c := range taskCriteria(t.Body) {
-		if !covered[c] {
-			uncovered = append(uncovered, c)
-		}
-	}
-	var feedback []string
-	switch {
-	case len(docs) == 0:
-		feedback = append(feedback, "No test engineer job has finished for this task.")
-	case docs[len(docs)-1].Escalation != nil && strings.TrimSpace(*docs[len(docs)-1].Escalation) != "":
-		esc := *docs[len(docs)-1].Escalation
-		feedback = append(feedback, "The test engineer stopped and asked for a decision:\n"+contextpack.WrapUntrusted("test engineer escalation", esc))
-		if lower := strings.ToLower(esc); strings.Contains(lower, "matrix") || strings.Contains(lower, "suite") {
-			out.IfArchitect = append(out.IfArchitect, architectJob{TaskID: t.ID, Branch: taskBranch(t), Needs: append([]string{}, with.Needs...)})
-		}
-	}
-	if len(docs) > 0 && len(uncovered) > 0 {
-		feedback = append(feedback, fmt.Sprintf("Every acceptance criterion needs a test or an untestable entry with a reason. Missing: %s.", strings.Join(uncovered, ", ")))
-	}
-	out.Feedback = strings.Join(feedback, "\n\n")
-	out.Ready = len(feedback) == 0
-	return out, nil
+	return covered
+}
+
+// needsMatrix reports whether an escalation is about the test matrix or a
+// suite, which the test architect answers.
+func needsMatrix(escalation string) bool {
+	lower := strings.ToLower(escalation)
+	return strings.Contains(lower, "matrix") || strings.Contains(lower, "suite")
 }

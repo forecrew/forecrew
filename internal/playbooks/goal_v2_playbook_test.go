@@ -125,13 +125,6 @@ func suiteResults(suite string, st domain.TestStatus) []domain.TestResult {
 	return []domain.TestResult{{Classname: "e2e", Name: "TestAC2Decline", Status: st}}
 }
 
-func runOf(st domain.TestStatus) domain.TestRunStatus {
-	if st == domain.TestPassed {
-		return domain.TestRunPassed
-	}
-	return domain.TestRunFailed
-}
-
 // passedRun passes every test of a job; failedRun fails every test of a job.
 func passedRun(j domain.Job) (domain.TestRunStatus, []domain.TestResult) {
 	return domain.TestRunPassed, suiteResults(j.Spec.Suite, domain.TestPassed)
@@ -222,10 +215,6 @@ func commandKeys(jobs []domain.Job) []string {
 		out = append(out, j.Spec.Suite+"@"+j.Spec.Environment.Name)
 	}
 	return out
-}
-
-func (r *v2Run) verifyStep(round int, step string) string {
-	return build(0, 1, round, "gated/0/verify/1/"+step)
 }
 
 // Tests written from the spec, a developer round that has them locked, a
