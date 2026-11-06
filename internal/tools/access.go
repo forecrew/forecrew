@@ -375,6 +375,10 @@ func (s *Service) ListRoleBindings(ctx context.Context, by domain.Actor, in mcp.
 	if err != nil {
 		return nil, err
 	}
+	names, err := s.subjectNames(ctx, by.AccountID, bindings)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]mcp.RoleBindingInfo, len(bindings))
 	for i, b := range bindings {
 		var role domain.Role
@@ -386,8 +390,53 @@ func (s *Service) ListRoleBindings(ctx context.Context, by domain.Actor, in mcp.
 			project = projects[j].Name
 		}
 		out[i] = bindingInfo(b, role, project)
+		out[i].SubjectName = names[b.SubjectID]
 	}
 	return out, nil
+}
+
+// subjectNames names the holders of bindings: users, teams and service
+// accounts of the organization.
+func (s *Service) subjectNames(ctx context.Context, accountID uuid.UUID, bindings []domain.RoleBinding) (map[uuid.UUID]string, error) {
+	names := map[uuid.UUID]string{}
+	var users []uuid.UUID
+	var teams, accounts bool
+	for _, b := range bindings {
+		switch b.SubjectKind {
+		case domain.SubjectUser:
+			users = append(users, b.SubjectID)
+		case domain.SubjectTeam:
+			teams = true
+		case domain.SubjectServiceAccount:
+			accounts = true
+		}
+	}
+	found, err := s.cfg.Store.Users().ListByIDs(ctx, users)
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range found {
+		names[u.ID] = u.Name
+	}
+	if teams {
+		list, err := s.cfg.Store.Teams().List(ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range list {
+			names[t.ID] = t.Name
+		}
+	}
+	if accounts {
+		list, err := s.cfg.Store.ServiceAccounts().List(ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range list {
+			names[a.ID] = a.Name
+		}
+	}
+	return names, nil
 }
 
 // CreateRoleBinding implements mcp.ToolService.
