@@ -260,21 +260,7 @@ func TestBugfixPromptMarksTheReportUntrusted(t *testing.T) {
 		// The goal and the spec both hold the report: every occurrence is
 		// inside an untrusted block.
 		for _, text := range []string{inTitle, inBody} {
-			if n := strings.Count(pack.Prompt, text); n < 2 {
-				t.Errorf("%s: %q occurs %d times, want the goal and the spec", req.Role, text, n)
-			}
-			for from := 0; ; {
-				i := strings.Index(pack.Prompt[from:], text)
-				if i < 0 {
-					break
-				}
-				i += from
-				before := pack.Prompt[:i]
-				if strings.LastIndex(before, "<untrusted-data") < strings.LastIndex(before, "</untrusted-data") {
-					t.Errorf("%s: %q at %d is outside an untrusted block:\n%s", req.Role, text, i, pack.Prompt[max(0, i-200):i+len(text)])
-				}
-				from = i + len(text)
-			}
+			allUntrusted(t, req.Role, pack.Prompt, text)
 		}
 	}
 }
@@ -339,5 +325,27 @@ func TestBugfixEarlierFilesStayLocked(t *testing.T) {
 	dev := r.push(t, 1)
 	if !slices.Equal(dev.LockedPaths, want) {
 		t.Errorf("locked paths = %v, want %v", dev.LockedPaths, want)
+	}
+}
+
+// allUntrusted checks that text occurs in prompt at least twice (the goal and
+// the spec hold the report) and that every occurrence is inside an untrusted
+// block.
+func allUntrusted(t *testing.T, role, prompt, text string) {
+	t.Helper()
+	if n := strings.Count(prompt, text); n < 2 {
+		t.Errorf("%s: %q occurs %d times, want the goal and the spec", role, text, n)
+	}
+	for from := 0; ; {
+		i := strings.Index(prompt[from:], text)
+		if i < 0 {
+			return
+		}
+		i += from
+		before := prompt[:i]
+		if strings.LastIndex(before, "<untrusted-data") < strings.LastIndex(before, "</untrusted-data") {
+			t.Errorf("%s: %q at %d is outside an untrusted block:\n%s", role, text, i, prompt[max(0, i-200):i+len(text)])
+		}
+		from = i + len(text)
 	}
 }
