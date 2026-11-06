@@ -93,7 +93,7 @@ func TestProviderCommands(t *testing.T) {
 	}
 
 	e.svc.RevokeProviderFunc = func(_ context.Context, _ domain.Actor, in mcp.ProviderRefInput) (mcp.ProviderInfo, error) {
-		return mcp.ProviderInfo{CapacityProvider: domain.CapacityProvider{Name: in.Provider}}, nil
+		return mcp.ProviderInfo{Name: in.Provider}, nil
 	}
 	if out, _, code := e.run(t, "provider", "revoke", "home"); code != 0 || !strings.Contains(out, "home revoked") {
 		t.Errorf("revoke: code %d, %q", code, out)
@@ -122,7 +122,7 @@ func TestProviderCommands(t *testing.T) {
 		if in.Join != joinID.String() {
 			t.Errorf("confirm input = %+v", in)
 		}
-		return mcp.ProviderInfo{CapacityProvider: domain.CapacityProvider{Name: in.Name}}, nil
+		return mcp.ProviderInfo{Name: in.Name}, nil
 	}
 	if out, _, code := e.run(t, "provider", "confirm", joinID.String(), "--name", "home"); code != 0 || !strings.Contains(out, "provider home created") {
 		t.Errorf("confirm: code %d, %q", code, out)

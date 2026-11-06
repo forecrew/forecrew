@@ -374,6 +374,28 @@ func TestRevokeProvider(t *testing.T) {
 	}
 }
 
+// assertConfirmRefused tries what must not confirm the claimed code id.
+func assertConfirmRefused(t *testing.T, f *fixture, id string) {
+	t.Helper()
+	ctx := t.Context()
+	other := domain.Account{Name: "other", Slug: "other"}
+	must(t, f.st.Accounts().Create(ctx, &other))
+	stranger := f.by
+	stranger.AccountID = other.ID
+	if _, err := f.svc.ConfirmJoin(ctx, stranger, mcp.ConfirmJoinInput{Join: id, Name: "home"}); !errors.Is(err, mcp.ErrNotFound) && !errors.Is(err, authz.ErrDenied) {
+		t.Errorf("another organization: %v", err)
+	}
+	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: "nope", Name: "home"}); !errors.Is(err, mcp.ErrInvalidInput) {
+		t.Errorf("not a UUID: %v", err)
+	}
+	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: uuid.New().String(), Name: "home"}); !errors.Is(err, mcp.ErrNotFound) {
+		t.Errorf("unknown: %v", err)
+	}
+	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "Bad Name"}); !errors.Is(err, mcp.ErrInvalidInput) {
+		t.Errorf("bad name: %v", err)
+	}
+}
+
 func TestJoinCodeFlow(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
@@ -416,22 +438,7 @@ func TestJoinCodeFlow(t *testing.T) {
 		t.Fatalf("hashes in %s", raw)
 	}
 
-	other := domain.Account{Name: "other", Slug: "other"}
-	must(t, f.st.Accounts().Create(ctx, &other))
-	stranger := f.by
-	stranger.AccountID = other.ID
-	if _, err := f.svc.ConfirmJoin(ctx, stranger, mcp.ConfirmJoinInput{Join: id, Name: "home"}); !errors.Is(err, mcp.ErrNotFound) && !errors.Is(err, authz.ErrDenied) {
-		t.Errorf("another organization: %v", err)
-	}
-	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: "nope", Name: "home"}); !errors.Is(err, mcp.ErrInvalidInput) {
-		t.Errorf("not a UUID: %v", err)
-	}
-	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: uuid.New().String(), Name: "home"}); !errors.Is(err, mcp.ErrNotFound) {
-		t.Errorf("unknown: %v", err)
-	}
-	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "Bad Name"}); !errors.Is(err, mcp.ErrInvalidInput) {
-		t.Errorf("bad name: %v", err)
-	}
+	assertConfirmRefused(t, f, id)
 
 	p, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "home"})
 	must(t, err)
