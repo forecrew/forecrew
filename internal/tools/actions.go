@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"uuid"
 
@@ -38,6 +39,9 @@ func (s *Service) OnboardProject(ctx context.Context, by domain.Actor, in mcp.On
 	if !installed {
 		return mcp.OnboardProjectOutput{}, fmt.Errorf("the GitHub App is not installed on %s: %w", repo, mcp.ErrInvalidInput)
 	}
+	if in.Refresh {
+		return s.refreshTests(ctx, by, repo)
+	}
 	p, err := s.registerProject(ctx, by, repo, cmp.Or(strings.TrimSpace(in.Name), name), cmp.Or(strings.TrimSpace(in.DefaultBranch), defaultBranch))
 	if err != nil {
 		return mcp.OnboardProjectOutput{}, err
@@ -65,6 +69,41 @@ func (s *Service) OnboardProject(ctx context.Context, by domain.Actor, in mcp.On
 	if err != nil {
 		s.revertOnboarding(ctx, by, p)
 		return mcp.OnboardProjectOutput{}, fmt.Errorf("start onboarding of %s: %w", p.Name, err)
+	}
+	return mcp.OnboardProjectOutput{Project: p, RunID: run.ID}, nil
+}
+
+// refreshTests starts the tests part of onboarding again for the project of
+// repo, which must be onboarded and have no such run in flight. The project
+// stays onboarded throughout.
+func (s *Service) refreshTests(ctx context.Context, by domain.Actor, repo string) (mcp.OnboardProjectOutput, error) {
+	p, err := s.cfg.Store.Projects().GetByName(ctx, by.AccountID, repo)
+	if errors.Is(err, store.ErrNotFound) {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("%s is not a project: onboard it first: %w", repo, mcp.ErrInvalidInput)
+	}
+	if err != nil {
+		return mcp.OnboardProjectOutput{}, err
+	}
+	if p.Status != domain.ProjectOnboarded {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("project %s is %s, only an onboarded project can refresh its tests: %w", p.Name, p.Status, mcp.ErrInvalidInput)
+	}
+	active, err := s.cfg.Store.WorkflowRuns().ListActive(ctx, by.AccountID)
+	if err != nil {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("list the runs of %s: %w", p.Name, err)
+	}
+	if i := slices.IndexFunc(active, func(r domain.WorkflowRun) bool {
+		return r.ProjectID == p.ID && r.Playbook == PlaybookOnboardingTests
+	}); i >= 0 {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("the tests of %s are already being onboarded (run %s): %w", p.Name, active[i].ID, mcp.ErrInvalidInput)
+	}
+	if err := s.audit(ctx, s.cfg.Store, by, p.ID, "project.tests_refresh", "project", p.ID, nil); err != nil {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("audit the refresh of the tests of %s: %w", p.Name, err)
+	}
+	run, err := s.cfg.Playbooks.Start(ctx, PlaybookOnboardingTests, workflow.StartRequest{
+		AccountID: by.AccountID, ProjectID: p.ID, Inputs: map[string]any{"repo": p.Repo, "project": p.Name},
+	})
+	if err != nil {
+		return mcp.OnboardProjectOutput{}, fmt.Errorf("start the refresh of the tests of %s: %w", p.Name, err)
 	}
 	return mcp.OnboardProjectOutput{Project: p, RunID: run.ID}, nil
 }

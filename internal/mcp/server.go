@@ -35,10 +35,13 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 	job := "Job ref (JOB-41) or UUID."
 	goal := "Goal ref (GOAL-3) or UUID."
 
-	register(r, ToolOnboardProject, "Register a GitHub repo as a project if needed and start onboarding: an analyst job reads the repo and proposes a profile for approval. Returns the project and the onboarding run.",
-		fieldDocs{"repo": "Repository as owner/name.", "name": "Project name; defaults to the repo name.", "default_branch": "Default branch of the repo, used when the project is registered by this call; defaults to main."},
+	register(r, ToolOnboardProject, "Register a GitHub repo as a project if needed and start onboarding: an analyst job reads the repo and proposes a profile for approval, then a test strategy, matrix and environments are proposed for approval and the existing tests run once on every target as a baseline. With refresh, for a project that is onboarded, only the test part runs again. Returns the project and the run.",
+		fieldDocs{"repo": "Repository as owner/name.", "name": "Project name; defaults to the repo name.", "default_branch": "Default branch of the repo, used when the project is registered by this call; defaults to main.", "refresh": "Run only the test part of onboarding again, for a project that is onboarded."},
 		func(ctx context.Context, by domain.Actor, in OnboardProjectInput) (toolResult, error) {
 			out, err := svc.OnboardProject(ctx, by, in)
+			if in.Refresh {
+				return result(out, "Refresh of the tests of %s started.", out.Project.Repo), err
+			}
 			return result(out, "Onboarding of %s started.", out.Project.Repo), err
 		})
 	register(r, ToolCreateGoal, "Create a goal for a project and start the goal playbook (spec, plan, implementation). Returns the new draft goal.",

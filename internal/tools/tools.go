@@ -34,6 +34,9 @@ import (
 const (
 	// PlaybookOnboarding takes the inputs repo and project (its name).
 	PlaybookOnboarding = "onboarding"
+	// PlaybookOnboardingTests takes the same inputs: the tests part of
+	// onboarding, which onboarding starts and a refresh starts again.
+	PlaybookOnboardingTests = "onboarding-tests"
 	// PlaybookGoal takes the inputs repo, goal_id and platforms.
 	PlaybookGoal = "goal"
 )

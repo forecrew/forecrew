@@ -350,12 +350,16 @@ type OnboardProjectInput struct {
 	Name string `json:"name,omitempty"` // defaults to the repo name
 	// DefaultBranch of a repo that is registered by this call; defaults to main.
 	DefaultBranch string `json:"default_branch,omitempty"`
+	// Refresh runs only the test part of onboarding again, for a project that
+	// is onboarded: a new test plan if one is needed, and a new baseline.
+	Refresh bool `json:"refresh,omitempty"`
 }
 
 // OnboardProjectOutput is the output of onboard_project.
 type OnboardProjectOutput struct {
 	Project domain.Project `json:"project"`
-	// RunID is the workflow run of the onboarding playbook.
+	// RunID is the workflow run of the onboarding playbook, or of the
+	// onboarding-tests playbook for a refresh.
 	RunID uuid.UUID `json:"run_id"`
 }
 

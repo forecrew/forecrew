@@ -193,6 +193,64 @@ func TestOnboardRegisteredProjectWithName(t *testing.T) {
 	}
 }
 
+func TestOnboardProjectRefresh(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	out, err := f.svc.OnboardProject(ctx, f.by, mcp.OnboardProjectInput{Repo: "acme/app", Refresh: true})
+	must(t, err)
+	if out.Project.ID != f.project.ID || out.Project.Status != domain.ProjectOnboarded || out.RunID == uuid.Nil() {
+		t.Fatalf("out = %+v", out)
+	}
+	starts := f.playbooks.Starts()
+	if len(starts) != 1 || starts[0].Playbook != tools.PlaybookOnboardingTests || starts[0].Request.ProjectID != f.project.ID ||
+		starts[0].Request.Inputs["repo"] != "acme/app" || starts[0].Request.Inputs["project"] != "app" {
+		t.Errorf("starts = %+v", starts)
+	}
+	if got := f.auditActions(t); len(got) != 1 || got[0] != "mcp:laptop project.tests_refresh" {
+		t.Errorf("audit = %v", got)
+	}
+	if p, _ := f.st.Projects().Get(ctx, f.account.ID, f.project.ID); p.Status != domain.ProjectOnboarded {
+		t.Errorf("status = %s", p.Status)
+	}
+}
+
+func TestOnboardProjectRefreshErrors(t *testing.T) {
+	boom := errors.New("engine down")
+	tests := []struct {
+		name  string
+		repo  string
+		setup func(t *testing.T, f *fixture)
+		want  error
+	}{
+		{name: "not a project", repo: "acme/new", want: mcp.ErrInvalidInput},
+		{name: "not onboarded", repo: "acme/new", want: mcp.ErrInvalidInput, setup: func(t *testing.T, f *fixture) {
+			p := domain.Project{AccountID: f.account.ID, Name: "new", Repo: "acme/new", DefaultBranch: "main", Status: domain.ProjectOnboarding}
+			must(t, f.st.Projects().Create(t.Context(), &p))
+		}},
+		{name: "already running", repo: "acme/app", want: mcp.ErrInvalidInput, setup: func(t *testing.T, f *fixture) {
+			r := domain.WorkflowRun{AccountID: f.account.ID, ProjectID: f.project.ID, Playbook: tools.PlaybookOnboardingTests, Status: domain.RunRunning}
+			must(t, f.st.WorkflowRuns().Create(t.Context(), &r))
+		}},
+		{name: "playbook fails", repo: "acme/app", want: boom, setup: func(_ *testing.T, f *fixture) { f.playbooks.Err = boom }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			if tt.setup != nil {
+				tt.setup(t, f)
+			}
+			_, err := f.svc.OnboardProject(t.Context(), f.by, mcp.OnboardProjectInput{Repo: tt.repo, Refresh: true})
+			wantErr(t, err, tt.want)
+		})
+	}
+	// Another playbook's run, or another project's, does not count.
+	f := newFixture(t)
+	other := domain.WorkflowRun{AccountID: f.account.ID, ProjectID: f.project.ID, Playbook: tools.PlaybookGoal, Status: domain.RunRunning}
+	must(t, f.st.WorkflowRuns().Create(t.Context(), &other))
+	_, err := f.svc.OnboardProject(t.Context(), f.by, mcp.OnboardProjectInput{Repo: "acme/app", Refresh: true})
+	must(t, err)
+}
+
 type failingGitHub struct{}
 
 func (failingGitHub) IsInstalled(context.Context, string) (bool, error) {
