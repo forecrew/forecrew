@@ -96,32 +96,34 @@ func TestExecNotInstalled(t *testing.T) {
 }
 
 func TestExecTimeoutKillsProcessGroup(t *testing.T) {
-	pidfile := filepath.Join(t.TempDir(), "pid")
-	p := shell("sleep 300 & echo $! > " + pidfile + "; wait")
-	p.Timeout = 500 * time.Millisecond
-	start := time.Now()
-	exit, err := Exec(t.Context(), p, nil, nil)
-	if !errors.Is(err, ErrTimeout) || exit.Code != -1 {
-		t.Fatalf("exit = %+v, err = %v", exit, err)
+	// The timeout runs from the start of the run; under load the shell can be
+	// slower than it. A run killed before its child existed proves nothing, so
+	// it is repeated with twice the timeout until the child was seen.
+	timeout := 500 * time.Millisecond
+	for range 6 {
+		pidfile := filepath.Join(t.TempDir(), "pid")
+		p := shell("sleep 300 & echo $! > " + pidfile + "; wait")
+		p.Timeout = timeout
+		start := time.Now()
+		exit, err := Exec(t.Context(), p, nil, nil)
+		if !errors.Is(err, ErrTimeout) || exit.Code != -1 {
+			t.Fatalf("exit = %+v, err = %v", exit, err)
+		}
+		if d := time.Since(start); d > timeout+10*time.Second {
+			t.Errorf("took %s", d)
+		}
+		if childStarted(pidfile) {
+			assertChildGone(t, pidfile)
+			return
+		}
+		timeout *= 2
 	}
-	if d := time.Since(start); d > 10*time.Second {
-		t.Errorf("took %s", d)
-	}
-	assertChildGone(t, pidfile)
+	t.Fatal("the shell never started its child before the timeout")
 }
 
 func TestExecCancellationKillsProcessGroup(t *testing.T) {
 	pidfile := filepath.Join(t.TempDir(), "pid")
-	ctx, cancel := context.WithCancel(t.Context())
-	go func() {
-		for range 200 {
-			if _, err := os.Stat(pidfile); err == nil {
-				break
-			}
-			time.Sleep(25 * time.Millisecond)
-		}
-		cancel()
-	}()
+	ctx := cancelWhenStarted(t, pidfile)
 	start := time.Now()
 	exit, err := Exec(ctx, shell("sleep 300 & echo $! > "+pidfile+"; wait"), nil, nil)
 	if !errors.Is(err, context.Canceled) || exit.Code != -1 {

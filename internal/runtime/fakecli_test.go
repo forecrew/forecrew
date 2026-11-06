@@ -198,6 +198,13 @@ func readRecord(t *testing.T, path string) fakeRecord {
 	return r
 }
 
+// childStarted reports whether the fake child wrote its pid. The file can
+// exist for a moment before the pid is in it, so an empty file is not enough.
+func childStarted(pidfile string) bool {
+	b, err := os.ReadFile(pidfile)
+	return err == nil && len(strings.TrimSpace(string(b))) > 0
+}
+
 // cancelWhenStarted returns a context that is cancelled once the fake CLI has
 // written its child's pid file, so a run is never cancelled before the child
 // it must kill exists. It gives up waiting, and cancels, after a minute.
@@ -209,7 +216,7 @@ func cancelWhenStarted(t *testing.T, pidfile string) context.Context {
 		defer cancel()
 		deadline := time.Now().Add(time.Minute)
 		for time.Now().Before(deadline) {
-			if _, err := os.Stat(pidfile); err == nil {
+			if childStarted(pidfile) {
 				return
 			}
 			time.Sleep(10 * time.Millisecond)
@@ -239,7 +246,7 @@ func runToTimeout(t *testing.T, spec RunSpec, newAdapter func(pidfile string) Ad
 		if d := time.Since(start); d > timeout+10*time.Second {
 			t.Errorf("took %s", d)
 		}
-		if _, err := os.Stat(pidfile); err == nil {
+		if childStarted(pidfile) {
 			assertChildGone(t, pidfile)
 			return a
 		}
