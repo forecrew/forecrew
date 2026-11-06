@@ -87,6 +87,14 @@ func (s *Service) refreshTests(ctx context.Context, by domain.Actor, repo string
 	if p.Status != domain.ProjectOnboarded {
 		return mcp.OnboardProjectOutput{}, fmt.Errorf("project %s is %s, only an onboarded project can refresh its tests: %w", p.Name, p.Status, mcp.ErrInvalidInput)
 	}
+	for _, role := range []string{"test-architect", "environment-engineer"} {
+		if s.cfg.Roles == nil {
+			return mcp.OnboardProjectOutput{}, fmt.Errorf("the role %s is not configured: add it under roles in forecrew.yaml to refresh the tests: %w", role, mcp.ErrInvalidInput)
+		}
+		if _, err := s.cfg.Roles.Resolve(ctx, by.AccountID, p.ID, role); err != nil {
+			return mcp.OnboardProjectOutput{}, fmt.Errorf("the role %s is not configured: add it under roles in forecrew.yaml to refresh the tests: %w", role, mcp.ErrInvalidInput)
+		}
+	}
 	active, err := s.cfg.Store.WorkflowRuns().ListActive(ctx, by.AccountID)
 	if err != nil {
 		return mcp.OnboardProjectOutput{}, fmt.Errorf("list the runs of %s: %w", p.Name, err)
