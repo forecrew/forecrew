@@ -102,6 +102,19 @@ func configPlans(t *testing.T, st store.Store, accountID, conversationID, jobID 
 			t.Errorf("List %s = %+v, %v", name, rows, err)
 		}
 	}
+	configPlanMoves(t, st, row)
+}
+
+// configPlanMoves applies the pending plan row.
+func configPlanMoves(t *testing.T, st store.Store, row domain.ConfigPlan) {
+	t.Helper()
+	ctx, accountID := t.Context(), row.AccountID
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	row.Status, row.AppliedBy, row.AppliedAt, row.PRURL = domain.ConfigPlanApplied, "user:me", time.Now(), "https://x"
 	must(st.ConfigPlans().Move(ctx, &row, domain.ConfigPlanPending))
 	if err := st.ConfigPlans().Move(ctx, &row, domain.ConfigPlanPending); !errors.Is(err, store.ErrConflict) {
@@ -114,10 +127,10 @@ func configPlans(t *testing.T, st store.Store, accountID, conversationID, jobID 
 	if rows, err := st.ConfigPlans().List(ctx, accountID, store.ConfigPlanFilter{Open: true}); err != nil || len(rows) != 0 {
 		t.Fatalf("open plans = %+v, %v", rows, err)
 	}
-	if got, _ := st.ConfigPlans().Get(ctx, accountID, p.ID); got.AppliedBy != "user:me" || got.PRURL != "https://x" {
+	if got, _ := st.ConfigPlans().Get(ctx, accountID, row.ID); got.AppliedBy != "user:me" || got.PRURL != "https://x" {
 		t.Fatalf("after Move = %+v", got)
 	}
-	if _, err := st.ConfigPlans().Get(ctx, domain.NewID(), p.ID); !errors.Is(err, store.ErrNotFound) {
+	if _, err := st.ConfigPlans().Get(ctx, domain.NewID(), row.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a plan of another account: %v", err)
 	}
 }
