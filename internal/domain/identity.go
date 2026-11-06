@@ -231,6 +231,10 @@ const (
 	// SecretRefStore names a value of the secret store (internal/secrets),
 	// in the organization of what refers to it.
 	SecretRefStore = "store:"
+	// StagedSecretPrefix starts the names where values entered for a plan
+	// wait for its confirmation. They belong to internal/secrets: no
+	// reference names one, so no plan reads what another plan staged.
+	StagedSecretPrefix = "staged/"
 )
 
 // The namespace of an organization's connections. Whoever manages such a
@@ -265,15 +269,18 @@ func validHostSecretRef(ref string) bool {
 	return false
 }
 
+// ValidSecretName reports whether name has the form of a secret's name.
+func ValidSecretName(name string) bool { return validSecretName(name) }
+
 func validSecretName(name string) bool {
 	return secretRefRE.MatchString(name) && !strings.Contains(name, "..")
 }
 
 // StoreSecretName returns the name of a "store:name" reference, and false
-// for anything else.
+// for anything else, the reserved names of staged values included.
 func StoreSecretName(ref string) (string, bool) {
 	name, ok := strings.CutPrefix(ref, SecretRefStore)
-	return name, ok && validSecretName(name)
+	return name, ok && validSecretName(name) && !strings.HasPrefix(name, StagedSecretPrefix)
 }
 
 // ValidOrganizationSecretRef reports whether ref is a ValidSecretRef in the

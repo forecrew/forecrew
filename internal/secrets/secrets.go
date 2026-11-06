@@ -52,6 +52,9 @@ type Store interface {
 	// Get returns a value for the server's own use.
 	Get(ctx context.Context, accountID uuid.UUID, name string) ([]byte, error)
 	Delete(ctx context.Context, accountID uuid.UUID, name string) error
+	// Stage keeps a value for a plan under StagedName, the one way to write
+	// there: Put refuses those names, and no reference resolves to them.
+	Stage(ctx context.Context, by domain.Actor, accountID, planID uuid.UUID, name string, value []byte) error
 	// Promote moves the value of from to the name to, which must be free
 	// (ErrExists), working on repo so it joins the caller's transaction.
 	Promote(ctx context.Context, repo store.SecretRepo, by domain.Actor, accountID uuid.UUID, from, to string) error
@@ -157,15 +160,37 @@ func validName(name string) error {
 	return nil
 }
 
+// StagedName is where a value entered for a plan waits for its confirmation.
+func StagedName(planID uuid.UUID, name string) string {
+	return domain.StagedSecretPrefix + planID.String() + "/" + name
+}
+
 // Put implements Store.
 func (e *Encrypted) Put(ctx context.Context, by domain.Actor, accountID uuid.UUID, name string, value []byte) error {
 	return e.put(ctx, e.repo, by, accountID, name, value)
+}
+
+// Stage implements Store.
+func (e *Encrypted) Stage(ctx context.Context, by domain.Actor, accountID, planID uuid.UUID, name string, value []byte) error {
+	if err := validName(name); err != nil {
+		return err
+	}
+	staged := StagedName(planID, name)
+	if !domain.ValidSecretName(staged) {
+		return fmt.Errorf("name %q is too long: %w", name, ErrInvalid)
+	}
+	return e.write(ctx, e.repo, by, accountID, staged, value)
 }
 
 func (e *Encrypted) put(ctx context.Context, repo store.SecretRepo, by domain.Actor, accountID uuid.UUID, name string, value []byte) error {
 	if err := validName(name); err != nil {
 		return err
 	}
+	return e.write(ctx, repo, by, accountID, name, value)
+}
+
+// write stores a value under a name the caller checked.
+func (e *Encrypted) write(ctx context.Context, repo store.SecretRepo, by domain.Actor, accountID uuid.UUID, name string, value []byte) error {
 	if len(value) == 0 || len(value) > MaxValueSize {
 		return fmt.Errorf("a value is 1 to %d bytes: %w", MaxValueSize, ErrInvalid)
 	}

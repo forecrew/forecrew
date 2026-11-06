@@ -138,7 +138,9 @@ The assistant never sees or asks for a secret.
 - The value goes to `PUT /api/v1/config/plans/{plan}/secrets/{secret}` or
   `forecrew config secret`, and from there to the store, staged under
   `staged/<plan>/<name>`. It is write-only: no API returns it, and `export` shows
-  the reference. There is no MCP tool for it.
+  the reference. There is no MCP tool for it. Names starting `staged/` are
+  reserved: no `store:` reference names one and only staging writes there, so a
+  plan never reaches what another plan staged.
 - **Nothing live changes before confirmation.** Applying moves a staged value to
   its name in the plan's transaction. A name that is saved already is never
   replaced: a step naming one says `reuses`, its plan uses the value there and
