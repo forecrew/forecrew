@@ -448,3 +448,18 @@ func TestInvitationsCommands(t *testing.T) {
 		t.Errorf("revoke: code %d, %q", code, out)
 	}
 }
+
+// runIn is run with stdin.
+func (e *remoteEnv) runIn(t *testing.T, stdin string, args ...string) (stdout, stderr string, code int) {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	root := NewRootCommand("test", e.env)
+	root.SetArgs(args)
+	root.SetIn(strings.NewReader(stdin))
+	root.SetOut(&out)
+	root.SetErr(&errOut)
+	if err := root.ExecuteContext(t.Context()); err != nil {
+		return out.String(), err.Error(), 1
+	}
+	return out.String(), errOut.String(), 0
+}

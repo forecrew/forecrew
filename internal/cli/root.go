@@ -22,11 +22,15 @@ func NewRootCommand(version string, env Env) *cobra.Command {
 	}
 	root.SetVersionTemplate("forecrew {{.Version}}\n")
 	root.AddCommand(newVersionCommand(version))
-	root.AddCommand(newMigrateCommand(env), newConfigCommand(env), newTokenCommand(env), newWorkerAdminCommand(env),
-		newUserCommand(env), newOrgCommand(env), newSessionCommand(env))
 	r := newRemote(env)
 	r.bind(root)
+	cfg := newConfigCommand(env)
+	cfg.Short = "Work with forecrew.yaml and the configuration resources"
+	cfg.AddCommand(r.configCommands()...)
+	root.AddCommand(newMigrateCommand(env), cfg, newTokenCommand(env), newWorkerAdminCommand(env),
+		newUserCommand(env), newOrgCommand(env), newSessionCommand(env))
 	root.AddCommand(r.commands()...)
+	root.AddCommand(r.assistantCommand())
 	return root
 }
 
