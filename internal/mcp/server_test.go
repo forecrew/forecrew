@@ -212,6 +212,10 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolListCouncils, map[string]any{"project": "app", "status": "decided"}, mcp.ListCouncilsInput{Project: "app", Status: "decided"}},
 		{mcp.ToolGetCouncil, map[string]any{"council": "COUNCIL-2"}, mcp.CouncilRefInput{Council: "COUNCIL-2"}},
 		{mcp.ToolAddConstraint, map[string]any{"council": "COUNCIL-2", "constraint": "Stay on Postgres"}, mcp.AddCouncilConstraintInput{Council: "COUNCIL-2", Constraint: "Stay on Postgres"}},
+		{mcp.ToolCreateToken, map[string]any{"name": "laptop", "scopes": []string{"read"}, "ttl": "24h"}, mcp.CreateTokenInput{Name: "laptop", Scopes: []domain.Scope{domain.ScopeRead}, TTL: "24h"}},
+		{mcp.ToolCreateInvitation, map[string]any{"email": "a@b.c", "roles": []map[string]string{{"role": "member"}}}, mcp.CreateInvitationInput{Email: "a@b.c", Roles: []mcp.RoleGrant{{Role: "member"}}}},
+		{mcp.ToolListInvitations, nil, nil},
+		{mcp.ToolRevokeInvitation, map[string]any{"invitation": "x"}, mcp.InvitationRefInput{Invitation: "x"}},
 		{mcp.ToolVerificationReport, map[string]any{"change": "9", "project": "app"}, mcp.VerificationReportInput{Change: "9", Project: "app"}},
 		{mcp.ToolListRoles, nil, nil},
 		{mcp.ToolListTeams, nil, nil},
@@ -531,6 +535,7 @@ func TestEveryToolChecksItsPermission(t *testing.T) {
 		mcp.ToolGetGoal: {"goal": "g"}, mcp.ToolListDecisions: {"project": "p"}, mcp.ToolVerificationReport: {"change": "9", "project": "p"},
 		mcp.ToolProjectQuality:   {"project": "p"},
 		mcp.ToolProposeKnowledge: {"project": "p", "section": "s", "path": "x", "body": "b", "reason": "r"},
+		mcp.ToolCreateInvitation: {"email": "a@b.c", "roles": []map[string]string{{"role": "member"}}}, mcp.ToolRevokeInvitation: {"invitation": "x"},
 	}
 	for name, a := range mcp.ToolAccess() {
 		if a.Permission == "" || a.Own {

@@ -76,6 +76,10 @@ const (
 	ToolCancelJob          = "cancel_job"
 	ToolListTokens         = "list_tokens"
 	ToolRevokeToken        = "revoke_token"
+	ToolCreateToken        = "create_token"
+	ToolCreateInvitation   = "create_invitation"
+	ToolListInvitations    = "list_invitations"
+	ToolRevokeInvitation   = "revoke_invitation"
 	ToolListArtifacts      = "list_artifacts"
 	ToolListTestRuns       = "list_test_runs"
 	ToolListAssumptions    = "list_assumptions"
@@ -117,7 +121,7 @@ func Tools() []string {
 		ToolListAssumptions, ToolResolveAssumption, ToolListDecisions,
 		ToolSearchKnowledge, ToolDeleteNote, ToolProposeKnowledge,
 		ToolStartCouncil, ToolListCouncils, ToolGetCouncil, ToolAddConstraint,
-		ToolVerificationReport, ToolProjectQuality,
+		ToolVerificationReport, ToolProjectQuality, ToolCreateToken, ToolCreateInvitation, ToolListInvitations, ToolRevokeInvitation,
 		ToolListRoles, ToolListTeams, ToolCreateTeam, ToolUpdateTeam, ToolDeleteTeam,
 		ToolListTeamMembers, ToolAddTeamMember, ToolRemoveTeamMember,
 		ToolListRoleBindings, ToolCreateRoleBinding, ToolDeleteRoleBinding,
@@ -159,6 +163,16 @@ type ToolService interface {
 	// RevokeToken revokes an active token by name or ID, the caller's own
 	// included; a token that is unknown or revoked already is ErrNotFound.
 	RevokeToken(ctx context.Context, by domain.Actor, in RevokeTokenInput) (RevokeTokenOutput, error)
+	// CreateToken creates a personal token of the caller, or with
+	// token.manage a service account's; the secret is in the answer only.
+	CreateToken(ctx context.Context, by domain.Actor, in CreateTokenInput) (CreateTokenOutput, error)
+	// CreateInvitation invites someone by email or GitHub login, with roles;
+	// the link is in the answer only.
+	CreateInvitation(ctx context.Context, by domain.Actor, in CreateInvitationInput) (CreateInvitationOutput, error)
+	// ListInvitations lists the organization's invitations, newest first.
+	ListInvitations(ctx context.Context, by domain.Actor) ([]domain.Invitation, error)
+	// RevokeInvitation revokes an invitation by ID.
+	RevokeInvitation(ctx context.Context, by domain.Actor, in InvitationRefInput) (domain.Invitation, error)
 	// ListArtifacts lists the artifacts a job's worker uploaded (test
 	// reports, logs, screenshots), by name. The content is served by
 	// GET /api/v1/artifacts/{id}.
@@ -577,11 +591,66 @@ type TokenInfo struct {
 	RevokedAt  time.Time `json:"revoked_at,omitzero"`
 	// Current is set on the token that made the call.
 	Current bool `json:"current,omitempty"`
+	// OwnerKind and OwnerID say whose token it is; empty on a token from
+	// before personal tokens that has no owner yet.
+	OwnerKind domain.SubjectKind `json:"owner_kind,omitempty"`
+	OwnerID   uuid.UUID          `json:"owner_id,omitzero"`
+	Scopes    []domain.Scope     `json:"scopes,omitempty"`
+	ExpiresAt time.Time          `json:"expires_at,omitzero"`
 }
 
 // NewTokenInfo returns the view of t; current says it is the caller's token.
 func NewTokenInfo(t domain.MCPToken, current bool) TokenInfo {
-	return TokenInfo{ID: t.ID, Name: t.Name, CreatedAt: t.CreatedAt, LastUsedAt: t.LastUsedAt, RevokedAt: t.RevokedAt, Current: current}
+	return TokenInfo{ID: t.ID, Name: t.Name, CreatedAt: t.CreatedAt, LastUsedAt: t.LastUsedAt, RevokedAt: t.RevokedAt, Current: current,
+		OwnerKind: t.OwnerKind, OwnerID: t.OwnerID, Scopes: t.Scopes, ExpiresAt: t.ExpiresAt}
+}
+
+// CreateTokenInput is the input of create_token.
+type CreateTokenInput struct {
+	Name   string         `json:"name"`
+	Scopes []domain.Scope `json:"scopes"`
+	// TTL is how long the token lasts, a Go duration such as 720h; empty is
+	// auth.token_default_ttl.
+	TTL string `json:"ttl,omitempty"`
+	// ServiceAccount names the service account the token is for; empty is
+	// the caller.
+	ServiceAccount string `json:"service_account,omitempty"`
+}
+
+// CreateTokenOutput is the output of create_token.
+type CreateTokenOutput struct {
+	Token TokenInfo `json:"token"`
+	// Secret is the token. It is shown here once and never stored.
+	Secret string `json:"secret"`
+}
+
+// RoleGrant is a role an invitation gives: on the organization, or on one
+// project when Project is set.
+type RoleGrant struct {
+	Role    string `json:"role"`
+	Project string `json:"project,omitempty"`
+}
+
+// CreateInvitationInput is the input of create_invitation: exactly one of
+// Email and GitHubLogin.
+type CreateInvitationInput struct {
+	Email       string      `json:"email,omitempty"`
+	GitHubLogin string      `json:"github_login,omitempty"`
+	Roles       []RoleGrant `json:"roles"`
+	// TTL is how long the link works, a Go duration; empty is 7 days.
+	TTL string `json:"ttl,omitempty"`
+}
+
+// CreateInvitationOutput is the output of create_invitation.
+type CreateInvitationOutput struct {
+	Invitation domain.Invitation `json:"invitation"`
+	// URL is the link to send. It is shown here once and never stored.
+	URL string `json:"url"`
+}
+
+// InvitationRefInput names an invitation.
+type InvitationRefInput struct {
+	Invitation string `json:"invitation"` // UUID
 }
 
 // RevokeTokenInput is the input of revoke_token.
@@ -591,12 +660,6 @@ type RevokeTokenInput struct {
 
 // RevokeTokenOutput is the output of revoke_token.
 type RevokeTokenOutput struct {
-	// OwnerKind and OwnerID say whose token it is; empty on a token from
-	// before personal tokens that has no owner yet.
-	OwnerKind domain.SubjectKind `json:"owner_kind,omitempty"`
-	OwnerID   uuid.UUID          `json:"owner_id,omitzero"`
-	Scopes    []domain.Scope     `json:"scopes,omitempty"`
-	ExpiresAt time.Time          `json:"expires_at,omitzero"`
 	Token TokenInfo `json:"token"`
 	// Self is set when the caller revoked the token it is using: from now on
 	// its requests and web sessions fail with 401.
