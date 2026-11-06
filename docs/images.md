@@ -12,8 +12,8 @@ and removed. Starting machines from them is the fleet agent's job.
 | Windows Server | `vhdx`, `qcow2` | `deploy/images/windows`, on a host, from your ISO | Hyper-V, Proxmox |
 | macOS | `tart` | `deploy/images/macos`, on an Apple silicon Mac | Tart |
 
-What is in a Linux image: git, Go, Node, Python and a C toolchain from Debian
-13; Claude Code, Codex and opencode at the exact versions of
+What is in a Linux image: git, Go, Python and a C toolchain from Debian 13, and Node
+24.22.2 from nodejs.org with its checksum pinned (Claude Code needs Node 22 or newer); Claude Code, Codex and opencode at the exact versions of
 `deploy/worker/control/package.json` and its lock file (one list for the control
 worker image and for machine images; bump it there); `forecrew-worker`, started
 at boot. Its labels are in `/etc/forecrew/labels` and in the manifest's
