@@ -169,6 +169,16 @@ func (r jobRepo) Cancel(_ context.Context, accountID, jobID uuid.UUID) (domain.J
 	return out, err
 }
 
+func (r jobRepo) LockLeased(_ context.Context, accountID, jobID, workerID uuid.UUID) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		j, err := d.jobs.get(accountID, jobID)
+		if err != nil {
+			return err
+		}
+		return checkLease(j, workerID)
+	})
+}
+
 func (r jobRepo) SetJobMCPTokenHash(_ context.Context, accountID, jobID, workerID uuid.UUID, attempts int, hash []byte) error {
 	return r.s.do(func(d *storeData, _ time.Time) error {
 		j, err := d.jobs.get(accountID, jobID)

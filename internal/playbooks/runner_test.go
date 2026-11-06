@@ -64,8 +64,12 @@ func (r *runner) finishJob(t *testing.T, id uuid.UUID, output []byte, sha string
 	ctx := t.Context()
 	j, err := r.st.Jobs().Get(ctx, r.account, id)
 	must(t, err)
-	leased, err := r.st.Jobs().LeaseNext(ctx, r.account, r.worker.ID, j.RequiredLabels(), time.Hour)
-	must(t, err)
+	leased, workerID := j, j.WorkerID // a job that runs already finishes under its worker
+	if j.Status != domain.JobRunning {
+		leased, err = r.st.Jobs().LeaseNext(ctx, r.account, r.worker.ID, j.RequiredLabels(), time.Hour)
+		must(t, err)
+		workerID = r.worker.ID
+	}
 	if sha != "" && leased.Spec.Branch != "" { // the worker pushes the branch before it reports
 		must(t, r.tracker.AddBranch(leased.Spec.Repo, leased.Spec.Branch))
 	}
@@ -73,7 +77,7 @@ func (r *runner) finishJob(t *testing.T, id uuid.UUID, output []byte, sha string
 	// one transaction: the engine reads a finished job at once (it does not
 	// wait for the signal), and must find its gates open.
 	must(t, r.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
-		done, err := tx.Jobs().Complete(ctx, r.account, leased.ID, r.worker.ID, store.JobResult{Status: domain.JobSucceeded, Output: output, HeadSHA: sha, CostUSD: cost})
+		done, err := tx.Jobs().Complete(ctx, r.account, leased.ID, workerID, store.JobResult{Status: domain.JobSucceeded, Output: output, HeadSHA: sha, CostUSD: cost})
 		if err != nil || r.register == nil {
 			return err
 		}

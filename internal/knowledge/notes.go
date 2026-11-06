@@ -99,10 +99,27 @@ func (n *Notes) Write(ctx context.Context, j domain.Job, in NoteInput) (domain.K
 		e.ID, e.Provenance.Created = old.ID, old.Provenance.Created
 	}
 	e.Path = "notes/" + e.ID.String()
-	if err := n.Index.Put(ctx, &e); err != nil {
+	if err := n.store(ctx, j, &e); err != nil {
 		return domain.KnowledgeEntry{}, err
 	}
 	return e, nil
+}
+
+// store saves the note e of job j. The job's lock, as completing it takes,
+// comes first: the note commits before the job finishes, or is refused with
+// store.ErrLeaseLost. The embedding, a call to a provider, is made after the
+// commit.
+func (n *Notes) store(ctx context.Context, j domain.Job, e *domain.KnowledgeEntry) error {
+	err := n.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		if err := tx.Jobs().LockLeased(ctx, j.AccountID, j.ID, j.WorkerID); err != nil {
+			return err
+		}
+		return tx.Knowledge().Upsert(ctx, e)
+	})
+	if err != nil {
+		return err
+	}
+	return n.Index.embed(ctx, []*domain.KnowledgeEntry{e})
 }
 
 // Delete removes a note, for a human. Anything but a note is refused.

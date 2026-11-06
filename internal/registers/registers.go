@@ -233,11 +233,16 @@ func fromJob(j domain.Job) Source {
 // RecordAssumption registers an assumption a job made while it ran (the job
 // MCP tool assumption_record, jobmcp.AssumptionRecorder). It returns the
 // item, which is the existing one when the goal had the statement already,
-// and says whether it was.
+// and says whether it was. The job's row is locked first, as completing the
+// job does: the record commits before the job finishes, or it is refused with
+// store.ErrLeaseLost.
 func (s *Service) RecordAssumption(ctx context.Context, j domain.Job, a domain.StatedAssumption) (domain.Assumption, bool, error) {
 	var got domain.Assumption
 	var dup bool
 	err := s.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		if err := tx.Jobs().LockLeased(ctx, j.AccountID, j.ID, j.WorkerID); err != nil {
+			return err
+		}
 		if err := tx.Assumptions().Lock(ctx, j.AccountID, j.ProjectID, j.GoalID); err != nil {
 			return fmt.Errorf("lock the assumptions of the goal: %w", err)
 		}

@@ -231,9 +231,9 @@ func TestConcurrentCapturesDoNotDuplicate(t *testing.T) {
 	w := newWorld(t)
 	var wg sync.WaitGroup
 	for i := range 8 {
+		j := w.running(w.tasks[i%2], "developer")
 		wg.Go(func() {
-			task := w.tasks[i%2]
-			_, _, err := w.regs.RecordAssumption(t.Context(), w.job(task, "developer", nil), stated("Same statement", domain.LevelHigh))
+			_, _, err := w.regs.RecordAssumption(t.Context(), j, stated("Same statement", domain.LevelHigh))
 			must(t, err)
 		})
 	}

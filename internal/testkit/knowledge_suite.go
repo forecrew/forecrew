@@ -237,6 +237,20 @@ func Goal(t *testing.T, st store.Store, account, project uuid.UUID, title string
 	return g
 }
 
+// Lease leases the queued job j to a new worker and returns it running with
+// its worker set. j must be the oldest queued job of its account.
+func Lease(t *testing.T, st store.Store, j domain.Job) domain.Job {
+	t.Helper()
+	w := domain.Worker{AccountID: j.AccountID, Name: "worker-" + j.ID.String(), Pool: j.Pool, TokenHash: []byte(j.ID.String()), MaxJobs: 1}
+	mustT(t, st.Workers().Create(t.Context(), &w))
+	got, err := st.Jobs().LeaseNext(t.Context(), j.AccountID, w.ID, j.RequiredLabels(), time.Hour)
+	mustT(t, err)
+	if got.ID != j.ID {
+		t.Fatalf("leased %s, want %s", got.Ref(), j.Ref())
+	}
+	return got
+}
+
 func mustT(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

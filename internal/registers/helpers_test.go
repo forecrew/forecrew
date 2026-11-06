@@ -83,6 +83,16 @@ func (w *world) job(task domain.Task, role string, output any) domain.Job {
 	return j
 }
 
+// running stores a developer job of the task that is running under a worker,
+// as a job is while it calls the job MCP tools.
+func (w *world) running(task domain.Task, role string) domain.Job {
+	w.t.Helper()
+	j := domain.Job{AccountID: w.account, ProjectID: w.project.ID, Role: role, Runtime: "claude-code", GoalID: w.goal.ID, SpecID: w.spec.ID,
+		TaskID: task.ID, Spec: domain.JobSpec{Repo: "acme/app"}}
+	must(w.t, w.st.Jobs().Create(w.t.Context(), &j))
+	return testkit.Lease(w.t, w.st, j)
+}
+
 // complete registers the assumptions of j's output, as a finishing job does.
 func (w *world) complete(j domain.Job) {
 	w.t.Helper()

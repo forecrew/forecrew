@@ -35,7 +35,7 @@ type AccessRequest struct {
 // RequestAccess opens an access_request gate for the role of j, and in the
 // same transaction the run that turns an approval into a policy PR. The
 // policy itself is never touched. Asking again while the gate is pending
-// returns it. A section the policy does not have, a level the role has, and
+// returns it. A job whose lease has ended is refused with store.ErrLeaseLost. A section the policy does not have, a level the role has, and
 // what the policy could not grant (write on a protected section, more than
 // read on a reserved one) wrap ErrInvalid.
 func (s *Service) RequestAccess(ctx context.Context, j domain.Job, in AccessRequest) (domain.Gate, error) {
@@ -71,6 +71,11 @@ func (s *Service) RequestAccess(ctx context.Context, j domain.Job, in AccessRequ
 		Summary:     "Approving opens a pull request that changes the knowledge policy.\n\n" + contextpack.WrapUntrusted(j.Ref()+" reason", in.Reason),
 		SubjectRepo: p.Repo, GoalID: j.GoalID, TaskID: j.TaskID, JobID: j.ID,
 		Opened: func(ctx context.Context, tx store.Store, g domain.Gate) error {
+			// The job's lock, as completing it takes: the request commits
+			// before the job finishes, or is refused.
+			if err := tx.Jobs().LockLeased(ctx, j.AccountID, j.ID, j.WorkerID); err != nil {
+				return err
+			}
 			return startRun(ctx, tx, PlaybookAccess, j.AccountID, j.ProjectID, j.GoalID, j.TaskID,
 				map[string]any{"gate_id": g.ID, "section": in.Section, "level": in.Level, "role": j.Role})
 		},
