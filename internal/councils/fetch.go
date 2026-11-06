@@ -94,8 +94,13 @@ func (f *Fetcher) transport() http.RoundTripper {
 	if f.Transport != nil {
 		return f.Transport
 	}
-	// No proxy: a proxy would make the connection, and the guard would see
-	// the proxy's address and not the target's.
+	return PublicTransport()
+}
+
+// PublicTransport returns a transport that only connects to public
+// addresses. No proxy: a proxy would make the connection, and the guard would
+// see the proxy's address and not the target's.
+func PublicTransport() http.RoundTripper {
 	return &http.Transport{
 		DialContext:       (&net.Dialer{Control: guard}).DialContext,
 		DisableKeepAlives: true,
