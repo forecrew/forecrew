@@ -2,6 +2,7 @@ package github
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -88,7 +89,7 @@ func (c *Client) HeadSHA(ctx context.Context, repo, branch string) (string, erro
 		return "", err
 	}
 	ref, _, err := g.Git.GetRef(ctx, owner, name, "heads/"+branch)
-	if statusOf(err) == http.StatusConflict {
+	if statusOf(err) == http.StatusConflict && isEmptyRepoMessage(err) {
 		return "", fmt.Errorf("get branch %q of %s: %w: %w", branch, repo, ErrEmptyRepo, err)
 	}
 	if err != nil {
@@ -122,4 +123,11 @@ func (c *Client) Archive(ctx context.Context, repo, ref string) (io.ReadCloser, 
 		return nil, fmt.Errorf("%s: %w: status %d", op, ErrNotFound, resp.StatusCode)
 	}
 	return resp.Body, nil
+}
+
+// isEmptyRepoMessage reports whether a 409 says the repository is empty. Any
+// other 409, or a reworded one, is not taken for an empty repo.
+func isEmptyRepoMessage(err error) bool {
+	var er *gh.ErrorResponse
+	return errors.As(err, &er) && strings.Contains(strings.ToLower(er.Message), "repository is empty")
 }

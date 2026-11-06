@@ -312,6 +312,63 @@ func TestPolicyFailsClosedOnBranch404(t *testing.T) {
 	}
 }
 
+// policyDown makes the read of the policy file 404 while the file is still
+// in the tree, as a transient GitHub inconsistency would.
+type policyDown struct {
+	knowledge.SyncAPI
+	down bool
+}
+
+func (p *policyDown) GetFile(ctx context.Context, repo, ref, path string) ([]byte, error) {
+	if p.down && path == knowledge.PolicyFile {
+		return nil, fmt.Errorf("get %s: %w", path, github.ErrNotFound)
+	}
+	return p.SyncAPI.GetFile(ctx, repo, ref, path)
+}
+
+// A policy file that is listed in the tree but answers 404 is not an absent
+// policy: Policy and Sync fail, the restrictive policy is not replaced, and
+// nothing indexed is removed. When the read recovers, the policy is back.
+func TestPolicyFileListedButUnreadable(t *testing.T) {
+	e := newSyncEnv(t)
+	e.commit(t, "h1", map[string]string{
+		knowledge.PolicyFile: "version: 1\nsections:\n  handbook:\n    paths: [\"handbook/**\"]\n    protected: true\n    access:\n      read: [architect]\n",
+		"handbook/a.md":      "# Handbook\nsecret plans\n",
+	})
+	must(t, e.tr.SetHeadOfBranch("acme/app", "main", "h1"))
+	e.syncer.Snapshots = nil
+	_, err := e.syncer.Sync(t.Context(), e.project, "", "h1")
+	must(t, err)
+	before := len(e.entries(t))
+
+	api := &policyDown{SyncAPI: e.tr, down: true}
+	s := &knowledge.Syncer{Store: e.st, Index: &knowledge.Index{Store: e.st}, API: api, Now: e.clock.Now}
+	if _, err := s.Policy(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+		t.Fatalf("Policy = %v, want ErrPolicyUnknown", err)
+	}
+	if _, err := s.MappedPaths(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+		t.Errorf("MappedPaths = %v, want ErrPolicyUnknown", err)
+	}
+	if _, err := s.Sync(t.Context(), e.project, "", "h1"); err == nil {
+		t.Error("Sync with an unreadable policy file succeeded")
+	}
+	if got := len(e.entries(t)); got != before {
+		t.Errorf("entries = %d, want %d: a sync removed indexed entries", got, before)
+	}
+
+	api.down = false
+	pol, err := s.Policy(t.Context(), e.project)
+	if err != nil || !pol.Sections["handbook"].Protected {
+		t.Errorf("policy after recovery = %+v, %v", pol, err)
+	}
+	if _, err := s.Sync(t.Context(), e.project, "", "h1"); err != nil {
+		t.Errorf("Sync after recovery: %v", err)
+	}
+	if got := len(e.entries(t)); got != before {
+		t.Errorf("entries after recovery = %d, want %d", got, before)
+	}
+}
+
 type headErr struct {
 	knowledge.SyncAPI
 	err error
