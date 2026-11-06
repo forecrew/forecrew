@@ -92,6 +92,8 @@ type Config struct {
 	Auth               Auth  `yaml:"auth"`
 	// Actions limits the GitHub Actions provider that serves pool actions.
 	Actions Actions `yaml:"actions"`
+	// Testing lists the projects whose goals run the testing system.
+	Testing Testing `yaml:"testing"`
 }
 
 // Actions configures the provider that runs the command jobs of pool
@@ -273,6 +275,7 @@ func (c *Config) Validate() error {
 	c.validateEvidence(&p)
 	c.validateFleet(&p)
 	c.validateSizing(&p)
+	c.validateTesting(&p)
 	if c.MaxTestResultsSize < 0 {
 		p.addf("max_test_results_size must be positive")
 	}

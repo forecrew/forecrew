@@ -39,6 +39,10 @@ const (
 	PlaybookOnboardingTests = "onboarding-tests"
 	// PlaybookGoal takes the inputs repo, goal_id and platforms.
 	PlaybookGoal = "goal"
+	// PlaybookGoalTesting is PlaybookGoal with the testing system (tests
+	// from the spec, a matrix per head, a verification gate). It takes the
+	// same inputs and runs only for the projects of Config.TestingProjects.
+	PlaybookGoalTesting = "goal-v2"
 )
 
 // List sizes of list_jobs.
@@ -76,6 +80,9 @@ type Config struct {
 	Playbooks Starter
 	Roles     roles.Resolver
 	GitHub    Checker
+	// TestingProjects are the names of the projects whose new goals run
+	// PlaybookGoalTesting instead of PlaybookGoal (forecrew.yaml testing).
+	TestingProjects []string
 	// Councils holds the council packs.
 	Councils *councils.Set
 	// Evidence serves artifact content; nil when no evidence storage is

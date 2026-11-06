@@ -188,7 +188,7 @@ func (s *Service) CreateGoal(ctx context.Context, by domain.Actor, in mcp.Create
 	if err != nil {
 		return domain.Goal{}, fmt.Errorf("create goal: %w", err)
 	}
-	_, err = s.cfg.Playbooks.Start(ctx, PlaybookGoal, workflow.StartRequest{
+	_, err = s.cfg.Playbooks.Start(ctx, s.goalPlaybook(p), workflow.StartRequest{
 		AccountID: by.AccountID, ProjectID: p.ID, GoalID: g.ID,
 		Inputs: map[string]any{"repo": p.Repo, "goal_id": g.ID.String(), "platforms": g.Platforms},
 	})
@@ -199,6 +199,14 @@ func (s *Service) CreateGoal(ctx context.Context, by domain.Actor, in mcp.Create
 		return domain.Goal{}, fmt.Errorf("start the plan of %s: %w", g.Ref(), err)
 	}
 	return g, nil
+}
+
+// goalPlaybook is the playbook the goals of p run.
+func (s *Service) goalPlaybook(p domain.Project) string {
+	if slices.Contains(s.cfg.TestingProjects, p.Name) {
+		return PlaybookGoalTesting
+	}
+	return PlaybookGoal
 }
 
 // overrideCouncils returns the councils a human chose for a goal, in the

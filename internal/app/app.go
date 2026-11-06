@@ -228,7 +228,7 @@ func New(d Deps) (*App, error) {
 	}
 	toolSvc := tools.New(tools.Config{
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes, Proposals: kbProposals,
-		Registers: regs, Councils: seats, Logger: log,
+		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, Logger: log,
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
 	access := authz.New(st, log).WithProtection(kbProposals)

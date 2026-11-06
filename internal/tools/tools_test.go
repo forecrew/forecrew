@@ -45,7 +45,7 @@ type fixture struct {
 	by        domain.Actor
 }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t *testing.T, opts ...func(*tools.Config)) *fixture {
 	t.Helper()
 	ctx := t.Context()
 	clock := testkit.NewClock(t0)
@@ -72,7 +72,7 @@ func newFixture(t *testing.T) *fixture {
 	})
 	must(t, err)
 	f.regs = registers.New(st, bus, clock.Now)
-	f.svc = tools.New(tools.Config{
+	cfg := tools.Config{
 		Store: st, Gates: f.gates, Jobs: f.jobs, Creator: f.creator, Playbooks: f.playbooks, GitHub: f.tracker, Evidence: f.ev, Logger: logger, Councils: seats,
 		Registers: f.regs,
 		Roles: testkit.Roles{
@@ -80,7 +80,11 @@ func newFixture(t *testing.T) *fixture {
 			"developer":      {Name: "developer", WritePaths: []string{"src/**"}},
 			"test-architect": {Name: "test-architect"}, "environment-engineer": {Name: "environment-engineer"},
 		},
-	})
+	}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	f.svc = tools.New(cfg)
 	f.by = domain.Actor{AccountID: f.account.ID, Kind: domain.ActorMCP, Name: "laptop"}
 	must(t, st.MCPTokens().Create(ctx, &domain.MCPToken{AccountID: f.account.ID, Name: "laptop", TokenHash: mcp.HashToken("fcm_laptop")}))
 	return f
@@ -330,6 +334,29 @@ func TestCreateGoal(t *testing.T) {
 	}
 	if got := f.auditActions(t); len(got) != 1 || got[0] != "mcp:laptop goal.created" {
 		t.Errorf("audit = %v", got)
+	}
+}
+
+// A project listed in TestingProjects runs the goal playbook with the testing
+// system; the others, the playbook of before.
+func TestCreateGoalPlaybookByProject(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		projects []string
+		want     string
+	}{
+		{"off by default", nil, tools.PlaybookGoal},
+		{"another project is listed", []string{"other"}, tools.PlaybookGoal},
+		{"listed", []string{"other", "app"}, tools.PlaybookGoalTesting},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t, func(c *tools.Config) { c.TestingProjects = tt.projects })
+			_, err := f.svc.CreateGoal(t.Context(), f.by, mcp.CreateGoalInput{Project: "app", Title: "Login"})
+			must(t, err)
+			if starts := f.playbooks.Starts(); len(starts) != 1 || starts[0].Playbook != tt.want {
+				t.Errorf("starts = %+v, want %s", starts, tt.want)
+			}
+		})
 	}
 }
 
