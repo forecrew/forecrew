@@ -104,3 +104,22 @@ func TestTestsLockedPathsErrors(t *testing.T) {
 		wantErr(t, err, "cannot be locked")
 	}
 }
+
+// The base feedback of the round and the note of the gate are joined and
+// trimmed, so a first round with nothing to say has no empty section.
+func TestTestsLockedPathsFeedbackIsTrimmed(t *testing.T) {
+	p := newPlanned(t)
+	task := p.plan(t, "One")[0]
+	for _, tt := range []struct {
+		iteration        int
+		base, note, want string
+	}{
+		{1, "", "", ""}, {1, "  Fix the checks. ", "stale", "Fix the checks."}, {2, "", "Go on.", "Go on."}, {2, "Fix the checks.", " Go on. ", "Fix the checks.\n\nGo on."}, {2, "Fix the checks.", "", "Fix the checks."},
+	} {
+		out, err := p.call(t, "tests.locked_paths", map[string]any{"task_id": task.ID.String(), "iteration": tt.iteration, "base": tt.base, "feedback": tt.note})
+		must(t, err)
+		if got := toMap(t, out)["feedback"]; got != tt.want {
+			t.Errorf("%+v: feedback = %q", tt, got)
+		}
+	}
+}

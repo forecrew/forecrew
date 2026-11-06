@@ -238,7 +238,7 @@ func TestGoalV2Delivery(t *testing.T) {
 
 	// Round 1: the developer gets the tests locked.
 	dev := r.push(t, 1)
-	if dev.Role != "developer" || !slices.Equal(dev.LockedPaths, lockedFiles) || dev.Branch != "agent/TASK-1" {
+	if dev.Role != "developer" || !slices.Equal(dev.LockedPaths, lockedFiles) || dev.Branch != "agent/TASK-1" || dev.Feedback != "" {
 		t.Errorf("developer request = %+v", dev)
 	}
 	r.prAt(t, 1)

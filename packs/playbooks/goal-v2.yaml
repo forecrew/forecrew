@@ -104,6 +104,7 @@ steps:
             type: action
             action: tests.map
             with: {task_id: '${item.id}', needs: '${item.needs}', repo: '${inputs.repo}'}
+            on_failure: escalate
           - id: matrix_work
             type: foreach
             items: '${steps.tmap.output.if_architect}'
@@ -168,6 +169,7 @@ steps:
                       iteration: '${iteration}'
                       decision: '${steps.lock_ask.output.0.lock_gate.output.decision}'
                       feedback: '${steps.lock_ask.output.0.lock_gate.output.feedback}'
+                      base: '${steps.round.output.feedback}'
                   - id: develop
                     type: job
                     with:
@@ -177,7 +179,7 @@ steps:
                       needs: '${item.needs}'
                       task_id: '${item.id}'
                       spec_id: '${steps.render.output.spec_id}'
-                      feedback: "${steps.round.output.feedback}\n\n${steps.locked.output.feedback}"
+                      feedback: '${steps.locked.output.feedback}'
                       locked_paths: '${steps.locked.output.locked_paths}'
                     on_failure: escalate
                   - id: pr_text

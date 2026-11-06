@@ -100,8 +100,8 @@ func literalGlobs(files []string) ([]string, error) {
 // lockedPathsOutput is the output of tests.locked_paths.
 type lockedPathsOutput struct {
 	LockedPaths []string `json:"locked_paths"`
-	// Feedback is the human's note of the gate that lifted the lock, for the
-	// round it was lifted for; empty otherwise.
+	// Feedback is with.base followed by the human's note of the gate that
+	// opened after the round before, trimmed: what the developer is told.
 	Feedback string `json:"feedback"`
 }
 
@@ -122,6 +122,8 @@ func (a *actions) testsLockedPaths(ctx context.Context, call workflow.ActionCall
 		Iteration int               `json:"iteration"`
 		Decision  domain.GateStatus `json:"decision"`
 		Feedback  string            `json:"feedback"`
+		// Base is the feedback the round has already, which the note follows.
+		Base string `json:"base"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -130,9 +132,9 @@ func (a *actions) testsLockedPaths(ctx context.Context, call workflow.ActionCall
 	if err != nil {
 		return nil, err
 	}
-	note := ""
+	note := strings.TrimSpace(with.Base)
 	if with.Iteration > 1 {
-		note = strings.TrimSpace(with.Feedback)
+		note = strings.TrimSpace(note + "\n\n" + strings.TrimSpace(with.Feedback))
 		if with.Decision == domain.GateApproved {
 			return lockedPathsOutput{LockedPaths: []string{}, Feedback: note}, nil
 		}
