@@ -24,14 +24,18 @@ type newTest struct {
 	File  string `json:"file"`
 }
 
+// testEntry is one entry of the tests of a test map: a test and the criterion
+// it checks.
+type testEntry struct {
+	Criterion string `json:"criterion"`
+	newTest
+}
+
 // testMapDoc is the part of the test engineer's output (packs/schemas/test-map.json)
 // that the locked tests, the base check, the verification and tests.map use.
 type testMapDoc struct {
-	Files []string `json:"files"`
-	Tests []struct {
-		Criterion string `json:"criterion"`
-		newTest
-	} `json:"tests"`
+	Files      []string    `json:"files"`
+	Tests      []testEntry `json:"tests"`
 	Untestable []struct {
 		Criterion string `json:"criterion"`
 		Reason    string `json:"reason"`
@@ -41,7 +45,8 @@ type testMapDoc struct {
 
 // testerOutputs returns the outputs of the successful test-engineer jobs of
 // the task, oldest first. A retry reports only what it changed itself, so
-// every caller reads all of them.
+// every caller reads all of them, with the entries a later job replaced
+// removed from the earlier ones.
 func (a *actions) testerOutputs(ctx context.Context, t domain.Task) ([]testMapDoc, error) {
 	jobs, err := a.Store.Jobs().List(ctx, t.AccountID, store.JobFilter{TaskID: t.ID, Status: domain.JobSucceeded})
 	if err != nil {
@@ -58,6 +63,14 @@ func (a *actions) testerOutputs(ctx context.Context, t domain.Task) ([]testMapDo
 		var doc testMapDoc
 		if err := parseOutput(j.Output, &doc); err != nil {
 			return nil, fmt.Errorf("output of the %s job %s of %s: %w", testerRole, j.Ref(), t.Ref(), err)
+		}
+		// A retry corrects the earlier jobs: its entries for a test replace
+		// every earlier entry for that test id. A job may list a test
+		// several times, once per criterion it checks.
+		for i := range docs {
+			docs[i].Tests = slices.DeleteFunc(docs[i].Tests, func(old testEntry) bool {
+				return slices.ContainsFunc(doc.Tests, func(x testEntry) bool { return x.ID == old.ID })
+			})
 		}
 		docs = append(docs, doc)
 	}
