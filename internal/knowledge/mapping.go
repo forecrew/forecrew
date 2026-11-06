@@ -184,7 +184,8 @@ type PathRules struct {
 // the policy file, knowledge/** and the globs of every repo section, except
 // the sections the role holds access.write on, which it may change. The
 // curator, who writes the fallback knowledge/ folder, is denied the policy
-// file and the protected sections only. A grant under knowledge/ takes the
+// file and the protected sections only. The globs a granted section leaves out
+// with "!" stay excluded. A grant under knowledge/ takes the
 // knowledge/** exclusion away, since an exclusion beats an include; the
 // files there that no section maps are then writable.
 func (p Policy) PathRules(role string, curator bool) PathRules {
@@ -197,12 +198,17 @@ func (p Policy) PathRules(role string, curator bool) PathRules {
 		if Reserved(name) || p.Providers[s.Provider].Kind != domain.ProviderKindRepo {
 			continue
 		}
+		granted := !s.Protected && p.Has(name, "write", role)
 		for _, g := range s.Paths {
 			switch {
 			case strings.HasPrefix(g, "!"):
+				// What a section leaves out is not the grant's to write.
+				if granted {
+					r.Denied = append(r.Denied, strings.TrimPrefix(g, "!"))
+				}
 			case s.Protected:
 				r.Denied = append(r.Denied, g)
-			case p.Has(name, "write", role):
+			case granted:
 				r.Granted = append(r.Granted, g)
 			case !curator:
 				r.Denied = append(r.Denied, g)

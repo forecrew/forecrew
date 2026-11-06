@@ -208,7 +208,7 @@ func TestPathRules(t *testing.T) {
 		denied     []string
 	}{
 		{"architect", "a role without grants", false, nil, []string{".forecrew/knowledge-policy.yaml", "docs/adr/**", "knowledge/**", "knowledge/lessons/**", "knowledge/vision/**", "ops/**"}},
-		{"developer", "a grant outside knowledge/", false, []string{"ops/**"}, []string{".forecrew/knowledge-policy.yaml", "docs/adr/**", "knowledge/**", "knowledge/lessons/**", "knowledge/vision/**"}},
+		{"developer", "a grant outside knowledge/ keeps what the section leaves out", false, []string{"ops/**"}, []string{".forecrew/knowledge-policy.yaml", "docs/adr/**", "knowledge/**", "knowledge/lessons/**", "knowledge/vision/**", "ops/private/**"}},
 		{"knowledge-curator", "a grant under knowledge/ lifts the catch-all", false, []string{"knowledge/lessons/**"}, []string{".forecrew/knowledge-policy.yaml", "docs/adr/**", "knowledge/vision/**", "ops/**"}},
 		{"knowledge-curator", "the curator", true, []string{"knowledge/lessons/**"}, []string{".forecrew/knowledge-policy.yaml", "knowledge/vision/**"}},
 		{"reviewer", "the curator is a flag, not a name", true, nil, []string{".forecrew/knowledge-policy.yaml", "knowledge/vision/**"}},
