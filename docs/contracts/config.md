@@ -288,6 +288,7 @@ On top of `labels` the worker adds, when polling:
 
 | Variable | Required | Meaning |
 |----------|----------|---------|
-| `FORECREW_WORKER_TOKEN` | yes | Worker token printed once by `forecrew worker add`. |
+| `FORECREW_WORKER_TOKEN` | yes, unless the next is set | Worker token printed once by `forecrew worker add`. |
+| `FORECREW_BOOTSTRAP_TOKEN` | on a machine, in place of the worker token | One-time token of a machine (fleet.md). The worker trades it at start for its token, name, labels and `max_jobs`. |
 
 forecrew-worker takes the config path from `run --config` (default `worker.yaml`).

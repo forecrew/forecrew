@@ -13,6 +13,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobmcp"
 	"github.com/forecrew/forecrew/internal/jobs"
@@ -96,10 +97,9 @@ func (s *Server) waitForJob(ctx context.Context, w domain.Worker, labels []strin
 	defer deadline.Stop()
 	recheck := time.NewTicker(s.cfg.PollRecheck)
 	defer recheck.Stop()
-	q := queue.New(s.cfg.Store.Jobs())
 	for {
 		wake := s.cfg.Jobs.Wait() // before leasing, so no new job is missed
-		j, err := q.Lease(ctx, w.AccountID, w.ID, labels)
+		j, err := s.lease(ctx, w, labels)
 		if !errors.Is(err, store.ErrNoJob) {
 			return j, err
 		}
@@ -112,6 +112,27 @@ func (s *Server) waitForJob(ctx context.Context, w domain.Worker, labels []strin
 			return domain.Job{}, ctx.Err()
 		}
 	}
+}
+
+// lease leases a job for w. The lease of a machine's worker counts on the
+// machine in the same transaction: one that lost the last job to another poll
+// gives the lease up and finds no job.
+func (s *Server) lease(ctx context.Context, w domain.Worker, labels []string) (domain.Job, error) {
+	if !w.Ephemeral {
+		return queue.New(s.cfg.Store.Jobs()).Lease(ctx, w.AccountID, w.ID, labels)
+	}
+	var j domain.Job
+	err := s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		var err error
+		if j, err = queue.New(tx.Jobs()).Lease(ctx, w.AccountID, w.ID, labels); err != nil {
+			return err
+		}
+		return fleet.RecordLease(ctx, tx, w, j)
+	})
+	if errors.Is(err, store.ErrConflict) {
+		return domain.Job{}, store.ErrNoJob
+	}
+	return j, err
 }
 
 // errRevoked means the worker was revoked while its poll waited.

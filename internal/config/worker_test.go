@@ -91,3 +91,18 @@ func TestLoadWorker(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestParseWorkerBootstrapToken(t *testing.T) {
+	env := map[string]string{EnvBootstrapToken: "fcb_x"}
+	w, err := ParseWorker([]byte("server_url: https://x.example.com\n"), func(k string) string { return env[k] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.BootstrapToken != "fcb_x" || w.Token != "" {
+		t.Fatalf("worker = %+v", w)
+	}
+	env[EnvWorkerToken] = "fcw_x"
+	if _, err := ParseWorker([]byte("server_url: https://x.example.com\n"), func(k string) string { return env[k] }); err == nil {
+		t.Fatal("both tokens accepted")
+	}
+}

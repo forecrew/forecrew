@@ -10,6 +10,10 @@ import (
 // EnvWorkerToken holds the worker token printed by `forecrew worker add`.
 const EnvWorkerToken = "FORECREW_WORKER_TOKEN"
 
+// EnvBootstrapToken holds the one-time token of a machine's worker, in place
+// of a worker token (fleet.md, Bootstrap tokens).
+const EnvBootstrapToken = "FORECREW_BOOTSTRAP_TOKEN"
+
 // DefaultMaxJobs is the number of jobs a worker runs at once by default.
 const DefaultMaxJobs = 1
 
@@ -35,6 +39,9 @@ type Worker struct {
 	RegistryAuth bool `yaml:"registry_auth"`
 	// Token comes from FORECREW_WORKER_TOKEN.
 	Token string `yaml:"-"`
+	// BootstrapToken comes from FORECREW_BOOTSTRAP_TOKEN. The worker trades
+	// it for Token, its name and its labels at start.
+	BootstrapToken string `yaml:"-"`
 }
 
 // LoadWorker reads worker.yaml from path.
@@ -54,6 +61,7 @@ func ParseWorker(data []byte, getenv func(string) string) (*Worker, error) {
 		return nil, err
 	}
 	w.Token = getenv(EnvWorkerToken)
+	w.BootstrapToken = getenv(EnvBootstrapToken)
 	if err := w.applyDefaults(); err != nil {
 		return nil, err
 	}
@@ -100,8 +108,8 @@ func (w *Worker) Validate() error {
 	if w.ImagePruneDays < 1 {
 		p.addf("image_prune_days must be at least 1, got %d", w.ImagePruneDays)
 	}
-	if w.Token == "" {
-		p.addf("%s is not set", EnvWorkerToken)
+	if (w.Token == "") == (w.BootstrapToken == "") {
+		p.addf("exactly one of %s and %s must be set", EnvWorkerToken, EnvBootstrapToken)
 	}
 	return p.err()
 }
