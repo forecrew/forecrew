@@ -204,7 +204,7 @@ describe("job page details", () => {
   test("links the task of the job to its issue", async () => {
     jobWith({ task_id: fx.goal.tasks[0]!.id })
     await renderApp("/jobs/JOB-41")
-    expect(await screen.findByRole("link", { name: /TASK-12/ })).toHaveAttribute("href", "https://github.com/acme/app/issues/6")
+    expect(await screen.findByRole("link", { name: /^TASK-12/ })).toHaveAttribute("href", "https://github.com/acme/app/issues/6")
   })
 
   test("copes with a job whose task is not in the goal", async () => {

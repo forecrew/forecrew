@@ -8,17 +8,20 @@ import { AppShell } from "@/components/AppShell"
 import { NotFound, RouteError } from "@/components/RouteError"
 import { CouncilPage, CouncilsPage, NewCouncilPage } from "@/routes/councils"
 import { DecisionsPage } from "@/routes/decisions"
+import { AssumptionsPage } from "@/routes/assumptions"
 import { GoalPage } from "@/routes/goal"
 import { GoalsPage, NewGoalPage } from "@/routes/goals"
 import { HomePage } from "@/routes/home"
 import { InboxPage } from "@/routes/inbox"
 import { JobPage } from "@/routes/job"
 import { JobsPage } from "@/routes/jobs"
+import { KnowledgePage } from "@/routes/knowledge"
 import { LoginPage } from "@/routes/login"
 import { QualityPage } from "@/routes/quality"
 import { ProjectPage } from "@/routes/project"
 import { OnboardPage, ProjectsPage } from "@/routes/projects"
 import { TokensPage } from "@/routes/tokens"
+import { TracePage } from "@/routes/trace"
 import { WorkersPage } from "@/routes/workers"
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({ component: Outlet })
@@ -36,11 +39,19 @@ interface Search {
   gate?: string
   /** The question a new council opens with. */
   question?: string
+  impact?: string
+  /** The knowledge page's tab, search words and filters. */
+  tab?: string
+  q?: string
+  section?: string
+  kind?: string
+  provider?: string
+  goal?: string
 }
 
 const search = (s: Record<string, unknown>): Search => {
   const out: Search = {}
-  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question"] as const) {
+  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question", "impact", "tab", "q", "section", "kind", "provider", "goal"] as const) {
     const v = s[k]
     if (typeof v === "string" && v) out[k] = v
   }
@@ -88,11 +99,14 @@ const routeTree = root.addChildren([
     child("/projects", ProjectsPage),
     child("/projects/new", OnboardPage),
     child("/projects/$name", ProjectPage),
+    createRoute({ getParentRoute: () => app, path: "/assumptions", validateSearch: search, component: AssumptionsPage }),
+    createRoute({ getParentRoute: () => app, path: "/knowledge", validateSearch: search, component: KnowledgePage }),
     createRoute({ getParentRoute: () => app, path: "/jobs", validateSearch: search, component: JobsPage }),
     child("/jobs/$ref", JobPage),
     child("/quality", QualityPage),
     child("/workers", WorkersPage),
     child("/tokens", TokensPage),
+    child("/trace/$ref", TracePage),
   ]),
 ])
 

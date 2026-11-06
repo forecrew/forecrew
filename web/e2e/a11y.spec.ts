@@ -26,6 +26,12 @@ const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: bo
   { name: "quality", path: "/quality", ready: "Quality" },
   { name: "workers", path: "/workers", ready: "Workers" },
   { name: "tokens", path: "/tokens", ready: "Tokens" },
+  { name: "assumptions", path: "/assumptions", ready: "Assumptions" },
+  { name: "knowledge", path: "/knowledge?project=app", ready: "Knowledge" },
+  { name: "knowledge proposals", path: "/knowledge?project=app&tab=proposals", ready: "Knowledge" },
+  { name: "knowledge notes", path: "/knowledge?project=app&tab=notes", ready: "Knowledge" },
+  { name: "knowledge integrations", path: "/knowledge?project=app&tab=integrations", ready: "Knowledge" },
+  { name: "trace", path: "/trace/TASK-12", ready: "Why TASK-12?" },
 ]
 
 const sizes = [

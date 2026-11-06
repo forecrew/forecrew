@@ -72,6 +72,8 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
       "GET /goals": "goals",
       "GET /jobs": "jobs",
       "GET /workers": "workers",
+      "GET /trace": "trace",
+      "GET /assumptions": "assumptions",
     }
     const known = routes[`${req.method()} ${path}`]
     if (known) return json(route, fixture(known))
@@ -95,6 +97,12 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
       return json(route, url.searchParams.get("after_seq") === "5" ? fixture("job-logs-caught-up") : fixture("job-logs"))
     }
     if (req.method() === "GET" && /^\/jobs\/[^/]+$/.test(path)) return json(route, fixture(canceled ? "job-cancel" : "job"))
+    if (req.method() === "GET" && path === "/knowledge/entries") return json(route, fixture(url.searchParams.get("kind") === "note" ? "knowledge-notes" : "knowledge-entries"))
+    if (req.method() === "GET" && path === "/knowledge") return json(route, fixture("knowledge-search"))
+    if (req.method() === "GET" && path === "/knowledge/proposals") return json(route, fixture("knowledge-proposals"))
+    if (req.method() === "POST" && path === "/knowledge/proposals") return json(route, fixture("knowledge-propose"), 201)
+    if (req.method() === "DELETE" && path.startsWith("/knowledge/notes/")) return json(route, fixture("knowledge-note-delete"))
+    if (req.method() === "POST" && /^\/assumptions\/[^/]+\/resolve$/.test(path)) return json(route, fixture("assumption-resolve"))
     if (req.method() === "POST" && path === "/goals") return json(route, fixture("goal-create"), 201)
     if (req.method() === "POST" && path === "/projects") return json(route, fixture("project-onboard"), 202)
     if (req.method() === "POST" && path === "/jobs") return json(route, fixture("job-dispatch"), 201)
