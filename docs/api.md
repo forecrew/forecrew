@@ -68,6 +68,13 @@ turned off. Nobody is signed in: the page shows the name and email the provider
 answered, and the test is audited as `connection.tested`, which is what allows
 turning the connection on.
 
+**The CLI's login.** `forecrew login --server <url>` listens on `127.0.0.1`, opens
+`/cli-login?redirect_uri=...&state=...&code_challenge=...` in the browser, where the
+signed-in person sees what is being allowed and confirms. The page calls
+`POST /api/v1/cli/authorize` and sends the browser to the CLI, which redeems
+the code with `POST /api/v1/cli/token` and keeps the token. A machine whose
+browser cannot reach the CLI pastes the code the page shows.
+
 **Token login (legacy).** With `auth.token_login` on, `POST /api/v1/session`
 takes `{"token": "fcm_..."}` as `application/json` and keeps the token in the
 cookie. It is off by default and answers `403` `token_login_disabled`; see
@@ -155,6 +162,11 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/session` | | `{"token": "fcm_..."}`; needs `auth.token_login` | `200` `me`, sets the cookie |
 | `DELETE /api/v1/session` | | | `204`, ends the session and clears the cookie |
 | `DELETE /api/v1/sessions` | | | `204`, ends every session of the caller |
+| `GET /api/v1/sessions` | | | `200` the active sessions of the calling person, newest first: `id`, `created_at`, `last_seen_at`, `expires_at`, `user_agent`, `ip`, `organization` (slug), `connection` (name) and `current`. For a person only |
+| `DELETE /api/v1/sessions/{session}` | | | `204`, ends one of the person's sessions (clearing the cookie when it is the one used); `404` when it is not theirs or is over |
+| `GET /api/v1/identities` | | | `200` the sign-ins linked to the calling person: `id`, `connection` (name), `kind`, `login`, `email`, `last_used_at`, `created_at` |
+| `POST /api/v1/cli/authorize` | | `{"redirect_uri": "http://127.0.0.1:PORT/path", "state", "code_challenge", "organization"}`; a session only; `organization` is a slug, the session's own by default | `200` `{"redirect": "...?code=...&state=...", "code"}`: the browser goes to `redirect`, which the CLI listens on. The address must be a loopback IP with a port; the challenge is PKCE S256. `403` unless the person is an active member |
+| `POST /api/v1/cli/token` | | `{"code", "code_verifier", "name"}`; public: the code and its verifier are the credential | `200` `{"secret", "token", "account", "user"}`: a personal token named after `name` (a number is added when it is taken) with the highest scope the person's roles allow. A code works once, within 5 minutes, and is kept in memory only; `400` for any other code |
 | `PUT /api/v1/session/organization` | | `{"organization": "<slug>"}` | `200` `me`; `403` unless you are an active member |
 | `GET /api/v1/me` | | | `200` session: `token` (for a token), `account` (the current organization; absent until a session picks one), `user` (absent for a service account or an ownerless token), `organizations` (`id`, `name`, `slug`, the ones the session can switch to), `roles` (`role`, `scope`, `project_id`, `team_id` when it comes through a team), `permissions` (held on the organization and, for project-scoped ones, on every project) and `projects` (by project ID, the project-scoped permissions on each project where the caller has any). A token shows what it can use, its scopes applied |
 | `GET /api/v1/roles` | `list_roles` | | `200` roles with `name`, `scope`, `permissions`, `built_in`, `custom` |
