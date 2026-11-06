@@ -11,6 +11,7 @@ import (
 
 	"github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/config"
+	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/knowledge/proposals"
@@ -45,6 +46,12 @@ type env struct {
 	knowledge playbooks.KnowledgeSeeder
 	// proposals, when set, serves the knowledge.* actions of proposals.
 	proposals *proposals.Service
+	// cfg, runs and ghActions are set by withTests: the roles of the test
+	// part of onboarding, the engine that starts its playbook, and a fake
+	// GitHub Actions surface.
+	cfg       *config.Config
+	runs      councils.Starter
+	ghActions github.Actions
 	actions   workflow.Actions
 	account   uuid.UUID
 	project   domain.Project
@@ -80,6 +87,7 @@ func (v *env) register() {
 	}
 	playbooks.Register(v.actions, playbooks.Deps{
 		Store: v.st, Tracker: tr, Signals: v.bus, Sizing: config.DefaultSizing(), Roles: testRoles(), Knowledge: v.knowledge, Proposals: v.proposals, Now: v.clock.Now,
+		Config: v.cfg, Runs: v.runs, Actions: v.ghActions, Packs: forecrew.Files,
 	})
 }
 

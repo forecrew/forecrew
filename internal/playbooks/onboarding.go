@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -101,10 +102,19 @@ func section(b *strings.Builder, title string, items []string, prefix string) {
 }
 
 // settleOnboarding is the action onboarding.settle, which the onboarding
-// playbook runs when it ends failed or canceled: a project still onboarding
-// goes back to registered, so it can be onboarded again. Any other status is
-// left alone, so it is safe to call twice.
+// playbooks run when they end failed or canceled. A project still onboarding
+// goes back to registered when its profile was not stored, so it can be
+// onboarded again. When it was (with.profile_done, or the run's step complete
+// succeeded), the failure is in the test part: the project is onboarded
+// without a baseline, and the needs_you gate that came with the failure says
+// why. Any other status is left alone, so it is safe to call twice.
 func (a *actions) settleOnboarding(ctx context.Context, call workflow.ActionCall) (any, error) {
+	var with struct {
+		ProfileDone bool `json:"profile_done"`
+	}
+	if err := workflow.DecodeWith(call.With, &with); err != nil {
+		return nil, err
+	}
 	p, err := a.Store.Projects().Get(ctx, call.Run.AccountID, call.Run.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
@@ -112,23 +122,38 @@ func (a *actions) settleOnboarding(ctx context.Context, call workflow.ActionCall
 	if p.Status != domain.ProjectOnboarding {
 		return map[string]string{"status": string(p.Status)}, nil
 	}
-	if err := a.Store.Projects().UpdateStatus(ctx, p.AccountID, p.ID, domain.ProjectOnboarding, domain.ProjectRegistered); err != nil {
-		return nil, fmt.Errorf("put %s back to registered: %w", p.Name, err)
+	done := with.ProfileDone
+	if !done {
+		steps, err := a.Store.StepRuns().ListByRun(ctx, p.AccountID, call.Run.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list the steps of the run: %w", err)
+		}
+		done = slices.ContainsFunc(steps, func(s domain.StepRun) bool { return s.StepID == "complete" && s.Status == domain.StepSucceeded })
 	}
-	return map[string]string{"status": string(domain.ProjectRegistered)}, nil
+	to := domain.ProjectRegistered
+	if done {
+		to = domain.ProjectOnboarded
+	}
+	if err := a.Store.Projects().UpdateStatus(ctx, p.AccountID, p.ID, domain.ProjectOnboarding, to); err != nil {
+		return nil, fmt.Errorf("put %s to %s: %w", p.Name, to, err)
+	}
+	return map[string]string{"status": string(to)}, nil
 }
 
 // completeOnboarding is the action onboarding.complete. It reads the profile
 // file in with.repo at the merge commit with.sha, or at the branch with.ref
 // (the base branch) when GitHub merged the PR itself and there is no commit
 // to name, so edits made in the PR count. It validates the file, stores it as the run's project
-// profile and moves the project from onboarding to onboarded; a project
-// already onboarded keeps going, so a repeated call succeeds.
+// profile and moves the project from onboarding to onboarded, unless
+// with.hold is set: the project then stays onboarding until the playbook
+// ends the onboarding (onboarding.start_tests or the end of the test part).
+// A project already onboarded keeps going, so a repeated call succeeds.
 func (a *actions) completeOnboarding(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		Repo string `json:"repo"`
 		SHA  string `json:"sha"`
 		Ref  string `json:"ref"`
+		Hold bool   `json:"hold"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -158,10 +183,11 @@ func (a *actions) completeOnboarding(ctx context.Context, call workflow.ActionCa
 	if err := a.Store.Projects().SetProfile(ctx, p.AccountID, p.ID, profile); err != nil {
 		return nil, fmt.Errorf("store the profile of %s: %w", p.Name, err)
 	}
-	if p.Status == domain.ProjectOnboarding {
+	if p.Status == domain.ProjectOnboarding && !with.Hold {
 		if err := a.Store.Projects().UpdateStatus(ctx, p.AccountID, p.ID, domain.ProjectOnboarding, domain.ProjectOnboarded); err != nil {
 			return nil, fmt.Errorf("onboard %s: %w", p.Name, err)
 		}
+		p.Status = domain.ProjectOnboarded
 	}
-	return map[string]string{"status": string(domain.ProjectOnboarded)}, nil
+	return map[string]string{"status": string(p.Status)}, nil
 }

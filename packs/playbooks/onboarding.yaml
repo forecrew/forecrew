@@ -1,4 +1,4 @@
-description: Onboard a repo. An analyst proposes .forecrew/profile.yaml in a PR; a human approves it (the PR is merged), asks for changes (a new round) or rejects it.
+description: Onboard a repo. An analyst proposes .forecrew/profile.yaml in a PR; a human approves it (the PR is merged), asks for changes (a new round) or rejects it. Then the onboarding-tests playbook takes over.
 inputs: [repo, project]
 steps:
   # Checks the GitHub App and puts the project in onboarding.
@@ -109,11 +109,23 @@ steps:
   # Stores the file as merged, so edits made in the PR count, read at the
   # merge commit (the default branch if GitHub does not report it). The PR
   # is merged by now and a human approved it, so a failure here opens a
-  # needs_you gate to fix or retry, and never undoes the onboarding.
+  # needs_you gate to fix or retry, and never undoes the onboarding. The
+  # project stays onboarding (hold) until the tests part ends it.
   - id: complete
     type: action
     action: onboarding.complete
-    with: {repo: '${inputs.repo}', sha: '${steps.merge.output.sha}', ref: '${steps.register.output.default_branch}'}
+    with: {repo: '${inputs.repo}', sha: '${steps.merge.output.sha}', ref: '${steps.register.output.default_branch}', hold: true}
+    on_failure: escalate
+
+  # Starts the tests part, the onboarding-tests playbook, as a run of its own:
+  # a test strategy, matrix and environments in a PR, and a baseline run of the
+  # existing tests (onboarding-tests.yaml). That run moves the project to
+  # onboarded. Without the test roles in forecrew.yaml there is no tests part
+  # and the project is onboarded here.
+  - id: tests
+    type: action
+    action: onboarding.start_tests
+    with: {repo: '${inputs.repo}', project: '${inputs.project}'}
     on_failure: escalate
 
   # Seeds the knowledge base (docs/knowledge.md). Indexes the paths the repo
@@ -177,7 +189,8 @@ steps:
                 with: {repo: '${inputs.repo}', number: '${steps.kbpr.output.number}'}
                 on_failure: escalate
 
-# A rejected or failed onboarding puts the project back to registered.
+# A rejected or failed onboarding puts the project back to registered, unless
+# the profile was stored: the project is then onboarded.
 finally:
   - id: revert
     type: action
