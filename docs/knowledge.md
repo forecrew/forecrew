@@ -308,6 +308,17 @@ and no gate, merged on GitHub like any PR. For a protected section the caller
 needs `gate.approve.knowledge_protected` and is recorded as approver
 (`knowledge.proposal_approved` and a PR comment).
 
+## Lessons from feedback
+
+`approve` and `request_changes` take `save_as_lesson` (REST body field, CLI
+`--save-as-lesson`): when the gate is resolved, the feedback becomes a human's
+proposal to the `lessons` section, `<lessons folder>/gate-<n>.md`, with the gate
+as the `source` of the entry and the feedback quoted as the entry's text. It is
+sent like `propose_knowledge`: a PR `agent/kb-KB-n`, no job, no gate. It needs
+feedback, is refused for `reject`, and needs a `lessons` section in the repo
+(the default policy has one at `knowledge/lessons/`). The gate is resolved
+whether or not the lesson could be saved; the error then says so.
+
 ## Access requests
 
 A role that needs more calls `request_access` ({section, level, reason}) and

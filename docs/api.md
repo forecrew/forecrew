@@ -124,8 +124,8 @@ structs in `internal/domain` and `internal/mcp`.
 | `GET /api/v1/providers` | `list_providers` | | `200` providers with `online` and `ownership` |
 | `GET /api/v1/fleet` | `fleet_overview` | | `200` the overview as in [mcp.md](mcp.md): `headline`, `working`, `waiting`, `spend`, `routing`, `locations`, `queue`, `running` |
 | `GET /api/v1/gates?project=` | `list_pending_gates` | `project` optional | `200` pending gates with `ref`, `kind`, `project`, `goal_ref`, `task_ref`, `summary`, `url` (GitHub issue or PR), `can_resolve` (whether the caller may resolve it) and `created_at` |
-| `POST /api/v1/gates/{gate}/approve` | `approve` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `approved` |
-| `POST /api/v1/gates/{gate}/request-changes` | `request_changes` | `{"feedback": "required"}` | `200` the gate, now `changes_requested` |
+| `POST /api/v1/gates/{gate}/approve` | `approve` | `{"feedback": "optional", "save_as_lesson": false}` (body optional; `save_as_lesson` needs `feedback`) | `200` the gate, now `approved` |
+| `POST /api/v1/gates/{gate}/request-changes` | `request_changes` | `{"feedback": "required", "save_as_lesson": false}` | `200` the gate, now `changes_requested` |
 | `POST /api/v1/gates/{gate}/reject` | `reject` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `rejected` |
 | `GET /api/v1/tokens` | `list_tokens` | | `200` tokens with `id`, `name`, `created_at`, `last_used_at`, `revoked_at`, `owner_kind`, `owner_id`, `scopes`, `expires_at` and `current` (the token of this request); no hash or secret |
 | `POST /api/v1/tokens` | `create_token` | `{"name", "scopes": ["read"], "ttl": "720h", "service_account": "ci"}`; `ttl` defaults to `auth.token_default_ttl`, at most `8760h`, `service_account` to yourself | `201` `{"token": {...}, "secret": "fcm_..."}`; the secret is shown once. `403` for a scope above the owner's roles or above the token you use |

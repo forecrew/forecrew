@@ -85,6 +85,12 @@ type Recorder interface {
 	GateResolved(ctx context.Context, tx store.Store, by domain.Actor, g domain.Gate) (func(ctx context.Context) error, error)
 }
 
+// LessonSaver turns the feedback of a resolved gate into a lesson: a
+// proposal to the lessons section with the gate as its source.
+type LessonSaver interface {
+	SaveLesson(ctx context.Context, by domain.Actor, g domain.Gate, feedback string) error
+}
+
 var _ Service = (*Keeper)(nil)
 
 // Keeper is the Service on top of a store and a signal publisher.
@@ -93,6 +99,7 @@ type Keeper struct {
 	pub Publisher
 	now func() time.Time
 	rec Recorder
+	les LessonSaver
 }
 
 // New returns a gate service. now defaults to the real UTC time.
@@ -106,6 +113,13 @@ func New(st store.Store, pub Publisher, now func() time.Time) *Keeper {
 // WithRecorder makes the keeper tell r of every gate it resolves.
 func (k *Keeper) WithRecorder(r Recorder) *Keeper {
 	k.rec = r
+	return k
+}
+
+// WithLessons makes the keeper save the feedback of gates decided with
+// save_as_lesson.
+func (k *Keeper) WithLessons(l LessonSaver) *Keeper {
+	k.les = l
 	return k
 }
 
@@ -243,7 +257,18 @@ func (k *Keeper) Decide(ctx context.Context, by domain.Actor, tool string, in mc
 	if err != nil {
 		return domain.Gate{}, err
 	}
-	return k.Resolve(ctx, by, g.ID, decision, in.Feedback)
+	if in.SaveAsLesson && k.les == nil {
+		return domain.Gate{}, fmt.Errorf("%s: this forecrewd cannot save lessons: %w", tool, mcp.ErrInvalidInput)
+	}
+	g, err = k.Resolve(ctx, by, g.ID, decision, in.Feedback)
+	if err != nil || !in.SaveAsLesson {
+		return g, err
+	}
+	// The gate is resolved whatever happens to the lesson: say so.
+	if err := k.les.SaveLesson(ctx, by, g, in.Feedback); err != nil {
+		return g, fmt.Errorf("%s is %s, but its feedback was not saved as a lesson: %w", g.Ref(), g.Status, err)
+	}
+	return g, nil
 }
 
 // Get implements Service.

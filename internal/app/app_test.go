@@ -12,6 +12,7 @@ import (
 	"testing"
 	"testing/fstest"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
@@ -287,5 +288,33 @@ func TestProviderOfPoolActions(t *testing.T) {
 	with := newFixture(t, func(d *Deps) { d.Actions = fake.Client })
 	if with.app.provider == nil {
 		t.Fatal("no provider with GitHub's Actions calls")
+	}
+}
+
+// A gate decided with save_as_lesson through the tools proposes the feedback
+// as a lesson: the lesson saver is wired into the gate service.
+func TestApproveSavesALesson(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := domain.Gate{AccountID: f.account.ID, ProjectID: f.project.ID, Kind: domain.GateMergeApproval, Status: domain.GatePending, Title: "Merge PR 9"}
+	must(t, f.st.Gates().Create(ctx, &g))
+	u := f.st.AddMember(f.account.ID, domain.User{Name: "ana"}, "")
+	testkit.Bind(t, f.st, f.account.ID, domain.SubjectUser, u.ID, domain.RoleScopeOrganization, domain.RoleOwner, uuid.Nil())
+	by := domain.UserActor(f.account.ID, u.ID, domain.Credential{})
+
+	got, err := f.app.tools.Approve(ctx, by, mcp.GateDecisionInput{Gate: g.Ref(), Feedback: "Run the migrations twice.", SaveAsLesson: true})
+	must(t, err)
+	if got.Status != domain.GateApproved {
+		t.Fatalf("gate = %+v", got)
+	}
+	rows, err := f.st.KnowledgeProposals().List(ctx, f.account.ID, store.KnowledgeProposalFilter{})
+	must(t, err)
+	if len(rows) != 1 || rows[0].Section != "lessons" || rows[0].Path != "knowledge/lessons/"+strings.ToLower(g.Ref())+".md" || rows[0].GateID != g.ID || rows[0].Status != domain.KnowledgeOpen {
+		t.Fatalf("proposals = %+v", rows)
+	}
+	pr, err := f.tracker.FindPR(ctx, "acme/app", "agent/kb-"+rows[0].Ref())
+	must(t, err)
+	if pr.Number == 0 || !strings.HasSuffix(pr.Title, rows[0].Path) && !strings.Contains(pr.Title, rows[0].Ref()) {
+		t.Errorf("pr = %+v", pr)
 	}
 }

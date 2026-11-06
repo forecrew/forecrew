@@ -776,6 +776,9 @@ type ProjectFilterInput struct {
 type GateDecisionInput struct {
 	Gate     string `json:"gate"`               // GATE-7 or UUID
 	Feedback string `json:"feedback,omitempty"` // required for request_changes
+	// SaveAsLesson also proposes the feedback as a lesson (approve and
+	// request_changes only; the feedback is then required).
+	SaveAsLesson bool `json:"save_as_lesson,omitempty"`
 }
 
 // DispatchJobInput is the input of dispatch_job.

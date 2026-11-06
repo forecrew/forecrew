@@ -787,3 +787,58 @@ func TestCitedNotesAreKeptWhenTheirGoalExpires(t *testing.T) {
 		t.Error("a note of another goal was promoted by a job that could not see it")
 	}
 }
+
+const lessonsPolicy = `version: 1
+sections:
+  lessons: {paths: ["knowledge/lessons/**"], owner: knowledge-curator}
+`
+
+// The feedback of a gate becomes a human's proposal to lessons, with the gate
+// as the source of the entry.
+func TestSaveLesson(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	policy, err := knowledge.ParsePolicy([]byte(lessonsPolicy))
+	must(t, err)
+	e.policy = policy
+	by := domain.Actor{AccountID: e.account, Kind: domain.ActorUser, Name: "ana"}
+	g := domain.Gate{AccountID: e.account, ProjectID: e.project.ID, Kind: domain.GateMergeApproval, Status: domain.GateChangesRequested, Title: "Merge PR 9"}
+	must(t, e.st.Gates().Create(ctx, &g))
+
+	must(t, e.svc.SaveLesson(ctx, by, g, "# Never retry a lease\n\n- keep the lock order"))
+	rows, err := e.st.KnowledgeProposals().List(ctx, e.account, store.KnowledgeProposalFilter{})
+	must(t, err)
+	if len(rows) != 1 {
+		t.Fatalf("proposals = %+v", rows)
+	}
+	k := rows[0]
+	path := "knowledge/lessons/" + strings.ToLower(g.Ref()) + ".md"
+	if k.Section != "lessons" || k.Path != path || k.Action != domain.KnowledgeAdd || k.ProposedBy != by.String() || k.Batch != domain.BatchStandalone || k.Status != domain.KnowledgeOpen || k.GateID != g.ID {
+		t.Errorf("proposal = %+v", k)
+	}
+	raw, err := e.tracker.GetFile(ctx, "acme/app", "agent/kb-"+k.Ref(), path)
+	must(t, err)
+	entry, err := knowledge.ParseEntry(path, raw)
+	must(t, err)
+	if entry.Provenance.AuthorRole != "human" || entry.Provenance.Source != g.Ref() {
+		t.Errorf("provenance = %+v, want human and %s", entry.Provenance, g.Ref())
+	}
+	if !strings.Contains(entry.Body, "> # Never retry a lease") || strings.Contains(entry.Body, "\n# Never") || !strings.Contains(entry.Body, "> - keep the lock order") {
+		t.Errorf("the feedback is not quoted:\n%s", entry.Body)
+	}
+
+	protected, err := knowledge.ParsePolicy([]byte("version: 1\nsections:\n  lessons: {paths: [\"knowledge/lessons/**\"], protected: true}\n"))
+	must(t, err)
+	e.policy = protected
+	if err := e.svc.SaveLesson(ctx, by, g, "x"); !errors.Is(err, proposals.ErrInvalid) || !strings.Contains(err.Error(), "protected") {
+		t.Errorf("a protected lessons section: %v", err)
+	}
+	e.policy = policy
+	if err := e.svc.SaveLesson(ctx, by, g, "  "); !errors.Is(err, proposals.ErrInvalid) {
+		t.Errorf("empty feedback: %v", err)
+	}
+	e.policy, _ = knowledge.ParsePolicy([]byte("version: 1\nsections:\n  architecture: {paths: [\"docs/adr/**\"]}\n"))
+	if err := e.svc.SaveLesson(ctx, by, g, "x"); !errors.Is(err, proposals.ErrInvalid) {
+		t.Errorf("no lessons section: %v", err)
+	}
+}

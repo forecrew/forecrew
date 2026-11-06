@@ -313,3 +313,59 @@ func TestOpenedRunsInTheGatesTransaction(t *testing.T) {
 		t.Fatalf("calls = %d", calls)
 	}
 }
+
+type lessonSaver struct {
+	got []domain.Gate
+	fb  []string
+	err error
+}
+
+func (l *lessonSaver) SaveLesson(_ context.Context, _ domain.Actor, g domain.Gate, feedback string) error {
+	l.got, l.fb = append(l.got, g), append(l.fb, feedback)
+	return l.err
+}
+
+// save_as_lesson hands the resolved gate and its feedback to the lesson
+// saver, and only when asked.
+func TestDecideSavesLessons(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	les := &lessonSaver{}
+	f.svc.WithLessons(les)
+	g := f.open(t, domain.GateSpecApproval)
+
+	got, err := f.svc.Decide(ctx, f.by, mcp.ToolRequestChanges, mcp.GateDecisionInput{Gate: g.Ref(), Feedback: "state the limits", SaveAsLesson: true})
+	must(t, err)
+	if len(les.got) != 1 || les.got[0].ID != g.ID || les.got[0].Status != domain.GateChangesRequested || les.fb[0] != "state the limits" || got.Status != domain.GateChangesRequested {
+		t.Fatalf("lessons = %+v %v", les.got, les.fb)
+	}
+	g2 := f.open(t, domain.GateSpecApproval)
+	_, err = f.svc.Decide(ctx, f.by, mcp.ToolApprove, mcp.GateDecisionInput{Gate: g2.Ref(), Feedback: "fine"})
+	must(t, err)
+	if len(les.got) != 1 {
+		t.Errorf("a lesson was saved without being asked: %+v", les.got)
+	}
+
+	// A lesson that cannot be saved does not undo the decision: the error
+	// says so, and the gate is resolved.
+	les.err = errors.New("github is down")
+	g3 := f.open(t, domain.GateSpecApproval)
+	resolved, err := f.svc.Decide(ctx, f.by, mcp.ToolApprove, mcp.GateDecisionInput{Gate: g3.Ref(), Feedback: "x", SaveAsLesson: true})
+	if err == nil || resolved.Status != domain.GateApproved {
+		t.Errorf("Decide = %+v, %v", resolved, err)
+	}
+	if cur, _ := f.svc.Get(ctx, f.account, g3.ID); cur.Status != domain.GateApproved {
+		t.Errorf("gate = %s", cur.Status)
+	}
+}
+
+// Without a lesson saver the request is refused before the gate is touched.
+func TestDecideRefusesLessonsWithoutASaver(t *testing.T) {
+	f := newFixture(t)
+	g := f.open(t, domain.GateSpecApproval)
+	_, err := f.svc.Decide(t.Context(), f.by, mcp.ToolApprove, mcp.GateDecisionInput{Gate: g.Ref(), Feedback: "x", SaveAsLesson: true})
+	wantErr(t, err, mcp.ErrInvalidInput)
+	if cur, _ := f.svc.Get(t.Context(), f.account, g.ID); cur.Status != domain.GatePending {
+		t.Errorf("gate = %s, want pending", cur.Status)
+	}
+}
