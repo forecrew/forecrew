@@ -126,7 +126,9 @@ func baseRequests(cells []matrix.Cell, repo, base string, overlay *domain.Overla
 // can lease and describes the others in out.Missing. A request for a suite
 // and environment that no required cell runs is optional: without a worker
 // it is dropped from Requests too and not reported, since nothing in the
-// verification waits for it.
+// verification waits for it. A suite that no required cell runs at all (the
+// suite of the new tests has required: false) is the only check of those
+// tests, so its requests are needed.
 func (a *actions) dropUnrunnableRequests(ctx context.Context, accountID uuid.UUID, out *baseCheckOutput, required []matrix.Cell) error {
 	check, err := a.newWorkerCheck(ctx, accountID)
 	if err != nil {
@@ -134,9 +136,10 @@ func (a *actions) dropUnrunnableRequests(ctx context.Context, accountID uuid.UUI
 	}
 	type slot struct{ suite, env string }
 	need := map[slot]bool{}
+	hasRequired := map[string]bool{}
 	for _, c := range required {
 		for _, j := range c.Jobs() {
-			need[slot{j.Suite, j.Environment.Name}] = true
+			need[slot{j.Suite, j.Environment.Name}], hasRequired[j.Suite] = true, true
 		}
 	}
 	all := out.Requests
@@ -152,7 +155,7 @@ func (a *actions) dropUnrunnableRequests(ctx context.Context, accountID uuid.UUI
 		case ok:
 			out.Requests = append(out.Requests, r)
 			out.Runnable = append(out.Runnable, r)
-		case need[slot{r.Suite, env.Name}]:
+		case need[slot{r.Suite, env.Name}] || !hasRequired[r.Suite]:
 			out.Requests = append(out.Requests, r)
 			missing = append(missing, unrunnableJob{Key: "base check of " + r.Suite + " in " + env.Name, Pool: pool, Needs: labels})
 		}
@@ -402,6 +405,11 @@ func (a *actions) testsBaseCheckResult(ctx context.Context, call workflow.Action
 		}
 		seen[t] = true
 		if unchecked[t.Suite] {
+			out.OK = false
+			continue
+		}
+		if len(bySuite[t.Suite]) == 0 {
+			// No run of its suite: not checked, which is not "passed on base".
 			out.OK = false
 			continue
 		}

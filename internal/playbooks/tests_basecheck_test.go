@@ -470,7 +470,8 @@ func TestTestsBaseCheckRequestWorkersFail(t *testing.T) {
 }
 
 // A request that no required cell asks for is optional: with no worker it is
-// left out of the requests and the missing text, so nothing waits for it.
+// left out of the requests and the missing text, so nothing waits for it,
+// unless it is for a suite no required cell runs at all.
 func TestTestsBaseCheckRequestOptionalCellsWithoutAWorker(t *testing.T) {
 	v := newEnv(t)
 	v.setMatrix(t, "abc") // required: linux only; smoke is optional, and so is windows
@@ -491,12 +492,14 @@ func TestTestsBaseCheckRequestOptionalCellsWithoutAWorker(t *testing.T) {
 		return out
 	}
 
-	// No worker: only the required request is missing; the optional ones are gone.
+	// No worker: the unit request is missing, and so is smoke's, because no
+	// required cell runs that suite (required: false) and it is the only check
+	// of its tests. The windows request of unit is optional and gone.
 	m := call()
-	if got := names(m["requests"]); !slices.Equal(got, []string{"unit@lin"}) || len(m["runnable"].([]any)) != 0 {
+	if got := names(m["requests"]); !slices.Equal(got, []string{"unit@lin", "smoke@lin"}) || len(m["runnable"].([]any)) != 0 {
 		t.Errorf("no worker = %v", m)
 	}
-	if text := m["missing"].(string); !strings.Contains(text, "base check of unit in lin") || strings.Contains(text, "smoke") || strings.Contains(text, "win") {
+	if text := m["missing"].(string); !strings.Contains(text, "base check of unit in lin") || !strings.Contains(text, "base check of smoke in lin") || strings.Contains(text, "win") {
 		t.Errorf("missing = %q", text)
 	}
 
@@ -519,5 +522,22 @@ func TestTestsBaseCheckRequestOptionalCellsWithoutAWorker(t *testing.T) {
 	must(t, err)
 	if r := toMap(t, out); r["ok"] != true || len(r["new_tests"].([]any)) != 2 {
 		t.Errorf("result = %v", r)
+	}
+}
+
+// A test whose suite has no run at all was not checked: it is left out of
+// new_tests, so the report says it was not checked, and never "passed on base".
+func TestTestsBaseCheckResultSuiteWithoutARun(t *testing.T) {
+	v := newEnv(t)
+	unit := v.baseRunIn(t, "unit", "lin", domain.TestRunFailed, 1, res("pkg", "TestA", domain.TestFailed))
+	out, err := v.call(t, "tests.base_check_result", map[string]any{
+		"runs":  []any{unit.String()},
+		"tests": newTests([3]string{"unit", "pkg::TestA", "a"}, [3]string{"smoke", "s::Flow", "b"}),
+	})
+	must(t, err)
+	m := toMap(t, out)
+	nt := m["new_tests"].([]any)
+	if m["ok"] != false || len(nt) != 1 || toMap(t, nt[0])["id"] != "pkg::TestA" {
+		t.Errorf("result = %v", m)
 	}
 }
