@@ -135,8 +135,10 @@ works on. Subscribe the App to the events `issues`, `issue_comment`,
 `push`: forecrewd reindexes a project's knowledge base on a push to its default
 branch (the poller catches up every five minutes if you leave `push` out, but
 cannot flag entries a push made out of date; see [../knowledge.md](../knowledge.md)).
-Put its ID in `github.app_id` and the logins that may command
-`@forecrew` in `github.allowlist` (empty means nobody).
+Put its ID in `github.app_id`. `@forecrew` commands are accepted from members
+of the project's organization who linked their GitHub account by signing in
+with it, with the permission of the gate. `github.allowlist` is deprecated: it only
+counts in an organization where nobody holds a role yet.
 
 To show the verification of a pull request as the check run
 `forecrew/verification`, the App also needs the **Checks** write permission.
@@ -156,21 +158,71 @@ curl -fsS https://forecrew.example.com/healthz       # ok
 curl -fsS https://forecrew.example.com/ | grep -c 'id="root"'   # 1: the web UI is served
 ```
 
-### Log in to the web UI
+### Sign-in connections
 
-forecrewd serves the web UI at its public URL. Create an API token and paste it
-on the login page (the same kind of token as for MCP, see
-[mcp-token.md](mcp-token.md)):
+People sign in through connections, in `auth.connections` of `forecrew.yaml`
+(see [config.md](../contracts/config.md)). Every client secret is named, never
+written: `env:NAME` or `secret:name` (the file `/run/secrets/name`). The redirect
+URL of each is `https://<your host>/auth/<connection ID>/callback`; forecrewd
+stores the connections at startup, and the IDs are in the `login_url` of
+`POST /api/v1/auth/discover`, or in the `connections` table.
+
+- **GitHub** (`kind: github`): the user authorization of the Forecrew GitHub
+  App. Use the App's client ID, generate a client secret, set the callback URL
+  and give the App the read-only **Email addresses** account permission;
+  without it people sign in only through an invitation by GitHub login or a
+  linked identity.
+- **Google** (`kind: google`): an OAuth client of type Web application.
+- **Microsoft** (`kind: microsoft`): `issuer` is
+  `https://login.microsoftonline.com/<tenant ID>/v2.0`, one tenant per
+  connection. Entra's `email` claim is not verified, so it only counts with the
+  optional claim `xms_edov`; add `email` and `xms_edov` to the app's ID token.
+- **Any OpenID Connect provider** (`kind: oidc`): its `issuer`, with discovery.
+
+An organization's own connections use the secret names `env:FORECREW_CONN_*` or
+`secret:conn-*`, and link existing users only for domains it verified.
+
+### First owner and sign-in
+
+Add the first owner on the server, by email or GitHub login. The organization
+created at install has the slug `default`:
 
 ```sh
-docker compose exec forecrewd forecrew token create my-browser   # shown once
+docker compose exec forecrewd forecrew user add ana@example.com --org default --role owner
 ```
 
-Open `https://forecrew.example.com/`, paste the token and log in. The server
-keeps it in a `Secure`, `HttpOnly` cookie for 30 days; the page never stores it.
-Use **Log out** in the sidebar, or revoke the token, to end the session. The
-cookie needs HTTPS (or `http://localhost`), so behind a load balancer the
-public URL must be `https://`. See [ui.md](../ui.md).
+**Warning:** an email given to `forecrew user add` is treated as verified, on
+your word. The first person to sign in with that address, through any instance
+connection that calls it verified, becomes this user with this role. Check the
+address before you run the command, and do not add one you do not control.
+
+A GitHub login is turned into its stable user ID through GitHub's API, and needs
+the GitHub connection stored (start forecrewd once first).
+
+Open `https://forecrew.example.com/`, and sign in. From there people join through
+invitations (`forecrew invitations create bea@example.com --role member`, or the
+`create_invitation` tool): they open the link and sign in as the person it was
+sent to. Someone with no user, membership or invitation is refused.
+
+The session cookie is `Secure`, so it needs HTTPS (or `http://localhost`): behind a
+load balancer the public URL must be `https://`. See [ui.md](../ui.md).
+
+### Recovery
+
+These work on the database with shell access to the server, are audited as
+`user:<operator>`, and need no sign-in:
+
+```sh
+forecrew org create "Acme Labs"                       # then forecrew user add ... --org acme-labs
+forecrew user disable ana@example.com                 # sessions and tokens stop at once
+forecrew session revoke --user ana@example.com
+```
+
+People in `auth.instance_admins` (verified emails or `github:<user ID>`) may sign
+in through an instance connection without a membership and switch to any
+organization to recover access when its identity provider is down; each use is
+audited there as `instance_admin.entered`. Taking someone off the list takes
+effect when forecrewd restarts, in their existing sessions too.
 
 ### Control worker (Compose)
 
@@ -336,7 +388,7 @@ allow is allowed to agents.
 - Playbooks are loaded from files at startup; only the playbooks in the image
   (or your own files) are run.
 - Secrets live in `.env` or `forecrewd.env` with mode 0600, never in
-  `forecrew.yaml`. Only SHA-256 hashes of MCP, API and worker tokens are
-  stored.
+  `forecrew.yaml`. Only SHA-256 hashes of MCP, API and worker tokens, sessions and
+  invitation links are stored, and provider tokens are not kept at all.
 - Claude Code needs `ANTHROPIC_API_KEY` (it does not use a machine login) and
   Codex needs `CODEX_API_KEY`; forecrewd passes them to the worker per job.

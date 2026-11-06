@@ -40,6 +40,30 @@ older version.
 Restarting forecrewd does not lose jobs: running jobs keep their leases on
 the workers, and workers retry while forecrewd is down.
 
+## Sign-in replaces token login
+
+From the release with sign-in connections, people sign in through
+`auth.connections` and pasting a token on the login page is off. To upgrade:
+
+1. Add at least one connection (see
+   [install.md](install.md#sign-in-connections)). To keep working meanwhile, set
+   `auth.token_login: true`: `POST /api/v1/session` and the token field of the
+   login page then work as before.
+2. Add the first owner of each organization:
+   `forecrew user add <email or github-login> --org <slug> --role owner`.
+3. Existing tokens keep working. They have no owner, scope `admin` and no expiry
+   until they are assigned to the first Owner of their organization, when that
+   command runs or at the next start of forecrewd; a name that Owner already
+   uses gets `-2`, `-3`, and so on. Nothing is deleted. Review them and replace
+   them with tokens of narrower scope.
+4. `forecrew token create` now needs `--user` or `--service-account`: update
+   scripts that call it.
+5. Move `github.allowlist` people to members who sign in with GitHub. The
+   list stops counting in an organization once anybody there holds a role, and
+   forecrewd logs that it is deprecated.
+6. Turn `auth.token_login` off again. Tokens in cookies stop working then, so
+   people sign in once more.
+
 ## Control worker (Compose)
 
 The control worker uses the same `FORECREW_VERSION` as forecrewd. Pull and start

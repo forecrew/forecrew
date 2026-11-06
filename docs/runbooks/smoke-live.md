@@ -20,7 +20,7 @@ money and is never run in CI.
 - A sandbox repo you own and do not mind being changed: small, with tests and
   a CI workflow that runs them, a default branch without branch protection
   that blocks the App, and no `CONTRIBUTING.md` section on tests yet.
-- An API token (`forecrew token create smoke`, see [mcp-token.md](mcp-token.md)).
+- An API token (`forecrew token create smoke --user <owner>`, see [mcp-token.md](mcp-token.md)).
 - A fine-grained GitHub token with read access to the sandbox repo's pull
   requests. It is required: the test checks on GitHub that the PRs are merged
   and that the task PR has a review.

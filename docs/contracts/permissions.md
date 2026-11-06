@@ -79,7 +79,12 @@ repository does not.
   members. A SCIM token acts on nothing else (identity.md, SCIM).
 - **Creating a token:** a token is limited to its owner's permissions, and
   creating one for a service account (`token.manage`) concerns the roles of
-  that service account.
+  that service account. Its scopes stay within the highest class of the
+  owner's permissions and within the token the call is made with, and a
+  credential below `write` creates none.
+- **An instance admin recovering access** (identity.md, Recovery) holds every
+  permission on the organization they entered, in a session only, whatever
+  their bindings. The entry is audited as `instance_admin.entered`.
 
 Whoever later binds a role to a team that is mapped or has source `scim`
 grants it to the identity provider as well; the first rule applies to them.
@@ -240,7 +245,8 @@ object up and checks the permission on the object's project.
 | MCP tool | REST route | Needs |
 |----------|------------|-------|
 | | `POST /api/v1/session`, `DELETE /api/v1/session` | public |
-| | `GET /api/v1/me` | signed in |
+| | `GET /api/v1/me`, `PUT /api/v1/session/organization`, `DELETE /api/v1/sessions` | signed in |
+| | `POST /api/v1/auth/discover` | public |
 | `onboard_project` | `POST /api/v1/projects` | `project.create` |
 | `list_projects` | `GET /api/v1/projects` | `project.read` |
 | `get_project` | `GET /api/v1/projects/{project...}` | `project.read` |
@@ -289,6 +295,10 @@ object up and checks the permission on the object's project.
 | `create_service_account` | `POST /api/v1/service-accounts` | `service_account.manage` |
 | `update_service_account` | `PATCH /api/v1/service-accounts/{service_account}` | `service_account.manage` |
 | `set_service_account_disabled` | `POST /api/v1/service-accounts/{service_account}/disable`, `.../enable` | `service_account.manage`, No escalation |
+| `create_token` | `POST /api/v1/tokens` | own; `token.manage` for a service account's |
+| `create_invitation` | `POST /api/v1/invitations` | `member.manage` |
+| `list_invitations` | `GET /api/v1/invitations` | `member.manage` |
+| `revoke_invitation` | `POST /api/v1/invitations/{invitation}/revoke` | `member.manage` |
 
 For a binding on the organization, No escalation also concerns everything
 the member or service account already holds; for a binding on a project, only
