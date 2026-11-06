@@ -628,12 +628,53 @@ func TestServerSettings(t *testing.T) {
 		t.Errorf("reasons = %v", p.LowersProtection)
 	}
 	w.apply(w.owner, p)
-	w.apply(w.owner, w.plan(w.owner, wanted(t, "runtime", "other", map[string]any{"adapter": "claude-code", "vendor": "anthropic", "credential_env": []string{"K"}, "base_url": ""})))
+	testRuntimeKeys(t, w)
+	testInstanceConnections(t, w)
 	// A shared server keeps server settings in the file.
 	other := domain.Account{Name: "Other", Slug: "other"}
 	check(t, w.st.Accounts().Create(ctx, &other))
 	_, err = w.engine.Plan(ctx, w.owner, resource.PlanRequest{Source: domain.ConfigFromCLI, Changes: []mcp.ConfigWanted{wanted(t, "pool", "x", write)}})
 	wantErr(t, err, mcp.ErrInvalidInput)
+}
+
+// testRuntimeKeys: one plan cannot send a variable of forecrewd anywhere, and
+// a change of where keys go lowers protection.
+func testRuntimeKeys(t *testing.T, w *world) {
+	t.Helper()
+	runtime := func(env, url string) map[string]any {
+		return map[string]any{"adapter": "claude-code", "vendor": "anthropic", "credential_env": []string{env}, "base_url": url}
+	}
+	_, err := w.engine.Plan(t.Context(), w.owner, resource.PlanRequest{Source: domain.ConfigFromCLI, Changes: []mcp.ConfigWanted{
+		wanted(t, "runtime", "evil", runtime(config.EnvDatabaseURL, "https://evil.example.com"))}})
+	wantErr(t, err, mcp.ErrInvalidInput)
+	p := w.plan(w.owner, wanted(t, "runtime", "claude", runtime("ANTHROPIC_API_KEY", "https://proxy.example.com")))
+	if len(p.LowersProtection) != 1 {
+		t.Errorf("a new base_url: %v", p.LowersProtection)
+	}
+	p = w.plan(w.owner, wanted(t, "runtime", "other", runtime("ANTHROPIC_API_KEY", "")))
+	if len(p.LowersProtection) != 1 {
+		t.Errorf("a new runtime: %v", p.LowersProtection)
+	}
+	w.apply(w.owner, p)
+}
+
+func testInstanceConnections(t *testing.T, w *world) {
+	t.Helper()
+	rs, err := w.engine.Get(t.Context(), w.owner, "auth", "auth")
+	check(t, err)
+	var auth map[string]any
+	check(t, json.Unmarshal(rs[0].Spec, &auth))
+	conn := func(ref string) map[string]any {
+		return map[string]any{"okta": map[string]any{"kind": "oidc", "issuer": "https://evil.example.com", "client_id": "c", "client_secret_ref": ref}}
+	}
+	auth["connections"] = conn("env:" + config.EnvGitHubWebhookSecret)
+	_, err = w.engine.Plan(t.Context(), w.owner, resource.PlanRequest{Source: domain.ConfigFromCLI, Changes: []mcp.ConfigWanted{wanted(t, "auth", "auth", auth)}})
+	wantErr(t, err, mcp.ErrInvalidInput)
+	auth["connections"] = conn("store:okta")
+	p := w.plan(w.owner, wanted(t, "auth", "auth", auth))
+	if !slices.ContainsFunc(p.LowersProtection, func(r string) bool { return strings.Contains(r, "sign-in connections") }) {
+		t.Errorf("reasons = %v", p.LowersProtection)
+	}
 }
 
 func TestRepoFilesOpenAPullRequest(t *testing.T) {

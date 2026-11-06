@@ -311,5 +311,6 @@ forecrew-worker takes the config path from `run --config` (default `worker.yaml`
 and `runtimes` and as a whole for `auth`; the file stays the bootstrap
 default, and `config_get` shows a value set only by the file with origin
 `file`. forecrewd reads them at startup (`Config.WithSettings`), with the
-checks of this file. A stored value that no longer passes is ignored with an
+checks of this file, and a stored runtime or instance connection reaches only
+the variables and references the file uses, or the secret store. A stored value that no longer passes is ignored with an
 error in the log, so a bad setting never stops the server.
