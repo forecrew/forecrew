@@ -1,0 +1,55 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000370",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "subject_kind": "user",
+    "subject_id": "018f0000-0000-7000-8000-000000000300",
+    "role_id": "00000000-0000-0000-0000-000000000000",
+    "created_by": "user:x",
+    "created_at": "2026-02-26T00:40:00Z",
+    "role": "owner",
+    "role_scope": "organization",
+    "subject_name": "Gianmaria"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000371",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "subject_kind": "user",
+    "subject_id": "018f0000-0000-7000-8000-000000000301",
+    "role_id": "00000000-0000-0000-0000-000000000000",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "created_by": "user:x",
+    "created_at": "2026-02-26T17:20:00Z",
+    "role": "maintainer",
+    "role_scope": "project",
+    "project": "app",
+    "subject_name": "Marta Rossi"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000372",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "subject_kind": "team",
+    "subject_id": "018f0000-0000-7000-8000-000000000330",
+    "role_id": "00000000-0000-0000-0000-000000000000",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "created_by": "user:x",
+    "created_at": "2026-02-27T10:00:00Z",
+    "role": "contributor",
+    "role_scope": "project",
+    "project": "app",
+    "subject_name": "Mobile"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000373",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "subject_kind": "team",
+    "subject_id": "018f0000-0000-7000-8000-000000000330",
+    "role_id": "00000000-0000-0000-0000-000000000000",
+    "created_by": "user:x",
+    "created_at": "2026-02-27T10:00:00Z",
+    "role": "member",
+    "role_scope": "organization",
+    "subject_name": "Mobile"
+  }
+]
+

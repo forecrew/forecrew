@@ -1,0 +1,25 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000310",
+    "created_at": "2026-03-01T12:00:00Z",
+    "last_seen_at": "2026-03-01T12:00:00Z",
+    "expires_at": "2028-11-25T12:00:00Z",
+    "user_agent": "Firefox on Linux",
+    "ip": "203.0.113.7",
+    "organization": "acme",
+    "connection": "github",
+    "current": false
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000311",
+    "created_at": "2026-03-01T12:00:00Z",
+    "last_seen_at": "2026-03-01T12:00:00Z",
+    "expires_at": "2028-11-25T12:00:00Z",
+    "user_agent": "Safari on iPhone",
+    "ip": "203.0.113.7",
+    "organization": "acme",
+    "connection": "github",
+    "current": false
+  }
+]
+

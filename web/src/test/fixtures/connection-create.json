@@ -1,0 +1,20 @@
+{
+  "id": "018f0000-0000-7000-8000-000000000092",
+  "account_id": "018f0000-0000-7000-8000-000000000001",
+  "kind": "google",
+  "name": "google",
+  "client_id": "123.apps.googleusercontent.com",
+  "client_secret_ref": "secret:conn-google",
+  "jit": {
+    "enabled": false,
+    "default_roles": null
+  },
+  "enabled": false,
+  "created_at": "2026-03-01T10:30:00Z",
+  "updated_at": "2026-03-01T10:30:00Z",
+  "instance": false,
+  "tested": false,
+  "redirect_url": "https://forecrew.example.com/auth/018f0000-0000-7000-8000-000000000092/callback",
+  "test_url": "https://forecrew.example.com/auth/018f0000-0000-7000-8000-000000000092/login?test=1"
+}
+
