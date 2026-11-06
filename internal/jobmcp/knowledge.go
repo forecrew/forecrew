@@ -40,6 +40,8 @@ func init() {
 
 func proposalError(err error) error {
 	switch {
+	case errors.Is(err, store.ErrLeaseLost):
+		return errLeaseEnded()
 	case errors.Is(err, knowledge.ErrPolicyUnknown):
 		return Errorf(CodeUnavailable, "the knowledge policy of this project cannot be read now: try again later")
 	case errors.Is(err, proposals.ErrForbidden):
@@ -181,6 +183,8 @@ func notesWrite(ctx context.Context, c *Call, raw json.RawMessage) (Result, erro
 	}
 	n, err := c.Config.Notes.Write(ctx, c.Job, knowledge.NoteInput{Scope: in.Scope, Title: in.Title, Body: in.Body, Tags: in.Tags, Note: in.Note})
 	switch {
+	case errors.Is(err, store.ErrLeaseLost):
+		return Result{}, errLeaseEnded()
 	case errors.Is(err, knowledge.ErrNoGoal):
 		return Result{}, Errorf(CodeInvalidInput, "%v", err)
 	case errors.Is(err, knowledge.ErrNoteForbidden):

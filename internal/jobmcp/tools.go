@@ -58,10 +58,14 @@ func (c *Call) event(ctx context.Context, typ domain.JobEventType, text string, 
 	_, err := c.Config.Store.JobEvents().AppendLeased(ctx, c.Job.AccountID, c.Job.ID, c.Worker.ID,
 		[]domain.JobEvent{{Time: c.Config.Now(), Type: typ, Text: text, Data: raw}})
 	if errors.Is(err, store.ErrLeaseLost) {
-		return Errorf(CodeUnavailable, "the job's lease ended")
+		return errLeaseEnded()
 	}
 	return err
 }
+
+// errLeaseEnded is the answer to a write of a job that is no longer running
+// under its lease.
+func errLeaseEnded() error { return Errorf(CodeUnavailable, "the job's lease ended") }
 
 func reportProgress(ctx context.Context, c *Call, raw json.RawMessage) (Result, error) {
 	var in struct {
@@ -106,14 +110,16 @@ func attachEvidence(ctx context.Context, c *Call, raw json.RawMessage) (Result, 
 	if !domain.ValidArtifactName(name) {
 		return Result{}, Errorf(CodeInvalidInput, "artifact name %q is not valid: at most 255 bytes of segments of letters, digits, '.', '_' and '-' not starting with '.'; pass name", name)
 	}
-	c.Config.Attachments.Add(c.Job, Attachment{Path: in.Path, Name: name})
 	text := "evidence marked: " + in.Path + " as " + name
 	if in.Description != "" {
 		text += " (" + in.Description + ")"
 	}
+	// The event is leased, so evidence of a job whose lease has ended is
+	// refused before it is marked.
 	if err := c.event(ctx, domain.EventLog, text, nil); err != nil {
 		return Result{}, err
 	}
+	c.Config.Attachments.Add(c.Job, Attachment{Path: in.Path, Name: name})
 	return Result{Data: map[string]string{"name": name, "status": "pending"}}, nil
 }
 
@@ -286,6 +292,9 @@ func (c *Call) goOnWith(ctx context.Context, g domain.Gate, a domain.StatedAssum
 		return "", nil
 	}
 	got, _, err := c.Config.Assumptions.RecordAssumption(ctx, c.Job, a)
+	if errors.Is(err, store.ErrLeaseLost) {
+		return "", errLeaseEnded()
+	}
 	return got.Ref(), err
 }
 
@@ -298,6 +307,9 @@ func recordAssumption(ctx context.Context, c *Call, raw json.RawMessage) (Result
 		return Result{}, Errorf(CodeUnavailable, "this forecrewd has no assumption register")
 	}
 	got, dup, err := c.Config.Assumptions.RecordAssumption(ctx, c.Job, in)
+	if errors.Is(err, store.ErrLeaseLost) {
+		return Result{}, errLeaseEnded()
+	}
 	if errors.Is(err, domain.ErrInvalidRecord) {
 		return Result{}, Errorf(CodeInvalidInput, "%v", err)
 	}

@@ -279,6 +279,13 @@ func lockLeased(ctx context.Context, tx dbtx, accountID, jobID, workerID uuid.UU
 	return nil
 }
 
+func (r jobRepo) LockLeased(ctx context.Context, accountID, jobID, workerID uuid.UUID) error {
+	if workerID == uuid.Nil() {
+		return fmt.Errorf("job %s has no worker: %w", jobID, store.ErrLeaseLost)
+	}
+	return lockLeased(ctx, r.db, accountID, jobID, workerID)
+}
+
 func (r jobRepo) SetJobMCPTokenHash(ctx context.Context, accountID, jobID, workerID uuid.UUID, attempts int, hash []byte) error {
 	err := mustUpdate(ctx, r.db, `UPDATE jobs SET job_mcp_token_hash = $5
 		WHERE account_id = $1 AND id = $2 AND worker_id = $3 AND attempts = $4 AND status = 'running'`,

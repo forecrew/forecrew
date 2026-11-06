@@ -21,7 +21,7 @@ func TestSearchFiltersMarksAndAccess(t *testing.T) {
 	e.commit(t, "h1", map[string]string{"docs/adr/0001-q.md": "Jobs wait in the queue in Postgres.\n"})
 	_, err := e.syncer.Sync(ctx, e.project, "", "h1")
 	must(t, err)
-	_, err = e.notes.Write(ctx, e.job(1, "developer", e.g1), knowledge.NoteInput{Scope: domain.NoteScopeProject, Title: "queue trick", Body: "queue notes"})
+	_, err = e.notes.Write(ctx, e.job(t, 1, "developer", e.g1), knowledge.NoteInput{Scope: domain.NoteScopeProject, Title: "queue trick", Body: "queue notes"})
 	must(t, err)
 
 	run := func(q knowledge.Query) map[string]knowledge.Result {

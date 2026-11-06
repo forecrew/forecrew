@@ -37,8 +37,14 @@ func newNotesEnv(t *testing.T) *notesEnv {
 	}
 }
 
-func (e *notesEnv) job(n int64, role string, goal domain.Goal) domain.Job {
-	return domain.Job{ID: domain.NewID(), AccountID: e.project.AccountID, ProjectID: e.project.ID, GoalID: goal.ID, Number: n, Role: role}
+// job is a job of the goal running under a worker; n is unused.
+func (e *notesEnv) job(t *testing.T, _ int64, role string, goal domain.Goal) domain.Job {
+	t.Helper()
+	j := domain.Job{AccountID: e.project.AccountID, ProjectID: e.project.ID, GoalID: goal.ID, Role: role, Runtime: "claude-code"}
+	if err := e.st.Jobs().Create(t.Context(), &j); err != nil {
+		t.Fatal(err)
+	}
+	return testkit.Lease(t, e.st, j)
 }
 
 func (e *notesEnv) find(t *testing.T, j domain.Job, text string) []knowledge.Result {
@@ -51,7 +57,7 @@ func (e *notesEnv) find(t *testing.T, j domain.Job, text string) []knowledge.Res
 func TestNotesAreSharedWithinTheGoal(t *testing.T) {
 	e := newNotesEnv(t)
 	ctx := t.Context()
-	writer, sameGoal, otherGoal := e.job(1, "developer", e.g1), e.job(2, "reviewer", e.g1), e.job(3, "developer", e.g2)
+	writer, sameGoal, otherGoal := e.job(t, 1, "developer", e.g1), e.job(t, 2, "reviewer", e.g1), e.job(t, 3, "developer", e.g2)
 
 	n, err := e.notes.Write(ctx, writer, knowledge.NoteInput{Scope: domain.NoteScopeGoal, Title: "Flaky disk test", Body: "The spool test fails on slow disks.", Tags: []string{"flaky"}})
 	must(t, err)
@@ -115,14 +121,14 @@ func TestNotesAreSharedWithinTheGoal(t *testing.T) {
 func TestNoteLimitsAndGoals(t *testing.T) {
 	e := newNotesEnv(t)
 	ctx := t.Context()
-	noGoal := e.job(4, "developer", domain.Goal{})
+	noGoal := e.job(t, 4, "developer", domain.Goal{})
 	if _, err := e.notes.Write(ctx, noGoal, knowledge.NoteInput{Scope: domain.NoteScopeGoal, Title: "t", Body: "b"}); !errors.Is(err, knowledge.ErrNoGoal) {
 		t.Errorf("goal note without a goal: %v", err)
 	}
 	if _, err := e.notes.Write(ctx, noGoal, knowledge.NoteInput{Scope: domain.NoteScopeProject, Title: "t", Body: "b"}); err != nil {
 		t.Errorf("project note without a goal: %v", err)
 	}
-	j := e.job(5, "developer", e.g1)
+	j := e.job(t, 5, "developer", e.g1)
 	big := knowledge.NoteInput{Scope: domain.NoteScopeProject, Title: "t", Body: strings.Repeat("x", knowledge.MaxNoteBody+1)}
 	if _, err := e.notes.Write(ctx, j, big); !errors.Is(err, knowledge.ErrNoteTooLarge) {
 		t.Errorf("big note: %v", err)
@@ -131,7 +137,7 @@ func TestNoteLimitsAndGoals(t *testing.T) {
 	if _, err := e.notes.Write(ctx, j, many); !errors.Is(err, knowledge.ErrNoteTooLarge) {
 		t.Errorf("many tags: %v", err)
 	}
-	gone := e.job(6, "developer", domain.Goal{ID: uuid.New()})
+	gone := e.job(t, 6, "developer", domain.Goal{ID: uuid.New()})
 	if _, err := e.notes.Write(ctx, gone, knowledge.NoteInput{Scope: domain.NoteScopeGoal, Title: "t", Body: "b"}); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("note of an unknown goal: %v", err)
 	}
@@ -140,7 +146,7 @@ func TestNoteLimitsAndGoals(t *testing.T) {
 func TestNoteExpirySweep(t *testing.T) {
 	e := newNotesEnv(t)
 	ctx := t.Context()
-	j1, j2 := e.job(1, "developer", e.g1), e.job(2, "developer", e.g2)
+	j1, j2 := e.job(t, 1, "developer", e.g1), e.job(t, 2, "developer", e.g2)
 	goalNote, err := e.notes.Write(ctx, j1, knowledge.NoteInput{Scope: domain.NoteScopeGoal, Title: "goal one note", Body: "alpha"})
 	must(t, err)
 	_, err = e.notes.Write(ctx, j2, knowledge.NoteInput{Scope: domain.NoteScopeGoal, Title: "goal two note", Body: "beta"})
@@ -176,7 +182,7 @@ func TestNoteExpirySweep(t *testing.T) {
 		t.Errorf("notes left = %d, want goal two's and the project note", len(left))
 	}
 	// A note written for a goal that is closed already expires a week later.
-	late, err := e.notes.Write(ctx, e.job(7, "developer", e.g1), knowledge.NoteInput{Scope: domain.NoteScopeGoal, Title: "late", Body: "delta"})
+	late, err := e.notes.Write(ctx, e.job(t, 7, "developer", e.g1), knowledge.NoteInput{Scope: domain.NoteScopeGoal, Title: "late", Body: "delta"})
 	must(t, err)
 	if !late.ExpiresAt.Equal(e.clock.Now().Add(knowledge.NoteGrace)) {
 		t.Errorf("late note expires %v", late.ExpiresAt)
@@ -193,5 +199,17 @@ func TestRunSweep(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("RunSweep did not stop")
+	}
+}
+
+func TestNoteOfAFinishedJobIsRefused(t *testing.T) {
+	e := newNotesEnv(t)
+	j := e.job(t, 1, "developer", e.g1)
+	_, err := e.st.Jobs().Complete(t.Context(), j.AccountID, j.ID, j.WorkerID, store.JobResult{Status: domain.JobSucceeded})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.notes.Write(t.Context(), j, knowledge.NoteInput{Scope: domain.NoteScopeProject, Title: "late", Body: "too late"}); !errors.Is(err, store.ErrLeaseLost) {
+		t.Fatalf("err = %v, want a lost lease", err)
 	}
 }

@@ -80,7 +80,7 @@ func (e *env) job(t *testing.T, role string, goal uuid.UUID) domain.Job {
 	t.Helper()
 	j := domain.Job{AccountID: e.account, ProjectID: e.project.ID, Role: role, Runtime: "claude-code", GoalID: goal, Spec: domain.JobSpec{Repo: "acme/app"}}
 	must(t, e.st.Jobs().Create(t.Context(), &j))
-	return j
+	return testkit.Lease(t, e.st, j)
 }
 
 // anyone lets every caller propose: who may is up to the tools.

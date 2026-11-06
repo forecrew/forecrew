@@ -14,6 +14,7 @@ import (
 	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -51,7 +52,7 @@ func newProposalFlow(t *testing.T, role string, goal uuid.UUID) *proposalFlow {
 	v.register()
 	j := domain.Job{AccountID: v.account, ProjectID: v.project.ID, Role: role, Runtime: "claude-code", GoalID: goal, Spec: domain.JobSpec{Repo: "acme/app"}}
 	must(t, v.st.Jobs().Create(t.Context(), &j))
-	return &proposalFlow{env: v, svc: svc, job: j}
+	return &proposalFlow{env: v, svc: svc, job: testkit.Lease(t, v.st, j)}
 }
 
 func (f *proposalFlow) propose(t *testing.T, section, path string) domain.KnowledgeProposal {
@@ -304,6 +305,7 @@ func TestGoalProposalWaitsForTheLearnStep(t *testing.T) {
 	must(t, f.st.Goals().Create(t.Context(), &g))
 	j := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Role: "developer", Runtime: "claude-code", GoalID: g.ID, Spec: domain.JobSpec{Repo: "acme/app"}}
 	must(t, f.st.Jobs().Create(t.Context(), &j))
+	j = testkit.Lease(t, f.st, j)
 	f.job = j
 	k := f.propose(t, "architecture", "docs/adr/2.md")
 	must(t, f.st.WithTx(t.Context(), func(ctx context.Context, tx store.Store) error { return f.svc.JobCompleted(ctx, tx, j) }))

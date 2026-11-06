@@ -8,6 +8,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/registers"
+	"github.com/forecrew/forecrew/internal/store"
 )
 
 func TestNormalize(t *testing.T) {
@@ -131,7 +132,7 @@ func TestRecordWithoutAGoal(t *testing.T) {
 
 func TestRecordAssumptionOfAJobMCPCall(t *testing.T) {
 	w := newWorld(t)
-	j := w.job(w.tasks[0], "developer", nil)
+	j := w.running(w.tasks[0], "developer")
 	first, dup, err := w.regs.RecordAssumption(t.Context(), j, stated("Tokens expire after an hour", domain.LevelMedium))
 	must(t, err)
 	if first.Ref() != "A-1" || dup {
@@ -149,6 +150,19 @@ func TestRecordAssumptionOfAJobMCPCall(t *testing.T) {
 	}
 	if _, _, err := w.regs.RecordAssumption(t.Context(), j, domain.StatedAssumption{}); !errors.Is(err, domain.ErrInvalidRecord) {
 		t.Fatalf("an invalid assumption: %v", err)
+	}
+}
+
+func TestRecordAssumptionOfAFinishedJobIsRefused(t *testing.T) {
+	w := newWorld(t)
+	j := w.running(w.tasks[0], "developer")
+	_, err := w.st.Jobs().Complete(t.Context(), j.AccountID, j.ID, j.WorkerID, store.JobResult{Status: domain.JobSucceeded})
+	must(t, err)
+	if _, _, err := w.regs.RecordAssumption(t.Context(), j, stated("Too late", domain.LevelHigh)); !errors.Is(err, store.ErrLeaseLost) {
+		t.Fatalf("err = %v, want a lost lease", err)
+	}
+	if as := w.assumptions(); len(as) != 0 || len(w.gateList(domain.GateAssumptionReview, "")) != 0 {
+		t.Fatalf("a refused record left %+v", as)
 	}
 }
 

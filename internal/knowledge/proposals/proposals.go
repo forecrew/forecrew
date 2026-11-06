@@ -119,6 +119,11 @@ func (s *Service) Submit(ctx context.Context, j domain.Job, in Input) (domain.Kn
 		return domain.KnowledgeProposal{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	err = s.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		// The job's lock, as completing it takes: the proposal commits
+		// before the job finishes, or is refused.
+		if err := tx.Jobs().LockLeased(ctx, j.AccountID, j.ID, j.WorkerID); err != nil {
+			return err
+		}
 		if err := tx.KnowledgeProposals().Create(ctx, &k); err != nil {
 			return err
 		}
