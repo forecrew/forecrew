@@ -89,7 +89,7 @@ runners (Git Bash), not in `cmd`.
 ## The workflow
 
 `packs/workflows/forecrew-matrix.yml` is installed by the action
-`actions.install_workflow` (`repo`, `branch`; playbooks.md): it writes the file
+`actions.install_workflow` (`repo`, `branch`; playbooks.md; the `onboarding-tests` playbook runs it on its branch): it writes the file
 and leaves an identical one alone. It checks out `ref`, applies the overlay,
 runs setup, versions and the command, and uploads the result file, the reports
 and the artifacts as the artifact `forecrew-<job_id>` (kept for one day).
