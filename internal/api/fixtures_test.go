@@ -459,7 +459,7 @@ func registerKnowledge(s *testkit.ToolService) {
 	entries := []knowledge.Listing{
 		{Result: knowledge.Result{
 			ID: fid(110), Kind: domain.KnowledgeEntryKind, Provider: "repo", Section: "architecture", Path: "docs/adr/0001-queue.md", Title: "Jobs wait in Postgres",
-			SourceURL: "https://github.com/acme/app/blob/main/docs/adr/0001-queue.md", Snippet: "Jobs wait in a Postgres table.", Untrusted: true,
+			SourceURL: "https://github.com/acme/app/blob/main/docs/adr/0001-queue.md", Snippet: "Jobs wait in a <b>Postgres</b> table, <i>not</i> a broker.", Untrusted: true,
 			Provenance: domain.Provenance{AuthorRole: "architect", Source: "JOB-12", Created: at(-5000), LastVerified: at(-4000)},
 		}, Body: "# Jobs wait in Postgres\n\nJobs wait in a Postgres table, leased by workers.\n"},
 		{Result: knowledge.Result{

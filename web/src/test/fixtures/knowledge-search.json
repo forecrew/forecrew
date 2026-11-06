@@ -7,7 +7,7 @@
     "path": "docs/adr/0001-queue.md",
     "title": "Jobs wait in Postgres",
     "source_url": "https://github.com/acme/app/blob/main/docs/adr/0001-queue.md",
-    "snippet": "Jobs wait in a Postgres table.",
+    "snippet": "Jobs wait in a \u003cb\u003ePostgres\u003c/b\u003e table, \u003ci\u003enot\u003c/i\u003e a broker.",
     "untrusted": true,
     "provenance": {
       "author_role": "architect",

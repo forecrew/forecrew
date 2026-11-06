@@ -62,6 +62,9 @@ function query(params: Record<string, string | number | undefined>): string {
   return s ? `?${s}` : ""
 }
 
+/** The most the lists of entries, search hits and proposals show: the API caps them. */
+export const PAGE = 50
+
 const seg = encodeURIComponent
 /** Where an artifact is downloaded from. */
 export const artifactUrl = (id: string) => `/api/v1/artifacts/${seg(id)}`
@@ -117,10 +120,10 @@ export const api = {
 
   getTrace: (ref: string) => request<Trace>("GET", `/api/v1/trace${query({ ref })}`),
 
-  listKnowledge: (f: { project: string; section?: string; kind?: KnowledgeKind | ""; provider?: string; goal?: string }) =>
+  listKnowledge: (f: { project: string; section?: string; kind?: KnowledgeKind | ""; provider?: string; goal?: string; limit?: number }) =>
     request<KnowledgeListing>("GET", `/api/v1/knowledge/entries${query(f)}`),
   searchKnowledge: (f: { project: string; q: string; section?: string; kind?: KnowledgeKind | ""; provider?: string }) =>
-    request<KnowledgeResult[]>("GET", `/api/v1/knowledge${query(f)}`),
+    request<KnowledgeResult[]>("GET", `/api/v1/knowledge${query({ ...f, limit: PAGE })}`),
   listKnowledgeProposals: (f: { project: string; status?: KnowledgeProposalStatus | "" }) =>
     request<KnowledgeProposal[]>("GET", `/api/v1/knowledge/proposals${query(f)}`),
   proposeKnowledge: (input: ProposeKnowledgeInput) => request<ProposeKnowledgeResult>("POST", "/api/v1/knowledge/proposals", input),
