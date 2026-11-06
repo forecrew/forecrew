@@ -30,6 +30,7 @@ import (
 	"github.com/forecrew/forecrew/internal/app"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/runtime"
@@ -135,6 +136,8 @@ type world struct {
 	ci      *ciSim
 	// actions is the fake GitHub Actions the provider of pool actions talks to.
 	actions *testkit.FakeActions
+	// machines serves the direct capacity providers a test adds.
+	machines *testkit.FakeProvider
 }
 
 // newWorld starts forecrewd. The project app is registered, and onboarded
@@ -156,7 +159,7 @@ func newWorldOn(t *testing.T, onboarded bool, files fs.FS, cfg *config.Config) *
 	t.Helper()
 	pool := testkit.NewDatabase(t)
 	must(t, postgres.Migrate(t.Context(), pool))
-	w := &world{t: t, pool: pool, st: postgres.New(pool), clock: &shiftClock{}, ag: &agents{scriptDir: t.TempDir()}, hooks: make(chan testkit.Event, 1024), logs: &logBuffer{}}
+	w := &world{t: t, pool: pool, st: postgres.New(pool), clock: &shiftClock{}, ag: &agents{scriptDir: t.TempDir()}, hooks: make(chan testkit.Event, 1024), logs: &logBuffer{}, machines: testkit.NewFakeProvider()}
 	ctx := t.Context()
 	w.account = domain.Account{Name: "default"}
 	must(t, w.st.Accounts().Create(ctx, &w.account))
@@ -179,6 +182,7 @@ func newWorldOn(t *testing.T, onboarded bool, files fs.FS, cfg *config.Config) *
 	a, err := app.New(app.Deps{
 		Config: cfg, Files: files, Evidence: testkit.NewEvidence(), Store: w.st, Ping: pool.Ping, GitHub: w.tracker, Actions: w.actions.Client, Version: "e2e", Now: w.clock.Now, Listener: ln,
 		Logger: slog.New(slog.NewTextHandler(w.logs, &slog.HandlerOptions{Level: slog.LevelDebug})), ReapEvery: 50 * time.Millisecond,
+		FleetEvery: 20 * time.Millisecond, FleetDirect: func(domain.CapacityProvider) fleet.Provider { return w.machines },
 	})
 	must(t, err)
 	runCtx, cancel := context.WithCancel(context.Background())
@@ -303,8 +307,15 @@ func (w *world) startWorker(name string, labels ...string) *workerProc {
 func (w *world) startWorkerIn(pool, name string, labels ...string) *workerProc {
 	w.t.Helper()
 	token := "fcw_" + name + "_" + strings.Repeat("x", 30)
-	p := &workerProc{AccountID: w.account.ID, Name: name, Pool: pool, TokenHash: mcp.HashToken(token), MaxJobs: 1, done: make(chan error, 1), logs: &logBuffer{}}
+	p := &workerProc{AccountID: w.account.ID, Name: name, Pool: pool, TokenHash: mcp.HashToken(token), MaxJobs: 1}
 	must(w.t, w.st.Workers().Create(w.t.Context(), &p.Worker))
+	return w.runWorker(p, token, labels)
+}
+
+// runWorker runs the daemon of p with its token until the test ends.
+func (w *world) runWorker(p *workerProc, token string, labels []string) *workerProc {
+	name := p.Name
+	p.done, p.logs = make(chan error, 1), &logBuffer{}
 	client := worker.NewClient(w.url, token, nil)
 	client.BackoffMin, client.BackoffMax = 5*time.Millisecond, 50*time.Millisecond
 	cfg := worker.Config{
