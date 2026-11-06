@@ -211,8 +211,8 @@ macOS licence allows macOS VMs on Apple hardware only. The
 terms of both, and the 24-hour minimum of cloud Macs, are to be rechecked before
 selling machines (decision 29 of the plan).
 
-## Wiring the resolver
+## The resolver
 
-`images.Resolver(store.Images())` is the function the fleet controller takes as
+forecrewd gives the fleet controller `images.Resolver(store.Images())` as
 `fleet.Config.Image`: it finds what a shape's reference names for the
 organization, in a format the provider starts.

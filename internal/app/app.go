@@ -35,6 +35,7 @@ import (
 	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/images"
 	"github.com/forecrew/forecrew/internal/jobmcp"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/knowledge"
@@ -243,7 +244,8 @@ func New(d Deps) (*App, error) {
 
 	bus := workflow.NewBus(st.Signals())
 	regs := registers.New(st, bus, d.Now)
-	machines := fleet.New(fleet.Config{Store: st, Logger: log, Now: d.Now, Direct: d.FleetDirect, ServerURL: cfg.Server.PublicBaseURL, Currency: cfg.Fleet.Currency})
+	machines := fleet.New(fleet.Config{Store: st, Logger: log, Now: d.Now, Direct: d.FleetDirect, ServerURL: cfg.Server.PublicBaseURL, Currency: cfg.Fleet.Currency,
+		Image: images.Resolver(st.Images())})
 	jobSvc := jobs.New(st, bus, cfg.Pools, log, d.Now).WithRegistrar(regs).WithWaiting(machines)
 	gateSvc := gates.New(st, bus, d.Now).WithRecorder(regs)
 	emb := d.Embedder
