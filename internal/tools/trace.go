@@ -10,6 +10,7 @@ import (
 	"strings"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
@@ -44,12 +45,17 @@ func (s *Service) GetTrace(ctx context.Context, by domain.Actor, in mcp.GetTrace
 
 // traceBuilder collects the nodes and edges of a trace.
 type traceBuilder struct {
-	s    *Service
-	ctx  context.Context
-	acc  uuid.UUID
-	by   domain.Actor
-	t    mcp.Trace
-	seen map[string]bool
+	s   *Service
+	ctx context.Context
+	acc uuid.UUID
+	by  domain.Actor
+	// chain and jobs say whether the caller holds goal.read and job.read on
+	// the goal's project: without goal.read the trace has no goal, spec, task,
+	// change or merge, and without job.read no verification report.
+	chain, jobs bool
+	decisions   []domain.Decision
+	t           mcp.Trace
+	seen        map[string]bool
 	// edges wait for the end: an edge needs both of its nodes, and a
 	// decision comes before the task it is about.
 	edges []mcp.TraceEdge
@@ -62,6 +68,15 @@ func (b *traceBuilder) allowed(projectID uuid.UUID, err error) error {
 		return err
 	}
 	return b.s.allow(b.ctx, b.by, domain.PermProjectRead, projectID)
+}
+
+// goalRead checks goal.read on the project of a goal, spec, task or change:
+// a trace that starts there shows its chain.
+func (b *traceBuilder) goalRead(projectID uuid.UUID, err error) error {
+	if err != nil {
+		return err
+	}
+	return b.s.allow(b.ctx, b.by, domain.PermGoalRead, projectID)
 }
 
 func (b *traceBuilder) node(n mcp.TraceNode) {
@@ -112,15 +127,15 @@ func (b *traceBuilder) start(ref string) (goalID uuid.UUID, focus string, err er
 	switch kind {
 	case domain.RefGoal:
 		g, err := b.s.goal(b.ctx, b.acc, ref)
-		return g.ID, g.Ref(), b.allowed(g.ProjectID, err)
+		return g.ID, g.Ref(), b.goalRead(g.ProjectID, b.allowed(g.ProjectID, err))
 	case domain.RefSpec:
 		sp, err := lookup(ref, domain.RefSpec,
 			func(n int64) (domain.Spec, error) { return st.Specs().GetByNumber(b.ctx, b.acc, n) },
 			func(id uuid.UUID) (domain.Spec, error) { return st.Specs().Get(b.ctx, b.acc, id) })
-		return sp.GoalID, sp.Ref(), b.allowed(sp.ProjectID, err)
+		return sp.GoalID, sp.Ref(), b.goalRead(sp.ProjectID, b.allowed(sp.ProjectID, err))
 	case domain.RefTask:
 		t, err := b.s.task(b.ctx, b.acc, ref)
-		return t.GoalID, t.Ref(), b.allowed(t.ProjectID, err)
+		return t.GoalID, t.Ref(), b.goalRead(t.ProjectID, b.allowed(t.ProjectID, err))
 	case domain.RefCouncil:
 		c, err := b.s.council(b.ctx, b.acc, ref)
 		if err = b.allowed(c.ProjectID, err); err == nil && c.GoalID == uuid.Nil() {
@@ -149,7 +164,7 @@ func (b *traceBuilder) ofChange(c domain.Change, err error, ref string) (uuid.UU
 	if errors.Is(err, store.ErrNotFound) {
 		return uuid.Nil(), "", fmt.Errorf("change %s: %w", ref, mcp.ErrNotFound)
 	}
-	if err := b.allowed(c.ProjectID, err); err != nil {
+	if err := b.goalRead(c.ProjectID, b.allowed(c.ProjectID, err)); err != nil {
 		return uuid.Nil(), "", err
 	}
 	if c.TaskID == uuid.Nil() {
@@ -161,6 +176,11 @@ func (b *traceBuilder) ofChange(c domain.Change, err error, ref string) (uuid.UU
 
 func changeID(c domain.Change) string { return c.Repo + "#" + strconv.Itoa(c.Number) }
 
+// can reports whether by holds p on a project.
+func (s *Service) can(ctx context.Context, by domain.Actor, p domain.Permission, projectID uuid.UUID) (bool, error) {
+	return s.authz.Can(ctx, by, p, authz.Project(by.AccountID, projectID))
+}
+
 // goalChain adds the whole chain of a goal.
 func (b *traceBuilder) goalChain(goalID uuid.UUID) error {
 	st := b.s.cfg.Store
@@ -168,12 +188,25 @@ func (b *traceBuilder) goalChain(goalID uuid.UUID) error {
 	if err != nil {
 		return err
 	}
+	// The record asked for may be in another project than its goal: read the
+	// goal's own project, and keep to it below.
+	if err := b.s.allow(b.ctx, b.by, domain.PermProjectRead, g.ProjectID); err != nil {
+		return err
+	}
 	p, err := st.Projects().Get(b.ctx, b.acc, g.ProjectID)
 	if err != nil {
 		return err
 	}
-	b.t.Goal = g.Ref()
-	b.node(mcp.TraceNode{ID: g.Ref(), Kind: mcp.TraceGoal, Title: g.Title, Status: string(g.Status), Summary: g.Body, URL: issueURL(p.Repo, g.IssueNumber), At: g.CreatedAt})
+	if b.chain, err = b.s.can(b.ctx, b.by, domain.PermGoalRead, g.ProjectID); err != nil {
+		return err
+	}
+	if b.jobs, err = b.s.can(b.ctx, b.by, domain.PermJobRead, g.ProjectID); err != nil {
+		return err
+	}
+	if b.chain {
+		b.t.Goal = g.Ref()
+		b.node(mcp.TraceNode{ID: g.Ref(), Kind: mcp.TraceGoal, Title: g.Title, Status: string(g.Status), Summary: g.Body, URL: issueURL(p.Repo, g.IssueNumber), At: g.CreatedAt})
+	}
 	if err := b.upstream(g); err != nil {
 		return err
 	}
@@ -183,7 +216,7 @@ func (b *traceBuilder) goalChain(goalID uuid.UUID) error {
 // upstream adds councils, spec revisions and the decisions between them.
 func (b *traceBuilder) upstream(g domain.Goal) error {
 	st := b.s.cfg.Store
-	councils, err := st.Councils().List(b.ctx, b.acc, store.CouncilFilter{GoalID: g.ID})
+	councils, err := st.Councils().List(b.ctx, b.acc, store.CouncilFilter{GoalID: g.ID, ProjectID: g.ProjectID})
 	if err != nil {
 		return err
 	}
@@ -191,7 +224,7 @@ func (b *traceBuilder) upstream(g domain.Goal) error {
 		b.node(councilNode(c))
 		b.edge(g.Ref(), c.Ref(), "asked")
 	}
-	specs, err := st.Specs().ListByGoal(b.ctx, b.acc, g.ID)
+	specs, err := b.specs(g)
 	if err != nil {
 		return err
 	}
@@ -201,10 +234,11 @@ func (b *traceBuilder) upstream(g domain.Goal) error {
 		b.edge(prev, sp.Ref(), label)
 		prev, label = sp.Ref(), "revised"
 	}
-	ds, err := st.Decisions().List(b.ctx, b.acc, store.DecisionFilter{GoalID: g.ID})
+	ds, err := st.Decisions().List(b.ctx, b.acc, store.DecisionFilter{GoalID: g.ID, ProjectID: g.ProjectID})
 	if err != nil {
 		return err
 	}
+	b.decisions = ds
 	for _, d := range ds {
 		b.node(decisionNode(d))
 		parent, err := b.decisionParent(g, d)
@@ -217,6 +251,16 @@ func (b *traceBuilder) upstream(g domain.Goal) error {
 		}
 	}
 	return nil
+}
+
+// specs returns the spec revisions of the goal in its project, for a caller
+// who reads the chain.
+func (b *traceBuilder) specs(g domain.Goal) ([]domain.Spec, error) {
+	if !b.chain {
+		return nil, nil
+	}
+	all, err := b.s.cfg.Store.Specs().ListByGoal(b.ctx, b.acc, g.ID)
+	return slices.DeleteFunc(all, func(sp domain.Spec) bool { return sp.ProjectID != g.ProjectID }), err
 }
 
 // decisionParent is the node a decision is about: its council, else the
@@ -256,16 +300,18 @@ func (b *traceBuilder) decisionParent(g domain.Goal, d domain.Decision) (string,
 func (b *traceBuilder) downstream(g domain.Goal, p domain.Project) error {
 	st := b.s.cfg.Store
 	specRefs := map[uuid.UUID]string{}
-	specs, err := st.Specs().ListByGoal(b.ctx, b.acc, g.ID)
+	specs, err := b.specs(g)
 	if err != nil {
 		return err
 	}
 	for _, sp := range specs {
 		specRefs[sp.ID] = sp.Ref()
 	}
-	tasks, err := st.Tasks().List(b.ctx, b.acc, store.TaskFilter{GoalID: g.ID})
-	if err != nil {
-		return err
+	var tasks []domain.Task
+	if b.chain {
+		if tasks, err = st.Tasks().List(b.ctx, b.acc, store.TaskFilter{GoalID: g.ID, ProjectID: g.ProjectID}); err != nil {
+			return err
+		}
 	}
 	for _, t := range tasks {
 		b.node(mcp.TraceNode{ID: t.Ref(), Kind: mcp.TraceTask, Title: t.Title, Status: string(t.Status), Summary: t.Body, URL: issueURL(p.Repo, t.IssueNumber), At: t.CreatedAt})
@@ -274,6 +320,13 @@ func (b *traceBuilder) downstream(g domain.Goal, p domain.Project) error {
 			return err
 		}
 	}
+	return b.assumptions(g)
+}
+
+// assumptions adds the assumptions of the goal, each attached to what it
+// affects: its dependents, the decisions that rest on it, else the goal.
+func (b *traceBuilder) assumptions(g domain.Goal) error {
+	st := b.s.cfg.Store
 	as, err := st.Assumptions().List(b.ctx, b.acc, store.AssumptionFilter{ProjectID: g.ProjectID, GoalID: g.ID})
 	if err != nil {
 		return err
@@ -284,6 +337,13 @@ func (b *traceBuilder) downstream(g domain.Goal, p domain.Project) error {
 		for _, d := range a.Dependents {
 			if b.seen[d.ID] {
 				b.edge(a.Ref(), d.ID, "affects")
+				attached = true
+			}
+		}
+		// A decision that rests on it is one more thing it affects.
+		for _, d := range b.decisions {
+			if b.seen[d.Ref()] && slices.Contains(d.Assumptions, a.ID) {
+				b.edge(a.Ref(), d.Ref(), "affects")
 				attached = true
 			}
 		}
@@ -298,7 +358,7 @@ func (b *traceBuilder) downstream(g domain.Goal, p domain.Project) error {
 // report and, for a merged one, the merge.
 func (b *traceBuilder) changes(t domain.Task) error {
 	st := b.s.cfg.Store
-	cs, err := st.Changes().List(b.ctx, b.acc, store.ChangeFilter{TaskID: t.ID})
+	cs, err := st.Changes().List(b.ctx, b.acc, store.ChangeFilter{TaskID: t.ID, ProjectID: t.ProjectID})
 	if err != nil {
 		return err
 	}
@@ -309,7 +369,12 @@ func (b *traceBuilder) changes(t domain.Task) error {
 			Attrs: map[string]string{"branch": c.Branch}})
 		b.edge(t.Ref(), id, "built")
 		last := id
-		r, err := st.VerificationReports().Latest(b.ctx, b.acc, c.ID)
+		var r domain.VerificationReport
+		if b.jobs {
+			r, err = st.VerificationReports().Latest(b.ctx, b.acc, c.ID)
+		} else {
+			err = store.ErrNotFound
+		}
 		switch {
 		case errors.Is(err, store.ErrNotFound):
 		case err != nil:
