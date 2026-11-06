@@ -157,6 +157,17 @@ func (r knowledgeRepo) MarkPromoted(_ context.Context, accountID uuid.UUID, ids 
 	})
 }
 
+func (r knowledgeRepo) ClearPromoted(_ context.Context, accountID uuid.UUID, ids []uuid.UUID) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		for i := range d.knowledge.rows {
+			if e := &d.knowledge.rows[i]; e.AccountID == accountID && slices.Contains(ids, e.ID) {
+				e.PromotedAt, e.UpdatedAt = time.Time{}, now
+			}
+		}
+		return nil
+	})
+}
+
 func (r knowledgeRepo) CountHits(_ context.Context, accountID uuid.UUID, ids []uuid.UUID) error {
 	return r.s.do(func(d *storeData, _ time.Time) error {
 		for i := range d.knowledge.rows {

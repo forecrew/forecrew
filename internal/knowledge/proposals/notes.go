@@ -51,3 +51,36 @@ func promote(ctx context.Context, tx store.Store, j domain.Job, reason string) e
 	}
 	return tx.Knowledge().MarkPromoted(ctx, j.AccountID, ids)
 }
+
+// release takes back the promotion of the notes the rejected proposals cite,
+// except those another proposal that is not rejected still cites: a note is
+// kept for the sake of a proposal that can still be accepted.
+func release(ctx context.Context, tx store.Store, rejected []domain.KnowledgeProposal) error {
+	if len(rejected) == 0 {
+		return nil
+	}
+	all, err := tx.KnowledgeProposals().List(ctx, rejected[0].AccountID, store.KnowledgeProposalFilter{ProjectID: rejected[0].ProjectID})
+	if err != nil {
+		return err
+	}
+	kept := map[uuid.UUID]bool{}
+	for _, k := range all {
+		if k.Status != domain.KnowledgeRejected {
+			for _, id := range citedNotes(k.Reason) {
+				kept[id] = true
+			}
+		}
+	}
+	var ids []uuid.UUID
+	for _, k := range rejected {
+		for _, id := range citedNotes(k.Reason) {
+			if !kept[id] && !slices.Contains(ids, id) {
+				ids = append(ids, id)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return tx.Knowledge().ClearPromoted(ctx, rejected[0].AccountID, ids)
+}

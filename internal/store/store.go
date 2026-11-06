@@ -658,6 +658,9 @@ type KnowledgeRepo interface {
 	// MarkPromoted stamps the notes among ids as promoted and clears their
 	// expiry: a promoted note never expires. Other ids are ignored.
 	MarkPromoted(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID) error
+	// ClearPromoted takes the promotion back from the notes among ids, which
+	// expire again as any note does.
+	ClearPromoted(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID) error
 	// CountHits adds one to the hits of the entries.
 	CountHits(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID) error
 	// DeleteExpired deletes the notes whose ExpiresAt is before t, except

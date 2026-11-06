@@ -188,6 +188,12 @@ func (r knowledgeRepo) MarkPromoted(ctx context.Context, accountID uuid.UUID, id
 	return mapErr(err)
 }
 
+func (r knowledgeRepo) ClearPromoted(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `UPDATE knowledge_entries SET promoted_at = NULL, updated_at = now()
+		WHERE account_id = $1 AND provider = 'internal' AND id = ANY($2)`, accountID, ids)
+	return mapErr(err)
+}
+
 func (r knowledgeRepo) CountHits(ctx context.Context, accountID uuid.UUID, ids []uuid.UUID) error {
 	_, err := r.db.Exec(ctx, `UPDATE knowledge_entries SET hits = hits + 1 WHERE account_id = $1 AND id = ANY($2)`, accountID, ids)
 	return mapErr(err)

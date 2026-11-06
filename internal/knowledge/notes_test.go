@@ -234,3 +234,25 @@ func TestSearchCountsHits(t *testing.T) {
 		t.Errorf("hits = %d, want 2: the curator's search and the search that found nothing do not count", got.Hits)
 	}
 }
+
+type noHits struct{ store.KnowledgeRepo }
+
+func (noHits) CountHits(context.Context, uuid.UUID, []uuid.UUID) error {
+	return errors.New("database is busy")
+}
+
+type storeNoHits struct{ store.Store }
+
+func (s storeNoHits) Knowledge() store.KnowledgeRepo { return noHits{s.Store.Knowledge()} }
+
+// A hit that cannot be counted does not fail the search.
+func TestSearchSurvivesACountThatFails(t *testing.T) {
+	e := newNotesEnv(t)
+	_, err := e.notes.Write(t.Context(), e.job(t, "developer", e.g1), knowledge.NoteInput{Scope: domain.NoteScopeProject, Title: "Spool", Body: "spool trick"})
+	must(t, err)
+	search := &knowledge.Search{Index: &knowledge.Index{Store: storeNoHits{e.st}}, Policy: e.syncer.Policy}
+	res, err := search.Run(t.Context(), knowledge.Query{Project: e.project, Text: "spool", Role: "developer"})
+	if err != nil || len(res) != 1 {
+		t.Errorf("results = %+v, %v", res, err)
+	}
+}

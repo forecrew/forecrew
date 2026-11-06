@@ -271,6 +271,16 @@ func (s *knowledgeSuite) promotion() {
 	if n, err := s.repo.DeleteExpired(ctx, s.account, time.Now().Add(1000*time.Hour)); err != nil || n != 0 {
 		t.Errorf("DeleteExpired removed a promoted note: %d, %v", n, err)
 	}
+	// A promotion can be taken back; the note then expires as any other.
+	mustT(t, s.repo.ClearPromoted(ctx, s.account, []uuid.UUID{s.n2.ID}))
+	if back, _ := s.repo.Get(ctx, s.account, s.n2.ID); !back.PromotedAt.IsZero() {
+		t.Errorf("promoted_at after ClearPromoted = %v", back.PromotedAt)
+	}
+	if n, err := s.repo.ExpireGoalNotes(ctx, s.account, time.Hour); err != nil || n != 1 {
+		t.Errorf("ExpireGoalNotes after ClearPromoted = %d, %v", n, err)
+	}
+	mustT(t, s.repo.MarkPromoted(ctx, s.account, []uuid.UUID{s.n2.ID}))
+	got, _ = s.repo.Get(ctx, s.account, s.n2.ID)
 	// Promoting again keeps the first time.
 	mustT(t, s.repo.MarkPromoted(ctx, s.account, []uuid.UUID{s.n2.ID}))
 	if again, _ := s.repo.Get(ctx, s.account, s.n2.ID); !again.PromotedAt.Equal(got.PromotedAt) {

@@ -1084,3 +1084,75 @@ func TestLearnRegisterFilesOwnedByCodeownersAreFollowed(t *testing.T) {
 		t.Errorf("decision = %+v", d)
 	}
 }
+
+// A note stays promoted while a proposal that cites it can still be accepted,
+// and expires as any note again when the last such proposal is rejected.
+func TestRejectedProposalsReleaseTheirNotes(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	n := domain.KnowledgeEntry{AccountID: e.account, ProjectID: e.project.ID, Provider: domain.ProviderInternal, Path: "notes/x", Section: domain.SectionNotes,
+		Title: "x", Body: "b", Scope: domain.NoteScopeProject}
+	must(t, e.st.Knowledge().Upsert(ctx, &n))
+	first, second := e.job(t, "architect", uuid.Nil()), e.job(t, "architect", uuid.Nil())
+	in := add("architecture", "docs/adr/2.md")
+	in.Reason = "see note:" + n.ID.String()
+	_, err := e.svc.Submit(ctx, first, in)
+	must(t, err)
+	in.Path = "docs/adr/3.md"
+	_, err = e.svc.Submit(ctx, second, in)
+	must(t, err)
+	promoted := func() bool {
+		got, err := e.st.Knowledge().Get(ctx, e.account, n.ID)
+		must(t, err)
+		return !got.PromotedAt.IsZero()
+	}
+	reject := func(j domain.Job) {
+		j.Status = domain.JobFailed
+		must(t, e.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error { return e.svc.JobFailed(ctx, tx, j) }))
+	}
+	reject(first)
+	if !promoted() {
+		t.Fatal("the note lost its promotion while another proposal cites it")
+	}
+	reject(second)
+	if promoted() {
+		t.Error("the note is still promoted with every proposal that cites it rejected")
+	}
+}
+
+// hidingPR makes the learn PR vanish once it is created, as GitHub does for a
+// PR somebody closes between the steps.
+type hidingPR struct {
+	github.Tracker
+	hide bool
+}
+
+func (h *hidingPR) CreatePR(ctx context.Context, repo string, in github.PRInput) (github.PullRequest, error) {
+	pr, err := h.Tracker.CreatePR(ctx, repo, in)
+	h.hide = true
+	return pr, err
+}
+
+func (h *hidingPR) FindPR(ctx context.Context, repo, branch string) (github.PullRequest, error) {
+	if h.hide {
+		return github.PullRequest{}, github.ErrNotFound
+	}
+	return h.Tracker.FindPR(ctx, repo, branch)
+}
+
+// A learn step whose repo proposals have no PR to approve fails, rather than
+// opening a gate with nothing behind it.
+func TestLearnFailsWithoutAPR(t *testing.T) {
+	e := newEnv(t)
+	e.svc.GitHub = &hidingPR{Tracker: e.tracker}
+	goal := testkit.Goal(t, e.st, e.account, e.project.ID, "g")
+	_, err := e.svc.Submit(t.Context(), e.job(t, "architect", goal.ID), add("architecture", "docs/adr/2.md"))
+	must(t, err)
+	_, err = e.svc.Learn(t.Context(), proposals.LearnBatch{AccountID: e.account, ProjectID: e.project.ID, GoalID: goal.ID}, domain.NewID(), nil)
+	if err == nil || !strings.Contains(err.Error(), "no open pull request") {
+		t.Errorf("Learn = %v", err)
+	}
+	if gs, _ := e.gates.ListPending(t.Context(), e.account, e.project.ID); len(gs) != 0 {
+		t.Errorf("gates = %+v", gs)
+	}
+}
