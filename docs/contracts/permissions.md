@@ -322,7 +322,7 @@ holding what its people hold elsewhere.
 **GitHub commands** (`@forecrew` in issues and PRs, `webhook.CommandAccess`)
 run as the user whose linked GitHub identity wrote the comment, matched by
 GitHub user ID: `approve` and `changes` need the gate's permission, `status`
-needs `gate.read`. Without a linked user with the permission the command is
+needs `gate.read`, `bug` (on an issue) needs `goal.create`. Without a linked user with the permission the command is
 refused with a reply. An organization where nobody holds a role yet is not
 enforced: there `github.allowlist` still decides, as it did before
 organizations, and an unknown author is ignored without a reply.

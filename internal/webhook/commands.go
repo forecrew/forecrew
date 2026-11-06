@@ -24,6 +24,7 @@ import (
 func CommandAccess() map[string]mcp.Access {
 	return map[string]mcp.Access{
 		"approve": {Gate: true},
+		"bug":     {Permission: domain.PermGoalCreate},
 		"changes": {Gate: true},
 		"status":  {Permission: domain.PermGateRead},
 	}
@@ -162,6 +163,9 @@ func (e *engine) runCommand(ctx context.Context, p domain.Project, ev github.Eve
 		return e.Authz.Authorize(ctx, by, access.Permission, authz.Project(p.AccountID, p.ID))
 	}); !ok {
 		return err
+	}
+	if cmd == "bug" {
+		return e.reportBug(ctx, p, ev, by)
 	}
 	pending, err := e.Store.Gates().ListPendingBySubject(ctx, p.AccountID, ev.Repo, ev.Number)
 	if err != nil {
