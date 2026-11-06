@@ -21,6 +21,10 @@ import (
 	"github.com/forecrew/forecrew/internal/store"
 )
 
+// AuditCall is the audit action of a call of a tool, with its subject the job
+// and its data {"tool", "status", ...}.
+const AuditCall = "job_mcp.call"
+
 // MaxBodyBytes is the largest request the gateway reads.
 const MaxBodyBytes = 64 << 10
 
@@ -303,7 +307,7 @@ func (g *Gateway) audit(ctx context.Context, c *caller, tool string, inputBytes 
 	by := domain.Actor{AccountID: c.job.AccountID, Kind: domain.ActorWorker, Name: c.worker.Name}
 	err := g.cfg.Store.Audit().Append(context.WithoutCancel(ctx), &domain.AuditEntry{
 		AccountID: c.job.AccountID, ProjectID: c.job.ProjectID, Actor: by.String(),
-		Action: "job_mcp.call", SubjectType: "job", SubjectID: c.job.ID, Data: raw,
+		Action: AuditCall, SubjectType: "job", SubjectID: c.job.ID, Data: raw,
 	})
 	if err != nil {
 		g.cfg.Logger.ErrorContext(ctx, "audit job MCP call", "tool", tool, "job_id", c.job.ID, "error", err)

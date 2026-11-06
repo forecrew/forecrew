@@ -181,7 +181,8 @@ func TestAssistantConversation(t *testing.T) {
 	// The job plans as the person, and the plan is the conversation's.
 	p, err := f.svc.ConfigPlanFor(ctx, job, jobmcp.ConfigPlanInput{Title: "Add core", Changes: teamChange("core"), BasedOn: "README.md"})
 	must(t, err)
-	if p.Source != domain.ConfigFromAssistant || p.CreatedBy != by.String() || p.Request != "Add a team called core" || p.ConversationID != v.ID || p.Untrusted != "README.md" {
+	if p.Source != domain.ConfigFromAssistant || p.CreatedBy != by.String() || p.Request != "Add a team called core" || p.ConversationID != v.ID ||
+		p.Untrusted != "Based on text from README.md, which is not verified" {
 		t.Fatalf("plan = %+v", p)
 	}
 	out, err := f.svc.ConfigRead(ctx, job, jobmcp.ConfigReadInput{Kind: "team", Schema: true, Waiting: true})
@@ -288,6 +289,43 @@ func TestAssistantRefusals(t *testing.T) {
 	}
 	if _, err := tools.New(tools.Config{Store: f.st}).AssistantSend(ctx, by, mcp.AssistantSendInput{Message: "x"}); !errors.Is(err, mcp.ErrUnavailable) {
 		t.Errorf("no creator: %v", err)
+	}
+}
+
+// TestUntrustedComesFromTheServer: what the turn read marks the plan, whatever
+// the model says.
+func TestUntrustedComesFromTheServer(t *testing.T) {
+	f, by := configFixture(t)
+	ctx := t.Context()
+	v, err := f.svc.AssistantSend(ctx, by, mcp.AssistantSendInput{Message: "add a team"})
+	must(t, err)
+	job, err := f.st.Jobs().Get(ctx, f.account.ID, v.Messages[0].JobID)
+	must(t, err)
+	call := func(tool, status string) {
+		t.Helper()
+		raw, err := json.Marshal(map[string]string{"tool": tool, "status": status})
+		must(t, err)
+		must(t, f.st.Audit().Append(ctx, &domain.AuditEntry{AccountID: f.account.ID, Actor: "worker:w", Action: jobmcp.AuditCall, SubjectType: "job", SubjectID: job.ID, Data: raw}))
+	}
+	p, err := f.svc.ConfigPlanFor(ctx, job, jobmcp.ConfigPlanInput{Title: "t", Changes: teamChange("none")})
+	must(t, err)
+	if p.Untrusted != "" {
+		t.Errorf("nothing read: %q", p.Untrusted)
+	}
+	call("report_progress", "ok")
+	call("kb_search", "error") // a call that failed returned no text
+	p, err = f.svc.ConfigPlanFor(ctx, job, jobmcp.ConfigPlanInput{Title: "t", Changes: teamChange("failed")})
+	must(t, err)
+	if p.Untrusted != "" {
+		t.Errorf("a failed call: %q", p.Untrusted)
+	}
+	call("config_read", "ok")
+	call("kb_search", "ok")
+	call("config_read", "ok")
+	p, err = f.svc.ConfigPlanFor(ctx, job, jobmcp.ConfigPlanInput{Title: "t", Changes: teamChange("read")})
+	must(t, err)
+	if want := "Based on text from the configuration, the project's knowledge, which is not verified"; p.Untrusted != want {
+		t.Errorf("untrusted = %q", p.Untrusted)
 	}
 }
 
