@@ -224,12 +224,19 @@ func onboardCommand(r *remote) *cobra.Command {
 	return cmd
 }
 
-// reportBugCommand reports a bug, which starts the bug-fix playbook.
+// reportBugCommand is "bugs report", which reports a bug and so starts the
+// bug-fix playbook.
 func reportBugCommand(r *remote) *cobra.Command {
+	bugs := &cobra.Command{Use: "bugs", Short: "Report bugs"}
+	bugs.AddCommand(reportBugReport(r))
+	return bugs
+}
+
+func reportBugReport(r *remote) *cobra.Command {
 	var body string
 	var platforms []string
 	cmd := &cobra.Command{
-		Use:   "report-bug <project> <title>",
+		Use:   "report <project> <title>",
 		Short: "Report a bug: Forecrew writes a test that reproduces it, fixes it and asks you to merge",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

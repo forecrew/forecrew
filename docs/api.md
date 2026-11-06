@@ -236,7 +236,6 @@ the CLI command listed there.
 | `GET /api/v1/assumptions?project=&status=&impact=` | `list_assumptions` | `project` required | `200` assumptions |
 | `POST /api/v1/assumptions/{assumption}/resolve` | `resolve_assumption` | `{"status", "evidence"}` | `200` assumption |
 | `GET /api/v1/decisions?project=&goal=&council=` | `list_decisions` | `project` required | `200` decisions |
-| `POST /api/v1/bugs` | `report_bug` | `{"project", "title", "body", "platforms": []}` | `201` goal of kind `bug` |
 | `GET /api/v1/proposals?project=&status=&category=` | `list_proposals` | `project` required | `200` proposals |
 | `POST /api/v1/proposals/{proposal}/decide` | `decide_proposal` | `{"decision", "reason", "until"}` | `200` proposal |
 

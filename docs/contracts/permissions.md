@@ -335,7 +335,7 @@ directly with the operator's server access and no permission; they are
 audited as `user:<operator>`.
 
 **Planned tools** ([mcp.md](../mcp.md#planned-tools)) need, when their task
-builds them: `list_proposals` `project.read`; `report_bug` `goal.create`; `decide_proposal` `proposal.decide`.
+builds them: `list_proposals` `project.read`; `decide_proposal` `proposal.decide`.
 
 ### Adding a tool or a route
 
