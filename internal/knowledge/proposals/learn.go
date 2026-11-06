@@ -15,6 +15,7 @@ import (
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/knowledge"
+	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
@@ -40,6 +41,26 @@ type Learned struct {
 	// decide; IfGate holds it for a foreach.
 	Gate   string   `json:"gate"`
 	IfGate []string `json:"if_gate"`
+}
+
+// learnTitlePrefix starts the title of a learn gate.
+const learnTitlePrefix = "Learnings of "
+
+// registerSamples are paths of the files the learn step writes, one for each
+// folder. The policy places a folder by a sample: the files differ only in name.
+func registerSamples() []string {
+	return []string{registers.AssumptionsDir + "/A-1.yaml", registers.DecisionsDir + "/DEC-1.md"}
+}
+
+// registerTarget merges what the policy says of the paths: whether any is in a
+// protected section, and whether a section owned by codeowners holds one.
+func registerTarget(policy knowledge.Policy, paths []string) (protected, codeowners bool) {
+	for _, path := range paths {
+		t := policy.PathTarget(path)
+		protected = protected || t.Protected
+		codeowners = codeowners || slices.Contains(t.Owners, knowledge.OwnerCodeowners)
+	}
+	return protected, codeowners
 }
 
 func learnMarker(g domain.Goal) string { return "<!-- forecrew:learn:" + g.Ref() + " -->" }
@@ -95,7 +116,7 @@ func (s *Service) Learn(ctx context.Context, b LearnBatch, key uuid.UUID, files 
 	}
 	g, err := s.Gates.Open(ctx, gates.OpenRequest{
 		ID: key, AccountID: b.AccountID, ProjectID: b.ProjectID, Kind: domain.GateKnowledgeProposal, GoalID: goal.ID,
-		Title:   "Learnings of " + goal.Ref(),
+		Title:   learnTitlePrefix + goal.Ref(),
 		Summary: learnSummary(goal, out, live, files, need), SubjectRepo: p.Repo, SubjectNumber: out.Number,
 		Opened: func(ctx context.Context, tx store.Store, g domain.Gate) error { return gateProposals(ctx, tx, live, g) },
 	})
@@ -201,7 +222,7 @@ func (s *Service) writeRegisters(ctx context.Context, p domain.Project, goal dom
 		}
 	}
 	text := "Written by forecrewd when " + goal.Ref() + " was delivered: the assumptions and decisions of the goal as files, and what the retro proposes for the knowledge base. Merging records them."
-	pr, err := openPR(ctx, s.GitHub, p.Repo, github.PRInput{Title: "Learnings of " + goal.Ref(), Head: branch, Base: p.DefaultBranch}, learnMarker(goal), text)
+	pr, err := openPR(ctx, s.GitHub, p.Repo, github.PRInput{Title: learnTitlePrefix + goal.Ref(), Head: branch, Base: p.DefaultBranch}, learnMarker(goal), text)
 	if err != nil {
 		return true, err
 	}
@@ -350,6 +371,10 @@ func (s *Service) LearnDecide(ctx context.Context, b LearnBatch, gate string) (L
 	r, err := s.route(ctx, p, policy, repoKs)
 	if err != nil {
 		return out, err
+	}
+	// The register files go through the same sections as any change.
+	if _, owned := registerTarget(policy, registerSamples()); owned {
+		r.codeowners = true
 	}
 	if r.codeowners {
 		out.IfFollow = []int{number}

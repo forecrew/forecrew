@@ -297,6 +297,26 @@ func (p Policy) checkEntry(section, file string) bool {
 	return checkRepoPath(section, p.Sections[section], file) == nil
 }
 
+// PathTarget says what the policy makes of a change to file in the repo that
+// no proposal names, such as the register files the learn step writes: the
+// sections that hold it (a protected one also by another spelling of its
+// path), whether any is protected, and the distinct approvers, sorted. Sections
+// is empty for a file no section holds.
+func (p Policy) PathTarget(file string) Target {
+	t := Target{Provider: RepoProvider, Repo: true, Sections: p.alsoHolding("", file)}
+	for _, name := range t.Sections {
+		o := p.Sections[name]
+		owner := o.Owner
+		if o.Protected {
+			t.Protected, owner = true, OwnerHuman
+		}
+		t.Owners = append(t.Owners, owner)
+	}
+	slices.Sort(t.Owners)
+	t.Owners = slices.Compact(t.Owners)
+	return t
+}
+
 // Has reports whether role holds level (read, propose or write) on section.
 func (p Policy) Has(section, level, role string) bool {
 	s := p.Sections[section]

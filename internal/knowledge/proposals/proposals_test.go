@@ -1020,3 +1020,59 @@ func TestLearnRepeatsAndErrors(t *testing.T) {
 		t.Error("a project that does not exist")
 	}
 }
+
+func (e *env) usePolicy(t *testing.T, extra string) {
+	t.Helper()
+	p, err := knowledge.ParsePolicy([]byte(policyYAML + extra))
+	must(t, err)
+	e.policy = p
+}
+
+func (e *env) learnGate(t *testing.T, id string) domain.Gate {
+	t.Helper()
+	gid, err := uuid.Parse(id)
+	must(t, err)
+	g, err := e.gates.Get(t.Context(), e.account, gid)
+	must(t, err)
+	return g
+}
+
+// The register files go through the policy like any change: a learn gate
+// that carries files of a protected section needs the protected permission,
+// even when no proposal is in it, and one that does not, does not.
+func TestLearnGateFollowsTheSectionsOfTheRegisterFiles(t *testing.T) {
+	ctx := t.Context()
+	files := map[string][]byte{"docs/decisions/DEC-1.md": []byte("# DEC-1\n")}
+	e := newEnv(t)
+	_, out, _ := learn(t, e, files)
+	if got, err := e.svc.GateProtected(ctx, e.learnGate(t, out.Gate)); err != nil || got {
+		t.Errorf("registers outside every section: protected = %v, %v", got, err)
+	}
+
+	e = newEnv(t)
+	e.usePolicy(t, "  decided: {paths: [\"docs/decisions/**\"], protected: true}\n")
+	_, out, _ = learn(t, e, files)
+	if got, err := e.svc.GateProtected(ctx, e.learnGate(t, out.Gate)); err != nil || !got {
+		t.Errorf("registers in a protected section: protected = %v, %v", got, err)
+	}
+	// With a proposal too, the same.
+	e = newEnv(t)
+	e.usePolicy(t, "  decided: {paths: [\".forecrew/assumptions/A-1.yaml\"], protected: true}\n")
+	_, out, _ = learn(t, e, files, add("architecture", "docs/adr/2.md"))
+	if got, err := e.svc.GateProtected(ctx, e.learnGate(t, out.Gate)); err != nil || !got {
+		t.Errorf("assumptions in a protected section: protected = %v, %v", got, err)
+	}
+}
+
+// A register folder owned by CODEOWNERS leaves the merge to its reviewers.
+func TestLearnRegisterFilesOwnedByCodeownersAreFollowed(t *testing.T) {
+	e := newEnv(t)
+	e.usePolicy(t, "  decided: {paths: [\"docs/decisions/**\"], owner: codeowners}\n")
+	b, out, _ := learn(t, e, map[string][]byte{"docs/decisions/DEC-1.md": []byte("# DEC-1\n")}, add("architecture", "docs/adr/2.md"))
+	e.resolveGate(t, out.Gate, domain.GateApproved)
+	d, err := e.svc.LearnDecide(t.Context(), b, out.Gate)
+	must(t, err)
+	if len(d.IfFollow) != 1 || len(d.IfMerge) != 0 {
+		t.Errorf("decision = %+v", d)
+	}
+}
