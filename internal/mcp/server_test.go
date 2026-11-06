@@ -528,6 +528,7 @@ func TestEveryToolChecksItsPermission(t *testing.T) {
 		mcp.ToolOnboardProject: {"repo": "o/r"}, mcp.ToolResolveAssumption: {"assumption": "a", "status": "accepted"}, mcp.ToolListAssumptions: {"project": "p"},
 		mcp.ToolGetProject: {"project": "p"}, mcp.ToolDeleteNote: {"note": "n"}, mcp.ToolDispatchJob: {"project": "p", "role": "r"},
 		mcp.ToolGetGoal: {"goal": "g"}, mcp.ToolListDecisions: {"project": "p"}, mcp.ToolVerificationReport: {"change": "9", "project": "p"},
+		mcp.ToolProposeKnowledge: {"project": "p", "section": "s", "path": "x", "body": "b", "reason": "r"},
 	}
 	for name, a := range mcp.ToolAccess() {
 		if a.Permission == "" || a.Own {

@@ -198,8 +198,11 @@ type HumanResult struct {
 // protected section by is recorded as approver. The PR merges on GitHub
 // like any other; PRClosed settles the proposal. The action defaults to edit
 // when the entry exists, else add. A provider without a review flow is
-// changed in the provider itself, so it wraps ErrInvalid.
-func (s *Service) Human(ctx context.Context, by domain.Actor, project domain.Project, in Input) (HumanResult, error) {
+// changed in the provider itself, so it wraps ErrInvalid. check is told, once
+// the section is placed and before anything is stored, whether it is
+// protected; its error stops the proposal, because the caller of a protected
+// one is recorded as its approver.
+func (s *Service) Human(ctx context.Context, by domain.Actor, project domain.Project, in Input, check func(protected bool) error) (HumanResult, error) {
 	policy, err := s.Policy(ctx, project)
 	if err != nil {
 		return HumanResult{}, err
@@ -209,6 +212,9 @@ func (s *Service) Human(ctx context.Context, by domain.Actor, project domain.Pro
 		return HumanResult{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	if err != nil {
+		return HumanResult{}, err
+	}
+	if err := check(t.Protected); err != nil {
 		return HumanResult{}, err
 	}
 	proposer := s.proposer(policy, t.Provider)

@@ -36,6 +36,9 @@ engine](#the-engine).
   of the proposals linked to it through `gate_id` is in a protected section,
   by the policy of now; a gate without proposals, or one that cannot be
   placed or read, counts as protected.
+- **Access requests:** an agent asks with `request_access`, which opens an
+  `access_request` gate; only a person with `gate.approve.access_request`
+  answers it, and what it grants still merges as a pull request.
 - **The one exception on gates:** a PR merged or closed on GitHub resolves
   the `profile_approval`, `merge_approval` and `knowledge_proposal` gates
   whose subject it is, approved or rejected, as the actor `github:github`, and
@@ -258,7 +261,7 @@ object up and checks the permission on the object's project.
 | `list_decisions` | `GET /api/v1/decisions` | `project.read` |
 | `search_knowledge` | `GET /api/v1/knowledge` | `project.read` |
 | `delete_note` | `DELETE /api/v1/knowledge/notes/{note}` | `knowledge.propose`, the closest write permission: deleting an agent note curates knowledge, and the catalog has no narrower one |
-| `propose_knowledge` | `POST /api/v1/knowledge/proposals` | `knowledge.propose` and, for a protected section the caller approves, `gate.approve.knowledge_protected` |
+| `propose_knowledge` | `POST /api/v1/knowledge/proposals` | `knowledge.propose` and, for a protected section, `gate.approve.knowledge_protected`, because the caller is recorded as its approver; so a service account proposes to unprotected sections only |
 | `start_council` | `POST /api/v1/councils` | `council.start` |
 | `list_councils` | `GET /api/v1/councils` | `project.read` |
 | `get_council` | `GET /api/v1/councils/{council}` | `project.read`; its gate and `gate_id` only with `gate.read` |

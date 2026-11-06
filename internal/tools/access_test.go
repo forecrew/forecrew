@@ -340,6 +340,36 @@ func TestCouncilLeavesItsGateOutWithoutGateRead(t *testing.T) {
 	}
 }
 
+// TestAccessRequestsNeedAPerson: an agent asks through request_access, and only
+// a person with the gate's permission answers.
+func TestAccessRequestsNeedAPerson(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := f.gateOn(t, domain.GateAccessRequest, f.project.ID)
+	in := mcp.GateDecisionInput{Gate: g.Ref()}
+
+	contributor, _ := f.member(t, projectScope, domain.RoleContributor, f.project.ID)
+	_, err := f.svc.Approve(ctx, contributor, in)
+	wantErr(t, err, authz.ErrDenied)
+	sa, err := f.svc.CreateServiceAccount(ctx, f.by, mcp.CreateServiceAccountInput{Name: "agent"})
+	must(t, err)
+	testkit.Bind(t, f.st, f.account.ID, domain.SubjectServiceAccount, sa.ID, projectScope, domain.RoleMaintainer, f.project.ID)
+	robot := domain.Actor{AccountID: f.account.ID, Kind: domain.ActorServiceAccount, Name: sa.ID.String()}
+	for _, by := range []domain.Actor{robot, domain.SystemActor(f.account.ID, domain.ForecrewdName), {AccountID: f.account.ID, Kind: domain.ActorWorker, Name: "box"}} {
+		_, err = f.svc.Approve(ctx, by, in)
+		wantErr(t, err, authz.ErrDenied)
+	}
+	if got, _ := f.st.Gates().Get(ctx, f.account.ID, g.ID); got.Status != domain.GatePending {
+		t.Fatalf("gate = %+v", got)
+	}
+	maintainer, _ := f.member(t, projectScope, domain.RoleMaintainer, f.project.ID)
+	got, err := f.svc.Approve(ctx, maintainer, in)
+	must(t, err)
+	if got.Status != domain.GateApproved || got.ResolvedBy != maintainer.String() {
+		t.Errorf("gate = %+v", got)
+	}
+}
+
 func TestServiceAccountNeverResolvesAGate(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
