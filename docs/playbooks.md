@@ -518,7 +518,9 @@ meanwhile.
 6. **Done.** `onboarding.finish` moves the project to onboarded, after the
    baseline ran.
 
-Every step of this part escalates when it fails, so a failure opens a
+The steps of this part that can fail for a reason a human must read (the
+registration, the jobs, the actions that read GitHub or the repo, the PR, the
+merge, the baseline and its report) escalate, so their failure opens a
 `needs_you` gate that says why; rejecting it ends the run, and its `finally`
 step puts the project to onboarded, not back to registered: its profile is
 stored, so it is onboarded without a baseline. A PR closed on GitHub, or a
