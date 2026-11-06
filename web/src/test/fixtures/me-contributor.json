@@ -1,0 +1,52 @@
+{
+  "token": "laptop",
+  "user": {
+    "id": "018f0000-0000-7000-8000-000000000300",
+    "name": "carl",
+    "email": "carl@acme.test",
+    "email_verified": true,
+    "instance_admin": false,
+    "created_at": "2026-03-01T12:00:00Z",
+    "updated_at": "2026-03-01T12:00:00Z"
+  },
+  "account": {
+    "id": "018f0000-0000-7000-8000-000000000001",
+    "name": "acme",
+    "slug": "acme",
+    "created_at": "2026-03-01T12:00:00Z"
+  },
+  "organizations": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000001",
+      "name": "acme",
+      "slug": "acme"
+    }
+  ],
+  "roles": [
+    {
+      "role": "contributor",
+      "scope": "project",
+      "project_id": "018f0000-0000-7000-8000-000000000010"
+    }
+  ],
+  "permissions": [],
+  "projects": {
+    "018f0000-0000-7000-8000-000000000010": [
+      "council.start",
+      "gate.approve.assumption",
+      "gate.approve.council",
+      "gate.approve.knowledge",
+      "gate.approve.needs_you",
+      "gate.approve.spec",
+      "gate.read",
+      "goal.create",
+      "goal.read",
+      "job.cancel",
+      "job.dispatch",
+      "job.read",
+      "knowledge.propose",
+      "project.read"
+    ]
+  }
+}
+

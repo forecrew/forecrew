@@ -635,7 +635,9 @@ func failWith(err error) func(*env) {
 	}
 }
 
-func fixtureCases() []fixtureCase {
+func fixtureCases() []fixtureCase { return append(baseFixtureCases(), orgFixtureCases()...) }
+
+func baseFixtureCases() []fixtureCase {
 	return []fixtureCase{
 		{"session", "POST", "/api/v1/session", `{"token":"` + token + `"}`, 200, "", nil},
 		{"me", "GET", "/api/v1/me", "", 200, "bearer", nil},

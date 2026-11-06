@@ -1,0 +1,74 @@
+[
+  {
+    "user_id": "018f0000-0000-7000-8000-000000000300",
+    "name": "Gianmaria",
+    "email": "gianmaria@acme.test",
+    "status": "active",
+    "source": "manual",
+    "roles": [
+      {
+        "role": "owner",
+        "scope": "organization"
+      }
+    ],
+    "teams": [],
+    "last_seen_at": "2026-03-01T11:59:00Z",
+    "created_at": "2026-02-26T00:40:00Z"
+  },
+  {
+    "user_id": "018f0000-0000-7000-8000-000000000301",
+    "name": "Marta Rossi",
+    "email": "marta@acme.test",
+    "status": "active",
+    "source": "manual",
+    "roles": [
+      {
+        "role": "member",
+        "scope": "organization"
+      },
+      {
+        "role": "maintainer",
+        "scope": "project",
+        "project": "app"
+      }
+    ],
+    "teams": [
+      "mobile"
+    ],
+    "last_seen_at": "2026-03-01T11:00:00Z",
+    "created_at": "2026-02-26T17:20:00Z"
+  },
+  {
+    "user_id": "018f0000-0000-7000-8000-000000000302",
+    "name": "Luca Bianchi",
+    "email": "luca@acme.test",
+    "status": "suspended",
+    "source": "manual",
+    "roles": [
+      {
+        "role": "viewer",
+        "scope": "organization"
+      }
+    ],
+    "teams": [],
+    "created_at": "2026-02-27T10:00:00Z"
+  },
+  {
+    "user_id": "018f0000-0000-7000-8000-000000000303",
+    "name": "Sam \u003cb\u003eLee\u003c/b\u003e",
+    "email": "sam@acme.test",
+    "status": "active",
+    "source": "scim",
+    "roles": [
+      {
+        "role": "admin",
+        "scope": "organization"
+      }
+    ],
+    "teams": [
+      "mobile"
+    ],
+    "created_at": "2026-02-28T02:40:00Z"
+  }
+]
+

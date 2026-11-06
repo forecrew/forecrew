@@ -1,0 +1,13 @@
+{
+  "token": {
+    "id": "018f0000-0000-7000-8000-000000000093",
+    "name": "ci-laptop",
+    "created_at": "2026-03-01T12:00:00Z",
+    "scopes": [
+      "write"
+    ],
+    "expires_at": "2026-03-31T12:00:00Z"
+  },
+  "secret": "fcm_Zm9yZWNyZXctZXhhbXBsZS1zZWNyZXQ"
+}
+

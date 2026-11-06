@@ -1,0 +1,59 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000090",
+    "kind": "github",
+    "name": "github",
+    "client_id": "",
+    "client_secret_ref": "",
+    "jit": {
+      "enabled": false,
+      "default_roles": null
+    },
+    "enabled": true,
+    "created_at": "2026-02-23T06:00:00Z",
+    "updated_at": "2026-02-23T06:00:00Z",
+    "instance": true,
+    "tested": false,
+    "redirect_url": "https://forecrew.example.com/auth/018f0000-0000-7000-8000-000000000090/callback"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000091",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "kind": "oidc",
+    "name": "okta",
+    "issuer": "https://acme.okta.com",
+    "client_id": "0oa1",
+    "client_secret_ref": "env:FORECREW_CONN_OKTA",
+    "jit": {
+      "enabled": false,
+      "default_roles": null
+    },
+    "enabled": true,
+    "created_at": "2026-02-28T21:00:00Z",
+    "updated_at": "2026-02-28T22:40:00Z",
+    "instance": false,
+    "tested": true,
+    "redirect_url": "https://forecrew.example.com/auth/018f0000-0000-7000-8000-000000000091/callback",
+    "test_url": "https://forecrew.example.com/auth/018f0000-0000-7000-8000-000000000091/login?test=1"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000092",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "kind": "google",
+    "name": "google",
+    "client_id": "123.apps.googleusercontent.com",
+    "client_secret_ref": "secret:conn-google",
+    "jit": {
+      "enabled": false,
+      "default_roles": null
+    },
+    "enabled": false,
+    "created_at": "2026-03-01T10:30:00Z",
+    "updated_at": "2026-03-01T10:30:00Z",
+    "instance": false,
+    "tested": false,
+    "redirect_url": "https://forecrew.example.com/auth/018f0000-0000-7000-8000-000000000092/callback",
+    "test_url": "https://forecrew.example.com/auth/018f0000-0000-7000-8000-000000000092/login?test=1"
+  }
+]
+
