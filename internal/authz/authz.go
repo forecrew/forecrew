@@ -476,6 +476,47 @@ func (e *Engine) Covers(ctx context.Context, by domain.Actor, role domain.Role, 
 	return nil
 }
 
+// CoversBindingsOf checks that by holds every permission of a subject's own
+// bindings, each at its scope (No escalation).
+func (e *Engine) CoversBindingsOf(ctx context.Context, by domain.Actor, kind domain.SubjectKind, id uuid.UUID) error {
+	bindings, err := e.st.RoleBindings().List(ctx, by.AccountID, store.RoleBindingFilter{SubjectKind: kind, SubjectID: id})
+	if err != nil {
+		return err
+	}
+	for _, b := range bindings {
+		role, err := e.st.Roles().Get(ctx, b.AccountID, b.RoleID)
+		if err != nil {
+			return err
+		}
+		if err := e.Covers(ctx, by, role, Resource{AccountID: b.AccountID, ProjectID: b.ProjectID}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CoversHolder checks that by holds everything the subject holds: acting on a
+// member or service account concerns all its roles, a member's teams
+// included, whether or not it is active right now.
+func (e *Engine) CoversHolder(ctx context.Context, by domain.Actor, kind domain.SubjectKind, id uuid.UUID) error {
+	if err := e.CoversBindingsOf(ctx, by, kind, id); err != nil {
+		return err
+	}
+	if kind != domain.SubjectUser {
+		return nil
+	}
+	teams, err := e.st.Teams().TeamsOf(ctx, by.AccountID, id)
+	if err != nil {
+		return err
+	}
+	for _, t := range teams {
+		if err := e.CoversBindingsOf(ctx, by, domain.SubjectTeam, t.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // HeldRole is a role a subject holds and where it holds it.
 type HeldRole struct {
 	Role      string           `json:"role"`

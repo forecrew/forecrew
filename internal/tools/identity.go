@@ -118,7 +118,7 @@ func (s *Service) tokenOwner(ctx context.Context, by domain.Actor, serviceAccoun
 	if err != nil {
 		return "", uuid.Nil(), err
 	}
-	if err := s.coversBindingsOf(ctx, by, domain.SubjectServiceAccount, sa.ID); err != nil {
+	if err := s.authz.CoversBindingsOf(ctx, by, domain.SubjectServiceAccount, sa.ID); err != nil {
 		return "", uuid.Nil(), err
 	}
 	return domain.SubjectServiceAccount, sa.ID, nil

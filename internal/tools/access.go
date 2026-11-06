@@ -128,7 +128,7 @@ func (s *Service) DeleteTeam(ctx context.Context, by domain.Actor, in mcp.TeamRe
 	if err != nil {
 		return domain.Team{}, err
 	}
-	if err := s.coversBindingsOf(ctx, by, domain.SubjectTeam, t.ID); err != nil {
+	if err := s.authz.CoversBindingsOf(ctx, by, domain.SubjectTeam, t.ID); err != nil {
 		return domain.Team{}, err
 	}
 	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
@@ -174,7 +174,7 @@ func (s *Service) AddTeamMember(ctx context.Context, by domain.Actor, in mcp.Tea
 	if err != nil {
 		return domain.TeamMember{}, err
 	}
-	if err := s.coversBindingsOf(ctx, by, domain.SubjectTeam, t.ID); err != nil {
+	if err := s.authz.CoversBindingsOf(ctx, by, domain.SubjectTeam, t.ID); err != nil {
 		return domain.TeamMember{}, err
 	}
 	m := domain.TeamMember{TeamID: t.ID, UserID: user, AccountID: by.AccountID, Source: domain.SourceManual}
@@ -214,56 +214,10 @@ func resource(b domain.RoleBinding) authz.Resource {
 	return authz.Resource{AccountID: b.AccountID, ProjectID: b.ProjectID}
 }
 
-// coversBindings checks that by holds every permission of the roles of
-// bindings, each at its scope (No escalation).
-func (s *Service) coversBindings(ctx context.Context, by domain.Actor, bindings []domain.RoleBinding) error {
-	for _, b := range bindings {
-		role, err := s.cfg.Store.Roles().Get(ctx, b.AccountID, b.RoleID)
-		if err != nil {
-			return err
-		}
-		if err := s.authz.Covers(ctx, by, role, resource(b)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// coversBindingsOf is coversBindings for a subject's own bindings.
-func (s *Service) coversBindingsOf(ctx context.Context, by domain.Actor, kind domain.SubjectKind, id uuid.UUID) error {
-	bindings, err := s.cfg.Store.RoleBindings().List(ctx, by.AccountID, store.RoleBindingFilter{SubjectKind: kind, SubjectID: id})
-	if err != nil {
-		return err
-	}
-	return s.coversBindings(ctx, by, bindings)
-}
-
-// coversHolder checks that by holds everything the subject holds: acting on a
-// member or service account concerns all its roles, a member's teams
-// included, whether or not it is active right now.
-func (s *Service) coversHolder(ctx context.Context, by domain.Actor, kind domain.SubjectKind, id uuid.UUID) error {
-	if err := s.coversBindingsOf(ctx, by, kind, id); err != nil {
-		return err
-	}
-	if kind != domain.SubjectUser {
-		return nil
-	}
-	teams, err := s.cfg.Store.Teams().TeamsOf(ctx, by.AccountID, id)
-	if err != nil {
-		return err
-	}
-	for _, t := range teams {
-		if err := s.coversBindingsOf(ctx, by, domain.SubjectTeam, t.ID); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // CheckHolder is the rule of No escalation for acting on a subject that
 // holds roles (resource.Access).
 func (s *Service) CheckHolder(ctx context.Context, by domain.Actor, kind domain.SubjectKind, id uuid.UUID) error {
-	return s.coversHolder(ctx, by, kind, id)
+	return s.authz.CoversHolder(ctx, by, kind, id)
 }
 
 // bindingPermission is what changing a binding needs: project.manage on its
@@ -294,7 +248,7 @@ func (s *Service) checkBindingChange(ctx context.Context, by domain.Actor, b dom
 	if b.ProjectID != uuid.Nil() || b.SubjectKind == domain.SubjectTeam {
 		return nil
 	}
-	return s.coversHolder(ctx, by, b.SubjectKind, b.SubjectID)
+	return s.authz.CoversHolder(ctx, by, b.SubjectKind, b.SubjectID)
 }
 
 // subject finds the subject of a binding: a user by UUID, a team or service
@@ -589,7 +543,7 @@ func (s *Service) SetServiceAccountDisabled(ctx context.Context, by domain.Actor
 	if err != nil {
 		return domain.ServiceAccount{}, err
 	}
-	if err := s.coversHolder(ctx, by, domain.SubjectServiceAccount, a.ID); err != nil {
+	if err := s.authz.CoversHolder(ctx, by, domain.SubjectServiceAccount, a.ID); err != nil {
 		return domain.ServiceAccount{}, err
 	}
 	action := "service_account.enabled"
