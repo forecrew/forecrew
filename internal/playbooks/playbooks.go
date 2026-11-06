@@ -120,6 +120,7 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["goal.task_done"] = d.taskDone
 	registry["goal.close"] = d.closeGoal
 	registry["goal.settle"] = d.settleGoal
+	registry["tests.map"] = d.testsMap
 	registry["tests.locked_paths"] = d.testsLockedPaths
 	registry["tests.base_check_request"] = d.testsBaseCheckRequest
 	registry["tests.base_check_result"] = d.testsBaseCheckResult
