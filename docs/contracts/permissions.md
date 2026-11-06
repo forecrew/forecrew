@@ -257,6 +257,7 @@ object up and checks the permission on the object's project.
 | `list_projects` | `GET /api/v1/projects` | `project.read` |
 | `get_project` | `GET /api/v1/projects/{project...}` | `project.read` |
 | `create_goal` | `POST /api/v1/goals` | `goal.create` |
+| `report_bug` | `POST /api/v1/bugs` | `goal.create` |
 | `list_goals` | `GET /api/v1/goals` | `goal.read` |
 | `get_goal` | `GET /api/v1/goals/{goal}` | `goal.read`; its gates only with `gate.read` |
 | `dispatch_job` | `POST /api/v1/jobs` | `job.dispatch` |

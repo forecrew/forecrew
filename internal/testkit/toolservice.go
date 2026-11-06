@@ -30,6 +30,7 @@ type ToolService struct {
 
 	OnboardProjectFunc         func(context.Context, domain.Actor, mcp.OnboardProjectInput) (mcp.OnboardProjectOutput, error)
 	CreateGoalFunc             func(context.Context, domain.Actor, mcp.CreateGoalInput) (domain.Goal, error)
+	ReportBugFunc              func(context.Context, domain.Actor, mcp.ReportBugInput) (domain.Goal, error)
 	JobStatusFunc              func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error)
 	JobLogsFunc                func(context.Context, domain.Actor, mcp.JobLogsInput) (mcp.JobLogsOutput, error)
 	ListWorkersFunc            func(context.Context, domain.Actor, any) ([]mcp.WorkerInfo, error)
@@ -116,6 +117,11 @@ func invoke[I, O any](ctx context.Context, s *ToolService, tool string, by domai
 // OnboardProject implements mcp.ToolService.
 func (s *ToolService) OnboardProject(ctx context.Context, by domain.Actor, in mcp.OnboardProjectInput) (mcp.OnboardProjectOutput, error) {
 	return invoke(ctx, s, mcp.ToolOnboardProject, by, in, s.OnboardProjectFunc)
+}
+
+// ReportBug implements mcp.ToolService.
+func (s *ToolService) ReportBug(ctx context.Context, by domain.Actor, in mcp.ReportBugInput) (domain.Goal, error) {
+	return invoke(ctx, s, mcp.ToolReportBug, by, in, s.ReportBugFunc)
 }
 
 // CreateGoal implements mcp.ToolService.

@@ -93,6 +93,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/projects/{project...}", serve(s, http.StatusOK, projectInput, t.GetProject))
 
 	route("POST /api/v1/goals", serve(s, http.StatusCreated, bodyOf[mcp.CreateGoalInput], t.CreateGoal))
+	route("POST /api/v1/bugs", serve(s, http.StatusCreated, bodyOf[mcp.ReportBugInput], t.ReportBug))
 	route("GET /api/v1/goals", serve(s, http.StatusOK, listGoalsInput, list(t.ListGoals)))
 	route("GET /api/v1/goals/{goal}", serve(s, http.StatusOK, goalInput, t.GetGoal))
 
@@ -189,6 +190,7 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/projects/{project...}": tool[mcp.ToolGetProject],
 
 		"POST /api/v1/goals":       tool[mcp.ToolCreateGoal],
+		"POST /api/v1/bugs":        tool[mcp.ToolReportBug],
 		"GET /api/v1/goals":        tool[mcp.ToolListGoals],
 		"GET /api/v1/goals/{goal}": tool[mcp.ToolGetGoal],
 

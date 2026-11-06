@@ -134,6 +134,7 @@ func TestEndpoints(t *testing.T) {
 		{"GET", "/api/v1/projects", "", 200, mcp.ToolListProjects, nil},
 		{"GET", "/api/v1/projects/acme/app", "", 200, mcp.ToolGetProject, mcp.ProjectInput{Project: "acme/app"}},
 		{"POST", "/api/v1/goals", `{"project":"app","title":"Login","body":"b","platforms":["web"]}`, 201, mcp.ToolCreateGoal, mcp.CreateGoalInput{Project: "app", Title: "Login", Body: "b", Platforms: []string{"web"}}},
+		{"POST", "/api/v1/bugs", `{"project":"app","title":"Crash","body":"b","platforms":["ios"]}`, 201, mcp.ToolReportBug, mcp.ReportBugInput{Project: "app", Title: "Crash", Body: "b", Platforms: []string{"ios"}}},
 		{"GET", "/api/v1/goals?project=app&status=draft", "", 200, mcp.ToolListGoals, mcp.ListGoalsInput{Project: "app", Status: "draft"}},
 		{"GET", "/api/v1/goals/GOAL-2", "", 200, mcp.ToolGetGoal, mcp.GoalRefInput{Goal: "GOAL-2"}},
 		{"POST", "/api/v1/jobs", `{"project":"app","role":"reviewer","prompt":"look","needs":["linux"]}`, 201, mcp.ToolDispatchJob, mcp.DispatchJobInput{Project: "app", Role: "reviewer", Prompt: "look", Needs: []string{"linux"}}},

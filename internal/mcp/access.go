@@ -50,6 +50,7 @@ func ToolAccess() map[string]Access {
 	return map[string]Access{
 		ToolOnboardProject:     {Permission: domain.PermProjectCreate},
 		ToolCreateGoal:         {Permission: domain.PermGoalCreate},
+		ToolReportBug:          {Permission: domain.PermGoalCreate},
 		ToolJobStatus:          {Permission: domain.PermJobRead},
 		ToolJobLogs:            {Permission: domain.PermJobRead},
 		ToolListWorkers:        {Permission: domain.PermWorkerRead},

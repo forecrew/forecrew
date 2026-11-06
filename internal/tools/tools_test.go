@@ -370,6 +370,84 @@ func TestCreateGoalPlaybookByProject(t *testing.T) {
 	}
 }
 
+func TestReportBug(t *testing.T) {
+	f := newFixture(t, func(c *tools.Config) { c.TestingProjects = []string{"app"} })
+	g, err := f.svc.ReportBug(t.Context(), f.by, mcp.ReportBugInput{Project: "acme/app", Title: " Crash ", Body: "On save", Platforms: []string{"Web"}})
+	must(t, err)
+	if g.Kind != domain.GoalBug || g.Title != "Crash" || g.Status != domain.GoalDraft || g.IssueNumber != 0 || !slices.Equal(g.Platforms, []string{"web"}) {
+		t.Fatalf("goal = %+v", g)
+	}
+	got, err := f.st.Goals().Get(t.Context(), f.account.ID, g.ID)
+	must(t, err)
+	if got.Kind != domain.GoalBug {
+		t.Errorf("stored kind = %q", got.Kind)
+	}
+	starts := f.playbooks.Starts()
+	if len(starts) != 1 || starts[0].Playbook != tools.PlaybookBugfix || starts[0].Request.GoalID != g.ID || starts[0].Request.Inputs["repo"] != "acme/app" {
+		t.Errorf("starts = %+v", starts)
+	}
+}
+
+func TestReportBugErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		in       mcp.ReportBugInput
+		projects []string
+		want     error
+	}{
+		{name: "no title", in: mcp.ReportBugInput{Project: "app", Title: " "}, projects: []string{"app"}, want: mcp.ErrInvalidInput},
+		{name: "unknown project", in: mcp.ReportBugInput{Project: "nope", Title: "x"}, projects: []string{"app"}, want: mcp.ErrNotFound},
+		{name: "without the testing system", in: mcp.ReportBugInput{Project: "app", Title: "x"}, want: mcp.ErrInvalidInput},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t, func(c *tools.Config) { c.TestingProjects = tt.projects })
+			_, err := f.svc.ReportBug(t.Context(), f.by, tt.in)
+			wantErr(t, err, tt.want)
+			if len(f.playbooks.Starts()) != 0 {
+				t.Error("a playbook was started")
+			}
+		})
+	}
+	f := newFixture(t, func(c *tools.Config) { c.TestingProjects = []string{"raw"} })
+	p := domain.Project{AccountID: f.account.ID, Name: "raw", Repo: "acme/raw", Status: domain.ProjectRegistered}
+	must(t, f.st.Projects().Create(t.Context(), &p))
+	_, err := f.svc.ReportBug(t.Context(), f.by, mcp.ReportBugInput{Project: "raw", Title: "x"})
+	wantErr(t, err, mcp.ErrInvalidInput)
+}
+
+func TestReportBugCancelsGoalWhenPlaybookFails(t *testing.T) {
+	f := newFixture(t, func(c *tools.Config) { c.TestingProjects = []string{"app"} })
+	boom := errors.New("engine down")
+	f.playbooks.Err = boom
+	_, err := f.svc.ReportBug(t.Context(), f.by, mcp.ReportBugInput{Project: "app", Title: "x"})
+	wantErr(t, err, boom)
+	goals, err := f.st.Goals().List(t.Context(), f.account.ID, store.GoalFilter{})
+	must(t, err)
+	if len(goals) != 1 || goals[0].Status != domain.GoalCanceled {
+		t.Errorf("goals = %+v", goals)
+	}
+}
+
+// An issue becomes the goal issue of a bug; the same issue is not reported
+// twice.
+func TestReportIssueAsBug(t *testing.T) {
+	f := newFixture(t, func(c *tools.Config) { c.TestingProjects = []string{"app"} })
+	issue := github.Issue{Number: 12, Title: " It crashes ", Body: "Steps"}
+	g, err := f.svc.ReportIssueAsBug(t.Context(), domain.Actor{AccountID: f.account.ID, Kind: domain.ActorGitHub, Name: "ann"}, f.project, issue)
+	must(t, err)
+	if g.Kind != domain.GoalBug || g.IssueNumber != 12 || g.Title != "It crashes" || g.Body != "Steps" || g.CreatedBy != "github:ann" {
+		t.Fatalf("goal = %+v", g)
+	}
+	again, err := f.svc.ReportIssueAsBug(t.Context(), f.by, f.project, issue)
+	wantErr(t, err, mcp.ErrInvalidInput)
+	if again.ID != g.ID || len(f.playbooks.Starts()) != 1 {
+		t.Errorf("second report = %+v, starts = %d", again, len(f.playbooks.Starts()))
+	}
+	_, err = f.svc.ReportIssueAsBug(t.Context(), f.by, f.project, github.Issue{Number: 13, Title: " "})
+	wantErr(t, err, mcp.ErrInvalidInput)
+}
+
 func TestCreateGoalErrors(t *testing.T) {
 	tests := []struct {
 		name  string

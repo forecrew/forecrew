@@ -51,6 +51,12 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 			g, err := svc.CreateGoal(ctx, by, in)
 			return result(g, "%s created: %s (%s).", g.Ref(), g.Title, g.Status), err
 		})
+	register(r, ToolReportBug, "Report a bug for a project and start the bug-fix playbook: a regression test that reproduces it, the fix, verification, review and a merge gate. Returns the new draft goal (kind bug).",
+		fieldDocs{"project": project, "title": "Short bug title.", "body": "What happens, what should happen and how to reproduce it, in markdown.", "platforms": "Platforms the bug shows on, for example web or ios. Optional."},
+		func(ctx context.Context, by domain.Actor, in ReportBugInput) (toolResult, error) {
+			g, err := svc.ReportBug(ctx, by, in)
+			return result(g, "%s reported: %s (%s).", g.Ref(), g.Title, g.Status), err
+		})
 	register(r, ToolJobStatus, "Show a job: role, status, attempts, branch, result and failure reason.",
 		fieldDocs{"job": job}, func(ctx context.Context, by domain.Actor, in JobRefInput) (toolResult, error) {
 			j, err := svc.JobStatus(ctx, by, in)
