@@ -1021,6 +1021,37 @@ func TestImage(t *testing.T) {
 	}
 }
 
+// A revoked direct provider keeps nothing: forecrewd holds its credentials,
+// so nobody else would remove its machines.
+func TestRevokedDirectProvider(t *testing.T) {
+	e := newEnv(t)
+	e.shape(e.prov, "small", func(s *domain.Shape) { s.Max = 2 })
+	e.job(e.account, e.project, nil)
+	e.reconcile()
+	req := e.fake.Requests()[0]
+	w := e.boot(req)
+	_, err := e.lease(w)
+	must(t, err)
+	e.fake.Configure(func(p *testkit.FakeProvider) { p.CreateErr = fleet.ErrCapacity })
+	e.job(e.account, e.project, nil)
+	e.reconcile()
+	if n := len(e.active()); n != 2 {
+		t.Fatalf("%d machines", n)
+	}
+	must(t, e.st.CapacityProviders().SetStatus(e.ctx, e.prov.ID, domain.ProviderRevoked))
+	e.fake.Plant("vm-left", uuid.Nil(), nil)
+	e.reconcile()
+	if a, n := e.active(), len(e.fake.Instances()); len(a) != 0 || n != 0 {
+		t.Fatalf("%d machines and %d instances left", len(a), n)
+	}
+	if m := e.machine(req.MachineID); m.State != domain.MachineDestroyed {
+		t.Fatalf("machine with a job = %s", m.State)
+	}
+	if cur, _ := e.st.Workers().Get(e.ctx, e.account, w.ID); !cur.Revoked() {
+		t.Fatal("worker not revoked")
+	}
+}
+
 // A provider whose Create keeps failing is not asked on every pass: the
 // first failure is replaced at once, then the wait doubles, and a restart
 // does not reset it. A machine that comes up ends it.

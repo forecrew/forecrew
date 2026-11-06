@@ -190,7 +190,10 @@ func (p *planner) sweep() {
 			continue
 		}
 		p.count(*m, 1)
+		pr := p.s.providers[m.ProviderID]
 		switch {
+		case pr.Status == domain.ProviderRevoked && pr.Mode == domain.ProviderModeDirect:
+			p.revoked(m)
 		case bootExpired(*m, shape, p.s.now):
 			p.out.fail = append(p.out.fail, transition{machine: *m, why: fmt.Sprintf("did not come up within %d seconds", shape.BootTimeoutSeconds)})
 			p.count(*m, -1)
@@ -210,6 +213,18 @@ func (p *planner) sweep() {
 		}
 		return cmp.Compare(b.ReadyAt.Unix(), a.ReadyAt.Unix()) // warm before still booting
 	})
+}
+
+// revoked ends a machine of a revoked direct provider, whatever it is doing.
+// A fleet agent is told by its token; forecrewd itself holds no such line.
+func (p *planner) revoked(m *domain.Machine) {
+	switch m.State {
+	case domain.MachineDraining:
+	case domain.MachineRequested:
+		p.out.withdraw = append(p.out.withdraw, *m)
+	default:
+		p.out.drain = append(p.out.drain, transition{*m, "its location was revoked", true})
+	}
 }
 
 func readiness(s domain.MachineState) int {

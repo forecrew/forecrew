@@ -145,7 +145,7 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 }
 
 func (c *Controller) direct(p domain.CapacityProvider) Provider {
-	if p.Mode != domain.ProviderModeDirect || p.Status == domain.ProviderRevoked {
+	if p.Mode != domain.ProviderModeDirect {
 		return nil
 	}
 	return c.cfg.Direct(p)
