@@ -320,3 +320,21 @@ type brokenWorkers struct{ store.WorkerRepo }
 func (brokenWorkers) List(context.Context, uuid.UUID) ([]domain.Worker, error) {
 	return nil, errors.New("db down")
 }
+
+// With strict, a matrix that is invalid fails the step, and the error quotes
+// the problem as untrusted data.
+func TestMatrixPlanStrict(t *testing.T) {
+	v := newEnv(t)
+	must(t, v.tracker.SetFile("acme/app", "abc", testsys.MatrixFile, []byte("version: 2")))
+	_, err := v.call(t, "matrix.plan", map[string]any{"repo": "acme/app", "ref": "abc", "scope": "all", "strict": true})
+	wantErr(t, err, "the test matrix of acme/app at abc is invalid:\n<untrusted-data")
+	out, err := v.call(t, "matrix.plan", map[string]any{"repo": "acme/app", "ref": "abc", "scope": "all"})
+	must(t, err)
+	if toMap(t, out)["errors"] == "" {
+		t.Error("without strict the problem is in the output")
+	}
+	v.setMatrix(t, "good")
+	if _, err := v.call(t, "matrix.plan", map[string]any{"repo": "acme/app", "ref": "good", "scope": "all", "strict": true}); err != nil {
+		t.Errorf("a valid matrix failed: %v", err)
+	}
+}

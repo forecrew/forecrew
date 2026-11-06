@@ -252,6 +252,7 @@ steps:
                           scope: required
                           suites: '${steps.vtests.output.suites}'
                           only_runnable: true
+                          strict: true
                         on_failure: escalate
                       - id: cells
                         type: foreach

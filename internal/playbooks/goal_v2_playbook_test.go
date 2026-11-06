@@ -575,3 +575,18 @@ func TestGoalV2MergeRefusesAReportThatIsNotPassed(t *testing.T) {
 		})
 	}
 }
+
+// A matrix that is invalid at the head is not an empty plan: a needs_you gate
+// asks, with the problem quoted.
+func TestGoalV2InvalidMatrixAsksAHuman(t *testing.T) {
+	r := startGoalV2(t)
+	must(t, r.tracker.SetFile("acme/app", v2sha(1), ".forecrew/matrix.yaml", []byte("version: 2")))
+	r.designed(t)
+	r.push(t, 1)
+	r.prAt(t, 1)
+	r.checks(t, 0, 1, 1, domain.ChecksSuccess)
+	g := r.pendingGate(t, domain.GateNeedsYou)
+	if !strings.Contains(g.Summary, "the test matrix of acme/app at "+v2sha(1)+" is invalid") || !strings.Contains(g.Summary, "<untrusted-data") {
+		t.Errorf("gate = %+v", g)
+	}
+}
