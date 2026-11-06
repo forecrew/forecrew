@@ -102,7 +102,9 @@ func (s *agentSite) startAgent() (stop func(), done <-chan error) {
 	}()
 	stop = func() {
 		cancel()
-		<-ch
+		if err := <-ch; err != nil && !errors.Is(err, fleetagent.ErrRejected) {
+			s.w.t.Errorf("agent: %v", err)
+		}
 	}
 	s.w.t.Cleanup(cancel)
 	return stop, ch
