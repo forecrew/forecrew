@@ -128,12 +128,14 @@ func (r Role) ProposalReviewer(verdict json.RawMessage) Role {
 // PathAllowed reports whether file (relative to the repo root, "/"
 // separated) may be changed under write path patterns: it matches at least
 // one include pattern and no "!" exclude pattern. Empty patterns allow
-// nothing. The worker's write-path check and the locked test checks share it.
+// nothing. A "!" pattern ignores case, so that knowledge/Vision/x.md is
+// excluded by !knowledge/** as it is on a case-insensitive checkout. The
+// worker's write-path check and the locked test checks share it.
 func PathAllowed(patterns []string, file string) bool {
 	ok := false
 	for _, p := range patterns {
 		if ex, isEx := strings.CutPrefix(p, "!"); isEx {
-			if m, _ := doublestar.Match(ex, file); m {
+			if m, _ := doublestar.Match(strings.ToLower(ex), strings.ToLower(file)); m {
 				return false
 			}
 			continue

@@ -15,6 +15,7 @@ import (
 	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/jobs"
+	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/runtime"
 	"github.com/forecrew/forecrew/internal/store"
@@ -39,11 +40,11 @@ type jobCreator struct {
 	models   func(role, adapter string) (string, error)
 }
 
-// pathSource lists the repo paths of a project's curated knowledge, which
-// writing roles except the knowledge curator may not change: curated
-// knowledge changes only through proposals.
+// pathSource says what a role may do to the repo files of a project's
+// curated knowledge: curated knowledge changes only through proposals,
+// except where a section's access.write gives the role its files.
 type pathSource interface {
-	MappedPaths(ctx context.Context, p domain.Project) ([]string, error)
+	MappedPaths(ctx context.Context, p domain.Project, role string, curator bool) (knowledge.PathRules, error)
 }
 
 // CuratorRole is the role that writes the fallback knowledge/** folder.
@@ -53,20 +54,31 @@ const CuratorRole = "knowledge-curator"
 // proposals answer with.
 const ReviewerRole = "reviewer"
 
-// writePaths returns the role's write paths with the project's knowledge
-// paths excluded, for every writing role but the curator. When the
-// project's knowledge policy is unknown the job is refused (fail closed):
-// without it the curated paths cannot be excluded.
+// writePaths returns the role's write paths with the project's curated
+// knowledge excluded (knowledge.PathRules), for every writing role. The
+// curator keeps knowledge/** but not the protected sections or the policy
+// file. Granted globs are added, and the pack's own !knowledge/** goes when
+// there are any, so that access.write works. When the project's knowledge
+// policy is unknown the job is refused (fail closed): without it the
+// curated paths cannot be excluded.
 func (c *jobCreator) writePaths(ctx context.Context, role roles.Role, p domain.Project) ([]string, error) {
-	if c.knowledge == nil || role.ReadOnly() || role.Name == CuratorRole {
+	if c.knowledge == nil || role.ReadOnly() {
 		return role.WritePaths, nil
 	}
-	mapped, err := c.knowledge.MappedPaths(ctx, p)
+	rules, err := c.knowledge.MappedPaths(ctx, p, role.Name, role.Name == CuratorRole)
 	if err != nil {
 		return nil, fmt.Errorf("create %s job: %w", role.Name, err)
 	}
 	out := slices.Clone(role.WritePaths)
-	for _, g := range mapped {
+	if len(rules.Granted) > 0 {
+		out = slices.DeleteFunc(out, func(w string) bool { return w == "!knowledge/**" })
+	}
+	for _, g := range rules.Granted {
+		if !slices.Contains(out, g) {
+			out = append(out, g)
+		}
+	}
+	for _, g := range rules.Denied {
 		if ex := "!" + g; !slices.Contains(out, ex) {
 			out = append(out, ex)
 		}

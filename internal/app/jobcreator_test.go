@@ -398,10 +398,12 @@ func TestJobCreatorCancel(t *testing.T) {
 }
 
 // The knowledge curator is the one writing role that may write knowledge/**,
-// and a read-only role stays read-only.
+// except the protected sections and the policy file, and a read-only role
+// stays read-only.
 func TestJobCreatorKnowledgeExcludes(t *testing.T) {
 	f := newFixture(t)
-	for role, want := range map[string][]string{"knowledge-curator": {"knowledge/**"}, "reviewer": nil} {
+	curator := []string{"knowledge/**", "!.forecrew/knowledge-policy.yaml", "!knowledge/security/**", "!knowledge/vision/**"}
+	for role, want := range map[string][]string{"knowledge-curator": curator, "reviewer": nil} {
 		id, err := f.creator.Create(t.Context(), f.request(role))
 		must(t, err)
 		j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
@@ -524,14 +526,14 @@ func (headFails) HeadSHA(context.Context, string, string) (string, error) {
 }
 
 // When the policy cannot be read (not: when there is no repo content), the
-// curated paths cannot be excluded: a writing role's job is refused, while
-// roles that write no curated path or nothing at all still run.
+// curated paths cannot be excluded: a writing role's job is refused, the
+// curator's too, while read-only roles still run.
 func TestJobCreatorRefusesWritersWhenThePolicyCannotBeRead(t *testing.T) {
 	f := newFixture(t, func(d *Deps) { d.GitHub = headFails{d.GitHub} })
 	p := domain.Project{AccountID: f.account.ID, Name: "broken", Repo: "acme/broken", DefaultBranch: "main", Status: domain.ProjectOnboarded}
 	must(t, f.st.Projects().Create(t.Context(), &p))
 	req := workflow.JobRequest{AccountID: f.account.ID, ProjectID: p.ID}
-	for role, wantErr := range map[string]bool{"developer": true, "reviewer": false, "knowledge-curator": false} {
+	for role, wantErr := range map[string]bool{"developer": true, "reviewer": false, "knowledge-curator": true} {
 		req.Role = role
 		_, err := f.creator.Create(t.Context(), req)
 		if got := errors.Is(err, knowledge.ErrPolicyUnknown); got != wantErr {
@@ -557,6 +559,43 @@ func TestJobCreatorRefusesWritersOnABranch404(t *testing.T) {
 	_, err := f.creator.Create(t.Context(), workflow.JobRequest{AccountID: f.account.ID, ProjectID: p.ID, Role: "developer"})
 	if !errors.Is(err, knowledge.ErrPolicyUnknown) {
 		t.Errorf("err = %v, want policy refusal", err)
+	}
+}
+
+const writePolicy = `version: 1
+sections:
+  runbooks: {paths: ["ops/**"], owner: developer, access: {write: [developer]}}
+  vision: {paths: ["docs/vision/**"], protected: true}
+  lessons: {paths: ["knowledge/lessons/**"], owner: knowledge-curator}
+`
+
+// A role with access.write on a section changes its files without a
+// proposal: the section is not excluded, and the pack's !knowledge/** goes
+// when the grant is under knowledge/. Protected sections stay out of every
+// role's reach, the curator's included.
+func TestJobCreatorHonoursWriteAccess(t *testing.T) {
+	f := newFixture(t)
+	must(t, f.tracker.SetFile("acme/app", "head1", ".forecrew/knowledge-policy.yaml", []byte(writePolicy)))
+	must(t, f.tracker.SetHeadOfBranch("acme/app", "main", "head1"))
+	paths := func(role string) []string {
+		id, err := f.creator.Create(t.Context(), f.request(role))
+		must(t, err)
+		j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+		must(t, err)
+		return j.Spec.WritePaths
+	}
+	dev := paths("developer")
+	for _, want := range []string{"ops/**", "!docs/vision/**", "!knowledge/lessons/**", "!knowledge/**", "!.forecrew/knowledge-policy.yaml"} {
+		if !slices.Contains(dev, want) {
+			t.Errorf("developer paths %v lack %s", dev, want)
+		}
+	}
+	if slices.Contains(dev, "!ops/**") {
+		t.Errorf("developer has write access to ops/**, got %v", dev)
+	}
+	cur := paths("knowledge-curator")
+	if want := []string{"knowledge/**", "!.forecrew/knowledge-policy.yaml", "!docs/vision/**"}; !slices.Equal(cur, want) {
+		t.Errorf("curator paths = %v, want %v", cur, want)
 	}
 }
 

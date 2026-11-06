@@ -121,15 +121,11 @@ func TestSyncIndexesAndSkips(t *testing.T) {
 	if got := knowledge.MissingSections(policy); strings.Join(got, ",") != "testing,glossary" {
 		t.Errorf("missing sections = %v", got)
 	}
-	paths, err := e.syncer.MappedPaths(t.Context(), e.project)
+	rules, err := e.syncer.MappedPaths(t.Context(), e.project, "developer", false)
 	must(t, err)
 	for _, want := range []string{"knowledge/**", knowledge.PolicyFile, "docs/adr/**", "CONTRIBUTING.md"} {
-		found := false
-		for _, p := range paths {
-			found = found || p == want
-		}
-		if !found {
-			t.Errorf("mapped paths %v lack %s", paths, want)
+		if !slices.Contains(rules.Denied, want) {
+			t.Errorf("denied paths %v lack %s", rules.Denied, want)
 		}
 	}
 }
@@ -303,7 +299,7 @@ func TestPolicyFailsClosedOnBranch404(t *testing.T) {
 	if _, err := restarted.Policy(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
 		t.Fatalf("Policy = %v, want ErrPolicyUnknown", err)
 	}
-	if _, err := restarted.MappedPaths(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+	if _, err := restarted.MappedPaths(t.Context(), e.project, "developer", false); !errors.Is(err, knowledge.ErrPolicyUnknown) {
 		t.Errorf("MappedPaths = %v, want ErrPolicyUnknown", err)
 	}
 	search := &knowledge.Search{Index: restarted.Index, Policy: restarted.Policy}
@@ -346,7 +342,7 @@ func TestPolicyFileListedButUnreadable(t *testing.T) {
 	if _, err := s.Policy(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
 		t.Fatalf("Policy = %v, want ErrPolicyUnknown", err)
 	}
-	if _, err := s.MappedPaths(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+	if _, err := s.MappedPaths(t.Context(), e.project, "developer", false); !errors.Is(err, knowledge.ErrPolicyUnknown) {
 		t.Errorf("MappedPaths = %v, want ErrPolicyUnknown", err)
 	}
 	if _, err := s.Sync(t.Context(), e.project, "", "h1"); err == nil {
@@ -415,9 +411,9 @@ func TestPolicySurvivesARestartAndFailsClosed(t *testing.T) {
 	if hits, err = search.Run(t.Context(), knowledge.Query{Project: e.project, Text: "secret", Role: "architect"}); err != nil || len(hits) != 1 {
 		t.Fatalf("the architect search = %+v, %v", hits, err)
 	}
-	paths, err := restarted.MappedPaths(t.Context(), e.project)
-	if err != nil || !slices.Contains(paths, "handbook/**") {
-		t.Fatalf("mapped paths = %v, %v", paths, err)
+	rules, err := restarted.MappedPaths(t.Context(), e.project, "developer", false)
+	if err != nil || !slices.Contains(rules.Denied, "handbook/**") {
+		t.Fatalf("mapped paths = %v, %v", rules, err)
 	}
 
 	// A third Syncer that cannot reach GitHub refuses.
@@ -426,7 +422,7 @@ func TestPolicySurvivesARestartAndFailsClosed(t *testing.T) {
 	if _, err := third.Policy(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
 		t.Errorf("Policy = %v, want ErrPolicyUnknown", err)
 	}
-	if _, err := third.MappedPaths(t.Context(), e.project); !errors.Is(err, knowledge.ErrPolicyUnknown) {
+	if _, err := third.MappedPaths(t.Context(), e.project, "developer", false); !errors.Is(err, knowledge.ErrPolicyUnknown) {
 		t.Errorf("MappedPaths = %v, want ErrPolicyUnknown", err)
 	}
 	refusing := &knowledge.Search{Index: third.Index, Policy: third.Policy}

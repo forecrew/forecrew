@@ -41,6 +41,9 @@ func TestPathAllowed(t *testing.T) {
 		{nil, "a.go", false},
 		{[]string{"!a.go"}, "b.go", false},
 		{[]string{"[a"}, "a", false},
+		{[]string{"**", "!knowledge/**"}, "Knowledge/Vision/x.md", false},
+		{[]string{"**", "!Docs/**"}, "docs/a.md", false},
+		{[]string{"Docs/**"}, "docs/a.md", false}, // includes keep their case
 	} {
 		if got := PathAllowed(tt.patterns, tt.file); got != tt.want {
 			t.Errorf("PathAllowed(%v, %q) = %v, want %v", tt.patterns, tt.file, got, tt.want)
