@@ -131,7 +131,7 @@
       "goal_ref": "GOAL-3",
       "task_ref": "TASK-12",
       "url": "https://github.com/acme/app/pull/9",
-      "can_resolve": false
+      "can_resolve": true
     },
     {
       "id": "018f0000-0000-7000-8000-000000000033",

@@ -1255,3 +1255,19 @@ func TestConnectionTestSignIn(t *testing.T) {
 		t.Errorf("test of an instance connection = %d", status)
 	}
 }
+
+// After signing in the person goes back to the page they came from, if it is
+// a page of this site.
+func TestSignInReturnsToThePage(t *testing.T) {
+	for redirect, want := range map[string]string{"/inbox?project=app": "/inbox", "//evil.example/x": "/", "https://evil.example/": "/", "/\\evil.example": "/", "": "/"} {
+		f := newFixture(t)
+		f.member("ana@acme.example")
+		f.claims("sub-1", "ana@acme.example", true)
+		resp, err := f.browser.Get(f.web.URL + "/auth/" + f.inst.ID.String() + "/login?redirect=" + url.QueryEscape(redirect))
+		must(t, err)
+		_ = resp.Body.Close()
+		if resp.Request.URL.Path != want || resp.Request.URL.Host != strings.TrimPrefix(f.web.URL, "https://") {
+			t.Errorf("redirect %q ended at %s, want %s on this site", redirect, resp.Request.URL, want)
+		}
+	}
+}

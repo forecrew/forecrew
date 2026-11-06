@@ -223,6 +223,11 @@ func fixtureEnv(t *testing.T) *env {
 		{ID: fid(514), AccountID: acc.ID, ProjectID: fid(10), Number: 14, Kind: domain.GateNeedsYou, Origin: domain.GateFromAskHuman, Status: domain.GatePending, Title: "The developer asks a question", Summary: "Should the sign-in link expire after 15 minutes or 1 hour?", SubjectRepo: "acme/app", JobID: fid(141), CreatedAt: at(-8), Ref: "GATE-14", Project: "app", GoalRef: "GOAL-3"},
 		gates[2],
 	}
+	for _, list := range [][]mcp.GateInfo{gates, councilGates} {
+		for i := range list {
+			list[i].CanResolve = true // the fixtures are the Owner's view; tests of a Viewer change it
+		}
+	}
 	decided := gates[0].Gate
 	decided.Status, decided.ResolvedBy, decided.ResolvedAt = domain.GateApproved, "mcp:laptop", t0
 
