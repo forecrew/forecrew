@@ -834,7 +834,9 @@ It takes the inputs of `goal`. `goal` and `goal-v2` did not change.
    tests that are ready only (`tests.map` with `repo` also reads the matrix, so a
    suite it lacks is not ready, and `cannot_reproduce` has no head to check).
    Then `bug.reproduced` decides. Only the latest round's test counts, whatever
-   its name, for the base check, the lock and the verification. When the test fails on base the round is good.
+   its name, for the base check, the lock and the verification; the files of
+   the earlier rounds that are still on the task's branch stay in the overlay
+   and the lock (a retry lists only what it changed). When the test fails on base the round is good.
    Otherwise (the test passes on base, so it does not reproduce the bug; no
    test; `cannot_reproduce`; a base check no worker could run) a needs_you gate
    shows the attempt, quoted as untrusted data. The gate is about the goal's issue, so `@forecrew approve` there finds it. Approve it with your note (steps,
