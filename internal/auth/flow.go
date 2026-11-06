@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/store"
 )
@@ -27,6 +28,9 @@ type flow struct {
 	Verifier   string `json:"v"`
 	Org        string `json:"o,omitempty"` // slug the sign-in page was for
 	Invite     string `json:"i,omitempty"` // invitation token of the link
+	// Test is the user who tests the connection: the flow signs nobody in
+	// and only shows what the provider says.
+	Test string `json:"t,omitempty"`
 }
 
 // Handler serves /auth/<connection>/login and /auth/<connection>/callback.
@@ -37,16 +41,39 @@ func (s *Service) Handler() http.Handler {
 	return mux
 }
 
-func (s *Service) connection(ctx context.Context, id string) (domain.Connection, error) {
+// connection finds a connection a sign-in may use: an enabled one, or with
+// test any of an organization's own, which is tested before it is enabled.
+func (s *Service) connection(ctx context.Context, id string, test bool) (domain.Connection, error) {
 	cid, err := uuid.Parse(id)
 	if err != nil {
 		return domain.Connection{}, store.ErrNotFound
 	}
 	c, err := s.cfg.Store.Connections().Get(ctx, cid)
-	if err == nil && !c.Enabled {
+	if err == nil && !c.Enabled && !(test && c.AccountID != uuid.Nil()) {
 		return c, store.ErrNotFound
 	}
 	return c, err
+}
+
+// authorizeTest returns the user who may test conn: a member of its
+// organization with connection.manage, signed in with the session cookie.
+func (s *Service) authorizeTest(ctx context.Context, r *http.Request, conn domain.Connection) (uuid.UUID, error) {
+	c, err := r.Cookie(CookieName)
+	if err != nil || conn.AccountID == uuid.Nil() {
+		return uuid.Nil(), refusal(reasonTestDenied)
+	}
+	caller, err := s.Resolve(ctx, c.Value)
+	if err != nil {
+		return uuid.Nil(), refusal(reasonTestDenied)
+	}
+	id, ok := caller.Actor.SubjectID()
+	if !ok || caller.Actor.AccountID != conn.AccountID {
+		return uuid.Nil(), refusal(reasonTestDenied)
+	}
+	if err := s.authz.Authorize(ctx, caller.Actor, domain.PermConnectionManage, authz.Organization(conn.AccountID)); err != nil {
+		return uuid.Nil(), refusal(reasonTestDenied)
+	}
+	return id, nil
 }
 
 func flowCookie(value string, maxAge int) *http.Cookie {
@@ -56,17 +83,26 @@ func flowCookie(value string, maxAge int) *http.Cookie {
 // login starts a sign-in: it remembers the flow in the cookie and sends the
 // browser to the provider.
 func (s *Service) login(w http.ResponseWriter, r *http.Request) {
-	conn, err := s.connection(r.Context(), r.PathValue("connection"))
+	test := r.URL.Query().Get("test") != ""
+	conn, err := s.connection(r.Context(), r.PathValue("connection"), test)
 	if err != nil {
 		s.refuse(w, r, refusal(reasonUnknownConnection), err)
 		return
+	}
+	f := flow{Connection: conn.ID.String(), Org: r.URL.Query().Get("org"), Invite: r.URL.Query().Get("invite"), Verifier: oauth2.GenerateVerifier()}
+	if test {
+		tester, err := s.authorizeTest(r.Context(), r, conn)
+		if err != nil {
+			s.refuse(w, r, nil, err)
+			return
+		}
+		f = flow{Connection: conn.ID.String(), Verifier: f.Verifier, Test: tester.String()}
 	}
 	p, err := s.provider(r.Context(), conn)
 	if err != nil {
 		s.refuse(w, r, refusal(reasonProvider), err)
 		return
 	}
-	f := flow{Connection: conn.ID.String(), Org: r.URL.Query().Get("org"), Invite: r.URL.Query().Get("invite"), Verifier: oauth2.GenerateVerifier()}
 	if f.State, err = NewToken(""); err == nil {
 		f.Nonce, err = NewToken("")
 	}
@@ -108,7 +144,7 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		s.refuse(w, r, refusal(reasonState), nil)
 		return
 	}
-	conn, err := s.connection(r.Context(), f.Connection)
+	conn, err := s.connection(r.Context(), f.Connection, f.Test != "")
 	if err != nil {
 		s.refuse(w, r, refusal(reasonUnknownConnection), err)
 		return
@@ -128,6 +164,10 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		s.refuse(w, r, refusal(reasonRejected), err)
+		return
+	}
+	if f.Test != "" {
+		s.testResult(w, r, conn, f, claims)
 		return
 	}
 	token, err := s.signIn(r.Context(), conn, claims, f, r.UserAgent(), remoteIP(r))
@@ -177,6 +217,7 @@ const (
 	reasonInvitationOther   = "invitation_for_someone_else"
 	reasonDisabled          = "user_disabled"
 	reasonSuspended         = "membership_suspended"
+	reasonTestDenied        = "test_denied"
 )
 
 var reasons = map[string]struct {
@@ -195,6 +236,7 @@ var reasons = map[string]struct {
 	reasonInvitationOther: {http.StatusForbidden, "This invitation is for someone else", "Sign in with the account the invitation was sent to, with a verified email address."},
 	reasonDisabled:        {http.StatusForbidden, "This account is disabled", "Ask your administrator."},
 	reasonSuspended:       {http.StatusForbidden, "Your membership is suspended", "Ask an owner of your organization."},
+	reasonTestDenied:      {http.StatusForbidden, "You cannot test this sign-in", "Sign in as an administrator of the organization that owns it, then start the test again from its settings."},
 }
 
 // refused is a sign-in stopped for a reason.
@@ -227,4 +269,26 @@ func (s *Service) refuse(w http.ResponseWriter, r *http.Request, why *refused, c
 	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>%[1]s</title></head>
 <body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>%[1]s</h1><p>%[2]s</p><p><a href="/login">Back to sign-in</a></p></body></html>
 `, html.EscapeString(page.title), html.EscapeString(page.text))
+}
+
+// testResult ends a test sign-in: it records that the connection works and
+// shows what the provider said, and signs nobody in. The page is plain
+// escaped text.
+func (s *Service) testResult(w http.ResponseWriter, r *http.Request, conn domain.Connection, f flow, c Claims) {
+	tester, err := uuid.Parse(f.Test)
+	if err == nil {
+		by := domain.UserActor(conn.AccountID, tester, domain.Credential{})
+		err = audit(r.Context(), s.cfg.Store, by, "connection.tested", "connection", conn.ID, nil)
+	}
+	if err != nil {
+		s.refuse(w, r, nil, err)
+		return
+	}
+	noStore(w)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign-in works</title></head>
+<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>Sign-in works</h1>
+<p>%s answered. Nobody was signed in. You can close this window and turn the sign-in on.</p>
+<dl><dt>Name</dt><dd>%s</dd><dt>Email</dt><dd>%s</dd><dt>Email verified</dt><dd>%t</dd><dt>Login</dt><dd>%s</dd></dl></body></html>
+`, html.EscapeString(conn.Name), html.EscapeString(c.Name), html.EscapeString(c.Email), c.EmailVerified, html.EscapeString(c.Login))
 }

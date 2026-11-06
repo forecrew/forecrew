@@ -204,6 +204,10 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/members/{user}/suspend", serve(s, http.StatusOK, setMemberInput(true), t.SetMemberSuspended))
 	route("POST /api/v1/members/{user}/resume", serve(s, http.StatusOK, setMemberInput(false), t.SetMemberSuspended))
 	route("DELETE /api/v1/members/{user}", serve(s, http.StatusOK, memberInput, t.RemoveMember))
+	route("GET /api/v1/connections", serve(s, http.StatusOK, noInput, list(noArg(t.ListConnections))))
+	route("POST /api/v1/connections", serve(s, http.StatusCreated, bodyOf[mcp.CreateConnectionInput], t.CreateConnection))
+	route("POST /api/v1/connections/{connection}/enable", serve(s, http.StatusOK, setConnectionInput(true), t.SetConnectionEnabled))
+	route("POST /api/v1/connections/{connection}/disable", serve(s, http.StatusOK, setConnectionInput(false), t.SetConnectionEnabled))
 	route("GET /api/v1/audit", serve(s, http.StatusOK, listAuditInput, list(t.ListAudit)))
 	route("PATCH /api/v1/organization", serve(s, http.StatusOK, bodyOf[mcp.UpdateOrganizationInput], t.UpdateOrganization))
 
@@ -346,6 +350,10 @@ func RouteAccess() map[string]mcp.Access {
 		"DELETE /api/v1/members/{user}":                      tool[mcp.ToolRemoveMember],
 		"PATCH /api/v1/organization":                         tool[mcp.ToolUpdateOrganization],
 		"GET /api/v1/audit":                                  tool[mcp.ToolListAudit],
+		"GET /api/v1/connections":                            tool[mcp.ToolListConnections],
+		"POST /api/v1/connections":                           tool[mcp.ToolCreateConnection],
+		"POST /api/v1/connections/{connection}/enable":       tool[mcp.ToolSetConnection],
+		"POST /api/v1/connections/{connection}/disable":      tool[mcp.ToolSetConnection],
 	}
 }
 
@@ -592,6 +600,12 @@ func listAuditInput(r *http.Request) (mcp.ListAuditInput, error) {
 	limit, err := intParam(q.Get("limit"), "limit")
 	return mcp.ListAuditInput{Actor: q.Get("actor"), Action: q.Get("action"), SubjectType: q.Get("subject_type"), Subject: q.Get("subject"),
 		Since: q.Get("since"), Until: q.Get("until"), Limit: int(limit)}, err
+}
+
+func setConnectionInput(enabled bool) func(*http.Request) (mcp.SetConnectionInput, error) {
+	return func(r *http.Request) (mcp.SetConnectionInput, error) {
+		return mcp.SetConnectionInput{Connection: r.PathValue("connection"), Enabled: enabled}, nil
+	}
 }
 
 func noteInput(r *http.Request) (mcp.DeleteNoteInput, error) {

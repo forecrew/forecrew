@@ -173,3 +173,69 @@ func auditCommand(r *remote) *cobra.Command {
 	cmd.Flags().IntVar(&in.Limit, "limit", 0, "at most this many entries; default 100, at most 500")
 	return cmd
 }
+
+// connectionsCommand lists the ways to sign in; its subcommands add one and
+// turn one on or off.
+func connectionsCommand(r *remote) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "connections",
+		Short: "List the ways to sign in",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var items []mcp.ConnectionInfo
+			if err := r.call(cmd.Context(), http.MethodGet, "/connections", nil, &items); err != nil {
+				return err
+			}
+			rows := [][]string{{"NAME", "KIND", "ISSUER", "STATE", "TESTED", "SCOPE"}}
+			for _, c := range items {
+				state, scope := "off", "organization"
+				if c.Enabled {
+					state = "on"
+				}
+				if c.Instance {
+					scope = "server file"
+				}
+				rows = append(rows, []string{safeText(c.Name), string(c.Kind), dash(safeText(c.Issuer)), state, map[bool]string{true: "yes", false: "no"}[c.Tested], scope})
+			}
+			table(cmd.OutOrStdout(), rows)
+			return nil
+		},
+	}
+	var in mcp.CreateConnectionInput
+	var kind string
+	add := &cobra.Command{
+		Use:   "add <name>",
+		Short: "Add a sign-in connection; it starts off, and needs a test sign-in before it can be turned on",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			in.Name, in.Kind = args[0], domain.ConnectionKind(kind)
+			var c mcp.ConnectionInfo
+			if err := r.call(cmd.Context(), http.MethodPost, "/connections", in, &c); err != nil {
+				return err
+			}
+			cmd.Printf("connection %s added, off\nAllow this redirect address at the provider: %s\nTest it by signing in at: %s\nThen: forecrew connections enable %s\n", c.Name, c.RedirectURL, c.TestURL, c.Name)
+			return nil
+		},
+	}
+	add.Flags().StringVar(&kind, "kind", "oidc", "github, google, microsoft or oidc")
+	add.Flags().StringVar(&in.Issuer, "issuer", "", "https URL of the OpenID Connect issuer; none for github and google")
+	add.Flags().StringVar(&in.ClientID, "client-id", "", "OAuth client ID registered at the provider")
+	add.Flags().StringVar(&in.ClientSecretRef, "secret-ref", "", "where forecrewd reads the client secret: env:FORECREW_CONN_NAME or secret:conn-name; never the secret")
+	set := func(use, short, verb string) *cobra.Command {
+		return &cobra.Command{
+			Use:   use + " <connection>",
+			Short: short,
+			Args:  cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				var c mcp.ConnectionInfo
+				if err := r.call(cmd.Context(), http.MethodPost, "/connections/"+url.PathEscape(args[0])+"/"+use, nil, &c); err != nil {
+					return err
+				}
+				cmd.Printf("connection %s is %s\n", safeText(c.Name), verb)
+				return nil
+			},
+		}
+	}
+	cmd.AddCommand(add, set("enable", "Turn a connection on; it needs a test sign-in that worked", "on"), set("disable", "Turn a connection off", "off"))
+	return cmd
+}

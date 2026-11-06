@@ -353,6 +353,10 @@ object up and checks the permission on the object's project.
 | `remove_member` | `DELETE /api/v1/members/{user}` | `member.manage`, No escalation; ends the member's sessions and personal tokens in the organization |
 | `update_organization` | `PATCH /api/v1/organization` | `org.manage` |
 | `list_audit` | `GET /api/v1/audit` | `audit.read` |
+| `list_connections` | `GET /api/v1/connections` | `connection.manage` |
+| `create_connection` | `POST /api/v1/connections` | `connection.manage`; never sets JIT or a group claim, so No escalation has nothing to cover |
+| `set_connection_enabled` | `POST /api/v1/connections/{connection}/enable`, `.../disable` | `connection.manage`; enabling needs a test sign-in that worked |
+| | `GET /auth/{connection}/login?test=1` | a session with `connection.manage` in the connection's organization |
 | `create_token` | `POST /api/v1/tokens` | own; `token.manage` for a service account's |
 | `create_invitation` | `POST /api/v1/invitations` | `member.manage` |
 | `list_invitations` | `GET /api/v1/invitations` | `member.manage` |

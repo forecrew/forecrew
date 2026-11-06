@@ -278,6 +278,10 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolRemoveMember, map[string]any{"user": "u"}, mcp.MemberRefInput{User: "u"}},
 		{mcp.ToolUpdateOrganization, map[string]any{"name": "Acme", "slug": "acme"}, mcp.UpdateOrganizationInput{Name: "Acme", Slug: "acme"}},
 		{mcp.ToolListAudit, map[string]any{"action": "member.removed", "limit": 5}, mcp.ListAuditInput{Action: "member.removed", Limit: 5}},
+		{mcp.ToolListConnections, nil, nil},
+		{mcp.ToolCreateConnection, map[string]any{"kind": "oidc", "name": "okta", "issuer": "https://acme.okta.com", "client_id": "c", "client_secret_ref": "env:FORECREW_CONN_OKTA"},
+			mcp.CreateConnectionInput{Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://acme.okta.com", ClientID: "c", ClientSecretRef: "env:FORECREW_CONN_OKTA"}},
+		{mcp.ToolSetConnection, map[string]any{"connection": "okta", "enabled": true}, mcp.SetConnectionInput{Connection: "okta", Enabled: true}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))
@@ -587,6 +591,7 @@ func TestEveryToolChecksItsPermission(t *testing.T) {
 		mcp.ToolConfigGetPlan: {"plan": "p"}, mcp.ToolConfigCancel: {"plan": "p"}, mcp.ToolAssistantSend: {"message": "m"}, mcp.ToolAssistantGet: {"conversation": "c"},
 		mcp.ToolCreateProvider: {"name": "n", "kind": "aws"}, mcp.ToolRevokeProvider: {"provider": "n"}, mcp.ToolConfirmJoin: {"join": "j", "name": "n", "facts_hash": "h"},
 		mcp.ToolSetMemberSuspended: {"user": "u", "suspended": true}, mcp.ToolRemoveMember: {"user": "u"},
+		mcp.ToolCreateConnection: {"kind": "oidc", "name": "o", "client_id": "c", "client_secret_ref": "env:X"}, mcp.ToolSetConnection: {"connection": "o", "enabled": true},
 	}
 	for name, a := range mcp.ToolAccess() {
 		if a.Permission == "" || a.Own {

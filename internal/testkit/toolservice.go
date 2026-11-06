@@ -130,6 +130,9 @@ type ToolService struct {
 	RemoveMemberFunc          func(context.Context, domain.Actor, mcp.MemberRefInput) (mcp.MemberInfo, error)
 	UpdateOrganizationFunc    func(context.Context, domain.Actor, mcp.UpdateOrganizationInput) (domain.Account, error)
 	ListAuditFunc             func(context.Context, domain.Actor, mcp.ListAuditInput) ([]mcp.AuditInfo, error)
+	ListConnectionsFunc       func(context.Context, domain.Actor, any) ([]mcp.ConnectionInfo, error)
+	CreateConnectionFunc      func(context.Context, domain.Actor, mcp.CreateConnectionInput) (mcp.ConnectionInfo, error)
+	SetConnectionFunc         func(context.Context, domain.Actor, mcp.SetConnectionInput) (mcp.ConnectionInfo, error)
 
 	mu    sync.Mutex
 	calls []ToolCall
@@ -663,4 +666,19 @@ func (s *ToolService) UpdateOrganization(ctx context.Context, by domain.Actor, i
 // ListAudit implements mcp.ToolService.
 func (s *ToolService) ListAudit(ctx context.Context, by domain.Actor, in mcp.ListAuditInput) ([]mcp.AuditInfo, error) {
 	return invoke(ctx, s, mcp.ToolListAudit, by, in, s.ListAuditFunc)
+}
+
+// ListConnections implements mcp.ToolService.
+func (s *ToolService) ListConnections(ctx context.Context, by domain.Actor) ([]mcp.ConnectionInfo, error) {
+	return invoke[any](ctx, s, mcp.ToolListConnections, by, nil, s.ListConnectionsFunc)
+}
+
+// CreateConnection implements mcp.ToolService.
+func (s *ToolService) CreateConnection(ctx context.Context, by domain.Actor, in mcp.CreateConnectionInput) (mcp.ConnectionInfo, error) {
+	return invoke(ctx, s, mcp.ToolCreateConnection, by, in, s.CreateConnectionFunc)
+}
+
+// SetConnectionEnabled implements mcp.ToolService.
+func (s *ToolService) SetConnectionEnabled(ctx context.Context, by domain.Actor, in mcp.SetConnectionInput) (mcp.ConnectionInfo, error) {
+	return invoke(ctx, s, mcp.ToolSetConnection, by, in, s.SetConnectionFunc)
 }

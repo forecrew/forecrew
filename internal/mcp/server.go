@@ -371,6 +371,24 @@ func registerOrgTools(r registrar, svc ToolService) {
 			e, err := svc.ListAudit(ctx, by, in)
 			return list("entries", e, "%d entries.", len(e)), err
 		})
+	register(r, ToolListConnections, "List the ways to sign in: the organization's own connections and the instance's, which come from the server file and are read-only. Each says whether a test sign-in worked and the redirect address the identity provider must allow.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			c, err := svc.ListConnections(ctx, by)
+			return list("connections", c, "%d connections.", len(c)), err
+		})
+	register(r, ToolCreateConnection, "Add a sign-in connection of the organization: GitHub, Google, Microsoft or generic OpenID Connect. It starts turned off. The client secret is never sent here: client_secret_ref names where forecrewd reads it. Test it with a sign-in in the browser (test_url), then turn it on.",
+		fieldDocs{"kind": "github, google, microsoft or oidc.", "name": "Lowercase name, unique in the organization.", "issuer": "https URL of the OpenID Connect issuer; empty for github and google.",
+			"client_id": "The OAuth client ID registered at the provider.", "client_secret_ref": "Where forecrewd reads the client secret: env:FORECREW_CONN_NAME or secret:conn-name. Never the secret itself."},
+		func(ctx context.Context, by domain.Actor, in CreateConnectionInput) (toolResult, error) {
+			c, err := svc.CreateConnection(ctx, by, in)
+			return result(c, "Connection %s created, turned off.", c.Name), err
+		}, "kind", "name", "client_id", "client_secret_ref")
+	register(r, ToolSetConnection, "Turn a connection of the organization on or off. Turning it on needs a test sign-in that worked (test_url in list_connections). Instance connections cannot be changed here.",
+		fieldDocs{"connection": "Connection name or UUID.", "enabled": "true to turn on, false to turn off."},
+		func(ctx context.Context, by domain.Actor, in SetConnectionInput) (toolResult, error) {
+			c, err := svc.SetConnectionEnabled(ctx, by, in)
+			return result(c, "Connection %s is %s.", c.Name, map[bool]string{true: "on", false: "off"}[c.Enabled]), err
+		}, "connection", "enabled")
 }
 
 func registerProviderTools(r registrar, svc ToolService) {

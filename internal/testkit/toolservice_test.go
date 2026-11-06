@@ -126,6 +126,9 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.RemoveMember(ctx, by, mcp.MemberRefInput{}); return err },
 		func() error { _, err := s.UpdateOrganization(ctx, by, mcp.UpdateOrganizationInput{}); return err },
 		func() error { _, err := s.ListAudit(ctx, by, mcp.ListAuditInput{}); return err },
+		func() error { _, err := s.ListConnections(ctx, by); return err },
+		func() error { _, err := s.CreateConnection(ctx, by, mcp.CreateConnectionInput{}); return err },
+		func() error { _, err := s.SetConnectionEnabled(ctx, by, mcp.SetConnectionInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

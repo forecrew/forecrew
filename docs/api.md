@@ -61,6 +61,13 @@ cookie, every request that is not `GET` or `HEAD` must be sent as
 else it is refused with `415`, and its `Origin`, when present, must be the
 public URL or the host of the request, else `403` `bad_origin`.
 
+**Testing a connection.** `GET /auth/<connection>/login?test=1` in the browser of
+an administrator (a session with `connection.manage` in the connection's
+organization) signs in through a connection of the organization that is still
+turned off. Nobody is signed in: the page shows the name and email the provider
+answered, and the test is audited as `connection.tested`, which is what allows
+turning the connection on.
+
 **Token login (legacy).** With `auth.token_login` on, `POST /api/v1/session`
 takes `{"token": "fcm_..."}` as `application/json` and keeps the token in the
 cookie. It is off by default and answers `403` `token_login_disabled`; see
@@ -184,6 +191,9 @@ which ticket to read ([contracts/tracker.md](contracts/tracker.md)).
 | `GET /api/v1/members` | `list_members` | | `200` members, by name: `user_id`, `name`, `email` (only with `member.manage`), `status` (`active`, `invited`, `suspended`), `source`, `disabled`, `roles` (the roles bound to the member directly: `role`, `scope`, `project`; those of their teams are the teams'), `teams` (slugs), `last_seen_at`, `created_at`. A project the caller cannot read is not named |
 | `POST /api/v1/members/{user}/suspend`, `.../resume` | `set_member_suspended` | `{user}` is the user UUID; body optional | `200` the member. Suspending ends their sessions and revokes their personal tokens in the organization in the same transaction; `409` for the last Owner, and for resuming a member who is not suspended |
 | `DELETE /api/v1/members/{user}` | `remove_member` | | `200` the member, removed with their teams and roles; sessions end and personal tokens are revoked in the same transaction. `409` for the last Owner |
+| `GET /api/v1/connections` | `list_connections` | | `200` the ways to sign in: the instance's (`instance: true`, from the server file, without `client_id` and `client_secret_ref`) then the organization's. Each is a connection as in [identity.md](contracts/identity.md) with `tested` (a test sign-in worked), `redirect_url` (what the provider must allow) and, for the organization's own, `test_url` |
+| `POST /api/v1/connections` | `create_connection` | `{"kind": "oidc", "name", "issuer", "client_id", "client_secret_ref"}`; the reference is `env:FORECREW_CONN_NAME` or `secret:conn-name`, never the secret | `201` the connection, turned off. `400` for a secret value, a reference outside the namespace or a bad issuer; `409` when the name is taken |
+| `POST /api/v1/connections/{connection}/enable`, `.../disable` | `set_connection_enabled` | `{connection}` is a name or UUID; body optional | `200` the connection. Enabling needs a test sign-in that worked (`409` before); an instance connection is `400` |
 | `GET /api/v1/audit?actor=&action=&subject_type=&subject=&since=&until=&limit=` | `list_audit` | all optional; `since` is RFC 3339 and included, `until` excluded; `limit` defaults to 100, at most 500 | `200` entries, newest first: the audit entry (`actor` as `user:<id>`, `credential`, `action`, `subject_type`, `subject_id`, `project_id`, `data`, `created_at`) and `actor_name` for a person or service account. `data` is recorded text: treat it as data |
 | `PATCH /api/v1/organization` | `update_organization` | `{"name", "slug"}`, both optional, one required | `200` the organization; `409` when the slug is taken |
 
