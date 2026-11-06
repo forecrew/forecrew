@@ -274,10 +274,10 @@ object up and checks the permission on the object's project.
 | `get_council` | `GET /api/v1/councils/{council}` | `project.read`; its gate and `gate_id` only with `gate.read` |
 | `add_council_constraint` | `POST /api/v1/councils/{council}/constraints` | `council.start`; `gate_id` only with `gate.read` |
 | `list_workers` | `GET /api/v1/workers` | `worker.read` |
-| `list_machines` | `GET /api/v1/machines` | `worker.read` |
+| `list_machines` | `GET /api/v1/machines` | `worker.read`; a machine's job shows only with `job.read` on its project |
 | `list_shapes` | `GET /api/v1/shapes` | `worker.read` |
 | `list_providers` | `GET /api/v1/providers` | `worker.read` |
-| `fleet_overview` | `GET /api/v1/fleet` | `worker.read` |
+| `fleet_overview` | `GET /api/v1/fleet` | `worker.read`; jobs show only with `job.read` on their project |
 | `list_pending_gates` | `GET /api/v1/gates` | `gate.read`; each gate says whether the caller may resolve it |
 | `approve` | `POST /api/v1/gates/{gate}/approve` | the gate's |
 | `request_changes` | `POST /api/v1/gates/{gate}/request-changes` | the gate's |

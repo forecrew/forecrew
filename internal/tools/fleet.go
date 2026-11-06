@@ -22,6 +22,13 @@ const (
 
 // ListMachines implements mcp.ToolService.
 func (s *Service) ListMachines(ctx context.Context, by domain.Actor, in mcp.ListMachinesInput) ([]mcp.MachineInfo, error) {
+	if err := s.allowOrg(ctx, by, domain.PermWorkerRead); err != nil {
+		return nil, err
+	}
+	visible, err := s.scope(ctx, by, domain.PermJobRead, uuid.Nil())
+	if err != nil {
+		return nil, err
+	}
 	state := domain.MachineState(in.State)
 	if in.Limit < 0 || (state != "" && !slices.Contains(domain.MachineStates(), state)) {
 		return nil, fmt.Errorf("state %q or limit %d: %w", in.State, in.Limit, mcp.ErrInvalidInput)
@@ -39,19 +46,21 @@ func (s *Service) ListMachines(ctx context.Context, by domain.Actor, in mcp.List
 	if err != nil {
 		return nil, err
 	}
-	refs := map[uuid.UUID]string{}
 	out := make([]mcp.MachineInfo, len(machines))
 	for i, m := range machines {
 		shape := shapes[m.ShapeID]
 		out[i] = mcp.MachineInfo{Machine: m, Name: fleet.MachineName(shape, m), Shape: shape.Name, Provider: providers[m.ProviderID].Name}
-		if m.JobID != uuid.Nil() {
-			out[i].JobRef, err = memo(refs, m.JobID, func() (string, error) {
-				j, err := s.cfg.Store.Jobs().Get(ctx, by.AccountID, m.JobID)
-				return j.Ref(), err
-			})
-			if err != nil {
-				return nil, err
-			}
+		if m.JobID == uuid.Nil() {
+			continue
+		}
+		j, err := s.cfg.Store.Jobs().Get(ctx, by.AccountID, m.JobID)
+		if err != nil {
+			return nil, err
+		}
+		if visible.Has(j.ProjectID) {
+			out[i].JobRef = j.Ref()
+		} else {
+			out[i].JobID = uuid.Nil() // a job of a project the caller cannot read
 		}
 	}
 	return out, nil
@@ -94,6 +103,9 @@ func (s *Service) providers(ctx context.Context, accountID uuid.UUID) ([]domain.
 
 // ListShapes implements mcp.ToolService.
 func (s *Service) ListShapes(ctx context.Context, by domain.Actor) ([]mcp.ShapeInfo, error) {
+	if err := s.allowOrg(ctx, by, domain.PermWorkerRead); err != nil {
+		return nil, err
+	}
 	shapes, providers, err := s.fleetNames(ctx, by.AccountID)
 	if err != nil {
 		return nil, err
@@ -111,6 +123,9 @@ func (s *Service) ListShapes(ctx context.Context, by domain.Actor) ([]mcp.ShapeI
 
 // ListProviders implements mcp.ToolService.
 func (s *Service) ListProviders(ctx context.Context, by domain.Actor) ([]mcp.ProviderInfo, error) {
+	if err := s.allowOrg(ctx, by, domain.PermWorkerRead); err != nil {
+		return nil, err
+	}
 	providers, err := s.providers(ctx, by.AccountID)
 	if err != nil {
 		return nil, err
@@ -130,8 +145,15 @@ func (s *Service) ListProviders(ctx context.Context, by domain.Actor) ([]mcp.Pro
 
 // FleetOverview implements mcp.ToolService.
 func (s *Service) FleetOverview(ctx context.Context, by domain.Actor) (fleet.Overview, error) {
+	if err := s.allowOrg(ctx, by, domain.PermWorkerRead); err != nil {
+		return fleet.Overview{}, err
+	}
 	if s.cfg.Fleet == nil {
 		return fleet.Overview{}, fmt.Errorf("the fleet is not configured: %w", mcp.ErrUnavailable)
 	}
-	return s.cfg.Fleet.Overview(ctx, by.AccountID)
+	visible, err := s.scope(ctx, by, domain.PermJobRead, uuid.Nil())
+	if err != nil {
+		return fleet.Overview{}, err
+	}
+	return s.cfg.Fleet.Overview(ctx, by.AccountID, visible.Has)
 }
