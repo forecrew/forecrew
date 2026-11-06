@@ -30,7 +30,8 @@ its owner is disabled or is no longer an active member. Create one with
   "invite": "fci_..."}`, all optional, and answers which connections the sign-in
   page shows: the instance's, plus those of the organization the input points
   at. `redirect` is set when the email's domain enforces one connection.
-- `GET /auth/<connection>/login` (optional `org` and `invite`) sends the browser
+- `GET /auth/<connection>/login` (optional `org`, `invite` and `redirect`, a path of
+  this site to return to) sends the browser
   to the provider; `GET /auth/<connection>/callback` finishes the sign-in and
   redirects to `/`. These are outside `/api/v1`, and a refusal is an HTML page.
 - A sign-in resolves to a user by identity, then by verified email (only

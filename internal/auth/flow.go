@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"encoding/base64"
@@ -10,6 +11,7 @@ import (
 	"html"
 	"net"
 	"net/http"
+	"strings"
 	"uuid"
 
 	"golang.org/x/oauth2"
@@ -28,6 +30,8 @@ type flow struct {
 	Verifier   string `json:"v"`
 	Org        string `json:"o,omitempty"` // slug the sign-in page was for
 	Invite     string `json:"i,omitempty"` // invitation token of the link
+	// Return is the page of this site to go back to after the sign-in.
+	Return string `json:"r,omitempty"`
 	// Test is the user who tests the connection: the flow signs nobody in
 	// and only shows what the provider says.
 	Test string `json:"t,omitempty"`
@@ -89,7 +93,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		s.refuse(w, r, refusal(reasonUnknownConnection), err)
 		return
 	}
-	f := flow{Connection: conn.ID.String(), Org: r.URL.Query().Get("org"), Invite: r.URL.Query().Get("invite"), Verifier: oauth2.GenerateVerifier()}
+	f := flow{Connection: conn.ID.String(), Org: r.URL.Query().Get("org"), Invite: r.URL.Query().Get("invite"), Return: sitePath(r.URL.Query().Get("redirect")), Verifier: oauth2.GenerateVerifier()}
 	if test {
 		tester, err := s.authorizeTest(r.Context(), r, conn)
 		if err != nil {
@@ -177,7 +181,16 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, s.SessionCookie(token))
 	noStore(w)
-	http.Redirect(w, r, "/", http.StatusFound)
+	http.Redirect(w, r, cmp.Or(f.Return, "/"), http.StatusFound)
+}
+
+// sitePath returns target when it is a path on this site, else nothing: a
+// sign-in must never send the person to another site.
+func sitePath(target string) string {
+	if strings.HasPrefix(target, "/") && !strings.HasPrefix(target, "//") && !strings.HasPrefix(target, "/\\") && len(target) <= 2048 && !strings.ContainsAny(target, "\r\n") {
+		return target
+	}
+	return ""
 }
 
 // SessionCookie is the cookie of a session token, for as long as a session

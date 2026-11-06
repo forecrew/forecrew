@@ -12,7 +12,7 @@
     "created_at": "2026-03-01T11:45:00Z",
     "ref": "GATE-12",
     "project": "app",
-    "can_resolve": false
+    "can_resolve": true
   },
   {
     "id": "018f0000-0000-7000-8000-000000000513",
@@ -33,7 +33,7 @@
     "goal_ref": "GOAL-3",
     "task_ref": "TASK-12",
     "url": "https://github.com/acme/app/issues/6",
-    "can_resolve": false
+    "can_resolve": true
   },
   {
     "id": "018f0000-0000-7000-8000-000000000514",
@@ -51,7 +51,7 @@
     "ref": "GATE-14",
     "project": "app",
     "goal_ref": "GOAL-3",
-    "can_resolve": false
+    "can_resolve": true
   },
   {
     "id": "018f0000-0000-7000-8000-000000000032",
@@ -67,7 +67,7 @@
     "ref": "GATE-11",
     "project": "docs",
     "task_ref": "TASK-14",
-    "can_resolve": false
+    "can_resolve": true
   }
 ]
 
