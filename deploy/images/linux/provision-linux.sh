@@ -13,13 +13,29 @@ apt-get update
 apt-get install -y --no-install-recommends \
 	ca-certificates curl git openssh-client unzip jq procps iproute2 kmod \
 	build-essential make pkg-config python3 python3-venv python3-pip \
-	golang-go nodejs npm
+	golang-go xz-utils
 labels="go node python git"
 if [ "$kind" = vm ]; then
 	apt-get install -y --no-install-recommends docker.io cloud-init
 	systemctl enable docker
 	labels="$labels docker"
 fi
+
+# Node: the version of the control worker image, from nodejs.org with the
+# checksum pinned here (Claude Code needs Node 22 or newer, which Debian 13 does
+# not have). Bump the version and both checksums together.
+node_version=24.22.2
+case $(uname -m) in
+x86_64 | amd64) node_arch=x64 node_sha256=48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75 ;;
+aarch64 | arm64) node_arch=arm64 node_sha256=eb187837a2230d4047161ac0be008584e16b46f726e9c9490ee35dc6b17d9ba8 ;;
+*) echo "provision-linux.sh: no Node build pinned for $(uname -m)" >&2; exit 1 ;;
+esac
+node_tar=node-v$node_version-linux-$node_arch.tar.xz
+curl -fsSL -o "/tmp/$node_tar" "https://nodejs.org/dist/v$node_version/$node_tar"
+echo "$node_sha256  /tmp/$node_tar" | sha256sum -c -
+tar -xJf "/tmp/$node_tar" -C /usr/local --strip-components=1 --no-same-owner
+rm -f "/tmp/$node_tar"
+[ "$(node --version)" = "v$node_version" ]
 
 # Agent CLIs: exact versions from package.json, every dependency pinned by
 # package-lock.json, owned by root so the agents cannot change them.
@@ -41,9 +57,10 @@ for l in $labels; do echo "$l"; done >/etc/forecrew/labels
 
 # What the image holds, as name=version lines for the manifest.
 {
-	for p in git golang-go nodejs python3; do
+	for p in git golang-go python3; do
 		echo "$p=$(dpkg-query -W -f='${Version}' "$p")"
 	done
+	echo "nodejs=$node_version"
 	for cli in claude-code codex opencode-ai; do
 		pkg=$(case $cli in claude-code) echo @anthropic-ai/claude-code ;; codex) echo @openai/codex ;; *) echo opencode-ai ;; esac)
 		echo "$cli=$(node -p "require('/opt/forecrew-cli/node_modules/$pkg/package.json').version")"
