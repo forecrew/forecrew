@@ -35,6 +35,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	path := fs.String("config", "forecrew.yaml", "path to forecrew.yaml")
+	ignoreStored := fs.Bool("ignore-stored-settings", false, "start although stored settings do not pass, leaving out the ones that fail; each is logged")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -51,15 +52,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		logger.Error("load config", "error", err)
 		return 1
 	}
-	if err := serve(ctx, cfg, logger, version); err != nil {
+	if err := serve(ctx, cfg, logger, version, app.Options{IgnoreStoredSettings: *ignoreStored}); err != nil {
 		logger.Error("forecrewd stopped", "error", err)
 		return 1
 	}
 	return 0
 }
 
-func serve(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string) error {
-	a, err := app.Open(ctx, cfg, logger, version)
+func serve(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string, opts app.Options) error {
+	a, err := app.Open(ctx, cfg, logger, version, opts)
 	if err != nil {
 		return err
 	}

@@ -313,6 +313,12 @@ forecrew-worker takes the config path from `run --config` (default `worker.yaml`
 default, and `config_get` shows a value set only by the file with origin
 `file`. forecrewd reads them at startup (`Config.WithSettings`), with the
 checks of this file, and a stored runtime or instance connection reaches only
-the variables and references the file uses, or the secret store. A stored value that no longer passes is ignored with an
-error in the log, so a bad setting never stops the server; a stored schedule of
-a playbook forecrewd cannot start falls back to the file's schedules.
+the variables and references the file uses, or the secret store.
+
+**A stored value that does not pass stops the start.** A stored value can be
+stricter than the file, so running on the file instead would quietly loosen the
+server. `forecrewd --ignore-stored-settings` starts anyway: it leaves out the
+settings that fail, keeps the others, and logs each one left out as an error
+(`STORED SETTING IGNORED`). Use it to get back in and fix the row. The one
+exception is harmless: a stored schedule of a playbook forecrewd cannot start
+falls back to the file's schedules, with an error in the log.

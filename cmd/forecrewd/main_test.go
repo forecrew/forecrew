@@ -22,6 +22,7 @@ func TestRun(t *testing.T) {
 		wantStderr string
 	}{
 		{name: "version", args: []string{"--version"}, wantCode: 0, wantStdout: "forecrewd v1.2.3\n"},
+		{name: "ignore stored settings is a flag", args: []string{"--ignore-stored-settings", "--version"}, wantCode: 0, wantStdout: "forecrewd v1.2.3\n"},
 		{name: "help", args: []string{"-h"}, wantCode: 0, wantStderr: "-config"},
 		{name: "bad flag", args: []string{"--nope"}, wantCode: 2, wantStderr: "flag provided but not defined"},
 		{name: "missing config", args: []string{"--config", missing}, wantCode: 1, wantStderr: "load config"},

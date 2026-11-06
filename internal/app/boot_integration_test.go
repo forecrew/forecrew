@@ -52,7 +52,7 @@ func TestBoot(t *testing.T) {
 	var logs bytes.Buffer
 	ctx, stop := signal.NotifyContext(t.Context(), syscall.SIGTERM)
 	defer stop()
-	a, err := Open(ctx, cfg, slog.New(slog.NewJSONHandler(&logs, nil)), "test")
+	a, err := Open(ctx, cfg, slog.New(slog.NewJSONHandler(&logs, nil)), "test", Options{})
 	must(t, err)
 	defer a.Close()
 	errc := make(chan error, 1)
