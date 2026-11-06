@@ -39,11 +39,12 @@ left out, not faked:
 - **Inbox.** A list with filter chips and the keyboard hint on the left, the
   selected decision on the right: its actions first (Open on GitHub at the
   right end), then the summary, then, on a merge approval, the pull request's
-  verification (status, blocking reasons, environments with tool versions, the
+  verification (status, blocking reasons, environment tiles with tool versions and
+  the cells with no result, the
   criteria traceability table, flaky tests and the link to the rendered report),
-  then the feedback box. A pull request with no report yet shows nothing. The
-  goal page lists the verification status of each task and opens its report on
-  demand. Reviews and assumptions are not shown (no data).
+  then the feedback box. A pull request with no report yet says "No verification report yet". The
+  goal page lists the verification status of each task (marked stale when the
+  report is of an earlier commit) and opens its report on demand.
 - **Inbox cards by kind.** A `council_decision` card shows the council's brief
   (read with `get_council`): each option with its pros, cons, cost, risk and
   votes, the dissent, the assumptions and the open questions. Approve accepts
@@ -75,14 +76,18 @@ left out, not faked:
   its council, and for a decision that belongs to a goal a link to the
   Gates section of the goal, where the decided gate is listed.
 - **Quality.** Per project (all of them, or the one the switcher picks): the
-  baseline on the default branch (the newest commit tested outside a pull
-  request) and each open pull request, from `GET /api/v1/quality`. Each has the
-  totals (passed, failed, skipped, flaky), a suites by environments grid, the
-  failing tests, and for a pull request its verification report (criteria
-  coverage, flaky tests). A result in the grid is a link to its job and says its
-  status and counts in words, so colour is never the only signal; an empty
-  environment is the worker's host and a missing result reads "no result".
-  Live updates, the trace view and coverage change are not part of it.
+  latest run outside a pull request (the baseline) and each open pull request,
+  from `GET /api/v1/quality`. A run records no branch, so the baseline is the
+  newest commit tested outside a pull request, not necessarily one on the
+  default branch; heads of open pull requests and base checks are left out. Each
+  has the totals (passed, failed, skipped, and flaky where a report says), a
+  suites by environments grid, the failing tests, and for a pull request its
+  verification report (criteria coverage, flaky tests). A result in the grid is
+  a link to its job and says its status and counts in words, so colour is never
+  the only signal; an empty environment is the worker's host, and a cell that
+  the report of the current commit waits for and has no result for reads
+  "required, no result" in the grid and in the environment tiles. Live updates,
+  the trace view and coverage change are not part of it.
 - **Job.** A back link, the title with the state badge and a line with goal,
   worker and model, the log beside the details, the cost and the tokens; Cancel
   stays at the top right. A command job shows its test counts and has no

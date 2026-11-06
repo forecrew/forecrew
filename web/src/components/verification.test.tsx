@@ -39,8 +39,21 @@ describe("verification panel", () => {
     expect(screen.getByText("Criteria: 0 of 1 covered")).toBeInTheDocument()
   })
 
+  test("shows a required cell with no result in its environment tile", () => {
+    const results = [
+      { environment: "linux", cell: { go: "1.26" }, suite: "unit", required: true, status: "missing", counts: { passed: 0, failed: 0, skipped: 0, errored: 0 } },
+      { environment: "macos", cell: {}, suite: "unit", required: false, status: "missing", counts: { passed: 0, failed: 0, skipped: 0, errored: 0 } },
+    ]
+    render(<VerificationPanel info={{ ...base, report: { ...base.report, results } } as unknown as VerificationInfo} title="PR 9" />)
+    const tiles = screen.getByRole("list", { name: "PR 9 environments" })
+    expect(within(tiles).getAllByRole("listitem")).toHaveLength(2)
+    expect(within(tiles).getByText("linux").closest("li")).toHaveTextContent("unit go=1.26: required, no result")
+    expect(within(tiles).getByText("macos").closest("li")).toHaveTextContent("unit: no result")
+    expect(within(tiles).getByText("unit go=1.26: required, no result")).toHaveClass("text-destructive")
+  })
+
   test("a report with no criteria and no environments is only a status", () => {
-    const report = { ...base.report, criteria: {}, environments: {}, blocking: [], flaky: [] }
+    const report = { ...base.report, criteria: {}, environments: {}, results: [], blocking: [], flaky: [] }
     render(<VerificationPanel info={{ ...base, report }} title="PR 9" />)
     expect(screen.queryByText(/Criteria:/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Environments:/)).not.toBeInTheDocument()

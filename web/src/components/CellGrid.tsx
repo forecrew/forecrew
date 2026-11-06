@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import type { QualityCell } from "@/api/types"
+import type { QualityCell, VerificationResult } from "@/api/types"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { TableWrap } from "@/components/TableWrap"
 import { cn } from "cn"
@@ -23,9 +23,17 @@ export function totals(cells: QualityCell[]) {
  * status and counts in words, so the colour is never the only signal. A suite
  * run in several matrix cells of an environment lists each cell.
  */
-export function CellGrid({ cells, label, flaky = {} }: { cells: QualityCell[]; label: string; flaky?: Record<string, number> }) {
-  const suites = uniq(cells.map((c) => c.suite))
-  const envs = uniq(cells.map((c) => c.environment))
+export function CellGrid({
+  cells, label, flaky = {}, missing = [],
+}: {
+  cells: QualityCell[]
+  label: string
+  flaky?: Record<string, number>
+  /** Cells a current report waits for and has no result for. */
+  missing?: VerificationResult[]
+}) {
+  const suites = uniq([...cells.map((c) => c.suite), ...missing.map((c) => c.suite)])
+  const envs = uniq([...cells.map((c) => c.environment), ...missing.map((c) => c.environment)])
   return (
     <TableWrap label={label}>
       <Table>
@@ -46,9 +54,10 @@ export function CellGrid({ cells, label, flaky = {} }: { cells: QualityCell[]; l
               <TableCell className="font-mono">{suite}</TableCell>
               {envs.map((env) => {
                 const here = cells.filter((c) => c.suite === suite && c.environment === env)
+                const gaps = missing.filter((c) => c.suite === suite && c.environment === env)
                 return (
                   <TableCell key={env} className="align-top whitespace-normal">
-                    {here.length === 0 ? (
+                    {here.length === 0 && gaps.length === 0 ? (
                       <>
                         <span aria-hidden="true">-</span>
                         <span className="sr-only">no result</span>
@@ -62,6 +71,12 @@ export function CellGrid({ cells, label, flaky = {} }: { cells: QualityCell[]; l
                               {c.status}, {countsText(c.counts)}
                               <span className="sr-only"> ({c.job})</span>
                             </Link>
+                          </li>
+                        ))}
+                        {gaps.map((g) => (
+                          <li key={cellLabel(g.cell)} className={g.required ? "font-medium text-destructive" : "text-muted-foreground"}>
+                            {cellLabel(g.cell) ? `${cellLabel(g.cell)}: ` : ""}
+                            {g.required ? "required, no result" : "no result"}
                           </li>
                         ))}
                       </ul>
