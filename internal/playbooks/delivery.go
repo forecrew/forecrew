@@ -28,6 +28,9 @@ type assessOutput struct {
 	Feedback string `json:"feedback"`
 	// GateSummary is the text of the merge_approval gate.
 	GateSummary string `json:"gate_summary"`
+	// SHA is the commit the gate is about, with.sha, when the merge gate
+	// opens: the head github.merge_pr can be held to.
+	SHA string `json:"sha,omitempty"`
 }
 
 // assess is the action goal.assess, run after the checks and the review of
@@ -121,7 +124,7 @@ func (a *actions) assess(ctx context.Context, call workflow.ActionCall) (any, er
 	if len(feedback) > 0 {
 		return assessOutput{IfReady: []int{}, Feedback: strings.Join(feedback, "\n\n")}, nil
 	}
-	return assessOutput{Done: true, IfReady: []int{pr.Number}, GateSummary: gateSummary(pr.URL, with.SHA, with.Checks, verified, review, result, rests)}, nil
+	return assessOutput{Done: true, IfReady: []int{pr.Number}, SHA: with.SHA, GateSummary: gateSummary(pr.URL, with.SHA, with.Checks, verified, review, result, rests)}, nil
 }
 
 // verificationForGate reads the report of the PR's head sha. It returns the
