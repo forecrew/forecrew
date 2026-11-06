@@ -815,6 +815,9 @@ func TestStoreTestRuns(t *testing.T) {
 		{"job", store.TestRunFilter{JobID: job.ID}, []string{"unit", "lint"}},
 		{"change", store.TestRunFilter{ChangeID: change.ID}, []string{"unit", "lint"}},
 		{"sha", store.TestRunFilter{SHA: "def456"}, []string{"unit"}},
+		{"no change", store.TestRunFilter{NoChange: true}, []string{"unit"}},
+		{"newest first", store.TestRunFilter{Newest: true}, []string{"unit", "lint", "unit"}},
+		{"newest, limited", store.TestRunFilter{Newest: true, Limit: 1}, []string{"unit"}},
 		{"project", store.TestRunFilter{ProjectID: f.project.ID, Limit: 2}, []string{"unit", "lint"}},
 	} {
 		list, err := repo.List(ctx, f.account, tt.f)

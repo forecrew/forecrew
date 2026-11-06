@@ -100,7 +100,14 @@ func (r testRunRepo) List(ctx context.Context, accountID uuid.UUID, f store.Test
 	andNot(w, "job_id = ?", f.JobID)
 	andNot(w, "change_id = ?", f.ChangeID)
 	andNot(w, "sha = ?", f.SHA)
-	return many(ctx, r.db, scanTestRun, `SELECT `+testRunCols+` FROM test_runs`+w.sql("created_at, id", f.Limit), w.args...)
+	if f.NoChange {
+		w.conds = append(w.conds, "change_id IS NULL")
+	}
+	order := "created_at, id"
+	if f.Newest {
+		order = "created_at DESC, id DESC"
+	}
+	return many(ctx, r.db, scanTestRun, `SELECT `+testRunCols+` FROM test_runs`+w.sql(order, f.Limit), w.args...)
 }
 
 func scanTestResult(row pgx.Row) (t domain.TestResult, err error) {

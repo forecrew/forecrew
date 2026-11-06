@@ -420,7 +420,12 @@ type TestRunFilter struct {
 	JobID     uuid.UUID
 	ChangeID  uuid.UUID
 	SHA       string
-	Limit     int
+	// NoChange keeps the runs that belong to no pull request.
+	NoChange bool
+	// Newest lists the newest runs first, so Limit keeps the latest ones;
+	// otherwise the oldest come first.
+	Newest bool
+	Limit  int
 }
 
 // TestRunRepo stores test runs and their results. (job, attempt, suite) is

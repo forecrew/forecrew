@@ -63,10 +63,17 @@ func (r testRunRepo) Get(_ context.Context, accountID, id uuid.UUID) (domain.Tes
 }
 
 func (r testRunRepo) List(_ context.Context, accountID uuid.UUID, f store.TestRunFilter) ([]domain.TestRun, error) {
-	runs, err := listRows(r.s, testRunsT, f.Limit, func(x domain.TestRun) bool {
+	match := func(x domain.TestRun) bool {
 		return x.AccountID == accountID && zeroOr(f.ProjectID, x.ProjectID) && zeroOr(f.JobID, x.JobID) &&
-			zeroOr(f.ChangeID, x.ChangeID) && zeroOr(f.SHA, x.SHA)
-	})
+			zeroOr(f.ChangeID, x.ChangeID) && zeroOr(f.SHA, x.SHA) && (!f.NoChange || x.ChangeID == uuid.Nil())
+	}
+	var runs []domain.TestRun
+	var err error
+	if f.Newest {
+		runs, err = read(r.s, func(d *storeData) ([]domain.TestRun, error) { return testRunsT(d).newest(f.Limit, match), nil })
+	} else {
+		runs, err = listRows(r.s, testRunsT, f.Limit, match)
+	}
 	for i := range runs {
 		runs[i] = cloneRun(runs[i])
 	}
