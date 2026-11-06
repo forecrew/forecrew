@@ -65,13 +65,16 @@ func (r jobRepo) LeaseNext(_ context.Context, accountID, workerID uuid.UUID, lab
 	err := r.s.do(func(d *storeData, now time.Time) error {
 		// Only jobs of the worker's pool. Unlike Postgres, the fake lets
 		// tests lease for a worker it does not know, as one of pool build.
-		pool := domain.PoolBuild
+		pool, fits := domain.PoolBuild, func(domain.Job) bool { return true }
 		if w, err := d.workers.find(func(w domain.Worker) bool { return w.AccountID == accountID && w.ID == workerID }); err == nil {
 			pool = w.Pool
+			if w.Ephemeral {
+				fits = d.machineFits(*w)
+			}
 		}
 		j, err := d.jobs.find(func(j domain.Job) bool {
 			return j.AccountID == accountID && j.Status == domain.JobQueued && !j.RunAfter.After(now) &&
-				j.Pool == pool && domain.MatchLabels(j.RequiredLabels(), labels)
+				j.Pool == pool && domain.MatchLabels(j.RequiredLabels(), labels) && fits(j)
 		})
 		if err != nil {
 			return store.ErrNoJob

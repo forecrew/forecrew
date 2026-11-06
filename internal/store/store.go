@@ -85,6 +85,11 @@ type Store interface {
 	Connections() ConnectionRepo
 	VerifiedDomains() VerifiedDomainRepo
 	Sessions() SessionRepo
+	CapacityProviders() CapacityProviderRepo
+	Shapes() ShapeRepo
+	Machines() MachineRepo
+	BootstrapTokens() BootstrapTokenRepo
+	FleetPolicies() FleetPolicyRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
 	// must use the ctx passed to fn.
@@ -246,7 +251,10 @@ type JobRepo interface {
 	// LeaseNext leases the oldest queued job of the account whose
 	// RequiredLabels are all among labels (case-insensitive) to the worker
 	// for leaseFor, using SELECT ... FOR UPDATE SKIP LOCKED. It returns
-	// ErrNoJob when none matches.
+	// ErrNoJob when none matches. An ephemeral worker only gets jobs its
+	// machine's shape fits, while the machine is ready or busy and below the
+	// shape's max_jobs; its caller records the lease with MachineRepo.TakeJob
+	// in the same transaction.
 	LeaseNext(ctx context.Context, accountID, workerID uuid.UUID, labels []string, leaseFor time.Duration) (domain.Job, error)
 	// ExtendLease moves the lease expiry to now+leaseFor. It returns
 	// ErrLeaseLost unless the job is running under workerID; the returned job
@@ -1011,13 +1019,12 @@ type SCIMTokenRepo interface {
 }
 
 // The fleet repositories (docs/contracts/fleet.md, data-model.md, migration
-// 00007) are contracts only until they join Store, each with the Postgres
-// implementation and the testkit fake: CapacityProviderRepo, ShapeRepo,
-// MachineRepo, BootstrapTokenRepo and FleetPolicyRepo by T58,
-// ProviderJoinCodeRepo by T59, ImageRepo by T60 and UsageRepo by T65. They
-// serve a controller that works across organizations, so the calls that find
-// a provider, machine or token by its ID or hash are unscoped; the zero
-// account ID means the instance-wide rows.
+// 00007). ProviderJoinCodeRepo, ImageRepo and UsageRepo are contracts only
+// until they join Store, each with the Postgres implementation and the
+// testkit fake: ProviderJoinCodeRepo by T59, ImageRepo by T60 and UsageRepo by
+// T65. They serve a controller that works across organizations, so the calls
+// that find a provider, machine or token by its ID or hash are unscoped; the
+// zero account ID means the instance-wide rows.
 
 // CapacityProviderRepo stores capacity providers. Name is unique per
 // organization, and among instance-wide providers.
@@ -1077,14 +1084,16 @@ type ShapeRepo interface {
 	Update(ctx context.Context, s *domain.Shape) error
 }
 
-// MachineFilter selects machines; zero fields match everything. Active
-// keeps machines whose state domain.MachineState.Counts.
+// MachineFilter selects machines, newest first; zero fields match
+// everything. Active keeps machines whose state domain.MachineState.Counts.
+// Since keeps machines not destroyed before it, what a month's budgets count.
 type MachineFilter struct {
 	AccountID  uuid.UUID
 	ProviderID uuid.UUID
 	ShapeID    uuid.UUID
 	State      domain.MachineState
 	Active     bool
+	Since      time.Time
 	Limit      int
 }
 

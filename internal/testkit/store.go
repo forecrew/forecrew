@@ -65,6 +65,11 @@ type storeData struct {
 	embeddings    map[uuid.UUID][]float32
 	identity      identityData
 	access        accessData
+	providers     table[domain.CapacityProvider]
+	shapes        table[domain.Shape]
+	machines      table[domain.Machine]
+	bootstrap     table[domain.BootstrapToken]
+	policies      table[domain.FleetPolicy]
 	// jobMCP holds the job MCP token hash of a job with the lease it was
 	// set for; a hash whose lease ended no longer matches (the Postgres
 	// trigger clears it).
@@ -111,6 +116,11 @@ func NewStore(now func() time.Time) *Store {
 		embeddings:    map[uuid.UUID][]float32{},
 		identity:      newIdentityData(),
 		access:        newAccessData(),
+		providers:     table[domain.CapacityProvider]{key: func(r domain.CapacityProvider) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		shapes:        table[domain.Shape]{key: func(r domain.Shape) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		machines:      table[domain.Machine]{key: func(r domain.Machine) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		bootstrap:     table[domain.BootstrapToken]{key: func(r domain.BootstrapToken) (uuid.UUID, uuid.UUID) { return r.AccountID, r.MachineID }},
+		policies:      table[domain.FleetPolicy]{key: func(r domain.FleetPolicy) (uuid.UUID, uuid.UUID) { return r.AccountID, r.AccountID }},
 	}}}
 }
 
@@ -142,6 +152,11 @@ func (d *storeData) clone() *storeData {
 	c.embeddings = maps.Clone(d.embeddings)
 	c.councils = d.councils.clone()
 	c.council = d.council.clone()
+	c.providers = d.providers.clone()
+	c.shapes = d.shapes.clone()
+	c.machines = d.machines.clone()
+	c.bootstrap = d.bootstrap.clone()
+	c.policies = d.policies.clone()
 	c.deliveries = maps.Clone(d.deliveries)
 	c.counters = maps.Clone(d.counters)
 	c.jobMCP = maps.Clone(d.jobMCP)
