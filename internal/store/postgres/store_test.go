@@ -157,6 +157,20 @@ func TestGoals(t *testing.T) {
 	wantErr(t, repo.UpdateStatus(ctx, f.account, g.ID, domain.GoalDraft, domain.GoalSpecReview), store.ErrConflict)
 }
 
+func TestSpecByNumber(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := f.newGoal(t)
+	f.newSpec(t, g, 1)
+	s2 := f.newSpec(t, g, 2)
+	got, err := f.st.Specs().GetByNumber(ctx, f.account, 2)
+	if err != nil || got.ID != s2.ID {
+		t.Fatalf("by number = %+v, %v", got, err)
+	}
+	_, err = f.st.Specs().GetByNumber(ctx, f.account, 99)
+	wantErr(t, err, store.ErrNotFound)
+}
+
 func TestSpecsAndTasks(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()

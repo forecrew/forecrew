@@ -95,26 +95,29 @@ const (
 	ToolAddConstraint      = "add_council_constraint"
 	ToolVerificationReport = "verification_report"
 
-	ToolProjectQuality       = "project_quality"
-	ToolListRoles            = "list_roles"
-	ToolListTeams            = "list_teams"
-	ToolCreateTeam           = "create_team"
-	ToolUpdateTeam           = "update_team"
-	ToolDeleteTeam           = "delete_team"
-	ToolListTeamMembers      = "list_team_members"
-	ToolAddTeamMember        = "add_team_member"
-	ToolRemoveTeamMember     = "remove_team_member"
-	ToolListRoleBindings     = "list_role_bindings"
-	ToolCreateRoleBinding    = "create_role_binding"
-	ToolDeleteRoleBinding    = "delete_role_binding"
-	ToolListServiceAccounts  = "list_service_accounts"
-	ToolCreateServiceAccount = "create_service_account"
-	ToolUpdateServiceAccount = "update_service_account"
-	ToolSetServiceAccount    = "set_service_account_disabled"
-	ToolListMachines         = "list_machines"
-	ToolListShapes           = "list_shapes"
-	ToolListProviders        = "list_providers"
-	ToolFleetOverview        = "fleet_overview"
+	ToolProjectQuality         = "project_quality"
+	ToolListRoles              = "list_roles"
+	ToolListTeams              = "list_teams"
+	ToolCreateTeam             = "create_team"
+	ToolUpdateTeam             = "update_team"
+	ToolDeleteTeam             = "delete_team"
+	ToolListTeamMembers        = "list_team_members"
+	ToolAddTeamMember          = "add_team_member"
+	ToolRemoveTeamMember       = "remove_team_member"
+	ToolListRoleBindings       = "list_role_bindings"
+	ToolCreateRoleBinding      = "create_role_binding"
+	ToolDeleteRoleBinding      = "delete_role_binding"
+	ToolListServiceAccounts    = "list_service_accounts"
+	ToolCreateServiceAccount   = "create_service_account"
+	ToolUpdateServiceAccount   = "update_service_account"
+	ToolSetServiceAccount      = "set_service_account_disabled"
+	ToolListMachines           = "list_machines"
+	ToolListShapes             = "list_shapes"
+	ToolListProviders          = "list_providers"
+	ToolFleetOverview          = "fleet_overview"
+	ToolListKnowledgeProposals = "list_knowledge_proposals"
+	ToolListKnowledge          = "list_knowledge"
+	ToolGetTrace               = "get_trace"
 )
 
 // Tools returns every MCP tool name.
@@ -132,6 +135,7 @@ func Tools() []string {
 		ToolListRoleBindings, ToolCreateRoleBinding, ToolDeleteRoleBinding,
 		ToolListServiceAccounts, ToolCreateServiceAccount, ToolUpdateServiceAccount, ToolSetServiceAccount,
 		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview,
+		ToolGetTrace, ToolListKnowledgeProposals, ToolListKnowledge,
 	}
 }
 
@@ -214,6 +218,12 @@ type ToolService interface {
 	// DeleteNote deletes an agent note. Curated entries are not notes: they
 	// change through their provider.
 	DeleteNote(ctx context.Context, by domain.Actor, in DeleteNoteInput) (DeleteNoteOutput, error)
+	// ListKnowledgeProposals lists the proposed changes to a project's
+	// knowledge, newest first.
+	ListKnowledgeProposals(ctx context.Context, by domain.Actor, in ListKnowledgeProposalsInput) ([]KnowledgeProposalInfo, error)
+	// ListKnowledge lists a project's knowledge sections and, without a
+	// search, their entries with their text.
+	ListKnowledge(ctx context.Context, by domain.Actor, in ListKnowledgeInput) (KnowledgeListing, error)
 	// ProposeKnowledge sends a human's change to a curated section straight
 	// to a PR. For a protected section the caller is recorded as approver.
 	ProposeKnowledge(ctx context.Context, by domain.Actor, in ProposeKnowledgeInput) (ProposeKnowledgeOutput, error)
@@ -224,6 +234,9 @@ type ToolService interface {
 	ListCouncils(ctx context.Context, by domain.Actor, in ListCouncilsInput) ([]CouncilInfo, error)
 	// GetCouncil shows a council with its contributions, gate and decision.
 	GetCouncil(ctx context.Context, by domain.Actor, in CouncilRefInput) (CouncilDetail, error)
+	// GetTrace answers why something exists: the chain from the goal to the
+	// merged change, with the assumptions that affect it.
+	GetTrace(ctx context.Context, by domain.Actor, in GetTraceInput) (Trace, error)
 	// AddCouncilConstraint adds a constraint to a running council; the next
 	// round's prompts include it. A council that ended is a conflict.
 	AddCouncilConstraint(ctx context.Context, by domain.Actor, in AddCouncilConstraintInput) (CouncilInfo, error)
@@ -910,4 +923,116 @@ type DecisionInfo struct {
 	Ref string `json:"ref"` // DEC-9
 	// Assumptions are the refs of the assumptions the decision rests on.
 	Assumptions []string `json:"assumptions"`
+}
+
+// GetTraceInput is the input of get_trace.
+type GetTraceInput struct {
+	// Ref is a goal, spec, task, council, assumption or decision ref
+	// (GOAL-3, SPEC-2, TASK-5, COUNCIL-1, A-4, DEC-9) or a change:
+	// owner/name#12 or its UUID.
+	Ref string `json:"ref"`
+}
+
+// Trace node kinds.
+const (
+	TraceGoal         = "goal"
+	TraceCouncil      = "council"
+	TraceSpec         = "spec"
+	TraceDecision     = "decision"
+	TraceTask         = "task"
+	TraceChange       = "change"
+	TraceVerification = "verification"
+	TraceMerge        = "merge"
+	TraceAssumption   = "assumption"
+)
+
+// TraceNode is one step of a trace. ID is its ref (GOAL-3, A-4,
+// owner/name#12), or kind:ref for a verification report or a merge, which
+// have none. Title, Summary and Attrs hold text agents wrote: untrusted
+// data.
+type TraceNode struct {
+	ID      string            `json:"id"`
+	Kind    string            `json:"kind"`
+	Title   string            `json:"title"`
+	Status  string            `json:"status,omitempty"`
+	Summary string            `json:"summary,omitempty"` // at most 600 characters
+	URL     string            `json:"url,omitempty"`     // GitHub, when there is a page
+	At      time.Time         `json:"at"`
+	Attrs   map[string]string `json:"attrs,omitempty"` // decision: choice, decided_by; assumption: impact, confidence, verify_by, evidence
+}
+
+// TraceEdge says that To follows from From.
+type TraceEdge struct {
+	From  string `json:"from"`
+	To    string `json:"to"`
+	Label string `json:"label,omitempty"`
+}
+
+// Trace is the chain behind a ref: goal, councils, spec revisions,
+// decisions, tasks, changes, verification reports and merge, in the order
+// they happened, with the assumptions attached to the nodes they affect.
+type Trace struct {
+	Focus string `json:"focus"` // the node of the ref asked for
+	// Goal is the ref of the goal the chain belongs to; empty for an
+	// assumption, decision or council that belongs to none, which is a
+	// chain of one node.
+	Goal  string      `json:"goal,omitempty"`
+	Nodes []TraceNode `json:"nodes"`
+	Edges []TraceEdge `json:"edges"`
+	// Untrusted holds the agent-written text of the nodes between
+	// untrusted-data markers, for the text of an MCP result.
+	Untrusted string `json:"-"`
+}
+
+// ListKnowledgeProposalsInput is the input of list_knowledge_proposals.
+type ListKnowledgeProposalsInput struct {
+	Project string                         `json:"project"`
+	Goal    string                         `json:"goal,omitempty"`   // GOAL-3 or UUID
+	Status  domain.KnowledgeProposalStatus `json:"status,omitempty"` // queued, open, accepted or rejected
+	Limit   int                            `json:"limit,omitempty"`  // default 50, at most 200
+}
+
+// KnowledgeProposalInfo is a knowledge proposal with its ref and where it is
+// reviewed. Body and Reason are written by agents or people: untrusted data.
+type KnowledgeProposalInfo struct {
+	domain.KnowledgeProposal
+	Ref     string `json:"ref"`                // KB-5
+	GoalRef string `json:"goal_ref,omitempty"` // GOAL-3
+	// URL is the pull request of a proposal to the repo provider.
+	URL string `json:"url,omitempty"`
+	// Gate is the knowledge_proposal gate a human decides, when there is one.
+	Gate *GateInfo `json:"gate,omitempty"`
+}
+
+// ListKnowledgeInput is the input of list_knowledge.
+type ListKnowledgeInput struct {
+	Project  string               `json:"project"`
+	Section  string               `json:"section,omitempty"`
+	Kind     domain.KnowledgeKind `json:"kind,omitempty"`
+	Provider string               `json:"provider,omitempty"`
+	Goal     string               `json:"goal,omitempty"`  // GOAL-3 or UUID: the project's notes and this goal's
+	Limit    int                  `json:"limit,omitempty"` // default 50, at most 200
+	// WrapUntrusted marks the text of untrusted entries as data, for MCP
+	// clients, which may be agents.
+	WrapUntrusted bool `json:"-"`
+}
+
+// KnowledgeSectionInfo is a section of a project's knowledge policy: who
+// holds it and where.
+type KnowledgeSectionInfo struct {
+	Name         string   `json:"name"`
+	Provider     string   `json:"provider,omitempty"`
+	ProviderKind string   `json:"provider_kind,omitempty"`
+	Instance     string   `json:"instance,omitempty"` // host of an external provider
+	Paths        []string `json:"paths"`              // repo globs, or the provider's locations
+	Owner        string   `json:"owner,omitempty"`    // a role, human or codeowners
+	Protected    bool     `json:"protected"`
+}
+
+// KnowledgeListing is the answer of list_knowledge: the sections and the
+// entries of the project, by section and path. Entry bodies and titles come
+// from the repo, a provider or agents: untrusted where `untrusted` says so.
+type KnowledgeListing struct {
+	Sections []KnowledgeSectionInfo `json:"sections"`
+	Entries  []knowledge.Listing    `json:"entries"`
 }

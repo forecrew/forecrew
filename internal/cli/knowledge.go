@@ -60,7 +60,9 @@ func knowledgeCommand(r *remote) *cobra.Command {
 			return nil
 		},
 	})
+	kb.AddCommand(listCommandOfKnowledge(r))
 	kb.AddCommand(proposeCommand(r))
+	kb.AddCommand(proposalsCommand(r))
 	return kb
 }
 
@@ -92,6 +94,87 @@ func proposeCommand(r *remote) *cobra.Command {
 	cmd.Flags().StringVar(&reason, "reason", "", "why the knowledge base should change")
 	cmd.Flags().StringVar(&action, "action", "", "add, edit or retire (default edit when the entry exists, else add)")
 	_ = cmd.MarkFlagRequired("reason")
+	return cmd
+}
+
+// listCommandOfKnowledge lists the sections of a project and their entries
+// without a search.
+func listCommandOfKnowledge(r *remote) *cobra.Command {
+	var section, kind, provider, goal string
+	var limit int
+	cmd := &cobra.Command{
+		Use:   "list <project>",
+		Short: "List a project's knowledge sections with their provider and location, and the entries of a section",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			q := url.Values{"project": {args[0]}}
+			for k, v := range map[string]string{"section": section, "kind": kind, "provider": provider, "goal": goal} {
+				if v != "" {
+					q.Set(k, v)
+				}
+			}
+			if limit > 0 {
+				q.Set("limit", strconv.Itoa(limit))
+			}
+			var out mcp.KnowledgeListing
+			if err := r.call(cmd.Context(), http.MethodGet, "/knowledge/entries?"+q.Encode(), nil, &out); err != nil {
+				return err
+			}
+			rows := [][]string{{"SECTION", "PROVIDER", "LOCATION", "OWNER", "PROTECTED"}}
+			for _, s := range out.Sections {
+				rows = append(rows, []string{s.Name, dash(s.Provider), safeText(dash(strings.Join(s.Paths, ","))), dash(s.Owner), strconv.FormatBool(s.Protected)})
+			}
+			table(cmd.OutOrStdout(), rows)
+			if len(out.Entries) > 0 {
+				items := make([]knowledge.Result, len(out.Entries))
+				for i, e := range out.Entries {
+					items[i] = e.Result
+				}
+				printKnowledge(cmd.OutOrStdout(), items)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&section, "section", "", "list the entries of this section")
+	cmd.Flags().StringVar(&kind, "kind", "", "only this kind: entry, note or generated")
+	cmd.Flags().StringVar(&provider, "provider", "", "only this provider, for example repo or internal")
+	cmd.Flags().StringVar(&goal, "goal", "", "with --kind note: the project's notes and the notes of a goal (GOAL-3)")
+	cmd.Flags().IntVar(&limit, "limit", 0, "maximum entries (default 50, at most 200)")
+	return cmd
+}
+
+// proposalsCommand lists the proposed changes to a project's knowledge.
+func proposalsCommand(r *remote) *cobra.Command {
+	var goal, status string
+	cmd := &cobra.Command{
+		Use:   "proposals <project>",
+		Short: "List the changes proposed to a project's knowledge, newest first",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			q := url.Values{"project": {args[0]}}
+			for k, v := range map[string]string{"goal": goal, "status": status} {
+				if v != "" {
+					q.Set(k, v)
+				}
+			}
+			var items []mcp.KnowledgeProposalInfo
+			if err := r.call(cmd.Context(), http.MethodGet, "/knowledge/proposals?"+q.Encode(), nil, &items); err != nil {
+				return err
+			}
+			rows := [][]string{{"REF", "STATUS", "ACTION", "SECTION", "PATH", "BY", "REVIEW"}}
+			for _, it := range items {
+				review := it.URL
+				if it.Gate != nil {
+					review = it.Gate.Ref
+				}
+				rows = append(rows, []string{it.Ref, string(it.Status), string(it.Action), it.Section, safeText(it.Path), safeText(it.ProposedBy), dash(review)})
+			}
+			table(cmd.OutOrStdout(), rows)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&goal, "goal", "", "only the proposals of a goal (GOAL-3)")
+	cmd.Flags().StringVar(&status, "status", "", "queued, open, accepted or rejected")
 	return cmd
 }
 

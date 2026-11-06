@@ -122,3 +122,24 @@ func TestSearchWithEmbeddings(t *testing.T) {
 		t.Errorf("Put with a failing embedder: %v", err)
 	}
 }
+
+func TestSearchListHasBodies(t *testing.T) {
+	e := newNotesEnv(t)
+	ctx := t.Context()
+	files := map[string]string{"knowledge/vision/why.md": "The queue is the product.\n"}
+	maps.Copy(files, sourceFiles)
+	e.commit(t, "h1", files)
+	_, err := e.syncer.Sync(ctx, e.project, "", "h1")
+	must(t, err)
+	// Without a query text it lists by section and path.
+	ls, err := e.search.List(ctx, knowledge.Query{Project: e.project, Sections: []string{"vision"}, Limit: 10})
+	must(t, err)
+	if len(ls) != 1 || ls[0].Body != "The queue is the product.\n" || ls[0].Section != "vision" {
+		t.Fatalf("list = %+v", ls)
+	}
+	// Run keeps returning results only.
+	rs, err := e.search.Run(ctx, knowledge.Query{Project: e.project, Sections: []string{"vision"}})
+	if err != nil || len(rs) != 1 || rs[0].ID != ls[0].ID {
+		t.Fatalf("run = %+v, %v", rs, err)
+	}
+}

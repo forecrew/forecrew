@@ -272,8 +272,11 @@ object up and checks the permission on the object's project.
 | `list_assumptions` | `GET /api/v1/assumptions` | `project.read` |
 | `resolve_assumption` | `POST /api/v1/assumptions/{assumption}/resolve` | `assumption.resolve` |
 | `list_decisions` | `GET /api/v1/decisions` | `project.read` |
+| `get_trace` | `GET /api/v1/trace` | `project.read` |
 | `search_knowledge` | `GET /api/v1/knowledge` | `project.read` |
 | `delete_note` | `DELETE /api/v1/knowledge/notes/{note}` | `knowledge.propose`, the closest write permission: deleting an agent note curates knowledge, and the catalog has no narrower one |
+| `list_knowledge` | `GET /api/v1/knowledge/entries` | `project.read` |
+| `list_knowledge_proposals` | `GET /api/v1/knowledge/proposals` | `project.read` |
 | `propose_knowledge` | `POST /api/v1/knowledge/proposals` | `knowledge.propose` and, for a protected section, `gate.approve.knowledge_protected`, because the caller is recorded as its approver; so a service account proposes to unprotected sections only |
 | `start_council` | `POST /api/v1/councils` | `council.start` |
 | `list_councils` | `GET /api/v1/councils` | `project.read`; `gate_id` only with `gate.read` |

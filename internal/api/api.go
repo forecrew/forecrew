@@ -110,6 +110,7 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/councils/{council}/constraints", serve(s, http.StatusOK, constraintInput, t.AddCouncilConstraint))
 	route("GET /api/v1/changes/{change}/verification", serve(s, http.StatusOK, verificationInput, t.VerificationReport))
 	route("GET /api/v1/quality", serve(s, http.StatusOK, qualityInput, t.ProjectQuality))
+	route("GET /api/v1/trace", serve(s, http.StatusOK, traceInput, t.GetTrace))
 	if s.cfg.Artifacts != nil {
 		route("GET /api/v1/artifacts/{id}", http.HandlerFunc(s.artifact))
 	}
@@ -119,6 +120,8 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/decisions", serve(s, http.StatusOK, listDecisionsInput, list(t.ListDecisions)))
 	route("GET /api/v1/knowledge", serve(s, http.StatusOK, searchKnowledgeInput, list(t.SearchKnowledge)))
 	route("DELETE /api/v1/knowledge/notes/{note}", serve(s, http.StatusOK, noteInput, t.DeleteNote))
+	route("GET /api/v1/knowledge/entries", serve(s, http.StatusOK, listKnowledgeInput, t.ListKnowledge))
+	route("GET /api/v1/knowledge/proposals", serve(s, http.StatusOK, listKnowledgeProposalsInput, list(t.ListKnowledgeProposals)))
 	route("POST /api/v1/knowledge/proposals", serve(s, http.StatusCreated, bodyOf[mcp.ProposeKnowledgeInput], t.ProposeKnowledge))
 
 	route("GET /api/v1/workers", serve(s, http.StatusOK, noInput, list(noArg(t.ListWorkers))))
@@ -205,6 +208,8 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/knowledge":                       tool[mcp.ToolSearchKnowledge],
 		"DELETE /api/v1/knowledge/notes/{note}":       tool[mcp.ToolDeleteNote],
 		"POST /api/v1/knowledge/proposals":            tool[mcp.ToolProposeKnowledge],
+		"GET /api/v1/knowledge/proposals":             tool[mcp.ToolListKnowledgeProposals],
+		"GET /api/v1/knowledge/entries":               tool[mcp.ToolListKnowledge],
 		"POST /api/v1/councils":                       tool[mcp.ToolStartCouncil],
 		"GET /api/v1/councils":                        tool[mcp.ToolListCouncils],
 		"GET /api/v1/councils/{council}":              tool[mcp.ToolGetCouncil],
@@ -212,6 +217,7 @@ func RouteAccess() map[string]mcp.Access {
 
 		"GET /api/v1/changes/{change}/verification": tool[mcp.ToolVerificationReport],
 		"GET /api/v1/quality":                       tool[mcp.ToolProjectQuality],
+		"GET /api/v1/trace":                         tool[mcp.ToolGetTrace],
 
 		"GET /api/v1/workers":   tool[mcp.ToolListWorkers],
 		"GET /api/v1/machines":  tool[mcp.ToolListMachines],
@@ -416,6 +422,23 @@ func setServiceAccountInput(disabled bool) func(*http.Request) (mcp.SetServiceAc
 	return func(r *http.Request) (mcp.SetServiceAccountInput, error) {
 		return mcp.SetServiceAccountInput{ServiceAccount: r.PathValue("service_account"), Disabled: disabled}, nil
 	}
+}
+
+func traceInput(r *http.Request) (mcp.GetTraceInput, error) {
+	return mcp.GetTraceInput{Ref: r.URL.Query().Get("ref")}, nil
+}
+
+func listKnowledgeProposalsInput(r *http.Request) (mcp.ListKnowledgeProposalsInput, error) {
+	q := r.URL.Query()
+	limit, err := intParam(q.Get("limit"), "limit")
+	return mcp.ListKnowledgeProposalsInput{Project: q.Get("project"), Goal: q.Get("goal"), Status: domain.KnowledgeProposalStatus(q.Get("status")), Limit: int(limit)}, err
+}
+
+func listKnowledgeInput(r *http.Request) (mcp.ListKnowledgeInput, error) {
+	q := r.URL.Query()
+	limit, err := intParam(q.Get("limit"), "limit")
+	return mcp.ListKnowledgeInput{Project: q.Get("project"), Section: q.Get("section"), Kind: domain.KnowledgeKind(q.Get("kind")),
+		Provider: q.Get("provider"), Goal: q.Get("goal"), Limit: int(limit)}, err
 }
 
 func noteInput(r *http.Request) (mcp.DeleteNoteInput, error) {

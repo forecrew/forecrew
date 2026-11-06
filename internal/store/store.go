@@ -153,6 +153,7 @@ type GoalRepo interface {
 type SpecRepo interface {
 	Create(ctx context.Context, s *domain.Spec) error
 	Get(ctx context.Context, accountID, id uuid.UUID) (domain.Spec, error)
+	GetByNumber(ctx context.Context, accountID uuid.UUID, number int64) (domain.Spec, error)
 	// ListByGoal returns every revision of a goal's spec, oldest first.
 	ListByGoal(ctx context.Context, accountID, goalID uuid.UUID) ([]domain.Spec, error)
 	// Latest returns the highest revision of a goal's spec.

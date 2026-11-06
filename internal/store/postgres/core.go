@@ -281,6 +281,10 @@ func (r specRepo) Get(ctx context.Context, accountID, id uuid.UUID) (domain.Spec
 	return one(ctx, r.db, scanSpec, `SELECT `+specCols+` FROM specs WHERE account_id = $1 AND id = $2`, accountID, id)
 }
 
+func (r specRepo) GetByNumber(ctx context.Context, accountID uuid.UUID, number int64) (domain.Spec, error) {
+	return one(ctx, r.db, scanSpec, `SELECT `+specCols+` FROM specs WHERE account_id = $1 AND number = $2`, accountID, number)
+}
+
 func (r specRepo) ListByGoal(ctx context.Context, accountID, goalID uuid.UUID) ([]domain.Spec, error) {
 	return many(ctx, r.db, scanSpec, `SELECT `+specCols+` FROM specs WHERE account_id = $1 AND goal_id = $2 ORDER BY revision`, accountID, goalID)
 }
