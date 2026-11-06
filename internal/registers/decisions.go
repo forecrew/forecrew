@@ -176,7 +176,7 @@ func (s *Service) createDecision(ctx context.Context, tx store.Store, by domain.
 		return d, err
 	}
 	err = tx.Audit().Append(ctx, &domain.AuditEntry{
-		AccountID: d.AccountID, ProjectID: d.ProjectID, Actor: by.String(), Action: "decision.recorded",
+		AccountID: d.AccountID, ProjectID: d.ProjectID, Actor: by.String(), Credential: by.Credential.String(), Action: "decision.recorded",
 		SubjectType: "decision", SubjectID: d.ID, Data: raw,
 	})
 	if err != nil {

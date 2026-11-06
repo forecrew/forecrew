@@ -355,7 +355,7 @@ func (s *Service) audit(ctx context.Context, tx store.Store, by domain.Actor, a 
 		return err
 	}
 	err = tx.Audit().Append(ctx, &domain.AuditEntry{
-		AccountID: a.AccountID, ProjectID: a.ProjectID, Actor: by.String(), Action: action,
+		AccountID: a.AccountID, ProjectID: a.ProjectID, Actor: by.String(), Credential: by.Credential.String(), Action: action,
 		SubjectType: "assumption", SubjectID: a.ID, Data: raw,
 	})
 	if err != nil {
