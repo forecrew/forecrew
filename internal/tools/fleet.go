@@ -2,12 +2,16 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
+	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/mcp"
@@ -188,4 +192,244 @@ func (s *Service) FleetOverview(ctx context.Context, by domain.Actor) (fleet.Ove
 		return fleet.Overview{}, err
 	}
 	return s.cfg.Fleet.Overview(ctx, by.AccountID, visible.Has)
+}
+
+// instanceAdmin reports whether by is a person flagged as an instance admin:
+// instance-wide rows are theirs alone (fleet.md, Permissions).
+func (s *Service) instanceAdmin(ctx context.Context, by domain.Actor) (bool, error) {
+	id, ok := by.SubjectID()
+	if !ok || by.Kind != domain.ActorUser {
+		return false, nil
+	}
+	u, err := s.cfg.Store.Users().Get(ctx, id)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	return u.InstanceAdmin, err
+}
+
+// providerOrg says whose a new provider or join code is, and that by may make
+// it: by's own organization, or an instance-wide one for an instance admin.
+// Another organization looks like one that does not exist.
+func (s *Service) providerOrg(ctx context.Context, by domain.Actor, slug string) (uuid.UUID, error) {
+	if err := s.allowOrg(ctx, by, domain.PermWorkerManage); err != nil {
+		return uuid.Nil(), err
+	}
+	id, err := fleet.ProviderOrganization(ctx, s.cfg.Store, slug)
+	if err != nil {
+		return uuid.Nil(), notFound(err, "organization "+slug)
+	}
+	switch id {
+	case by.AccountID:
+		return id, nil
+	case uuid.Nil():
+		admin, err := s.instanceAdmin(ctx, by)
+		if err != nil {
+			return uuid.Nil(), err
+		}
+		if !admin {
+			return uuid.Nil(), fmt.Errorf("an instance-wide location needs an instance admin; name your organization with org: %w", authz.ErrDenied)
+		}
+		return id, nil
+	}
+	return uuid.Nil(), fmt.Errorf("organization %s: %w", slug, mcp.ErrNotFound)
+}
+
+// mayManage reports whether by may manage rows of account, by's organization
+// or, for an instance admin, the instance-wide ones.
+func (s *Service) mayManage(ctx context.Context, by domain.Actor, account uuid.UUID) (bool, error) {
+	if account == by.AccountID {
+		return true, nil
+	}
+	if account != uuid.Nil() {
+		return false, nil
+	}
+	return s.instanceAdmin(ctx, by)
+}
+
+// CreateProvider implements mcp.ToolService.
+func (s *Service) CreateProvider(ctx context.Context, by domain.Actor, in mcp.CreateProviderInput) (mcp.CreateProviderOutput, error) {
+	var out mcp.CreateProviderOutput
+	account, err := s.providerOrg(ctx, by, in.Org)
+	if err != nil {
+		return out, err
+	}
+	token, hash := fleet.NewProviderToken()
+	p := domain.CapacityProvider{AccountID: account, Name: in.Name, Kind: in.Kind, Mode: domain.ProviderModeAgent, Status: domain.ProviderActive, TokenHash: hash}
+	if err := s.addProvider(ctx, by, &p, "provider.created", nil); err != nil {
+		return out, err
+	}
+	return mcp.CreateProviderOutput{Provider: providerInfo(p, s.cfg.Now()), Token: token}, nil
+}
+
+// addProvider stores p and audits it, with then in the same transaction.
+func (s *Service) addProvider(ctx context.Context, by domain.Actor, p *domain.CapacityProvider, action string, then func(ctx context.Context, tx store.Store) error) error {
+	if err := p.Validate(); err != nil {
+		return fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
+	}
+	err := s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		if err := tx.CapacityProviders().Create(ctx, p); err != nil {
+			return err
+		}
+		if then != nil {
+			if err := then(ctx, tx); err != nil {
+				return err
+			}
+		}
+		return s.audit(ctx, tx, by, uuid.Nil(), action, "provider", p.ID, map[string]any{"name": p.Name, "kind": p.Kind, "ownership": p.Ownership(), "host": p.Capabilities.Host})
+	})
+	if errors.Is(err, store.ErrConflict) {
+		return fmt.Errorf("a provider named %s exists already, or the code changed: %w", p.Name, mcp.ErrConflict)
+	}
+	return err
+}
+
+func providerInfo(p domain.CapacityProvider, now time.Time) mcp.ProviderInfo {
+	return mcp.ProviderInfo{CapacityProvider: p, Online: p.Online(now), Ownership: p.Ownership()}
+}
+
+// RevokeProvider implements mcp.ToolService. Another organization's provider
+// is not found.
+func (s *Service) RevokeProvider(ctx context.Context, by domain.Actor, in mcp.ProviderRefInput) (mcp.ProviderInfo, error) {
+	if err := s.allowOrg(ctx, by, domain.PermWorkerManage); err != nil {
+		return mcp.ProviderInfo{}, err
+	}
+	all, err := s.providers(ctx, by.AccountID)
+	if err != nil {
+		return mcp.ProviderInfo{}, err
+	}
+	admin, err := s.instanceAdmin(ctx, by)
+	if err != nil {
+		return mcp.ProviderInfo{}, err
+	}
+	all = slices.DeleteFunc(all, func(p domain.CapacityProvider) bool { return p.AccountID != by.AccountID && !admin })
+	p, err := store.FindActive(in.Provider, all, func(p domain.CapacityProvider) (uuid.UUID, string, bool) {
+		return p.ID, p.Name, p.Status == domain.ProviderRevoked
+	})
+	if err != nil {
+		return mcp.ProviderInfo{}, fmt.Errorf("provider %s: %w", in.Provider, mcp.ErrNotFound)
+	}
+	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		if err := tx.CapacityProviders().SetStatus(ctx, p.ID, domain.ProviderRevoked); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, by, uuid.Nil(), "provider.revoked", "provider", p.ID, map[string]any{"name": p.Name})
+	})
+	if err != nil {
+		return mcp.ProviderInfo{}, err
+	}
+	p.Status = domain.ProviderRevoked
+	return providerInfo(p, s.cfg.Now()), nil
+}
+
+// CreateJoinCode implements mcp.ToolService.
+func (s *Service) CreateJoinCode(ctx context.Context, by domain.Actor, in mcp.CreateJoinCodeInput) (mcp.CreateJoinCodeOutput, error) {
+	var out mcp.CreateJoinCodeOutput
+	account, err := s.providerOrg(ctx, by, in.Org)
+	if err != nil {
+		return out, err
+	}
+	ttl := domain.JoinCodeTTL
+	if in.Cloud {
+		ttl = domain.JoinCodeCloudTTL
+	}
+	code, hash := fleet.NewJoinCode()
+	c := domain.ProviderJoinCode{AccountID: account, CodeHash: hash, ExpiresAt: s.cfg.Now().Add(ttl)}
+	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		if err := tx.ProviderJoinCodes().Create(ctx, &c); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, by, uuid.Nil(), "provider.join_code_created", "join_code", c.ID, map[string]any{"expires_at": c.ExpiresAt})
+	})
+	if err != nil {
+		return out, err
+	}
+	return mcp.CreateJoinCodeOutput{JoinCode: s.joinInfo(c, false), Code: code}, nil
+}
+
+// joinInfo says where a code stands. Nothing of a code's secrets leaves: its
+// hashes have no JSON name.
+func (s *Service) joinInfo(c domain.ProviderJoinCode, wrap bool) mcp.JoinCodeInfo {
+	info := mcp.JoinCodeInfo{ProviderJoinCode: c}
+	switch {
+	case !c.UsedAt.IsZero():
+		info.Status = mcp.JoinUsed
+	case !c.Usable(s.cfg.Now()):
+		info.Status = mcp.JoinExpired
+	case c.ProviderID != uuid.Nil():
+		info.Status = mcp.JoinConfirmed
+	case len(c.ClaimHash) != 0:
+		info.Status = mcp.JoinClaimed
+	default:
+		info.Status = mcp.JoinWaiting
+	}
+	if wrap && len(c.ClaimHash) != 0 {
+		raw, _ := json.Marshal(c.Facts) // plain strings and numbers
+		info.Facts = domain.ProviderCapabilities{}
+		info.Untrusted = contextpack.WrapUntrusted("fleet agent "+c.ID.String(), string(raw))
+	}
+	return info
+}
+
+// ListJoinCodes implements mcp.ToolService: the organization's codes, and the
+// instance-wide ones for an instance admin.
+func (s *Service) ListJoinCodes(ctx context.Context, by domain.Actor, in mcp.ListJoinCodesInput) ([]mcp.JoinCodeInfo, error) {
+	if err := s.allowOrg(ctx, by, domain.PermWorkerManage); err != nil {
+		return nil, err
+	}
+	codes, err := s.cfg.Store.ProviderJoinCodes().List(ctx, by.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	admin, err := s.instanceAdmin(ctx, by)
+	if err != nil {
+		return nil, err
+	}
+	if admin {
+		wide, err := s.cfg.Store.ProviderJoinCodes().List(ctx, uuid.Nil())
+		if err != nil {
+			return nil, err
+		}
+		codes = append(codes, wide...)
+	}
+	out := make([]mcp.JoinCodeInfo, 0, len(codes))
+	for _, c := range codes {
+		out = append(out, s.joinInfo(c, in.WrapUntrusted))
+	}
+	return out, nil
+}
+
+// ConfirmJoin implements mcp.ToolService. The provider has the code's
+// organization, the kind and facts the agent reported and no token: the agent
+// gets that at its next call.
+func (s *Service) ConfirmJoin(ctx context.Context, by domain.Actor, in mcp.ConfirmJoinInput) (mcp.ProviderInfo, error) {
+	if err := s.allowOrg(ctx, by, domain.PermWorkerManage); err != nil {
+		return mcp.ProviderInfo{}, err
+	}
+	id, err := uuid.Parse(in.Join)
+	if err != nil {
+		return mcp.ProviderInfo{}, fmt.Errorf("join %q is not a UUID: %w", in.Join, mcp.ErrInvalidInput)
+	}
+	c, err := s.cfg.Store.ProviderJoinCodes().Get(ctx, id)
+	if err != nil {
+		return mcp.ProviderInfo{}, notFound(err, "join code "+in.Join)
+	}
+	ok, err := s.mayManage(ctx, by, c.AccountID)
+	if err != nil {
+		return mcp.ProviderInfo{}, err
+	}
+	if !ok {
+		return mcp.ProviderInfo{}, fmt.Errorf("join code %s: %w", in.Join, mcp.ErrNotFound)
+	}
+	if status := s.joinInfo(c, false).Status; status != mcp.JoinClaimed {
+		return mcp.ProviderInfo{}, fmt.Errorf("join code %s is %s; only one an agent claimed can be confirmed: %w", in.Join, status, mcp.ErrConflict)
+	}
+	p := domain.CapacityProvider{AccountID: c.AccountID, Name: in.Name, Kind: c.Kind, Mode: domain.ProviderModeAgent, Status: domain.ProviderPending, Capabilities: c.Facts}
+	err = s.addProvider(ctx, by, &p, "provider.confirmed", func(ctx context.Context, tx store.Store) error {
+		return tx.ProviderJoinCodes().Confirm(ctx, c.ID, p.ID)
+	})
+	if err != nil {
+		return mcp.ProviderInfo{}, err
+	}
+	return providerInfo(p, s.cfg.Now()), nil
 }

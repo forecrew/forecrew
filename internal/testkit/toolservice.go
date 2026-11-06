@@ -71,6 +71,11 @@ type ToolService struct {
 	ListKnowledgeFunc          func(context.Context, domain.Actor, mcp.ListKnowledgeInput) (mcp.KnowledgeListing, error)
 	ListKnowledgeProposalsFunc func(context.Context, domain.Actor, mcp.ListKnowledgeProposalsInput) ([]mcp.KnowledgeProposalInfo, error)
 	ListImagesFunc             func(context.Context, domain.Actor, mcp.ListImagesInput) ([]mcp.ImageInfo, error)
+	CreateProviderFunc         func(context.Context, domain.Actor, mcp.CreateProviderInput) (mcp.CreateProviderOutput, error)
+	RevokeProviderFunc         func(context.Context, domain.Actor, mcp.ProviderRefInput) (mcp.ProviderInfo, error)
+	CreateJoinCodeFunc         func(context.Context, domain.Actor, mcp.CreateJoinCodeInput) (mcp.CreateJoinCodeOutput, error)
+	ListJoinCodesFunc          func(context.Context, domain.Actor, mcp.ListJoinCodesInput) ([]mcp.JoinCodeInfo, error)
+	ConfirmJoinFunc            func(context.Context, domain.Actor, mcp.ConfirmJoinInput) (mcp.ProviderInfo, error)
 
 	ListAssumptionsFunc   func(context.Context, domain.Actor, mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error)
 	ResolveAssumptionFunc func(context.Context, domain.Actor, mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error)
@@ -164,6 +169,31 @@ func (s *ToolService) ListMachines(ctx context.Context, by domain.Actor, in mcp.
 // ListShapes implements mcp.ToolService.
 func (s *ToolService) ListShapes(ctx context.Context, by domain.Actor) ([]mcp.ShapeInfo, error) {
 	return invoke[any](ctx, s, mcp.ToolListShapes, by, nil, s.ListShapesFunc)
+}
+
+// CreateProvider implements mcp.ToolService.
+func (s *ToolService) CreateProvider(ctx context.Context, by domain.Actor, in mcp.CreateProviderInput) (mcp.CreateProviderOutput, error) {
+	return invoke(ctx, s, mcp.ToolCreateProvider, by, in, s.CreateProviderFunc)
+}
+
+// RevokeProvider implements mcp.ToolService.
+func (s *ToolService) RevokeProvider(ctx context.Context, by domain.Actor, in mcp.ProviderRefInput) (mcp.ProviderInfo, error) {
+	return invoke(ctx, s, mcp.ToolRevokeProvider, by, in, s.RevokeProviderFunc)
+}
+
+// CreateJoinCode implements mcp.ToolService.
+func (s *ToolService) CreateJoinCode(ctx context.Context, by domain.Actor, in mcp.CreateJoinCodeInput) (mcp.CreateJoinCodeOutput, error) {
+	return invoke(ctx, s, mcp.ToolCreateJoinCode, by, in, s.CreateJoinCodeFunc)
+}
+
+// ListJoinCodes implements mcp.ToolService.
+func (s *ToolService) ListJoinCodes(ctx context.Context, by domain.Actor, in mcp.ListJoinCodesInput) ([]mcp.JoinCodeInfo, error) {
+	return invoke(ctx, s, mcp.ToolListJoinCodes, by, in, s.ListJoinCodesFunc)
+}
+
+// ConfirmJoin implements mcp.ToolService.
+func (s *ToolService) ConfirmJoin(ctx context.Context, by domain.Actor, in mcp.ConfirmJoinInput) (mcp.ProviderInfo, error) {
+	return invoke(ctx, s, mcp.ToolConfirmJoin, by, in, s.ConfirmJoinFunc)
 }
 
 // ListProviders implements mcp.ToolService.

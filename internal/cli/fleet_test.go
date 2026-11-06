@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/fleet"
@@ -71,5 +72,59 @@ func TestFleetCommand(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("%q not in %q", want, out)
 		}
+	}
+}
+
+func TestProviderCommands(t *testing.T) {
+	e := newRemoteEnv(t)
+	joinID := uuid.New()
+	e.svc.CreateProviderFunc = func(_ context.Context, _ domain.Actor, in mcp.CreateProviderInput) (mcp.CreateProviderOutput, error) {
+		return mcp.CreateProviderOutput{Provider: mcp.ProviderInfo{CapacityProvider: domain.CapacityProvider{Name: in.Name}}, Token: "fcp_new"}, nil
+	}
+	out, errOut, code := e.run(t, "provider", "add", "home", "--kind", "microvm", "--org", "acme")
+	if code != 0 || strings.TrimSpace(out) != "fcp_new" || !strings.Contains(errOut, "not stored") {
+		t.Fatalf("add: code %d, %q, %q", code, out, errOut)
+	}
+	if in := e.svc.Calls()[0].Input.(mcp.CreateProviderInput); in.Name != "home" || in.Kind != domain.ProviderMicroVM || in.Org != "acme" {
+		t.Errorf("add input = %+v", in)
+	}
+	if _, _, code := e.run(t, "provider", "add", "home"); code == 0 {
+		t.Error("add without --kind passed")
+	}
+
+	e.svc.RevokeProviderFunc = func(_ context.Context, _ domain.Actor, in mcp.ProviderRefInput) (mcp.ProviderInfo, error) {
+		return mcp.ProviderInfo{CapacityProvider: domain.CapacityProvider{Name: in.Provider}}, nil
+	}
+	if out, _, code := e.run(t, "provider", "revoke", "home"); code != 0 || !strings.Contains(out, "home revoked") {
+		t.Errorf("revoke: code %d, %q", code, out)
+	}
+
+	e.svc.CreateJoinCodeFunc = func(_ context.Context, _ domain.Actor, in mcp.CreateJoinCodeInput) (mcp.CreateJoinCodeOutput, error) {
+		if !in.Cloud {
+			t.Errorf("join input = %+v", in)
+		}
+		return mcp.CreateJoinCodeOutput{Code: "K7PQ-2M4X"}, nil
+	}
+	if out, errOut, code := e.run(t, "provider", "join", "--cloud"); code != 0 || strings.TrimSpace(out) != "K7PQ-2M4X" || !strings.Contains(errOut, "provider joins") {
+		t.Errorf("join: code %d, %q, %q", code, out, errOut)
+	}
+
+	e.svc.ListJoinCodesFunc = func(context.Context, domain.Actor, mcp.ListJoinCodesInput) ([]mcp.JoinCodeInfo, error) {
+		c := domain.ProviderJoinCode{ID: joinID, Kind: domain.ProviderMicroVM, Facts: domain.ProviderCapabilities{Host: "nas\x1b[2J", MaxCPU: 16}}
+		return []mcp.JoinCodeInfo{{ProviderJoinCode: c, Status: mcp.JoinClaimed}}, nil
+	}
+	out, _, code = e.run(t, "provider", "joins")
+	if code != 0 || !strings.Contains(out, joinID.String()) || !strings.Contains(out, "claimed") || !strings.Contains(out, "nas") || strings.Contains(out, "\x1b") {
+		t.Errorf("joins: code %d, %q", code, out)
+	}
+
+	e.svc.ConfirmJoinFunc = func(_ context.Context, _ domain.Actor, in mcp.ConfirmJoinInput) (mcp.ProviderInfo, error) {
+		if in.Join != joinID.String() {
+			t.Errorf("confirm input = %+v", in)
+		}
+		return mcp.ProviderInfo{CapacityProvider: domain.CapacityProvider{Name: in.Name}}, nil
+	}
+	if out, _, code := e.run(t, "provider", "confirm", joinID.String(), "--name", "home"); code != 0 || !strings.Contains(out, "provider home created") {
+		t.Errorf("confirm: code %d, %q", code, out)
 	}
 }
