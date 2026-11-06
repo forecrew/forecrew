@@ -147,23 +147,27 @@ steps:
                   human: '${steps.done.output.feedback}'
                   review: '${steps.assess.output.feedback}'
               # A developer that stops with an escalation leaves no PR text
-              # (pr_text comments the reason on the task's issue): the loop
-              # runs out of its round and a needs_you gate asks a human;
-              # approving it reruns the developer, without the lock on the
-              # tests for that round (a developer that believes a locked test
-              # is wrong escalates; the lock is back in the next round). A
-              # developer that changes a locked test fails its job instead,
-              # which also opens a needs_you gate, and the rerun keeps the lock.
+              # (pr_text comments the reason on the task's issue). A needs_you
+              # gate then shows the escalation and says what approving does:
+              # the developer runs again without the lock on the tests for
+              # that round, with the human's note; the lock is back in the
+              # next round. Rejecting stops the run. A developer that changes
+              # a locked test fails its job instead, which opens a needs_you
+              # gate of its own, and the rerun keeps the lock.
               - id: dev
                 type: loop
-                max_iterations: 1
+                max_iterations: 2
                 until: steps.pr_text.output.ready
                 on_failure: escalate
                 steps:
                   - id: locked
                     type: action
                     action: tests.locked_paths
-                    with: {task_id: '${item.id}', iteration: '${iteration}'}
+                    with:
+                      task_id: '${item.id}'
+                      iteration: '${iteration}'
+                      decision: '${steps.lock_ask.output.0.lock_gate.output.decision}'
+                      feedback: '${steps.lock_ask.output.0.lock_gate.output.feedback}'
                   - id: develop
                     type: job
                     with:
@@ -173,13 +177,25 @@ steps:
                       needs: '${item.needs}'
                       task_id: '${item.id}'
                       spec_id: '${steps.render.output.spec_id}'
-                      feedback: '${steps.round.output.feedback}'
+                      feedback: "${steps.round.output.feedback}\n\n${steps.locked.output.feedback}"
                       locked_paths: '${steps.locked.output.locked_paths}'
                     on_failure: escalate
                   - id: pr_text
                     type: action
                     action: goal.pr_text
                     with: {task_id: '${item.id}', result: '${steps.develop.output}'}
+                  - id: lock_ask
+                    type: foreach
+                    items: '${steps.pr_text.output.if_escalated}'
+                    steps:
+                      - id: lock_gate
+                        type: gate
+                        with:
+                          kind: needs_you
+                          title: 'The developer of ${steps.round.output.ref} stopped and asks for a decision'
+                          summary: "The developer escalated:\n\n${item}\n\nThe tests written from the spec are locked: the developer may not change them. If it believes one is wrong, this is about it.\n\nApprove to run the developer again WITHOUT the lock on those tests for one round; your note goes to the developer, and the merge gate will say that a round ran without the lock. Reject to stop the run."
+                          subject_repo: '${inputs.repo}'
+                          task_id: '${steps.round.output.task_id}'
               - id: pr
                 type: action
                 action: github.open_or_update_pr

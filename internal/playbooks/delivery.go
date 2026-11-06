@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"uuid"
@@ -12,6 +13,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/registers"
+	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -102,8 +104,14 @@ func (a *actions) assess(ctx context.Context, call workflow.ActionCall) (any, er
 		feedback = append(feedback, reworkFeedback(pr.URL, with.Checks, review))
 	}
 	var verified string
+	var unlocked bool
 	if with.RequireVerification {
 		var failed string
+		if with.TaskID != uuid.Nil() {
+			if unlocked, err = a.ranUnlocked(ctx, call.Run, with.TaskID); err != nil {
+				return nil, err
+			}
+		}
 		if verified, failed, err = a.verificationForGate(ctx, call.Run.AccountID, with.Repo, pr, with.SHA); err != nil {
 			return nil, err
 		}
@@ -124,7 +132,31 @@ func (a *actions) assess(ctx context.Context, call workflow.ActionCall) (any, er
 	if len(feedback) > 0 {
 		return assessOutput{IfReady: []int{}, Feedback: strings.Join(feedback, "\n\n")}, nil
 	}
-	return assessOutput{Done: true, IfReady: []int{pr.Number}, SHA: with.SHA, GateSummary: gateSummary(pr.URL, with.SHA, with.Checks, verified, review, result, rests)}, nil
+	return assessOutput{Done: true, IfReady: []int{pr.Number}, SHA: with.SHA, GateSummary: gateSummary(pr.URL, with.SHA, with.Checks, verified, unlocked, review, result, rests)}, nil
+}
+
+// ranUnlocked reports whether a developer job of the task ran without the
+// lock on the tests of the test engineer, which a human approved: some of its
+// jobs have no locked paths although the test engineer wrote files.
+func (a *actions) ranUnlocked(ctx context.Context, run domain.WorkflowRun, taskID uuid.UUID) (bool, error) {
+	t, err := a.loadTask(ctx, run, taskID)
+	if err != nil {
+		return false, err
+	}
+	docs, err := a.testerOutputs(ctx, t)
+	if err != nil {
+		return false, err
+	}
+	if !slices.ContainsFunc(docs, func(d testMapDoc) bool { return len(d.Files) > 0 || len(d.Tests) > 0 }) {
+		return false, nil
+	}
+	jobs, err := a.Store.Jobs().List(ctx, t.AccountID, store.JobFilter{TaskID: t.ID})
+	if err != nil {
+		return false, fmt.Errorf("list jobs of %s: %w", t.Ref(), err)
+	}
+	return slices.ContainsFunc(jobs, func(j domain.Job) bool {
+		return j.Role == "developer" && j.Status != domain.JobCanceled && len(j.Spec.LockedPaths) == 0
+	}), nil
 }
 
 // verificationForGate reads the report of the PR's head sha. It returns the
@@ -297,7 +329,7 @@ func commentLine(c reviewComment) string {
 }
 
 // gateSummary is the text of the merge_approval gate.
-func gateSummary(prURL, sha, checks, verified string, review reviewDoc, result devResult, rests []domain.Assumption) string {
+func gateSummary(prURL, sha, checks, verified string, unlocked bool, review reviewDoc, result devResult, rests []domain.Assumption) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s at %s.\n\n", prURL, sha)
 	if checks == "none" {
@@ -307,6 +339,9 @@ func gateSummary(prURL, sha, checks, verified string, review reviewDoc, result d
 	}
 	if verified != "" {
 		fmt.Fprintf(&b, "Verification: %s\n", verified)
+	}
+	if unlocked {
+		b.WriteString("Tests: a round of the developer ran without the lock on the tests written from the spec, as a human approved. Read the diff of the test files.\n")
 	}
 	fmt.Fprintf(&b, "Review: %s. %s\n", strings.ReplaceAll(review.Verdict, "_", " "), strings.TrimSpace(review.Summary))
 	var checked []string

@@ -87,20 +87,28 @@ func literalGlobs(files []string) ([]string, error) {
 // lockedPathsOutput is the output of tests.locked_paths.
 type lockedPathsOutput struct {
 	LockedPaths []string `json:"locked_paths"`
+	// Feedback is the human's note of the gate that lifted the lock, for the
+	// round it was lifted for; empty otherwise.
+	Feedback string `json:"feedback"`
 }
 
 // testsLockedPaths is the action tests.locked_paths. It returns, as
 // locked_paths, every file the successful test-engineer jobs of the task
 // created or changed or put a test in (a retry reports only what it changed
-// itself, so all jobs count), or [] when there is none. A with.iteration above
-// 1 is the rerun of a developer round that a human approved after the
-// developer escalated about a locked test: that round runs without the lock,
-// so the action returns [].
+// itself, so all jobs count), or [] when there is none.
+//
+// with.iteration is the round of the loop around the developer's job, and
+// with.decision and with.feedback the decision and the note of the gate the
+// round before opened when the developer escalated. Only a later round after
+// an approved gate runs without the lock: locked_paths is [] and feedback is
+// the human's note. Any other decision, and the first round, keep the lock
+// (the note still reaches the developer in a later round).
 func (a *actions) testsLockedPaths(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
-		TaskID uuid.UUID `json:"task_id"`
-		// Iteration is the round of the loop around the developer's job.
-		Iteration int `json:"iteration"`
+		TaskID    uuid.UUID         `json:"task_id"`
+		Iteration int               `json:"iteration"`
+		Decision  domain.GateStatus `json:"decision"`
+		Feedback  string            `json:"feedback"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -109,8 +117,12 @@ func (a *actions) testsLockedPaths(ctx context.Context, call workflow.ActionCall
 	if err != nil {
 		return nil, err
 	}
+	note := ""
 	if with.Iteration > 1 {
-		return lockedPathsOutput{LockedPaths: []string{}}, nil
+		note = strings.TrimSpace(with.Feedback)
+		if with.Decision == domain.GateApproved {
+			return lockedPathsOutput{LockedPaths: []string{}, Feedback: note}, nil
+		}
 	}
 	docs, err := a.testerOutputs(ctx, t)
 	if err != nil {
@@ -127,5 +139,5 @@ func (a *actions) testsLockedPaths(ctx context.Context, call workflow.ActionCall
 	if err != nil {
 		return nil, err
 	}
-	return lockedPathsOutput{LockedPaths: globs}, nil
+	return lockedPathsOutput{LockedPaths: globs, Feedback: note}, nil
 }

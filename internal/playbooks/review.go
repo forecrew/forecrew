@@ -7,6 +7,7 @@ import (
 	"strings"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/workflow"
@@ -55,6 +56,10 @@ type prTextOutput struct {
 	Ready bool   `json:"ready"`
 	Title string `json:"title"`
 	Body  string `json:"body"`
+	// IfEscalated holds the developer's escalation, quoted as untrusted
+	// data, when there is one, and nothing otherwise: a foreach over it opens
+	// a gate that shows it.
+	IfEscalated []string `json:"if_escalated"`
 }
 
 // prText is the action goal.pr_text. It writes the title and body of the PR
@@ -88,7 +93,7 @@ func (a *actions) prText(ctx context.Context, call workflow.ActionCall) (any, er
 		if err := a.commentOnce(ctx, project.Repo, t.IssueNumber, marker, marker+"\nThe developer stopped and needs a human: "+strings.TrimSpace(*e)); err != nil {
 			return nil, err
 		}
-		return prTextOutput{}, nil
+		return prTextOutput{IfEscalated: []string{contextpack.WrapUntrusted("developer escalation", strings.TrimSpace(*e))}}, nil
 	}
 	var b strings.Builder
 	b.WriteString(strings.TrimSpace(result.Summary) + "\n")
@@ -106,7 +111,7 @@ func (a *actions) prText(ctx context.Context, call workflow.ActionCall) (any, er
 	if t.IssueNumber > 0 {
 		fmt.Fprintf(&b, "\nCloses #%d\n", t.IssueNumber)
 	}
-	return prTextOutput{Ready: true, Title: t.Ref() + ": " + t.Title, Body: b.String()}, nil
+	return prTextOutput{Ready: true, Title: t.Ref() + ": " + t.Title, Body: b.String(), IfEscalated: []string{}}, nil
 }
 
 // reviewMarker marks a review posted by the action call with key.

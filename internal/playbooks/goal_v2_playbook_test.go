@@ -345,8 +345,9 @@ func TestGoalV2DeveloperTouchesALockedTest(t *testing.T) {
 }
 
 // A developer that believes a locked test is wrong escalates: a needs_you
-// gate asks, and approving it reruns the developer without the lock for that
-// round only.
+// gate shows the escalation and says what approving does. Approving reruns the
+// developer without the lock for that round, with the human's note; the next
+// round has the lock again, and the merge gate says a round ran without it.
 func TestGoalV2ApprovedEscalationLiftsTheLockForOneRound(t *testing.T) {
 	r := startGoalV2(t)
 	r.designed(t)
@@ -357,21 +358,51 @@ func TestGoalV2ApprovedEscalationLiftsTheLockForOneRound(t *testing.T) {
 	if !slices.Equal(first.LockedPaths, lockedFiles) {
 		t.Errorf("first request = %+v", first)
 	}
-	r.pendingGate(t, domain.GateNeedsYou)
-	r.decide(t, domain.GateNeedsYou, mcp.ToolApprove, "")
+	g := r.pendingGate(t, domain.GateNeedsYou)
+	for _, want := range []string{"pkg::TestAC1Charge expects cents", "<untrusted-data", "WITHOUT the lock", "for one round", "your note goes to the developer"} {
+		if !strings.Contains(g.Summary, want) {
+			t.Errorf("the gate lacks %q:\n%s", want, g.Summary)
+		}
+	}
+	if !strings.Contains(g.Title, "TASK-1") || g.TaskID != r.tasks(t)[0].ID {
+		t.Errorf("gate = %+v", g)
+	}
+	r.decide(t, domain.GateNeedsYou, mcp.ToolApprove, "Go with dollars, change the test.")
 	rerun := r.answer(t, build(0, 1, 1, "dev/2/develop"), developerOutput("Fixed the test."), 1, v2sha(1))
-	if len(rerun.LockedPaths) != 0 {
-		t.Errorf("the approved rerun still has the lock: %+v", rerun)
+	if len(rerun.LockedPaths) != 0 || !strings.Contains(rerun.Feedback, "Go with dollars, change the test.") {
+		t.Errorf("the approved rerun = %+v", rerun)
 	}
 	r.prAt(t, 1)
 	r.checks(t, 0, 1, 1, domain.ChecksSuccess)
 	r.verify(t, windowsFails, 1, failedRun)
 	r.review(t, 0, 1, 1, approveReview())
 
-	// The next round has the lock back.
+	// The next round has the lock back, and not the old note.
 	dev := r.push(t, 2)
-	if !slices.Equal(dev.LockedPaths, lockedFiles) {
+	if !slices.Equal(dev.LockedPaths, lockedFiles) || strings.Contains(dev.Feedback, "Go with dollars") {
 		t.Errorf("round 2 request = %+v", dev)
+	}
+	r.prAt(t, 2)
+	r.checks(t, 0, 1, 2, domain.ChecksSuccess)
+	r.verify(t, passedRun, 0, nil)
+	r.review(t, 0, 1, 2, approveReview())
+	if g := r.pendingGate(t, domain.GateMergeApproval); !strings.Contains(g.Summary, "a round of the developer ran without the lock") {
+		t.Errorf("merge gate:\n%s", g.Summary)
+	}
+}
+
+// Rejecting the gate of an escalation stops the run.
+func TestGoalV2RejectedEscalationStopsTheRun(t *testing.T) {
+	r := startGoalV2(t)
+	r.designed(t)
+	r.waitStep(t, build(0, 1, 1, "dev/1/develop"), domain.StepWaiting)
+	stuck := developerOutput("Stopped.")
+	stuck["escalation"] = "The tests are wrong."
+	r.answer(t, build(0, 1, 1, "dev/1/develop"), stuck, 1)
+	r.decide(t, domain.GateNeedsYou, mcp.ToolReject, "No.")
+	r.waitRun(t, domain.RunCanceled)
+	if r.startedStep(t, build(0, 1, 1, "dev/2/")) {
+		t.Error("the developer ran again")
 	}
 }
 
