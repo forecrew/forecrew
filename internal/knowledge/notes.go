@@ -111,7 +111,7 @@ func (n *Notes) Write(ctx context.Context, j domain.Job, in NoteInput) (domain.K
 // commit.
 func (n *Notes) store(ctx context.Context, j domain.Job, e *domain.KnowledgeEntry) error {
 	err := n.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
-		if err := tx.Jobs().LockLeased(ctx, j.AccountID, j.ID, j.WorkerID); err != nil {
+		if err := tx.Jobs().LockLeased(ctx, j.AccountID, j.ID, j.WorkerID, j.Attempts); err != nil {
 			return err
 		}
 		return tx.Knowledge().Upsert(ctx, e)

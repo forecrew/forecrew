@@ -120,6 +120,15 @@ func attachEvidence(ctx context.Context, c *Call, raw json.RawMessage) (Result, 
 		return Result{}, err
 	}
 	c.Config.Attachments.Add(c.Job, Attachment{Path: in.Path, Name: name})
+	// The lease may have ended since the event: a mark the worker will not
+	// collect (its heartbeat is answered lease_lost) is not a success.
+	cur, err := c.Config.Store.Jobs().Get(ctx, c.Job.AccountID, c.Job.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	if cur.Status != domain.JobRunning || cur.WorkerID != c.Job.WorkerID || cur.Attempts != c.Job.Attempts {
+		return Result{}, errLeaseEnded()
+	}
 	return Result{Data: map[string]string{"name": name, "status": "pending"}}, nil
 }
 
@@ -194,6 +203,11 @@ func (c *Call) openQuestion(ctx context.Context, question string) (domain.Gate, 
 		Title:       j.Ref() + " asks: " + contextpack.FirstLine(question, 120),
 		Summary:     j.Ref() + " (" + j.Role + ") asks a question while it runs. It is agent text: answer by approving with your answer as feedback, or reject to decline.\n\n" + contextpack.WrapUntrusted("ask_human "+j.Ref(), question),
 		SubjectRepo: j.Spec.Repo, GoalID: j.GoalID, TaskID: j.TaskID, JobID: j.ID,
+		// A question of a job whose lease has ended is refused; the lock
+		// comes before the gate counter.
+		Before: func(ctx context.Context, tx store.Store) error {
+			return tx.Jobs().LockLeased(ctx, j.AccountID, j.ID, j.WorkerID, j.Attempts)
+		},
 	}
 	if j.TaskID != uuid.Nil() {
 		t, err := c.Config.Store.Tasks().Get(ctx, j.AccountID, j.TaskID)
@@ -209,7 +223,11 @@ func (c *Call) openQuestion(ctx context.Context, question string) (domain.Gate, 
 		}
 		req.SubjectRepo = p.Repo
 	}
-	return c.Config.Gates.Open(ctx, req)
+	g, err := c.Config.Gates.Open(ctx, req)
+	if errors.Is(err, store.ErrLeaseLost) {
+		return domain.Gate{}, errLeaseEnded()
+	}
+	return g, err
 }
 
 // waitForAnswer waits until the gate is resolved, the timeout passes (the

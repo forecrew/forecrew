@@ -169,13 +169,19 @@ func (r jobRepo) Cancel(_ context.Context, accountID, jobID uuid.UUID) (domain.J
 	return out, err
 }
 
-func (r jobRepo) LockLeased(_ context.Context, accountID, jobID, workerID uuid.UUID) error {
+func (r jobRepo) LockLeased(_ context.Context, accountID, jobID, workerID uuid.UUID, attempts int) error {
 	return r.s.do(func(d *storeData, _ time.Time) error {
 		j, err := d.jobs.get(accountID, jobID)
 		if err != nil {
 			return err
 		}
-		return checkLease(j, workerID)
+		if err := checkLease(j, workerID); err != nil {
+			return err
+		}
+		if j.Attempts != attempts {
+			return fmt.Errorf("job %s is in attempt %d: %w", j.Ref(), j.Attempts, store.ErrLeaseLost)
+		}
+		return nil
 	})
 }
 

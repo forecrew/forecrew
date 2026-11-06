@@ -267,10 +267,11 @@ type JobRepo interface {
 	Cancel(ctx context.Context, accountID, jobID uuid.UUID) (domain.Job, error)
 	// LockLeased locks the job row, the lock Complete, Cancel and the lease
 	// reaper take, until the transaction ends, and returns ErrLeaseLost
-	// unless the job is running under workerID. A write made after it in the
+	// unless the job is running under workerID in attempt attempts (Job.Attempts
+	// when it was leased). A write made after it in the
 	// same transaction either commits before the job finishes or is refused.
 	// Call it inside WithTx; outside one the lock ends with the call.
-	LockLeased(ctx context.Context, accountID, jobID, workerID uuid.UUID) error
+	LockLeased(ctx context.Context, accountID, jobID, workerID uuid.UUID, attempts int) error
 	// SetJobMCPTokenHash stores the SHA-256 of the job MCP token of the
 	// job's current lease (docs/contracts/job-mcp.md): the job must be
 	// running under workerID in attempt attempts (Job.Attempts when it was
