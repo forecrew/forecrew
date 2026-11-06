@@ -237,3 +237,14 @@ func TestASlotWaitsForTheRunBefore(t *testing.T) {
 	must(t, e.st.WorkflowRuns().Update(t.Context(), &run))
 	e.tick(t, s, 1)
 }
+
+// An active run in another project does not hold a slot back.
+func TestAnActiveRunElsewhereDoesNotHoldASlotBack(t *testing.T) {
+	e := newEnv(t)
+	other := e.newProject(t, e.account, "other", "acme/other", domain.ProjectOnboarded)
+	busy := domain.WorkflowRun{AccountID: e.account.ID, ProjectID: other.ID, Playbook: "curate", Status: domain.RunRunning}
+	must(t, e.st.WorkflowRuns().Create(t.Context(), &busy))
+	same := domain.WorkflowRun{AccountID: e.account.ID, ProjectID: e.project.ID, Playbook: "goal", Status: domain.RunRunning}
+	must(t, e.st.WorkflowRuns().Create(t.Context(), &same)) // another playbook of the same project
+	e.tick(t, e.scheduler(t, weekly), 1)
+}
