@@ -471,3 +471,64 @@ func TestCompleteTellsTheRegistrar(t *testing.T) {
 		t.Fatalf("registrar saw %+v", reg.jobs)
 	}
 }
+
+type failureRegistrar struct {
+	fakeRegistrar
+	failed []domain.Job
+	err    error
+}
+
+func (r *failureRegistrar) JobFailed(_ context.Context, _ store.Store, j domain.Job) error {
+	r.failed = append(r.failed, j)
+	return r.err
+}
+
+// A FailureRegistrar hears of a job that failed, was canceled or ran out of
+// attempts, and not of one that is queued again or succeeded.
+func TestFailureRegistrarHearsOfEveryEnd(t *testing.T) {
+	f := newFixture(t)
+	reg := &failureRegistrar{}
+	plain := &fakeRegistrar{}
+	f.svc.WithRegistrar(plain).WithRegistrar(reg)
+	ctx := t.Context()
+
+	failed := schemaJob(t, f)
+	f.lease(t)
+	_, err := f.svc.Complete(ctx, f.worker, failed.ID, store.JobResult{Status: domain.JobFailed, Error: "boom"})
+	must(t, err)
+
+	retry := schemaJob(t, f)
+	f.lease(t)
+	_, err = f.svc.Release(ctx, f.worker, retry.ID, "clone failed")
+	must(t, err)
+	if len(reg.failed) != 1 {
+		t.Fatalf("a job that is queued again was reported: %+v", reg.failed)
+	}
+	for range domain.DefaultMaxAttempts - 1 {
+		f.clock.Advance(time.Hour)
+		f.lease(t)
+		_, err = f.svc.Release(ctx, f.worker, retry.ID, "clone failed")
+		must(t, err)
+	}
+	if len(reg.failed) != 2 || reg.failed[1].ID != retry.ID {
+		t.Fatalf("a job out of attempts was not reported: %+v", reg.failed)
+	}
+
+	queued := f.newJob(t)
+	_, err = f.svc.Cancel(ctx, domain.Actor{AccountID: f.account, Kind: domain.ActorUser, Name: "me"}, f.account, queued.ID)
+	must(t, err)
+	if len(reg.failed) != 3 || reg.failed[0].ID != failed.ID || reg.failed[2].Status != domain.JobCanceled {
+		t.Fatalf("failed = %+v", reg.failed)
+	}
+
+	reg.err = errors.New("settle down")
+	doomed := schemaJob(t, f)
+	f.lease(t)
+	_, err = f.svc.Complete(ctx, f.worker, doomed.ID, store.JobResult{Status: domain.JobFailed, Error: "boom"})
+	if err == nil || !strings.Contains(err.Error(), "settle down") {
+		t.Fatalf("err = %v", err)
+	}
+	if cur, _ := f.st.Jobs().Get(ctx, f.account, doomed.ID); cur.Status != domain.JobRunning {
+		t.Fatalf("job = %s, want running: the end rolled back", cur.Status)
+	}
+}

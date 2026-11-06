@@ -42,6 +42,15 @@ type Registrar interface {
 	JobCompleted(ctx context.Context, tx store.Store, j domain.Job) error
 }
 
+// FailureRegistrar is a Registrar that is also told of a job that ends
+// without succeeding (failed or canceled), so what it kept for the job
+// does not wait for ever.
+type FailureRegistrar interface {
+	// JobFailed is called in the transaction that fails or cancels j, with
+	// the job as stored. An error fails the transaction.
+	JobFailed(ctx context.Context, tx store.Store, j domain.Job) error
+}
+
 // Service runs the job lifecycle. Safe for concurrent use.
 type Service struct {
 	st     store.Store
@@ -79,7 +88,8 @@ func (s *Service) WithWaiting(w Waiting) *Service {
 	return s
 }
 
-// WithRegistrar makes the service also tell r of every job that succeeds.
+// WithRegistrar makes the service also tell r of every job that succeeds,
+// and of every job that fails or is canceled when r is a FailureRegistrar.
 func (s *Service) WithRegistrar(r Registrar) *Service {
 	s.regs = append(s.regs, r)
 	return s
@@ -175,6 +185,9 @@ func (s *Service) Cancel(ctx context.Context, by domain.Actor, accountID, jobID 
 		if j, err = tx.Jobs().Cancel(ctx, accountID, jobID); err != nil {
 			return err
 		}
+		if err := s.failedJob(ctx, tx, j); err != nil {
+			return err
+		}
 		return audit(ctx, tx, by, j, "job.canceled", nil)
 	})
 	if err != nil {
@@ -211,12 +224,8 @@ func (s *Service) Complete(ctx context.Context, w domain.Worker, jobID uuid.UUID
 		if err = storeTestRuns(ctx, tx, cur, j, r.TestRuns); err != nil {
 			return err
 		}
-		if j.Status == domain.JobSucceeded {
-			for _, r := range s.regs {
-				if err := r.JobCompleted(ctx, tx, j); err != nil {
-					return err
-				}
-			}
+		if err := s.ended(ctx, tx, j); err != nil {
+			return err
 		}
 		return audit(ctx, tx, workerActor(w), j, "job.completed", map[string]any{
 			"status": j.Status, "head_sha": j.HeadSHA, "error": j.Error, "usage": j.Usage, "cost_usd": j.CostUSD,
@@ -230,6 +239,36 @@ func (s *Service) Complete(ctx context.Context, w domain.Worker, jobID uuid.UUID
 	}
 	s.logger.InfoContext(ctx, "job completed", append(logAttrs(j), "status", j.Status, "worker_id", w.ID)...)
 	return j, s.completed(ctx, j)
+}
+
+// ended tells the registrars of j, which Ack finished: JobCompleted of a job
+// that succeeded, JobFailed of one that did not.
+func (s *Service) ended(ctx context.Context, tx store.Store, j domain.Job) error {
+	if j.Status != domain.JobSucceeded {
+		return s.failedJob(ctx, tx, j)
+	}
+	for _, r := range s.regs {
+		if err := r.JobCompleted(ctx, tx, j); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// failedJob tells the FailureRegistrars of j when it ended without success;
+// a job that is queued again is not over.
+func (s *Service) failedJob(ctx context.Context, tx store.Store, j domain.Job) error {
+	if !j.Status.Terminal() || j.Status == domain.JobSucceeded {
+		return nil
+	}
+	for _, r := range s.regs {
+		if f, ok := r.(FailureRegistrar); ok {
+			if err := f.JobFailed(ctx, tx, j); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // storeTestRuns stores the test runs a command job reported, linked to the
@@ -293,6 +332,9 @@ func (s *Service) Release(ctx context.Context, w domain.Worker, jobID uuid.UUID,
 	err := s.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		var err error
 		if j, err = queue.New(tx.Jobs()).Nack(ctx, w.AccountID, jobID, w.ID, reason); err != nil {
+			return err
+		}
+		if err := s.failedJob(ctx, tx, j); err != nil {
 			return err
 		}
 		return audit(ctx, tx, workerActor(w), j, "job.released", map[string]any{"status": j.Status, "reason": reason, "attempts": j.Attempts})

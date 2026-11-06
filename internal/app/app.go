@@ -134,6 +134,8 @@ type App struct {
 
 // Open connects to Postgres, migrates the schema and builds the App from
 // cfg. Call Close when done.
+var _ jobs.FailureRegistrar = (*proposals.Service)(nil)
+
 func Open(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string) (*App, error) {
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -225,7 +227,7 @@ func New(d Deps) (*App, error) {
 	notes := &knowledge.Notes{Store: st, Index: index, Now: d.Now, Log: log}
 	search := &knowledge.Search{Index: index, Policy: syncer.Policy}
 	kbProposals := &proposals.Service{Store: st, Policy: syncer.Policy, GitHub: d.GitHub, Gates: gateSvc, Roles: catalog, Log: log}
-	jobSvc.WithRegistrar(kbProposals)
+	jobSvc.WithRegistrar(kbProposals) // also hears of failed and canceled jobs (jobs.FailureRegistrar)
 	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0).WithKnowledge(search).WithAssumptions(regs), jobs: jobSvc, knowledge: syncer, councils: seats, models: cfg.ModelOn}
 
 	actions := workflow.Actions{}

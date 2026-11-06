@@ -703,3 +703,39 @@ func TestGateProtected(t *testing.T) {
 		t.Errorf("without a policy = %v, %v", got, err)
 	}
 }
+
+// A job that fails or is canceled never sends its standalone proposals: they
+// are rejected with it, in its transaction. Its per_goal proposals wait for
+// the learn step.
+func TestJobFailedRejectsStandaloneProposals(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	goal := testkit.Goal(t, e.st, e.account, e.project.ID, "g")
+	alone := e.job(t, "architect", uuid.Nil())
+	k1, err := e.svc.Submit(ctx, alone, add("architecture", "docs/adr/2.md"))
+	must(t, err)
+	inGoal := e.job(t, "architect", goal.ID)
+	waits, err := e.svc.Submit(ctx, inGoal, add("architecture", "docs/adr/3.md"))
+	must(t, err)
+	protected, err := e.svc.Submit(ctx, inGoal, proposals.Input{Section: "vision", Path: "knowledge/vision/v.md", Action: domain.KnowledgeAdd, Body: "x", Reason: "y"})
+	must(t, err)
+
+	alone.Status, inGoal.Status = domain.JobFailed, domain.JobCanceled
+	must(t, e.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		return errors.Join(e.svc.JobFailed(ctx, tx, alone), e.svc.JobFailed(ctx, tx, inGoal))
+	}))
+	// Again: nothing is left to reject.
+	must(t, e.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error { return e.svc.JobFailed(ctx, tx, alone) }))
+	if got := e.get(t, k1); got.Status != domain.KnowledgeRejected {
+		t.Errorf("standalone proposal of a failed job = %s", got.Status)
+	}
+	if got := e.get(t, protected); got.Status != domain.KnowledgeRejected {
+		t.Errorf("protected proposal of a canceled job = %s", got.Status)
+	}
+	if got := e.get(t, waits); got.Status != domain.KnowledgeQueued {
+		t.Errorf("per_goal proposal = %s, want queued for the learn step", got.Status)
+	}
+	if n := len(e.audited(t, "knowledge.proposal_rejected")); n != 2 {
+		t.Errorf("%d rejections audited, want 2", n)
+	}
+}
