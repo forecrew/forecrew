@@ -67,6 +67,12 @@
           "checks": "failure"
         }
       ],
+      "verification": {
+        "status": "failed",
+        "sha": "abc1234",
+        "current": true,
+        "url": "/api/v1/changes/TASK-12/verification"
+      },
       "iterations": 2,
       "cost_usd": 0.75
     },

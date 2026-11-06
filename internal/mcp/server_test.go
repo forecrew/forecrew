@@ -229,6 +229,7 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolCreateServiceAccount, map[string]any{"name": "ci", "description": "CI"}, mcp.CreateServiceAccountInput{Name: "ci", Description: "CI"}},
 		{mcp.ToolUpdateServiceAccount, map[string]any{"service_account": "ci", "name": "build"}, mcp.UpdateServiceAccountInput{ServiceAccount: "ci", Name: "build"}},
 		{mcp.ToolSetServiceAccount, map[string]any{"service_account": "ci", "disabled": true}, mcp.SetServiceAccountInput{ServiceAccount: "ci", Disabled: true}},
+		{mcp.ToolProjectQuality, map[string]any{"project": "app"}, mcp.ProjectInput{Project: "app"}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))
@@ -528,6 +529,7 @@ func TestEveryToolChecksItsPermission(t *testing.T) {
 		mcp.ToolOnboardProject: {"repo": "o/r"}, mcp.ToolResolveAssumption: {"assumption": "a", "status": "accepted"}, mcp.ToolListAssumptions: {"project": "p"},
 		mcp.ToolGetProject: {"project": "p"}, mcp.ToolDeleteNote: {"note": "n"}, mcp.ToolDispatchJob: {"project": "p", "role": "r"},
 		mcp.ToolGetGoal: {"goal": "g"}, mcp.ToolListDecisions: {"project": "p"}, mcp.ToolVerificationReport: {"change": "9", "project": "p"},
+		mcp.ToolProjectQuality:   {"project": "p"},
 		mcp.ToolProposeKnowledge: {"project": "p", "section": "s", "path": "x", "body": "b", "reason": "r"},
 	}
 	for name, a := range mcp.ToolAccess() {

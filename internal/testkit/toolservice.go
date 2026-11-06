@@ -52,6 +52,7 @@ type ToolService struct {
 	GetCouncilFunc         func(context.Context, domain.Actor, mcp.CouncilRefInput) (mcp.CouncilDetail, error)
 	AddConstraintFunc      func(context.Context, domain.Actor, mcp.AddCouncilConstraintInput) (mcp.CouncilInfo, error)
 	VerificationReportFunc func(context.Context, domain.Actor, mcp.VerificationReportInput) (mcp.VerificationInfo, error)
+	ProjectQualityFunc     func(context.Context, domain.Actor, mcp.ProjectInput) (mcp.QualityInfo, error)
 	OpenArtifactFunc       func(context.Context, domain.Actor, string) (domain.Artifact, io.ReadCloser, error)
 	SearchKnowledgeFunc    func(context.Context, domain.Actor, mcp.SearchKnowledgeInput) ([]knowledge.Result, error)
 	DeleteNoteFunc         func(context.Context, domain.Actor, mcp.DeleteNoteInput) (mcp.DeleteNoteOutput, error)
@@ -228,6 +229,11 @@ func (s *ToolService) AddCouncilConstraint(ctx context.Context, by domain.Actor,
 // VerificationReport implements mcp.ToolService.
 func (s *ToolService) VerificationReport(ctx context.Context, by domain.Actor, in mcp.VerificationReportInput) (mcp.VerificationInfo, error) {
 	return invoke(ctx, s, mcp.ToolVerificationReport, by, in, s.VerificationReportFunc)
+}
+
+// ProjectQuality implements mcp.ToolService.
+func (s *ToolService) ProjectQuality(ctx context.Context, by domain.Actor, in mcp.ProjectInput) (mcp.QualityInfo, error) {
+	return invoke(ctx, s, mcp.ToolProjectQuality, by, in, s.ProjectQualityFunc)
 }
 
 // ListTestRuns implements mcp.ToolService.

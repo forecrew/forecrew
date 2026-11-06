@@ -168,6 +168,26 @@ func fixtureCouncils(acc domain.Account) func(context.Context, domain.Actor, mcp
 	}
 }
 
+// reportJSON is the verification report of PR #9: one failing result, a flaky
+// test, an untested criterion and a new test that passed on base.
+const reportJSON = `{
+  "version": 1, "sha": "abc1234", "status": "failed",
+  "results": [
+    {"environment": "linux", "cell": {"go": "1.26"}, "suite": "unit", "required": true, "status": "passed", "counts": {"passed": 40, "failed": 0, "skipped": 1, "errored": 0}, "job": "JOB-44", "attempts": 1},
+    {"environment": "linux", "cell": {"go": "1.26"}, "suite": "e2e", "required": true, "status": "failed", "counts": {"passed": 7, "failed": 2, "skipped": 0, "errored": 0}, "job": "JOB-45", "attempts": 2},
+    {"environment": "macos", "cell": {}, "suite": "unit", "required": false, "status": "missing", "counts": {"passed": 0, "failed": 0, "skipped": 0, "errored": 0}, "attempts": 0}
+  ],
+  "criteria": {
+    "AC-1": {"status": "passed", "tests": {"auth::TestLinkSent": "passed"}},
+    "AC-2": {"status": "failed", "tests": {"auth::TestLinkExpires": "failed"}},
+    "AC-3": {"status": "untested", "tests": {}}
+  },
+  "new_tests": {"auth::TestLinkSent": true, "auth::TestLinkExpires": false},
+  "flaky": [{"test": "web::login redirects", "environments": ["linux"]}],
+  "environments": {"linux": {"versions": {"go": "go1.26.1", "node": "v24.1.0"}}},
+  "blocking": ["e2e failed in linux", "AC-3 has no test", "auth::TestLinkExpires passed on base"]
+}`
+
 // fixtureEnv is an API whose fake service returns fixed data.
 func fixtureEnv(t *testing.T) *env {
 	t.Helper()
@@ -223,7 +243,7 @@ func fixtureEnv(t *testing.T) *env {
 			Goal: goals[0], Ref: "GOAL-3", Project: "app", URL: "https://github.com/acme/app/issues/5",
 			Spec: &domain.Spec{ID: fid(50), AccountID: acc.ID, ProjectID: fid(10), GoalID: fid(20), Number: 2, Revision: 2, Body: specBody, CreatedAt: at(-250)},
 			Tasks: []mcp.TaskDetail{
-				{Task: task, Ref: "TASK-12", URL: "https://github.com/acme/app/issues/6", Needs: []string{"GATE-9"}, Changes: []mcp.ChangeInfo{{Change: change, Checks: "failure"}}, Iterations: 2, CostUSD: 0.75},
+				{Task: task, Ref: "TASK-12", URL: "https://github.com/acme/app/issues/6", Needs: []string{"GATE-9"}, Changes: []mcp.ChangeInfo{{Change: change, Checks: "failure"}}, Verification: &mcp.VerificationRef{Status: domain.VerificationFailed, SHA: "abc1234", Current: true, URL: "/api/v1/changes/TASK-12/verification"}, Iterations: 2, CostUSD: 0.75},
 				{Task: open, Ref: "TASK-13", Needs: []string{}, Changes: []mcp.ChangeInfo{}},
 			},
 			Gates: []mcp.GateInfo{gates[0], {Gate: specGate, Ref: "GATE-8", Project: "app", GoalRef: "GOAL-3", URL: "https://github.com/acme/app/issues/5"}},
@@ -359,6 +379,42 @@ func fixtureEnv(t *testing.T) *env {
 		j.Status, j.FinishedAt, j.Error = domain.JobCanceled, t0, "canceled"
 		return mcp.JobInfo{Job: j, Ref: "JOB-41", WorkerName: "build-box-1"}, nil
 	}
+	cells := []mcp.QualityCell{
+		{Environment: "linux", Cell: map[string]string{"go": "1.26"}, Suite: "e2e", Status: domain.TestRunFailed, Counts: domain.TestCounts{Passed: 7, Failed: 2}, Job: "JOB-45",
+			Failures: []domain.TestResult{
+				{Name: "login redirects", Classname: "web", Status: domain.TestFailed, Message: "expected /home <b>got</b> /login"},
+				{Name: "link expires", Classname: "web", Status: domain.TestErrored, Message: "timeout"},
+			}},
+		{Environment: "linux", Cell: map[string]string{"go": "1.26"}, Suite: "unit", Status: domain.TestRunPassed, Counts: domain.TestCounts{Passed: 40, Skipped: 1}, Job: "JOB-44", Failures: []domain.TestResult{}},
+		{Environment: "", Cell: map[string]string{}, Suite: "lint", Status: domain.TestRunPassed, Counts: domain.TestCounts{Passed: 1}, Job: "JOB-46", Failures: []domain.TestResult{}},
+	}
+	s.VerificationReportFunc = func(context.Context, domain.Actor, mcp.VerificationReportInput) (mcp.VerificationInfo, error) {
+		return mcp.VerificationInfo{
+			ID: fid(120), SHA: "abc1234", Status: domain.VerificationFailed, Report: json.RawMessage(reportJSON), ArtifactID: fid(121), CreatedAt: at(-40), UpdatedAt: at(-30),
+			Change: 9, URL: "https://github.com/acme/app/pull/9", Current: true,
+		}, nil
+	}
+	s.ProjectQualityFunc = func(context.Context, domain.Actor, mcp.ProjectInput) (mcp.QualityInfo, error) {
+		verified, _ := s.VerificationReportFunc(context.Background(), domain.Actor{}, mcp.VerificationReportInput{})
+		return mcp.QualityInfo{
+			Project: "app", DefaultBranch: "main",
+			Baseline: &mcp.QualityBaseline{SHA: "0123456789abcdef", Cells: []mcp.QualityCell{
+				{Environment: "linux", Cell: map[string]string{"go": "1.26"}, Suite: "unit", Status: domain.TestRunPassed, Counts: domain.TestCounts{Passed: 40}, Job: "JOB-30", Failures: []domain.TestResult{}},
+				{Environment: "linux", Cell: map[string]string{"go": "1.26"}, Suite: "e2e", Status: domain.TestRunFailed, Counts: domain.TestCounts{Passed: 8, Failed: 1}, Job: "JOB-31",
+					Failures: []domain.TestResult{{Name: "link expires", Classname: "web", Status: domain.TestFailed, Message: "known failure"}}},
+			}},
+			Changes: []mcp.QualityChange{
+				{Number: 9, URL: "https://github.com/acme/app/pull/9", Branch: "agent/task-12", SHA: "abc1234", Task: "TASK-12", Cells: cells, Verification: &verified},
+				{Number: 10, URL: "https://github.com/acme/app/pull/10", Branch: "dark-mode", SHA: "def5678", Cells: []mcp.QualityCell{}},
+			},
+		}, nil
+	}
+	s.ListArtifactsFunc = func(context.Context, domain.Actor, mcp.JobRefInput) ([]domain.Artifact, error) {
+		return []domain.Artifact{
+			{ID: fid(130), AccountID: acc.ID, ProjectID: fid(10), JobID: fid(141), Name: "reports/unit.xml", ContentType: "application/xml", Size: 20480, SHA256: strings.Repeat("ab", 32), CreatedAt: at(-30)},
+			{ID: fid(131), AccountID: acc.ID, ProjectID: fid(10), JobID: fid(141), Name: "screenshots/login.png", ContentType: "image/png", Size: 1572864, SHA256: strings.Repeat("cd", 32), CreatedAt: at(-30)},
+		}, nil
+	}
 	return e
 }
 
@@ -463,6 +519,35 @@ func fixtureCases() []fixtureCase {
 				return mcp.JobInfo{}, fmt.Errorf("job JOB-41 is succeeded: %w", domain.ErrInvalidTransition)
 			}
 		}},
+		{"job-artifacts", "GET", "/api/v1/jobs/JOB-44/artifacts", "", 200, "bearer", nil},
+		{"job-artifacts-empty", "GET", "/api/v1/jobs/JOB-41/artifacts", "", 200, "bearer", func(e *env) {
+			e.svc.ListArtifactsFunc = func(context.Context, domain.Actor, mcp.JobRefInput) ([]domain.Artifact, error) {
+				return []domain.Artifact{}, nil
+			}
+		}},
+		{"job-command", "GET", "/api/v1/jobs/JOB-45", "", 200, "bearer", func(e *env) {
+			e.svc.JobStatusFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
+				j := fixtureJob(45, domain.JobFailed, "", 1, at(-40))
+				j.Kind, j.Runtime, j.FinishedAt, j.CostUSD = domain.JobKindCommand, "", at(-35), 0
+				return mcp.JobInfo{Job: j, Ref: "JOB-45", WorkerName: "build-box-1",
+					Tests: &mcp.TestSummary{Runs: 1, Status: domain.TestRunFailed, Passed: 7, Failed: 2, Skipped: 1}}, nil
+			}
+		}},
+		{"quality", "GET", "/api/v1/quality?project=app", "", 200, "bearer", nil},
+		{"quality-empty", "GET", "/api/v1/quality?project=app", "", 200, "bearer", func(e *env) {
+			e.svc.ProjectQualityFunc = func(context.Context, domain.Actor, mcp.ProjectInput) (mcp.QualityInfo, error) {
+				return mcp.QualityInfo{Project: "app", DefaultBranch: "main"}, nil
+			}
+		}},
+		{"quality-baseline-only", "GET", "/api/v1/quality?project=app", "", 200, "bearer", func(e *env) {
+			get := e.svc.ProjectQualityFunc
+			e.svc.ProjectQualityFunc = func(ctx context.Context, by domain.Actor, in mcp.ProjectInput) (mcp.QualityInfo, error) {
+				q, err := get(ctx, by, in)
+				q.Changes = nil
+				return q, err
+			}
+		}},
+		{"verification", "GET", "/api/v1/changes/9/verification?project=app", "", 200, "bearer", nil},
 		{"workers", "GET", "/api/v1/workers", "", 200, "bearer", nil},
 		{"workers-empty", "GET", "/api/v1/workers", "", 200, "bearer", emptyLists},
 		{"gates", "GET", "/api/v1/gates", "", 200, "bearer", nil},

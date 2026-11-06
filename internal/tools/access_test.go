@@ -99,6 +99,10 @@ func TestEveryToolChecksTheProject(t *testing.T) {
 			_, err := f.svc.ListTestRuns(ctx, by, mcp.ListTestRunsInput{Project: "app", Change: 1})
 			return err
 		},
+		"project_quality": func() error {
+			_, err := f.svc.ProjectQuality(ctx, by, mcp.ProjectInput{Project: "app"})
+			return err
+		},
 		"list_assumptions": func() error {
 			_, err := f.svc.ListAssumptions(ctx, by, mcp.ListAssumptionsInput{Project: "app"})
 			return err

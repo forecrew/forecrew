@@ -1,0 +1,25 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000130",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "job_id": "018f0000-0000-7000-8000-000000000141",
+    "name": "reports/unit.xml",
+    "content_type": "application/xml",
+    "size": 20480,
+    "sha256": "abababababababababababababababababababababababababababababababab",
+    "created_at": "2026-03-01T11:30:00Z"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000131",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "job_id": "018f0000-0000-7000-8000-000000000141",
+    "name": "screenshots/login.png",
+    "content_type": "image/png",
+    "size": 1572864,
+    "sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "created_at": "2026-03-01T11:30:00Z"
+  }
+]
+

@@ -46,16 +46,26 @@ func (s *Service) ListTestRuns(ctx context.Context, by domain.Actor, in mcp.List
 				out[i].JobRef = j.Ref()
 			}
 		}
-		fails, err := s.cfg.Store.TestRuns().Failures(ctx, by.AccountID, r.ID, MaxFailures+1)
+		var err error
+		out[i].Failures, out[i].FailuresTruncated, err = s.failures(ctx, by.AccountID, r.ID)
 		if err != nil {
 			return nil, err
 		}
-		if len(fails) > MaxFailures {
-			fails, out[i].FailuresTruncated = fails[:MaxFailures], true
-		}
-		out[i].Failures = append(out[i].Failures, fails...)
 	}
 	return out, nil
+}
+
+// failures returns the failed and errored cases of a run, at most
+// MaxFailures; truncated says there are more.
+func (s *Service) failures(ctx context.Context, accountID, runID uuid.UUID) (fails []domain.TestResult, truncated bool, err error) {
+	fails, err = s.cfg.Store.TestRuns().Failures(ctx, accountID, runID, MaxFailures+1)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(fails) > MaxFailures {
+		fails, truncated = fails[:MaxFailures], true
+	}
+	return append([]domain.TestResult{}, fails...), truncated, nil
 }
 
 // testRunFilter resolves the input of list_test_runs; jobRef is the ref of

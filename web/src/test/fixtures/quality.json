@@ -1,0 +1,250 @@
+{
+  "project": "app",
+  "default_branch": "main",
+  "baseline": {
+    "sha": "0123456789abcdef",
+    "cells": [
+      {
+        "environment": "linux",
+        "cell": {
+          "go": "1.26"
+        },
+        "suite": "unit",
+        "status": "passed",
+        "counts": {
+          "passed": 40,
+          "failed": 0,
+          "skipped": 0,
+          "errored": 0
+        },
+        "job": "JOB-30",
+        "failures": []
+      },
+      {
+        "environment": "linux",
+        "cell": {
+          "go": "1.26"
+        },
+        "suite": "e2e",
+        "status": "failed",
+        "counts": {
+          "passed": 8,
+          "failed": 1,
+          "skipped": 0,
+          "errored": 0
+        },
+        "job": "JOB-31",
+        "failures": [
+          {
+            "id": "00000000-0000-0000-0000-000000000000",
+            "account_id": "00000000-0000-0000-0000-000000000000",
+            "run_id": "00000000-0000-0000-0000-000000000000",
+            "name": "link expires",
+            "classname": "web",
+            "status": "failed",
+            "duration_ms": 0,
+            "message": "known failure"
+          }
+        ]
+      }
+    ]
+  },
+  "changes": [
+    {
+      "number": 9,
+      "url": "https://github.com/acme/app/pull/9",
+      "branch": "agent/task-12",
+      "sha": "abc1234",
+      "task": "TASK-12",
+      "cells": [
+        {
+          "environment": "linux",
+          "cell": {
+            "go": "1.26"
+          },
+          "suite": "e2e",
+          "status": "failed",
+          "counts": {
+            "passed": 7,
+            "failed": 2,
+            "skipped": 0,
+            "errored": 0
+          },
+          "job": "JOB-45",
+          "failures": [
+            {
+              "id": "00000000-0000-0000-0000-000000000000",
+              "account_id": "00000000-0000-0000-0000-000000000000",
+              "run_id": "00000000-0000-0000-0000-000000000000",
+              "name": "login redirects",
+              "classname": "web",
+              "status": "failed",
+              "duration_ms": 0,
+              "message": "expected /home \u003cb\u003egot\u003c/b\u003e /login"
+            },
+            {
+              "id": "00000000-0000-0000-0000-000000000000",
+              "account_id": "00000000-0000-0000-0000-000000000000",
+              "run_id": "00000000-0000-0000-0000-000000000000",
+              "name": "link expires",
+              "classname": "web",
+              "status": "errored",
+              "duration_ms": 0,
+              "message": "timeout"
+            }
+          ]
+        },
+        {
+          "environment": "linux",
+          "cell": {
+            "go": "1.26"
+          },
+          "suite": "unit",
+          "status": "passed",
+          "counts": {
+            "passed": 40,
+            "failed": 0,
+            "skipped": 1,
+            "errored": 0
+          },
+          "job": "JOB-44",
+          "failures": []
+        },
+        {
+          "environment": "",
+          "cell": {},
+          "suite": "lint",
+          "status": "passed",
+          "counts": {
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0,
+            "errored": 0
+          },
+          "job": "JOB-46",
+          "failures": []
+        }
+      ],
+      "verification": {
+        "id": "018f0000-0000-7000-8000-000000000120",
+        "account_id": "00000000-0000-0000-0000-000000000000",
+        "project_id": "00000000-0000-0000-0000-000000000000",
+        "change_id": "00000000-0000-0000-0000-000000000000",
+        "sha": "abc1234",
+        "status": "failed",
+        "report": {
+          "version": 1,
+          "sha": "abc1234",
+          "status": "failed",
+          "results": [
+            {
+              "environment": "linux",
+              "cell": {
+                "go": "1.26"
+              },
+              "suite": "unit",
+              "required": true,
+              "status": "passed",
+              "counts": {
+                "passed": 40,
+                "failed": 0,
+                "skipped": 1,
+                "errored": 0
+              },
+              "job": "JOB-44",
+              "attempts": 1
+            },
+            {
+              "environment": "linux",
+              "cell": {
+                "go": "1.26"
+              },
+              "suite": "e2e",
+              "required": true,
+              "status": "failed",
+              "counts": {
+                "passed": 7,
+                "failed": 2,
+                "skipped": 0,
+                "errored": 0
+              },
+              "job": "JOB-45",
+              "attempts": 2
+            },
+            {
+              "environment": "macos",
+              "cell": {},
+              "suite": "unit",
+              "required": false,
+              "status": "missing",
+              "counts": {
+                "passed": 0,
+                "failed": 0,
+                "skipped": 0,
+                "errored": 0
+              },
+              "attempts": 0
+            }
+          ],
+          "criteria": {
+            "AC-1": {
+              "status": "passed",
+              "tests": {
+                "auth::TestLinkSent": "passed"
+              }
+            },
+            "AC-2": {
+              "status": "failed",
+              "tests": {
+                "auth::TestLinkExpires": "failed"
+              }
+            },
+            "AC-3": {
+              "status": "untested",
+              "tests": {}
+            }
+          },
+          "new_tests": {
+            "auth::TestLinkSent": true,
+            "auth::TestLinkExpires": false
+          },
+          "flaky": [
+            {
+              "test": "web::login redirects",
+              "environments": [
+                "linux"
+              ]
+            }
+          ],
+          "environments": {
+            "linux": {
+              "versions": {
+                "go": "go1.26.1",
+                "node": "v24.1.0"
+              }
+            }
+          },
+          "blocking": [
+            "e2e failed in linux",
+            "AC-3 has no test",
+            "auth::TestLinkExpires passed on base"
+          ]
+        },
+        "artifact_id": "018f0000-0000-7000-8000-000000000121",
+        "created_at": "2026-03-01T11:20:00Z",
+        "updated_at": "2026-03-01T11:30:00Z",
+        "change": 9,
+        "url": "https://github.com/acme/app/pull/9",
+        "current": true
+      }
+    },
+    {
+      "number": 10,
+      "url": "https://github.com/acme/app/pull/10",
+      "branch": "dark-mode",
+      "sha": "def5678",
+      "cells": []
+    }
+  ]
+}
+

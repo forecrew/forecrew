@@ -50,6 +50,7 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.GetCouncil(ctx, by, mcp.CouncilRefInput{}); return err },
 		func() error { _, err := s.AddCouncilConstraint(ctx, by, mcp.AddCouncilConstraintInput{}); return err },
 		func() error { _, err := s.VerificationReport(ctx, by, mcp.VerificationReportInput{}); return err },
+		func() error { _, err := s.ProjectQuality(ctx, by, mcp.ProjectInput{}); return err },
 		func() error { _, err := s.ListRoles(ctx, by); return err },
 		func() error { _, err := s.ListTeams(ctx, by); return err },
 		func() error { _, err := s.CreateTeam(ctx, by, mcp.CreateTeamInput{}); return err },
