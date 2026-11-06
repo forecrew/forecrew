@@ -278,6 +278,9 @@ type Tracker interface {
 	// AddSubIssue makes child a sub-issue of parent.
 	AddSubIssue(ctx context.Context, repo string, parent, child int) error
 	ListSubIssues(ctx context.Context, repo string, parent int) ([]Issue, error)
+	// ListOpenIssues returns the open issues (not pull requests) of repo that
+	// carry label, oldest first.
+	ListOpenIssues(ctx context.Context, repo, label string) ([]Issue, error)
 
 	// CreateComment comments on an issue or PR conversation.
 	CreateComment(ctx context.Context, repo string, number int, body string) (Comment, error)
