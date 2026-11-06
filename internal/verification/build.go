@@ -177,13 +177,10 @@ func (b Builder) Build(ctx context.Context, change domain.Change, sha string, in
 // suite, the expected results first and in their order, the others by key.
 // stored counts the runs that were taken into account.
 func (b Builder) groups(ctx context.Context, change domain.Change, sha string, expected []Expected) (out []*group, stored int, err error) {
-	runs, err := b.Store.TestRuns().List(ctx, change.AccountID, store.TestRunFilter{ProjectID: change.ProjectID, SHA: sha})
+	runs, err := Runs(ctx, b.Store, change.AccountID, change.ProjectID, change.ID, sha)
 	if err != nil {
-		return nil, 0, fmt.Errorf("list test runs of %s: %w", sha, err)
+		return nil, 0, err
 	}
-	slices.SortStableFunc(runs, func(a, b domain.TestRun) int {
-		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), cmp.Compare(a.Attempt, b.Attempt), strings.Compare(a.ID.String(), b.ID.String()))
-	})
 	byKey := map[string]*group{}
 	for _, e := range expected {
 		k := groupKey(e.Environment, e.Cell, e.Suite)
@@ -194,14 +191,6 @@ func (b Builder) groups(ctx context.Context, change domain.Change, sha string, e
 	}
 	var extra []*group
 	for _, r := range runs {
-		if r.ChangeID != uuid.Nil() && r.ChangeID != change.ID {
-			continue // a run reported for another PR
-		}
-		// The base check lays the new tests over the base branch, which with
-		// stacked PRs is another PR's head: its runs say nothing about sha.
-		if j, err := b.Store.Jobs().Get(ctx, r.AccountID, r.JobID); err == nil && j.Spec.Overlay != nil {
-			continue
-		}
 		stored++
 		k := groupKey(r.Environment, r.Cell, r.Suite)
 		g, ok := byKey[k]
@@ -216,6 +205,55 @@ func (b Builder) groups(ctx context.Context, change domain.Change, sha string, e
 		return cmp.Compare(groupKey(a.exp.Environment, a.exp.Cell, a.exp.Suite), groupKey(b.exp.Environment, b.exp.Cell, b.exp.Suite))
 	})
 	return append(out, extra...), stored, nil
+}
+
+// Runs returns the test runs of sha that say something about it, oldest
+// first: the runs of the change (a zero change: only runs that belong to no
+// pull request) and of none, without another pull request's runs and without
+// base checks. A base check lays the new tests over the base branch, which
+// with stacked PRs is another PR's head, so its runs (jobs with an overlay)
+// say nothing about sha.
+func Runs(ctx context.Context, st store.Store, accountID, projectID, changeID uuid.UUID, sha string) ([]domain.TestRun, error) {
+	runs, err := st.TestRuns().List(ctx, accountID, store.TestRunFilter{ProjectID: projectID, SHA: sha})
+	if err != nil {
+		return nil, fmt.Errorf("list test runs of %s: %w", sha, err)
+	}
+	slices.SortStableFunc(runs, func(a, b domain.TestRun) int {
+		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), cmp.Compare(a.Attempt, b.Attempt), strings.Compare(a.ID.String(), b.ID.String()))
+	})
+	out := runs[:0]
+	for _, r := range runs {
+		if r.ChangeID != uuid.Nil() && r.ChangeID != changeID {
+			continue // a run reported for another PR
+		}
+		if BaseCheck(ctx, st, r) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// BaseCheck says whether the run belongs to a base check job.
+func BaseCheck(ctx context.Context, st store.Store, r domain.TestRun) bool {
+	j, err := st.Jobs().Get(ctx, r.AccountID, r.JobID)
+	return err == nil && j.Spec.Overlay != nil
+}
+
+// Latest keeps the newest attempt of each suite in each cell of each
+// environment, in the order of runs (which Runs gives oldest first).
+func Latest(runs []domain.TestRun) []domain.TestRun {
+	last := map[string]int{}
+	for i, r := range runs {
+		last[groupKey(r.Environment, r.Cell, r.Suite)] = i
+	}
+	var out []domain.TestRun
+	for i, r := range runs {
+		if last[groupKey(r.Environment, r.Cell, r.Suite)] == i {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 func (g *group) latest() (domain.TestRun, bool) {
