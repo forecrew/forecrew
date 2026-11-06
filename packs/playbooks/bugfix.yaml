@@ -39,6 +39,12 @@ steps:
         until: steps.settled.output.done
         on_failure: escalate
         steps:
+          - id: brief
+            type: action
+            action: bug.brief
+            with:
+              problem: '${steps.settled.output.feedback}'
+              note: '${steps.stuck.output.0.stuck_gate.output.feedback}'
           - id: write_tests
             type: job
             with:
@@ -48,46 +54,52 @@ steps:
               needs: '${item.needs}'
               task_id: '${item.id}'
               spec_id: '${steps.render.output.spec_id}'
-              feedback: "${steps.settled.output.feedback}${steps.stuck.output.0.stuck_gate.output.feedback}"
+              feedback: '${steps.brief.output.feedback}'
             on_failure: escalate
           - id: tmap
             type: action
             action: tests.map
-            with: {task_id: '${item.id}', needs: '${item.needs}'}
+            with: {task_id: '${item.id}', needs: '${item.needs}', repo: '${inputs.repo}'}
             on_failure: escalate
-          - id: repro_request
-            type: action
-            action: tests.base_check_request
-            with:
-              repo: '${inputs.repo}'
-              base: '${steps.intake.output.default_branch}'
-              head: '${steps.write_tests.head_sha}'
-              tests: '${steps.tmap.output.tests}'
-              files: '${steps.tmap.output.files}'
-              only_runnable: true
-            on_failure: escalate
-          - id: repro_cells
+          # The base check runs for tests that are ready only: without a test,
+          # or with a suite the matrix lacks, there is nothing to run.
+          - id: checked
             type: foreach
-            parallel: 8
-            items: '${steps.repro_request.output.runnable}'
+            items: '${steps.tmap.output.if_ready}'
             steps:
-              - id: repro_run
-                type: job
+              - id: repro_request
+                type: action
+                action: tests.base_check_request
                 with:
-                  kind: command
                   repo: '${inputs.repo}'
-                  base_ref: '${steps.intake.output.default_branch}'
-                  overlay: '${item.overlay}'
-                  task_id: '${steps.plan.output.tasks.0.id}'
-                  from: '${item}'
+                  base: '${steps.intake.output.default_branch}'
+                  head: '${steps.write_tests.head_sha}'
+                  tests: '${steps.tmap.output.tests}'
+                  files: '${steps.tmap.output.files}'
+                  only_runnable: true
                 on_failure: escalate
-          - id: repro_result
-            type: action
-            action: tests.base_check_result
-            with:
-              runs: '${steps.repro_cells.output}'
-              tests: '${steps.tmap.output.tests}'
-              requests: '${steps.repro_request.output.requests}'
+              - id: repro_cells
+                type: foreach
+                parallel: 8
+                items: '${steps.repro_request.output.runnable}'
+                steps:
+                  - id: repro_run
+                    type: job
+                    with:
+                      kind: command
+                      repo: '${inputs.repo}'
+                      base_ref: '${steps.intake.output.default_branch}'
+                      overlay: '${item.overlay}'
+                      task_id: '${steps.plan.output.tasks.0.id}'
+                      from: '${item}'
+                    on_failure: escalate
+              - id: repro_result
+                type: action
+                action: tests.base_check_result
+                with:
+                  runs: '${steps.repro_cells.output}'
+                  tests: '${steps.tmap.output.tests}'
+                  requests: '${steps.repro_request.output.requests}'
           - id: settled
             type: action
             action: bug.reproduced
@@ -95,8 +107,8 @@ steps:
               ready: '${steps.tmap.output.ready}'
               feedback: '${steps.tmap.output.feedback}'
               tests: '${steps.tmap.output.tests}'
-              base: '${steps.repro_result.output}'
-              missing: '${steps.repro_request.output.missing}'
+              base: '${steps.checked.output.0.repro_result.output}'
+              missing: '${steps.checked.output.0.repro_request.output.missing}'
           - id: stuck
             type: foreach
             items: '${steps.settled.output.if_stuck}'
@@ -108,6 +120,7 @@ steps:
                   title: 'The regression test of ${steps.plan.output.tasks.0.ref} does not reproduce the bug'
                   summary: "${item}\n\nApprove to run the test engineer again; add what it needs to know (steps, versions, logs) as your note. Reject to stop the run."
                   subject_repo: '${inputs.repo}'
+                  subject_number: '${steps.intake.output.issue_number}'
                   task_id: '${steps.plan.output.tasks.0.id}'
       # One delivery per merge decision: build a PR that passes its checks
       # and its review, then ask a human to merge it. Changes requested at
