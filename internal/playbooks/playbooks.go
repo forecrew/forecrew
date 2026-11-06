@@ -97,6 +97,8 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["onboarding.complete"] = d.completeOnboarding
 	registry["onboarding.finish"] = d.finishOnboarding
 	registry["onboarding.start_tests"] = d.startTests
+	registry["onboarding.tests_branch"] = d.testsBranchAction
+	registry["tests.smoke_result"] = d.testsSmokeResult
 	registry["onboarding.tests_feedback"] = d.testsFeedback
 	registry["onboarding.tests_check"] = d.testsCheck
 	registry["onboarding.tests_head"] = d.testsHead

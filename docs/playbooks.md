@@ -252,11 +252,13 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `onboarding.start_tests` | `repo`, `project` | `{started, run_id}`. Starts the `onboarding-tests` playbook as a run of its own (the call's key is its ID, so a repeated call finds it). Without entries for `test-architect` and `environment-engineer` under `roles` in forecrew.yaml there is no test part: it moves the project to onboarded and `started` is false. |
 | `onboarding.finish` | none | Moves the project from onboarding to onboarded; one that is onboarded stays. |
 | `onboarding.tests_feedback` | `human`, `errors` | The feedback text of a test architect or environment engineer job: the reviewer's feedback and the validator's errors, each when not empty. |
-| `onboarding.tests_check` | `errors`, `architect`, `engineer` | `{valid, errors}`. `errors` is the output of `matrix.plan`, `architect` and `engineer` are the jobs' `escalation`s; `valid` when none says anything. The loop that runs it escalates when its tries run out. |
+| `onboarding.tests_check` | `errors`, `smoke`, `architect`, `engineer` | `{valid, errors}`. `errors` is the output of `matrix.plan`, `smoke` that of `tests.smoke_result`, `architect` and `engineer` are the jobs' `escalation`s; `valid` when none says anything. The loop that runs it escalates when its tries run out. |
+| `onboarding.tests_branch` | none | `{branch}`: `agent/onboarding-tests-<12 characters of the run's ID>`, a branch of its own for the run. The branch of an earlier run is merged but not deleted, and a job continues an existing branch, so a refresh would never see that there is nothing to change. |
 | `onboarding.tests_head` | `repo`, `head_sha` | `{ref, if_pushed}`. `head_sha` is the environment engineer job's: when the two jobs changed the repo `ref` is that commit and `if_pushed` is `[head_sha]`; when not, `ref` is the head of the default branch and `if_pushed` is `[]`, so a `foreach` over it skips the PR. |
-| `onboarding.tests_proposal` | `plan`, `environments` | `{title, body}`: the tests PR text from the two jobs' outputs (strategy, axes, matrix changes, environments, assumptions, open questions). |
+| `onboarding.tests_proposal` | `plan`, `environments`, optional `workflow` | `{title, body}`: the tests PR text from the two jobs' outputs (strategy, axes, matrix changes, environments, assumptions, open questions); a non-empty `workflow` (the `if_actions` of `tests.smoke_plan`) adds a section that names `.github/workflows/forecrew-matrix.yml`. |
 | `onboarding.baseline_ref` | `repo`, `merged` | `{sha}`: `merged` (the merge commit of the tests PR) or, when empty, the head of the default branch. |
-| `tests.smoke_plan` | `repo`, `ref`, `environments` | `{requests, if_actions}`. `environments` is the environment engineer's list. For every environment it lists as `added` or `changed`, one command job request (items for the `from` of a `kind: command` job step) that builds it and runs a command that does nothing: the worker records the environment's `versions` commands. The request is that of the first matrix cell that uses the environment, so it lands where the real runs do. `if_actions` is `[repo]` when an environment of the matrix runs on GitHub Actions (the workflow must be installed), else `[]`. A matrix that does not load gives no requests: `matrix.plan` reports why. |
+| `tests.smoke_plan` | `repo`, `ref`, `environments` | `{requests, if_actions}`. `environments` is the environment engineer's list. For every environment it lists as `added` or `changed`, one command job request (items for the `from` of a `kind: command` job step) whose command is the environment's `versions` commands joined with `&&` (`echo smoke` when it has none): the job builds the environment and runs them. The request is that of the first matrix cell that uses the environment, so it lands where the real runs do. `if_actions` is `[repo]` when an environment of the matrix runs on GitHub Actions (the workflow must be installed), else `[]`. A dispatch needs the workflow on the default branch, so while it is not there the environments on `actions` get no smoke job: the baseline runs them once the PR is merged. A matrix that does not load gives no requests: `matrix.plan` reports why. |
+| `tests.smoke_result` | `runs` | `{errors}`. `runs` are the smoke jobs, as for `tests.base_check_result`. Text for the roles: every environment whose command (its versions commands) exited with an error, from the test runs the jobs stored; empty when all ran. |
 | `baseline.file_issues` | `report_id` | `{issues: [{number, url, title, created}]}`. Files the failures of a baseline report as issues labeled `forecrew:baseline` (created if missing): one per suite and environment that failed or errored (the failing tests, at most 20, the cells, the commit and the report), and one for all flaky tests. Test and environment names show as inline code. A hidden marker in the body makes it idempotent: an open issue with the marker is found and left alone, so a repeated call, and a later baseline that fails the same way, file nothing twice; a closed one is filed again. |
 | `knowledge.seed` | none | `{indexed, sections, curate, text, error}`. Indexes the project's repo knowledge (the mapped paths of its policy, or the default mapping) and outputs the seed sections (`architecture`, `conventions`, `testing`, `runbooks`, `glossary`) that no location covers. `curate` has one item when there are such sections and none otherwise, so a `foreach` over it skips the curation; `text` tells the curator what to fill and what already has a home. A repo that cannot be read, or an installation without a knowledge base, gives `error` and an empty `curate`: onboarding does not depend on it. |
 | `knowledge.propose` | `job_id`, `provider` | `{proposals, number, branch, head_sha, reviewers, review_text}`. Sends the job's queued `standalone` proposals to the provider: for the repo, commits them through the GitHub API on `agent/kb-<job>` and opens one PR. Checks each against the policy again: what its proposer may no longer propose is dropped (rejected, audited). `reviewers` are the owner roles that review; `review_text` is the job's `feedback`. A provider without a review flow sends nothing. Idempotent: what was sent stays sent. |
@@ -477,22 +479,29 @@ meanwhile.
 
 1. **Plan.** A `test-architect` job and then an `environment-engineer` job
    write `.forecrew/matrix.yaml`, `.forecrew/test-strategy.md` and the
-   environment files on one branch, `agent/onboarding-tests`. `matrix.plan`
-   (scope `all`) validates the matrix and the environment files it names; its
-   errors, or an escalation of either role, go back to both roles once as
-   feedback (like `profile.validate`), and when the two tries run out a
-   `needs_you` gate opens; approving it gives one more round. Nothing to
-   commit (the repo has its test plan) means no PR: the baseline runs on the
-   default branch.
-2. **Smoke.** `actions.install_workflow` adds `.github/workflows/forecrew-matrix.yml`
-   to the same branch when any environment of the matrix uses `actions`. Then
-   `tests.smoke_plan` gives one command job per added or changed environment:
-   it builds the environment and runs its `versions` commands. A smoke job that
-   fails opens a `needs_you` gate (the engine cannot loop a failed job back as
-   feedback); approving it runs the job again.
+   environment files on a branch of the run's own (`onboarding.tests_branch`).
+   `matrix.plan` (scope `all`) validates the matrix and the environment files
+   it names. Nothing to commit (the repo has its test plan) means no PR and no
+   smoke: the baseline runs on the default branch.
+2. **Smoke.** When the jobs changed something, `actions.install_workflow` adds
+   `.github/workflows/forecrew-matrix.yml` to the branch if any environment of
+   the matrix uses `actions`, and `tests.smoke_plan` gives one command job per
+   added or changed environment. Its command is the environment's `versions`
+   commands, so `tests.smoke_result` reads their exit codes. The errors of
+   `matrix.plan`, a failing versions command and an escalation of either role go
+   back to both roles once as feedback (like `profile.validate`); when the two
+   tries run out a `needs_you` gate opens, and approving it gives one more
+   round. Not covered: a job that fails because its environment cannot be built
+   or set up (a bad Dockerfile, a failing setup command) is a failed job, not a
+   result: it opens a `needs_you` gate that says why, and approving it runs the
+   job again (the engine cannot loop a failed job back as feedback). A dispatch
+   needs the workflow on the default branch, so environments on `actions` are
+   not smoked until it is there; the baseline exercises them after the merge.
 3. **Approval.** One PR holds both outputs. After its checks, a
-   `test_plan_approval` gate opens on it: approving merges it (merging it on
-   GitHub approves, closing it rejects, as for the profile), changes requested
+   `test_plan_approval` gate opens on it: approving merges it, only at the head that
+   was proposed (a commit pushed while the gate was pending is not merged: the
+   step escalates; the PR can add a workflow), and merging it on GitHub approves
+   and closing it rejects, as for the profile. Changes requested
    start another round with the feedback (at most three before a `needs_you`
    gate).
 4. **Baseline.** `matrix.plan` with scope `all` on the merge commit, a
@@ -509,17 +518,22 @@ meanwhile.
 6. **Done.** `onboarding.finish` moves the project to onboarded, after the
    baseline ran.
 
-A failure in this part (a rejected `needs_you` gate, a rejected or closed PR)
-ends the run, and its `finally` step puts the project to onboarded, not back to
-registered: its profile is stored, so it is onboarded without a baseline, and
-the `needs_you` gate that came with the failure said why. The same rule holds
-for the onboarding run: a failure after `onboarding.complete` (the knowledge
-seed) leaves the project onboarded.
+Every step of this part escalates when it fails, so a failure opens a
+`needs_you` gate that says why; rejecting it ends the run, and its `finally`
+step puts the project to onboarded, not back to registered: its profile is
+stored, so it is onboarded without a baseline. A PR closed on GitHub, or a
+`test_plan_approval` gate rejected, also ends the run (a closed PR is a
+rejection) and has no gate of its own that explains it; the project is
+onboarded without a baseline then too. The same rule holds for the onboarding
+run: a failure after `onboarding.complete` (the knowledge seed) leaves the
+project onboarded.
 
 `onboard_project` with `refresh: true` ([mcp.md](mcp.md)) starts
 `onboarding-tests` on a project that is onboarded, to propose a new test plan
 if one is needed and run a new baseline; the project stays onboarded
-throughout. A refresh already running for the project is refused.
+throughout. A refresh already running for the project is refused, and so is
+one when forecrew.yaml has no entry for `test-architect` or
+`environment-engineer` under `roles`. Each refresh uses a branch of its own.
 
 ## Councils
 

@@ -7,6 +7,13 @@ steps:
     type: action
     action: project.register
     with: {repo: '${inputs.repo}', keep: true}
+    on_failure: escalate
+
+  # A branch of its own for this run: the one of an earlier run was merged
+  # and is not deleted, and a job would continue it.
+  - id: branch
+    type: action
+    action: onboarding.tests_branch
 
   # One round per review: propose, validate, open or update the PR, ask for
   # approval. The third requested change opens a needs_you gate, as every
@@ -36,7 +43,7 @@ steps:
             with:
               role: test-architect
               repo: '${inputs.repo}'
-              branch: agent/onboarding-tests
+              branch: '${steps.branch.output.branch}'
               needs: [linux]
               feedback: '${steps.feedback.output}'
             on_failure: escalate
@@ -45,7 +52,7 @@ steps:
             with:
               role: environment-engineer
               repo: '${inputs.repo}'
-              branch: agent/onboarding-tests
+              branch: '${steps.branch.output.branch}'
               needs: [linux]
               feedback: '${steps.feedback.output}'
             on_failure: escalate
@@ -54,55 +61,69 @@ steps:
             type: action
             action: onboarding.tests_head
             with: {repo: '${inputs.repo}', head_sha: '${steps.engineer.head_sha}'}
+            on_failure: escalate
           - id: matrix
             type: action
             action: matrix.plan
             with: {repo: '${inputs.repo}', ref: '${steps.head.output.ref}', scope: all}
+            on_failure: escalate
+          # Only when the jobs changed something: the workflow for the
+          # environments on GitHub Actions, and a smoke job per new or changed
+          # environment that builds it and runs its versions commands. A
+          # failing versions command goes back to the roles with the errors,
+          # like an invalid matrix. A job that cannot build or set up its
+          # environment fails and opens a needs_you gate that says why;
+          # approving it runs the job again.
+          - id: smoke_part
+            type: foreach
+            items: '${steps.head.output.if_pushed}'
+            steps:
+              - id: smoke_plan
+                type: action
+                action: tests.smoke_plan
+                with: {repo: '${inputs.repo}', ref: '${item}', environments: '${steps.engineer.output.environments}'}
+                on_failure: escalate
+              - id: install
+                type: foreach
+                items: '${steps.smoke_plan.output.if_actions}'
+                steps:
+                  - id: workflow
+                    type: action
+                    action: actions.install_workflow
+                    with: {repo: '${inputs.repo}', branch: '${steps.branch.output.branch}'}
+                    on_failure: escalate
+              - id: smoke
+                type: foreach
+                parallel: 4
+                items: '${steps.smoke_plan.output.requests}'
+                steps:
+                  - id: smoke_job
+                    type: job
+                    with:
+                      kind: command
+                      repo: '${inputs.repo}'
+                      base_ref: '${steps.register.output.default_branch}'
+                      branch: '${steps.branch.output.branch}'
+                      from: '${item}'
+                    on_failure: escalate
+              - id: smoke_result
+                type: action
+                action: tests.smoke_result
+                with: {runs: '${steps.smoke.output}'}
           - id: check
             type: action
             action: onboarding.tests_check
-            with: {errors: '${steps.matrix.output.errors}', architect: '${steps.architect.output.escalation}', engineer: '${steps.engineer.output.escalation}'}
+            with: {errors: '${steps.matrix.output.errors}', smoke: '${steps.smoke_part.output.0.smoke_result.output.errors}', architect: '${steps.architect.output.escalation}', engineer: '${steps.engineer.output.escalation}'}
       # Only when the jobs changed something.
       - id: deliver
         type: foreach
         items: '${steps.head.output.if_pushed}'
         steps:
-          - id: smoke_plan
-            type: action
-            action: tests.smoke_plan
-            with: {repo: '${inputs.repo}', ref: '${item}', environments: '${steps.engineer.output.environments}'}
-          # The workflow command jobs of provider actions dispatch, on the
-          # same branch, when an environment runs on GitHub Actions.
-          - id: install
-            type: foreach
-            items: '${steps.smoke_plan.output.if_actions}'
-            steps:
-              - id: workflow
-                type: action
-                action: actions.install_workflow
-                with: {repo: '${inputs.repo}', branch: agent/onboarding-tests}
-                on_failure: escalate
-          # Builds every new or changed environment and runs its versions
-          # commands. A failure escalates: a human reads why, and approving
-          # runs it again.
-          - id: smoke
-            type: foreach
-            parallel: 4
-            items: '${steps.smoke_plan.output.requests}'
-            steps:
-              - id: smoke_job
-                type: job
-                with:
-                  kind: command
-                  repo: '${inputs.repo}'
-                  base_ref: '${steps.register.output.default_branch}'
-                  branch: agent/onboarding-tests
-                  from: '${item}'
-                on_failure: escalate
           - id: proposal
             type: action
             action: onboarding.tests_proposal
-            with: {plan: '${steps.architect.output}', environments: '${steps.engineer.output}'}
+            with: {plan: '${steps.architect.output}', environments: '${steps.engineer.output}', workflow: '${steps.smoke_part.output.0.smoke_plan.output.if_actions}'}
+            on_failure: escalate
           - id: pr
             type: action
             action: github.open_or_update_pr
@@ -110,11 +131,12 @@ steps:
               repo: '${inputs.repo}'
               title: '${steps.proposal.output.title}'
               body: '${steps.proposal.output.body}'
-              head: agent/onboarding-tests
+              head: '${steps.branch.output.branch}'
               base: '${steps.register.output.default_branch}'
               # As in onboarding: a PR closed meanwhile fails the run, one a
               # human merged is an approval.
-              previous: '${steps.pr.output.number}'
+              previous: '${steps.deliver.output.0.pr.output.number}'
+            on_failure: escalate
           - id: approval
             type: foreach
             items: '${steps.pr.output.if_open}'
@@ -134,8 +156,10 @@ steps:
                   subject_number: '${steps.pr.output.number}'
 
   # Squash-merges the PR unless GitHub merged it already, once its checks
-  # finished without failing. Otherwise a needs_you gate opens; approving it
-  # merges again.
+  # finished without failing, and only at the head that was proposed: the PR
+  # may add a workflow, so a commit pushed while the gate was pending is not
+  # merged with it. Otherwise a needs_you gate opens; approving it merges
+  # again.
   - id: land
     type: foreach
     items: '${steps.deliver.output}'   # one item when the jobs changed something
@@ -143,7 +167,7 @@ steps:
       - id: merge
         type: action
         action: github.merge_pr
-        with: {repo: '${inputs.repo}', number: '${item.pr.output.number}'}
+        with: {repo: '${inputs.repo}', number: '${item.pr.output.number}', sha: '${item.pr.output.head_sha}'}
         on_failure: escalate
 
   # The baseline: every suite in every cell, on the merge commit (the default
@@ -153,6 +177,7 @@ steps:
     type: action
     action: onboarding.baseline_ref
     with: {repo: '${inputs.repo}', merged: '${steps.land.output.0.merge.output.sha}'}
+    on_failure: escalate
   - id: baseline
     type: action
     action: matrix.plan
@@ -178,6 +203,7 @@ steps:
     type: action
     action: verification.rerun_cells
     with: {report_id: '${steps.report.output.report_id}'}
+    on_failure: escalate
   - id: reruns
     type: foreach
     parallel: 8
@@ -205,6 +231,7 @@ steps:
   - id: finish
     type: action
     action: onboarding.finish
+    on_failure: escalate
 
 # A failed or rejected test part leaves the project onboarded, without a
 # baseline: its profile is stored. The failure opened a needs_you gate that

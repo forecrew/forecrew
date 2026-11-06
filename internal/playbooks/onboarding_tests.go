@@ -6,15 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"unicode"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/actionsprovider"
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/matrix"
+	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/verification"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -28,8 +31,8 @@ const PlaybookOnboardingTests = "onboarding-tests"
 var testRoles = []string{"test-architect", "environment-engineer"}
 
 const (
-	testsBranch   = "agent/onboarding-tests"
-	labelBaseline = "forecrew:baseline"
+	testsBranchPrefix = "agent/onboarding-tests-"
+	labelBaseline     = "forecrew:baseline"
 	// maxIssueTests bounds the failing tests an issue names.
 	maxIssueTests = 20
 	// maxIssueText bounds the name of a test or an environment in an issue.
@@ -108,6 +111,19 @@ func (a *actions) finishOnboarding(ctx context.Context, call workflow.ActionCall
 	return map[string]string{"status": string(domain.ProjectOnboarded)}, nil
 }
 
+// testsBranchAction is the action onboarding.tests_branch. It outputs
+// {branch}, a branch of its own for the run of onboarding-tests: the branch of
+// an earlier run is merged but not deleted, and a job would continue it, so
+// a refresh would never see that there is nothing to change. The name follows
+// from the run's ID, so a repeated call gives the same one.
+func (a *actions) testsBranchAction(_ context.Context, call workflow.ActionCall) (any, error) {
+	if err := workflow.DecodeWith(call.With, &struct{}{}); err != nil {
+		return nil, err
+	}
+	id := strings.ReplaceAll(call.Run.ID.String(), "-", "")
+	return map[string]string{"branch": testsBranchPrefix + id[len(id)-12:]}, nil
+}
+
 // testsFeedback is the action onboarding.tests_feedback. It builds the
 // feedback of a test architect or environment engineer job from the
 // reviewer's with.human feedback and the validator's with.errors (each may be
@@ -138,12 +154,14 @@ type testsCheckOutput struct {
 
 // testsCheck is the action onboarding.tests_check. It decides whether the
 // test plan can go on to review: with.errors is the output of matrix.plan, and
-// with.architect and with.engineer are the escalations of the two jobs (null
-// when they did not stop). The errors, as text for the next try, are what is
+// with.smoke is the output of tests.smoke_result, with.architect and
+// with.engineer are the escalations of the two jobs (null when they did not
+// stop). The errors, as text for the next try, are what is
 // wrong; the loop that runs it escalates when its tries run out.
 func (a *actions) testsCheck(_ context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		Errors    string  `json:"errors"`
+		Smoke     string  `json:"smoke"`
 		Architect *string `json:"architect"`
 		Engineer  *string `json:"engineer"`
 	}
@@ -159,8 +177,10 @@ func (a *actions) testsCheck(_ context.Context, call workflow.ActionCall) (any, 
 			problems = append(problems, e.role+" stopped: "+strings.TrimSpace(*e.text))
 		}
 	}
-	if e := strings.TrimSpace(with.Errors); e != "" {
-		problems = append(problems, e)
+	for _, e := range []string{with.Errors, with.Smoke} {
+		if e = strings.TrimSpace(e); e != "" {
+			problems = append(problems, e)
+		}
 	}
 	if len(problems) == 0 {
 		return testsCheckOutput{Valid: true}, nil
@@ -245,13 +265,30 @@ type smokeJob struct {
 	Command     domain.CommandSpec `json:"command"`
 }
 
+// smokeCommand runs the versions commands of env, so a tool that is missing
+// from the image fails the job's command; an environment without any runs a
+// command that does nothing.
+func smokeCommand(env domain.Environment) domain.CommandSpec {
+	var cmds []string
+	for _, tool := range slices.Sorted(maps.Keys(env.Versions)) {
+		cmds = append(cmds, env.Versions[tool])
+	}
+	if len(cmds) == 0 {
+		return domain.CommandSpec{Shell: "echo smoke"}
+	}
+	return domain.CommandSpec{Shell: strings.Join(cmds, " && ")}
+}
+
 // testsSmokePlan is the action tests.smoke_plan. It reads the matrix at
 // with.ref and outputs a command job request for every environment that
 // with.environments (the environment engineer's output) lists as added or
-// changed: it builds the environment, which records its versions commands, and
-// runs a command that does nothing. The request is the one of the first cell
-// that uses the environment, so it lands on the worker the real runs do. A
-// matrix that does not load gives no requests: matrix.plan reports why.
+// changed: building it records its versions commands, and the job's command
+// runs them again, so a failing one is an error of the plan (tests.smoke_result).
+// The request is the one of the first cell that uses the environment, so it
+// lands on the worker the real runs do. A workflow_dispatch needs the workflow
+// on the default branch, so while it is not there the environments on GitHub
+// Actions get no smoke job: the baseline runs them once the PR is merged.
+// A matrix that does not load gives no requests: matrix.plan reports why.
 func (a *actions) testsSmokePlan(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		Repo string `json:"repo"`
@@ -286,22 +323,81 @@ func (a *actions) testsSmokePlan(ctx context.Context, call workflow.ActionCall) 
 		}
 		return nil, err
 	}
+	dispatchable, err := a.workflowOnDefaultBranch(ctx, call.Run, with.Repo)
+	if err != nil {
+		return nil, err
+	}
 	wanted := map[string]bool{}
 	for _, e := range with.Environments {
 		wanted[e.Name] = e.Change == "added" || e.Change == "changed"
 	}
 	seen := map[string]bool{}
 	for _, c := range cells {
-		if c.Environment.Provider == domain.ProviderActions && len(out.IfActions) == 0 {
+		onActions := c.Environment.Provider == domain.ProviderActions
+		if onActions && len(out.IfActions) == 0 {
 			out.IfActions = append(out.IfActions, with.Repo)
 		}
-		if !wanted[c.Environment.Name] || seen[c.Environment.Name] {
+		if !wanted[c.Environment.Name] || seen[c.Environment.Name] || (onActions && !dispatchable) {
 			continue
 		}
 		seen[c.Environment.Name] = true
-		out.Requests = append(out.Requests, smokeJob{Environment: c.Environment, Needs: c.Needs, Command: domain.CommandSpec{Shell: "echo smoke"}})
+		out.Requests = append(out.Requests, smokeJob{Environment: c.Environment, Needs: c.Needs, Command: smokeCommand(c.Environment)})
 	}
 	return out, nil
+}
+
+// workflowOnDefaultBranch reports whether the forecrew-matrix workflow is on
+// the default branch of repo.
+func (a *actions) workflowOnDefaultBranch(ctx context.Context, run domain.WorkflowRun, repo string) (bool, error) {
+	p, err := a.Store.Projects().Get(ctx, run.AccountID, run.ProjectID)
+	if err != nil {
+		return false, fmt.Errorf("get project: %w", err)
+	}
+	_, err = a.Tracker.GetFile(ctx, repo, p.DefaultBranch, actionsprovider.WorkflowPath)
+	switch {
+	case errors.Is(err, github.ErrNotFound):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("read %s of %s: %w", actionsprovider.WorkflowPath, repo, err)
+	}
+	return true, nil
+}
+
+// smokeResultOutput is the output of tests.smoke_result.
+type smokeResultOutput struct {
+	Errors string `json:"errors"` // empty when every versions command ran
+}
+
+// testsSmokeResult is the action tests.smoke_result. It reads the test runs
+// the smoke jobs of with.runs stored (job IDs, outputs of job steps or the
+// rounds of a foreach over one, as for tests.base_check_result) and outputs, as
+// text for the roles, every environment whose command, the versions commands,
+// exited with an error.
+func (a *actions) testsSmokeResult(ctx context.Context, call workflow.ActionCall) (any, error) {
+	var with struct {
+		Runs []jobRefs `json:"runs"`
+	}
+	if err := workflow.DecodeWith(call.With, &with); err != nil {
+		return nil, err
+	}
+	var problems []string
+	for i, refs := range with.Runs {
+		if len(refs) == 0 {
+			return nil, fmt.Errorf("with: runs[%d]: no job_id; give job IDs or the outputs of job steps", i)
+		}
+		for _, id := range refs {
+			stored, err := a.Store.TestRuns().List(ctx, call.Run.AccountID, store.TestRunFilter{JobID: id})
+			if err != nil {
+				return nil, fmt.Errorf("list test runs of job %s: %w", id, err)
+			}
+			for _, r := range stored {
+				if r.ExitCode != 0 {
+					problems = append(problems, fmt.Sprintf("The versions commands of the environment %s exited with %d: a tool they name is missing or broken.", issueCode(cmp.Or(r.Environment, "host")), r.ExitCode))
+				}
+			}
+		}
+	}
+	return smokeResultOutput{Errors: strings.Join(slices.Compact(problems), "\n")}, nil
 }
 
 // testPlanOutput and environmentsOutput are what onboarding.tests_proposal
@@ -344,6 +440,7 @@ func (a *actions) testsProposal(_ context.Context, call workflow.ActionCall) (an
 	var with struct {
 		Plan         json.RawMessage `json:"plan"`
 		Environments json.RawMessage `json:"environments"`
+		Workflow     []string        `json:"workflow"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -377,6 +474,9 @@ func (a *actions) testsProposal(_ context.Context, call workflow.ActionCall) (an
 		list = append(list, fmt.Sprintf("`%s` (%s, %s): %s", one(e.Name), one(e.Provider), one(e.Change), one(e.Reason)))
 	}
 	section(&b, "Environment files", list, "- ")
+	if len(with.Workflow) > 0 {
+		section(&b, "Workflow", []string{"Adds `.github/workflows/forecrew-matrix.yml`, which runs the jobs of the environments on GitHub Actions. It runs repo code with read access only."}, "")
+	}
 	section(&b, "Assumptions", assumptionLines(slices.Concat(plan.Assumptions, envs.Assumptions)), "- ")
 	var questions []string
 	for _, q := range plan.OpenQuestions {
@@ -443,7 +543,7 @@ func (a *actions) baselineIssues(ctx context.Context, call workflow.ActionCall) 
 		return nil, fmt.Errorf("list the baseline issues of %s: %w", p.Repo, err)
 	}
 	for _, d := range drafts {
-		if i := slices.IndexFunc(open, func(i github.Issue) bool { return strings.Contains(i.Body, d.marker) }); i >= 0 {
+		if i := slices.IndexFunc(open, func(i github.Issue) bool { return strings.HasPrefix(i.Body, d.marker) }); i >= 0 {
 			out.Issues = append(out.Issues, issueRef{Number: open[i].Number, URL: open[i].URL, Title: open[i].Title})
 			continue
 		}
@@ -572,12 +672,15 @@ func (a *actions) failingTests(ctx context.Context, accountID uuid.UUID, run str
 func flakyIssue(flaky []verification.Flaky, link string) issueDraft {
 	var b strings.Builder
 	b.WriteString("These tests failed and then passed when their cell ran again in the baseline run of the existing tests, so they are flaky.\n\n")
-	for _, f := range flaky {
+	for _, f := range flaky[:min(len(flaky), maxIssueTests)] {
 		envs := make([]string, len(f.Environments))
 		for i, e := range f.Environments {
 			envs[i] = issueCode(cmp.Or(e, "host"))
 		}
 		fmt.Fprintf(&b, "- %s in %s\n", issueCode(f.Test), strings.Join(envs, ", "))
+	}
+	if len(flaky) > maxIssueTests {
+		b.WriteString("- and more, see the report\n")
 	}
 	b.WriteString("\n" + link + "\n")
 	return issueDraft{marker: baselineMarker("flaky"), title: "Baseline: flaky tests", body: b.String()}
