@@ -338,3 +338,29 @@ func TestMatrixPlanStrict(t *testing.T) {
 		t.Errorf("a valid matrix failed: %v", err)
 	}
 }
+
+// A suite asked for by name that no required cell runs (required: false) is the
+// only check of its new tests: without a worker it is reported, not dropped.
+func TestMatrixPlanOnlyRunnableSuiteWithoutRequiredJobs(t *testing.T) {
+	v := newEnv(t)
+	v.setMatrix(t, "abc") // smoke has required: false; unit is required in linux
+	plan := func(suites ...any) map[string]any {
+		out, err := v.call(t, "matrix.plan", map[string]any{"repo": "acme/app", "ref": "abc", "scope": "required", "suites": suites, "only_runnable": true})
+		must(t, err)
+		return toMap(t, out)
+	}
+	m := plan("smoke")
+	if got := keys(t, m["unrunnable"]); !slices.Equal(got, []string{"os=linux/unit", "os=linux/smoke"}) || !strings.Contains(m["missing"].(string), "os=linux/smoke") {
+		t.Errorf("smoke asked for = %v", m)
+	}
+	// Unit has required jobs, so its optional windows job stays optional.
+	m = plan("unit")
+	if got := keys(t, m["unrunnable"]); !slices.Equal(got, []string{"os=linux/unit"}) {
+		t.Errorf("unit asked for = %v", m)
+	}
+	// Not asked for, the optional suite is dropped quietly.
+	m = plan()
+	if text := m["missing"].(string); strings.Contains(text, "smoke") {
+		t.Errorf("smoke not asked for = %v", m)
+	}
+}

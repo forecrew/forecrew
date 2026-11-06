@@ -90,7 +90,7 @@ func (a *actions) matrixPlan(ctx context.Context, call workflow.ActionCall) (any
 		if err != nil {
 			return nil, err
 		}
-		if err := a.dropUnrunnable(ctx, call.Run.AccountID, &out, required); err != nil {
+		if err := a.dropUnrunnable(ctx, call.Run.AccountID, &out, required, with.Suites); err != nil {
 			return nil, err
 		}
 	}
@@ -133,16 +133,20 @@ func (c workerCheck) canRun(env domain.Environment, needs []string) (pool string
 // dropUnrunnable moves the jobs of out that no online worker can lease to
 // out.Unrunnable and describes them in out.Missing. A job that no required
 // cell asks for is optional and nothing waits for it: without a worker it is
-// dropped from the plan and not reported.
-func (a *actions) dropUnrunnable(ctx context.Context, accountID uuid.UUID, out *matrixPlanOutput, required []matrix.Cell) error {
+// dropped from the plan and not reported. The exception is a suite of
+// suites that no required job runs (a suite with required: false, asked for
+// by name because its tests are new): it is the only check of those tests,
+// so its jobs are needed.
+func (a *actions) dropUnrunnable(ctx context.Context, accountID uuid.UUID, out *matrixPlanOutput, required []matrix.Cell, suites []string) error {
 	check, err := a.newWorkerCheck(ctx, accountID)
 	if err != nil {
 		return err
 	}
 	need := map[string]bool{}
+	hasRequired := map[string]bool{}
 	for _, c := range required {
 		for _, j := range c.Jobs() {
-			need[j.Key] = true
+			need[j.Key], hasRequired[j.Suite] = true, true
 		}
 	}
 	runnable := out.Jobs[:0:0]
@@ -151,7 +155,7 @@ func (a *actions) dropUnrunnable(ctx context.Context, accountID uuid.UUID, out *
 		switch {
 		case ok:
 			runnable = append(runnable, j)
-		case need[j.Key]:
+		case need[j.Key] || slices.Contains(suites, j.Suite) && !hasRequired[j.Suite]:
 			out.Unrunnable = append(out.Unrunnable, unrunnableJob{Key: j.Key, Pool: pool, Needs: labels})
 		}
 	}
