@@ -17,7 +17,11 @@ import (
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
-const testsBranch = "agent/onboarding-tests"
+// branch is the branch of the run: one of its own, as tests_branch makes it.
+func (p *testsPart) branch() string {
+	id := strings.ReplaceAll(p.run.ID.String(), "-", "")
+	return "agent/onboarding-tests-" + id[len(id)-12:]
+}
 
 // withTests gives the env the roles of the test part of onboarding, so the
 // onboarding playbook starts onboarding-tests, a fake GitHub Actions surface
@@ -143,12 +147,12 @@ func (p *testsPart) job(t *testing.T, path string, output map[string]any, files 
 	if files != nil {
 		p.heads++
 		sha = fmt.Sprintf("tests-%d", p.heads)
-		for _, ref := range []string{sha, testsBranch} {
+		for _, ref := range []string{sha, p.branch()} {
 			for name, content := range files {
 				must(t, p.tracker.SetFile("acme/app", ref, name, []byte(content)))
 			}
 		}
-		if pr, err := p.tracker.FindPR(t.Context(), "acme/app", testsBranch); err == nil {
+		if pr, err := p.tracker.FindPR(t.Context(), "acme/app", p.branch()); err == nil {
 			must(t, p.tracker.SetHeadSHA("acme/app", pr.Number, sha))
 		}
 	}
@@ -165,12 +169,12 @@ func (p *testsPart) plan(t *testing.T, round, try int) (architect, engineer work
 	return architect, engineer
 }
 
-// smoke completes the smoke jobs of round, one per environment.
-func (p *testsPart) smoke(t *testing.T, round int, n int) []workflow.JobRequest {
+// smoke completes the n smoke jobs of the try of round, one per environment.
+func (p *testsPart) smoke(t *testing.T, round, try, n int) []workflow.JobRequest {
 	t.Helper()
 	var reqs []workflow.JobRequest
 	for i := range n {
-		reqs = append(reqs, p.job(t, fmt.Sprintf("plan/%d/deliver/0/smoke/%d/smoke_job", round, i), map[string]any{}, nil))
+		reqs = append(reqs, p.job(t, fmt.Sprintf("plan/%d/draft/%d/smoke_part/0/smoke/%d/smoke_job", round, try, i), map[string]any{}, nil))
 	}
 	return reqs
 }
@@ -179,7 +183,7 @@ func (p *testsPart) smoke(t *testing.T, round int, n int) []workflow.JobRequest 
 func (p *testsPart) checks(t *testing.T, round int, conclusion domain.CheckConclusion) {
 	t.Helper()
 	p.waitStep(t, fmt.Sprintf("plan/%d/deliver/0/approval/0/checks", round), domain.StepWaiting)
-	pr, err := p.tracker.FindPR(t.Context(), "acme/app", testsBranch)
+	pr, err := p.tracker.FindPR(t.Context(), "acme/app", p.branch())
 	must(t, err)
 	p.publish(t, &domain.ChecksCompleted{Repo: "acme/app", Number: pr.Number, SHA: pr.HeadSHA, Conclusion: conclusion})
 }
@@ -188,7 +192,7 @@ func (p *testsPart) checks(t *testing.T, round int, conclusion domain.CheckConcl
 func (p *testsPart) reach(t *testing.T, round int) domain.Gate {
 	t.Helper()
 	p.plan(t, round, 1)
-	p.smoke(t, round, 2)
+	p.smoke(t, round, 1, 2)
 	p.checks(t, round, domain.ChecksSuccess)
 	return p.pendingGate(t, domain.GateTestPlanApproval)
 }
@@ -258,14 +262,14 @@ func TestOnboardingTestsEndToEnd(t *testing.T) {
 
 	architect, engineer := p.plan(t, 1, 1)
 	for _, req := range []workflow.JobRequest{architect, engineer} {
-		if req.Branch != testsBranch || req.Repo != "acme/app" || len(req.Needs) != 1 || req.Needs[0] != "linux" || req.Feedback != "" || req.ProjectID != p.project.ID {
+		if req.Branch != p.branch() || req.Repo != "acme/app" || len(req.Needs) != 1 || req.Needs[0] != "linux" || req.Feedback != "" || req.ProjectID != p.project.ID {
 			t.Errorf("job request = %+v", req)
 		}
 	}
 	if architect.Role != "test-architect" || engineer.Role != "environment-engineer" {
 		t.Errorf("roles = %s, %s", architect.Role, engineer.Role)
 	}
-	assertSmokeJobs(t, p.smoke(t, 1, 2))
+	assertSmokeJobs(t, p.smoke(t, 1, 1, 2), p.branch())
 	p.checks(t, 1, domain.ChecksSuccess)
 	pr := assertTestsPR(t, o, p)
 
@@ -297,11 +301,11 @@ func TestOnboardingTestsEndToEnd(t *testing.T) {
 }
 
 // assertSmokeJobs checks one smoke job per new environment, on the branch.
-func assertSmokeJobs(t *testing.T, smokes []workflow.JobRequest) {
+func assertSmokeJobs(t *testing.T, smokes []workflow.JobRequest, branch string) {
 	t.Helper()
 	envs := map[string]workflow.JobRequest{}
 	for _, s := range smokes {
-		if s.Kind != domain.JobKindCommand || s.Repo != "acme/app" || s.BaseRef != "main" || s.Branch != testsBranch || s.Command == nil || s.Command.Shell == "" || s.Environment == nil {
+		if s.Kind != domain.JobKindCommand || s.Repo != "acme/app" || s.BaseRef != "main" || s.Branch != branch || s.Command == nil || s.Command.Shell == "" || s.Environment == nil {
 			t.Errorf("smoke request = %+v", s)
 		}
 		envs[s.Environment.Name] = s
@@ -315,7 +319,7 @@ func assertSmokeJobs(t *testing.T, smokes []workflow.JobRequest) {
 func assertTestsPR(t *testing.T, o *onboarding, p *testsPart) github.PullRequest {
 	t.Helper()
 	g := p.pendingGate(t, domain.GateTestPlanApproval)
-	pr, err := p.tracker.FindPR(t.Context(), "acme/app", testsBranch)
+	pr, err := p.tracker.FindPR(t.Context(), "acme/app", p.branch())
 	must(t, err)
 	if g.SubjectRepo != "acme/app" || g.SubjectNumber != pr.Number || !strings.Contains(g.Title, "round 1") || pr.Base != "main" {
 		t.Errorf("gate = %+v, PR %+v", g, pr)
@@ -421,7 +425,7 @@ func TestOnboardingTestsChangesRequested(t *testing.T) {
 			t.Errorf("round 2 feedback = %q", req.Feedback)
 		}
 	}
-	p.smoke(t, 2, 2)
+	p.smoke(t, 2, 1, 2)
 	p.checks(t, 2, domain.ChecksSuccess)
 	var second domain.Gate
 	eventually(t, "a second gate", func() bool {
@@ -455,7 +459,7 @@ func TestOnboardingTestsInvalidMatrixLoopsBackOnce(t *testing.T) {
 			t.Errorf("second try feedback = %q", req.Feedback)
 		}
 	}
-	p.smoke(t, 1, 2)
+	p.smoke(t, 1, 2, 2)
 	p.checks(t, 1, domain.ChecksSuccess)
 	p.pendingGate(t, domain.GateTestPlanApproval)
 }
@@ -474,6 +478,7 @@ func TestOnboardingTestsEscalatesWhenTheTriesRunOut(t *testing.T) {
 		if try == 2 && !strings.Contains(req.Feedback, "The test architect stopped: The profile needs a macOS runner") {
 			t.Errorf("feedback = %q", req.Feedback)
 		}
+		p.smoke(t, 1, try, 2)
 	}
 	g := p.pendingGate(t, domain.GateNeedsYou)
 	if g.Status != domain.GatePending {
@@ -481,8 +486,9 @@ func TestOnboardingTestsEscalatesWhenTheTriesRunOut(t *testing.T) {
 	}
 }
 
-// An environment that runs on GitHub Actions gets the workflow on the same
-// branch, before the smoke jobs dispatch it.
+// An environment that runs on GitHub Actions gets the workflow on the branch,
+// but no smoke job while the workflow is not on the default branch: a dispatch
+// needs it there, and the baseline runs the environment once it is merged.
 func TestOnboardingTestsInstallsTheWorkflow(t *testing.T) {
 	v := newEnv(t)
 	fake := v.withTests(t, true)
@@ -492,15 +498,87 @@ func TestOnboardingTestsInstallsTheWorkflow(t *testing.T) {
 	files[".forecrew/environments/win.yaml"] = "version: 1\nname: win\nprovider: actions\nruns_on: windows-2022\n"
 	p.job(t, "plan/1/draft/1/architect", architectOutput(), files)
 	p.job(t, "plan/1/draft/1/engineer", engineerOutput(), files)
-	p.waitStep(t, "plan/1/deliver/0/install/0/workflow", domain.StepSucceeded)
+	p.waitStep(t, "plan/1/draft/1/smoke_part/0/install/0/workflow", domain.StepSucceeded)
 	if got, ok := fake.File("acme/app", ".github/workflows/forecrew-matrix.yml"); !ok || len(got) == 0 {
 		t.Error("the workflow was not installed")
 	}
-	reqs := p.smoke(t, 1, 2)
-	for _, r := range reqs {
-		if r.Environment.Name == "win" && (r.Needs[0] != "windows-2022" || r.Branch != testsBranch) {
+	reqs := p.smoke(t, 1, 1, 1)
+	if len(reqs) != 1 || reqs[0].Environment.Name != "linux-go" {
+		t.Errorf("smoke requests = %+v", reqs)
+	}
+	p.checks(t, 1, domain.ChecksSuccess)
+	pr := p.pendingGate(t, domain.GateTestPlanApproval)
+	got, err := p.tracker.GetPR(t.Context(), "acme/app", pr.SubjectNumber)
+	must(t, err)
+	if !strings.Contains(got.Body, ".github/workflows/forecrew-matrix.yml") {
+		t.Errorf("the PR body does not name the workflow:\n%s", got.Body)
+	}
+}
+
+// With the workflow on the default branch the actions environment is smoked.
+func TestOnboardingTestsSmokesActionsEnvironmentsOnceTheWorkflowIsThere(t *testing.T) {
+	v := newEnv(t)
+	v.withTests(t, true)
+	must(t, v.tracker.SetFile("acme/app", "main", ".github/workflows/forecrew-matrix.yml", []byte("name: forecrew-matrix\n")))
+	_, p := onboardedUpToTests(t, v)
+	files := map[string]string{}
+	maps.Copy(files, testPlanFiles)
+	files[".forecrew/environments/win.yaml"] = "version: 1\nname: win\nprovider: actions\nruns_on: windows-2022\n"
+	p.job(t, "plan/1/draft/1/architect", architectOutput(), files)
+	p.job(t, "plan/1/draft/1/engineer", engineerOutput(), files)
+	for _, r := range p.smoke(t, 1, 1, 2) {
+		if r.Environment.Name == "win" && (r.Needs[0] != "windows-2022" || r.Branch != p.branch()) {
 			t.Errorf("smoke request of the actions environment = %+v", r)
 		}
+	}
+}
+
+// A versions command that fails goes back to the two roles with the error.
+func TestOnboardingTestsFailingVersionsGoBack(t *testing.T) {
+	v := newEnv(t)
+	v.withTests(t, false)
+	_, p := onboardedUpToTests(t, v)
+	files := map[string]string{}
+	maps.Copy(files, testPlanFiles)
+	files[".forecrew/environments/linux-go.yaml"] = linuxGoYAML + "versions: {go: go version, node: node --version}\n"
+	p.job(t, "plan/1/draft/1/architect", architectOutput(), files)
+	p.job(t, "plan/1/draft/1/engineer", engineerOutput(), files)
+	var failing workflow.JobRequest
+	for i := range 2 {
+		s := p.waitStep(t, fmt.Sprintf("plan/1/draft/1/smoke_part/0/smoke/%d/smoke_job", i), domain.StepWaiting)
+		p.finishJob(t, s.JobID, []byte("{}"), "", 0)
+		for _, r := range p.jobs.Requests() {
+			if r.ID != s.JobID || r.Environment.Name != "linux-go" {
+				continue
+			}
+			failing = r // its versions commands exited with 127
+			run := domain.TestRun{AccountID: p.account, ProjectID: p.project.ID, JobID: s.JobID, SHA: "abc1234", Environment: "linux-go", Status: domain.TestRunErrored, ExitCode: 127, Attempt: 1}
+			must(t, p.st.TestRuns().Create(t.Context(), &run, nil))
+		}
+	}
+	if failing.Command == nil || failing.Command.Shell != "go version && node --version" {
+		t.Fatalf("smoke command = %+v", failing.Command)
+	}
+	architect := p.job(t, "plan/1/draft/2/architect", architectOutput(), testPlanFiles)
+	if !strings.Contains(architect.Feedback, "The versions commands of the environment `linux-go` exited with 127") {
+		t.Errorf("second try feedback = %q", architect.Feedback)
+	}
+}
+
+// Closing the PR on GitHub while the plan is under review does not open
+// another one in the next round: the step escalates.
+func TestOnboardingTestsClosedPRIsNotReplaced(t *testing.T) {
+	v := newEnv(t)
+	v.withTests(t, false)
+	_, p := onboardedUpToTests(t, v)
+	first := p.reach(t, 1)
+	p.decide(t, domain.GateTestPlanApproval, mcp.ToolRequestChanges, "More.")
+	must(t, p.tracker.ClosePR("acme/app", first.SubjectNumber))
+	p.plan(t, 2, 1)
+	p.smoke(t, 2, 1, 2)
+	p.pendingGate(t, domain.GateNeedsYou)
+	if _, err := p.tracker.FindPR(t.Context(), "acme/app", p.branch()); err == nil {
+		t.Error("a second PR was opened")
 	}
 }
 
@@ -518,9 +596,13 @@ func TestOnboardingTestsRefresh(t *testing.T) {
 	must(t, err)
 	ch := domain.Change{AccountID: v.account, ProjectID: v.project.ID, Repo: "acme/app", Number: pr.Number, Branch: "agent/onboarding", BaseRef: "main", HeadSHA: "p1", State: domain.ChangeMerged, URL: pr.URL}
 	must(t, v.st.Changes().Upsert(t.Context(), &ch))
+	// An earlier run's branch is merged and still there.
+	must(t, v.tracker.AddBranch("acme/app", "agent/onboarding-tests-0123456789ab"))
 
 	p := startTestsRun(t, v)
-	p.job(t, "plan/1/draft/1/architect", architectOutput(), nil)
+	if req := p.job(t, "plan/1/draft/1/architect", architectOutput(), nil); req.Branch != p.branch() || req.Branch == "agent/onboarding-tests-0123456789ab" {
+		t.Errorf("architect branch = %q, want the run's own %q", req.Branch, p.branch())
+	}
 	p.job(t, "plan/1/draft/1/engineer", engineerOutput(), nil)
 	for i := range 3 {
 		req := p.cellRun(t, fmt.Sprintf("cells/%d/cell_job", i))
@@ -529,7 +611,7 @@ func TestOnboardingTestsRefresh(t *testing.T) {
 		}
 	}
 	p.waitRun(t, domain.RunSucceeded)
-	if _, err := v.tracker.FindPR(t.Context(), "acme/app", testsBranch); err == nil {
+	if _, err := v.tracker.FindPR(t.Context(), "acme/app", p.branch()); err == nil {
 		t.Error("a PR was opened with nothing to commit")
 	}
 	if got := p.projectNow(t).Status; got != domain.ProjectOnboarded {
@@ -593,4 +675,19 @@ func (p *testsPart) projectNow(t *testing.T) domain.Project {
 	pr, err := p.st.Projects().Get(t.Context(), p.account, p.project.ID)
 	must(t, err)
 	return pr
+}
+
+// A commit pushed while the gate is pending is not merged with the approved
+// plan: the PR may add a workflow.
+func TestOnboardingTestsMergesOnlyTheProposedHead(t *testing.T) {
+	v := newEnv(t)
+	v.withTests(t, false)
+	_, p := onboardedUpToTests(t, v)
+	g := p.reach(t, 1)
+	must(t, p.tracker.SetHeadSHA("acme/app", g.SubjectNumber, "evil1234"))
+	p.decide(t, domain.GateTestPlanApproval, mcp.ToolApprove, "")
+	p.pendingGate(t, domain.GateNeedsYou)
+	if pr, _ := p.tracker.GetPR(t.Context(), "acme/app", g.SubjectNumber); pr.Merged {
+		t.Error("the PR was merged at a head nobody approved")
+	}
 }

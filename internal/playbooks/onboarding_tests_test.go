@@ -13,6 +13,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/playbooks"
+	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -63,6 +64,9 @@ func TestTestsCheck(t *testing.T) {
 	}
 	if valid, errs := check(map[string]any{"errors": "", "architect": nil, "engineer": " "}); !valid || errs != "" {
 		t.Errorf("valid plan = %v %q", valid, errs)
+	}
+	if valid, errs := check(map[string]any{"smoke": "go: not found"}); valid || errs != "go: not found" {
+		t.Errorf("smoke errors = %v %q", valid, errs)
 	}
 	valid, errs := check(map[string]any{"errors": "no cell", "architect": "needs a mac", "engineer": "needs a licence"})
 	if valid || !strings.Contains(errs, "The test architect stopped: needs a mac") || !strings.Contains(errs, "The environment engineer stopped: needs a licence") || !strings.HasSuffix(errs, "no cell") {
@@ -146,11 +150,24 @@ func TestTestsSmokePlan(t *testing.T) {
 		t.Errorf("one job per environment, with the needs of its first cell: %v", reqs)
 	}
 
-	// An environment on GitHub Actions needs the workflow, whether it is new or not.
+	// The versions commands are the smoke command, by tool name.
+	must(t, v.tracker.SetFile("acme/app", "abc1234", ".forecrew/environments/linux-go.yaml", []byte(linuxGoYAML+"versions: {node: node --version, go: go version}\n")))
+	got = smoke("abc1234", smokeEnvs("linux-go"))
+	if c := got["requests"].([]any)[0].(map[string]any)["command"].(map[string]any)["shell"]; c != "go version && node --version" {
+		t.Errorf("smoke command = %v", c)
+	}
+
+	// An environment on GitHub Actions needs the workflow, whether it is new
+	// or not, and is smoked only once the workflow is on the default branch.
 	must(t, v.tracker.SetFile("acme/app", "abc1234", ".forecrew/environments/win.yaml", []byte("version: 1\nname: win\nprovider: actions\nruns_on: windows-2022\n")))
-	got = smoke("abc1234", nil)
+	got = smoke("abc1234", smokeEnvs("win"))
 	if fmt.Sprint(got["if_actions"]) != "[acme/app]" || len(got["requests"].([]any)) != 0 {
-		t.Errorf("actions environment: %v", got)
+		t.Errorf("actions environment, no workflow on main: %v", got)
+	}
+	must(t, v.tracker.SetFile("acme/app", "main", ".github/workflows/forecrew-matrix.yml", []byte("name: x\n")))
+	got = smoke("abc1234", smokeEnvs("win"))
+	if fmt.Sprint(got["if_actions"]) != "[acme/app]" || len(got["requests"].([]any)) != 1 {
+		t.Errorf("actions environment, workflow on main: %v", got)
 	}
 
 	// A matrix that does not load is matrix.plan's to report.
@@ -182,6 +199,71 @@ func TestTestsSmokePlanReadError(t *testing.T) {
 	v.register()
 	_, err := v.call(t, "tests.smoke_plan", map[string]any{"repo": "acme/app", "ref": "abc"})
 	wantErr(t, err, "boom")
+
+	// The workflow file cannot be read.
+	v = newEnv(t)
+	v.matrixFiles(t, "abc1234")
+	v.wrapped = workflowReadFails{v.tracker}
+	v.register()
+	_, err = v.call(t, "tests.smoke_plan", map[string]any{"repo": "acme/app", "ref": "abc1234"})
+	wantErr(t, err, "read .github/workflows/forecrew-matrix.yml")
+	v.project.ID = domain.NewID()
+	_, err = v.call(t, "tests.smoke_plan", map[string]any{"repo": "acme/app", "ref": "abc1234"})
+	wantErr(t, err, "get project")
+}
+
+type workflowReadFails struct{ *testkit.Tracker }
+
+func (w workflowReadFails) GetFile(ctx context.Context, repo, ref, path string) ([]byte, error) {
+	if strings.HasPrefix(path, ".github/") {
+		return nil, errors.New("boom")
+	}
+	return w.Tracker.GetFile(ctx, repo, ref, path)
+}
+
+func TestTestsSmokeResult(t *testing.T) {
+	v := newEnv(t)
+	job := func(env string, exit int) map[string]any {
+		j := domain.Job{AccountID: v.account, ProjectID: v.project.ID, Kind: domain.JobKindCommand, Spec: domain.JobSpec{Repo: "acme/app", Kind: domain.JobKindCommand}}
+		must(t, v.st.Jobs().Create(t.Context(), &j))
+		run := domain.TestRun{AccountID: v.account, ProjectID: v.project.ID, JobID: j.ID, SHA: "abc1234", Environment: env, Status: domain.TestRunFailed, ExitCode: exit, Attempt: 1}
+		must(t, v.st.TestRuns().Create(t.Context(), &run, nil))
+		return map[string]any{"smoke_job": map[string]any{"job_id": j.ID.String()}}
+	}
+	result := func(runs ...map[string]any) string {
+		out, err := v.call(t, "tests.smoke_result", map[string]any{"runs": runs})
+		must(t, err)
+		return toMap(t, out)["errors"].(string)
+	}
+	if got := result(); got != "" {
+		t.Errorf("no smoke jobs: %q", got)
+	}
+	if got := result(job("linux-go", 0)); got != "" {
+		t.Errorf("a clean run: %q", got)
+	}
+	got := result(job("linux-go", 127), job("win", 1), job("linux-go", 0))
+	if !strings.Contains(got, "`linux-go` exited with 127") || !strings.Contains(got, "`win` exited with 1") {
+		t.Errorf("errors = %q", got)
+	}
+	_, err := v.call(t, "tests.smoke_result", map[string]any{"runs": []any{map[string]any{}}})
+	wantErr(t, err, "no job_id")
+	_, err = v.call(t, "tests.smoke_result", map[string]any{"x": 1})
+	wantErr(t, err, "unknown field")
+}
+
+func TestTestsBranch(t *testing.T) {
+	v := newEnv(t)
+	run := func(id uuid.UUID) string {
+		out, err := v.actions["onboarding.tests_branch"](t.Context(), workflow.ActionCall{Key: "k", Run: domain.WorkflowRun{ID: id}})
+		must(t, err)
+		return out.(map[string]string)["branch"]
+	}
+	a, b := domain.NewID(), domain.NewID()
+	if run(a) != run(a) || run(a) == run(b) || !strings.HasPrefix(run(a), "agent/onboarding-tests-") {
+		t.Errorf("branches = %s %s", run(a), run(b))
+	}
+	_, err := v.call(t, "onboarding.tests_branch", map[string]any{"x": 1})
+	wantErr(t, err, "unknown field")
 }
 
 func TestTestsProposal(t *testing.T) {
@@ -201,6 +283,14 @@ func TestTestsProposal(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("body lacks %q:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "forecrew-matrix.yml") {
+		t.Errorf("the workflow is named though none was installed:\n%s", body)
+	}
+	out, err = v.call(t, "onboarding.tests_proposal", map[string]any{"plan": architectOutput(), "environments": engineerOutput(), "workflow": []string{"acme/app"}})
+	must(t, err)
+	if body := toMap(t, out)["body"].(string); !strings.Contains(body, "Adds `.github/workflows/forecrew-matrix.yml`") {
+		t.Errorf("body lacks the workflow:\n%s", body)
 	}
 	// Text from the agents stays on one line of a list.
 	plan := architectOutput()
@@ -541,5 +631,35 @@ func TestBaselineIssuesErrors(t *testing.T) {
 		playbooks.Register(w.actions, playbooks.Deps{Store: w.st, Tracker: w.wrapped, Signals: w.bus, Roles: testRoles(), Now: w.clock.Now, Evidence: w.ev})
 		_, err := w.call(t, "baseline.file_issues", map[string]any{"report_id": rep})
 		wantErr(t, err, errs)
+	}
+}
+
+// Many flaky tests are cut like many failures, and only a marker at the start of
+// an issue body counts: a human's issue that quotes it is not the one.
+func TestBaselineIssuesFlakyBoundAndMarkerPrefix(t *testing.T) {
+	v := baselineEnv(t)
+	var ids []string
+	for i := range 25 {
+		ids = append(ids, fmt.Sprintf("pkg::Test%02d", i))
+	}
+	v.addRun(t, "linux-go", "linux", "unit", testResults(domain.TestFailed, ids...)...)
+	v.addRun(t, "linux-go", "linux", "unit", testResults(domain.TestPassed, ids...)...)
+	v.addRun(t, "win", "windows", "unit", testResults(domain.TestPassed, "pkg::Test00")...)
+	v.addRun(t, "linux-go", "linux", "e2e", testResults(domain.TestPassed, "e2e::Flow")...)
+	_, err := v.tracker.CreateIssue(t.Context(), "acme/app", github.IssueInput{Title: "Quote", Body: "see <!-- forecrew-baseline flaky -->", Labels: []string{"forecrew:baseline"}})
+	must(t, err)
+	issues := v.fileIssues(t, v.baseline(t))
+	if len(issues) != 1 || issues[0]["created"] != true {
+		t.Fatalf("issues = %v", issues)
+	}
+	open, _ := v.tracker.ListOpenIssues(t.Context(), "acme/app", "forecrew:baseline")
+	var body string
+	for _, i := range open {
+		if i.Title == "Baseline: flaky tests" {
+			body = i.Body
+		}
+	}
+	if strings.Count(body, "- `pkg::Test") != 20 || !strings.Contains(body, "- and more, see the report") {
+		t.Errorf("flaky issue:\n%s", body)
 	}
 }
