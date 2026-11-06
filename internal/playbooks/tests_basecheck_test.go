@@ -333,3 +333,74 @@ func TestTestsBaseCheckResultEmptyAndErrors(t *testing.T) {
 	_, err = v.call(t, "tests.base_check_result", map[string]any{"runs": 1, "tests": []any{}})
 	wantErr(t, err, "with:")
 }
+
+// baseRunIn stores a base check run of suite in an environment.
+func (v *env) baseRunIn(t *testing.T, suite, environment string, status domain.TestRunStatus, exit int, results ...domain.TestResult) uuid.UUID {
+	t.Helper()
+	j := domain.Job{AccountID: v.account, ProjectID: v.project.ID, Kind: domain.JobKindCommand, Spec: domain.JobSpec{Repo: "acme/app", Kind: domain.JobKindCommand}}
+	must(t, v.st.Jobs().Create(t.Context(), &j))
+	r := domain.TestRun{AccountID: v.account, ProjectID: v.project.ID, JobID: j.ID, SHA: "main", Suite: suite, Environment: environment, Status: status, ExitCode: exit, Attempt: 1}
+	must(t, v.st.TestRuns().Create(t.Context(), &r, results))
+	return j.ID
+}
+
+// A request that has no run is a check nobody did, however many other runs of
+// the suite say the test failed: the tests of its suite are left out.
+func TestTestsBaseCheckResultComparesRunsWithRequests(t *testing.T) {
+	v := newEnv(t)
+	linux := v.baseRunIn(t, "unit", "linux-go", domain.TestRunFailed, 1, res("pkg", "TestA", domain.TestFailed))
+	windows := v.baseRunIn(t, "unit", "win", domain.TestRunFailed, 1, res("pkg", "TestA", domain.TestFailed))
+	e2e := v.baseRunIn(t, "e2e", "linux-go", domain.TestRunFailed, 1, res("e2e", "Flow", domain.TestFailed))
+	req := func(suite, env string) map[string]any {
+		r := map[string]any{"kind": "command", "repo": "acme/app", "base_ref": "main", "suite": suite, "cell": map[string]any{"os": "linux"}}
+		if env != "" {
+			r["environment"] = map[string]any{"name": env, "provider": "docker"}
+		}
+		return r
+	}
+	tests := newTests([3]string{"unit", "pkg::TestA", "a"}, [3]string{"e2e", "e2e::Flow", "a"})
+	call := func(requests []any, runs ...uuid.UUID) map[string]any {
+		var ids []any
+		for _, r := range runs {
+			ids = append(ids, r.String())
+		}
+		out, err := v.call(t, "tests.base_check_result", map[string]any{"runs": ids, "tests": tests, "requests": requests})
+		must(t, err)
+		return toMap(t, out)
+	}
+	ids := func(m map[string]any) []string {
+		var out []string
+		for _, n := range m["new_tests"].([]any) {
+			out = append(out, toMap(t, n)["id"].(string))
+		}
+		return out
+	}
+
+	all := []any{req("unit", "linux-go"), req("unit", "win"), req("e2e", "linux-go")}
+	if m := call(all, linux, windows, e2e); m["ok"] != true || !slices.Equal(ids(m), []string{"pkg::TestA", "e2e::Flow"}) {
+		t.Errorf("every request has its run = %v", m)
+	}
+	// The windows job left no run: unit is unchecked there, e2e is fine.
+	if m := call(all, linux, e2e); m["ok"] != false || !slices.Equal(ids(m), []string{"e2e::Flow"}) {
+		t.Errorf("one run missing = %v", m)
+	}
+	// A run in another environment does not stand in for the missing one.
+	if m := call(all, linux, linux, e2e); m["ok"] != false || !slices.Equal(ids(m), []string{"e2e::Flow"}) {
+		t.Errorf("a run of another environment = %v", m)
+	}
+	// No runs at all.
+	if m := call(all); m["ok"] != false || len(ids(m)) != 0 {
+		t.Errorf("no runs = %v", m)
+	}
+	// A request without an environment matches a run without one.
+	tests = newTests([3]string{"unit", "pkg::TestA", "a"})
+	emptyRun := v.baseRunIn(t, "unit", "", domain.TestRunFailed, 1, res("pkg", "TestA", domain.TestFailed))
+	if m := call([]any{req("unit", "")}, emptyRun); m["ok"] != true || !slices.Equal(ids(m), []string{"pkg::TestA"}) {
+		t.Errorf("no environment = %v", m)
+	}
+	if m := call([]any{req("unit", "")}, linux); m["ok"] != false || len(ids(m)) != 0 {
+		t.Errorf("a run in an environment for a request without = %v", m)
+	}
+	_, err := v.call(t, "tests.base_check_result", map[string]any{"runs": []any{linux.String()}, "tests": tests, "requests": []any{"nope"}})
+	wantErr(t, err, "requests[0]")
+}
