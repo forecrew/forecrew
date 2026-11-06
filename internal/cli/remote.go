@@ -169,7 +169,7 @@ func (r *remote) commands() []*cobra.Command {
 		listCommand(r, "workers", "List workers", "/workers", printWorkers),
 		listCommand(r, "projects", "List projects", "/projects", printProjects),
 		onboardCommand(r),
-		tokensCommand(r),
+		tokensCommand(r), invitationsCommand(r),
 		listCommand(r, "gates", "List the gates waiting for a decision", "/gates", printGates),
 		decideCommand(r, "approve", "approve", "Approve a gate (GATE-7 or UUID); on a needs_you gate this retries"),
 		decideCommand(r, "reject", "reject", "Reject a gate (GATE-7 or UUID); on a needs_you gate this stops the work"),
@@ -485,6 +485,26 @@ func (nopCloser) Close() error { return nil }
 // tokensCommand lists the tokens of the account; its subcommand revokes one.
 func tokensCommand(r *remote) *cobra.Command {
 	tokens := listCommand(r, "tokens", "List the API and MCP tokens", "/tokens", printTokens)
+	var in mcp.CreateTokenInput
+	var scopes []string
+	create := &cobra.Command{
+		Use:   "create <name>",
+		Short: "Create a personal token, or a service account's; it is shown once",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			in.Name, in.Scopes = args[0], toScopes(scopes)
+			var out mcp.CreateTokenOutput
+			if err := r.call(cmd.Context(), http.MethodPost, "/tokens", in, &out); err != nil {
+				return err
+			}
+			printSecret(cmd.OutOrStdout(), cmd.ErrOrStderr(), out.Secret, "token", out.Token.Name)
+			return nil
+		},
+	}
+	create.Flags().StringSliceVar(&scopes, "scope", []string{string(domain.ScopeRead)}, "scopes: read, write, admin")
+	create.Flags().StringVar(&in.TTL, "ttl", "", "how long it lasts, for example 720h; default auth.token_default_ttl")
+	create.Flags().StringVar(&in.ServiceAccount, "service-account", "", "name of the service account it is for")
+	tokens.AddCommand(create)
 	tokens.AddCommand(&cobra.Command{
 		Use:   "revoke <name|id>",
 		Short: "Revoke a token; it stops working at once",
@@ -499,6 +519,73 @@ func tokensCommand(r *remote) *cobra.Command {
 		},
 	})
 	return tokens
+}
+
+// invitationsCommand lists the organization's invitations; its subcommands
+// create and revoke them.
+func invitationsCommand(r *remote) *cobra.Command {
+	invitations := listCommand(r, "invitations", "List the invitations", "/invitations", printInvitations)
+	var in mcp.CreateInvitationInput
+	var roles []string
+	create := &cobra.Command{
+		Use:   "create <email or github-login>",
+		Short: "Invite someone; the link is shown once",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			in.Email, in.GitHubLogin = "", args[0]
+			if strings.Contains(args[0], "@") {
+				in.Email, in.GitHubLogin = args[0], ""
+			}
+			in.Roles = roleGrants(roles)
+			var out mcp.CreateInvitationOutput
+			if err := r.call(cmd.Context(), http.MethodPost, "/invitations", in, &out); err != nil {
+				return err
+			}
+			printSecret(cmd.OutOrStdout(), cmd.ErrOrStderr(), out.URL, "invitation link for", args[0])
+			return nil
+		},
+	}
+	create.Flags().StringSliceVar(&roles, "role", []string{domain.RoleMember}, "roles to grant: role, or role@project for one project")
+	create.Flags().StringVar(&in.TTL, "ttl", "", "how long the link works, for example 168h; default 7 days")
+	invitations.AddCommand(create, &cobra.Command{
+		Use:   "revoke <id>",
+		Short: "Revoke an invitation; its link stops working at once",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var out domain.Invitation
+			if err := r.call(cmd.Context(), http.MethodPost, "/invitations/"+url.PathEscape(args[0])+"/revoke", nil, &out); err != nil {
+				return err
+			}
+			cmd.Printf("invitation %s revoked\n", out.ID)
+			return nil
+		},
+	})
+	return invitations
+}
+
+// roleGrants reads "role" and "role@project" flags.
+func roleGrants(flags []string) []mcp.RoleGrant {
+	out := make([]mcp.RoleGrant, len(flags))
+	for i, f := range flags {
+		role, project, _ := strings.Cut(f, "@")
+		out[i] = mcp.RoleGrant{Role: role, Project: project}
+	}
+	return out
+}
+
+func printInvitations(w io.Writer, items []domain.Invitation) {
+	rows := [][]string{{"ID", "INVITED", "STATUS", "EXPIRES"}}
+	for _, i := range items {
+		status := "pending"
+		switch {
+		case !i.AcceptedAt.IsZero():
+			status = "accepted"
+		case !i.RevokedAt.IsZero():
+			status = "revoked"
+		}
+		rows = append(rows, []string{i.ID.String(), cmp.Or(i.Email, i.GitHubLogin), status, i.ExpiresAt.UTC().Format(time.RFC3339)})
+	}
+	table(w, rows)
 }
 
 func table(w io.Writer, rows [][]string) {

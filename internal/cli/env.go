@@ -39,6 +39,9 @@ type Env struct {
 	HTTP *http.Client
 	// Open connects to the database named by url.
 	Open func(ctx context.Context, url string) (Database, error)
+	// GitHubAPI is GitHub's API, which turns a login into its stable user
+	// ID; it defaults to api.github.com.
+	GitHubAPI string
 }
 
 // OSEnv is the environment of the real process.

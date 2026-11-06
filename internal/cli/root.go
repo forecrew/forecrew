@@ -1,5 +1,5 @@
 // Package cli implements the forecrew CLI. The admin commands (migrate,
-// config, token, worker) use the database directly; the others call /api/v1.
+// config, token, worker, user, org, session) use the database directly; the others call /api/v1.
 // The command tree was scaffolded with cobra-cli and reshaped to avoid
 // package globals.
 package cli
@@ -22,7 +22,8 @@ func NewRootCommand(version string, env Env) *cobra.Command {
 	}
 	root.SetVersionTemplate("forecrew {{.Version}}\n")
 	root.AddCommand(newVersionCommand(version))
-	root.AddCommand(newMigrateCommand(env), newConfigCommand(env), newTokenCommand(env), newWorkerAdminCommand(env))
+	root.AddCommand(newMigrateCommand(env), newConfigCommand(env), newTokenCommand(env), newWorkerAdminCommand(env),
+		newUserCommand(env), newOrgCommand(env), newSessionCommand(env))
 	r := newRemote(env)
 	r.bind(root)
 	root.AddCommand(r.commands()...)

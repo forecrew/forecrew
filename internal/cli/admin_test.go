@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
@@ -39,12 +40,35 @@ type adminEnv struct {
 	vars    map[string]string
 }
 
+// testOwner is the member tokens of these tests belong to.
+const testOwner = "owner@example.com"
+
+// addOwner makes testOwner a member of the organization.
+func addOwner(t *testing.T, st store.Store, accountID uuid.UUID) {
+	t.Helper()
+	ctx := t.Context()
+	users, err := st.Users().ListByEmail(ctx, testOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := domain.User{Email: testOwner, EmailVerified: true}
+	if len(users) > 0 {
+		u = users[0]
+	} else if err := st.Users().Create(ctx, &u); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Memberships().Create(ctx, &domain.Membership{AccountID: accountID, UserID: u.ID, Status: domain.MembershipActive, Source: domain.SourceManual}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func newAdminEnv(t *testing.T) *adminEnv {
 	t.Helper()
 	e := &adminEnv{db: &fakeDB{st: testkit.NewStore(nil)}, account: domain.Account{Name: "default"}}
 	if err := e.db.st.Accounts().Create(t.Context(), &e.account); err != nil {
 		t.Fatal(err)
 	}
+	addOwner(t, e.db.st, e.account.ID)
 	e.vars = map[string]string{config.EnvDatabaseURL: "postgres://localhost/forecrew"}
 	e.env = Env{
 		Getenv: func(k string) string { return e.vars[k] },
@@ -85,7 +109,7 @@ func TestDatabaseErrors(t *testing.T) {
 	}
 	e.vars[config.EnvDatabaseURL] = "x"
 	e.openErr = errors.New("connection refused")
-	if _, errOut, code := e.run(t, "token", "create", "laptop"); code != 1 || !strings.Contains(errOut, "connection refused") {
+	if _, errOut, code := e.run(t, "token", "create", "laptop", "--user", testOwner); code != 1 || !strings.Contains(errOut, "connection refused") {
 		t.Errorf("open error: code %d, %q", code, errOut)
 	}
 }
@@ -130,7 +154,7 @@ func TestConfigValidate(t *testing.T) {
 
 func TestTokenCreate(t *testing.T) {
 	e := newAdminEnv(t)
-	out, errOut, code := e.run(t, "token", "create", "laptop")
+	out, errOut, code := e.run(t, "token", "create", "laptop", "--user", testOwner)
 	secret := strings.TrimSpace(out)
 	if code != 0 || !strings.HasPrefix(secret, "fcm_") || len(secret) != len("fcm_")+43 || !strings.Contains(errOut, "not stored") {
 		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
@@ -142,11 +166,11 @@ func TestTokenCreate(t *testing.T) {
 	if strings.Contains(errOut, secret) {
 		t.Error("stderr repeats the secret")
 	}
-	out2, _, _ := e.run(t, "token", "create", "phone")
+	out2, _, _ := e.run(t, "token", "create", "phone", "--user", testOwner)
 	if strings.TrimSpace(out2) == secret {
 		t.Error("two tokens are equal")
 	}
-	if _, errOut, code := e.run(t, "token", "create", "laptop"); code != 1 || !strings.Contains(errOut, `a token named "laptop" already exists`) {
+	if _, errOut, code := e.run(t, "token", "create", "laptop", "--user", testOwner); code != 1 || !strings.Contains(errOut, `a token named "laptop" already exists`) {
 		t.Errorf("duplicate: code %d, %q", code, errOut)
 	}
 	if _, _, code := e.run(t, "token", "create"); code != 1 {
@@ -300,17 +324,18 @@ func TestAccountSelection(t *testing.T) {
 	if err := e.db.st.Accounts().Create(ctx, &second); err != nil {
 		t.Fatal(err)
 	}
-	if _, errOut, code := e.run(t, "token", "create", "a"); code != 1 || !strings.Contains(errOut, "several accounts") {
+	addOwner(t, e.db.st, second.ID)
+	if _, errOut, code := e.run(t, "token", "create", "a", "--user", testOwner); code != 1 || !strings.Contains(errOut, "several accounts") {
 		t.Errorf("ambiguous: code %d, %q", code, errOut)
 	}
-	if _, _, code := e.run(t, "token", "create", "a", "--account", second.ID.String()); code != 0 {
+	if _, _, code := e.run(t, "token", "create", "a", "--user", testOwner, "--account", second.ID.String()); code != 0 {
 		t.Error("explicit account failed")
 	}
 	toks, _ := e.db.st.MCPTokens().List(ctx, second.ID)
 	if len(toks) != 1 {
 		t.Errorf("second account has %d tokens", len(toks))
 	}
-	if _, errOut, code := e.run(t, "token", "create", "b", "--account", "nope"); code != 1 || !strings.Contains(errOut, "not a UUID") {
+	if _, errOut, code := e.run(t, "token", "create", "b", "--user", testOwner, "--account", "nope"); code != 1 || !strings.Contains(errOut, "not a UUID") {
 		t.Errorf("bad account: code %d, %q", code, errOut)
 	}
 	if _, errOut, code := e.run(t, "worker", "revoke", "b", "--account", domain.NewID().String()); code != 1 || !strings.Contains(errOut, "does not exist") {
@@ -319,7 +344,7 @@ func TestAccountSelection(t *testing.T) {
 
 	empty := newAdminEnv(t)
 	empty.db.st = testkit.NewStore(nil)
-	if _, errOut, code := empty.run(t, "token", "create", "a"); code != 1 || !strings.Contains(errOut, "no account yet") {
+	if _, errOut, code := empty.run(t, "token", "create", "a", "--user", testOwner); code != 1 || !strings.Contains(errOut, "no account yet") {
 		t.Errorf("no account: code %d, %q", code, errOut)
 	}
 }
@@ -327,8 +352,8 @@ func TestAccountSelection(t *testing.T) {
 func TestTokenListAndRevoke(t *testing.T) {
 	e := newAdminEnv(t)
 	ctx := t.Context()
-	secret, _, _ := e.run(t, "token", "create", "laptop")
-	e.run(t, "token", "create", "phone")
+	secret, _, _ := e.run(t, "token", "create", "laptop", "--user", testOwner)
+	e.run(t, "token", "create", "phone", "--user", testOwner)
 	tok, err := e.db.st.MCPTokens().GetByTokenHash(ctx, mcp.HashToken(strings.TrimSpace(secret)))
 	if err != nil {
 		t.Fatal(err)

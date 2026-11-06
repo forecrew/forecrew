@@ -2,37 +2,25 @@ package cli
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"time"
 	"uuid"
 
 	"github.com/spf13/cobra"
 
 	"github.com/forecrew/forecrew/internal/actionsprovider"
+	"github.com/forecrew/forecrew/internal/auth"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
-// Token prefixes (docs/contracts/conventions.md).
-const (
-	prefixAPIToken    = "fcm_"
-	prefixWorkerToken = "fcw_"
-)
-
-// newToken returns a random token: 32 bytes, base64url without padding.
-func newToken(prefix string) (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate token: %w", err)
-	}
-	return prefix + base64.RawURLEncoding.EncodeToString(b), nil
-}
+// prefixWorkerToken starts a worker token (docs/contracts/conventions.md).
+const prefixWorkerToken = "fcw_"
 
 // withDatabase runs fn on the database of FORECREW_DATABASE_URL.
 func withDatabase(env Env, cmd *cobra.Command, fn func(ctx context.Context, db Database) error) error {
@@ -94,7 +82,7 @@ func issueCommand(env Env, accountFlag *string, use, short, prefix, what string,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withDatabase(env, cmd, func(ctx context.Context, db Database) error {
-				secret, err := newToken(prefix)
+				secret, err := auth.NewToken(prefix)
 				if err != nil {
 					return err
 				}
@@ -114,11 +102,22 @@ func issueCommand(env Env, accountFlag *string, use, short, prefix, what string,
 
 func newTokenCommand(env Env) *cobra.Command {
 	token := &cobra.Command{Use: "token", Short: "Manage API and MCP tokens"}
-	var accountFlag string
-	create := issueCommand(env, &accountFlag, "create <name>", "Create an API and MCP token; it is shown once", prefixAPIToken, "token",
+	var accountFlag, userFlag, serviceAccountFlag string
+	var scopes []string
+	var ttl time.Duration
+	create := issueCommand(env, &accountFlag, "create <name>", "Create a personal or service account token; it is shown once", auth.PrefixToken, "token",
 		func(ctx context.Context, st store.Store, accountID uuid.UUID, name string, hash []byte) error {
-			return st.MCPTokens().Create(ctx, &domain.MCPToken{AccountID: accountID, Name: name, TokenHash: hash})
+			kind, owner, err := tokenOwner(ctx, st, accountID, userFlag, serviceAccountFlag)
+			if err != nil {
+				return err
+			}
+			return createToken(ctx, env, st, domain.MCPToken{AccountID: accountID, Name: name, TokenHash: hash, OwnerKind: kind, OwnerID: owner,
+				Scopes: toScopes(scopes), ExpiresAt: time.Now().Add(ttl)})
 		})
+	create.Flags().StringVar(&userFlag, "user", "", "email, GitHub login or ID of the member who owns the token")
+	create.Flags().StringVar(&serviceAccountFlag, "service-account", "", "name of the service account that owns the token")
+	create.Flags().StringSliceVar(&scopes, "scope", []string{string(domain.ScopeAdmin)}, "scopes: read, write, admin")
+	create.Flags().DurationVar(&ttl, "ttl", config.DefaultTokenTTL, "how long the token lasts")
 	list := &cobra.Command{
 		Use:   "list",
 		Short: "List the tokens; the secrets are not stored",

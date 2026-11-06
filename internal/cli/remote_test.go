@@ -363,3 +363,54 @@ func TestTokenFlagWarning(t *testing.T) {
 		t.Errorf("env: code %d, %q", code, errOut)
 	}
 }
+
+func TestTokensCreate(t *testing.T) {
+	e := newRemoteEnv(t)
+	e.svc.CreateTokenFunc = func(_ context.Context, _ domain.Actor, in mcp.CreateTokenInput) (mcp.CreateTokenOutput, error) {
+		return mcp.CreateTokenOutput{Token: mcp.TokenInfo{Name: in.Name}, Secret: "fcm_new"}, nil
+	}
+	out, errOut, code := e.run(t, "tokens", "create", "laptop", "--scope", "read,write", "--ttl", "24h", "--service-account", "ci")
+	if code != 0 || strings.TrimSpace(out) != "fcm_new" || !strings.Contains(errOut, "not stored") {
+		t.Fatalf("code %d, %q, %q", code, out, errOut)
+	}
+	in := e.svc.Calls()[0].Input.(mcp.CreateTokenInput)
+	if in.Name != "laptop" || len(in.Scopes) != 2 || in.TTL != "24h" || in.ServiceAccount != "ci" {
+		t.Errorf("input = %+v", in)
+	}
+}
+
+func TestInvitationsCommands(t *testing.T) {
+	e := newRemoteEnv(t)
+	e.svc.CreateInvitationFunc = func(context.Context, domain.Actor, mcp.CreateInvitationInput) (mcp.CreateInvitationOutput, error) {
+		return mcp.CreateInvitationOutput{URL: "https://x/login?invite=fci_a"}, nil
+	}
+	id := domain.NewID()
+	now := time.Now()
+	e.svc.ListInvitationsFunc = func(context.Context, domain.Actor, any) ([]domain.Invitation, error) {
+		return []domain.Invitation{{ID: id, Email: "a@b.c", ExpiresAt: now}, {GitHubLogin: "octo", AcceptedAt: now}, {GitHubLogin: "gone", RevokedAt: now}}, nil
+	}
+	e.svc.RevokeInvitationFunc = func(context.Context, domain.Actor, mcp.InvitationRefInput) (domain.Invitation, error) {
+		return domain.Invitation{ID: id}, nil
+	}
+	out, _, code := e.run(t, "invitations", "create", "a@b.c", "--role", "member,maintainer@app", "--ttl", "1h")
+	if code != 0 || strings.TrimSpace(out) != "https://x/login?invite=fci_a" {
+		t.Fatalf("code %d, %q", code, out)
+	}
+	in := e.svc.Calls()[0].Input.(mcp.CreateInvitationInput)
+	if in.Email != "a@b.c" || in.GitHubLogin != "" || len(in.Roles) != 2 || in.Roles[1] != (mcp.RoleGrant{Role: "maintainer", Project: "app"}) {
+		t.Errorf("input = %+v", in)
+	}
+	if _, _, code := e.run(t, "invitations", "create", "octo"); code != 0 {
+		t.Fatal("by login")
+	}
+	if in := e.svc.Calls()[1].Input.(mcp.CreateInvitationInput); in.GitHubLogin != "octo" || in.Email != "" || in.Roles[0].Role != domain.RoleMember {
+		t.Errorf("input = %+v", in)
+	}
+	out, _, code = e.run(t, "invitations")
+	if code != 0 || !strings.Contains(out, "pending") || !strings.Contains(out, "accepted") || !strings.Contains(out, "revoked") {
+		t.Errorf("list: code %d\n%s", code, out)
+	}
+	if out, _, code := e.run(t, "invitations", "revoke", id.String()); code != 0 || !strings.Contains(out, "revoked") {
+		t.Errorf("revoke: code %d, %q", code, out)
+	}
+}
