@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"slices"
 	"strings"
+	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/contextpack"
@@ -86,40 +87,58 @@ func (a *actions) matrixPlan(ctx context.Context, call workflow.ActionCall) (any
 	return out, nil
 }
 
-// dropUnrunnable moves the jobs of out that no online worker can lease to
-// out.Unrunnable and describes them in out.Missing. Jobs of pool actions have
-// no workers: forecrewd runs them.
-func (a *actions) dropUnrunnable(ctx context.Context, accountID uuid.UUID, out *matrixPlanOutput) error {
+// workerCheck answers whether a worker can run a command job, for the jobs of
+// one plan. It reads the account's workers once.
+type workerCheck struct {
+	workers []domain.Worker
+	now     time.Time
+}
+
+// newWorkerCheck reads the workers of the account.
+func (a *actions) newWorkerCheck(ctx context.Context, accountID uuid.UUID) (workerCheck, error) {
 	workers, err := a.Store.Workers().List(ctx, accountID)
 	if err != nil {
-		return fmt.Errorf("list workers: %w", err)
+		return workerCheck{}, fmt.Errorf("list workers: %w", err)
 	}
-	now := a.Now()
+	return workerCheck{workers: workers, now: a.Now()}, nil
+}
+
+// canRun returns the pool and the labels a worker needs to lease the command
+// job that runs in env with needs (as the job creator computes them: the
+// job's needs, those of its environment and docker for a docker environment),
+// and whether an online worker of that pool has them. Jobs of pool actions
+// have no workers, forecrewd runs them, so they always can.
+func (c workerCheck) canRun(env domain.Environment, needs []string) (pool string, labels []string, ok bool) {
+	pool = domain.CommandPool(&env)
+	needs = append(slices.Clone(needs), env.Needs...)
+	if env.Provider == domain.ProviderDocker {
+		needs = append(needs, "docker")
+	}
+	labels = domain.NormalizeLabels(needs)
+	return pool, labels, pool == domain.PoolActions || slices.ContainsFunc(c.workers, func(w domain.Worker) bool {
+		return w.Online(c.now) && domain.OrDefaultPool(w.Pool) == pool && domain.MatchLabels(labels, w.Labels)
+	})
+}
+
+// dropUnrunnable moves the jobs of out that no online worker can lease to
+// out.Unrunnable and describes them in out.Missing.
+func (a *actions) dropUnrunnable(ctx context.Context, accountID uuid.UUID, out *matrixPlanOutput) error {
+	check, err := a.newWorkerCheck(ctx, accountID)
+	if err != nil {
+		return err
+	}
 	runnable := out.Jobs[:0:0]
 	for _, j := range out.Jobs {
-		pool, needs := commandNeeds(j)
-		if pool == domain.PoolActions || slices.ContainsFunc(workers, func(w domain.Worker) bool {
-			return w.Online(now) && domain.OrDefaultPool(w.Pool) == pool && domain.MatchLabels(needs, w.Labels)
-		}) {
+		pool, labels, ok := check.canRun(j.Environment, j.Needs)
+		if ok {
 			runnable = append(runnable, j)
 			continue
 		}
-		out.Unrunnable = append(out.Unrunnable, unrunnableJob{Key: j.Key, Pool: pool, Needs: needs})
+		out.Unrunnable = append(out.Unrunnable, unrunnableJob{Key: j.Key, Pool: pool, Needs: labels})
 	}
 	out.Jobs = runnable
 	out.Missing = missingText(out.Unrunnable)
 	return nil
-}
-
-// commandNeeds returns the pool and the labels a worker needs to lease the
-// command job of a plan, as the job creator computes them: the job's needs,
-// those of its environment and docker for a docker environment.
-func commandNeeds(j matrix.Job) (string, []string) {
-	needs := append(slices.Clone(j.Needs), j.Environment.Needs...)
-	if j.Environment.Provider == domain.ProviderDocker {
-		needs = append(needs, "docker")
-	}
-	return domain.CommandPool(&j.Environment), domain.NormalizeLabels(needs)
 }
 
 // missingText says, for a person, which jobs have no worker: one line per
