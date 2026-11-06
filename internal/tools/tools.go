@@ -65,7 +65,7 @@ type JobService interface {
 	Cancel(ctx context.Context, by domain.Actor, accountID, jobID uuid.UUID) (domain.Job, error)
 	Status(ctx context.Context, accountID, jobID uuid.UUID) (jobs.JobView, error)
 	Logs(ctx context.Context, accountID, jobID uuid.UUID, afterSeq int64, limit int) (jobs.Logs, error)
-	Workers(ctx context.Context, accountID uuid.UUID) ([]jobs.WorkerView, error)
+	Workers(ctx context.Context, accountID uuid.UUID, visible func(project uuid.UUID) bool) ([]jobs.WorkerView, error)
 }
 
 // FleetService serves the fleet's read model; *fleet.Controller implements

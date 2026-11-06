@@ -139,8 +139,8 @@ func (s *Service) Logs(ctx context.Context, accountID, jobID uuid.UUID, afterSeq
 }
 
 // Workers returns the workers of an account with their online state and
-// running jobs.
-func (s *Service) Workers(ctx context.Context, accountID uuid.UUID) ([]WorkerView, error) {
+// the running jobs of the projects visible keeps.
+func (s *Service) Workers(ctx context.Context, accountID uuid.UUID, visible func(project uuid.UUID) bool) ([]WorkerView, error) {
 	workers, err := s.st.Workers().List(ctx, accountID)
 	if err != nil {
 		return nil, fmt.Errorf("list workers: %w", err)
@@ -151,7 +151,9 @@ func (s *Service) Workers(ctx context.Context, accountID uuid.UUID) ([]WorkerVie
 	}
 	byWorker := map[uuid.UUID][]string{}
 	for _, j := range slices.Backward(running) { // List is newest first
-		byWorker[j.WorkerID] = append(byWorker[j.WorkerID], j.Ref())
+		if visible(j.ProjectID) {
+			byWorker[j.WorkerID] = append(byWorker[j.WorkerID], j.Ref())
+		}
 	}
 	now := s.now()
 	out := make([]WorkerView, 0, len(workers))
