@@ -1,0 +1,22 @@
+# forecrew-worker on a Forecrew machine that runs systemd (qcow2 images). The
+# provider delivers /run/forecrew/bootstrap.env (cloud-init write_files, a
+# config drive, ...); forecrew-start reads it. When the worker ends, however it
+# ends, the machine powers off: it is thrown away after its jobs.
+[Unit]
+Description=Forecrew worker
+After=network-online.target cloud-init.target cloud-final.service
+Wants=network-online.target
+ConditionPathExists=/run/forecrew/bootstrap.env
+SuccessAction=poweroff-force
+FailureAction=poweroff-force
+
+[Service]
+Type=exec
+ExecStart=/opt/forecrew/forecrew-start
+Restart=no
+# The service has no state on disk but its work directory.
+StateDirectory=forecrew-worker
+Environment=FORECREW_WORK_DIR=/var/lib/forecrew-worker/work
+
+[Install]
+WantedBy=multi-user.target
