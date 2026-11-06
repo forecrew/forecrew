@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -137,7 +139,8 @@ func newPGWorld(t *testing.T) *pgWorld {
 	g := domain.Goal{AccountID: acc, ProjectID: p.ID, Title: "Ship it", Status: domain.GoalInProgress, IssueNumber: 5, CreatedBy: "user:me"}
 	must(t, st.Goals().Create(t.Context(), &g))
 	bus := testkit.NewSignalBus(st)
-	return &pgWorld{pool, st, registers.New(st, bus, time.Now), gates.New(st, bus, time.Now), acc, p, g}
+	regs := registers.New(st, bus, time.Now)
+	return &pgWorld{pool, st, regs, gates.New(st, bus, time.Now).WithRecorder(regs), acc, p, g}
 }
 
 func (w *pgWorld) job(t *testing.T) domain.Job {
@@ -237,5 +240,43 @@ func TestCompleteRacesRequestAccessWithoutDeadlock(t *testing.T) {
 		if err := <-access; !errors.Is(err, store.ErrLeaseLost) {
 			t.Fatalf("request_access during completion: %v, want a lost lease", err)
 		}
+	}
+}
+
+// Asking for changes on the review gate of an assumption reopens the review
+// (a new gate of the same job) while the job goes on recording high-impact
+// assumptions: the gate takes the job row before the gate counter in both,
+// so they do not deadlock.
+func TestResolveReopenReviewRacesRecordWithoutDeadlock(t *testing.T) {
+	w := newPGWorld(t)
+	ctx := t.Context()
+	human := domain.Actor{AccountID: w.acc, Kind: domain.ActorUser, Name: "gian"}
+	check := func(err error) {
+		if err != nil {
+			t.Errorf("deadlock or error: %v", err)
+		}
+	}
+	for round := range 15 {
+		j := w.job(t)
+		a, _, err := w.regs.RecordAssumption(ctx, j, stated(fmt.Sprintf("round %d first", round), domain.LevelHigh))
+		must(t, err)
+		gs, err := w.st.Gates().List(ctx, w.acc, store.GateFilter{ProjectID: w.p.ID, Kind: domain.GateAssumptionReview, Status: domain.GatePending})
+		must(t, err)
+		i := slices.IndexFunc(gs, func(g domain.Gate) bool { return strings.HasPrefix(g.Title, "Review "+a.Ref()+":") })
+		if i < 0 {
+			t.Fatalf("no review gate of %s", a.Ref())
+		}
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			_, err := w.gates.Resolve(ctx, human, gs[i].ID, domain.GateChangesRequested, "check it")
+			check(err)
+		})
+		for k := range 2 {
+			wg.Go(func() {
+				_, _, err := w.regs.RecordAssumption(ctx, j, stated(fmt.Sprintf("round %d second %d", round, k), domain.LevelHigh))
+				check(err)
+			})
+		}
+		wg.Wait()
 	}
 }
