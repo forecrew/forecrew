@@ -254,12 +254,16 @@ func TestImageRootfsCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	cache := filepath.Join(dir, "cache")
-	out, errOut, code := e.run(t, "image", "rootfs", "--tar", tarball, "--worker", worker, "--cache", cache, "--mke2fs", stub, "--label", "docker", "--size", "600")
+	out, errOut, code := e.run(t, "image", "rootfs", "--tar", tarball, "--worker", worker, "--cache", cache, "--mke2fs", stub, "--label", "docker", "--size", "600", "--no-agent-clis", "--env", "PATH=/usr/bin")
 	if code != 0 || !strings.HasPrefix(out, cache+"/base-") || !strings.HasSuffix(strings.TrimSpace(out), ".ext4") {
 		t.Fatalf("rootfs: %d %q %s", code, out, errOut)
 	}
 	if st, err := os.Stat(strings.TrimSpace(out)); err != nil || st.Size() != 600<<20 {
 		t.Errorf("file: %v, %v", st, err)
+	}
+	// The agent CLIs are required unless the image is for command jobs.
+	if _, errOut, code := e.run(t, "image", "rootfs", "--tar", tarball, "--name", "agents", "--worker", worker, "--cache", cache, "--mke2fs", stub); code == 0 || !strings.Contains(errOut, "claude") {
+		t.Errorf("agent image without CLIs: %d %s", code, errOut)
 	}
 	for name, args := range map[string][]string{
 		"neither source": {"--worker", worker},
@@ -278,7 +282,11 @@ func tinyTar(t *testing.T) []byte {
 	t.Helper()
 	var b bytes.Buffer
 	w := tar.NewWriter(&b)
-	for _, h := range []*tar.Header{{Name: "bin/", Typeflag: tar.TypeDir, Mode: 0o755}, {Name: "bin/sh", Typeflag: tar.TypeReg, Mode: 0o755, Size: 2}} {
+	for _, h := range []*tar.Header{
+		{Name: "bin/", Typeflag: tar.TypeDir, Mode: 0o755}, {Name: "bin/sh", Typeflag: tar.TypeReg, Mode: 0o755, Size: 2},
+		{Name: "bin/ip", Typeflag: tar.TypeReg, Mode: 0o755, Size: 2}, {Name: "bin/git", Typeflag: tar.TypeReg, Mode: 0o755, Size: 2},
+		{Name: "etc/ssl/certs/ca-certificates.crt", Typeflag: tar.TypeReg, Mode: 0o644, Size: 2},
+	} {
 		if err := w.WriteHeader(h); err != nil {
 			t.Fatal(err)
 		}

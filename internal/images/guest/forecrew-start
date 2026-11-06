@@ -82,8 +82,30 @@ fi
 } >"$config"
 mkdir -p "${FORECREW_WORK_DIR:-/var/lib/forecrew-worker/work}"
 
-# Only what the worker needs: nothing else of this process reaches it.
+# The worker's environment: PATH and HOME, then the image's own environment
+# (/etc/forecrew/env, the Docker image's Config.Env, which the converter
+# saves: PATH to its toolchains and so on) read as data, then the token. Nothing
+# else of this process reaches it.
 set -- PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}" HOME="${HOME:-/root}"
+image_env=${FORECREW_IMAGE_ENV:-/etc/forecrew/env}
+if [ -f "$image_env" ]; then
+	while IFS= read -r l || [ -n "$l" ]; do
+		key=${l%%=*}
+		case $key in
+		'' | *[!A-Za-z0-9_]* | [0-9]* | FORECREW_*) continue ;;
+		esac
+		[ "$key" != "$l" ] || continue
+		set -- "$@" "$l"
+	done <"$image_env"
+fi
+# What the worker cannot run without, found with the image's PATH: fail now,
+# with the reason, not on the first job.
+run_path=${PATH:-/usr/local/bin:/usr/bin:/bin}
+for entry in "$@"; do
+	case $entry in PATH=*) run_path=${entry#PATH=} ;; esac
+done
+[ -x "${FORECREW_WORKER:-/opt/forecrew/forecrew-worker}" ] || die "the worker binary is missing from the image"
+PATH=$run_path command -v git >/dev/null || die "git is not in the image (PATH=$run_path)"
 [ -z "$btoken" ] || set -- "$@" FORECREW_BOOTSTRAP_TOKEN="$btoken"
 [ -z "$wtoken" ] || set -- "$@" FORECREW_WORKER_TOKEN="$wtoken"
 unset btoken wtoken

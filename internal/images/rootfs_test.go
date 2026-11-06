@@ -16,6 +16,9 @@ import (
 // fakeDocker serves a tar made by the test.
 type fakeDocker struct {
 	id        string
+	env       []string
+	envErr    error
+	exportRef string
 	tarball   []byte
 	idErr     error
 	exportErr error
@@ -24,8 +27,11 @@ type fakeDocker struct {
 
 func (f *fakeDocker) ID(context.Context, string) (string, error) { return f.id, f.idErr }
 
-func (f *fakeDocker) Export(context.Context, string) (io.ReadCloser, error) {
+func (f *fakeDocker) Env(context.Context, string) ([]string, error) { return f.env, f.envErr }
+
+func (f *fakeDocker) Export(_ context.Context, ref string) (io.ReadCloser, error) {
 	f.exports++
+	f.exportRef = ref
 	return io.NopCloser(bytes.NewReader(f.tarball)), f.exportErr
 }
 
@@ -73,6 +79,13 @@ func baseTar(t *testing.T) []byte {
 		entry{name: "secret/key", typ: tar.TypeReg, mode: 0o400, content: "k"},
 		entry{name: "/opt/forecrew/forecrew-worker", typ: tar.TypeReg, mode: 0o644, content: "the base's own worker"},
 		entry{name: "dev/null", typ: tar.TypeChar, mode: 0o666},
+		// What the worker and its init need.
+		entry{name: "bin/ip", typ: tar.TypeSymlink, link: "/bin/busybox"},
+		entry{name: "usr/bin/git", typ: tar.TypeReg, mode: 0o755, content: "git"},
+		entry{name: "etc/ssl/certs/ca-certificates.crt", typ: tar.TypeReg, mode: 0o644, content: "certs"},
+		entry{name: "usr/local/bin/claude", typ: tar.TypeReg, mode: 0o755, content: "c"},
+		entry{name: "usr/local/bin/codex", typ: tar.TypeReg, mode: 0o755, content: "c"},
+		entry{name: "usr/local/bin/opencode", typ: tar.TypeReg, mode: 0o755, content: "c"},
 	)
 }
 
@@ -99,7 +112,7 @@ func realMke2fs(t *testing.T) string {
 	if err != nil {
 		t.Skip("mke2fs is not installed")
 	}
-	if err := checkMke2fs(t.Context(), bin); err != nil {
+	if _, err := checkMke2fs(t.Context(), bin); err != nil {
 		t.Skip(err)
 	}
 	return bin
@@ -229,19 +242,19 @@ func TestConvertCache(t *testing.T) {
 
 func TestMke2fsVersion(t *testing.T) {
 	for version, ok := range map[string]bool{"1.46.5": false, "1.47.0": false, "1.47.1": true, "1.47.4": true, "1.48.0": true, "2.0.0": true, "0.9.9": false} {
-		err := checkMke2fs(t.Context(), stubMke2fs(t, version, false))
+		_, err := checkMke2fs(t.Context(), stubMke2fs(t, version, false))
 		if (err == nil) != ok {
 			t.Errorf("mke2fs %s: %v", version, err)
 		}
 	}
-	if err := checkMke2fs(t.Context(), filepath.Join(t.TempDir(), "missing")); err == nil || !strings.Contains(err.Error(), "e2fsprogs") {
+	if _, err := checkMke2fs(t.Context(), filepath.Join(t.TempDir(), "missing")); err == nil || !strings.Contains(err.Error(), "e2fsprogs") {
 		t.Errorf("missing: %v", err)
 	}
 	garbled := filepath.Join(t.TempDir(), "mke2fs")
 	if err := os.WriteFile(garbled, []byte("#!/bin/sh\necho what >&2\n"), 0o700); err != nil { // #nosec G306 -- a test script
 		t.Fatal(err)
 	}
-	if err := checkMke2fs(t.Context(), garbled); err == nil || !strings.Contains(err.Error(), "version") {
+	if _, err := checkMke2fs(t.Context(), garbled); err == nil || !strings.Contains(err.Error(), "version") {
 		t.Errorf("garbled: %v", err)
 	}
 }
@@ -276,7 +289,7 @@ func TestConvertErrors(t *testing.T) {
 		{"export fails", &fakeDocker{id: "i", exportErr: errors.New("daemon down")}, Request{Ref: "x"}, "", "daemon down"},
 		{"not a tar", &fakeDocker{id: "i", tarball: []byte("not a tar, and long enough to be read as a header....................................................................................................................................................................................................................................................................")}, Request{Ref: "x"}, "", "read image tar"},
 		{"path leaves the root", &fakeDocker{id: "i", tarball: makeTar(t, entry{name: "../evil", typ: tar.TypeReg, content: "x"})}, Request{Ref: "x"}, "", "leaves the root"},
-		{"size too small", &fakeDocker{id: "i", tarball: makeTar(t, entry{name: "big", typ: tar.TypeReg, mode: 0o644, content: strings.Repeat("x", 3<<20)})}, Request{Ref: "x", SizeMB: 1}, "", "smaller than"},
+		{"size too small", &fakeDocker{id: "i", tarball: makeTar(t, append(requiredEntries(), entry{name: "big", typ: tar.TypeReg, mode: 0o644, content: strings.Repeat("x", 3<<20)})...)}, Request{Ref: "x", SizeMB: 1, NoAgentCLIs: true}, "", "smaller than"},
 		{"no mke2fs", &fakeDocker{id: "i", tarball: good}, Request{Ref: "x"}, filepath.Join(t.TempDir(), "missing"), "e2fsprogs"},
 		{"mke2fs fails", &fakeDocker{id: "i", tarball: good}, Request{Ref: "x"}, stubMke2fs(t, "1.47.2", true), "no space"},
 	} {
@@ -307,11 +320,127 @@ func TestCacheName(t *testing.T) {
 }
 
 func TestSizeFor(t *testing.T) {
-	if got := sizeFor(10 << 20); got != minRootfsMB {
+	if got := sizeFor(tarStats{blocks: 100, entries: 10}); got != minRootfsMB {
 		t.Errorf("small = %d", got)
 	}
-	if got := sizeFor(2000 << 20); got != 2000*5/4+rootfsHeadroomMB {
+	// 2000 MB of big files.
+	big := tarStats{blocks: 2000 << 20 / blockSize, entries: 100}
+	if got := sizeFor(big); got != 2000*6/5+journalMB+rootfsHeadroomMB {
 		t.Errorf("large = %d", got)
+	}
+	// A million one-byte files are 1 MB of content and 4 GB of blocks.
+	small := tarStats{blocks: 1_000_000, entries: 1_000_000}
+	if got := sizeFor(small); got < 4000 {
+		t.Errorf("a million small files = %d MB", got)
+	}
+}
+
+func TestBlocksFor(t *testing.T) {
+	for size, want := range map[int64]int64{0: 0, 1: 1, 4096: 1, 4097: 2, 10 << 20: 2560} {
+		if got := blocksFor(size); got != want {
+			t.Errorf("blocksFor(%d) = %d, want %d", size, got, want)
+		}
+	}
+}
+
+// requiredEntries is what an image must hold to pass the checks.
+func requiredEntries() []entry {
+	return []entry{
+		{name: "bin/sh", typ: tar.TypeReg, mode: 0o755, content: "sh"}, {name: "usr/sbin/ip", typ: tar.TypeReg, mode: 0o755, content: "ip"},
+		{name: "usr/bin/git", typ: tar.TypeReg, mode: 0o755, content: "git"}, {name: "etc/pki/tls/certs/ca-bundle.crt", typ: tar.TypeReg, mode: 0o644, content: "c"},
+	}
+}
+
+func TestConvertChecksWhatTheImageNeeds(t *testing.T) {
+	c := &Converter{CacheDir: t.TempDir(), Mke2fs: stubMke2fs(t, "1.47.4", false)}
+	// Nothing: everything is listed at once, with why.
+	_, err := c.ConvertTar(t.Context(), bytes.NewReader(makeTar(t, entry{name: "etc/x", typ: tar.TypeReg, content: "x"})), "bare", "id", Request{})
+	if err == nil {
+		t.Fatal("an empty image converted")
+	}
+	for _, want := range []string{"sh (", "ip (iproute2", "git (", "CA certificates", "claude", "codex", "opencode"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("no %q in %v", want, err)
+		}
+	}
+	// What the guest files bring counts, like a git stub in a test image.
+	files := []File{{Path: "usr/local/bin/git", Mode: 0o755, Data: []byte("git")}}
+	_, err = c.ConvertTar(t.Context(), bytes.NewReader(makeTar(t, requiredEntries()[0], requiredEntries()[1], requiredEntries()[3])), "no-git", "id", Request{Files: files, NoAgentCLIs: true})
+	if err != nil {
+		t.Errorf("git from the added files: %v", err)
+	}
+	// An image for command jobs does not need the agent CLIs; one for agents does.
+	if _, err = c.ConvertTar(t.Context(), bytes.NewReader(makeTar(t, requiredEntries()...)), "cmd-only", "id", Request{NoAgentCLIs: true}); err != nil {
+		t.Errorf("without the CLIs: %v", err)
+	}
+	if _, err = c.ConvertTar(t.Context(), bytes.NewReader(makeTar(t, requiredEntries()...)), "agent", "id", Request{}); err == nil || !strings.Contains(err.Error(), "claude") {
+		t.Errorf("an agent image without the CLIs: %v", err)
+	}
+}
+
+func TestEnvFile(t *testing.T) {
+	files, err := withEnv([]File{{Path: "a"}}, []string{
+		"PATH=/opt/go/bin:/usr/bin", "LANG=C.UTF-8", "FORECREW_WORKER_TOKEN=x", "not a variable", "1BAD=x", "EMPTY=", "A-B=c",
+	})
+	if err != nil || len(files) != 2 || files[1].Path != GuestEnv {
+		t.Fatalf("withEnv = %+v, %v", files, err)
+	}
+	if got := string(files[1].Data); got != "PATH=/opt/go/bin:/usr/bin\nLANG=C.UTF-8\nEMPTY=\n" {
+		t.Errorf("env file = %q", got)
+	}
+	if none, err := withEnv(nil, nil); err != nil || len(none) != 0 {
+		t.Errorf("no environment = %+v, %v", none, err)
+	}
+	if _, err := withEnv(nil, []string{"X=a\nFORECREW_SERVER_URL=http://evil"}); err == nil {
+		t.Error("a newline in a value accepted")
+	}
+	if _, err := withEnv(nil, []string{"BIG=" + strings.Repeat("a", maxEnvBytes)}); err == nil {
+		t.Error("an oversized environment accepted")
+	}
+}
+
+func TestConvertWritesTheImageEnvironmentAndExportsByID(t *testing.T) {
+	docker := &fakeDocker{id: "sha256:cafe", tarball: baseTar(t), env: []string{"PATH=/usr/local/go/bin:/usr/bin", "GOFLAGS=-mod=mod"}}
+	c := &Converter{CacheDir: t.TempDir(), Docker: docker, Mke2fs: stubMke2fs(t, "1.47.4", false)}
+	res, err := c.Convert(t.Context(), Request{Ref: "forecrew-env:moving-tag", Files: testGuest(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A tag that moves between the ID and the export cannot swap the image.
+	if docker.exportRef != "sha256:cafe" {
+		t.Errorf("exported %q", docker.exportRef)
+	}
+	// The environment is part of the cache key: another one is another file.
+	docker.env = []string{"PATH=/usr/bin"}
+	other, err := c.Convert(t.Context(), Request{Ref: "forecrew-env:moving-tag", Files: testGuest(t)})
+	if err != nil || other.Key == res.Key {
+		t.Errorf("a changed environment shares a file: %+v, %v", other, err)
+	}
+	docker.envErr = errors.New("inspect failed")
+	if _, err := c.Convert(t.Context(), Request{Ref: "x:1", Files: testGuest(t)}); err == nil {
+		t.Error("environment error ignored")
+	}
+	docker.envErr, docker.env = nil, []string{"X=a\nb"}
+	if _, err := c.Convert(t.Context(), Request{Ref: "x:2", Files: testGuest(t)}); err == nil {
+		t.Error("bad environment accepted")
+	}
+}
+
+func TestMkfsRefusesBigFilesBeforeOneFortySeven4(t *testing.T) {
+	st := tarStats{largest: 3 << 30, entries: 1}
+	for version, ok := range map[string]bool{"1.47.2": false, "1.47.3": false, "1.47.4": true} {
+		c := &Converter{Mke2fs: stubMke2fs(t, version, false)}
+		err := c.mkfs(t.Context(), "unused.tar", filepath.Join(t.TempDir(), "root.ext4"), 4096, st)
+		if (err == nil) != ok || (!ok && !strings.Contains(err.Error(), "1.47.4")) {
+			t.Errorf("mke2fs %s with a 3 GiB file: %v", version, err)
+		}
+	}
+}
+
+func TestMke2fsWithoutLibarchive(t *testing.T) {
+	_, err := checkMke2fs(t.Context(), stubMke2fs(t, "1.47.4", true))
+	if err == nil || !strings.Contains(err.Error(), "libarchive13t64") {
+		t.Errorf("a mke2fs that cannot read a tar: %v", err)
 	}
 }
 

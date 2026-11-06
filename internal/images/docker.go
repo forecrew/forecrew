@@ -3,6 +3,7 @@ package images
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os/exec"
@@ -46,6 +47,22 @@ func (d DockerCLI) ID(ctx context.Context, ref string) (string, error) {
 		return "", err
 	}
 	return d.output(ctx, "image", "inspect", "--format", "{{.Id}}", ref)
+}
+
+// Env implements Docker: the image's Config.Env.
+func (d DockerCLI) Env(ctx context.Context, ref string) ([]string, error) {
+	if err := checkRef(ref); err != nil {
+		return nil, err
+	}
+	out, err := d.output(ctx, "image", "inspect", "--format", "{{json .Config.Env}}", ref)
+	if err != nil {
+		return nil, err
+	}
+	var env []string
+	if err := json.Unmarshal([]byte(out), &env); err != nil {
+		return nil, fmt.Errorf("docker image inspect: environment of %s: %w", ref, err)
+	}
+	return env, nil
 }
 
 // Export implements Docker: it creates a container that never runs, streams

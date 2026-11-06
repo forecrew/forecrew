@@ -24,6 +24,8 @@ const (
 	GuestStart  = GuestDir + "/forecrew-start"
 	GuestUnit   = "etc/systemd/system/forecrew-worker.service"
 	guestLabels = "etc/forecrew/labels"
+	// GuestEnv holds the Docker image's environment, NAME=value per line.
+	GuestEnv = "etc/forecrew/env"
 )
 
 // maxWorkerBytes bounds the worker binary read into an overlay.

@@ -200,14 +200,15 @@ func imageVerifyCommand() *cobra.Command {
 
 func imageRootfsCommand() *cobra.Command {
 	var from, tarFile, worker, cache, name, mke2fs string
-	var labels []string
+	var labels, envs []string
 	var size int
+	var noCLIs bool
 	cmd := &cobra.Command{
 		Use:   "rootfs (--from <docker-image> | --tar <file>) --worker <forecrew-worker>",
 		Short: "Make the ext4 root filesystem a microVM boots from a Docker image",
 		Long: "Convert a Docker image, such as an environment's forecrew-env:<hash> or a toolbox image, into an ext4 file system " +
 			"with the worker and its start-up files added. The result is cached by the image's content, the added files and the size, " +
-			"so the same environment is converted once. It needs mke2fs 1.47.1 or newer, and the image must have /bin/sh. " +
+			"so the same environment is converted once. It needs mke2fs 1.47.1 or newer with libarchive (libarchive13t64 on Debian and Ubuntu), and the image must have sh, ip, git, CA certificates and the agent CLIs: the command says what is missing. " +
 			"--worker is a static forecrew-worker binary for the image's architecture. Prints the file's path.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -226,7 +227,7 @@ func imageRootfsCommand() *cobra.Command {
 				return err
 			}
 			c := &images.Converter{CacheDir: cache, Docker: images.DockerCLI{}, Mke2fs: mke2fs}
-			req := images.Request{Ref: from, Files: files, SizeMB: size}
+			req := images.Request{Ref: from, Files: files, SizeMB: size, Env: envs, NoAgentCLIs: noCLIs}
 			var res images.Result
 			if from != "" {
 				res, err = c.Convert(cmd.Context(), req)
@@ -248,6 +249,8 @@ func imageRootfsCommand() *cobra.Command {
 	f.StringSliceVar(&labels, "label", nil, "a label the image offers, for example docker or runtime:codex (repeatable)")
 	f.StringVar(&cache, "cache", "", "where converted files are kept; default the user cache directory")
 	f.StringVar(&mke2fs, "mke2fs", "", "the mke2fs command; default the one on PATH")
+	f.StringSliceVar(&envs, "env", nil, "with --tar: a NAME=value the image's processes get (a Docker image's own environment is read from Docker)")
+	f.BoolVar(&noCLIs, "no-agent-clis", false, "do not require the agent CLIs: the image is for command jobs only")
 	f.IntVar(&size, "size", 0, "file system size in MB; default sized from the content")
 	_ = cmd.MarkFlagRequired("worker")
 	return cmd

@@ -20,7 +20,8 @@ func stubDocker(t *testing.T, tarball string, failExport bool) (bin, log string)
 	script := `#!/bin/sh
 echo "$@" >>'` + log + `'
 case $1 in
-image) [ "$5" = missing:1 ] && { echo 'No such image' >&2; exit 1; }; echo sha256:feedbeef ;;
+image) [ "$5" = missing:1 ] && { echo 'No such image' >&2; exit 1; }
+	case $4 in *Config.Env*) echo '["PATH=/x:/usr/bin","LANG=C"]' ;; *) echo sha256:feedbeef ;; esac ;;
 create) echo cont123 ;;
 export) ` + export + ` ;;
 rm) ;;
@@ -47,13 +48,20 @@ func TestDockerCLI(t *testing.T) {
 	if _, err := d.ID(t.Context(), "missing:1"); err == nil || !strings.Contains(err.Error(), "No such image") {
 		t.Fatalf("missing image: %v", err)
 	}
-	// Through the converter: the tar is exported, the container removed.
-	c := &Converter{CacheDir: t.TempDir(), Docker: d, Mke2fs: stubMke2fs(t, "1.47.2", false)}
+	env, err := d.Env(t.Context(), "sha256:feedbeef")
+	if err != nil || len(env) != 2 || env[0] != "PATH=/x:/usr/bin" {
+		t.Fatalf("Env = %v, %v", env, err)
+	}
+	if _, err := d.Env(t.Context(), "-x"); err == nil {
+		t.Error("Env accepted a bad reference")
+	}
+	// Through the converter: the tar is exported by ID, the container removed.
+	c := &Converter{CacheDir: t.TempDir(), Docker: d, Mke2fs: stubMke2fs(t, "1.47.4", false)}
 	if _, err := c.Convert(t.Context(), Request{Ref: "forecrew-env:ab", Files: testGuest(t)}); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(log)
-	for _, want := range []string{"create --network none forecrew-env:ab /nonexistent", "export cont123", "rm -f cont123"} {
+	for _, want := range []string{"create --network none sha256:feedbeef /nonexistent", "export cont123", "rm -f cont123"} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("no %q in\n%s", want, data)
 		}

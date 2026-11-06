@@ -71,9 +71,9 @@ func TestRootfsBootsAndTheWorkerReachesTheServer(t *testing.T) {
 			t.Fatal(openErr)
 		}
 		defer func() { _ = f.Close() }()
-		root, err = c.ConvertTar(t.Context(), f, "base", "ci", Request{Files: files})
+		root, err = c.ConvertTar(t.Context(), f, "base", "ci", Request{Files: files, NoAgentCLIs: true})
 	} else {
-		root, err = c.Convert(t.Context(), Request{Ref: "alpine:latest", Files: files})
+		root, err = c.Convert(t.Context(), Request{Ref: "alpine:latest", Files: files, NoAgentCLIs: true})
 	}
 	if err != nil {
 		t.Fatal(err)
