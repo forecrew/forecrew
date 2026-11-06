@@ -151,7 +151,7 @@ var _ jobs.FailureRegistrar = (*proposals.Service)(nil)
 
 // Open connects to Postgres, migrates the schema and builds the App from
 // cfg. Call Close when done.
-func Open(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string) (*App, error) {
+func Open(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string, opts Options) (*App, error) {
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("connect to database: %w", err)
@@ -166,7 +166,12 @@ func Open(ctx context.Context, cfg *config.Config, logger *slog.Logger, version 
 		return nil, err
 	}
 	st := postgres.New(pool)
-	a, err := New(Deps{Config: withStoredSettings(ctx, cfg, st, os.Getenv, logger), File: cfg, Store: st, Ping: pool.Ping, GitHub: gh, Actions: gh, Logger: logger, Version: version})
+	effective, err := withStoredSettings(ctx, cfg, st, os.Getenv, logger, opts)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	a, err := New(Deps{Config: effective, File: cfg, Store: st, Ping: pool.Ping, GitHub: gh, Actions: gh, Logger: logger, Version: version})
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -513,19 +518,46 @@ func (a *App) Run(ctx context.Context) error {
 	return errors.Join(err, engineErr)
 }
 
-// withStoredSettings returns cfg with the settings stored over the file. A
-// bad stored value must not cost the server its start: it then runs on the
-// file, and says so.
-func withStoredSettings(ctx context.Context, cfg *config.Config, st store.Store, getenv func(string) string, log *slog.Logger) *config.Config {
+// Options are what the command line says about a start.
+type Options struct {
+	// IgnoreStoredSettings starts forecrewd although stored settings do not
+	// pass: those are left out, and every one is logged as an error.
+	IgnoreStoredSettings bool
+}
+
+// withStoredSettings returns cfg with the settings stored over the file. It
+// fails closed: a stored value can be stricter than the file, a tighter pool
+// or shorter sessions, so running on the file instead would quietly loosen
+// the server. opts.IgnoreStoredSettings is the way past a bad row: the others
+// stay, so what is stricter stays too.
+func withStoredSettings(ctx context.Context, cfg *config.Config, st store.Store, getenv func(string) string, log *slog.Logger, opts Options) (*config.Config, error) {
 	settings, err := resource.Stored(ctx, st)
-	if err == nil {
-		var merged *config.Config
-		if merged, err = cfg.WithSettings(settings, getenv); err == nil {
-			return merged
+	if err != nil {
+		if !opts.IgnoreStoredSettings {
+			return nil, fmt.Errorf("read stored settings: %w; fix them or start with --ignore-stored-settings", err)
 		}
+		log.ErrorContext(ctx, "STORED SETTINGS IGNORED: they could not be read, running on forecrew.yaml alone", "error", err)
+		return cfg, nil
 	}
-	log.ErrorContext(ctx, "stored settings are ignored, running on forecrew.yaml", "error", err)
-	return cfg
+	if len(settings) == 0 {
+		return cfg, nil
+	}
+	merged, err := cfg.WithSettings(settings, getenv)
+	if err == nil {
+		return merged, nil
+	}
+	if !opts.IgnoreStoredSettings {
+		return nil, fmt.Errorf("stored settings do not pass: %w; fix them or start with --ignore-stored-settings", err)
+	}
+	kept := make([]config.Setting, 0, len(settings))
+	for _, s := range settings {
+		if _, err := cfg.WithSettings(append(slices.Clone(kept), s), getenv); err != nil {
+			log.ErrorContext(ctx, "STORED SETTING IGNORED: this server runs without it", "kind", s.Kind, "name", s.Name, "error", err)
+			continue
+		}
+		kept = append(kept, s)
+	}
+	return cfg.WithSettings(kept, getenv)
 }
 
 // openSecrets opens the secret store; without a key it is off and secure

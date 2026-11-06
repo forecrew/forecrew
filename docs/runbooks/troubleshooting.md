@@ -158,3 +158,15 @@ request fails:
   to the audit log; nothing to do. The log line `orphan object with an
   unexpected key kept` names an object under `jobs/` whose key has no
   account: remove it by hand.
+
+## forecrewd stops at startup: stored settings do not pass
+
+`stored settings do not pass` means a setting stored through a change plan no
+longer passes the checks of `forecrew.yaml`, for example a runtime whose
+`credential_env` left the file. forecrewd refuses to start rather than fall back
+to the file, because a stored value can be stricter than the file.
+
+Fix the file, or start once with `forecrewd --ignore-stored-settings`: it leaves
+out the settings that fail and logs each one as `STORED SETTING IGNORED`. The
+others stay in force. Delete or correct the setting with a plan, then restart
+without the flag.

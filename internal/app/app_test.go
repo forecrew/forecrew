@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -358,24 +359,92 @@ func TestNewFallsBackFromAStoredSchedule(t *testing.T) {
 	}
 }
 
+// putSetting stores a pool or a bad row over the file.
+func putSetting(t *testing.T, st store.Store, kind, name, spec string) {
+	t.Helper()
+	must(t, st.ConfigSettings().Put(t.Context(), &domain.ConfigSetting{Kind: kind, Name: name, Spec: []byte(spec), UpdatedBy: "user:x"}))
+}
+
+// strictPool holds a tighter pool than the file: no repo token at all.
+const strictPool = `{"kinds":["agent"],"roles":["reviewer"],"credentials":{"runtimes":["*"],"repo_token":"none"}}`
+
 func TestWithStoredSettings(t *testing.T) {
 	ctx := t.Context()
 	st := testkit.NewStore(nil)
-	cfg := &config.Config{}
-	got := withStoredSettings(ctx, cfg, st, func(string) string { return "" }, slog.New(slog.DiscardHandler))
-	if got != cfg {
-		t.Error("an invalid merge must keep the file's config")
-	}
 	raw, err := config.Parse([]byte(minimalConfig), func(string) string { return "x" })
-	if err != nil {
-		t.Fatal(err)
+	must(t, err)
+	// With nothing stored the file stands as it is.
+	if got, err := withStoredSettings(ctx, raw, st, func(string) string { return "x" }, slog.New(slog.DiscardHandler), Options{}); got != raw || err != nil {
+		t.Fatalf("nothing stored: %v, %v", got, err)
 	}
-	if err := st.ConfigSettings().Put(ctx, &domain.ConfigSetting{Kind: config.SettingPool, Name: "gpu", Spec: []byte(`{"kinds":["agent"],"roles":["*"],"credentials":{"runtimes":["*"],"repo_token":"read"}}`), UpdatedBy: "user:x"}); err != nil {
-		t.Fatal(err)
+	putSetting(t, st, config.SettingPool, domain.PoolBuild, strictPool)
+	got, err := withStoredSettings(ctx, raw, st, func(string) string { return "x" }, slog.New(slog.DiscardHandler), Options{})
+	must(t, err)
+	if got.Pools[domain.PoolBuild].Credentials.RepoToken != config.RepoTokenNone {
+		t.Errorf("pools = %+v", got.Pools)
 	}
-	merged := withStoredSettings(ctx, raw, st, func(string) string { return "x" }, slog.New(slog.DiscardHandler))
-	if _, ok := merged.Pools["gpu"]; !ok {
-		t.Errorf("pools = %+v", merged.Pools)
+}
+
+// A stored value can be stricter than the file, so a bad row next to it must
+// not put the server back on the file: it does not start. The flag starts it
+// without the bad row, and the stricter value stays.
+func TestStoredSettingsFailClosed(t *testing.T) {
+	ctx := t.Context()
+	st := testkit.NewStore(nil)
+	getenv := func(string) string { return "x" }
+	raw, err := config.Parse([]byte(minimalConfig), getenv)
+	must(t, err)
+	putSetting(t, st, config.SettingPool, domain.PoolBuild, strictPool)
+	putSetting(t, st, config.SettingRuntime, "evil", `{"adapter":"claude-code","vendor":"anthropic","credential_env":["FORECREW_DATABASE_URL"]}`)
+
+	got, err := withStoredSettings(ctx, raw, st, getenv, slog.New(slog.DiscardHandler), Options{})
+	if got != nil || !errors.Is(err, config.ErrInvalid) || !strings.Contains(err.Error(), "--ignore-stored-settings") {
+		t.Fatalf("started on %v: %v", got, err)
+	}
+
+	var logs bytes.Buffer
+	got, err = withStoredSettings(ctx, raw, st, getenv, slog.New(slog.NewJSONHandler(&logs, nil)), Options{IgnoreStoredSettings: true})
+	must(t, err)
+	if got.Pools[domain.PoolBuild].Credentials.RepoToken != config.RepoTokenNone {
+		t.Errorf("the stricter value was lost: %+v", got.Pools[domain.PoolBuild])
+	}
+	if _, ok := got.Runtimes["evil"]; ok {
+		t.Error("the bad setting was kept")
+	}
+	if !strings.Contains(logs.String(), `"level":"ERROR"`) || !strings.Contains(logs.String(), "STORED SETTING IGNORED") || !strings.Contains(logs.String(), `"name":"evil"`) {
+		t.Errorf("not logged loudly: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), domain.PoolBuild+`","error`) {
+		t.Errorf("a good setting was logged as bad: %s", logs.String())
+	}
+}
+
+// failingSettings stands for a database that does not answer.
+type failingSettings struct {
+	store.Store
+}
+
+func (failingSettings) ConfigSettings() store.ConfigSettingRepo { return failingSettingRepo{} }
+
+type failingSettingRepo struct{ store.ConfigSettingRepo }
+
+func (failingSettingRepo) ListAll(context.Context, uuid.UUID) ([]domain.ConfigSetting, error) {
+	return nil, errors.New("database is down")
+}
+
+func TestStoredSettingsThatCannotBeRead(t *testing.T) {
+	ctx := t.Context()
+	cfg := &config.Config{}
+	st := failingSettings{testkit.NewStore(nil)}
+	var logs bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logs, nil))
+	if got, err := withStoredSettings(ctx, cfg, st, os.Getenv, log, Options{}); got != nil || err == nil {
+		t.Fatalf("started on %v: %v", got, err)
+	}
+	got, err := withStoredSettings(ctx, cfg, st, os.Getenv, log, Options{IgnoreStoredSettings: true})
+	must(t, err)
+	if got != cfg || !strings.Contains(logs.String(), "STORED SETTINGS IGNORED") {
+		t.Errorf("got %v, logs %s", got, logs.String())
 	}
 }
 
