@@ -269,7 +269,7 @@ func audit(ctx context.Context, st store.Store, by domain.Actor, action string, 
 		raw, _ = json.Marshal(data) // a map of strings always marshals
 	}
 	return st.Audit().Append(ctx, &domain.AuditEntry{
-		AccountID: g.AccountID, ProjectID: g.ProjectID, Actor: by.String(),
+		AccountID: g.AccountID, ProjectID: g.ProjectID, Actor: by.String(), Credential: by.Credential.String(),
 		Action: action, SubjectType: "gate", SubjectID: g.ID, Data: raw,
 	})
 }

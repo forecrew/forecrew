@@ -319,7 +319,7 @@ func audit(ctx context.Context, tx store.Store, by domain.Actor, j domain.Job, a
 		return fmt.Errorf("encode audit data: %w", err)
 	}
 	return tx.Audit().Append(ctx, &domain.AuditEntry{
-		AccountID: j.AccountID, ProjectID: j.ProjectID, Actor: by.String(), Action: action,
+		AccountID: j.AccountID, ProjectID: j.ProjectID, Actor: by.String(), Credential: by.Credential.String(), Action: action,
 		SubjectType: "job", SubjectID: j.ID, Data: raw,
 	})
 }
