@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"uuid"
 
@@ -88,21 +89,20 @@ func (r imageRepo) Resolve(ctx context.Context, accountID uuid.UUID, ref string,
 	return i, nil
 }
 
-// Delete removes an image. A live machine whose shape pins the image
-// (name@version, or the bare name while the image is the newest) keeps it.
+// Delete removes an image. An image a live machine would boot is kept: for
+// every live machine, the image that Resolve gives its shape's reference, for
+// the machine's organization and the formats its provider starts, is that
+// machine's. So an organization's image pinned on an instance-wide shape is
+// kept for that organization's machines only, and a bare name keeps what is
+// newest as Resolve picks it, format included.
 func (r imageRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	var pinned bool
-	err := r.db.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM machines m JOIN shapes s ON s.id = m.shape_id
-		WHERE m.state NOT IN ('destroyed','failed') AND s.os = i.os AND s.arch = i.arch
-		  AND (i.account_id IS NULL OR s.account_id = i.account_id)
-		  AND (s.image = i.name || '@' || i.version
-		       OR (s.image = i.name AND NOT EXISTS (SELECT 1 FROM images n
-		             WHERE n.name = i.name AND n.os = i.os AND n.arch = i.arch AND n.built_at > i.built_at
-		               AND (n.account_id IS NULL OR n.account_id = s.account_id)))))
-		FROM images i WHERE i.id = $1`, id).Scan(&pinned)
+	img, err := r.Get(ctx, id)
 	if err != nil {
-		return fmt.Errorf("image %s: %w", id, mapErr(err))
+		return fmt.Errorf("image %s: %w", id, err)
+	}
+	pinned, err := r.pinned(ctx, img)
+	if err != nil {
+		return err
 	}
 	if pinned {
 		return fmt.Errorf("image %s is in use by a live machine: %w", id, store.ErrConflict)
@@ -115,4 +115,39 @@ func (r imageRepo) Delete(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("image %s: %w", id, store.ErrNotFound)
 	}
 	return nil
+}
+
+// pinned reports whether a live machine would boot img.
+func (r imageRepo) pinned(ctx context.Context, img domain.Image) (bool, error) {
+	type use struct {
+		account uuid.UUID
+		ref     string
+		formats []byte
+	}
+	uses, err := many(ctx, r.db, func(row pgx.Row) (u use, err error) {
+		err = row.Scan(&u.account, &u.ref, &u.formats)
+		return u, err
+	}, `SELECT DISTINCT `+cuuid("m.account_id")+`, s.image, COALESCE(p.capabilities->'image_formats', '[]'::jsonb)
+		FROM machines m JOIN shapes s ON s.id = m.shape_id JOIN capacity_providers p ON p.id = m.provider_id
+		WHERE m.state NOT IN ('destroyed','failed') AND s.image IN ($1, $2) AND s.os = $3 AND s.arch = $4`, img.Name, img.Name+"@"+img.Version, string(img.OS), string(img.Arch))
+	if err != nil {
+		return false, err
+	}
+	for _, u := range uses {
+		var formats []domain.ImageFormat
+		if err := json.Unmarshal(u.formats, &formats); err != nil {
+			return false, fmt.Errorf("decode image formats: %w", err)
+		}
+		got, err := r.Resolve(ctx, u.account, u.ref, img.OS, img.Arch, formats)
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, domain.ErrInvalidRecord) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if got.ID == img.ID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
