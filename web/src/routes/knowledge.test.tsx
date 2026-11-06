@@ -121,7 +121,11 @@ describe("knowledge page: browsing", () => {
     expect(within(results).getAllByRole("button")).toHaveLength(fx.knowledgeSearch.length)
     const view = screen.getByRole("region", { name: fx.knowledgeSearch[0]!.title })
     expect(within(view).getByText("Excerpt")).toBeInTheDocument()
-    expect(within(view).getByText(fx.knowledgeSearch[0]!.snippet)).toBeInTheDocument()
+    // The match is highlighted; other markup in the excerpt stays text.
+    expect(within(view).getByText("Postgres").tagName).toBe("MARK")
+    expect(view).toHaveTextContent("Jobs wait in a Postgres table, <i>not</i> a broker.")
+    expect(view).not.toHaveTextContent("<b>")
+    expect(view.querySelector("i")).toBeNull()
     await user.click(screen.getByRole("button", { name: "Clear search" }))
     await screen.findByRole("list", { name: "Entries" })
     expect(screen.getByLabelText("Search knowledge")).toHaveValue("")
@@ -151,5 +155,48 @@ describe("knowledge page: browsing", () => {
     expect(within(views).getByRole("button", { name: "Agent notes" })).toHaveAttribute("aria-pressed", "true")
     await user.click(within(views).getByRole("button", { name: "Entries" }))
     await waitFor(() => expect(router.state.location.search).not.toHaveProperty("tab"))
+  })
+})
+
+describe("knowledge page: lists", () => {
+  test("asks for the sections alone, with one entry, and does not repeat it", async () => {
+    const lists: URLSearchParams[] = []
+    server.use(
+      http.get("/api/v1/knowledge/entries", ({ request }) => {
+        lists.push(new URL(request.url).searchParams)
+        return HttpResponse.json(fx.knowledgeEntries)
+      }),
+    )
+    await renderApp("/knowledge?project=app")
+    await screen.findByRole("list", { name: "Entries" })
+    expect(lists.filter((l) => l.get("limit") === "1")).toHaveLength(1)
+    expect(lists.filter((l) => l.get("limit") === null).length).toBeGreaterThan(0)
+  })
+
+  test("says when a list has the most the API gives", async () => {
+    const many = Array.from({ length: 50 }, (_, i) => ({ ...fx.knowledgeEntries.entries[1]!, id: `e${i}`, title: `Entry ${i}` }))
+    server.use(http.get("/api/v1/knowledge/entries", () => HttpResponse.json({ ...fx.knowledgeEntries, entries: many })))
+    await renderApp("/knowledge?project=app")
+    expect(await screen.findByText("Showing the first 50. Narrow the list to see others.")).toBeInTheDocument()
+  })
+
+  test("a short list says nothing about a cap", async () => {
+    await renderApp("/knowledge?project=app")
+    await screen.findByRole("list", { name: "Entries" })
+    expect(screen.queryByText(/Showing the first/)).not.toBeInTheDocument()
+  })
+
+  test("a search asks for a page and says when it is full", async () => {
+    const searches: URLSearchParams[] = []
+    const many = Array.from({ length: 50 }, (_, i) => ({ ...fx.knowledgeSearch[0]!, id: `s${i}`, title: `Hit ${i}` }))
+    server.use(
+      http.get("/api/v1/knowledge", ({ request }) => {
+        searches.push(new URL(request.url).searchParams)
+        return HttpResponse.json(many)
+      }),
+    )
+    await renderApp("/knowledge?project=app&q=postgres")
+    expect(await screen.findByText(/Showing the first 50/)).toBeInTheDocument()
+    expect(searches[0]!.get("limit")).toBe("50")
   })
 })

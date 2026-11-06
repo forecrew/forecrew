@@ -1,9 +1,10 @@
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { useState } from "react"
-import { useDeleteNote, useGoals, useKnowledge, useKnowledgeProposals, useProject, useProposeKnowledge } from "@/api/queries"
+import { useDeleteNote, useGoals, useKnowledge, useKnowledgeProposals, useKnowledgeSections, useProject, useProposeKnowledge } from "@/api/queries"
 import type { KnowledgeAction, KnowledgeProposal, KnowledgeProposalStatus, ProposeKnowledgeResult } from "@/api/types"
 import { Age } from "@/components/Age"
 import { Async } from "@/components/Async"
+import { Capped } from "@/components/Capped"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { ExternalLink } from "@/components/ExternalLink"
 import { Field } from "@/components/Field"
@@ -70,7 +71,7 @@ function ProposalItem({ p }: { p: KnowledgeProposal }) {
 }
 
 function ProposeForm({ project }: { project: string }) {
-  const sections = useKnowledge(project, {})
+  const sections = useKnowledgeSections(project)
   const propose = useProposeKnowledge()
   const [section, setSection] = useState("")
   const [path, setPath] = useState("")
@@ -79,7 +80,7 @@ function ProposeForm({ project }: { project: string }) {
   const [reason, setReason] = useState("")
   const [errors, setErrors] = useState<{ section?: string; path?: string; body?: string; reason?: string }>({})
   const [done, setDone] = useState<ProposeKnowledgeResult | null>(null)
-  const curated = sections.data?.sections.filter((s) => s.provider && s.provider !== "internal") ?? []
+  const curated = sections.data?.filter((s) => s.provider && s.provider !== "internal") ?? []
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -186,13 +187,16 @@ export function ProposalsTab({ project }: { project: string }) {
         </div>
         <Async query={proposals} isEmpty={(d) => d.length === 0} empty="No proposals.">
           {(items) => (
-            <ul aria-label="Knowledge proposals" className="space-y-3">
-              {items.map((p) => (
-                <li key={p.ref}>
-                  <ProposalItem p={p} />
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul aria-label="Knowledge proposals" className="space-y-3">
+                {items.map((p) => (
+                  <li key={p.ref}>
+                    <ProposalItem p={p} />
+                  </li>
+                ))}
+              </ul>
+              <Capped n={items.length} />
+            </>
           )}
         </Async>
       </section>
@@ -236,6 +240,7 @@ export function NotesTab({ project }: { project: string }) {
       </div>
       <Async query={notes} isEmpty={(d) => d.entries.length === 0} empty="No notes.">
         {(d) => (
+          <>
           <ul aria-label="Agent notes" className="space-y-3">
             {d.entries.map((n) => (
               <li key={n.id}>
@@ -275,6 +280,8 @@ export function NotesTab({ project }: { project: string }) {
               </li>
             ))}
           </ul>
+          <Capped n={d.entries.length} />
+          </>
         )}
       </Async>
     </section>

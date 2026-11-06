@@ -1,6 +1,6 @@
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { useState } from "react"
-import { useKnowledge, useKnowledgeSearch, useProjects } from "@/api/queries"
+import { useKnowledge, useKnowledgeSearch, useKnowledgeSections, useProjects } from "@/api/queries"
 import type { KnowledgeKind, KnowledgeResult, KnowledgeSection } from "@/api/types"
 import { Age } from "@/components/Age"
 import { Async } from "@/components/Async"
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import { Capped } from "@/components/Capped"
 import { IntegrationsTab, NotesTab, ProposalsTab } from "@/routes/knowledge-tabs"
 import { cn } from "cn"
 
@@ -67,6 +68,14 @@ function Sections({ sections, section, onPick }: { sections: KnowledgeSection[];
   )
 }
 
+/**
+ * An excerpt of a search hit. The search marks matches with <b>; those show
+ * as a highlight and everything else, other markup included, as plain text.
+ */
+function Excerpt({ text }: { text: string }) {
+  return text.split(/<b>(.*?)<\/b>/s).map((part, i) => (i % 2 ? <mark key={i} className="rounded bg-warning/20 px-0.5 text-foreground">{part}</mark> : part))
+}
+
 function EntryView({ item }: { item: Item }) {
   const p = item.provenance
   return (
@@ -116,7 +125,9 @@ function EntryView({ item }: { item: Item }) {
       ) : (
         <div>
           <p className="text-xs text-muted-foreground">Excerpt</p>
-          <p className="text-sm break-words whitespace-pre-wrap">{item.snippet}</p>
+          <p className="text-sm break-words whitespace-pre-wrap">
+            <Excerpt text={item.snippet} />
+          </p>
         </div>
       )}
     </section>
@@ -150,6 +161,7 @@ function Browser({ items, label }: { items: Item[]; label: string }) {
         ))}
       </ul>
       <EntryView item={selected} />
+      <Capped n={items.length} />
     </div>
   )
 }
@@ -173,8 +185,8 @@ function EntriesTab({ project }: { project: string }) {
   const { q = "", section = "", kind = "", provider = "" } = useSearch({ from: "/app/knowledge" })
   const navigate = useNavigate({ from: "/knowledge" })
   const [draft, setDraft] = useState(q)
-  const sections = useKnowledge(project, {})
-  const providers = [...new Set(sections.data?.sections.map((s) => s.provider).filter(Boolean))] as string[]
+  const sections = useKnowledgeSections(project)
+  const providers = [...new Set(sections.data?.map((s) => s.provider).filter(Boolean))] as string[]
   const set = (next: Record<string, string>) =>
     void navigate({ search: (prev) => ({ ...prev, ...Object.fromEntries(Object.entries(next).map(([k, v]) => [k, v || undefined])) }) })
   return (
@@ -229,7 +241,7 @@ function EntriesTab({ project }: { project: string }) {
       </form>
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
         <Async query={sections} isEmpty={() => false}>
-          {(d) => <Sections sections={d.sections} section={section} onPick={(name) => set({ section: name })} />}
+          {(d) => <Sections sections={d} section={section} onPick={(name) => set({ section: name })} />}
         </Async>
         <Results project={project} q={q} section={section} kind={kind} provider={provider} />
       </div>

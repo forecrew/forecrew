@@ -34,6 +34,7 @@ export const keys = {
   assumptionRegister: (project: string, status: string, impact: string) => ["assumption-register", project, status, impact] as const,
   knowledge: (project: string, section: string, kind: string, provider: string, goal: string) => ["knowledge", project, section, kind, provider, goal] as const,
   knowledgeSearch: (project: string, q: string, section: string, kind: string, provider: string) => ["knowledge-search", project, q, section, kind, provider] as const,
+  knowledgeSections: (project: string) => ["knowledge-sections", project] as const,
   knowledgeProposals: (project: string, status: string) => ["knowledge-proposals", project, status] as const,
 }
 
@@ -268,6 +269,14 @@ export const useKnowledge = (project: string, f: { section?: string; kind?: Know
     enabled: project !== "",
     placeholderData: keepPreviousData,
     ...poll,
+  })
+/** The sections of a project's knowledge: asks for one entry, since the sections are all it wants, and does not poll. */
+export const useKnowledgeSections = (project: string) =>
+  useQuery({
+    queryKey: keys.knowledgeSections(project),
+    queryFn: async () => (await api.listKnowledge({ project, limit: 1 })).sections,
+    enabled: project !== "",
+    staleTime: 60_000,
   })
 export const useKnowledgeSearch = (project: string, q: string, f: { section?: string; kind?: KnowledgeKind | ""; provider?: string } = {}) =>
   useQuery({

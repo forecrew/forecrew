@@ -59,6 +59,22 @@ describe("knowledge page: proposals", () => {
   })
 })
 
+describe("knowledge page: capped lists", () => {
+  test("proposals and notes say when they are full", async () => {
+    const proposals = Array.from({ length: 50 }, (_, i) => ({ ...fx.knowledgeProposals[0]!, ref: `KB-${i + 10}` }))
+    const notes = { ...fx.knowledgeNotes, entries: Array.from({ length: 50 }, (_, i) => ({ ...fx.knowledgeNotes.entries[1]!, id: `n${i}` })) }
+    server.use(
+      http.get("/api/v1/knowledge/proposals", () => HttpResponse.json(proposals)),
+      http.get("/api/v1/knowledge/entries", ({ request }) => HttpResponse.json(new URL(request.url).searchParams.get("kind") === "note" ? notes : fx.knowledgeEntries)),
+    )
+    const first = await renderApp("/knowledge?project=app&tab=proposals")
+    expect(await screen.findByText(/Showing the first 50/)).toBeInTheDocument()
+    first.unmount()
+    await renderApp("/knowledge?project=app&tab=notes")
+    expect(await screen.findByText(/Showing the first 50/)).toBeInTheDocument()
+  })
+})
+
 describe("knowledge page: propose a change", () => {
   function recordProposals() {
     const bodies: unknown[] = []
