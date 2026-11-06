@@ -394,3 +394,75 @@ func TestVerificationBuildTaskWithoutCriteriaBlocks(t *testing.T) {
 		t.Fatalf("build = %+v", got)
 	}
 }
+
+// A baseline report has no criteria and no base check, never blocks a
+// merge, and shows nothing on GitHub: no comment, no check run.
+func TestVerificationBuildBaseline(t *testing.T) {
+	v := newVerified(t)
+	v.addRun(t, "linux-go", "linux", "unit", testResults(domain.TestFailed, "pkg::TestA")...)
+	v.addRun(t, "win", "windows", "unit", testResults(domain.TestPassed, "pkg::TestA")...)
+	v.addRun(t, "linux-go", "linux", "e2e", testResults(domain.TestPassed, "e2e::Flow")...)
+	// The task of the change has acceptance criteria that the baseline ignores.
+	got := v.build(t, map[string]any{"baseline": true})
+	if got.Status != "failed" || len(got.Blocking) != 1 || !strings.Contains(got.Blocking[0], "unit in linux-go") {
+		t.Fatalf("baseline = %+v", got)
+	}
+	if len(v.comments(t)) != 0 {
+		t.Errorf("comments = %+v", v.comments(t))
+	}
+	if _, ok := v.tracker.CheckRun("acme/app", headSHA, verification.CheckName); ok {
+		t.Error("a check run was set")
+	}
+	stored, err := v.st.VerificationReports().GetBySHA(t.Context(), v.account, v.change.ID, headSHA)
+	must(t, err)
+	rep, err := verification.Parse(stored.Report)
+	must(t, err)
+	if stored.ID.String() != got.ReportID || len(rep.Criteria) != 0 || len(rep.NewTests) != 0 {
+		t.Errorf("report = %+v, stored %s", rep, stored.ID)
+	}
+	if again := v.build(t, map[string]any{"baseline": true}); !reflect.DeepEqual(again, got) {
+		t.Errorf("repeat = %+v", again)
+	}
+}
+
+// Without a change the baseline is kept under the latest merged pull request.
+func TestVerificationBuildBaselineWithoutAChange(t *testing.T) {
+	v := newVerified(t)
+	v.addRun(t, "linux-go", "linux", "unit", testResults(domain.TestPassed, "pkg::TestA")...)
+	with := map[string]any{"sha": headSHA, "baseline": true}
+	_, err := v.call(t, "verification.build", with)
+	wantErr(t, err, "has no merged pull request")
+
+	older := v.change
+	older.State = domain.ChangeMerged
+	must(t, v.st.Changes().Upsert(t.Context(), &older))
+	must(t, v.tracker.AddBranch("acme/app", "agent/later"))
+	pr, err := v.tracker.CreatePR(t.Context(), "acme/app", github.PRInput{Title: "Later", Head: "agent/later", Base: "main"})
+	must(t, err)
+	later := domain.Change{AccountID: v.account, ProjectID: v.project.ID, Repo: "acme/app", Number: pr.Number, Branch: "agent/later", BaseRef: "main", HeadSHA: "f00", State: domain.ChangeMerged, URL: pr.URL}
+	must(t, v.st.Changes().Upsert(t.Context(), &later))
+	out, err := v.call(t, "verification.build", with)
+	must(t, err)
+	stored, err := v.st.VerificationReports().Get(t.Context(), v.account, uuid.MustParse(toMap(t, out)["report_id"].(string)))
+	must(t, err)
+	if stored.ChangeID != later.ID || stored.ProjectID != v.project.ID || stored.SHA != headSHA {
+		t.Errorf("stored = %+v, want change %s", stored, later.ID)
+	}
+}
+
+func TestVerificationBuildBaselineErrors(t *testing.T) {
+	v := newVerified(t)
+	for name, with := range map[string]map[string]any{
+		"a task":       v.with(map[string]any{"baseline": true, "task_id": v.task.ID.String()}),
+		"a base check": v.with(map[string]any{"baseline": true, "base_check": map[string]any{"new_tests": []any{}}}),
+		"no sha":       {"baseline": true},
+		"no matrix":    {"change": v.change.Number, "sha": "deadbeef", "baseline": true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := v.call(t, "verification.build", with)
+			if err == nil {
+				t.Fatal("no error")
+			}
+		})
+	}
+}

@@ -56,12 +56,10 @@ func conclusion(s domain.VerificationStatus) github.CheckConclusion {
 	return github.ConclusionNeutral
 }
 
-// Publish stores the report of (change, head sha), replacing the one a
-// previous build stored, renders it as an artifact, updates the PR comment in
-// place (or creates it) and sets the check run forecrew/verification on the
-// sha. It can be called again for the same report. An App without the Checks
-// permission gets a warning in the log, once, and keeps the comment.
-func (p *Publisher) Publish(ctx context.Context, change domain.Change, rep Report) (domain.VerificationReport, error) {
+// Save stores the report of (change, sha), replacing the one a previous build
+// stored, and renders it as an artifact. It shows it nowhere: Publish does
+// that on the PR. It can be called again for the same report.
+func (p *Publisher) Save(ctx context.Context, change domain.Change, rep Report) (domain.VerificationReport, error) {
 	raw, err := rep.JSON()
 	if err != nil {
 		return domain.VerificationReport{}, err
@@ -83,6 +81,19 @@ func (p *Publisher) Publish(ctx context.Context, change domain.Change, rep Repor
 		return domain.VerificationReport{}, fmt.Errorf("store the report: %w", err)
 	}
 	p.dropArtifact(ctx, replaced)
+	return out, nil
+}
+
+// Publish stores the report of (change, head sha) as Save does, updates the PR
+// comment in place (or creates it) and sets the check run forecrew/verification
+// on the sha. It can be called again for the same report. An App without the
+// Checks permission gets a warning in the log, once, and keeps the comment.
+func (p *Publisher) Publish(ctx context.Context, change domain.Change, rep Report) (domain.VerificationReport, error) {
+	out, err := p.Save(ctx, change, rep)
+	if err != nil {
+		return domain.VerificationReport{}, err
+	}
+	md := Render(rep)
 	if p.Tracker == nil {
 		return out, nil
 	}

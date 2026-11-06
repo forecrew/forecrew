@@ -96,6 +96,13 @@ type verificationOutput struct {
 // matrix at sha. It stores the report, updates the PR comment in place and
 // sets the check run forecrew/verification. Calling it again with the same
 // data changes nothing, and with more test runs it replaces the report.
+//
+// with.baseline builds the baseline report of onboarding instead: of a commit
+// on the default branch, with no criteria and no base check (task_id and
+// base_check are refused), shown nowhere on GitHub (no comment, no check run:
+// nothing is being merged) and never blocking. The report is kept under
+// with.change, the pull request the commit came from; without one, under the
+// project's latest merged pull request, since a report belongs to a change.
 func (a *actions) verificationBuild(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		Change int       `json:"change"`
@@ -106,22 +113,31 @@ func (a *actions) verificationBuild(ctx context.Context, call workflow.ActionCal
 			NewTests []verification.BaseTest `json:"new_tests"`
 			OK       bool                    `json:"ok"`
 		} `json:"base_check"`
+		Baseline bool `json:"baseline"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
 	}
-	if with.Change <= 0 || with.SHA == "" {
+	if with.SHA == "" || (with.Change <= 0 && !with.Baseline) {
 		return nil, errors.New("with: change and sha are required")
+	}
+	if with.Baseline && (with.TaskID != uuid.Nil() || with.BaseCheck != nil) {
+		return nil, errors.New("with: a baseline has no task_id and no base_check")
 	}
 	p, err := a.Store.Projects().Get(ctx, call.Run.AccountID, call.Run.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
 	}
-	ch, err := a.Store.Changes().GetByPR(ctx, p.AccountID, p.Repo, with.Change)
+	ch, err := a.verificationChange(ctx, p, with.Change)
 	if err != nil {
-		return nil, fmt.Errorf("get pull request %s#%d: %w", p.Repo, with.Change, err)
+		return nil, err
 	}
-	in, err := a.verificationInputs(ctx, call.Run, p, ch, with.SHA, with.TaskID)
+	var in verification.Inputs
+	if with.Baseline {
+		in, err = a.matrixInputs(ctx, p, with.SHA)
+	} else {
+		in, err = a.verificationInputs(ctx, call.Run, p, ch, with.SHA, with.TaskID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -132,17 +148,39 @@ func (a *actions) verificationBuild(ctx context.Context, call workflow.ActionCal
 	if err != nil {
 		return nil, err
 	}
-	stored, err := a.verifier.Publish(ctx, ch, rep)
+	publish := a.verifier.Publish
+	if with.Baseline {
+		publish = a.verifier.Save
+	}
+	stored, err := publish(ctx, ch, rep)
 	if err != nil {
 		return nil, err
 	}
 	return verificationOutput{Status: rep.Status, Blocking: rep.Blocking, Summary: rep.Summary(), ReportID: stored.ID}, nil
 }
 
-// verificationInputs reads what the report needs besides the test runs:
-// the results the matrix at sha asks for, and the criteria and test map of
-// the task.
-func (a *actions) verificationInputs(ctx context.Context, run domain.WorkflowRun, p domain.Project, ch domain.Change, sha string, taskID uuid.UUID) (verification.Inputs, error) {
+// verificationChange returns the change a report is kept under: the project's
+// pull request number, or for a baseline without one the latest merged one.
+func (a *actions) verificationChange(ctx context.Context, p domain.Project, number int) (domain.Change, error) {
+	if number > 0 {
+		ch, err := a.Store.Changes().GetByPR(ctx, p.AccountID, p.Repo, number)
+		if err != nil {
+			return domain.Change{}, fmt.Errorf("get pull request %s#%d: %w", p.Repo, number, err)
+		}
+		return ch, nil
+	}
+	merged, err := a.Store.Changes().List(ctx, p.AccountID, store.ChangeFilter{ProjectID: p.ID, State: domain.ChangeMerged})
+	if err != nil {
+		return domain.Change{}, fmt.Errorf("list the pull requests of %s: %w", p.Name, err)
+	}
+	if len(merged) == 0 {
+		return domain.Change{}, fmt.Errorf("%s has no merged pull request to keep the baseline under", p.Name)
+	}
+	return merged[len(merged)-1], nil
+}
+
+// matrixInputs returns the results the matrix at sha asks for.
+func (a *actions) matrixInputs(ctx context.Context, p domain.Project, sha string) (verification.Inputs, error) {
 	var in verification.Inputs
 	m, envs, err := matrix.Load(a.repoReader(ctx, p.Repo, sha))
 	if err != nil {
@@ -157,6 +195,17 @@ func (a *actions) verificationInputs(ctx context.Context, run domain.WorkflowRun
 		return in, err
 	}
 	in.Expected = verification.Expect(all, required)
+	return in, nil
+}
+
+// verificationInputs reads what the report needs besides the test runs:
+// the results the matrix at sha asks for, and the criteria and test map of
+// the task.
+func (a *actions) verificationInputs(ctx context.Context, run domain.WorkflowRun, p domain.Project, ch domain.Change, sha string, taskID uuid.UUID) (verification.Inputs, error) {
+	in, err := a.matrixInputs(ctx, p, sha)
+	if err != nil {
+		return in, err
+	}
 	if taskID == uuid.Nil() {
 		taskID = ch.TaskID
 	}

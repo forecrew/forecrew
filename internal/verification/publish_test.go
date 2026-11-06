@@ -362,6 +362,29 @@ func TestPublishWithoutTrackerOrEvidence(t *testing.T) {
 	}
 }
 
+// Save stores and renders the report and shows it nowhere on GitHub.
+func TestSaveShowsNothingOnGitHub(t *testing.T) {
+	f := newPubFixture(t)
+	f.add(run{env: "e", cell: linux(), results: pass("a::T1")})
+	stored, err := f.pub.Save(t.Context(), f.change, f.build(verification.Inputs{}))
+	if err != nil || stored.Status != domain.VerificationPassed || stored.ArtifactID == (domain.VerificationReport{}).ArtifactID {
+		t.Fatalf("stored = %+v, %v", stored, err)
+	}
+	if got, err := f.st.VerificationReports().GetBySHA(t.Context(), f.acc.ID, f.change.ID, sha); err != nil || got.ID != stored.ID {
+		t.Fatalf("not stored: %+v, %v", got, err)
+	}
+	if len(f.markerComments()) != 0 {
+		t.Error("a comment was posted")
+	}
+	if _, ok := f.tr.CheckRun("acme/app", sha, verification.CheckName); ok {
+		t.Error("a check run was set")
+	}
+	_, err = f.pub.Save(t.Context(), f.change, verification.Report{Version: 1, SHA: "NOPE", Status: domain.VerificationPassed})
+	if err == nil {
+		t.Error("an invalid report was saved")
+	}
+}
+
 func TestPublishRejectsAnInvalidReport(t *testing.T) {
 	f := newPubFixture(t)
 	_, err := f.pub.Publish(t.Context(), f.change, verification.Report{Version: 1, SHA: "NOPE", Status: domain.VerificationPassed})
