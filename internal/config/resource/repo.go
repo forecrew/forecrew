@@ -11,6 +11,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/forecrew/forecrew/internal/analyzer"
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/knowledge"
@@ -156,7 +157,7 @@ func perProject(ctx context.Context, e *Env, fn func(p domain.Project) ([]Resour
 	}
 	var out []Resource
 	for _, p := range projects {
-		ok, err := e.Authz.Can(ctx, e.Actor, domain.PermProjectRead, projectResource(e, p))
+		ok, err := e.Authz.Can(ctx, e.Actor, domain.PermProjectRead, authz.Project(e.Actor.AccountID, p.ID))
 		if err != nil {
 			return nil, err
 		}

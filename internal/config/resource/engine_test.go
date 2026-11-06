@@ -268,7 +268,14 @@ func TestBudgetFields(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 	admin, billing := w.person(domain.RoleAdmin), w.person(domain.RoleBilling)
-	w.full.x.providers = []domain.CapacityProvider{{ID: domain.NewID(), AccountID: w.account.ID, Name: "home", Kind: domain.ProviderMicroVM, Mode: domain.ProviderModeAgent, Status: domain.ProviderActive}}
+	home := domain.CapacityProvider{AccountID: w.account.ID, Name: "home", Kind: domain.ProviderMicroVM, Mode: domain.ProviderModeAgent}
+	check(t, w.st.CapacityProviders().Create(ctx, &home))
+	provider := func() domain.CapacityProvider {
+		t.Helper()
+		got, err := w.st.CapacityProviders().Get(ctx, home.ID)
+		check(t, err)
+		return got
+	}
 	budget := 100.0
 	withBudget := map[string]any{"kind": "microvm", "mode": "agent", "limits": map[string]any{"monthly_budget": budget}}
 	withMax := map[string]any{"kind": "microvm", "mode": "agent", "limits": map[string]any{"max_machines": 3}}
@@ -280,12 +287,12 @@ func TestBudgetFields(t *testing.T) {
 	}
 	_, err := w.engine.Apply(ctx, admin, resource.Confirmation{Plan: p.ID})
 	wantErr(t, err, authz.ErrDenied)
-	if w.full.x.providers[0].Limits.MonthlyBudget != nil {
+	if provider().Limits.MonthlyBudget != nil {
 		t.Fatal("the budget changed")
 	}
 	// billing.manage alone changes it.
 	w.apply(billing, p)
-	if got := w.full.x.providers[0].Limits.MonthlyBudget; got == nil || *got != budget {
+	if got := provider().Limits.MonthlyBudget; got == nil || *got != budget {
 		t.Fatalf("budget = %v", got)
 	}
 	// A plan on both needs both, and an Admin cannot do half of it.
@@ -694,9 +701,10 @@ func TestIntegrations(t *testing.T) {
 
 func TestFleetAreas(t *testing.T) {
 	w := newWorld(t)
-	x := w.full.x
-	// The home server of the task: a location with two machine types, and
-	// no secure field: the machine gets its token over its own connection.
+	ctx := t.Context()
+	acc := w.account.ID
+	// The home server of the task: a location with a machine type, and no
+	// secure field: the machine gets its token over its own connection.
 	shape := func(cpu int) map[string]any {
 		return map[string]any{"provider": "home", "os": "linux", "arch": "amd64", "cpu": cpu, "memory_mb": 4096, "disk_gb": 20, "max": 3, "image": "linux", "enabled": true, "pool": "build", "price_per_minute": 0.5}
 	}
@@ -711,18 +719,26 @@ func TestFleetAreas(t *testing.T) {
 		t.Errorf("cost = %q", p.Cost)
 	}
 	w.apply(w.owner, p)
-	if len(x.providers) != 1 || x.providers[0].Status != domain.ProviderPending || len(x.shapes) != 1 || x.shapes[0].ProviderID != x.providers[0].ID {
-		t.Fatalf("providers %+v shapes %+v", x.providers, x.shapes)
+	home, err := w.st.CapacityProviders().GetByName(ctx, acc, "home")
+	check(t, err)
+	small, err := w.st.Shapes().GetByName(ctx, acc, "small")
+	check(t, err)
+	if home.Status != domain.ProviderPending || small.ProviderID != home.ID {
+		t.Fatalf("provider %+v shape %+v", home, small)
 	}
-	x.providers[0].Status = domain.ProviderActive
+	// What was applied reads back the same, so it does not count as a change.
+	if p := w.plan(w.owner, wanted(t, "shape", "small", shape(2))); len(p.Changes) != 0 {
+		t.Errorf("changes = %+v", p.Changes)
+	}
+	check(t, w.st.CapacityProviders().SetToken(ctx, home.ID, make([]byte, 32)))
 	// A wider network and another trust zone lower protection.
 	p = w.plan(w.owner, wanted(t, "provider", "home", map[string]any{"kind": "microvm", "mode": "agent", "network_allow": []string{"10.0.0.0/8"}, "paused": true}))
 	if len(p.LowersProtection) != 1 {
 		t.Errorf("reasons = %v", p.LowersProtection)
 	}
 	w.apply(w.owner, p)
-	if x.providers[0].Status != domain.ProviderPaused {
-		t.Errorf("status = %s", x.providers[0].Status)
+	if got, _ := w.st.CapacityProviders().Get(ctx, home.ID); got.Status != domain.ProviderPaused {
+		t.Errorf("status = %s", got.Status)
 	}
 	moved := shape(4)
 	moved["pool"] = "control"
@@ -731,16 +747,15 @@ func TestFleetAreas(t *testing.T) {
 		t.Errorf("reasons = %v", p.LowersProtection)
 	}
 	w.apply(w.owner, p)
-	if x.shapes[0].CPU != 4 {
-		t.Errorf("shape = %+v", x.shapes[0])
+	if got, _ := w.st.Shapes().GetByName(ctx, acc, "small"); got.CPU != 4 {
+		t.Errorf("shape = %+v", got)
 	}
-	// Reverting the creation of a shape turns it off; a location is revoked.
-	p = w.plan(w.owner, mcp.ConfigWanted{Kind: "shape", Name: "small", Delete: true})
-	w.apply(w.owner, p)
-	if x.shapes[0].Enabled {
+	// A machine type has no delete: it is turned off. A location is revoked.
+	w.apply(w.owner, w.plan(w.owner, mcp.ConfigWanted{Kind: "shape", Name: "small", Delete: true}))
+	if got, _ := w.st.Shapes().GetByName(ctx, acc, "small"); got.Enabled {
 		t.Error("still enabled")
 	}
-	_, err := w.engine.Plan(t.Context(), w.owner, resource.PlanRequest{Source: domain.ConfigFromCLI, Changes: []mcp.ConfigWanted{wanted(t, "provider", "home", map[string]any{"kind": "aws", "mode": "agent"})}})
+	_, err = w.engine.Plan(ctx, w.owner, resource.PlanRequest{Source: domain.ConfigFromCLI, Changes: []mcp.ConfigWanted{wanted(t, "provider", "home", map[string]any{"kind": "aws", "mode": "agent"})}})
 	wantErr(t, err, mcp.ErrInvalidInput)
 	p = w.plan(w.owner, mcp.ConfigWanted{Kind: "provider", Name: "home", Delete: true})
 	if p.Reversible {
@@ -818,19 +833,17 @@ func TestOrganizationResource(t *testing.T) {
 	}
 }
 
-func TestAreasWithoutTheirRepositories(t *testing.T) {
+func TestWithoutTheServerFile(t *testing.T) {
 	w := newWorld(t)
-	bare := resource.NewEngine(resource.Config{Store: w.st}) // no fleet repositories, no server file
+	bare := resource.NewEngine(resource.Config{Store: w.st})
 	rs, err := bare.Get(t.Context(), w.owner, "", "")
 	check(t, err)
-	for _, r := range rs {
-		if r.Kind == "shape" || r.Kind == "pool" {
-			t.Errorf("read %+v", r)
-		}
+	if slices.ContainsFunc(rs, func(r mcp.ConfigResource) bool { return r.Scope == resource.ScopeServer }) {
+		t.Errorf("server settings without the file: %+v", rs)
 	}
-	_, err = bare.Plan(t.Context(), w.owner, resource.PlanRequest{Source: domain.ConfigFromCLI, Changes: []mcp.ConfigWanted{wanted(t, "provider", "home", map[string]any{"kind": "microvm"})}})
-	if err == nil || !strings.Contains(err.Error(), "not available") {
-		t.Errorf("err = %v", err)
+	_, err = bare.Plan(t.Context(), w.owner, resource.PlanRequest{Source: domain.ConfigFromCLI, Changes: []mcp.ConfigWanted{wanted(t, "pool", "x", map[string]any{"kinds": []string{"agent"}})}})
+	if err == nil {
+		t.Error("a pool without the server file")
 	}
 }
 
@@ -856,8 +869,8 @@ func TestSchemaOf(t *testing.T) {
 func TestAssistantHomeServer(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
-	creator := &testkit.JobCreator{Store: w.full}
-	svc := tools.New(tools.Config{Store: w.full, Creator: creator, Server: nil})
+	creator := &testkit.JobCreator{Store: w.st}
+	svc := tools.New(tools.Config{Store: w.st, Creator: creator})
 	script := filepath.Join(t.TempDir(), "script.json")
 	check(t, os.WriteFile(script, []byte(`{"text":"Done thinking.","output":{"reply":"Run the line on your server. Nothing changes until you confirm."}}`), 0o600))
 
