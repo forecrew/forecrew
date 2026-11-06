@@ -444,21 +444,13 @@ func MissingSections(p Policy) []string {
 	return out
 }
 
-// MappedPaths returns every glob of the project's sections served by the
-// repo, which writing roles may not change (curated knowledge changes only
-// through proposals), plus knowledge/** and the policy file.
-func (s *Syncer) MappedPaths(ctx context.Context, p domain.Project) ([]string, error) {
+// MappedPaths returns what role may do to the repo files of curated
+// knowledge, from the project's policy: see Policy.PathRules. curator says
+// the role is the one that writes the fallback knowledge/ folder.
+func (s *Syncer) MappedPaths(ctx context.Context, p domain.Project, role string, curator bool) (PathRules, error) {
 	policy, err := s.Policy(ctx, p)
 	if err != nil {
-		return nil, err
+		return PathRules{}, err
 	}
-	globs := RepoMapping(policy).Globs()
-	out := []string{"knowledge/**", PolicyFile}
-	for _, g := range globs {
-		if !strings.HasPrefix(g, "!") {
-			out = append(out, g)
-		}
-	}
-	slices.Sort(out)
-	return slices.Compact(out), nil
+	return policy.PathRules(role, curator), nil
 }

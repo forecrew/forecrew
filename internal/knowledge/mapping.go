@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -168,4 +169,51 @@ func Indexable(globs []string, file string, size int) bool {
 		}
 	}
 	return exact || (wild && slices.Contains(textExts, strings.ToLower(path.Ext(file))))
+}
+
+// PathRules are the repo globs a writing role's job gets besides its own
+// write paths: Granted are added as includes, Denied as "!" excludes (which
+// ignore case, roles.PathAllowed).
+type PathRules struct {
+	Granted []string
+	Denied  []string
+}
+
+// PathRules says what role may do to curated knowledge in the repo.
+// Curated knowledge changes only through proposals, so every role is denied
+// the policy file, knowledge/** and the globs of every repo section, except
+// the sections the role holds access.write on, which it may change. The
+// curator, who writes the fallback knowledge/ folder, is denied the policy
+// file and the protected sections only. A grant under knowledge/ takes the
+// knowledge/** exclusion away, since an exclusion beats an include; the
+// files there that no section maps are then writable.
+func (p Policy) PathRules(role string, curator bool) PathRules {
+	r := PathRules{Denied: []string{PolicyFile}}
+	if !curator {
+		r.Denied = append(r.Denied, "knowledge/**")
+	}
+	for _, name := range slices.Sorted(maps.Keys(p.Sections)) {
+		s := p.Sections[name]
+		if Reserved(name) || p.Providers[s.Provider].Kind != domain.ProviderKindRepo {
+			continue
+		}
+		for _, g := range s.Paths {
+			switch {
+			case strings.HasPrefix(g, "!"):
+			case s.Protected:
+				r.Denied = append(r.Denied, g)
+			case p.Has(name, "write", role):
+				r.Granted = append(r.Granted, g)
+			case !curator:
+				r.Denied = append(r.Denied, g)
+			}
+		}
+	}
+	if slices.ContainsFunc(r.Granted, func(g string) bool { return strings.HasPrefix(strings.ToLower(g), "knowledge/") }) {
+		r.Denied = slices.DeleteFunc(r.Denied, func(d string) bool { return d == "knowledge/**" })
+	}
+	slices.Sort(r.Granted)
+	slices.Sort(r.Denied)
+	r.Granted, r.Denied = slices.Compact(r.Granted), slices.Compact(r.Denied)
+	return r
 }

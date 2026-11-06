@@ -186,3 +186,37 @@ func TestProtectionIgnoresCase(t *testing.T) {
 		t.Errorf("target = %+v, %v", got, err)
 	}
 }
+
+const rulesPolicy = `version: 1
+sections:
+  runbooks: {paths: ["ops/**", "!ops/private/**"], owner: developer, access: {write: [developer]}}
+  vision: {paths: ["knowledge/vision/**"], protected: true, owner: human}
+  architecture: {paths: ["docs/adr/**"], owner: architect}
+  lessons: {owner: knowledge-curator, access: {write: [knowledge-curator]}}
+  notes: {}
+`
+
+// PathRules: every role loses the sections' files except the ones it holds
+// access.write on; the curator loses the protected sections only.
+func TestPathRules(t *testing.T) {
+	p, err := knowledge.ParsePolicy([]byte(rulesPolicy))
+	must(t, err)
+	tests := []struct {
+		role, name string
+		curator    bool
+		granted    []string
+		denied     []string
+	}{
+		{"architect", "a role without grants", false, nil, []string{".forecrew/knowledge-policy.yaml", "docs/adr/**", "knowledge/**", "knowledge/lessons/**", "knowledge/vision/**", "ops/**"}},
+		{"developer", "a grant outside knowledge/", false, []string{"ops/**"}, []string{".forecrew/knowledge-policy.yaml", "docs/adr/**", "knowledge/**", "knowledge/lessons/**", "knowledge/vision/**"}},
+		{"knowledge-curator", "a grant under knowledge/ lifts the catch-all", false, []string{"knowledge/lessons/**"}, []string{".forecrew/knowledge-policy.yaml", "docs/adr/**", "knowledge/vision/**", "ops/**"}},
+		{"knowledge-curator", "the curator", true, []string{"knowledge/lessons/**"}, []string{".forecrew/knowledge-policy.yaml", "knowledge/vision/**"}},
+		{"reviewer", "the curator is a flag, not a name", true, nil, []string{".forecrew/knowledge-policy.yaml", "knowledge/vision/**"}},
+	}
+	for _, tt := range tests {
+		got := p.PathRules(tt.role, tt.curator)
+		if !slices.Equal(got.Granted, tt.granted) || !slices.Equal(got.Denied, tt.denied) {
+			t.Errorf("%s: PathRules = %+v, want granted %v denied %v", tt.name, got, tt.granted, tt.denied)
+		}
+	}
+}

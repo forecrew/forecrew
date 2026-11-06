@@ -228,11 +228,19 @@ forecrew.yaml.
 
 ## Curated knowledge is not writable by roles
 
-Every job of a writing role other than the curator gets its write paths
-extended with `!knowledge/**`, `!.forecrew/knowledge-policy.yaml` and `!<glob>`
-for each path of the project's sections, so curated knowledge changes only
-through proposals (T37). The roles' packs list `!knowledge/**` themselves
-where they write broadly.
+Every job of a writing role gets its write paths extended with
+`!.forecrew/knowledge-policy.yaml`, `!knowledge/**` and `!<glob>` for each path
+of the project's repo sections, so curated knowledge changes only through
+proposals (T37). The knowledge curator, who writes the fallback `knowledge/`
+folder, keeps `knowledge/**` but gets the policy file and the globs of the
+protected sections excluded. A role that holds `access.write` on a section
+changes its files without a proposal: the section's globs are added to its
+paths instead of excluded, and a grant under `knowledge/` also takes
+`!knowledge/**` away (an exclusion beats an include), so the files there that
+no section maps are then writable by that role. The roles' packs list
+`!knowledge/**` themselves where they write broadly. Exclusions ignore case, as
+the protection of the sections does: `Knowledge/Vision/x.md` is
+`knowledge/vision/x.md` on a case-insensitive checkout.
 
 ## Proposals
 
