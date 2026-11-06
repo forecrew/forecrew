@@ -35,10 +35,12 @@ const (
 // JobView is a job with what a human needs to know about its state.
 type JobView struct {
 	domain.Job
-	// Reason explains the state: NoWorkerReason for a queued job that no
-	// online worker of its pool has all the labels for, the error of a
-	// failed job.
+	// Reason explains the state: why a queued job waits, in the sentence of
+	// the fleet (see Waiting) or else NoWorkerReason for a job no online
+	// worker of its pool has all the labels for; the error of a failed job.
 	Reason string `json:"reason,omitempty"`
+	// ReasonCode is the fleet's code for Reason, on a job that waits.
+	ReasonCode string `json:"reason_code,omitempty"`
 	// WorkerName is the worker running the job.
 	WorkerName string `json:"worker_name,omitempty"`
 }
@@ -69,13 +71,7 @@ func (s *Service) Status(ctx context.Context, accountID, jobID uuid.UUID) (JobVi
 	v := JobView{Job: j}
 	switch j.Status {
 	case domain.JobQueued:
-		workers, err := s.st.Workers().List(ctx, accountID)
-		if err != nil {
-			return JobView{}, fmt.Errorf("job %s: list workers: %w", j.Ref(), err)
-		}
-		if !s.anyCanRun(j, workers) {
-			v.Reason = NoWorkerReason(j)
-		}
+		return s.queuedView(ctx, v)
 	case domain.JobRunning:
 		w, err := s.st.Workers().Get(ctx, accountID, j.WorkerID)
 		if err != nil {
@@ -84,6 +80,29 @@ func (s *Service) Status(ctx context.Context, accountID, jobID uuid.UUID) (JobVi
 		v.WorkerName = w.Name
 	case domain.JobFailed:
 		v.Reason = j.Error
+	}
+	return v, nil
+}
+
+// queuedView adds why a queued job waits. The fleet answers for every job
+// it plans for; the rest wait for a worker.
+func (s *Service) queuedView(ctx context.Context, v JobView) (JobView, error) {
+	if s.waiting != nil {
+		code, sentence, ok, err := s.waiting.WaitReason(ctx, v.Job)
+		if err != nil {
+			return JobView{}, fmt.Errorf("job %s: why it waits: %w", v.Ref(), err)
+		}
+		if ok {
+			v.ReasonCode, v.Reason = code, sentence
+			return v, nil
+		}
+	}
+	workers, err := s.st.Workers().List(ctx, v.AccountID)
+	if err != nil {
+		return JobView{}, fmt.Errorf("job %s: list workers: %w", v.Ref(), err)
+	}
+	if !s.anyCanRun(v.Job, workers) {
+		v.Reason = NoWorkerReason(v.Job)
 	}
 	return v, nil
 }

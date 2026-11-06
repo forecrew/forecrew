@@ -2,7 +2,9 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 	"uuid"
@@ -175,4 +177,36 @@ func TestWorkers(t *testing.T) {
 
 	_, err = New(noWorkers{f.st}, f.bus, nil, f.svc.logger, f.clock.Now).Workers(ctx, f.account)
 	wantErr(t, err, errDown)
+}
+
+type waitingFunc func(domain.Job) (string, string, bool, error)
+
+func (f waitingFunc) WaitReason(_ context.Context, j domain.Job) (string, string, bool, error) {
+	return f(j)
+}
+
+func TestStatusAsksTheFleetWhyAJobWaits(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	j := f.newJob(t, "docker")
+	var ok bool
+	var err error
+	f.svc.WithWaiting(waitingFunc(func(domain.Job) (string, string, bool, error) { return "booting", "Starting a machine", ok, err }))
+
+	ok = true
+	v, e := f.svc.Status(ctx, f.account, j.ID)
+	must(t, e)
+	if v.ReasonCode != "booting" || v.Reason != "Starting a machine" {
+		t.Fatalf("view = %+v", v)
+	}
+	ok = false // not the fleet's: it waits for a worker
+	v, e = f.svc.Status(ctx, f.account, j.ID)
+	must(t, e)
+	if v.ReasonCode != "" || !strings.HasPrefix(v.Reason, ReasonNoWorker) {
+		t.Fatalf("view = %+v", v)
+	}
+	err = errDown
+	if _, e = f.svc.Status(ctx, f.account, j.ID); !errors.Is(e, errDown) {
+		t.Fatalf("err = %v", e)
+	}
 }

@@ -51,8 +51,16 @@ type Service struct {
 	logger *slog.Logger
 	now    func() time.Time
 
+	waiting Waiting
+
 	mu   sync.Mutex
 	wake chan struct{} // closed and replaced when a job may have become leasable
+}
+
+// Waiting says why a queued job waits; *fleet.Controller implements it. ok
+// is false for a job it has no say in.
+type Waiting interface {
+	WaitReason(ctx context.Context, j domain.Job) (code, sentence string, ok bool, err error)
 }
 
 // New returns a service on st that publishes signals on bus. pools is the
@@ -63,6 +71,12 @@ func New(st store.Store, bus Publisher, pools map[string]config.Pool, logger *sl
 		pools = config.DefaultPools()
 	}
 	return &Service{st: st, bus: bus, pools: pools, logger: logger, now: now, wake: make(chan struct{})}
+}
+
+// WithWaiting makes Status ask w why queued jobs wait.
+func (s *Service) WithWaiting(w Waiting) *Service {
+	s.waiting = w
+	return s
 }
 
 // WithRegistrar makes the service also tell r of every job that succeeds.
