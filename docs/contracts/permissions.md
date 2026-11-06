@@ -323,7 +323,7 @@ object up and checks the permission on the object's project.
 | `config_get` | `GET /api/v1/config/resources` | `config.read`, and each area's read permission: what the caller cannot read is left out |
 | `config_plan` | `POST /api/v1/config/plans` | `config.apply`, and the read permission of each area the plan touches |
 | `config_apply` | `POST /api/v1/config/plans/{plan}/request-approval` | `config.apply`; it never applies, it puts the plan in the Inbox |
-| | `POST /api/v1/config/plans/{plan}/apply` | `config.apply` and everything the plan's resources need; only a person, and a plan of the assistant or an MCP client only from the web UI's session |
+| | `POST /api/v1/config/plans/{plan}/apply` | `config.apply` and everything the plan's resources need; only a person; a plan of the assistant, an MCP client or an ownerless token, and any plan that lowers protection, only from a browser session |
 | `config_revert` | `POST /api/v1/config/plans/{plan}/revert` | `config.apply`; the new plan is confirmed like any other |
 | `config_export` | `GET /api/v1/config/export` | `config.read`, and each area's read permission |
 | `config_import` | `POST /api/v1/config/import` | `config.apply`, as `config_plan` |

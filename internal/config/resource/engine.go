@@ -250,6 +250,11 @@ func (g *Engine) Plan(ctx context.Context, by domain.Actor, req PlanRequest) (do
 	if err := checkNoSecret(req.Title + "\n" + req.Request); err != nil {
 		return domain.ConfigPlan{}, err
 	}
+	if by.Kind == domain.ActorMCP {
+		// An ownerless token is nobody's: no person stands behind what it
+		// sends, whichever entry point it uses.
+		req.Source = domain.ConfigFromMCP
+	}
 	now := g.cfg.Now()
 	p := domain.ConfigPlan{AccountID: by.AccountID, Status: domain.ConfigPlanPending, Source: req.Source, Client: req.Client, Title: req.Title, Request: req.Request,
 		Applies: "now", Changes: []domain.ConfigChange{}, Steps: []domain.ConfigStep{}, Needs: []domain.Permission{}, LowersProtection: []string{}, Reversible: true,
@@ -862,6 +867,9 @@ func (g *Engine) checkConfirm(ctx context.Context, e *Env, p domain.ConfigPlan, 
 	}
 	if p.Source.BrowserOnly() && !c.Browser {
 		return fmt.Errorf("a plan from %s is confirmed by a person in the web UI: %w", p.Source, mcp.ErrConflict)
+	}
+	if len(p.LowersProtection) > 0 && !c.Browser {
+		return fmt.Errorf("a plan that lowers protection is confirmed by a person in the web UI: %w", mcp.ErrConflict)
 	}
 	if len(p.LowersProtection) > 0 && c.Word != p.ConfirmWord {
 		return invalid("this plan lowers protection (%s): type %q to confirm", strings.Join(p.LowersProtection, "; "), p.ConfirmWord)

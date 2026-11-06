@@ -3,6 +3,7 @@ package resource_test
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -252,7 +253,10 @@ func TestNoEscalationThroughPlans(t *testing.T) {
 	subject := u.ID.String()
 	name := "user:" + subject + "/owner"
 	p := w.plan(admin, wanted(t, "role_binding", name, map[string]any{"subject_kind": "user", "subject": subject, "role": "owner"}))
-	_, err := w.engine.Apply(t.Context(), admin, resource.Confirmation{Plan: p.ID})
+	if len(p.LowersProtection) != 1 {
+		t.Errorf("adding an Owner: %v", p.LowersProtection)
+	}
+	_, err := w.engine.Apply(t.Context(), admin, resource.Confirmation{Plan: p.ID, Word: p.ConfirmWord, Browser: true})
 	wantErr(t, err, authz.ErrDenied)
 	if got := w.spec("role_binding", name); got != "" {
 		t.Errorf("binding = %s", got)
@@ -414,9 +418,12 @@ func TestLoweringProtection(t *testing.T) {
 		t.Fatalf("plan = %+v", p)
 	}
 	for _, word := range []string{"", "yes", "ACME"} {
-		_, err := w.engine.Apply(ctx, w.owner, resource.Confirmation{Plan: p.ID, Word: word})
+		_, err := w.engine.Apply(ctx, w.owner, resource.Confirmation{Plan: p.ID, Word: word, Browser: true})
 		wantErr(t, err, mcp.ErrInvalidInput)
 	}
+	// Whatever its source, it is not confirmed with a token.
+	_, err := w.engine.Apply(ctx, w.owner, resource.Confirmation{Plan: p.ID, Word: p.ConfirmWord})
+	wantErr(t, err, mcp.ErrConflict)
 	w.apply(w.owner, p)
 
 	// Cloud fallback and open egress, and the revert of tightening them.
@@ -454,6 +461,24 @@ func TestLoweringProtection(t *testing.T) {
 }
 
 func subjectOf(a domain.Actor) string { return a.Name }
+
+func TestOwnerlessTokensAreMCP(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	check(t, w.st.MCPTokens().Create(ctx, &domain.MCPToken{AccountID: w.account.ID, Name: "laptop", TokenHash: mcp.HashToken("fcm_laptop")}))
+	by := domain.Actor{AccountID: w.account.ID, Kind: domain.ActorMCP, Name: "laptop"}
+	p := w.plan(by, wanted(t, "team", "core", team("Core"))) // says it comes from the CLI
+	if p.Source != domain.ConfigFromMCP {
+		t.Fatalf("source = %s", p.Source)
+	}
+	_, err := w.engine.Apply(ctx, by, resource.Confirmation{Plan: p.ID})
+	wantErr(t, err, mcp.ErrConflict)
+	imported, err := w.engine.Import(ctx, by, "version: 1\nresources:\n- kind: team\n  name: other\n  spec: {display_name: O, members: []}\n", domain.ConfigFromYAML, "")
+	check(t, err)
+	if imported.Source != domain.ConfigFromMCP {
+		t.Errorf("source = %s", imported.Source)
+	}
+}
 
 func TestWhoConfirmsWhat(t *testing.T) {
 	w := newWorld(t)
@@ -536,8 +561,18 @@ func TestSecretRequired(t *testing.T) {
 	if strings.Contains(yaml, "the-value") || !strings.Contains(yaml, "store:conn-okta") {
 		t.Errorf("export:\n%s", yaml)
 	}
-	// A connection has no delete: it is turned off.
+	// A connection has no delete: it is turned off, which lowers protection,
+	// and so does turning it off by hand.
+	off := map[string]any{}
+	maps.Copy(off, conn)
+	off["enabled"] = false
+	if p := w.plan(w.owner, wanted(t, "connection", "okta", off)); len(p.LowersProtection) != 1 {
+		t.Errorf("disabling: %v", p.LowersProtection)
+	}
 	p = w.plan(w.owner, mcp.ConfigWanted{Kind: "connection", Name: "okta", Delete: true})
+	if len(p.LowersProtection) != 1 {
+		t.Errorf("deleting: %v", p.LowersProtection)
+	}
 	w.apply(w.owner, p)
 	if got := w.spec("connection", "okta"); !strings.Contains(got, `"enabled":false`) {
 		t.Errorf("connection = %s", got)
@@ -913,7 +948,10 @@ func TestMembers(t *testing.T) {
 	}
 	// An Admin does not invite an Owner.
 	p = w.plan(admin, wanted(t, "member", "boss@example.com", map[string]any{"status": "invited", "roles": []string{"owner"}}))
-	_, err := w.engine.Apply(ctx, admin, resource.Confirmation{Plan: p.ID})
+	if len(p.LowersProtection) != 1 {
+		t.Errorf("inviting an Owner: %v", p.LowersProtection)
+	}
+	_, err := w.engine.Apply(ctx, admin, resource.Confirmation{Plan: p.ID, Word: p.ConfirmWord, Browser: true})
 	wantErr(t, err, authz.ErrDenied)
 	w.apply(admin, w.plan(admin, mcp.ConfigWanted{Kind: "member", Name: "marta@example.com", Delete: true}))
 	if got := w.spec("member", "marta@example.com"); got != "" {
@@ -930,7 +968,7 @@ func TestMembers(t *testing.T) {
 	if len(p.LowersProtection) != 1 {
 		t.Errorf("reasons = %v", p.LowersProtection)
 	}
-	_, err = w.engine.Apply(ctx, admin, resource.Confirmation{Plan: p.ID, Word: p.ConfirmWord})
+	_, err = w.engine.Apply(ctx, admin, resource.Confirmation{Plan: p.ID, Word: p.ConfirmWord, Browser: true})
 	wantErr(t, err, authz.ErrDenied)
 	w.apply(w.owner, w.plan(w.owner, mcp.ConfigWanted{Kind: "member", Name: u.Name, Delete: true}))
 	if got := w.spec("member", u.Name); got != "" {

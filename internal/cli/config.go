@@ -189,8 +189,8 @@ func (r *remote) configList() *cobra.Command {
 
 // configApply shows the plan and asks: there is no flag to skip the question,
 // so a script cannot confirm by passing a parameter. A plan the assistant or
-// an MCP client wrote is refused by the server: those are confirmed in the
-// web UI.
+// an MCP client wrote, or one that lowers protection, is refused by the
+// server: those are confirmed in the web UI.
 func (r *remote) configApply() *cobra.Command {
 	return &cobra.Command{
 		Use: "apply <plan>", Short: "Show a change plan and apply it after you confirm", Args: cobra.ExactArgs(1),
@@ -201,24 +201,18 @@ func (r *remote) configApply() *cobra.Command {
 				return err
 			}
 			printPlan(cmd.OutOrStdout(), p)
-			body := map[string]string{}
 			if len(p.LowersProtection) > 0 {
-				word, err := confirmLine(cmd, "This lowers protection. Type "+p.ConfirmWord+" to confirm:")
-				if err != nil {
-					return err
-				}
-				body["word"] = word
-			} else {
-				answer, err := confirmLine(cmd, "Apply this plan? Type yes to confirm:")
-				if err != nil {
-					return err
-				}
-				if answer != "yes" {
-					return errors.New("not applied")
-				}
+				return errors.New("this plan lowers protection: confirm it in the web UI")
+			}
+			answer, err := confirmLine(cmd, "Apply this plan? Type yes to confirm:")
+			if err != nil {
+				return err
+			}
+			if answer != "yes" {
+				return errors.New("not applied")
 			}
 			var out mcp.ConfigApplied
-			if err := r.call(cmd.Context(), http.MethodPost, path+"/apply", body, &out); err != nil {
+			if err := r.call(cmd.Context(), http.MethodPost, path+"/apply", map[string]string{}, &out); err != nil {
 				return err
 			}
 			cmd.Printf("Applied %s\n", out.Plan.ID)
