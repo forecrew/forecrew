@@ -182,20 +182,28 @@ func warnDeprecated(cfg *config.Config, log *slog.Logger) {
 	}
 }
 
+// checkSchedule refuses a schedule of a playbook forecrewd cannot start.
+func checkSchedule(books map[string]*workflow.Playbook, sc config.Schedule) error {
+	book, ok := books[sc.Playbook]
+	switch {
+	case !ok:
+		return fmt.Errorf("%s: there is no such playbook", sc)
+	case !slices.Equal(book.Inputs, []string{"repo"}):
+		return fmt.Errorf("%s: a scheduled playbook takes the input repo and no other, and %s takes %v", sc, sc.Playbook, book.Inputs)
+	}
+	return nil
+}
+
 // newSchedules builds the scheduler of forecrew.yaml's schedules. Startup
 // refuses a schedule of a playbook that does not exist rather than letting it
 // fail every minute.
-func newSchedules(cfg *config.Config, books map[string]*workflow.Playbook, st store.Store, engine *workflow.Engine, log *slog.Logger, now func() time.Time) (*scheduler.Scheduler, error) {
-	for _, sc := range cfg.Schedules {
-		book, ok := books[sc.Playbook]
-		switch {
-		case !ok:
-			return nil, fmt.Errorf("forecrew.yaml schedules: %s: there is no such playbook", sc)
-		case !slices.Equal(book.Inputs, []string{"repo"}):
-			return nil, fmt.Errorf("forecrew.yaml schedules: %s: a scheduled playbook takes the input repo and no other, and %s takes %v", sc, sc.Playbook, book.Inputs)
+func newSchedules(list []config.Schedule, books map[string]*workflow.Playbook, st store.Store, engine *workflow.Engine, log *slog.Logger, now func() time.Time) (*scheduler.Scheduler, error) {
+	for _, sc := range list {
+		if err := checkSchedule(books, sc); err != nil {
+			return nil, fmt.Errorf("forecrew.yaml schedules: %w", err)
 		}
 	}
-	s, err := scheduler.New(cfg.Schedules, st, engine)
+	s, err := scheduler.New(list, st, engine)
 	if err != nil {
 		return nil, err
 	}
@@ -318,6 +326,7 @@ func New(d Deps) (*App, error) {
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes, Proposals: kbProposals,
 		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, Fleet: machines, Logger: log, PublicURL: cfg.Server.PublicBaseURL, TokenTTL: cfg.Auth.TokenDefaultTTL, Now: d.Now,
 		GitHubUserID: authSvc.GitHubUserID, Server: d.File, Getenv: d.Getenv, Repo: d.GitHub, Secrets: vault,
+		CheckSchedule: func(sc config.Schedule) error { return checkSchedule(books, sc) },
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
 	access := authz.New(st, log).WithProtection(kbProposals)
@@ -339,7 +348,12 @@ func New(d Deps) (*App, error) {
 		})
 		hooks.RunChanged = provider.Notify
 	}
-	schedules, err := newSchedules(cfg, books, st, engine, log, d.Now)
+	schedules, err := newSchedules(cfg.Schedules, books, st, engine, log, d.Now)
+	if err != nil && d.File != cfg {
+		// A stored schedule never stops the server, as no stored setting does.
+		log.Error("stored schedules are ignored, running on forecrew.yaml", "error", err)
+		schedules, err = newSchedules(d.File.Schedules, books, st, engine, log, d.Now)
+	}
 	if err != nil {
 		return nil, err
 	}

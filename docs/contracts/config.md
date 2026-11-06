@@ -306,12 +306,13 @@ forecrew-worker takes the config path from `run --config` (default `worker.yaml`
 
 ## Stored settings
 
-`pools`, `runtimes` and `auth` are also configuration resources
+`pools`, `runtimes`, `schedules` and `auth` are also configuration resources
 ([config-resources.md](config-resources.md)). A change is stored in
-`config_settings` and goes over the file's value, entry by entry for `pools`
-and `runtimes` and as a whole for `auth`; the file stays the bootstrap
+`config_settings` and goes over the file's value, entry by entry for `pools`,
+`runtimes` and `schedules` (by playbook and project) and as a whole for `auth`; the file stays the bootstrap
 default, and `config_get` shows a value set only by the file with origin
 `file`. forecrewd reads them at startup (`Config.WithSettings`), with the
 checks of this file, and a stored runtime or instance connection reaches only
 the variables and references the file uses, or the secret store. A stored value that no longer passes is ignored with an
-error in the log, so a bad setting never stops the server.
+error in the log, so a bad setting never stops the server; a stored schedule of
+a playbook forecrewd cannot start falls back to the file's schedules.

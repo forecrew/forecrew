@@ -346,6 +346,18 @@ func TestNewRefusesAScheduleOfAPlaybookWithOtherInputs(t *testing.T) {
 	}
 }
 
+// A stored schedule that startup would refuse does not stop the server.
+func TestNewFallsBackFromAStoredSchedule(t *testing.T) {
+	f := newFixture(t)
+	file := testConfig()
+	file.Schedules = config.DefaultSchedules()
+	cfg := *file
+	cfg.Schedules = []config.Schedule{{Playbook: "curate-the-kb", Project: "acme/app", Cron: "@daily"}}
+	if _, err := New(Deps{Config: &cfg, File: file, Store: f.st, GitHub: f.tracker}); err != nil {
+		t.Errorf("New: %v", err)
+	}
+}
+
 func TestWithStoredSettings(t *testing.T) {
 	ctx := t.Context()
 	st := testkit.NewStore(nil)

@@ -10,15 +10,19 @@ import (
 
 // Kinds of the settings stored over forecrew.yaml.
 const (
-	SettingPool    = "pool"
-	SettingRuntime = "runtime"
-	SettingAuth    = "auth"
+	SettingPool     = "pool"
+	SettingRuntime  = "runtime"
+	SettingAuth     = "auth"
+	SettingSchedule = "schedule"
 	// AuthSettingName is the name of the one auth setting.
 	AuthSettingName = "auth"
 )
 
+// ScheduleName is the name of a schedule as a setting.
+func ScheduleName(s Schedule) string { return s.Playbook + ":" + s.Project }
+
 // Setting is a value stored over the file's default: the YAML of one pool,
-// one runtime or the whole of auth, as JSON.
+// one runtime, one schedule or the whole of auth, as JSON.
 type Setting struct {
 	Kind string
 	Name string
@@ -61,6 +65,7 @@ func (c *Config) WithSettings(settings []Setting, getenv func(string) string) (*
 	out := *c
 	out.Pools = maps.Clone(c.Pools)
 	out.Runtimes = maps.Clone(c.Runtimes)
+	out.Schedules = slices.Clone(c.Schedules)
 	if out.Runtimes == nil {
 		out.Runtimes = map[string]Runtime{}
 	}
@@ -108,6 +113,20 @@ func (c *Config) apply(out *Config, s Setting, getenv func(string) string) error
 		out.Auth = a
 		out.readAuth(getenv)
 		out.applyAuthDefaults()
+	case SettingSchedule:
+		var sc Schedule
+		if err := decodeStrict(s.Spec, &sc); err != nil {
+			return fmt.Errorf("schedule %s: %w", s.Name, err)
+		}
+		if ScheduleName(sc) != s.Name {
+			return fmt.Errorf("schedule %s: its name must be %s: %w", s.Name, ScheduleName(sc), ErrInvalid)
+		}
+		i := slices.IndexFunc(out.Schedules, func(x Schedule) bool { return ScheduleName(x) == s.Name })
+		if i < 0 {
+			out.Schedules = append(out.Schedules, sc)
+		} else {
+			out.Schedules[i] = sc
+		}
 	}
 	return nil
 }

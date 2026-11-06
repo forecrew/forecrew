@@ -45,6 +45,9 @@ type Config struct {
 	// Server is forecrew.yaml as read; nil leaves server settings out.
 	Server *config.Config
 	Getenv func(string) string
+	// CheckSchedule refuses a schedule forecrewd would not start; nil
+	// accepts every playbook.
+	CheckSchedule func(config.Schedule) error
 	// Repo reads repos and opens pull requests; nil leaves repo files out.
 	Repo Repo
 	// Secrets is the secret store; nil refuses secure fields.
@@ -77,7 +80,7 @@ func NewEngine(cfg Config) *Engine {
 }
 
 func (g *Engine) env(st store.Store, by domain.Actor) *Env {
-	e := &Env{Store: st, Actor: by, Authz: authz.New(st, g.cfg.Logger), Server: g.cfg.Server, Getenv: g.cfg.Getenv, Repo: g.cfg.Repo}
+	e := &Env{Store: st, Actor: by, Authz: authz.New(st, g.cfg.Logger), Server: g.cfg.Server, Getenv: g.cfg.Getenv, Repo: g.cfg.Repo, CheckSchedule: g.cfg.CheckSchedule}
 	if g.cfg.Access != nil {
 		e.Access = g.cfg.Access(st)
 	}

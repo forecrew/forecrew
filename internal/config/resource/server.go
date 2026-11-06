@@ -225,6 +225,44 @@ func runtimeProtection(_ context.Context, _ *Env, old, want *Resource) []string 
 	return nil
 }
 
+type scheduleSpec struct {
+	Playbook string `json:"playbook"`
+	Project  string `json:"project"` // owner/name, or * for every project
+	Cron     string `json:"cron"`
+}
+
+func scheduleArea() Area {
+	a := base[scheduleSpec](KindSchedule, "Schedule", ScopeServer, domain.PermOrgRead)
+	a.Setting, a.Spec = config.Schedule{}, scheduleSpec{}
+	a.Needs = needsOf(domain.PermOrgManage)
+	a = serverArea(a, config.SettingSchedule, func(c *config.Config) (map[string]json.RawMessage, error) {
+		out := map[string]json.RawMessage{}
+		for _, s := range c.Schedules {
+			raw, err := specOfYAML(s)
+			if err != nil {
+				return nil, err
+			}
+			out[config.ScheduleName(s)] = raw
+		}
+		return out, nil
+	})
+	check := a.Validate
+	a.Validate = func(ctx context.Context, e *Env, old *Resource, want Resource) error {
+		s, err := decode[scheduleSpec](want.Spec)
+		if err != nil {
+			return err
+		}
+		if e.CheckSchedule != nil {
+			if err := e.CheckSchedule(config.Schedule{Playbook: s.Playbook, Project: s.Project, Cron: s.Cron}); err != nil {
+				return invalid("%v", err)
+			}
+		}
+		return check(ctx, e, old, want)
+	}
+	a.Cost = func(Resource) string { return "Each run is agent jobs, with their model cost." }
+	return a
+}
+
 type authConnectionSpec struct {
 	Kind            domain.ConnectionKind `json:"kind"`
 	Issuer          string                `json:"issuer"`
