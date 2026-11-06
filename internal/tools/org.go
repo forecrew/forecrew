@@ -153,7 +153,7 @@ func (s *Service) member(ctx context.Context, by domain.Actor, ref string) (mcp.
 	if len(infos) == 0 {
 		return mcp.MemberInfo{}, fmt.Errorf("member %s: %w", ref, mcp.ErrNotFound)
 	}
-	if err := s.coversHolder(ctx, by, domain.SubjectUser, id); err != nil {
+	if err := s.authz.CoversHolder(ctx, by, domain.SubjectUser, id); err != nil {
 		return mcp.MemberInfo{}, err
 	}
 	return infos[0], nil

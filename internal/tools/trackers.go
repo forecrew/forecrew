@@ -481,7 +481,7 @@ func (s *Service) MapTrackerIdentity(ctx context.Context, by domain.Actor, in mc
 	if _, err := s.cfg.Store.Memberships().Get(ctx, by.AccountID, user); err != nil {
 		return domain.TrackerIdentity{}, notFound(err, "member "+in.User)
 	}
-	if err := s.coversHolder(ctx, by, domain.SubjectUser, user); err != nil {
+	if err := s.authz.CoversHolder(ctx, by, domain.SubjectUser, user); err != nil {
 		return domain.TrackerIdentity{}, err
 	}
 	i := domain.TrackerIdentity{AccountID: by.AccountID, ConnectionID: c.ID, ExternalID: in.ExternalID, ExternalName: in.ExternalName, UserID: user, CreatedBy: by.String()}
