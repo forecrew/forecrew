@@ -21,6 +21,7 @@ func TestToolServiceDefaults(t *testing.T) {
 			return err
 		},
 		func() error { _, err := s.CreateGoal(ctx, by, mcp.CreateGoalInput{}); return err },
+		func() error { _, err := s.ReportBug(ctx, by, mcp.ReportBugInput{}); return err },
 		func() error { _, err := s.JobStatus(ctx, by, mcp.JobRefInput{}); return err },
 		func() error { _, err := s.JobLogs(ctx, by, mcp.JobLogsInput{}); return err },
 		func() error { _, err := s.ListWorkers(ctx, by); return err },

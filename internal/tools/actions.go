@@ -11,6 +11,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
+	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/roles"
@@ -179,16 +180,75 @@ func (s *Service) CreateGoal(ctx context.Context, by domain.Actor, in mcp.Create
 		// The override is the goal's size: the goal playbook skips the triage job for it.
 		g.Size = &domain.GoalSize{Councils: councils, Reason: "Councils set by " + by.String() + "."}
 	}
-	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+	return s.startGoal(ctx, by, p, g, s.goalPlaybook(p))
+}
+
+// ReportBug implements mcp.ToolService.
+func (s *Service) ReportBug(ctx context.Context, by domain.Actor, in mcp.ReportBugInput) (domain.Goal, error) {
+	if strings.TrimSpace(in.Title) == "" {
+		return domain.Goal{}, fmt.Errorf("title is required: %w", mcp.ErrInvalidInput)
+	}
+	p, err := s.project(ctx, by.AccountID, in.Project)
+	if err != nil {
+		return domain.Goal{}, err
+	}
+	if err := s.allow(ctx, by, domain.PermGoalCreate, p.ID); err != nil {
+		return domain.Goal{}, err
+	}
+	return s.startBug(ctx, by, p, strings.TrimSpace(in.Title), in.Body, in.Platforms, 0)
+}
+
+// ReportIssueAsBug makes the GitHub issue of p's repo the goal issue of a
+// new bug goal and starts the bug-fix playbook, for the @forecrew bug
+// command. The caller has checked that by may create goals: a GitHub login
+// on the allowlist holds no role to check. An issue that is a goal's issue
+// already is not reported again; the goal is returned with
+// mcp.ErrInvalidInput.
+func (s *Service) ReportIssueAsBug(ctx context.Context, by domain.Actor, p domain.Project, issue github.Issue) (domain.Goal, error) {
+	goals, err := s.cfg.Store.Goals().List(ctx, p.AccountID, store.GoalFilter{ProjectID: p.ID})
+	if err != nil {
+		return domain.Goal{}, fmt.Errorf("list the goals of %s: %w", p.Name, err)
+	}
+	if i := slices.IndexFunc(goals, func(g domain.Goal) bool { return g.IssueNumber == issue.Number }); i >= 0 {
+		return goals[i], fmt.Errorf("issue #%d is %s already: %w", issue.Number, goals[i].Ref(), mcp.ErrInvalidInput)
+	}
+	return s.startBug(ctx, by, p, strings.TrimSpace(issue.Title), issue.Body, nil, issue.Number)
+}
+
+// startBug creates a goal of kind bug and starts the bug-fix playbook. The
+// bug-fix playbook writes its regression test with the testing system, so
+// only the projects of Config.TestingProjects have it. issue is the goal's
+// GitHub issue, or 0 for the playbook to open one.
+func (s *Service) startBug(ctx context.Context, by domain.Actor, p domain.Project, title, body string, platforms []string, issue int) (domain.Goal, error) {
+	if title == "" {
+		return domain.Goal{}, fmt.Errorf("title is required: %w", mcp.ErrInvalidInput)
+	}
+	if p.Status != domain.ProjectOnboarded {
+		return domain.Goal{}, fmt.Errorf("project %s is %s, onboard it first: %w", p.Name, p.Status, mcp.ErrInvalidInput)
+	}
+	if !slices.Contains(s.cfg.TestingProjects, p.Name) {
+		return domain.Goal{}, fmt.Errorf("the bug-fix playbook needs the testing system: add %s to testing.projects: %w", p.Name, mcp.ErrInvalidInput)
+	}
+	g := domain.Goal{
+		AccountID: by.AccountID, ProjectID: p.ID, Kind: domain.GoalBug, Title: title, Body: body,
+		Platforms: domain.NormalizeLabels(platforms), Status: domain.GoalDraft, IssueNumber: issue, CreatedBy: by.String(),
+	}
+	return s.startGoal(ctx, by, p, g, PlaybookBugfix)
+}
+
+// startGoal stores the goal g and starts playbook for it. A goal whose
+// playbook cannot start is canceled.
+func (s *Service) startGoal(ctx context.Context, by domain.Actor, p domain.Project, g domain.Goal, playbook string) (domain.Goal, error) {
+	err := s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := tx.Goals().Create(ctx, &g); err != nil {
 			return err
 		}
-		return s.audit(ctx, tx, by, p.ID, "goal.created", "goal", g.ID, map[string]any{"title": g.Title})
+		return s.audit(ctx, tx, by, p.ID, "goal.created", "goal", g.ID, map[string]any{"title": g.Title, "kind": g.Kind.OrDefault()})
 	})
 	if err != nil {
 		return domain.Goal{}, fmt.Errorf("create goal: %w", err)
 	}
-	_, err = s.cfg.Playbooks.Start(ctx, s.goalPlaybook(p), workflow.StartRequest{
+	_, err = s.cfg.Playbooks.Start(ctx, playbook, workflow.StartRequest{
 		AccountID: by.AccountID, ProjectID: p.ID, GoalID: g.ID,
 		Inputs: map[string]any{"repo": p.Repo, "goal_id": g.ID.String(), "platforms": g.Platforms},
 	})

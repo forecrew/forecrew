@@ -46,6 +46,10 @@ const (
 	// from the spec, a matrix per head, a verification gate). It takes the
 	// same inputs and runs only for the projects of Config.TestingProjects.
 	PlaybookGoalTesting = "goal-v2"
+	// PlaybookBugfix fixes a bug: a regression test, the fix, verification,
+	// review and a merge gate. It takes the inputs of PlaybookGoal and runs
+	// only for the projects of Config.TestingProjects.
+	PlaybookBugfix = "bugfix"
 )
 
 // List sizes of list_jobs.

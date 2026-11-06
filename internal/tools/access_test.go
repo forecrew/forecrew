@@ -71,6 +71,10 @@ func TestEveryToolChecksTheProject(t *testing.T) {
 			_, err := f.svc.CreateGoal(ctx, by, mcp.CreateGoalInput{Project: "app", Title: "t"})
 			return err
 		},
+		"report_bug": func() error {
+			_, err := f.svc.ReportBug(ctx, by, mcp.ReportBugInput{Project: "app", Title: "t"})
+			return err
+		},
 		"dispatch_job": func() error {
 			_, err := f.svc.DispatchJob(ctx, by, mcp.DispatchJobInput{Project: "app", Role: "reviewer"})
 			return err

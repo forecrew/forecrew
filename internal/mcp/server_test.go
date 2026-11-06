@@ -181,6 +181,7 @@ func TestCallEachTool(t *testing.T) {
 	}{
 		{mcp.ToolOnboardProject, map[string]any{"repo": "acme/app", "name": "App", "default_branch": "trunk", "refresh": true}, mcp.OnboardProjectInput{Repo: "acme/app", Name: "App", DefaultBranch: "trunk", Refresh: true}},
 		{mcp.ToolCreateGoal, map[string]any{"project": "app", "title": "Login", "body": "Add login", "platforms": []string{"web", "ios"}}, mcp.CreateGoalInput{Project: "app", Title: "Login", Body: "Add login", Platforms: []string{"web", "ios"}}},
+		{mcp.ToolReportBug, map[string]any{"project": "app", "title": "Crash", "body": "It crashes", "platforms": []string{"ios"}}, mcp.ReportBugInput{Project: "app", Title: "Crash", Body: "It crashes", Platforms: []string{"ios"}}},
 		{mcp.ToolJobStatus, map[string]any{"job": "JOB-1"}, mcp.JobRefInput{Job: "JOB-1"}},
 		{mcp.ToolJobLogs, map[string]any{"job": "JOB-1", "after_seq": 5, "limit": 10}, mcp.JobLogsInput{Job: "JOB-1", AfterSeq: 5, Limit: 10}},
 		{mcp.ToolListWorkers, nil, nil},
@@ -535,7 +536,7 @@ func TestEveryToolChecksItsPermission(t *testing.T) {
 		mcp.ToolListTeamMembers: {"team": "t"}, mcp.ToolUpdateTeam: {"team": "t"}, mcp.ToolCreateTeam: {"name": "t"},
 		mcp.ToolCreateServiceAccount: {"name": "s"}, mcp.ToolUpdateServiceAccount: {"service_account": "s"}, mcp.ToolSetServiceAccount: {"service_account": "s", "disabled": true},
 		mcp.ToolGetCouncil: {"council": "c"}, mcp.ToolAddConstraint: {"council": "c", "constraint": "x"}, mcp.ToolStartCouncil: {"project": "p", "question": "q"},
-		mcp.ToolCreateGoal: {"project": "p", "title": "t", "body": "b"}, mcp.ToolSearchKnowledge: {"project": "p", "query": "q"},
+		mcp.ToolCreateGoal: {"project": "p", "title": "t", "body": "b"}, mcp.ToolReportBug: {"project": "p", "title": "t", "body": "b"}, mcp.ToolSearchKnowledge: {"project": "p", "query": "q"},
 		mcp.ToolJobLogs: {"job": "j"}, mcp.ToolJobStatus: {"job": "j"}, mcp.ToolCancelJob: {"job": "j"}, mcp.ToolListArtifacts: {"job": "j"},
 		mcp.ToolOnboardProject: {"repo": "o/r"}, mcp.ToolResolveAssumption: {"assumption": "a", "status": "accepted"}, mcp.ToolListAssumptions: {"project": "p"},
 		mcp.ToolGetProject: {"project": "p"}, mcp.ToolDeleteNote: {"note": "n"}, mcp.ToolDispatchJob: {"project": "p", "role": "r"},

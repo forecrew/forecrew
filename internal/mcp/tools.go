@@ -61,6 +61,7 @@ func ErrorCode(err error) (code string, ok bool) {
 const (
 	ToolOnboardProject     = "onboard_project"
 	ToolCreateGoal         = "create_goal"
+	ToolReportBug          = "report_bug"
 	ToolJobStatus          = "job_status"
 	ToolJobLogs            = "job_logs"
 	ToolListWorkers        = "list_workers"
@@ -123,7 +124,7 @@ const (
 // Tools returns every MCP tool name.
 func Tools() []string {
 	return []string{
-		ToolOnboardProject, ToolCreateGoal, ToolJobStatus, ToolJobLogs, ToolListWorkers, ToolListPendingGates,
+		ToolOnboardProject, ToolCreateGoal, ToolReportBug, ToolJobStatus, ToolJobLogs, ToolListWorkers, ToolListPendingGates,
 		ToolApprove, ToolRequestChanges, ToolReject, ToolDispatchJob, ToolListProjects, ToolGetProject,
 		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob, ToolListTokens, ToolRevokeToken, ToolListArtifacts, ToolListTestRuns,
 		ToolListAssumptions, ToolResolveAssumption, ToolListDecisions,
@@ -146,6 +147,8 @@ type ToolService interface {
 	OnboardProject(ctx context.Context, by domain.Actor, in OnboardProjectInput) (OnboardProjectOutput, error)
 	// CreateGoal creates a draft goal and starts the goal playbook.
 	CreateGoal(ctx context.Context, by domain.Actor, in CreateGoalInput) (domain.Goal, error)
+	// ReportBug creates a goal of kind bug and starts the bug-fix playbook.
+	ReportBug(ctx context.Context, by domain.Actor, in ReportBugInput) (domain.Goal, error)
 	JobStatus(ctx context.Context, by domain.Actor, in JobRefInput) (JobInfo, error)
 	JobLogs(ctx context.Context, by domain.Actor, in JobLogsInput) (JobLogsOutput, error)
 	ListWorkers(ctx context.Context, by domain.Actor) ([]WorkerInfo, error)
@@ -421,6 +424,15 @@ type CreateGoalInput struct {
 	// or an empty list for none. Nil (absent) sizes the goal with triage.
 	// A pointer keeps the empty list apart from an absent field.
 	Councils *[]string `json:"councils,omitempty"`
+}
+
+// ReportBugInput is the input of report_bug.
+type ReportBugInput struct {
+	Project string `json:"project"` // name or repo, required
+	Title   string `json:"title"`   // required
+	Body    string `json:"body"`    // markdown: what happens, what should happen, how to reproduce
+	// Platforms the bug shows on, for example "web" or "ios"; optional.
+	Platforms []string `json:"platforms,omitempty"`
 }
 
 // StartCouncilInput is the input of start_council.

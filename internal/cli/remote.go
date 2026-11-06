@@ -173,6 +173,7 @@ func (r *remote) commands() []*cobra.Command {
 		fleetCommand(r),
 		listCommand(r, "projects", "List projects", "/projects", printProjects),
 		onboardCommand(r),
+		reportBugCommand(r),
 		tokensCommand(r), invitationsCommand(r),
 		listCommand(r, "gates", "List the gates waiting for a decision", "/gates", printGates),
 		decideCommand(r, "approve", "approve", "Approve a gate (GATE-7 or UUID); on a needs_you gate this retries"),
@@ -220,6 +221,29 @@ func onboardCommand(r *remote) *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "project name; defaults to the repo name")
 	cmd.Flags().StringVar(&branch, "default-branch", "", "default branch of a repo that is registered by this call; defaults to main")
 	cmd.Flags().BoolVar(&refresh, "refresh", false, "run only the tests part of onboarding again, for a project that is onboarded")
+	return cmd
+}
+
+// reportBugCommand reports a bug, which starts the bug-fix playbook.
+func reportBugCommand(r *remote) *cobra.Command {
+	var body string
+	var platforms []string
+	cmd := &cobra.Command{
+		Use:   "report-bug <project> <title>",
+		Short: "Report a bug: Forecrew writes a test that reproduces it, fixes it and asks you to merge",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			in := mcp.ReportBugInput{Project: args[0], Title: args[1], Body: body, Platforms: platforms}
+			var g domain.Goal
+			if err := r.call(cmd.Context(), http.MethodPost, "/bugs", in, &g); err != nil {
+				return err
+			}
+			cmd.Printf("%s reported: %s (%s)\n", g.Ref(), safeText(g.Title), g.Status)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&body, "body", "", "what happens, what should happen and how to reproduce it (markdown)")
+	cmd.Flags().StringSliceVar(&platforms, "platform", nil, "platform the bug shows on, such as web or ios; repeatable")
 	return cmd
 }
 
