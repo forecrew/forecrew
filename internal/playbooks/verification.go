@@ -39,36 +39,15 @@ func taskCriteria(body string) []string {
 	return slices.Compact(ids)
 }
 
-// verificationTestMap is the part of the test engineer's output the
-// verification reads (packs/schemas/test-map.json).
-type verificationTestMap struct {
-	Tests []struct {
-		Criterion string `json:"criterion"`
-		Suite     string `json:"suite"`
-		ID        string `json:"id"`
-	} `json:"tests"`
-	Untestable []struct {
-		Criterion string `json:"criterion"`
-		Reason    string `json:"reason"`
-	} `json:"untestable"`
-}
-
 // taskTestMap returns the tests and the untestable criteria of the
 // successful test-engineer jobs of the task. A retry reports only what it
 // changed itself, so all jobs count, as for tests.locked_paths.
 func (a *actions) taskTestMap(ctx context.Context, t domain.Task) (tests []verification.MapTest, untestable []verification.Untestable, err error) {
-	jobs, err := a.Store.Jobs().List(ctx, t.AccountID, store.JobFilter{TaskID: t.ID, Status: domain.JobSucceeded})
+	docs, err := a.testerOutputs(ctx, t)
 	if err != nil {
-		return nil, nil, fmt.Errorf("list jobs of %s: %w", t.Ref(), err)
+		return nil, nil, err
 	}
-	for _, j := range jobs {
-		if j.Role != testerRole || len(j.Output) == 0 {
-			continue
-		}
-		var doc verificationTestMap
-		if err := parseOutput(j.Output, &doc); err != nil {
-			return nil, nil, fmt.Errorf("output of the %s job %s of %s: %w", testerRole, j.Ref(), t.Ref(), err)
-		}
+	for _, doc := range docs {
 		for _, x := range doc.Tests {
 			tests = append(tests, verification.MapTest{Criterion: x.Criterion, Suite: x.Suite, ID: x.ID})
 		}
