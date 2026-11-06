@@ -138,6 +138,11 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/shapes", serve(s, http.StatusOK, noInput, list(noArg(t.ListShapes))))
 	route("GET /api/v1/providers", serve(s, http.StatusOK, noInput, list(noArg(t.ListProviders))))
 	route("GET /api/v1/fleet", serve(s, http.StatusOK, noInput, noArg(t.FleetOverview)))
+	route("POST /api/v1/providers", serve(s, http.StatusCreated, bodyOf[mcp.CreateProviderInput], t.CreateProvider))
+	route("POST /api/v1/providers/{provider}/revoke", serve(s, http.StatusOK, providerInput, t.RevokeProvider))
+	route("POST /api/v1/join-codes", serve(s, http.StatusCreated, bodyOf[mcp.CreateJoinCodeInput], t.CreateJoinCode))
+	route("GET /api/v1/join-codes", serve(s, http.StatusOK, listJoinCodesInput, list(t.ListJoinCodes)))
+	route("POST /api/v1/join-codes/{join}/confirm", serve(s, http.StatusOK, confirmJoinInput, t.ConfirmJoin))
 
 	route("GET /api/v1/gates", serve(s, http.StatusOK, gateFilterInput, list(t.ListPendingGates)))
 	route("POST /api/v1/gates/{gate}/approve", serve(s, http.StatusOK, gateDecisionInput, t.Approve))
@@ -251,9 +256,14 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/providers": tool[mcp.ToolListProviders],
 		"GET /api/v1/fleet":     tool[mcp.ToolFleetOverview],
 
-		"GET /api/v1/images":            tool[mcp.ToolListImages],
-		"POST /api/v1/images":           {Permission: domain.PermWorkerManage},
-		"DELETE /api/v1/images/{image}": {Permission: domain.PermWorkerManage},
+		"GET /api/v1/images":                       tool[mcp.ToolListImages],
+		"POST /api/v1/images":                      {Permission: domain.PermWorkerManage},
+		"DELETE /api/v1/images/{image}":            {Permission: domain.PermWorkerManage},
+		"POST /api/v1/providers":                   tool[mcp.ToolCreateProvider],
+		"POST /api/v1/providers/{provider}/revoke": tool[mcp.ToolRevokeProvider],
+		"POST /api/v1/join-codes":                  tool[mcp.ToolCreateJoinCode],
+		"GET /api/v1/join-codes":                   tool[mcp.ToolListJoinCodes],
+		"POST /api/v1/join-codes/{join}/confirm":   tool[mcp.ToolConfirmJoin],
 
 		"GET /api/v1/gates":                         tool[mcp.ToolListPendingGates],
 		"POST /api/v1/gates/{gate}/approve":         tool[mcp.ToolApprove],
@@ -379,6 +389,20 @@ func decode(r *http.Request, v any) error {
 func bodyOf[In any](r *http.Request) (In, error) {
 	var in In
 	err := decode(r, &in)
+	return in, err
+}
+
+func providerInput(r *http.Request) (mcp.ProviderRefInput, error) {
+	return mcp.ProviderRefInput{Provider: r.PathValue("provider")}, nil
+}
+
+func listJoinCodesInput(*http.Request) (mcp.ListJoinCodesInput, error) {
+	return mcp.ListJoinCodesInput{}, nil
+}
+
+func confirmJoinInput(r *http.Request) (mcp.ConfirmJoinInput, error) {
+	in, err := bodyOf[mcp.ConfirmJoinInput](r)
+	in.Join = r.PathValue("join")
 	return in, err
 }
 

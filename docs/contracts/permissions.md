@@ -294,6 +294,11 @@ object up and checks the permission on the object's project.
 | `fleet_overview` | `GET /api/v1/fleet` | `worker.read`; jobs show only with `job.read` on their project |
 | `list_images` | `GET /api/v1/images` | `worker.read` |
 | | `POST /api/v1/images`, `DELETE /api/v1/images/{image}` | `worker.manage`, from a person only (a user, never a service account, an ownerless token or a machine); an instance-wide image also needs an instance admin. REST and CLI only, no MCP tool: an agent never registers an image others trust |
+| `create_provider` | `POST /api/v1/providers` | `worker.manage`; only the caller's organization, and instance-wide only for an instance admin |
+| `revoke_provider` | `POST /api/v1/providers/{provider}/revoke` | `worker.manage`; another organization's is `404`, an instance-wide one is for an instance admin |
+| `create_join_code` | `POST /api/v1/join-codes` | `worker.manage`; as `create_provider` |
+| `list_join_codes` | `GET /api/v1/join-codes` | `worker.manage`; instance-wide codes show to an instance admin |
+| `confirm_join` | `POST /api/v1/join-codes/{join}/confirm` | `worker.manage`; as `revoke_provider` |
 | `list_pending_gates` | `GET /api/v1/gates` | `gate.read`; each gate says whether the caller may resolve it |
 | `approve` | `POST /api/v1/gates/{gate}/approve` | the gate's |
 | `request_changes` | `POST /api/v1/gates/{gate}/request-changes` | the gate's |

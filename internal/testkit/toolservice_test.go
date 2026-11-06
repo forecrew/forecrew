@@ -95,6 +95,11 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.AssistantSend(ctx, by, mcp.AssistantSendInput{}); return err },
 		func() error { _, err := s.AssistantGet(ctx, by, mcp.AssistantRefInput{}); return err },
 		func() error { _, err := s.AssistantList(ctx, by, mcp.AssistantListInput{}); return err },
+		func() error { _, err := s.CreateProvider(ctx, by, mcp.CreateProviderInput{}); return err },
+		func() error { _, err := s.RevokeProvider(ctx, by, mcp.ProviderRefInput{}); return err },
+		func() error { _, err := s.CreateJoinCode(ctx, by, mcp.CreateJoinCodeInput{}); return err },
+		func() error { _, err := s.ListJoinCodes(ctx, by, mcp.ListJoinCodesInput{}); return err },
+		func() error { _, err := s.ConfirmJoin(ctx, by, mcp.ConfirmJoinInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

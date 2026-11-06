@@ -121,19 +121,24 @@ const (
 	ToolGetTrace               = "get_trace"
 	ToolListImages             = "list_images"
 
-	ToolConfigSchema  = "config_schema"
-	ToolConfigGet     = "config_get"
-	ToolConfigPlan    = "config_plan"
-	ToolConfigApply   = "config_apply"
-	ToolConfigRevert  = "config_revert"
-	ToolConfigExport  = "config_export"
-	ToolConfigImport  = "config_import"
-	ToolConfigPlans   = "config_plans"
-	ToolConfigGetPlan = "config_get_plan"
-	ToolConfigCancel  = "config_cancel"
-	ToolAssistantSend = "assistant_send"
-	ToolAssistantGet  = "assistant_get"
-	ToolAssistantList = "assistant_list"
+	ToolConfigSchema   = "config_schema"
+	ToolConfigGet      = "config_get"
+	ToolConfigPlan     = "config_plan"
+	ToolConfigApply    = "config_apply"
+	ToolConfigRevert   = "config_revert"
+	ToolConfigExport   = "config_export"
+	ToolConfigImport   = "config_import"
+	ToolConfigPlans    = "config_plans"
+	ToolConfigGetPlan  = "config_get_plan"
+	ToolConfigCancel   = "config_cancel"
+	ToolAssistantSend  = "assistant_send"
+	ToolAssistantGet   = "assistant_get"
+	ToolAssistantList  = "assistant_list"
+	ToolCreateProvider = "create_provider"
+	ToolRevokeProvider = "revoke_provider"
+	ToolCreateJoinCode = "create_join_code"
+	ToolListJoinCodes  = "list_join_codes"
+	ToolConfirmJoin    = "confirm_join"
 )
 
 // Tools returns every MCP tool name.
@@ -155,6 +160,7 @@ func Tools() []string {
 		ToolListImages,
 		ToolConfigSchema, ToolConfigGet, ToolConfigPlan, ToolConfigApply, ToolConfigRevert, ToolConfigExport, ToolConfigImport,
 		ToolConfigPlans, ToolConfigGetPlan, ToolConfigCancel, ToolAssistantSend, ToolAssistantGet, ToolAssistantList,
+		ToolCreateProvider, ToolRevokeProvider, ToolCreateJoinCode, ToolListJoinCodes, ToolConfirmJoin,
 	}
 }
 
@@ -207,6 +213,18 @@ type ToolService interface {
 	// FleetOverview says whether jobs have somewhere to run, and where.
 	FleetOverview(ctx context.Context, by domain.Actor) (fleet.Overview, error)
 	ListImages(ctx context.Context, by domain.Actor, in ListImagesInput) ([]ImageInfo, error)
+	// CreateProvider adds an agent provider and returns its token, which is
+	// not stored.
+	CreateProvider(ctx context.Context, by domain.Actor, in CreateProviderInput) (CreateProviderOutput, error)
+	// RevokeProvider stops a provider's token for good.
+	RevokeProvider(ctx context.Context, by domain.Actor, in ProviderRefInput) (ProviderInfo, error)
+	// CreateJoinCode draws a join code, which is not stored.
+	CreateJoinCode(ctx context.Context, by domain.Actor, in CreateJoinCodeInput) (CreateJoinCodeOutput, error)
+	// ListJoinCodes lists join codes with what their agents reported.
+	ListJoinCodes(ctx context.Context, by domain.Actor, in ListJoinCodesInput) ([]JoinCodeInfo, error)
+	// ConfirmJoin creates the provider of a join code an agent claimed, whose
+	// agent then gets its token.
+	ConfirmJoin(ctx context.Context, by domain.Actor, in ConfirmJoinInput) (ProviderInfo, error)
 	ListPendingGates(ctx context.Context, by domain.Actor, in ProjectFilterInput) ([]GateInfo, error)
 	// Approve resolves a gate of any kind as approved (retry for needs_you).
 	Approve(ctx context.Context, by domain.Actor, in GateDecisionInput) (domain.Gate, error)
@@ -831,6 +849,70 @@ type ImageInfo struct {
 	// Scope is "organization" for the organization's own images and
 	// "instance" for the ones every organization may use.
 	Scope string `json:"scope"`
+}
+
+// CreateProviderInput is the input of create_provider. Org is an
+// organization's slug; empty means the server's organization when it has only
+// one, and instance-wide otherwise (fleet.md, Ownership).
+type CreateProviderInput struct {
+	Name string              `json:"name"`
+	Kind domain.ProviderKind `json:"kind"`
+	Org  string              `json:"org,omitempty"`
+}
+
+// CreateProviderOutput holds the provider and its token, shown this once.
+type CreateProviderOutput struct {
+	Provider ProviderInfo `json:"provider"`
+	Token    string       `json:"token"`
+}
+
+// ProviderRefInput names a provider by name or ID.
+type ProviderRefInput struct {
+	Provider string `json:"provider"`
+}
+
+// CreateJoinCodeInput is the input of create_join_code. Cloud gives the code
+// a week, for a kit another team runs. Org is as in CreateProviderInput.
+type CreateJoinCodeInput struct {
+	Org   string `json:"org,omitempty"`
+	Cloud bool   `json:"cloud,omitempty"`
+}
+
+// CreateJoinCodeOutput holds the code, shown this once.
+type CreateJoinCodeOutput struct {
+	JoinCode JoinCodeInfo `json:"join_code"`
+	Code     string       `json:"code"`
+}
+
+// ListJoinCodesInput is the input of list_join_codes. WrapUntrusted marks what
+// agents reported as data, for an MCP client that may be an agent itself.
+type ListJoinCodesInput struct {
+	WrapUntrusted bool `json:"-"`
+}
+
+// Status of a join code, in the order it goes through them.
+const (
+	JoinWaiting   = "waiting"   // no agent used it yet
+	JoinClaimed   = "claimed"   // an agent reported; a person decides
+	JoinConfirmed = "confirmed" // its agent gets its token at its next call
+	JoinUsed      = "used"
+	JoinExpired   = "expired"
+)
+
+// JoinCodeInfo is a join code without its hashes. Facts are what an agent
+// holding the code says about itself, which nobody has checked. With
+// WrapUntrusted they come as Untrusted, marked as data, in place of Facts.
+type JoinCodeInfo struct {
+	domain.ProviderJoinCode
+	Status    string `json:"status"`
+	Untrusted string `json:"untrusted,omitempty"`
+}
+
+// ConfirmJoinInput is the input of confirm_join: the code by its ID, and the
+// name of the provider it becomes.
+type ConfirmJoinInput struct {
+	Join string `json:"join"`
+	Name string `json:"name"`
 }
 
 // WorkerInfo is a worker with its online state and running jobs.
