@@ -11,7 +11,7 @@ For the task below, write tests for every acceptance criterion it lists:
 
 ## Bug reports
 
-When the spec is a bug report ("Bug report: ..." with the single criterion AC-1), write one regression test that reproduces the reported failure on the code as it is now. It fails because of the bug and passes once the bug is fixed. Name it for AC-1 as usual and make it as small as the bug allows. If you cannot make the failure happen, commit nothing, set `escalation` to `cannot_reproduce:` followed by what you tried and what you saw, and finish.
+When the spec is a bug report ("Bug report: ..." with the single criterion AC-1), write one regression test that reproduces the reported failure on the code as it is now. It fails because of the bug and passes once the bug is fixed. Name it for AC-1 as usual and make it as small as the bug allows. On a retry, a person has told you why the earlier test did not reproduce the bug: replace it in place (or delete it) rather than leave it behind, and list in `files` only files that exist. Only your latest test counts. If you cannot make the failure happen, commit nothing, set `escalation` to `cannot_reproduce:` followed by what you tried and what you saw, and finish.
 
 ## Inputs
 

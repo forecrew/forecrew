@@ -43,6 +43,24 @@ type testMapDoc struct {
 	Escalation *string `json:"escalation"`
 }
 
+// latestForBug keeps only the latest output when the task is the fix of a bug:
+// each round of the reproduction starts over, so a test an earlier round wrote
+// and a human sent back (it passed on the base branch) must not count for the
+// tests, the base check, the lock or the verification, whatever its name.
+func (a *actions) latestForBug(ctx context.Context, t domain.Task, docs []testMapDoc) ([]testMapDoc, error) {
+	if len(docs) < 2 {
+		return docs, nil
+	}
+	g, err := a.Store.Goals().Get(ctx, t.AccountID, t.GoalID)
+	if err != nil {
+		return nil, fmt.Errorf("get the goal of %s: %w", t.Ref(), err)
+	}
+	if g.Kind != domain.GoalBug {
+		return docs, nil
+	}
+	return docs[len(docs)-1:], nil
+}
+
 // testerOutputs returns the outputs of the successful test-engineer jobs of
 // the task, oldest first. A retry reports only what it changed itself, so
 // every caller reads all of them, with the entries a later job replaced
@@ -74,7 +92,7 @@ func (a *actions) testerOutputs(ctx context.Context, t domain.Task) ([]testMapDo
 		}
 		docs = append(docs, doc)
 	}
-	return docs, nil
+	return a.latestForBug(ctx, t, docs)
 }
 
 // globEscaper makes a file name a glob that matches only that name, using
