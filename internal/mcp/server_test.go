@@ -205,7 +205,7 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolListDecisions, map[string]any{"project": "app", "goal": "GOAL-1"}, mcp.ListDecisionsInput{Project: "app", Goal: "GOAL-1"}},
 		{mcp.ToolSearchKnowledge, map[string]any{"project": "app", "query": "queue", "kind": "note", "limit": 3}, mcp.SearchKnowledgeInput{Project: "app", Query: "queue", Kind: "note", Limit: 3, WrapUntrusted: true}},
 		{mcp.ToolDeleteNote, map[string]any{"note": "4bf2c2f4-0000-7000-8000-000000000001"}, mcp.DeleteNoteInput{Note: "4bf2c2f4-0000-7000-8000-000000000001"}},
-		{mcp.ToolListKnowledgeProposals, map[string]any{"project": "app", "status": "open", "limit": 5}, mcp.ListKnowledgeProposalsInput{Project: "app", Status: domain.KnowledgeOpen, Limit: 5}},
+		{mcp.ToolListKnowledgeProposals, map[string]any{"project": "app", "status": "open", "limit": 5}, mcp.ListKnowledgeProposalsInput{Project: "app", Status: domain.KnowledgeOpen, Limit: 5, WrapUntrusted: true}},
 		{mcp.ToolListKnowledge, map[string]any{"project": "app", "section": "vision", "limit": 5}, mcp.ListKnowledgeInput{Project: "app", Section: "vision", Limit: 5, WrapUntrusted: true}},
 		{mcp.ToolProposeKnowledge, map[string]any{"project": "app", "section": "lessons", "path": "knowledge/lessons/a.md", "body": "b", "reason": "r"},
 			mcp.ProposeKnowledgeInput{Project: "app", Section: "lessons", Path: "knowledge/lessons/a.md", Body: "b", Reason: "r"}},

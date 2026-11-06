@@ -425,7 +425,12 @@ func (e *Engine) GatePermission(ctx context.Context, g domain.Gate) domain.Permi
 // mayResolve reports whether the kind of actor may resolve gates at all:
 // a person, or an ownerless token, which is a person's until it is assigned
 // to its owner. Service accounts, agents and workers never do.
-func mayResolve(by domain.Actor) bool {
+func mayResolve(by domain.Actor) bool { return IsPerson(by) }
+
+// IsPerson reports whether by acts for a person, or for an ownerless token,
+// which is a person's until it is assigned to its owner. Service accounts,
+// agents and workers are not.
+func IsPerson(by domain.Actor) bool {
 	return by.Kind == domain.ActorUser || by.Kind == domain.ActorMCP
 }
 

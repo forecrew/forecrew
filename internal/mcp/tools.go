@@ -958,7 +958,7 @@ type TraceNode struct {
 	Summary string            `json:"summary,omitempty"` // at most 600 characters
 	URL     string            `json:"url,omitempty"`     // GitHub, when there is a page
 	At      time.Time         `json:"at"`
-	Attrs   map[string]string `json:"attrs,omitempty"` // decision: choice, decided_by; assumption: impact, confidence, verify_by, evidence
+	Attrs   map[string]string `json:"attrs,omitempty"` // council: kind; decision: decided_by, dissent; change: branch; verification: sha; assumption: impact, confidence, verify_by, made_by, evidence
 }
 
 // TraceEdge says that To follows from From.
@@ -990,6 +990,9 @@ type ListKnowledgeProposalsInput struct {
 	Goal    string                         `json:"goal,omitempty"`   // GOAL-3 or UUID
 	Status  domain.KnowledgeProposalStatus `json:"status,omitempty"` // queued, open, accepted or rejected
 	Limit   int                            `json:"limit,omitempty"`  // default 50, at most 200
+	// WrapUntrusted marks the text of the proposals as data, for MCP
+	// clients, which may be agents.
+	WrapUntrusted bool `json:"-"`
 }
 
 // KnowledgeProposalInfo is a knowledge proposal with its ref and where it is

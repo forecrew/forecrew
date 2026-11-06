@@ -23,6 +23,11 @@ type Search struct {
 	Policy func(context.Context, domain.Project) (Policy, error)
 }
 
+// NoRole is the role of a caller that is no person and holds no role of a
+// pack, such as a service account: no section lists it, so it reads only the
+// sections open to every role.
+const NoRole = "-"
+
 // Query is a knowledge search.
 type Query struct {
 	Project domain.Project

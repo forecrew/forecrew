@@ -10,6 +10,7 @@ import (
 	"strings"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/knowledge"
@@ -17,6 +18,22 @@ import (
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
 )
+
+// readerRole is the role the knowledge a caller reads is limited to: none for
+// a person, who sees every section, and knowledge.NoRole for anything else,
+// which sees only the sections open to every role.
+func readerRole(by domain.Actor) string {
+	if authz.IsPerson(by) {
+		return ""
+	}
+	return knowledge.NoRole
+}
+
+// reads reports whether a reader of the role may see a section; the empty
+// role is a person's.
+func reads(policy knowledge.Policy, role, section string) bool {
+	return role == "" || knowledge.CanRead(policy, section, role)
+}
 
 // MaxSearchLimit is the most results search_knowledge returns.
 const MaxSearchLimit = 50
@@ -36,7 +53,7 @@ func (s *Service) SearchKnowledge(ctx context.Context, by domain.Actor, in mcp.S
 	if strings.TrimSpace(in.Query) == "" {
 		return nil, fmt.Errorf("query is required: %w", mcp.ErrInvalidInput)
 	}
-	q := knowledge.Query{Project: p, Text: in.Query, Limit: in.Limit, AllGoals: true}
+	q := knowledge.Query{Project: p, Text: in.Query, Limit: in.Limit, AllGoals: true, Role: readerRole(by)}
 	if in.Section != "" {
 		q.Sections = []string{in.Section}
 	}
@@ -141,12 +158,12 @@ func (s *Service) ListKnowledge(ctx context.Context, by domain.Actor, in mcp.Lis
 			}
 		}
 	}
-	return mcp.KnowledgeListing{Sections: sectionInfos(policy), Entries: mcp.NonNil(entries)}, nil
+	return mcp.KnowledgeListing{Sections: sectionInfos(policy, q.Role), Entries: mcp.NonNil(entries)}, nil
 }
 
 // listQuery turns the filters of list_knowledge into a knowledge query.
 func (s *Service) listQuery(ctx context.Context, by domain.Actor, p domain.Project, in mcp.ListKnowledgeInput) (knowledge.Query, error) {
-	q := knowledge.Query{Project: p, Limit: cmp.Or(in.Limit, DefaultListLimit)}
+	q := knowledge.Query{Project: p, Limit: cmp.Or(in.Limit, DefaultListLimit), Role: readerRole(by)}
 	if in.Section != "" {
 		q.Sections = []string{in.Section}
 	}
@@ -168,27 +185,24 @@ func (s *Service) listQuery(ctx context.Context, by domain.Actor, p domain.Proje
 
 // sectionInfos lists the sections of a policy by name, with the two
 // reserved ones: notes and generated.
-func sectionInfos(policy knowledge.Policy) []mcp.KnowledgeSectionInfo {
+func sectionInfos(policy knowledge.Policy, role string) []mcp.KnowledgeSectionInfo {
 	out := []mcp.KnowledgeSectionInfo{}
 	for _, name := range slices.Sorted(maps.Keys(policy.Sections)) {
 		sec := policy.Sections[name]
-		if knowledge.Reserved(name) {
+		if knowledge.Reserved(name) || !reads(policy, role, name) {
 			continue
 		}
 		pr := policy.Providers[sec.Provider]
 		out = append(out, mcp.KnowledgeSectionInfo{Name: name, Provider: sec.Provider, ProviderKind: pr.Kind, Instance: pr.Instance,
-			Paths: nonNil(sec.Paths), Owner: sec.Owner, Protected: sec.Protected})
+			Paths: mcp.NonNil(sec.Paths), Owner: sec.Owner, Protected: sec.Protected})
 	}
-	return append(out,
-		mcp.KnowledgeSectionInfo{Name: domain.SectionNotes, Provider: domain.ProviderInternal, ProviderKind: domain.ProviderInternal, Paths: []string{}},
-		mcp.KnowledgeSectionInfo{Name: domain.SectionGenerated, Paths: []string{}})
-}
-
-func nonNil(s []string) []string {
-	if s == nil {
-		return []string{}
+	if reads(policy, role, domain.SectionNotes) {
+		out = append(out, mcp.KnowledgeSectionInfo{Name: domain.SectionNotes, Provider: domain.ProviderInternal, ProviderKind: domain.ProviderInternal, Paths: []string{}})
 	}
-	return s
+	if reads(policy, role, domain.SectionGenerated) {
+		out = append(out, mcp.KnowledgeSectionInfo{Name: domain.SectionGenerated, Paths: []string{}})
+	}
+	return out
 }
 
 // Limits of list_knowledge_proposals.
@@ -229,6 +243,9 @@ func (s *Service) ListKnowledgeProposals(ctx context.Context, by domain.Actor, i
 	if err != nil {
 		return nil, err
 	}
+	if list, err = s.readable(ctx, by, p, list); err != nil {
+		return nil, err
+	}
 	slices.Reverse(list)
 	list = list[:min(len(list), cmp.Or(in.Limit, DefaultProposalLimit))]
 	out := make([]mcp.KnowledgeProposalInfo, len(list))
@@ -236,8 +253,46 @@ func (s *Service) ListKnowledgeProposals(ctx context.Context, by domain.Actor, i
 		if out[i], err = s.proposalInfo(ctx, by, k, sees); err != nil {
 			return nil, err
 		}
+		if in.WrapUntrusted {
+			wrapProposal(&out[i])
+		}
 	}
 	return out, nil
+}
+
+// readable keeps the proposals the caller may see: closed sections are for
+// people, and others see the proposals to open ones.
+func (s *Service) readable(ctx context.Context, by domain.Actor, p domain.Project, list []domain.KnowledgeProposal) ([]domain.KnowledgeProposal, error) {
+	role := readerRole(by)
+	if role == "" {
+		return list, nil
+	}
+	if s.cfg.Search == nil {
+		return nil, fmt.Errorf("the knowledge base is not configured: %w", mcp.ErrUnavailable)
+	}
+	policy, err := s.cfg.Search.Policy(ctx, p)
+	if errors.Is(err, knowledge.ErrPolicyUnknown) {
+		return nil, fmt.Errorf("%w: %w", err, mcp.ErrUnavailable)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return slices.DeleteFunc(list, func(k domain.KnowledgeProposal) bool { return !reads(policy, role, k.Section) }), nil
+}
+
+// wrapProposal marks what agents and people wrote in a proposal as data, for
+// an MCP client.
+func wrapProposal(k *mcp.KnowledgeProposalInfo) {
+	source := "knowledge proposal " + k.Ref
+	k.Body, k.Reason, k.Path = wrapText(source, k.Body), wrapText(source, k.Reason), wrapText(source, k.Path)
+}
+
+// wrapText marks s as data from source; an empty text stays empty.
+func wrapText(source, s string) string {
+	if s == "" {
+		return ""
+	}
+	return contextpack.WrapUntrusted(source, s)
 }
 
 // proposalInfo adds the ref, the goal, the pull request and, for a caller
