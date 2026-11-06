@@ -55,7 +55,8 @@ func blockingLines(rep verification.Report) (lines []string, more int) {
 
 // requireVerified returns an error unless the head sha of repo#number has a
 // passed verification report. The text is shown to the human whose approval
-// the merge refuses, so the reasons are cut to one line each.
+// the merge refuses, so the reasons, which come from the repo's tests, are one
+// line each and quoted as untrusted data.
 func (a *actions) requireVerified(ctx context.Context, accountID uuid.UUID, repo string, number int, sha string) error {
 	rep, found, err := a.headReport(ctx, accountID, repo, number, sha)
 	switch {
@@ -67,11 +68,11 @@ func (a *actions) requireVerified(ctx context.Context, accountID uuid.UUID, repo
 		return nil
 	}
 	lines, more := blockingLines(rep)
-	reason := strings.Join(lines, "; ")
+	reason := strings.Join(lines, "\n")
 	if more > 0 {
-		reason += fmt.Sprintf("; and %d more", more)
+		reason += fmt.Sprintf("\nand %d more", more)
 	}
-	return fmt.Errorf("not merging %s#%d: the verification of %s is %s: %s: fix it and approve again", repo, number, sha, rep.Status, reason)
+	return fmt.Errorf("not merging %s#%d: the verification of %s is %s: what blocks it, from the test results of the repo:\n%s\nfix it and approve again", repo, number, sha, rep.Status, contextpack.WrapUntrusted("verification report", reason))
 }
 
 // verificationReadOutput is the output of verification.read.

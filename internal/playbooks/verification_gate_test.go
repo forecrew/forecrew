@@ -105,7 +105,8 @@ func TestMergePRRequiresVerification(t *testing.T) {
 		v.build(t, map[string]any{"base_check": map[string]any{"new_tests": []any{
 			map[string]any{"id": "n::A", "failed_on_base": false}, map[string]any{"id": "n::B", "failed_on_base": false}, map[string]any{"id": "n::C", "failed_on_base": false}}}})
 		err := merge(v, true)
-		wantErr(t, err, "; and 3 more: fix it")
+		wantErr(t, err, "\nand 3 more\n</untrusted-data")
+		wantErr(t, err, "<untrusted-data")
 		if strings.Contains(err.Error(), "n::C") {
 			t.Errorf("error = %v", err)
 		}

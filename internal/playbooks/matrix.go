@@ -80,7 +80,11 @@ func (a *actions) matrixPlan(ctx context.Context, call workflow.ActionCall) (any
 		out.Jobs = append(out.Jobs, c.Jobs()...)
 	}
 	if with.OnlyRunnable {
-		if err := a.dropUnrunnable(ctx, call.Run.AccountID, &out); err != nil {
+		required, err := matrix.Expand(m, envs, matrix.Scope{Set: matrix.ScopeRequired})
+		if err != nil {
+			return nil, err
+		}
+		if err := a.dropUnrunnable(ctx, call.Run.AccountID, &out, required); err != nil {
 			return nil, err
 		}
 	}
@@ -121,20 +125,29 @@ func (c workerCheck) canRun(env domain.Environment, needs []string) (pool string
 }
 
 // dropUnrunnable moves the jobs of out that no online worker can lease to
-// out.Unrunnable and describes them in out.Missing.
-func (a *actions) dropUnrunnable(ctx context.Context, accountID uuid.UUID, out *matrixPlanOutput) error {
+// out.Unrunnable and describes them in out.Missing. A job that no required
+// cell asks for is optional and nothing waits for it: without a worker it is
+// dropped from the plan and not reported.
+func (a *actions) dropUnrunnable(ctx context.Context, accountID uuid.UUID, out *matrixPlanOutput, required []matrix.Cell) error {
 	check, err := a.newWorkerCheck(ctx, accountID)
 	if err != nil {
 		return err
 	}
+	need := map[string]bool{}
+	for _, c := range required {
+		for _, j := range c.Jobs() {
+			need[j.Key] = true
+		}
+	}
 	runnable := out.Jobs[:0:0]
 	for _, j := range out.Jobs {
 		pool, labels, ok := check.canRun(j.Environment, j.Needs)
-		if ok {
+		switch {
+		case ok:
 			runnable = append(runnable, j)
-			continue
+		case need[j.Key]:
+			out.Unrunnable = append(out.Unrunnable, unrunnableJob{Key: j.Key, Pool: pool, Needs: labels})
 		}
-		out.Unrunnable = append(out.Unrunnable, unrunnableJob{Key: j.Key, Pool: pool, Needs: labels})
 	}
 	out.Jobs = runnable
 	out.Missing = missingText(out.Unrunnable)
@@ -142,8 +155,9 @@ func (a *actions) dropUnrunnable(ctx context.Context, accountID uuid.UUID, out *
 }
 
 // missingText says, for a person, which jobs have no worker: one line per
-// pool and set of labels, with the first jobs it blocks. The names come
-// from the repo's matrix, so each is one line of inline text.
+// pool and set of labels, with the first jobs it blocks. The names and labels
+// come from the repo's matrix, so each line is one line of inline text and
+// the whole is quoted as untrusted data.
 func missingText(jobs []unrunnableJob) string {
 	type need struct{ pool, labels string }
 	var order []need
@@ -167,7 +181,10 @@ func missingText(jobs []unrunnableJob) string {
 		}
 		lines = append(lines, contextpack.OneLine(fmt.Sprintf("- no online worker in pool %s has %s: %s%s", n.pool, labels, strings.Join(ks, ", "), more)))
 	}
-	return strings.Join(lines, "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+	return contextpack.WrapUntrusted("test matrix of the repo", strings.Join(lines, "\n"))
 }
 
 // repoReader reads the files of repo at ref through the tracker; a missing
