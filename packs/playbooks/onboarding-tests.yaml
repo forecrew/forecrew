@@ -110,6 +110,7 @@ steps:
                 type: action
                 action: tests.smoke_result
                 with: {runs: '${steps.smoke.output}'}
+                on_failure: escalate
           - id: check
             type: action
             action: onboarding.tests_check

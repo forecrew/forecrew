@@ -3,12 +3,14 @@ package playbooks_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"strings"
 	"testing"
 	"uuid"
 
+	forecrew "github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
@@ -689,5 +691,63 @@ func TestOnboardingTestsMergesOnlyTheProposedHead(t *testing.T) {
 	p.pendingGate(t, domain.GateNeedsYou)
 	if pr, _ := p.tracker.GetPR(t.Context(), "acme/app", g.SubjectNumber); pr.Merged {
 		t.Error("the PR was merged at a head nobody approved")
+	}
+}
+
+// The steps whose failure a human has to read in a needs_you gate.
+func TestOnboardingTestsStepsEscalate(t *testing.T) {
+	books, err := workflow.LoadPlaybooks(forecrew.Files, "packs/playbooks")
+	must(t, err)
+	var find func(steps []workflow.Step, id string) *workflow.Step
+	find = func(steps []workflow.Step, id string) *workflow.Step {
+		for i := range steps {
+			if steps[i].ID == id {
+				return &steps[i]
+			}
+			if s := find(steps[i].Steps, id); s != nil {
+				return s
+			}
+		}
+		return nil
+	}
+	for _, id := range []string{"register", "head", "matrix", "smoke_plan", "workflow", "smoke_result", "proposal", "pr", "at", "rerun", "finish"} {
+		t.Run(id, func(t *testing.T) {
+			s := find(books["onboarding-tests"].Steps, id)
+			if s == nil || s.OnFailure != workflow.Escalate {
+				t.Errorf("step %s = %+v", id, s)
+			}
+		})
+	}
+}
+
+// headFailsAfter is a tracker whose HeadSHA works n times and then fails.
+type headFailsAfter struct {
+	*testkit.Tracker
+	n *int
+}
+
+func (h headFailsAfter) HeadSHA(ctx context.Context, repo, branch string) (string, error) {
+	if *h.n--; *h.n < 0 {
+		return "", errors.New("GitHub is down")
+	}
+	return h.Tracker.HeadSHA(ctx, repo, branch)
+}
+
+// A GitHub call that fails at the baseline commit opens a needs_you gate.
+func TestOnboardingTestsFailureAtTheBaselineCommitEscalates(t *testing.T) {
+	v := newEnv(t, domain.ProjectOnboarded)
+	v.withTests(t, false)
+	must(t, v.tracker.SetHeadOfBranch("acme/app", "main", "abc1234"))
+	v.matrixFiles(t, "abc1234")
+	n := 1 // tests_head reads it; baseline_ref fails
+	v.wrapped = headFailsAfter{Tracker: v.tracker, n: &n}
+	v.register()
+	p := startTestsRun(t, v)
+	p.job(t, "plan/1/draft/1/architect", architectOutput(), nil)
+	p.job(t, "plan/1/draft/1/engineer", engineerOutput(), nil)
+	p.pendingGate(t, domain.GateNeedsYou)
+	s := p.waitStep(t, "at", domain.StepFailed)
+	if !strings.Contains(s.Error, "GitHub is down") {
+		t.Errorf("step error = %q", s.Error)
 	}
 }

@@ -91,8 +91,12 @@ func (s *Service) refreshTests(ctx context.Context, by domain.Actor, repo string
 		if s.cfg.Roles == nil {
 			return mcp.OnboardProjectOutput{}, fmt.Errorf("the role %s is not configured: add it under roles in forecrew.yaml to refresh the tests: %w", role, mcp.ErrInvalidInput)
 		}
-		if _, err := s.cfg.Roles.Resolve(ctx, by.AccountID, p.ID, role); err != nil {
+		_, err := s.cfg.Roles.Resolve(ctx, by.AccountID, p.ID, role)
+		if errors.Is(err, roles.ErrNotConfigured) || errors.Is(err, roles.ErrUnknownRole) {
 			return mcp.OnboardProjectOutput{}, fmt.Errorf("the role %s is not configured: add it under roles in forecrew.yaml to refresh the tests: %w", role, mcp.ErrInvalidInput)
+		}
+		if err != nil {
+			return mcp.OnboardProjectOutput{}, fmt.Errorf("resolve the role %s: %w", role, err)
 		}
 	}
 	active, err := s.cfg.Store.WorkflowRuns().ListActive(ctx, by.AccountID)

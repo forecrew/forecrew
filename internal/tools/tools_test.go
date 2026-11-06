@@ -236,6 +236,9 @@ func TestOnboardProjectRefreshErrors(t *testing.T) {
 		{name: "a test role is not configured", repo: "acme/app", want: mcp.ErrInvalidInput, setup: func(_ *testing.T, f *fixture) {
 			f.svc = tools.New(tools.Config{Store: f.st, Playbooks: f.playbooks, GitHub: f.tracker, Roles: testkit.Roles{"test-architect": {Name: "test-architect"}}})
 		}},
+		{name: "role resolver fails", repo: "acme/app", want: boom, setup: func(_ *testing.T, f *fixture) {
+			f.svc = tools.New(tools.Config{Store: f.st, Playbooks: f.playbooks, GitHub: f.tracker, Roles: errRoles{boom}})
+		}},
 		{name: "no roles", repo: "acme/app", want: mcp.ErrInvalidInput, setup: func(_ *testing.T, f *fixture) {
 			f.svc = tools.New(tools.Config{Store: f.st, Playbooks: f.playbooks, GitHub: f.tracker})
 		}},
@@ -533,4 +536,11 @@ func TestCreateGoalCouncilsErrors(t *testing.T) {
 	if len(goals) != 0 || len(f.playbooks.Starts()) != 0 {
 		t.Errorf("goals = %d, starts = %d; a refused override must create nothing", len(goals), len(f.playbooks.Starts()))
 	}
+}
+
+// errRoles is a role resolver that fails with err.
+type errRoles struct{ err error }
+
+func (r errRoles) Resolve(context.Context, uuid.UUID, uuid.UUID, string) (roles.Role, error) {
+	return roles.Role{}, r.err
 }
