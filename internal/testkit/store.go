@@ -63,6 +63,7 @@ type storeData struct {
 	knowledge     table[domain.KnowledgeEntry]
 	kbProposals   table[domain.KnowledgeProposal]
 	embeddings    map[uuid.UUID][]float32
+	identity      identityData
 	access        accessData
 	// jobMCP holds the job MCP token hash of a job with the lease it was
 	// set for; a hash whose lease ended no longer matches (the Postgres
@@ -108,6 +109,7 @@ func NewStore(now func() time.Time) *Store {
 		jobMCP:        map[uuid.UUID]jobMCPHash{},
 		knowledge:     table[domain.KnowledgeEntry]{key: func(r domain.KnowledgeEntry) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		embeddings:    map[uuid.UUID][]float32{},
+		identity:      newIdentityData(),
 		access:        newAccessData(),
 	}}}
 }
@@ -143,6 +145,7 @@ func (d *storeData) clone() *storeData {
 	c.deliveries = maps.Clone(d.deliveries)
 	c.counters = maps.Clone(d.counters)
 	c.jobMCP = maps.Clone(d.jobMCP)
+	c.identity = d.identity.clone()
 	c.access = d.access.clone()
 	return &c
 }

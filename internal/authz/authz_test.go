@@ -528,11 +528,11 @@ func TestDenialsOfWritesAreAudited(t *testing.T) {
 type failing struct {
 	store.Store
 	bindings store.RoleBindingRepo
-	tokens   store.MCPTokenRepo
+	tokens   store.PersonalTokenRepo
 }
 
 func (s failing) RoleBindings() store.RoleBindingRepo { return s.bindings }
-func (s failing) MCPTokens() store.MCPTokenRepo       { return s.tokens }
+func (s failing) MCPTokens() store.PersonalTokenRepo  { return s.tokens }
 
 type countingBindings struct {
 	store.RoleBindingRepo
@@ -549,7 +549,7 @@ func (c *countingBindings) Effective(ctx context.Context, accountID uuid.UUID, k
 }
 
 type failingTokens struct {
-	store.MCPTokenRepo
+	store.PersonalTokenRepo
 	err error
 }
 

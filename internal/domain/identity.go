@@ -90,16 +90,20 @@ type Membership struct {
 type Invitation struct {
 	ID          uuid.UUID `json:"id"`
 	AccountID   uuid.UUID `json:"account_id"`
-	Email       string    `json:"email,omitempty"`        // exactly one of Email and GitHubLogin
-	GitHubLogin string    `json:"github_login,omitempty"` // compared ignoring case
-	Grants      []Grant   `json:"roles"`                  // roles given on acceptance
-	TokenHash   []byte    `json:"-"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	InvitedBy   string    `json:"invited_by"`           // Actor.String()
-	AcceptedBy  uuid.UUID `json:"accepted_by,omitzero"` // the user who accepted
-	AcceptedAt  time.Time `json:"accepted_at,omitzero"`
-	RevokedAt   time.Time `json:"revoked_at,omitzero"`
-	CreatedAt   time.Time `json:"created_at"`
+	Email       string    `json:"email,omitempty"` // exactly one of Email and GitHubLogin
+	GitHubLogin string    `json:"github_login,omitempty"`
+	// GitHubUserID is the stable ID of GitHubLogin when the invitation was
+	// created; it is what acceptance compares, because a login can be renamed
+	// and then taken by someone else.
+	GitHubUserID int64     `json:"github_user_id,omitempty"`
+	Grants       []Grant   `json:"roles"` // roles given on acceptance
+	TokenHash    []byte    `json:"-"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	InvitedBy    string    `json:"invited_by"`           // Actor.String()
+	AcceptedBy   uuid.UUID `json:"accepted_by,omitzero"` // the user who accepted
+	AcceptedAt   time.Time `json:"accepted_at,omitzero"`
+	RevokedAt    time.Time `json:"revoked_at,omitzero"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // Pending reports whether the invitation can still be accepted at now.

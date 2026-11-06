@@ -72,6 +72,10 @@ func (r accountRepo) Get(ctx context.Context, id uuid.UUID) (domain.Account, err
 	return one(ctx, r.db, scanAccount, `SELECT `+accountCols+` FROM accounts WHERE id = $1`, id)
 }
 
+func (r accountRepo) GetBySlug(ctx context.Context, slug string) (domain.Account, error) {
+	return one(ctx, r.db, scanAccount, `SELECT `+accountCols+` FROM accounts WHERE slug = $1`, slug)
+}
+
 func (r accountRepo) List(ctx context.Context) ([]domain.Account, error) {
 	return many(ctx, r.db, scanAccount, `SELECT `+accountCols+` FROM accounts ORDER BY created_at, id`)
 }

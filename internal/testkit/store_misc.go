@@ -204,7 +204,7 @@ func (r deliveryRepo) Record(_ context.Context, dl domain.WebhookDelivery) (bool
 }
 
 // MCPTokens implements store.Store.
-func (s *Store) MCPTokens() store.MCPTokenRepo { return tokenRepo{s} }
+func (s *Store) MCPTokens() store.PersonalTokenRepo { return tokenRepo{s} }
 
 type tokenRepo struct{ s *Store }
 

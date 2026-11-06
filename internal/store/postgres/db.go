@@ -119,7 +119,7 @@ func (s *Store) StepRuns() store.StepRunRepo { return stepRunRepo{s.db} }
 func (s *Store) WebhookDeliveries() store.WebhookDeliveryRepo { return webhookRepo{s.db} }
 
 // MCPTokens implements store.Store.
-func (s *Store) MCPTokens() store.MCPTokenRepo { return mcpTokenRepo{s.db} }
+func (s *Store) MCPTokens() store.PersonalTokenRepo { return mcpTokenRepo{s.db} }
 
 // Audit implements store.Store.
 func (s *Store) Audit() store.AuditRepo { return auditRepo{s.db} }

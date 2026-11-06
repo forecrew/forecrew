@@ -3,8 +3,8 @@ package testkit
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"uuid"
@@ -13,20 +13,9 @@ import (
 	"github.com/forecrew/forecrew/internal/store"
 )
 
-// memberKey names a membership.
-type memberKey struct{ account, user uuid.UUID }
-
-// githubLink is a user's GitHub identity.
-type githubLink struct {
-	id    int64
-	login string
-}
-
-// accessData is what the access repositories keep.
+// accessData is what the access repositories keep. Users, memberships and
+// identities are the sign-in repositories' (identityData).
 type accessData struct {
-	users       map[uuid.UUID]domain.User
-	members     map[memberKey]domain.MembershipStatus
-	github      map[uuid.UUID]githubLink // by user
 	teams       table[domain.Team]
 	teamMembers []domain.TeamMember
 	serviceAccs table[domain.ServiceAccount]
@@ -40,7 +29,6 @@ func newAccessData() accessData {
 		roles[i].ID = domain.NewID()
 	}
 	return accessData{
-		users: map[uuid.UUID]domain.User{}, members: map[memberKey]domain.MembershipStatus{}, github: map[uuid.UUID]githubLink{},
 		teams:       table[domain.Team]{key: func(r domain.Team) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		serviceAccs: table[domain.ServiceAccount]{key: func(r domain.ServiceAccount) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		bindings:    table[domain.RoleBinding]{key: func(r domain.RoleBinding) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
@@ -49,7 +37,6 @@ func newAccessData() accessData {
 }
 
 func (a accessData) clone() accessData {
-	a.users, a.members, a.github = maps.Clone(a.users), maps.Clone(a.members), maps.Clone(a.github)
 	a.teams, a.serviceAccs, a.bindings = a.teams.clone(), a.serviceAccs.clone(), a.bindings.clone()
 	a.teamMembers, a.roles = slices.Clone(a.teamMembers), slices.Clone(a.roles)
 	return a
@@ -64,25 +51,31 @@ func (s *Store) AddMember(accountID uuid.UUID, u domain.User, status domain.Memb
 	}
 	_ = s.do(func(d *storeData, now time.Time) error {
 		u.CreatedAt, u.UpdatedAt = now, now
-		d.access.users[u.ID] = u
-		d.access.members[memberKey{accountID, u.ID}] = status
+		d.identity.users.insert(u)
+		d.identity.memberships.insert(domain.Membership{ID: domain.NewID(), AccountID: accountID, UserID: u.ID, Status: status, Source: domain.SourceManual, CreatedAt: now, UpdatedAt: now})
 		return nil
 	})
 	return u
 }
 
-// SetMemberStatus changes a membership.
+// SetMemberStatus changes a membership, without the checks of the repository.
 func (s *Store) SetMemberStatus(accountID, userID uuid.UUID, status domain.MembershipStatus) {
-	_ = s.do(func(d *storeData, _ time.Time) error {
-		d.access.members[memberKey{accountID, userID}] = status
+	_ = update(s, membershipsT, accountID, userID, func(m *domain.Membership, _ time.Time) error {
+		m.Status = status
 		return nil
 	})
 }
 
-// LinkGitHub gives a user a GitHub identity.
+// LinkGitHub gives a user a GitHub identity at the instance GitHub
+// connection, which it stores when there is none.
 func (s *Store) LinkGitHub(userID uuid.UUID, id int64, login string) {
-	_ = s.do(func(d *storeData, _ time.Time) error {
-		d.access.github[userID] = githubLink{id, login}
+	_ = s.do(func(d *storeData, now time.Time) error {
+		c, err := d.identity.connections.find(func(c domain.Connection) bool { return c.Kind == domain.ConnectionGitHub && c.AccountID == uuid.Nil() })
+		if err != nil {
+			d.identity.connections.insert(domain.Connection{ID: domain.NewID(), Kind: domain.ConnectionGitHub, Name: "github", ClientID: "fake", ClientSecretRef: "env:FAKE", Enabled: true, CreatedAt: now, UpdatedAt: now})
+			c = &d.identity.connections.rows[len(d.identity.connections.rows)-1]
+		}
+		d.identity.identities.insert(domain.Identity{ID: domain.NewID(), UserID: userID, ConnectionID: c.ID, Subject: strconv.FormatInt(id, 10), Login: login, CreatedAt: now})
 		return nil
 	})
 }
@@ -92,31 +85,63 @@ func (s *Store) Directory() store.DirectoryRepo { return directoryRepo{s} }
 
 type directoryRepo struct{ s *Store }
 
-func (r directoryRepo) User(_ context.Context, id uuid.UUID) (u domain.User, err error) {
-	err = r.s.do(func(d *storeData, _ time.Time) error {
-		var ok bool
-		if u, ok = d.access.users[id]; !ok {
-			return store.ErrNotFound
-		}
-		return nil
-	})
-	return u, err
+func (r directoryRepo) User(_ context.Context, id uuid.UUID) (domain.User, error) {
+	return getRow(r.s, usersT, uuid.Nil(), id)
 }
 
 func (r directoryRepo) GitHubMembers(_ context.Context, accountID uuid.UUID, id int64, login string) ([]uuid.UUID, error) {
-	out := []uuid.UUID{}
-	err := r.s.do(func(d *storeData, _ time.Time) error {
-		for user, link := range d.access.github {
-			if _, member := d.access.members[memberKey{accountID, user}]; !member {
+	return read(r.s, func(d *storeData) ([]uuid.UUID, error) {
+		out := []uuid.UUID{}
+		for _, i := range d.identity.identities.rows {
+			c, err := d.identity.connections.get(uuid.Nil(), i.ConnectionID)
+			if err != nil || c.Kind != domain.ConnectionGitHub || (c.AccountID != uuid.Nil() && c.AccountID != accountID) || !d.isMember(accountID, i.UserID) {
 				continue
 			}
-			if (id != 0 && link.id == id) || (id == 0 && strings.EqualFold(link.login, login)) {
-				out = append(out, user)
+			match := strings.EqualFold(i.Login, login)
+			if id != 0 {
+				match = i.Subject == strconv.FormatInt(id, 10)
+			}
+			if match && !slices.Contains(out, i.UserID) {
+				out = append(out, i.UserID)
 			}
 		}
-		return nil
+		return out, nil
 	})
-	return out, err
+}
+
+// isMember says whether the user has a membership, in any status.
+func (d *storeData) isMember(accountID, userID uuid.UUID) bool {
+	_, err := d.identity.memberships.get(accountID, userID)
+	return err == nil
+}
+
+// activeUser says whether the user is enabled and an active member.
+func (d *storeData) activeUser(accountID, userID uuid.UUID) bool {
+	m, err := d.identity.memberships.get(accountID, userID)
+	if err != nil || m.Status != domain.MembershipActive {
+		return false
+	}
+	u, err := d.identity.users.get(uuid.Nil(), userID)
+	return err == nil && u.DisabledAt.IsZero()
+}
+
+// lastOwner says whether the user is the only active Owner of the
+// organization.
+func (d *storeData) lastOwner(accountID, userID uuid.UUID) bool {
+	owners := d.access.bindings.filter(0, func(b domain.RoleBinding) bool { return b.AccountID == accountID && d.activeOwner(b) })
+	return len(owners) == 1 && owners[0].SubjectID == userID
+}
+
+// removeBindings deletes the user's bindings and team memberships in the
+// organization.
+func (d *storeData) removeBindings(accountID, userID uuid.UUID) {
+	t := &d.access.bindings
+	t.rows = slices.DeleteFunc(slices.Clone(t.rows), func(b domain.RoleBinding) bool {
+		return b.AccountID == accountID && b.SubjectKind == domain.SubjectUser && b.SubjectID == userID
+	})
+	d.access.teamMembers = slices.DeleteFunc(slices.Clone(d.access.teamMembers), func(m domain.TeamMember) bool {
+		return m.AccountID == accountID && m.UserID == userID
+	})
 }
 
 func teamsT(d *storeData) *table[domain.Team]                 { return &d.access.teams }
@@ -194,7 +219,7 @@ func (r teamRepo) AddMember(_ context.Context, m *domain.TeamMember) error {
 		if _, err := d.access.teams.get(m.AccountID, m.TeamID); err != nil {
 			return err
 		}
-		if _, ok := d.access.members[memberKey{m.AccountID, m.UserID}]; !ok {
+		if !d.isMember(m.AccountID, m.UserID) {
 			return fmt.Errorf("member %s: %w", m.UserID, store.ErrNotFound)
 		}
 		if i := slices.IndexFunc(d.access.teamMembers, func(x domain.TeamMember) bool { return x.TeamID == m.TeamID && x.UserID == m.UserID }); i >= 0 {
@@ -255,6 +280,7 @@ func (s *Store) ServiceAccounts() store.ServiceAccountRepo { return serviceAccou
 
 type serviceAccountRepo struct{ s *Store }
 
+//nolint:dupl // same shape as other tables, other uniqueness
 func (r serviceAccountRepo) Create(_ context.Context, a *domain.ServiceAccount) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
 		if d.access.serviceAccs.exists(func(x domain.ServiceAccount) bool { return x.AccountID == a.AccountID && x.Name == a.Name }) {
@@ -400,16 +426,15 @@ func (s *Store) RoleBindings() store.RoleBindingRepo { return roleBindingRepo{s}
 type roleBindingRepo struct{ s *Store }
 
 // subjectExists says whether the subject of b is in its organization.
-func (a accessData) subjectExists(b *domain.RoleBinding) bool {
+func (d *storeData) subjectExists(b *domain.RoleBinding) bool {
 	switch b.SubjectKind {
 	case domain.SubjectUser:
-		_, ok := a.members[memberKey{b.AccountID, b.SubjectID}]
-		return ok
+		return d.isMember(b.AccountID, b.SubjectID)
 	case domain.SubjectTeam:
-		_, err := a.teams.get(b.AccountID, b.SubjectID)
+		_, err := d.access.teams.get(b.AccountID, b.SubjectID)
 		return err == nil
 	case domain.SubjectServiceAccount:
-		_, err := a.serviceAccs.get(b.AccountID, b.SubjectID)
+		_, err := d.access.serviceAccs.get(b.AccountID, b.SubjectID)
 		return err == nil
 	}
 	return false
@@ -418,7 +443,7 @@ func (a accessData) subjectExists(b *domain.RoleBinding) bool {
 func (r roleBindingRepo) Create(_ context.Context, b *domain.RoleBinding) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
 		i := slices.IndexFunc(d.access.roles, func(x domain.Role) bool { return x.ID == b.RoleID && d.access.visibleRole(b.AccountID, x) })
-		if i < 0 || !d.access.subjectExists(b) {
+		if i < 0 || !d.subjectExists(b) {
 			return fmt.Errorf("binding: %w", store.ErrNotFound)
 		}
 		if err := foreign(&d.projects, b.AccountID, b.ProjectID); err != nil {
@@ -451,11 +476,11 @@ func (r roleBindingRepo) List(_ context.Context, accountID uuid.UUID, f store.Ro
 }
 
 // activeOwner says whether b makes its subject an active Owner.
-func (a accessData) activeOwner(b domain.RoleBinding) bool {
-	i := slices.IndexFunc(a.roles, func(x domain.Role) bool { return x.ID == b.RoleID })
-	return i >= 0 && a.roles[i].BuiltIn && a.roles[i].Name == domain.RoleOwner && a.roles[i].Scope == domain.RoleScopeOrganization &&
-		b.SubjectKind == domain.SubjectUser && a.members[memberKey{b.AccountID, b.SubjectID}] == domain.MembershipActive &&
-		a.users[b.SubjectID].DisabledAt.IsZero()
+func (d *storeData) activeOwner(b domain.RoleBinding) bool {
+	r := d.access.roles
+	i := slices.IndexFunc(r, func(x domain.Role) bool { return x.ID == b.RoleID })
+	return i >= 0 && r[i].BuiltIn && r[i].Name == domain.RoleOwner && r[i].Scope == domain.RoleScopeOrganization &&
+		b.SubjectKind == domain.SubjectUser && d.activeUser(b.AccountID, b.SubjectID)
 }
 
 func (r roleBindingRepo) Delete(_ context.Context, accountID, id uuid.UUID) error {
@@ -464,8 +489,8 @@ func (r roleBindingRepo) Delete(_ context.Context, accountID, id uuid.UUID) erro
 		if err != nil {
 			return err
 		}
-		if d.access.activeOwner(*b) && !d.access.bindings.exists(func(x domain.RoleBinding) bool {
-			return x.AccountID == accountID && x.ID != id && d.access.activeOwner(x)
+		if d.activeOwner(*b) && !d.access.bindings.exists(func(x domain.RoleBinding) bool {
+			return x.AccountID == accountID && x.ID != id && d.activeOwner(x)
 		}) {
 			return store.ErrLastOwner
 		}
@@ -480,7 +505,7 @@ func (r roleBindingRepo) Effective(_ context.Context, accountID uuid.UUID, kind 
 		a := d.access
 		switch kind {
 		case domain.SubjectUser:
-			if a.members[memberKey{accountID, id}] != domain.MembershipActive || !a.users[id].DisabledAt.IsZero() {
+			if !d.activeUser(accountID, id) {
 				return nil
 			}
 		case domain.SubjectServiceAccount:

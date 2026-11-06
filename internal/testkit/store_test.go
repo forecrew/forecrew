@@ -1122,6 +1122,15 @@ func TestStoreCouncilContributions(t *testing.T) {
 	wantErr(t, repo.SetEvidenceCheck(ctx, f.account, domain.NewID(), nil), store.ErrNotFound)
 }
 
+func TestIdentityStoreSuite(t *testing.T) {
+	st := NewStore(nil)
+	account := domain.Account{Name: "Acme"}
+	if err := st.Accounts().Create(t.Context(), &account); err != nil {
+		t.Fatal(err)
+	}
+	IdentityStoreSuite(t, st, account.ID)
+}
+
 func TestStoreVerificationReports(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
