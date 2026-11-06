@@ -133,6 +133,26 @@ func TestListSubIssues(t *testing.T) {
 	wantErr(t, err, github.ErrNotFound)
 }
 
+func TestListOpenIssues(t *testing.T) {
+	e := newEnv(t)
+	e.handle("GET /repos/acme/app/issues", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("labels") != "forecrew:baseline" || q.Get("state") != "open" {
+			t.Errorf("query = %v", q)
+		}
+		_, _ = w.Write(fixture(t, "api", "issues_recent.json"))
+	})
+	got, err := e.client.ListOpenIssues(t.Context(), "acme/app", "forecrew:baseline")
+	noErr(t, err)
+	if len(got) != 1 || got[0].Number != 12 { // issue 11 is a pull request
+		t.Fatalf("got %+v", got)
+	}
+	e2 := newEnv(t)
+	e2.serve("GET /repos/acme/app/issues", http.StatusNotFound, "error_not_found.json")
+	_, err = e2.client.ListOpenIssues(t.Context(), "acme/app", "x")
+	wantErr(t, err, github.ErrNotFound)
+}
+
 func TestComments(t *testing.T) {
 	e := newEnv(t)
 	e.handle("POST /repos/acme/app/issues/7/comments", func(w http.ResponseWriter, r *http.Request) {

@@ -125,6 +125,30 @@ func (c *Client) ListSubIssues(ctx context.Context, repo string, parent int) ([]
 	return out, nil
 }
 
+// ListOpenIssues implements Tracker. GitHub lists pull requests as issues too;
+// they are left out.
+func (c *Client) ListOpenIssues(ctx context.Context, repo, label string) ([]Issue, error) {
+	g, owner, name, err := c.repoClient(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+	opts := &gh.IssueListByRepoOptions{State: "open", Labels: []string{label}, Sort: "created", Direction: "asc"}
+	items, err := all(func(o gh.ListOptions) ([]*gh.Issue, *gh.Response, error) {
+		opts.ListOptions = o
+		return g.Issues.ListByRepo(ctx, owner, name, opts)
+	})
+	if err != nil {
+		return nil, wrap(fmt.Sprintf("list issues of %s labeled %s", repo, label), err)
+	}
+	var out []Issue
+	for _, i := range items {
+		if !i.IsPullRequest() {
+			out = append(out, toIssue(i))
+		}
+	}
+	return out, nil
+}
+
 // CreateComment implements Tracker.
 func (c *Client) CreateComment(ctx context.Context, repo string, number int, body string) (Comment, error) {
 	g, owner, name, err := c.repoClient(ctx, repo)

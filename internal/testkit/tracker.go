@@ -289,6 +289,21 @@ func (t *Tracker) ListSubIssues(_ context.Context, repo string, parent int) ([]g
 	return out, err
 }
 
+// ListOpenIssues implements github.Tracker. The fake has no pull request
+// among its issues.
+func (t *Tracker) ListOpenIssues(_ context.Context, repo, label string) ([]github.Issue, error) {
+	var out []github.Issue
+	err := t.with(repo, func(r *fakeRepo) error {
+		for _, n := range slices.Sorted(maps.Keys(r.issues)) {
+			if i := r.issues[n].issue; i.State == "open" && slices.Contains(i.Labels, label) {
+				out = append(out, i)
+			}
+		}
+		return nil
+	})
+	return out, err
+}
+
 // CreateComment implements github.Tracker. The author is "forecrew[bot]";
 // the bot's own comments emit no event.
 func (t *Tracker) CreateComment(_ context.Context, repo string, number int, body string) (github.Comment, error) {

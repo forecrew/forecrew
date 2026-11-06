@@ -59,6 +59,13 @@ func TestTrackerIssues(t *testing.T) {
 	_, err = tr.ListSubIssues(ctx, "acme/app", 99)
 	wantErr(t, err, github.ErrNotFound)
 
+	open, err := tr.ListOpenIssues(ctx, "acme/app", "forecrew")
+	if err != nil || len(open) != 1 || open[0].Number != 1 {
+		t.Fatalf("open = %+v, %v", open, err)
+	}
+	_, err = tr.ListOpenIssues(ctx, "acme/none", "forecrew")
+	wantErr(t, err, github.ErrNotInstalled)
+
 	closed, title := "closed", "Goal v2"
 	upd, err := tr.UpdateIssue(ctx, "acme/app", 1, github.IssueUpdate{Title: &title, State: &closed})
 	if err != nil || upd.Title != title || upd.State != "closed" {
@@ -69,6 +76,9 @@ func TestTrackerIssues(t *testing.T) {
 	got, err := tr.GetIssue(ctx, "acme/app", 1)
 	if err != nil || got.Title != title {
 		t.Fatalf("get = %+v, %v", got, err)
+	}
+	if open, _ := tr.ListOpenIssues(ctx, "acme/app", "forecrew"); len(open) != 0 {
+		t.Fatalf("a closed issue is listed: %+v", open)
 	}
 	_, err = tr.GetIssue(ctx, "acme/app", 99)
 	wantErr(t, err, github.ErrNotFound)
