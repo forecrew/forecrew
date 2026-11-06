@@ -119,21 +119,9 @@ func (s *Service) Send(ctx context.Context, b Batch) (Sent, error) {
 	if err != nil {
 		return Sent{}, err
 	}
-	var live []domain.KnowledgeProposal
-	for _, k := range ks {
-		_, err := policy.Target(k.Section, k.Path, k.ProposedBy)
-		if errors.Is(err, knowledge.ErrRefused) {
-			in := Input{Section: k.Section, Path: k.Path, Action: k.Action}
-			if err := errors.Join(s.drop(ctx, s.Store, k.AccountID, k.ProjectID, "knowledge_proposal", k.ID, in, k.ProposedBy, err),
-				s.finish(ctx, []domain.KnowledgeProposal{k}, domain.KnowledgeRejected, err.Error())); err != nil {
-				return Sent{}, err
-			}
-			continue
-		}
-		if err != nil {
-			return Sent{}, err
-		}
-		live = append(live, k)
+	live, err := s.recheck(ctx, policy, ks, nil)
+	if err != nil {
+		return Sent{}, err
 	}
 	out := Sent{Proposals: refs(live), Reviewers: []string{}}
 	proposer := s.proposer(policy, b.Provider)
@@ -159,6 +147,32 @@ func (s *Service) Send(ctx context.Context, b Batch) (Sent, error) {
 	out.Reviewers = append(out.Reviewers, r.reviewers...)
 	out.ReviewText = reviewText(live, c)
 	return out, nil
+}
+
+// recheck applies the policy of now to ks again and returns the ones it still
+// allows their proposers: the others are dropped, audited and rejected. refuse,
+// when set, can refuse more, with an error wrapping knowledge.ErrRefused.
+func (s *Service) recheck(ctx context.Context, policy knowledge.Policy, ks []domain.KnowledgeProposal, refuse func(domain.KnowledgeProposal, knowledge.Target) error) ([]domain.KnowledgeProposal, error) {
+	var live []domain.KnowledgeProposal
+	for _, k := range ks {
+		t, err := policy.Target(k.Section, k.Path, k.ProposedBy)
+		if err == nil && refuse != nil {
+			err = refuse(k, t)
+		}
+		if errors.Is(err, knowledge.ErrRefused) {
+			in := Input{Section: k.Section, Path: k.Path, Action: k.Action}
+			if err := errors.Join(s.drop(ctx, s.Store, k.AccountID, k.ProjectID, "knowledge_proposal", k.ID, in, k.ProposedBy, err),
+				s.finish(ctx, []domain.KnowledgeProposal{k}, domain.KnowledgeRejected, err.Error())); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		live = append(live, k)
+	}
+	return live, nil
 }
 
 // reviewText is what a reviewing job is shown. Reasons are the proposer's
@@ -214,16 +228,7 @@ func (s *Service) Assess(ctx context.Context, b Batch, key uuid.UUID, verdicts [
 		Title:   fmt.Sprintf("%s: change to %s", strings.Join(refs(ks), ", "), sectionNames(ks)),
 		Summary: gateSummary(ks, number, verdicts), SubjectRepo: p.Repo, SubjectNumber: number, GoalID: ks[0].GoalID, JobID: b.JobID,
 		// In the gate's transaction: its decision must find the proposals.
-		Opened: func(ctx context.Context, tx store.Store, g domain.Gate) error {
-			for _, k := range ks {
-				from := k.Status
-				k.Status, k.GateID = domain.KnowledgeOpen, g.ID
-				if err := tx.KnowledgeProposals().Update(ctx, &k, from); err != nil {
-					return err
-				}
-			}
-			return nil
-		},
+		Opened: func(ctx context.Context, tx store.Store, g domain.Gate) error { return gateProposals(ctx, tx, ks, g) },
 	})
 	if err != nil {
 		return nil, err
@@ -236,19 +241,25 @@ func (s *Service) Assess(ctx context.Context, b Batch, key uuid.UUID, verdicts [
 // agent text, so all of it is marked.
 func gateSummary(ks []domain.KnowledgeProposal, number int, verdicts []Verdict) string {
 	var b strings.Builder
-	for _, k := range ks {
-		fmt.Fprintf(&b, "### %s: %s %s (section %s, provider %s)\n\nProposed by %s.\n\n", k.Ref(), k.Action, contextpack.OneLine(k.Path), k.Section, k.Provider, k.ProposedBy)
-		b.WriteString(contextpack.WrapUntrusted(k.Ref()+" reason", k.Reason))
-		if number == 0 && k.Body != "" {
-			b.WriteString("\nThis provider has no review flow here: approving says you copied the change across.\n\n")
-			b.WriteString(contextpack.WrapUntrusted(k.Ref()+" body", k.Body))
-		}
-	}
+	writeProposals(&b, ks, func(domain.KnowledgeProposal) bool { return number == 0 })
 	for _, v := range verdicts {
 		fmt.Fprintf(&b, "\nThe owner's review says %s:\n\n", contextpack.OneLine(v.Verdict))
 		b.WriteString(contextpack.WrapUntrusted("owner review", v.Summary))
 	}
 	return b.String()
+}
+
+// writeProposals shows each proposal to a human, all of it agent text and so
+// marked. The body is shown for the ones copied says are copied by hand.
+func writeProposals(b *strings.Builder, ks []domain.KnowledgeProposal, copied func(domain.KnowledgeProposal) bool) {
+	for _, k := range ks {
+		fmt.Fprintf(b, "### %s: %s %s (section %s, provider %s)\n\nProposed by %s.\n\n", k.Ref(), k.Action, contextpack.OneLine(k.Path), k.Section, k.Provider, k.ProposedBy)
+		b.WriteString(contextpack.WrapUntrusted(k.Ref()+" reason", k.Reason))
+		if copied(k) && k.Body != "" {
+			b.WriteString("\nThis provider has no review flow here: approving says you copied the change across.\n\n")
+			b.WriteString(contextpack.WrapUntrusted(k.Ref()+" body", k.Body))
+		}
+	}
 }
 
 // Decision is the output of knowledge.decide: lists for foreach steps.
@@ -275,7 +286,7 @@ func (s *Service) Decide(ctx context.Context, b Batch) (Decision, error) {
 			return out, err
 		}
 		if g.Status != domain.GateApproved {
-			return out, s.reject(ctx, p, ks, number, "rejected at "+g.Ref()+": "+g.Feedback)
+			return out, s.reject(ctx, p, ks, number, strings.Join(refs(ks), ", "), "rejected at "+g.Ref()+": "+g.Feedback)
 		}
 	}
 	if number == 0 {
@@ -354,7 +365,7 @@ func gateOf(ks []domain.KnowledgeProposal) uuid.UUID {
 }
 
 // reject closes the PR, if it is still open, and rejects ks.
-func (s *Service) reject(ctx context.Context, p domain.Project, ks []domain.KnowledgeProposal, number int, why string) error {
+func (s *Service) reject(ctx context.Context, p domain.Project, ks []domain.KnowledgeProposal, number int, what, why string) error {
 	if number > 0 {
 		pr, err := s.GitHub.GetPR(ctx, p.Repo, number)
 		if err != nil {
@@ -364,7 +375,7 @@ func (s *Service) reject(ctx context.Context, p domain.Project, ks []domain.Know
 			return s.finish(ctx, ks, domain.KnowledgeAccepted, "the pull request was merged")
 		}
 		if pr.State == "open" {
-			if _, err := s.GitHub.CreateComment(ctx, p.Repo, number, strings.Join(refs(ks), ", ")+" rejected: closing."); err != nil {
+			if _, err := s.GitHub.CreateComment(ctx, p.Repo, number, what+" rejected: closing."); err != nil {
 				return err
 			}
 			closed := "closed"
@@ -386,8 +397,15 @@ func (s *Service) Settle(ctx context.Context, b Batch, failed bool) error {
 		return err
 	}
 	if failed {
-		return s.reject(ctx, p, ks, number, "the review did not finish")
+		return s.reject(ctx, p, ks, number, strings.Join(refs(ks), ", "), "the review did not finish")
 	}
+	return s.settleAt(ctx, p, ks, number, ks[0].Ref())
+}
+
+// settleAt records how the PR of ks ended: merged accepts them, closed rejects
+// them, and a PR still open is an error. Without a PR a human copied the change
+// across. what names the batch in the error.
+func (s *Service) settleAt(ctx context.Context, p domain.Project, ks []domain.KnowledgeProposal, number int, what string) error {
 	if number == 0 {
 		return s.finish(ctx, ks, domain.KnowledgeAccepted, "a human copied the change across")
 	}
@@ -401,5 +419,18 @@ func (s *Service) Settle(ctx context.Context, b Batch, failed bool) error {
 	case pr.State != "open":
 		return s.finish(ctx, ks, domain.KnowledgeRejected, "the pull request was closed")
 	}
-	return fmt.Errorf("pull request %s#%d of %s is still open", p.Repo, number, ks[0].Ref())
+	return fmt.Errorf("pull request %s#%d of %s is still open", p.Repo, number, what)
+}
+
+// gateProposals puts the proposals in review at gate g, in the transaction
+// that stores it: its decision must find them.
+func gateProposals(ctx context.Context, tx store.Store, ks []domain.KnowledgeProposal, g domain.Gate) error {
+	for _, k := range ks {
+		from := k.Status
+		k.Status, k.GateID = domain.KnowledgeOpen, g.ID
+		if err := tx.KnowledgeProposals().Update(ctx, &k, from); err != nil {
+			return err
+		}
+	}
+	return nil
 }
