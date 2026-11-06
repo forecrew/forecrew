@@ -108,7 +108,7 @@ func (a *actions) bugPlanAction(ctx context.Context, call workflow.ActionCall) (
 		return nil, fmt.Errorf("list the tasks of %s: %w", g.Ref(), err)
 	}
 	pt := planTask{
-		Title: "Fix: " + oneLineTitle(g.Title),
+		Title: "Fix " + g.Ref(),
 		Description: "Fix the bug reported in " + g.Ref() + ". A regression test that reproduces it is written first and locked: " +
 			"make it pass without changing it, and keep every other test green. Change only what the bug needs.",
 		Criteria: []string{bugCriterion.ID}, Size: "s",
@@ -126,15 +126,6 @@ func (a *actions) bugPlanAction(ctx context.Context, call workflow.ActionCall) (
 		ID: t.ID, Ref: t.Ref(), Number: t.Number, Seq: t.Seq, Title: t.Title, IssueNumber: t.IssueNumber, Branch: taskBranch(t),
 		Needs: domain.NormalizeLabels(with.Platforms), Criteria: pt.Criteria,
 	}}}, nil
-}
-
-// oneLineTitle shortens a goal title to fit a task title.
-func oneLineTitle(s string) string {
-	s = contextpack.OneLine(s)
-	if r := []rune(s); len(r) > 60 {
-		return string(r[:60]) + "..."
-	}
-	return s
 }
 
 // reproducedOutput is the output of bug.reproduced.

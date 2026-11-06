@@ -123,6 +123,9 @@ func (b *StoreBuilder) input(ctx context.Context, req workflow.JobRequest, role 
 		goal = &g
 		in.Goal = Text{Heading: fmt.Sprintf("Goal %s: %s", goal.Ref(), goal.Title), Body: goal.Body}
 		in.Goal.Untrusted, in.Goal.Source = b.untrusted(goal.CreatedBy), goal.CreatedBy
+		if goal.Kind == domain.GoalBug {
+			b.bugReport(&in, *goal)
+		}
 	}
 	if err := b.jobTexts(ctx, req, &in); err != nil {
 		return Input{}, err
@@ -177,6 +180,18 @@ func (b *StoreBuilder) council(ctx context.Context, acc uuid.UUID, t workflow.Co
 	}
 	in.Framing = Text{Heading: "The facilitator's framing", Body: fenced("json", framing.String()), Untrusted: true, Source: "facilitator of " + c.Ref()}
 	return nil
+}
+
+// bugReport marks the goal and the spec of a bug as untrusted whoever created
+// the goal: the report may be the text of a GitHub issue that anyone could
+// write, which the member who reported it linked or not. The title moves from
+// the heading into the quoted body.
+func (b *StoreBuilder) bugReport(in *Input, g domain.Goal) {
+	source := "bug report " + g.Ref() + " by " + g.CreatedBy
+	in.Goal = Text{Heading: "Goal " + g.Ref() + " (a bug report)", Body: "Title: " + OneLine(g.Title) + "\n\n" + g.Body, Untrusted: true, Source: source}
+	if in.Spec.Body != "" {
+		in.Spec.Untrusted, in.Spec.Source = true, source
+	}
 }
 
 // untrusted reports whether text by actor (Actor.String()) comes from a
