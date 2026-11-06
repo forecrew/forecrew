@@ -3,6 +3,9 @@ package config
 import (
 	"fmt"
 	"maps"
+	"slices"
+
+	"github.com/forecrew/forecrew/internal/domain"
 )
 
 // Kinds of the settings stored over forecrew.yaml.
@@ -22,9 +25,37 @@ type Setting struct {
 	Spec []byte
 }
 
+// checkCredentialEnv refuses a stored runtime that names a variable the file
+// does not hand to a runtime: forecrewd sends what it names to the runtime's
+// endpoint, and its environment also holds the database URL and the GitHub key.
+func (c *Config) checkCredentialEnv(name string, r Runtime) error {
+	for _, env := range r.CredentialEnv {
+		if !slices.ContainsFunc(slices.Collect(maps.Values(c.Runtimes)), func(f Runtime) bool { return slices.Contains(f.CredentialEnv, env) }) {
+			return fmt.Errorf("runtime %s: credential_env %s is not used by a runtime of forecrew.yaml: %w", name, env, ErrInvalid)
+		}
+	}
+	return nil
+}
+
+// checkConnectionRefs refuses a stored connection whose secret is an env: or
+// secret: reference the file does not use: forecrewd sends it to the
+// connection's issuer. A store: reference holds only what a person saved.
+func (c *Config) checkConnectionRefs(a Auth) error {
+	for name, conn := range a.Connections {
+		if _, ok := domain.StoreSecretName(conn.ClientSecretRef); ok {
+			continue
+		}
+		if !slices.ContainsFunc(slices.Collect(maps.Values(c.Auth.Connections)), func(f Connection) bool { return f.ClientSecretRef == conn.ClientSecretRef }) {
+			return fmt.Errorf("auth.connections.%s: client_secret_ref is not used by forecrew.yaml; use store:name: %w", name, ErrInvalid)
+		}
+	}
+	return nil
+}
+
 // WithSettings returns a copy of c with the stored settings over the file's
 // values, read and checked like the file: secrets of a runtime or a
-// connection come from getenv. The error wraps ErrInvalid, and c is not
+// connection come from getenv, and only those the file already names, so a
+// stored setting never reaches another variable of forecrewd. The error wraps ErrInvalid, and c is not
 // changed, so a bad setting never costs the server its file.
 func (c *Config) WithSettings(settings []Setting, getenv func(string) string) (*Config, error) {
 	out := *c
@@ -43,6 +74,9 @@ func (c *Config) WithSettings(settings []Setting, getenv func(string) string) (*
 			if err := decodeStrict(s.Spec, &r); err != nil {
 				return nil, fmt.Errorf("runtime %s: %w", s.Name, err)
 			}
+			if err := c.checkCredentialEnv(s.Name, r); err != nil {
+				return nil, err
+			}
 			r.Credentials = map[string]string{}
 			for _, env := range r.CredentialEnv {
 				r.Credentials[env] = getenv(env)
@@ -55,6 +89,9 @@ func (c *Config) WithSettings(settings []Setting, getenv func(string) string) (*
 			var a Auth
 			if err := decodeStrict(s.Spec, &a); err != nil {
 				return nil, fmt.Errorf("auth: %w", err)
+			}
+			if err := c.checkConnectionRefs(a); err != nil {
+				return nil, err
 			}
 			out.Auth = a
 			out.readAuth(getenv)

@@ -203,7 +203,26 @@ func runtimeArea() Area {
 	a := base[runtimeSpec](KindRuntime, "AI runtime", ScopeServer, domain.PermOrgRead)
 	a.Setting, a.Spec = config.Runtime{}, runtimeSpec{}
 	a.Needs = needsOf(domain.PermOrgManage)
-	return serverArea(a, config.SettingRuntime, func(c *config.Config) (map[string]json.RawMessage, error) { return fileValues(c.Runtimes) })
+	a = serverArea(a, config.SettingRuntime, func(c *config.Config) (map[string]json.RawMessage, error) { return fileValues(c.Runtimes) })
+	a.Protection = runtimeProtection
+	return a
+}
+
+// runtimeProtection flags where a runtime's keys go: its base_url and
+// credential_env decide which key leaves for which host.
+func runtimeProtection(_ context.Context, _ *Env, old, want *Resource) []string {
+	if want == nil {
+		return nil
+	}
+	var o runtimeSpec
+	if old != nil {
+		o, _ = decode[runtimeSpec](old.Spec)
+	}
+	w, _ := decode[runtimeSpec](want.Spec)
+	if o.BaseURL != w.BaseURL || !slices.Equal(o.CredentialEnv, w.CredentialEnv) {
+		return []string{"Changes where the model keys of " + want.Name + " are sent"}
+	}
+	return nil
 }
 
 type authConnectionSpec struct {
@@ -245,6 +264,9 @@ func authProtection(_ context.Context, _ *Env, old, want *Resource) []string {
 	out := wider("Adds someone who can open every organization's settings", o.InstanceAdmins, w.InstanceAdmins)
 	if w.TokenLogin && !o.TokenLogin {
 		out = append(out, "Lets a token sign in to the web UI")
+	}
+	if !maps.Equal(o.Connections, w.Connections) {
+		out = append(out, "Changes who the server's sign-in connections trust and where their secrets are sent")
 	}
 	return out
 }

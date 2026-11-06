@@ -43,7 +43,11 @@ refused.
 **Scope.** `config_settings.account_id` NULL is the scope of the whole server.
 Server settings are changed through a plan only on a server with one
 organization; on a shared server they stay in the file until they move to
-organization scope (T69). `origin` says whether a value comes from the `file`
+organization scope (T69). A stored `runtime` names only `credential_env`
+variables a runtime of the file uses, and a stored instance connection only
+the `client_secret_ref`s of the file or `store:` references, checked when a plan
+is made and at startup: forecrewd sends these values to `base_url` and to the
+issuer, and its environment also holds its own secrets. `origin` says whether a value comes from the `file`
 or the `database`. A stored server setting counts from the next start of
 forecrewd, and its plan says so.
 
@@ -105,7 +109,8 @@ needs `word`, the organization's slug, typed by the same person: removing an
 Owner, turning off sign-in enforcement, opening network access, adding Forecrew
 Cloud as a fallback, moving a machine type to another trust zone, giving a pool
 a repo write token, adding an instance admin, allowing token sign-in, removing
-the token cap. A revert with one of those effects counts too, because it is a
+the token cap, changing a runtime's `base_url` or `credential_env`, changing an
+instance connection. A revert with one of those effects counts too, because it is a
 plan like any other.
 
 ### Permissions
