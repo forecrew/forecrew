@@ -174,8 +174,12 @@ func warnDeprecated(cfg *config.Config, log *slog.Logger) {
 // fail every minute.
 func newSchedules(cfg *config.Config, books map[string]*workflow.Playbook, st store.Store, engine *workflow.Engine, log *slog.Logger, now func() time.Time) (*scheduler.Scheduler, error) {
 	for _, sc := range cfg.Schedules {
-		if _, ok := books[sc.Playbook]; !ok {
+		book, ok := books[sc.Playbook]
+		switch {
+		case !ok:
 			return nil, fmt.Errorf("forecrew.yaml schedules: %s: there is no such playbook", sc)
+		case !slices.Equal(book.Inputs, []string{"repo"}):
+			return nil, fmt.Errorf("forecrew.yaml schedules: %s: a scheduled playbook takes the input repo and no other, and %s takes %v", sc, sc.Playbook, book.Inputs)
 		}
 	}
 	s, err := scheduler.New(cfg.Schedules, st, engine)

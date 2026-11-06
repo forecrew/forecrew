@@ -629,7 +629,7 @@ CREATE TABLE knowledge_proposals (
   batch        text NOT NULL CHECK (batch IN ('per_goal','standalone')),
   external_ref text NOT NULL DEFAULT '',          -- PR number, page id: what the review is followed by
   change_id    uuid REFERENCES changes(id),       -- the PR, for the repo provider
-  gate_id      uuid REFERENCES gates(id),         -- knowledge_proposal gate, if a human decides here
+  gate_id      uuid REFERENCES gates(id),         -- knowledge_proposal gate, if a human decides here; of a human proposal saved as a lesson, the gate whose feedback it is (the source, never decided on it)
   status       text NOT NULL CHECK (status IN ('queued','open','accepted','rejected')),
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz NOT NULL DEFAULT now(),

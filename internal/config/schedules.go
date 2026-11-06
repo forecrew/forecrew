@@ -26,13 +26,26 @@ type Schedule struct {
 	// Playbook is the playbook to start; it takes the input repo only.
 	Playbook string `yaml:"playbook"`
 	// Project is the repo of the project, owner/name: the schedule runs for
-	// that project in every organization that has it.
+	// that project in every organization that has it. "*" is every project.
 	Project string `yaml:"project"`
 	// Cron is a five-field cron expression in UTC (internal/cron).
 	Cron string `yaml:"cron"`
 }
 
+// DefaultSchedules are the schedules of a forecrew.yaml that has no
+// schedules key: the curator's upkeep, weekly, for every onboarded project.
+// An explicit empty list, schedules: [], turns it off.
+func DefaultSchedules() []Schedule {
+	return []Schedule{{Playbook: "curate", Project: AllProjects, Cron: "0 3 * * 1"}}
+}
+
+// AllProjects as a schedule's project means every onboarded project.
+const AllProjects = "*"
+
 func (c *Config) applyKnowledgeDefaults() {
+	if c.Schedules == nil {
+		c.Schedules = DefaultSchedules()
+	}
 	if c.Knowledge.VerifyWindow == 0 {
 		c.Knowledge.VerifyWindow = DefaultVerifyWindow
 	}
@@ -46,11 +59,14 @@ func (c *Config) validateSchedules(p *problems) {
 		if !domain.ValidName(s.Playbook) {
 			p.addf("schedules[%d].playbook %q is not a playbook name", i, s.Playbook)
 		}
-		if owner, name, ok := strings.Cut(s.Project, "/"); !ok || owner == "" || name == "" || strings.Contains(name, "/") {
-			p.addf("schedules[%d].project %q must be a repo, owner/name", i, s.Project)
+		if owner, name, ok := strings.Cut(s.Project, "/"); s.Project != AllProjects && (!ok || owner == "" || name == "" || strings.Contains(name, "/")) {
+			p.addf("schedules[%d].project %q must be a repo, owner/name, or %s", i, s.Project, AllProjects)
 		}
-		if _, err := cron.Parse(s.Cron); err != nil {
+		parsed, err := cron.Parse(s.Cron)
+		if err != nil {
 			p.addf("schedules[%d].cron: %v", i, err)
+		} else if _, ok := parsed.Next(time.Now()); !ok {
+			p.addf("schedules[%d].cron %q never fires", i, s.Cron)
 		}
 	}
 }

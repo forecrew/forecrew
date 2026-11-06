@@ -5,7 +5,7 @@
 // that run (workflow.StartRequest.ID), so asking again is harmless: a restart
 // finds the latest slot already started, or starts it once. The slots missed
 // while forecrewd was down are not made up one by one: only the latest
-// counts. A schedule that has no run for its latest slot when forecrewd
+// counts, and a slot waits while a run of the same schedule is active. A schedule that has no run for its latest slot when forecrewd
 // starts therefore runs at once, once.
 package scheduler
 
@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 	"uuid"
 
@@ -103,7 +104,7 @@ func (s *Scheduler) Tick(ctx context.Context) (int, error) {
 		if !ok {
 			continue
 		}
-		projects, err := s.Store.Projects().ListByRepo(ctx, e.Project)
+		projects, err := s.projectsOf(ctx, e.Project)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("schedule %s: list projects: %w", e.Schedule, err))
 			continue
@@ -122,6 +123,36 @@ func (s *Scheduler) Tick(ctx context.Context) (int, error) {
 	return started, joinErrs(errs)
 }
 
+// projectsOf returns the projects a schedule runs for: those of a repo in every
+// organization, or all of them for config.AllProjects.
+func (s *Scheduler) projectsOf(ctx context.Context, repo string) ([]domain.Project, error) {
+	if repo != config.AllProjects {
+		return s.Store.Projects().ListByRepo(ctx, repo)
+	}
+	accounts, err := s.Store.Accounts().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []domain.Project
+	for _, a := range accounts {
+		ps, err := s.Store.Projects().List(ctx, a.ID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ps...)
+	}
+	return out, nil
+}
+
+// active reports whether a run of the playbook is going on for the project.
+func (s *Scheduler) active(ctx context.Context, p domain.Project, playbook string) (bool, error) {
+	runs, err := s.Store.WorkflowRuns().ListActive(ctx, p.AccountID)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(runs, func(r domain.WorkflowRun) bool { return r.Playbook == playbook && r.ProjectID == p.ID }), nil
+}
+
 // start starts the run of slot for p and says whether it was new.
 func (s *Scheduler) start(ctx context.Context, e entry, p domain.Project, slot time.Time) (int, error) {
 	id := RunID(e.Playbook, p.ID, slot)
@@ -130,6 +161,10 @@ func (s *Scheduler) start(ctx context.Context, e entry, p domain.Project, slot t
 	case err == nil:
 		return 0, nil // started before: by an earlier tick, or before a restart
 	case !errors.Is(err, store.ErrNotFound):
+		return 0, err
+	}
+	// A slot waits for the run of the one before: the next tick tries again.
+	if busy, err := s.active(ctx, p, e.Playbook); err != nil || busy {
 		return 0, err
 	}
 	run, err := s.Starter.Start(ctx, e.Playbook, workflow.StartRequest{

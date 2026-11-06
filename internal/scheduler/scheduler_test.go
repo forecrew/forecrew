@@ -29,6 +29,8 @@ type engine struct {
 	mu    sync.Mutex
 	calls []workflow.StartRequest
 	fail  map[uuid.UUID]error // by project
+	// running keeps the runs it starts active; otherwise they end at once.
+	running bool
 }
 
 func (e *engine) Start(ctx context.Context, playbook string, req workflow.StartRequest) (domain.WorkflowRun, error) {
@@ -38,7 +40,10 @@ func (e *engine) Start(ctx context.Context, playbook string, req workflow.StartR
 		return domain.WorkflowRun{}, err
 	}
 	e.calls = append(e.calls, req)
-	run := domain.WorkflowRun{ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Playbook: playbook, Status: domain.RunRunning}
+	run := domain.WorkflowRun{ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Playbook: playbook, Status: domain.RunSucceeded}
+	if e.running {
+		run.Status = domain.RunRunning
+	}
 	return run, e.st.WorkflowRuns().Create(ctx, &run)
 }
 
@@ -205,4 +210,30 @@ func waitFor(t *testing.T, ok func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatal("timed out")
+}
+
+// "*" is every onboarded project of every organization.
+func TestAllProjects(t *testing.T) {
+	e := newEnv(t)
+	other := domain.Account{Name: "other"}
+	must(t, e.st.Accounts().Create(t.Context(), &other))
+	e.newProject(t, other, "theirs", "acme/theirs", domain.ProjectOnboarded)
+	e.newProject(t, other, "fresh", "acme/fresh", domain.ProjectRegistered)
+	e.tick(t, e.scheduler(t, config.Schedule{Playbook: "curate", Project: config.AllProjects, Cron: "0 3 * * 1"}), 2)
+}
+
+// A slot waits while the run of the one before is active, and starts when it
+// has ended.
+func TestASlotWaitsForTheRunBefore(t *testing.T) {
+	e := newEnv(t)
+	e.engine.running = true
+	s := e.scheduler(t, weekly)
+	e.tick(t, s, 1)
+	e.clock.Advance(4*24*time.Hour + 17*time.Hour) // the next Monday, 03:00
+	e.tick(t, s, 0)                                // the first run is still running
+	run, err := e.st.WorkflowRuns().Get(t.Context(), e.account.ID, scheduler.RunID("curate", e.project.ID, time.Date(2026, 11, 2, 3, 0, 0, 0, time.UTC)))
+	must(t, err)
+	run.Status = domain.RunSucceeded
+	must(t, e.st.WorkflowRuns().Update(t.Context(), &run))
+	e.tick(t, s, 1)
 }

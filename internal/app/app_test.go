@@ -330,3 +330,18 @@ func TestNewRefusesAScheduleOfAnUnknownPlaybook(t *testing.T) {
 		t.Errorf("New: %v", err)
 	}
 }
+
+// A scheduled playbook is started with the input repo only.
+func TestNewRefusesAScheduleOfAPlaybookWithOtherInputs(t *testing.T) {
+	f := newFixture(t)
+	cfg := testConfig()
+	cfg.Schedules = []config.Schedule{{Playbook: "goal", Project: "acme/app", Cron: "@daily"}}
+	_, err := New(Deps{Config: cfg, Store: f.st, GitHub: f.tracker})
+	if err == nil || !strings.Contains(err.Error(), "takes the input repo and no other") {
+		t.Errorf("New: %v", err)
+	}
+	cfg.Schedules = config.DefaultSchedules()
+	if _, err := New(Deps{Config: cfg, Store: f.st, GitHub: f.tracker}); err != nil {
+		t.Errorf("the default schedule: %v", err)
+	}
+}

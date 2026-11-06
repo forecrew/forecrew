@@ -462,8 +462,8 @@ started for a goal with the engine, as councils are.
 
 ## The curate playbook
 
-`packs/playbooks/curate.yaml`, input `repo`, is started by a schedule
-(`schedules` in config.md): `curate.prepare`, a `knowledge-curator` job with
+`packs/playbooks/curate.yaml`, input `repo`, is started by a schedule, weekly
+for every onboarded project unless `schedules` in config.md says otherwise: `curate.prepare`, a `knowledge-curator` job with
 `task: curate` when there is something to curate, `curate.finish`,
 `discover.github` and `curate.tools`. See [knowledge.md](knowledge.md#upkeep).
 

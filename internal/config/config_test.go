@@ -368,8 +368,12 @@ func TestEndpointWithoutKey(t *testing.T) {
 
 func TestParseSchedulesAndKnowledge(t *testing.T) {
 	c, err := Parse([]byte(validYAML), env(nil))
-	if err != nil || c.Knowledge.VerifyWindow != DefaultVerifyWindow || len(c.Schedules) != 0 {
-		t.Fatalf("defaults: %+v, %v", c.Knowledge, err)
+	if err != nil || c.Knowledge.VerifyWindow != DefaultVerifyWindow || len(c.Schedules) != 1 || c.Schedules[0] != (Schedule{Playbook: "curate", Project: "*", Cron: "0 3 * * 1"}) {
+		t.Fatalf("defaults: %+v %+v, %v", c.Knowledge, c.Schedules, err)
+	}
+	// An explicit empty list turns the default off.
+	if c, err = Parse([]byte(validYAML+"schedules: []\n"), env(nil)); err != nil || len(c.Schedules) != 0 {
+		t.Fatalf("schedules: [] = %+v, %v", c.Schedules, err)
 	}
 	c, err = Parse([]byte(validYAML+"knowledge:\n  verify_window: 720h\nschedules:\n  - {playbook: curate, project: acme/app, cron: '0 3 * * 1'}\n  - {playbook: curate, project: acme/web, cron: '@daily'}\n"), env(nil))
 	if err != nil || c.Knowledge.VerifyWindow != 720*time.Hour || len(c.Schedules) != 2 || c.Schedules[0] != (Schedule{Playbook: "curate", Project: "acme/app", Cron: "0 3 * * 1"}) {
@@ -379,12 +383,13 @@ func TestParseSchedulesAndKnowledge(t *testing.T) {
 		t.Errorf("String = %q", s)
 	}
 	for name, extra := range map[string]string{
-		"a negative window": "knowledge:\n  verify_window: -1h\n",
-		"no cron":           "schedules:\n  - {playbook: curate, project: acme/app}\n",
-		"a bad cron":        "schedules:\n  - {playbook: curate, project: acme/app, cron: '61 * * * *'}\n",
-		"a bad project":     "schedules:\n  - {playbook: curate, project: app, cron: '@daily'}\n",
-		"a bad playbook":    "schedules:\n  - {playbook: 'Cur ate', project: acme/app, cron: '@daily'}\n",
-		"an unknown key":    "schedules:\n  - {playbook: curate, project: acme/app, cron: '@daily', inputs: {}}\n",
+		"a negative window":       "knowledge:\n  verify_window: -1h\n",
+		"no cron":                 "schedules:\n  - {playbook: curate, project: acme/app}\n",
+		"a bad cron":              "schedules:\n  - {playbook: curate, project: acme/app, cron: '61 * * * *'}\n",
+		"a cron that never fires": "schedules:\n  - {playbook: curate, project: acme/app, cron: '0 0 31 2 *'}\n",
+		"a bad project":           "schedules:\n  - {playbook: curate, project: app, cron: '@daily'}\n",
+		"a bad playbook":          "schedules:\n  - {playbook: 'Cur ate', project: acme/app, cron: '@daily'}\n",
+		"an unknown key":          "schedules:\n  - {playbook: curate, project: acme/app, cron: '@daily', inputs: {}}\n",
 	} {
 		if _, err := Parse([]byte(validYAML+extra), env(nil)); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: err = %v", name, err)
