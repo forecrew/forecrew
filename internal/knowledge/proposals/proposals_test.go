@@ -1128,3 +1128,65 @@ func TestLearnRegisterFilesOwnedByCodeownersAreFollowed(t *testing.T) {
 		t.Errorf("decision = %+v", d)
 	}
 }
+
+// A rejected proposal takes back the promotion of the notes of its own project
+// only, as promote only promoted those.
+func TestReleaseLeavesTheNotesOfOtherProjects(t *testing.T) {
+	ctx := t.Context()
+	e := newEnv(t)
+	other := domain.Project{AccountID: e.account, Name: "b", Repo: "acme/b", DefaultBranch: "main", Status: domain.ProjectRegistered}
+	must(t, e.st.Projects().Create(ctx, &other))
+	n := domain.KnowledgeEntry{AccountID: e.account, ProjectID: other.ID, Provider: domain.ProviderInternal, Path: "notes/x", Section: domain.SectionNotes, Title: "t", Body: "b", Scope: domain.NoteScopeProject}
+	must(t, e.st.Knowledge().Upsert(ctx, &n))
+	must(t, e.st.Knowledge().MarkPromoted(ctx, e.account, []uuid.UUID{n.ID}))
+	j := e.job(t, "architect", uuid.Nil())
+	in := add("architecture", "docs/adr/2.md")
+	in.Reason = "see note:" + n.ID.String()
+	_, err := e.svc.Submit(ctx, j, in)
+	must(t, err)
+	j.Status = domain.JobFailed
+	must(t, e.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error { return e.svc.JobFailed(ctx, tx, j) }))
+	got, err := e.st.Knowledge().Get(ctx, e.account, n.ID)
+	must(t, err)
+	if got.PromotedAt.IsZero() {
+		t.Error("a failed job of one project took the promotion from a note of another")
+	}
+}
+
+// release also runs when a gate rejects or a PR is closed, through finish.
+func TestRejectedGateAndClosedPRReleaseTheirNotes(t *testing.T) {
+	ctx := t.Context()
+	e := newEnv(t)
+	goal := testkit.Goal(t, e.st, e.account, e.project.ID, "g")
+	note := func(path string) domain.KnowledgeEntry {
+		n := domain.KnowledgeEntry{AccountID: e.account, ProjectID: e.project.ID, Provider: domain.ProviderInternal, Path: path, Section: domain.SectionNotes, Title: path, Body: "b", Scope: domain.NoteScopeGoal, GoalID: goal.ID}
+		must(t, e.st.Knowledge().Upsert(ctx, &n))
+		return n
+	}
+	viaGate, viaPR := note("notes/gate"), note("notes/pr")
+	promoted := func(n domain.KnowledgeEntry) bool {
+		got, err := e.st.Knowledge().Get(ctx, e.account, n.ID)
+		must(t, err)
+		return !got.PromotedAt.IsZero()
+	}
+	j := e.job(t, "architect", goal.ID)
+	gated := add("runbooks", "space:ENG/page:3")
+	gated.Reason = "see note:" + viaGate.ID.String()
+	_, err := e.svc.Submit(ctx, j, gated)
+	must(t, err)
+	closed := add("architecture", "docs/adr/2.md")
+	closed.Reason = "see note:" + viaPR.ID.String()
+	_, err = e.svc.Submit(ctx, j, closed)
+	must(t, err)
+	b := proposals.LearnBatch{AccountID: e.account, ProjectID: e.project.ID, GoalID: goal.ID}
+	out, err := e.svc.Learn(ctx, b, domain.NewID(), nil)
+	must(t, err)
+	if !promoted(viaGate) || !promoted(viaPR) {
+		t.Fatal("the notes are not promoted while their proposals are in review")
+	}
+	must(t, e.tracker.ClosePR("acme/app", out.Number))
+	must(t, e.svc.LearnSettle(ctx, b, false))
+	if promoted(viaPR) || promoted(viaGate) {
+		t.Errorf("after the PR was closed: gate note promoted = %v, PR note promoted = %v", promoted(viaGate), promoted(viaPR))
+	}
+}
