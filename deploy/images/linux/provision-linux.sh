@@ -42,13 +42,19 @@ rm -f "/tmp/$node_tar"
 install -d -m 0755 /opt/forecrew-cli
 install -m 0644 /tmp/package.json /tmp/package-lock.json /opt/forecrew-cli/
 # Optional dependencies carry the native binaries (opencode's platform packages),
-# so they are asked for by name. On failure, say what npm saw.
-if ! (cd /opt/forecrew-cli && npm ci --omit=dev --include=optional --no-audit --no-fund); then
-	echo "provision-linux.sh: npm ci failed; node $(node --version), npm $(npm --version), $(uname -m)" >&2
-	find /opt/forecrew-cli/node_modules -maxdepth 1 2>&1 | head -30 >&2
-	(cd /opt/forecrew-cli && npm config list 2>&1 | head -20 >&2; env | grep -i '^npm_' >&2) || true
-	exit 1
-fi
+# so they are asked for by name. Install scripts run per package afterwards, so a
+# failing one can be told apart and its surroundings reported.
+(cd /opt/forecrew-cli && npm ci --omit=dev --include=optional --ignore-scripts --no-audit --no-fund)
+for pkg in @anthropic-ai/claude-code @openai/codex opencode-ai; do
+	if ! (cd /opt/forecrew-cli && npm rebuild "$pkg" --no-audit --no-fund); then
+		echo "provision-linux.sh: the install script of $pkg failed; node $(node --version), npm $(npm --version), $(uname -m)" >&2
+		find /opt/forecrew-cli/node_modules -maxdepth 1 -name 'opencode*' >&2
+		ldd --version 2>&1 | head -1 >&2
+		grep -o -m1 avx2 /proc/cpuinfo >&2 || echo "no avx2" >&2
+		head -c 4000 "/opt/forecrew-cli/node_modules/$pkg/postinstall.mjs" >&2 || true
+		exit 1
+	fi
+done
 (cd /opt/forecrew-cli && npm cache clean --force)
 for cli in claude codex opencode; do
 	ln -sf "/opt/forecrew-cli/node_modules/.bin/$cli" "/usr/local/bin/$cli"
