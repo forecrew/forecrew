@@ -79,8 +79,16 @@ func release(ctx context.Context, tx store.Store, rejected []domain.KnowledgePro
 			}
 		}
 	}
-	if len(ids) == 0 {
+	// Only the notes of the proposals' own project, as promote only promoted
+	// those.
+	own := ids[:0]
+	for _, id := range ids {
+		if n, err := tx.Knowledge().Get(ctx, rejected[0].AccountID, id); err == nil && n.ProjectID == rejected[0].ProjectID {
+			own = append(own, id)
+		}
+	}
+	if len(own) == 0 {
 		return nil
 	}
-	return tx.Knowledge().ClearPromoted(ctx, rejected[0].AccountID, ids)
+	return tx.Knowledge().ClearPromoted(ctx, rejected[0].AccountID, own)
 }
