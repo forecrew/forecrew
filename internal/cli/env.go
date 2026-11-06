@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
 	"uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -42,11 +45,24 @@ type Env struct {
 	// GitHubAPI is GitHub's API, which turns a login into its stable user
 	// ID; it defaults to api.github.com.
 	GitHubAPI string
+	// ConfigDir is the user's config directory, where forecrew login keeps
+	// its credentials; nil keeps none.
+	ConfigDir func() (string, error)
+	// Keyring is the OS keychain; nil, or one that fails, keeps tokens in
+	// the credentials file.
+	Keyring Keyring
+	// OpenBrowser opens a URL in the user's browser.
+	OpenBrowser func(url string) error
+	// Hostname names this machine, for the token a login creates.
+	Hostname func() (string, error)
+	// Stdin is where a login reads a pasted code from; nil reads none.
+	Stdin io.Reader
 }
 
 // OSEnv is the environment of the real process.
 func OSEnv() Env {
-	return Env{Getenv: os.Getenv, HTTP: http.DefaultClient, Open: OpenPostgres}
+	return Env{Getenv: os.Getenv, HTTP: http.DefaultClient, Open: OpenPostgres, ConfigDir: os.UserConfigDir, Keyring: osKeyring{},
+		OpenBrowser: openBrowser, Hostname: os.Hostname, Stdin: os.Stdin}
 }
 
 // openDatabase opens the database of FORECREW_DATABASE_URL.
@@ -98,4 +114,18 @@ func account(ctx context.Context, st store.Store, flag string) (uuid.UUID, error
 		return accounts[0].ID, nil
 	}
 	return uuid.Nil(), errors.New("there are several accounts: pass --account")
+}
+
+// openBrowser opens url with the desktop's opener.
+func openBrowser(url string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url) //nolint:gosec // the URL is the one the user asked to log in to
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url) //nolint:gosec // as above
+	default:
+		cmd = exec.Command("xdg-open", url) //nolint:gosec // as above
+	}
+	return cmd.Start()
 }
