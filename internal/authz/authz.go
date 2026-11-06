@@ -111,9 +111,10 @@ func (r Resource) UID() EntityUID {
 
 // Engine is the authorization engine.
 type Engine struct {
-	st   store.Store
-	eval Evaluator
-	log  *slog.Logger
+	st         store.Store
+	eval       Evaluator
+	protection Protection
+	log        *slog.Logger
 }
 
 // New returns an engine over st that evaluates role bindings. logger
@@ -376,12 +377,36 @@ func (e *Engine) AuthorizeAnywhere(ctx context.Context, by domain.Actor, p domai
 	return nil
 }
 
+// Protection says whether a knowledge_proposal gate is about a protected
+// section; *proposals.Service implements it from the proposals of the gate.
+type Protection interface {
+	GateProtected(ctx context.Context, g domain.Gate) (bool, error)
+}
+
+// WithProtection makes the engine ask p about knowledge_proposal gates.
+// Without it they all count as protected.
+func (e *Engine) WithProtection(p Protection) *Engine {
+	e.protection = p
+	return e
+}
+
 // GatePermission is the permission that resolving g needs. A knowledge
-// proposal counts as protected: gates of this kind are about protected or
-// read-only sections, and nothing marks the ones that are not until
-// knowledge proposals are built.
-func GatePermission(g domain.Gate) domain.Permission {
-	return domain.GatePermission(g.Kind, g.Kind == domain.GateKnowledgeProposal)
+// proposal that cannot be placed counts as protected: the stricter
+// permission, and no error, so a provider being down costs a Contributor the
+// gate and not everybody the gate list.
+func (e *Engine) GatePermission(ctx context.Context, g domain.Gate) domain.Permission {
+	if g.Kind != domain.GateKnowledgeProposal {
+		return domain.GatePermission(g.Kind, false)
+	}
+	protected := true
+	if e.protection != nil {
+		var err error
+		if protected, err = e.protection.GateProtected(ctx, g); err != nil {
+			e.log.WarnContext(ctx, "read the proposals of a gate", "account_id", g.AccountID, "gate_id", g.ID, "error", err)
+			protected = true
+		}
+	}
+	return domain.GatePermission(g.Kind, protected)
 }
 
 // mayResolve reports whether the kind of actor may resolve gates at all:
@@ -396,13 +421,13 @@ func (e *Engine) CanResolve(ctx context.Context, by domain.Actor, g domain.Gate)
 	if !mayResolve(by) {
 		return false, nil
 	}
-	return e.Can(ctx, by, GatePermission(g), Project(g.AccountID, g.ProjectID))
+	return e.Can(ctx, by, e.GatePermission(ctx, g), Project(g.AccountID, g.ProjectID))
 }
 
 // AuthorizeGate returns nil when by may resolve g. It is the check of every
 // way to resolve a gate.
 func (e *Engine) AuthorizeGate(ctx context.Context, by domain.Actor, g domain.Gate) error {
-	p, res := GatePermission(g), Project(g.AccountID, g.ProjectID)
+	p, res := e.GatePermission(ctx, g), Project(g.AccountID, g.ProjectID)
 	if !mayResolve(by) {
 		return e.deny(ctx, by, p, res)
 	}

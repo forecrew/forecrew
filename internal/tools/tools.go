@@ -103,7 +103,11 @@ func New(cfg Config) *Service {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	return &Service{cfg: cfg, authz: authz.New(cfg.Store, cfg.Logger)}
+	engine := authz.New(cfg.Store, cfg.Logger)
+	if cfg.Proposals != nil {
+		engine.WithProtection(cfg.Proposals)
+	}
+	return &Service{cfg: cfg, authz: engine}
 }
 
 // allow checks that by holds p on a project.

@@ -32,8 +32,10 @@ engine](#the-engine).
   closes) needs `domain.GatePermission` of its kind on its project. Only
   people resolve gates: a person, or an ownerless token, which is a person's
   until it gets its owner. Service accounts, workers and agents never do,
-  whatever role they hold. Until knowledge proposals are built, every
-  `knowledge_proposal` gate counts as protected.
+  whatever role they hold. A `knowledge_proposal` gate is protected when one
+  of the proposals linked to it through `gate_id` is in a protected section,
+  by the policy of now; a gate without proposals, or one that cannot be
+  placed or read, counts as protected.
 - **The one exception on gates:** a PR merged or closed on GitHub resolves
   the `profile_approval`, `merge_approval` and `knowledge_proposal` gates
   whose subject it is, approved or rejected, as the actor `github:github`, and
@@ -170,8 +172,7 @@ knowledge) and **Viewer** (`viewer`: reads every project). Project roles:
 without `project.manage`), **Contributor** (`contributor`: creates goals and
 jobs, starts councils, resolves spec, council, assumption, non-protected
 knowledge and `needs_you` gates, but not merges, profiles, test plans,
-protected knowledge, access requests or improvement proposals; every
-knowledge gate counts as protected for now, so none of them in practice) and
+protected knowledge, access requests or improvement proposals) and
 **Viewer** (`viewer`: reads the project).
 
 | Permission | Owner | Admin | Billing | Member | Viewer | Project admin | Maintainer | Contributor | Project viewer |

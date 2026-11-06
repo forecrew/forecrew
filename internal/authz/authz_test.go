@@ -391,7 +391,7 @@ func TestGates(t *testing.T) {
 		{gate(domain.GateSpecApproval, f.app), true},
 		{gate(domain.GateMergeApproval, f.app), false},
 		{gate(domain.GateSpecApproval, f.api), false},
-		{gate(domain.GateKnowledgeProposal, f.app), false}, // counts as protected
+		{gate(domain.GateKnowledgeProposal, f.app), false}, // without a Protection every one counts as protected
 		{gate("unknown", f.app), false},
 	} {
 		can, err := f.engine.CanResolve(ctx, by, tt.g)
@@ -416,6 +416,47 @@ func TestGates(t *testing.T) {
 	}
 	if err := f.engine.AuthorizeGate(ctx, robot, g); !errors.Is(err, authz.ErrDenied) {
 		t.Errorf("service account resolves: %v", err)
+	}
+}
+
+// protectionFunc answers for the proposals of a gate.
+type protectionFunc func(domain.Gate) (bool, error)
+
+func (f protectionFunc) GateProtected(_ context.Context, g domain.Gate) (bool, error) { return f(g) }
+
+func TestKnowledgeGatesFollowTheirProposals(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	by, id := f.user(t)
+	testkit.Bind(t, f.st, f.account, domain.SubjectUser, id, domain.RoleScopeProject, domain.RoleContributor, f.app.ID)
+	g := domain.Gate{AccountID: f.account, ProjectID: f.app.ID, Kind: domain.GateKnowledgeProposal}
+	for _, tt := range []struct {
+		name      string
+		protected bool
+		err       error
+		want      domain.Permission
+		can       bool
+	}{
+		{"not protected", false, nil, domain.PermGateApproveKnowledge, true},
+		{"protected", true, nil, domain.PermGateApproveKnowledgeProtected, false},
+		{"unknown", false, errors.New("boom"), domain.PermGateApproveKnowledgeProtected, false}, // never the weaker permission
+	} {
+		e := authz.New(f.st, nil).WithProtection(protectionFunc(func(domain.Gate) (bool, error) { return tt.protected, tt.err }))
+		if got := e.GatePermission(ctx, g); got != tt.want {
+			t.Errorf("%s: permission = %s", tt.name, got)
+		}
+		can, err := e.CanResolve(ctx, by, g)
+		if err != nil || can != tt.can {
+			t.Errorf("%s: can = %v, %v", tt.name, can, err)
+		}
+		if err := e.AuthorizeGate(ctx, by, g); (err == nil) != tt.can {
+			t.Errorf("%s: authorize = %v", tt.name, err)
+		}
+	}
+	// Other kinds never ask.
+	e := authz.New(f.st, nil).WithProtection(protectionFunc(func(domain.Gate) (bool, error) { t.Error("asked"); return true, nil }))
+	if got := e.GatePermission(ctx, domain.Gate{Kind: domain.GateMergeApproval}); got != domain.PermGateApproveMerge {
+		t.Errorf("permission = %s", got)
 	}
 }
 

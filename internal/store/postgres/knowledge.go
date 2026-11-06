@@ -360,6 +360,7 @@ func (r knowledgeProposalRepo) List(ctx context.Context, accountID uuid.UUID, f 
 	andNot(w, "goal_id = ?", f.GoalID)
 	andNot(w, "job_id = ?", f.JobID)
 	andNot(w, "change_id = ?", f.ChangeID)
+	andNot(w, "gate_id = ?", f.GateID)
 	andNot(w, "batch = ?", string(f.Batch))
 	andNot(w, "status = ?", string(f.Status))
 	return many(ctx, r.db, scanKnowledgeProposal, `SELECT `+knowledgeProposalCols+` FROM knowledge_proposals`+w.sql("number", f.Limit), w.args...)

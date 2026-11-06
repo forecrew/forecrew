@@ -231,7 +231,7 @@ func New(d Deps) (*App, error) {
 		Registers: regs, Councils: seats, Logger: log,
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
-	access := authz.New(st, log)
+	access := authz.New(st, log).WithProtection(kbProposals)
 	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Authz: access, Tracker: d.GitHub, Knowledge: syncs, Proposals: kbProposals, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
 	jobGateway := jobmcp.New(jobmcp.Config{
 		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Search: search, Notes: notes, Proposals: kbProposals, Logger: log, Version: d.Version, Now: d.Now,
