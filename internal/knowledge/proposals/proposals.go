@@ -367,6 +367,32 @@ func (s *Service) JobCompleted(ctx context.Context, tx store.Store, j domain.Job
 	return nil
 }
 
+// JobFailed implements jobs.FailureRegistrar: a job that failed or was
+// canceled never sends its standalone proposals, so they are rejected in the
+// transaction that ends it instead of waiting queued for ever. The per_goal
+// proposals of a job wait for the goal's learn step, which decides what to
+// do with them. Rejecting is idempotent.
+func (s *Service) JobFailed(ctx context.Context, tx store.Store, j domain.Job) error {
+	queued, err := tx.KnowledgeProposals().List(ctx, j.AccountID, store.KnowledgeProposalFilter{
+		JobID: j.ID, Batch: domain.BatchStandalone, Status: domain.KnowledgeQueued,
+	})
+	if err != nil {
+		return fmt.Errorf("list proposals of %s: %w", j.Ref(), err)
+	}
+	for _, k := range queued {
+		from := k.Status
+		k.Status = domain.KnowledgeRejected
+		if err := tx.KnowledgeProposals().Update(ctx, &k, from); err != nil {
+			return err
+		}
+		why := map[string]any{"why": "the job " + string(j.Status) + ", so its proposals were not sent"}
+		if err := audit(ctx, tx, k, domain.SystemActor(k.AccountID, domain.ForecrewdName).String(), "knowledge.proposal_rejected", why); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // startRun stores a run for the engine's sweep to advance. It works in a
 // caller's transaction, which Engine.Start does not.
 func startRun(ctx context.Context, tx store.Store, playbook string, accountID, projectID, goalID, taskID uuid.UUID, inputs map[string]any) error {

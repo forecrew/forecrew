@@ -273,7 +273,9 @@ protected is `per_goal`: it stays `queued` for the goal's learn PR (T39). The
 others are `standalone`. In the transaction that finishes a job successfully,
 forecrewd stores one run of the playbook `knowledge-proposal` per provider
 with such proposals, so a crash loses none. The standalone proposals of a job
-that fails or is canceled are not sent and stay `queued`.
+that fails or is canceled are not sent: they are rejected in the transaction
+that ends the job (`knowledge.proposal_rejected`). Its per_goal proposals stay
+`queued` for the learn step.
 
 **Review.** The repo provider's review flow is one PR `agent/kb-<job>`
 written by forecrewd through the GitHub API, which needs no agent run. A
