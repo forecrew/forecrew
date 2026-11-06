@@ -637,6 +637,7 @@ func TestImageValidate(t *testing.T) {
 		{"arch", func(i *Image) { i.Arch = "" }, "arch"},
 		{"format", func(i *Image) { i.Format = "iso" }, "format"},
 		{"relative uri", func(i *Image) { i.URI = "a/b" }, "uri"},
+		{"unknown scheme", func(i *Image) { i.URI = "ftp://example.com/a" }, "scheme"},
 		{"credentials in the uri", func(i *Image) { i.URI = "https://u:p@example.com/a" }, "uri"},
 		{"digest", func(i *Image) { i.Digest = "md5:abc" }, "digest"},
 		{"unsigned", func(i *Image) { i.Signature = "" }, "signature"},
@@ -662,14 +663,24 @@ func TestImageValidate(t *testing.T) {
 // not fit another one.
 func TestImageSigningPayload(t *testing.T) {
 	i := validImage()
-	want := "forecrew-linux\n2026.11.1\nlinux\namd64\nrootfs\n" + i.Digest + "\n"
+	i.BuiltAt = time.Date(2026, 11, 1, 10, 0, 0, 999, time.UTC)
+	want := "forecrew-linux\n2026.11.1\nlinux\namd64\nrootfs\n" + i.Digest + "\n" + i.Contents.Kernel.Digest + "\n2026-11-01T10:00:00Z\n"
 	if got := string(i.SigningPayload()); got != want {
 		t.Fatalf("payload = %q", got)
 	}
-	other := i
-	other.Version = "2"
-	if string(other.SigningPayload()) == want {
-		t.Fatal("the version is not signed")
+	for name, change := range map[string]func(*Image){
+		"version": func(x *Image) { x.Version = "2" },
+		"kernel": func(x *Image) {
+			x.Contents.Kernel = &ImageKernel{URI: "https://k", Digest: "sha256:" + strings.Repeat("9", 64)}
+		},
+		"no kernel":  func(x *Image) { x.Contents.Kernel = nil },
+		"build date": func(x *Image) { x.BuiltAt = x.BuiltAt.Add(time.Hour) },
+	} {
+		other := i
+		change(&other)
+		if string(other.SigningPayload()) == want {
+			t.Errorf("%s is not signed", name)
+		}
 	}
 }
 

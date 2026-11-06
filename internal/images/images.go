@@ -182,9 +182,28 @@ func FileDigest(path string) (string, error) {
 	return Digest(f)
 }
 
+// VerifyKernel checks that the kernel file fetched to path is the one the
+// image's signed kernel digest names. An image without a kernel (anything but
+// rootfs) fails: there is nothing the signature vouches for.
+func VerifyKernel(img domain.Image, path string) error {
+	if img.Contents.Kernel == nil {
+		return fmt.Errorf("image %s@%s has no kernel to check: %w", img.Name, img.Version, ErrDigest)
+	}
+	got, err := FileDigest(path)
+	if err != nil {
+		return err
+	}
+	if got != img.Contents.Kernel.Digest {
+		return fmt.Errorf("image %s@%s kernel: %w (file is %s, signed is %s)", img.Name, img.Version, ErrDigest, got, img.Contents.Kernel.Digest)
+	}
+	return nil
+}
+
 // VerifyFile is what a fleet agent does before it first uses an image it
-// fetched to path: the signature must be valid for a trusted key, and the
-// file must be the one the signed digest names.
+// fetched to path: the signature, which covers the image's digest, its
+// kernel's digest and its build time, must be valid for a trusted key, and
+// the file must be the one the signed digest names. A rootfs image's kernel
+// is checked with VerifyKernel.
 func VerifyFile(img domain.Image, path string, keys []ed25519.PublicKey) error {
 	if err := Verify(img, keys); err != nil {
 		return err

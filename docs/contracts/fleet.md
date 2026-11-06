@@ -354,7 +354,7 @@ the sum of what applies.
 ## Images
 
 `images` (`domain.Image`): `name`, `version`, `os`, `arch`, `format` (`rootfs`,
-`qcow2`, `vhdx`, `ami`, `tart`), `uri` (where to fetch it, without credentials;
+`qcow2`, `vhdx`, `ami`, `tart`), `uri` (where to fetch it, without credentials, with a scheme of `https`, `http`, `s3`, `gs`, `file`, `oci` or `ami`;
 an AMI is `ami:<region>/<id>`), `digest` (`sha256:<hex>` of the image file; for
 an AMI or a Tart image, which are not one file, of the build's manifest),
 `signature`,
@@ -363,9 +363,12 @@ organization registers its own builds under its ID. The manifest of a build is
 `$defs/image` of fleet.schema.json.
 
 - `signature` is `ed25519:<base64>` over `Image.SigningPayload` (name, version,
-  os, arch, format and digest, one per line), so a signature fits one image
-  only. The fleet agent checks it, and the digest, against the public keys it
-  trusts before first use, and refuses the machine otherwise.
+  os, arch, format, digest, the kernel's digest on a `rootfs` image and the
+  build time to the second, one per line), so a signature fits one image only
+  and neither the kernel nor the build date can be changed under it. The fleet
+  agent checks it, and the digests of the image file and of the kernel file,
+  against the public keys it trusts before first use, and refuses the machine
+  otherwise.
 - **Who signs.** Forecrew's images are signed in the release pipeline with the
   project's key, and an instance's own with its operator's; agents trust the
   matching public keys. An organization's images are signed by a person of that

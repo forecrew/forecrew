@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/testkit"
 )
 
 func signedImage(t *testing.T, path string, key ed25519.PrivateKey) domain.Image {
@@ -128,5 +130,54 @@ func TestKeys(t *testing.T) {
 		if _, err := ParsePrivateKey([]byte(bad)); err == nil {
 			t.Errorf("ParsePrivateKey(%q) accepted", bad)
 		}
+	}
+}
+
+func TestSignatureCoversKernelAndBuildTime(t *testing.T) {
+	pub, key, _ := GenerateKey()
+	kernel := writeFile(t, "vmlinux", "kernel")
+	kd, _ := FileDigest(kernel)
+	img := testkit.TestImage(uuid.Nil(), "linux", "1", time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC))
+	img.Contents.Kernel.Digest = kd
+	img.Signature = Sign(key, img)
+	keys := []ed25519.PublicKey{pub}
+	if err := Verify(img, keys); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyKernel(img, kernel); err != nil {
+		t.Fatalf("right kernel: %v", err)
+	}
+
+	// An organization admin swaps the kernel under an instance image: the
+	// manifest still names a kernel, but not the one that was signed.
+	swapped := img
+	swapped.Contents.Kernel = &domain.ImageKernel{URI: img.Contents.Kernel.URI, Digest: "sha256:" + strings.Repeat("ee", 32)}
+	if err := Verify(swapped, keys); !errors.Is(err, ErrSignature) {
+		t.Errorf("swapped kernel digest: %v", err)
+	}
+	// Or leaves the digest and serves another file.
+	other := writeFile(t, "other", "another kernel")
+	if err := VerifyKernel(img, other); !errors.Is(err, ErrDigest) {
+		t.Errorf("another kernel file: %v", err)
+	}
+	// A re-dated build is another signature.
+	redated := img
+	redated.BuiltAt = img.BuiltAt.Add(48 * time.Hour)
+	if err := Verify(redated, keys); !errors.Is(err, ErrSignature) {
+		t.Errorf("re-dated build: %v", err)
+	}
+	// Sub-second precision, which the database drops, does not matter.
+	precise := img
+	precise.BuiltAt = img.BuiltAt.Add(123456789)
+	if err := Verify(precise, keys); err != nil {
+		t.Errorf("sub-second build time: %v", err)
+	}
+	noKernel := img
+	noKernel.Contents.Kernel = nil
+	if err := VerifyKernel(noKernel, kernel); !errors.Is(err, ErrDigest) {
+		t.Errorf("no kernel: %v", err)
+	}
+	if err := VerifyKernel(img, filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Error("missing kernel verified")
 	}
 }
