@@ -63,6 +63,20 @@ func (r accountRepo) SetMaxTokenTTL(_ context.Context, id uuid.UUID, ttl time.Du
 	})
 }
 
+func (r accountRepo) Rename(_ context.Context, id uuid.UUID, name, slug string) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		if d.accounts.exists(func(a domain.Account) bool { return a.ID != id && a.Slug == slug }) {
+			return fmt.Errorf("slug %s: %w", slug, store.ErrConflict)
+		}
+		a, err := d.accounts.get(id, id)
+		if err != nil {
+			return err
+		}
+		a.Name, a.Slug = name, slug
+		return nil
+	})
+}
+
 // Projects implements store.Store.
 func (s *Store) Projects() store.ProjectRepo { return projectRepo{s} }
 

@@ -79,6 +79,18 @@ func (s *Store) WithTx(ctx context.Context, fn func(ctx context.Context, tx stor
 // Accounts implements store.Store.
 func (s *Store) Accounts() store.AccountRepo { return accountRepo{s.db} }
 
+// ConfigPlans implements store.Store.
+func (s *Store) ConfigPlans() store.ConfigPlanRepo { return configPlanRepo{s.db} }
+
+// ConfigSettings implements store.Store.
+func (s *Store) ConfigSettings() store.ConfigSettingRepo { return configSettingRepo{s.db} }
+
+// Secrets implements store.Store.
+func (s *Store) Secrets() store.SecretRepo { return secretRepo{s.db} }
+
+// Conversations implements store.Store.
+func (s *Store) Conversations() store.ConversationRepo { return conversationRepo{s.db} }
+
 // Projects implements store.Store.
 func (s *Store) Projects() store.ProjectRepo { return projectRepo{s.db} }
 

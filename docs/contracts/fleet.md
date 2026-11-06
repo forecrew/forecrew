@@ -76,8 +76,8 @@ arch and that the provider starts its format.
 where the machines are (fleet-agent-api.md). `Shape.Validate` refuses, at any
 depth, a key that looks like a secret (`*token*`, `*secret*`, `*password*`,
 `*credential*`, `*private_key*`, `*api_key*`, `*access_key*`) unless its value
-is a reference (`env:NAME`, `secret:name`, `domain.ValidSecretRef`), which the
-fleet agent resolves on its own host, and any value shaped like a credential
+is a reference (`env:NAME` or `secret:name`; not `store:name`, the secret
+store of forecrewd), which the fleet agent resolves on its own host, and any value shaped like a credential
 (`domain.SecretPatterns`). `fleet.schema.json` says the first half too.
 
 Keys of `provider_config` by kind; each provider owns its keys and refuses

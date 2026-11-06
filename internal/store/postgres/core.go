@@ -68,6 +68,10 @@ func (r accountRepo) SetMaxTokenTTL(ctx context.Context, id uuid.UUID, ttl time.
 	return mustUpdate(ctx, r.db, `UPDATE accounts SET max_token_ttl = $2 WHERE id = $1`, id, opt(ttl))
 }
 
+func (r accountRepo) Rename(ctx context.Context, id uuid.UUID, name, slug string) error {
+	return mustUpdate(ctx, r.db, `UPDATE accounts SET name = $2, slug = $3 WHERE id = $1`, id, name, slug)
+}
+
 func (r accountRepo) Get(ctx context.Context, id uuid.UUID) (domain.Account, error) {
 	return one(ctx, r.db, scanAccount, `SELECT `+accountCols+` FROM accounts WHERE id = $1`, id)
 }

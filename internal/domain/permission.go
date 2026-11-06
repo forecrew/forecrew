@@ -28,6 +28,8 @@ const (
 	PermWorkerRead           Permission = "worker.read"   // workers, machines, providers, shapes, images and fleet usage
 	PermWorkerManage         Permission = "worker.manage" // workers, capacity providers, shapes, the fleet policy and images, except budget fields; shown as Manage machines
 	PermPoolManage           Permission = "pool.manage"
+	PermConfigRead           Permission = "config.read"    // configuration resources, within what the caller may read of each
+	PermConfigApply          Permission = "config.apply"   // change plans; applying also needs what each resource needs
 	PermProjectCreate        Permission = "project.create" // onboard a repo
 
 	PermProjectRead       Permission = "project.read"   // the project, its profile, councils, registers, knowledge and proposals
@@ -105,6 +107,8 @@ var permissionTable = map[Permission]permissionInfo{
 	PermWorkerRead:           {ScopeRead, false},
 	PermWorkerManage:         {ScopeAdmin, false},
 	PermPoolManage:           {ScopeAdmin, false},
+	PermConfigRead:           {ScopeRead, false},
+	PermConfigApply:          {ScopeWrite, false},
 	PermProjectCreate:        {ScopeWrite, false},
 
 	PermProjectRead:       {ScopeRead, true},
@@ -297,11 +301,11 @@ func BuiltInRoles() []Role {
 	return []Role{
 		role(RoleOwner, RoleScopeOrganization, "Everything, including ownership and billing", all...),
 		role(RoleAdmin, RoleScopeOrganization, "Everything but ownership and billing", without(all, PermOrgManage, PermBillingManage)...),
-		role(RoleBilling, RoleScopeOrganization, "Billing only", PermOrgRead, PermBillingManage),
+		role(RoleBilling, RoleScopeOrganization, "Billing only", PermOrgRead, PermBillingManage, PermConfigRead, PermConfigApply),
 		role(RoleMember, RoleScopeOrganization, "Reads every project, creates goals and proposes knowledge",
-			append([]Permission{PermOrgRead, PermWorkerRead, PermGoalCreate, PermKnowledgePropose}, projectReads...)...),
+			append([]Permission{PermOrgRead, PermWorkerRead, PermGoalCreate, PermKnowledgePropose, PermConfigRead, PermConfigApply}, projectReads...)...),
 		role(RoleViewer, RoleScopeOrganization, "Reads every project",
-			append([]Permission{PermOrgRead, PermWorkerRead}, projectReads...)...),
+			append([]Permission{PermOrgRead, PermWorkerRead, PermConfigRead}, projectReads...)...),
 		role(RoleProjectAdmin, RoleScopeProject, "Everything on the project, its access included", projectAll...),
 		role(RoleMaintainer, RoleScopeProject, "Runs the project and resolves every gate", maintainer...),
 		role(RoleContributor, RoleScopeProject, "Creates goals and jobs, approves specs, councils and questions, not merges", contributor...),

@@ -366,3 +366,30 @@ func TestSplitProviderModel(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigPlan(t *testing.T) {
+	now := time.Now()
+	p := ConfigPlan{Status: ConfigPlanPending, ExpiresAt: now.Add(time.Hour), Changes: []ConfigChange{{Kind: "team"}, {Kind: "pool"}, {Kind: "team"}}}
+	if got := p.StatusAt(now); got != ConfigPlanPending {
+		t.Errorf("StatusAt = %s", got)
+	}
+	if got := p.StatusAt(now.Add(2 * time.Hour)); got != ConfigPlanExpired {
+		t.Errorf("StatusAt after expiry = %s", got)
+	}
+	p.Status = ConfigPlanApplied
+	if got := p.StatusAt(now.Add(2 * time.Hour)); got != ConfigPlanApplied {
+		t.Errorf("an applied plan does not expire: %s", got)
+	}
+	if got := p.Kinds(); !slices.Equal(got, []string{"pool", "team"}) {
+		t.Errorf("Kinds = %v", got)
+	}
+	if _, err := ConfigPlanApplied.Transition(ConfigPlanPending); !errors.Is(err, ErrInvalidTransition) {
+		t.Errorf("Transition = %v", err)
+	}
+	if len(ConfigPlanStatuses()) != 5 || len(ConfigPlanSources()) != 5 {
+		t.Error("statuses or sources changed")
+	}
+	if !ConfigFromMCP.BrowserOnly() || !ConfigFromAssistant.BrowserOnly() || ConfigFromCLI.BrowserOnly() {
+		t.Error("BrowserOnly")
+	}
+}

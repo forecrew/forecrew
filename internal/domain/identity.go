@@ -228,6 +228,9 @@ var (
 const (
 	SecretRefEnv  = "env:"    // an environment variable of forecrewd
 	SecretRefFile = "secret:" // a file under /run/secrets
+	// SecretRefStore names a value of the secret store (internal/secrets),
+	// in the organization of what refers to it.
+	SecretRefStore = "store:"
 )
 
 // The namespace of an organization's connections. Whoever manages such a
@@ -240,24 +243,49 @@ const (
 
 // ValidSecretRef reports whether ref names a secret instead of holding one:
 // "env:NAME" with an environment variable name (uppercase letters, digits
-// and '_'), or "secret:name" with a lowercase secret name. Any other string,
-// a secret value in particular, is refused.
+// and '_'), "secret:name" with a lowercase secret name, or "store:name", a
+// value of the secret store. Any other string, a secret value in particular,
+// is refused.
 func ValidSecretRef(ref string) bool {
+	if _, ok := StoreSecretName(ref); ok {
+		return true
+	}
+	return validHostSecretRef(ref)
+}
+
+// validHostSecretRef reports whether ref is one a host resolves on its own:
+// "env:NAME" or "secret:name". A fleet agent has no way to the secret store.
+func validHostSecretRef(ref string) bool {
 	if name, ok := strings.CutPrefix(ref, SecretRefEnv); ok {
 		return envRefRE.MatchString(name)
 	}
 	if name, ok := strings.CutPrefix(ref, SecretRefFile); ok {
-		return secretRefRE.MatchString(name) && !strings.Contains(name, "..")
+		return validSecretName(name)
 	}
 	return false
 }
 
+func validSecretName(name string) bool {
+	return secretRefRE.MatchString(name) && !strings.Contains(name, "..")
+}
+
+// StoreSecretName returns the name of a "store:name" reference, and false
+// for anything else.
+func StoreSecretName(ref string) (string, bool) {
+	name, ok := strings.CutPrefix(ref, SecretRefStore)
+	return name, ok && validSecretName(name)
+}
+
 // ValidOrganizationSecretRef reports whether ref is a ValidSecretRef in the
-// namespace of organizations' connections: "env:FORECREW_CONN_NAME" or
-// "secret:conn-name".
+// namespace of organizations' connections: "env:FORECREW_CONN_NAME",
+// "secret:conn-name", or "store:name", which only reaches the organization's
+// own values.
 func ValidOrganizationSecretRef(ref string) bool {
 	if !ValidSecretRef(ref) {
 		return false
+	}
+	if _, ok := StoreSecretName(ref); ok {
+		return true
 	}
 	for _, prefix := range []string{OrganizationSecretEnv, OrganizationSecretFile} {
 		if name, ok := strings.CutPrefix(ref, prefix); ok && name != "" {
@@ -280,9 +308,9 @@ func (c Connection) Validate() error {
 	p.checkText("client_id", c.ClientID)
 	switch {
 	case !ValidSecretRef(c.ClientSecretRef):
-		p.addf("client_secret_ref must be env:NAME or secret:name; the secret itself is never stored")
+		p.addf("client_secret_ref must be env:NAME, secret:name or store:name; the secret itself is never stored")
 	case c.AccountID != uuid.Nil() && !ValidOrganizationSecretRef(c.ClientSecretRef):
-		p.addf("client_secret_ref of an organization's connection must start with %s or %s", OrganizationSecretEnv, OrganizationSecretFile)
+		p.addf("client_secret_ref of an organization's connection must start with %s, %s or %s", OrganizationSecretEnv, OrganizationSecretFile, SecretRefStore)
 	}
 	switch c.Kind {
 	case ConnectionGitHub:
