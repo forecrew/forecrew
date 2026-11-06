@@ -173,7 +173,7 @@ func TestJobShowPrintsContext(t *testing.T) {
 func TestJobTestsStripsControlCharacters(t *testing.T) {
 	e := newRemoteEnv(t)
 	e.svc.ListTestRunsFunc = func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error) {
-		return []mcp.TestRunInfo{{TestRun: domain.TestRun{Suite: "un\x1b[2Jit", Status: domain.TestRunFailed, SHA: "abc"},
+		return []mcp.TestRunInfo{{Suite: "un\x1b[2Jit", Status: domain.TestRunFailed, SHA: "abc",
 			Failures: []domain.TestResult{{Name: "T\x07est\r", Classname: "c\x1b]0;title\x07", Status: domain.TestFailed, Message: "\x1b[31mred\x1b[0m\x00"}}}}, nil
 	}
 	out, _, code := e.run(t, "job", "tests", "JOB-1")

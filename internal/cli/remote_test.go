@@ -23,6 +23,7 @@ const apiToken = "fcm_cli-test"
 
 type remoteEnv struct {
 	svc    *testkit.ToolService
+	images *fakeImageAdmin
 	server *httptest.Server
 	env    Env
 }
@@ -37,8 +38,8 @@ func newRemoteEnv(t *testing.T) *remoteEnv {
 	if err := st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: acc.ID, Name: "cli", TokenHash: mcp.HashToken(apiToken)}); err != nil {
 		t.Fatal(err)
 	}
-	e := &remoteEnv{svc: &testkit.ToolService{}}
-	handler := api.New(api.Config{Tools: e.svc, Artifacts: e.svc, Store: st, Authz: authz.New(st, nil), Logger: slog.New(slog.DiscardHandler)}).Handler()
+	e := &remoteEnv{svc: &testkit.ToolService{}, images: &fakeImageAdmin{}}
+	handler := api.New(api.Config{Tools: e.svc, Artifacts: e.svc, Images: e.images, Store: st, Authz: authz.New(st, nil), Logger: slog.New(slog.DiscardHandler)}).Handler()
 	e.server = httptest.NewServer(handler)
 	t.Cleanup(e.server.Close)
 	vars := map[string]string{EnvURL: e.server.URL, EnvToken: apiToken}

@@ -192,6 +192,7 @@ func (r *remote) commands() []*cobra.Command {
 		verificationCommand(r),
 		qualityCommand(r),
 		traceCommand(r),
+		imageCommand(r),
 	}
 }
 
