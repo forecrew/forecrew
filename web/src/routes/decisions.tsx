@@ -43,7 +43,7 @@ function DecisionCard({ decision: d, project }: { decision: Decision; project?: 
             Rests on <span className="font-mono">{d.assumptions.join(", ")}</span>
           </p>
         ) : null}
-        <p>
+        <p className="flex flex-wrap gap-x-4">
           {d.council_id ? (
             <Link to="/councils/$ref" params={{ ref: d.council_id }} className="text-primary underline underline-offset-2">
               Open the council
@@ -51,6 +51,11 @@ function DecisionCard({ decision: d, project }: { decision: Decision; project?: 
           ) : (
             <span className="text-muted-foreground">Not decided by a council.</span>
           )}
+          {d.goal_id ? (
+            <Link to="/goals/$ref" params={{ ref: d.goal_id }} hash="gates" className="text-primary underline underline-offset-2">
+              Open its gate on the goal
+            </Link>
+          ) : null}
         </p>
       </CardContent>
     </Card>
