@@ -293,6 +293,15 @@ func (s *Service) learnNumber(ctx context.Context, p domain.Project, goal domain
 	return number, nil
 }
 
+// learnGate returns the gate whose ID is given as text.
+func (s *Service) learnGate(ctx context.Context, accountID uuid.UUID, gate string) (domain.Gate, error) {
+	id, err := uuid.Parse(gate)
+	if err != nil {
+		return domain.Gate{}, fmt.Errorf("gate %q: %w", gate, err)
+	}
+	return s.Gates.Get(ctx, accountID, id)
+}
+
 // LearnDecide applies the human's decision on the learn gate: anything but an
 // approval closes the learn PR and rejects the proposals; an approval accepts
 // the proposals of providers that have no review flow (a human copied them
@@ -305,11 +314,7 @@ func (s *Service) LearnDecide(ctx context.Context, b LearnBatch, gate string) (L
 		return out, err
 	}
 	if gate != "" {
-		id, err := uuid.Parse(gate)
-		if err != nil {
-			return out, fmt.Errorf("gate %q: %w", gate, err)
-		}
-		g, err := s.Gates.Get(ctx, b.AccountID, id)
+		g, err := s.learnGate(ctx, b.AccountID, gate)
 		if err != nil {
 			return out, err
 		}
