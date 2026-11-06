@@ -337,15 +337,18 @@ when a changed file matches (the error names the files), and the prompt lists
 them. A developer that believes a locked test is wrong escalates with the
 test and the reason (its `escalation`) instead of changing it. That
 escalation opens a `needs_you` gate; when a human approves it, the developer
-runs again with `locked_paths` empty for that round (the playbook passes `[]`
-for the round the gate decision allows), and the lock is back in the next
-rounds. Without approval the lock stays. The goal playbook wires this (T29).
+runs again with `locked_paths` empty for that round (`tests.locked_paths` with
+`iteration` above 1 gives `[]`), and the lock is back in the next rounds.
+Without approval the lock stays. `goal-v2` wires this
+([The goal playbook with testing](#the-goal-playbook-with-testing)).
 
 Limit: the lock covers the files the test engineer wrote. A locked test can
 still be neutralised without touching it, for example by a new `conftest.py`
 or a change of the runner's configuration. The goal playbook must therefore
-treat a new test that is missing from the results at `head` as a failure
-(T29), and the reviewer sees the diff.
+treat a new test that is missing from the results at `head` as a failure:
+`goal-v2` does, since a criterion whose test did not run in a finished required
+cell blocks the verification report ([Verification](#verification)), and the
+reviewer sees the diff and the report.
 
 The fail-on-base check shows every new test fails without the change: the new
 test files from `head` are run on `base` (`tests.base_check_request`) and
@@ -418,7 +421,7 @@ reason its `escalate_when` lists). The test plan section holds
 `.forecrew/matrix.yaml`, `.forecrew/test-strategy.md` and every environment
 file the matrix's rules name, read from GitHub at the job branch when the
 matrix is there and at the base otherwise; files not written yet are marked
-missing. The `onboarding-tests` playbook runs `test-architect` and `environment-engineer`; the goal playbook will use `test-engineer`.
+missing. The `onboarding-tests` playbook runs `test-architect` and `environment-engineer`; the goal playbook with testing (`goal-v2`) runs `test-engineer`, and `test-architect` when the matrix must change for a task.
 
 The council roles (`facilitator`, `devils-advocate`, `market-researcher`,
 `security-reviewer`, `ux`) and the council packs that seat them, with other
@@ -673,3 +676,81 @@ merged.
 - An issue is created, then its number is recorded. If forecrewd dies between
   the two, the repeated action opens a second issue for the goal or the task;
   the tracker offers no search to find the first.
+
+## The goal playbook with testing
+
+`packs/playbooks/goal-v2.yaml` is the goal playbook with the testing system. It
+takes the same inputs as `goal`. It is off for every project: `create_goal`
+starts it only for the projects listed in `testing.projects` of forecrew.yaml
+([config.md](contracts/config.md)). Every other project, and every goal that
+already runs, keeps `goal`, whose file did not change.
+
+It is `goal` with these differences, task by task:
+
+1. **Tests before the code.** A loop of at most two rounds (a needs_you gate
+   for a third): a `test-engineer` job on the task's branch `agent/TASK-n`,
+   which writes tests only, and `tests.map`, which says whether the tests are
+   ready (the engineer did not escalate and every criterion has a test or an
+   untestable reason). An engineer that stops because the matrix or a suite
+   must change first (its escalation mentions the matrix or a suite) is
+   answered by a `test-architect` job on the same branch, and the next round of
+   the engineer gets its reason as feedback. The architect's task has no field
+   that says the matrix must change; only the engineer's report does. Rule of
+   thumb: the matrix changes only when a task adds a platform, service or
+   suite.
+2. **Locked developer rounds.** `tests.locked_paths` gives the developer's job
+   the files of every test engineer job of the task as `locked_paths`. A
+   developer that changes one fails its job, which opens a needs_you gate whose
+   text names the files; approving it reruns the job, with the lock. A
+   developer that believes a locked test is wrong escalates instead: the dev
+   loop runs out of its round, a needs_you gate asks, and approving it reruns
+   the developer without the lock for that round (the gate cannot tell which
+   escalation it was, so read the reason on the task's issue before you
+   approve). The next round has the lock again.
+3. **Verification of every head**, after the checks of the head completed, in a
+   loop of at most three rounds:
+   - `matrix.plan` (scope `required`, plus the suites of the new tests, with
+     `only_runnable`) and a parallel `foreach` of command jobs on the head, at
+     most eight at a time;
+   - `tests.base_check_request` (with `only_runnable`), a parallel `foreach`
+     of its jobs and `tests.base_check_result`, which compares the runs with the
+     requests, so a new test whose base check did not run everywhere is not
+     checked;
+   - `verification.build`, `verification.rerun_cells` and a `foreach` of the
+     failed required cells once more, `verification.build` again, and
+     `verification.read`.
+
+   A report with the status `incomplete` after that (a cell or a base check no
+   online worker can run, which is never started, because a queued job nobody
+   can lease would hold the run forever) opens a needs_you gate that names the
+   missing pools and labels. Bring a worker online and approve: the matrix runs
+   again. A `failed` report is complete: it is rework. A job of the matrix that
+   fails (an environment that cannot be built, a timeout) opens a needs_you
+   gate, and approving it runs the job again.
+4. **Review and assess.** The reviewer's job gets the report's summary and what
+   blocks as feedback (what comes from the repo is quoted as untrusted data).
+   `goal.assess` runs with `require_verification`: a `failed` report is
+   rework feedback for the developer with the blocking reasons, and the
+   `merge_approval` gate's summary has the report's status and where to read it.
+5. **Merge.** `github.merge_pr` runs with `require_verification`: it merges only
+   a head whose stored report has the status `passed`. The report's status
+   decides, not the check run `forecrew/verification`, because an incomplete
+   report is a neutral check run and neutral counts as passed in the check
+   status.
+
+### Limits of goal-v2
+
+- Per task, at most two rounds of test design before the developer, then at
+  most three build rounds per delivery and five deliveries, as in `goal`.
+- Per round, the verification starts at most one command job per cell and
+  suite of the matrix (at most 256, `matrix.MaxJobs`), one per suite and
+  environment of the new tests for the base check, and one rerun of each
+  failed required result, and the loop may repeat that three times (more after
+  a gate approves it). Mind the cost of a large matrix: it multiplies by the
+  rounds, and by the minutes of the `actions` pool.
+- The lock covers the files of the test engineer, not a new `conftest.py` or a
+  change of the runner's configuration, which the reviewer and the base check
+  must catch (see [Locked tests](#locked-tests)).
+- An environment the matrix needs and the repo lacks stays a failure of
+  `matrix.plan` or `verification.build` for a human; the playbook does not run
+  the `environment-engineer`.
