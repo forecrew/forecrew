@@ -47,6 +47,10 @@ type JobRequest struct {
 	// ProposalReview makes the job the review of a knowledge proposal by the
 	// section's owner role: read-only, with the reviewer's verdict as output.
 	ProposalReview bool `json:"proposal_review,omitempty" yaml:"proposal_review,omitempty"`
+	// Task makes the job a task of the role instead of its usual work (a
+	// packs/tasks file, roles.Task): the knowledge curator's retro or
+	// curate. Read-only, with the task's instructions and output schema.
+	Task string `json:"task,omitempty" yaml:"task,omitempty"`
 	// Council makes the job a turn of a council: the creator replaces the
 	// role's job with the council step's (councils.Set.Job).
 	Council *CouncilTurn `json:"council,omitempty" yaml:"council,omitempty"`

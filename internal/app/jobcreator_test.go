@@ -496,6 +496,38 @@ func TestJobCreatorProposalReview(t *testing.T) {
 	}
 }
 
+// The curator's retro and curation are read-only jobs of its role with the
+// task's own instructions and schema; no other role has them.
+func TestJobCreatorTasks(t *testing.T) {
+	f := newFixture(t)
+	for _, task := range []string{"retro", "curate"} {
+		req := f.request("knowledge-curator")
+		req.Task, req.Feedback = task, "the history"
+		id, err := f.creator.Create(t.Context(), req)
+		must(t, err)
+		j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+		must(t, err)
+		if j.Role != "knowledge-curator" || len(j.Spec.WritePaths) != 0 || !strings.Contains(j.Spec.Prompt, "the history") ||
+			!slices.Contains(j.Spec.AllowedTools, runtime.JobMCPTool("kb_propose")) || !strings.Contains(string(j.Spec.OutputSchema), "proposals") {
+			t.Errorf("%s: job = %+v", task, j.Spec)
+		}
+		if task == "retro" && !strings.Contains(j.Spec.Prompt, "retro of a goal") || task == "curate" && !strings.Contains(j.Spec.Prompt, "periodic upkeep") {
+			t.Errorf("%s: prompt:\n%s", task, j.Spec.Prompt)
+		}
+	}
+	for name, req := range map[string]workflow.JobRequest{
+		"an unknown task":     {Role: "knowledge-curator", Task: "nap"},
+		"another role's task": {Role: "developer", Task: "retro"},
+		"a task and a review": {Role: "knowledge-curator", Task: "retro", ProposalReview: true},
+		"a task of a command": {Kind: domain.JobKindCommand, Task: "retro"},
+	} {
+		req.AccountID, req.ProjectID = f.account.ID, f.project.ID
+		if _, err := f.creator.Create(t.Context(), req); !errors.Is(err, jobs.ErrInvalid) {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
 // A repo without a commit has no policy file and nothing to protect: its
 // project can onboard, so the analyst's job is created.
 func TestJobCreatorAllowsWritersInAnEmptyRepo(t *testing.T) {
