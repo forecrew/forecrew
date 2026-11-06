@@ -433,6 +433,8 @@ type RoleBindingInfo struct {
 	Role      string           `json:"role"`
 	RoleScope domain.RoleScope `json:"role_scope"`
 	Project   string           `json:"project,omitempty"` // empty: the organization
+	// SubjectName names the user, team or service account that holds the role.
+	SubjectName string `json:"subject_name,omitempty"`
 }
 
 // CreateServiceAccountInput is the input of create_service_account.

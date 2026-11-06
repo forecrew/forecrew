@@ -804,6 +804,14 @@ func TestRoleBindingTools(t *testing.T) {
 	if len(all) != 4 { // with the caller's own
 		t.Fatalf("bindings = %+v", all)
 	}
+	var named []string
+	for _, b := range all {
+		named = append(named, string(b.SubjectKind)+":"+b.SubjectName)
+	}
+	slices.Sort(named)
+	if want := []string{"service_account:ci", "team:core", "user:someone", "user:someone"}; !slices.Equal(named, want) {
+		t.Fatalf("subjects = %v, want %v", named, want)
+	}
 	onApp, err := f.svc.ListRoleBindings(ctx, by, mcp.ListRoleBindingsInput{Project: "app"})
 	if err != nil || len(onApp) != 1 || onApp[0].Project != "app" || onApp[0].Role != "viewer" {
 		t.Fatalf("on app = %+v, %v", onApp, err)
