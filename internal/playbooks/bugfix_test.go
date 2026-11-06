@@ -144,3 +144,21 @@ func TestBugReproduced(t *testing.T) {
 	_, err := v.call(t, "bug.reproduced", map[string]any{"nope": 1})
 	wantErr(t, err, "nope")
 }
+
+func TestBugBrief(t *testing.T) {
+	v := newEnv(t)
+	for _, tt := range []struct{ problem, note, want string }{
+		{"", "", ""},
+		{"It passed.", "", "It passed."},
+		{"", " More detail. ", "More detail."},
+		{"It passed.\n", "More detail.", "It passed.\n\nMore detail."},
+	} {
+		out, err := v.call(t, "bug.brief", map[string]any{"problem": tt.problem, "note": tt.note})
+		must(t, err)
+		if got := toMap(t, out)["feedback"]; got != tt.want {
+			t.Errorf("brief(%q, %q) = %q, want %q", tt.problem, tt.note, got, tt.want)
+		}
+	}
+	_, err := v.call(t, "bug.brief", map[string]any{"nope": 1})
+	wantErr(t, err, "nope")
+}

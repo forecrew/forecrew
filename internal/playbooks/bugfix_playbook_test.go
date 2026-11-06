@@ -11,6 +11,7 @@ import (
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -152,7 +153,7 @@ func TestBugfixTestPassesOnBase(t *testing.T) {
 	// The second attempt tests under another name; only it counts from now on.
 	const second, file = "pkg::TestAC1ChargeSavedCard", "pkg/saved_test.go"
 	eng := r.reproduce(t, 2, bugMapOf(second, file, nil))
-	for _, want := range []string{"passed on the base branch", "It needs two saved cards."} {
+	for _, want := range []string{"passed on the base branch", "<untrusted-data", "\n\nIt needs two saved cards."} {
 		if !strings.Contains(eng.Feedback, want) {
 			t.Errorf("second request lacks %q:\n%s", want, eng.Feedback)
 		}
@@ -195,8 +196,12 @@ func TestBugfixTestPassesOnBase(t *testing.T) {
 // tried; rejecting the gate stops the run and cancels the goal.
 func TestBugfixCannotReproduce(t *testing.T) {
 	r := startBugfix(t)
-	r.reproduce(t, 1, bugMap("cannot_reproduce: paid with a saved card on web, no panic"))
+	// The engineer pushed nothing, so its job has no head to check.
+	r.answer(t, "tasks/0/repro/1/write_tests", bugMap("cannot_reproduce: paid with a saved card on web, no panic"), 0.5)
 	g := r.pendingGate(t, domain.GateNeedsYou)
+	if g.SubjectRepo != "acme/app" || g.SubjectNumber != r.goalNow(t).IssueNumber {
+		t.Errorf("gate subject = %s#%d, want the goal issue %d", g.SubjectRepo, g.SubjectNumber, r.goalNow(t).IssueNumber)
+	}
 	for _, want := range []string{"cannot_reproduce: paid with a saved card on web", "<untrusted-data"} {
 		if !strings.Contains(g.Summary, want) {
 			t.Errorf("gate lacks %q:\n%s", want, g.Summary)
@@ -264,4 +269,27 @@ func TestBugfixPromptMarksTheReportUntrusted(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Tests the matrix cannot run (a suite it lacks) are not checked on base: a
+// gate asks, with no command job, and approving it runs the engineer again.
+func TestBugfixSuiteMissingFromTheMatrix(t *testing.T) {
+	r := startBugfix(t)
+	ghost := bugMap(nil)
+	ghost["tests"] = []any{map[string]any{"criterion": "AC-1", "suite": "ghost", "id": "pkg::TestGhost", "file": "pkg/a_test.go"}}
+	r.reproduce(t, 1, ghost)
+	g := r.pendingGate(t, domain.GateNeedsYou)
+	if !strings.Contains(g.Summary, "matrix") {
+		t.Errorf("gate:\n%s", g.Summary)
+	}
+	if queued, err := r.st.Jobs().List(t.Context(), r.account, store.JobFilter{Status: domain.JobQueued}); err != nil || len(queued) != 0 {
+		t.Errorf("queued jobs = %v, %v", queued, err)
+	}
+	r.decide(t, domain.GateNeedsYou, mcp.ToolApprove, "")
+	eng := r.reproduce(t, 2, bugMap(nil))
+	if !strings.Contains(eng.Feedback, "matrix") {
+		t.Errorf("second request:\n%s", eng.Feedback)
+	}
+	r.baseJobs(t, failedRun)
+	r.push(t, 1)
 }

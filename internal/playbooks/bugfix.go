@@ -2,6 +2,7 @@ package playbooks
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"uuid"
@@ -128,6 +129,27 @@ func (a *actions) bugPlanAction(ctx context.Context, call workflow.ActionCall) (
 	}}}, nil
 }
 
+// bugBrief is the action bug.brief: the feedback of the next attempt of the
+// test engineer, with.problem (what bug.reproduced found wrong in the last
+// one) and with.note (what a person added at the gate), separated by a blank
+// line. Both are empty in the first attempt.
+func (a *actions) bugBrief(_ context.Context, call workflow.ActionCall) (any, error) {
+	var with struct {
+		Problem string `json:"problem"`
+		Note    string `json:"note"`
+	}
+	if err := workflow.DecodeWith(call.With, &with); err != nil {
+		return nil, err
+	}
+	var parts []string
+	for _, p := range []string{with.Problem, with.Note} {
+		if p = strings.TrimSpace(p); p != "" {
+			parts = append(parts, p)
+		}
+	}
+	return map[string]string{"feedback": strings.Join(parts, "\n\n")}, nil
+}
+
 // reproducedOutput is the output of bug.reproduced.
 type reproducedOutput struct {
 	// Done is set when the engineer's tests are ready, there is at least one,
@@ -150,18 +172,26 @@ type reproducedOutput struct {
 // human, who can add detail, and feedback the same for the next attempt.
 func (a *actions) bugReproduced(_ context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
-		Ready    bool            `json:"ready"`
-		Feedback string          `json:"feedback"`
-		Tests    []newTest       `json:"tests"`
-		Base     baseCheckResult `json:"base"`
-		Missing  string          `json:"missing"`
+		Ready    bool      `json:"ready"`
+		Feedback string    `json:"feedback"`
+		Tests    []newTest `json:"tests"`
+		// Base and Missing are empty when the tests were not ready and the
+		// base check did not run.
+		Base    json.RawMessage `json:"base"`
+		Missing string          `json:"missing"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
 	}
+	var base baseCheckResult
+	if with.Ready {
+		if err := json.Unmarshal(with.Base, &base); err != nil {
+			return nil, fmt.Errorf("with: base: %w", err)
+		}
+	}
 	var problems []string
 	var passed []string
-	for _, t := range with.Base.NewTests {
+	for _, t := range base.NewTests {
 		if !t.FailedOnBase {
 			passed = append(passed, contextpack.OneLine(t.ID))
 		}
@@ -173,8 +203,8 @@ func (a *actions) bugReproduced(_ context.Context, call workflow.ActionCall) (an
 		problems = append(problems, "The test engineer wrote no test that reproduces the bug.")
 	}
 	if len(passed) > 0 {
-		problems = append(problems, "These tests passed on the base branch, so they do not reproduce the bug: "+strings.Join(passed, ", ")+".")
-	} else if with.Ready && len(with.Tests) > 0 && !with.Base.OK {
+		problems = append(problems, "These tests passed on the base branch, so they do not reproduce the bug:\n"+contextpack.WrapUntrusted("test ids", strings.Join(passed, "\n")))
+	} else if with.Ready && len(with.Tests) > 0 && !base.OK {
 		problems = append(problems, "The tests were not checked on the base branch everywhere, so it is not known that they reproduce the bug."+
 			strings.TrimRight("\n"+with.Missing, "\n"))
 	}
