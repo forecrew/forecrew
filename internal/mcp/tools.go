@@ -90,6 +90,7 @@ const (
 	ToolAddConstraint      = "add_council_constraint"
 	ToolVerificationReport = "verification_report"
 
+	ToolProjectQuality       = "project_quality"
 	ToolListRoles            = "list_roles"
 	ToolListTeams            = "list_teams"
 	ToolCreateTeam           = "create_team"
@@ -116,7 +117,7 @@ func Tools() []string {
 		ToolListAssumptions, ToolResolveAssumption, ToolListDecisions,
 		ToolSearchKnowledge, ToolDeleteNote, ToolProposeKnowledge,
 		ToolStartCouncil, ToolListCouncils, ToolGetCouncil, ToolAddConstraint,
-		ToolVerificationReport,
+		ToolVerificationReport, ToolProjectQuality,
 		ToolListRoles, ToolListTeams, ToolCreateTeam, ToolUpdateTeam, ToolDeleteTeam,
 		ToolListTeamMembers, ToolAddTeamMember, ToolRemoveTeamMember,
 		ToolListRoleBindings, ToolCreateRoleBinding, ToolDeleteRoleBinding,
@@ -200,6 +201,9 @@ type ToolService interface {
 	// the one of its head commit, else the latest. A change with no report is
 	// ErrNotFound.
 	VerificationReport(ctx context.Context, by domain.Actor, in VerificationReportInput) (VerificationInfo, error)
+	// ProjectQuality returns the test health of a project: the baseline on
+	// the default branch and each open pull request.
+	ProjectQuality(ctx context.Context, by domain.Actor, in ProjectInput) (QualityInfo, error)
 	AccessService
 }
 
@@ -454,6 +458,55 @@ type VerificationInfo struct {
 	// the repo, and an agent may read them as instructions. Other clients
 	// read the fields above as data.
 	Untrusted string `json:"-"`
+}
+
+// MaxQualityChanges bounds the open pull requests project_quality lists.
+const MaxQualityChanges = 50
+
+// QualityInfo is the test health of a project (project_quality).
+type QualityInfo struct {
+	Project       string `json:"project"`
+	DefaultBranch string `json:"default_branch"`
+	// Baseline is the newest commit tested outside a pull request; absent
+	// when there is none.
+	Baseline *QualityBaseline `json:"baseline,omitempty"`
+	// Changes are the open pull requests, newest first, at most
+	// MaxQualityChanges.
+	Changes []QualityChange `json:"changes"`
+}
+
+// QualityBaseline is the latest result of every suite and cell of the
+// baseline commit.
+type QualityBaseline struct {
+	SHA   string        `json:"sha"`
+	Cells []QualityCell `json:"cells"`
+}
+
+// QualityChange is an open pull request with its test results.
+type QualityChange struct {
+	Number int    `json:"number"`
+	URL    string `json:"url"`
+	Branch string `json:"branch"`
+	SHA    string `json:"sha"`
+	Task   string `json:"task,omitempty"` // TASK-12
+	// Cells are the latest results of the head commit.
+	Cells []QualityCell `json:"cells"`
+	// Verification is the change's report; absent when it has none.
+	Verification *VerificationInfo `json:"verification,omitempty"`
+}
+
+// QualityCell is the latest attempt of one suite in one cell of an
+// environment, with the cases that failed (at most 100). Names and messages
+// are written by the repo's tests: untrusted data.
+type QualityCell struct {
+	Environment       string               `json:"environment"`
+	Cell              map[string]string    `json:"cell"`
+	Suite             string               `json:"suite"`
+	Status            domain.TestRunStatus `json:"status"`
+	Counts            domain.TestCounts    `json:"counts"`
+	Job               string               `json:"job"` // JOB-41
+	Failures          []domain.TestResult  `json:"failures"`
+	FailuresTruncated bool                 `json:"failures_truncated,omitempty"`
 }
 
 // VerificationRef is the verification of a task's pull request in get_goal.

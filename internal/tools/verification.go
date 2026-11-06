@@ -34,13 +34,12 @@ func (s *Service) VerificationReport(ctx context.Context, by domain.Actor, in mc
 	if err := s.allow(ctx, by, domain.PermJobRead, c.ProjectID); err != nil {
 		return mcp.VerificationInfo{}, err
 	}
-	repo := s.cfg.Store.VerificationReports()
-	current := true
-	r, err := repo.GetBySHA(ctx, by.AccountID, c.ID, strings.ToLower(c.HeadSHA))
-	if errors.Is(err, store.ErrNotFound) {
-		current = false
-		r, err = repo.Latest(ctx, by.AccountID, c.ID)
-	}
+	return s.verificationOf(ctx, by.AccountID, c)
+}
+
+// verificationOf is the verification_report of a resolved change.
+func (s *Service) verificationOf(ctx context.Context, accountID uuid.UUID, c domain.Change) (mcp.VerificationInfo, error) {
+	r, current, err := s.reportOf(ctx, accountID, c)
 	if errors.Is(err, store.ErrNotFound) {
 		return mcp.VerificationInfo{}, fmt.Errorf("pull request #%d of %s has no verification report yet: %w", c.Number, c.Repo, mcp.ErrNotFound)
 	}
@@ -54,6 +53,18 @@ func (s *Service) VerificationReport(ctx context.Context, by domain.Actor, in mc
 	}
 	out.Untrusted = contextpack.WrapUntrusted("verification report of "+c.Repo+"#"+strconv.Itoa(c.Number), verification.Render(rep))
 	return out, nil
+}
+
+// reportOf returns the verification report of the change's head commit, else
+// its latest (current false); store.ErrNotFound when it has none.
+func (s *Service) reportOf(ctx context.Context, accountID uuid.UUID, c domain.Change) (r domain.VerificationReport, current bool, err error) {
+	repo := s.cfg.Store.VerificationReports()
+	r, err = repo.GetBySHA(ctx, accountID, c.ID, strings.ToLower(c.HeadSHA))
+	if errors.Is(err, store.ErrNotFound) {
+		r, err = repo.Latest(ctx, accountID, c.ID)
+		return r, false, err
+	}
+	return r, true, err
 }
 
 // changeOf resolves the pull request of a verification_report input.
@@ -128,16 +139,10 @@ func (s *Service) newestChange(ctx context.Context, accountID uuid.UUID, ref, pr
 // verificationRef links a task to the verification of its newest pull request
 // that has a report; nil when none has.
 func (s *Service) verificationRef(ctx context.Context, t domain.Task, changes []domain.Change) (*mcp.VerificationRef, error) {
-	repo := s.cfg.Store.VerificationReports()
 	var best *mcp.VerificationRef
 	var bestAt time.Time
 	for _, c := range changes {
-		current := true
-		r, err := repo.GetBySHA(ctx, t.AccountID, c.ID, strings.ToLower(c.HeadSHA))
-		if errors.Is(err, store.ErrNotFound) {
-			current = false
-			r, err = repo.Latest(ctx, t.AccountID, c.ID)
-		}
+		r, current, err := s.reportOf(ctx, t.AccountID, c)
 		if errors.Is(err, store.ErrNotFound) {
 			continue
 		}

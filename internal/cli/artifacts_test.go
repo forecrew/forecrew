@@ -300,3 +300,44 @@ func TestVerificationCommand(t *testing.T) {
 		t.Errorf("not found: code %d, stderr %q", code, errOut)
 	}
 }
+
+func TestQualityCommand(t *testing.T) {
+	e := newRemoteEnv(t)
+	var in mcp.ProjectInput
+	q := mcp.QualityInfo{Project: "app", DefaultBranch: "main", Changes: []mcp.QualityChange{}}
+	e.svc.ProjectQualityFunc = func(_ context.Context, _ domain.Actor, got mcp.ProjectInput) (mcp.QualityInfo, error) {
+		in = got
+		return q, nil
+	}
+	out, errOut, code := e.run(t, "quality", "app")
+	if code != 0 || errOut != "" || in.Project != "app" || !strings.Contains(out, "Baseline: no results yet") {
+		t.Fatalf("code %d, stderr %q, input %+v, out %q", code, errOut, in, out)
+	}
+
+	q.Baseline = &mcp.QualityBaseline{SHA: "base0010203040506", Cells: []mcp.QualityCell{{
+		Suite: "unit\x1b[31m", Environment: "linux", Cell: map[string]string{"go": "1.27", "os": "linux"}, Status: domain.TestRunFailed,
+		Counts: domain.TestCounts{Passed: 3, Failed: 1}, Job: "JOB-4",
+		Failures: []domain.TestResult{{Name: "TestBad", Classname: "pkg", Status: domain.TestFailed, Message: "boom\nsecond line"}},
+	}}}
+	q.Changes = []mcp.QualityChange{
+		{Number: 9, SHA: "abc1234", Verification: &mcp.VerificationInfo{Status: domain.VerificationFailed}},
+		{Number: 10, SHA: "def5678", Verification: &mcp.VerificationInfo{Status: domain.VerificationPassed, Current: true}},
+		{Number: 11, SHA: "0123456"},
+	}
+	out, _, code = e.run(t, "quality", "app")
+	if code != 0 {
+		t.Fatalf("code %d", code)
+	}
+	for _, want := range []string{"app, default branch main", "Baseline at base00102030", "go=1.27,os=linux", "JOB-4", "FAILED unit [31m pkg TestBad: boom",
+		"Pull request #9 at abc1234: failed (not the latest commit)", "#10 at def5678: passed\n", "#11 at 0123456: no report\nNo results yet"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "\x1b") || strings.Contains(out, "second line") {
+		t.Errorf("control characters or a second line reached the terminal: %q", out)
+	}
+	if _, _, code := e.run(t, "quality"); code == 0 {
+		t.Error("accepted no project")
+	}
+}

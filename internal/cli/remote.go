@@ -185,6 +185,7 @@ func (r *remote) commands() []*cobra.Command {
 		knowledgeCommand(r),
 		councilsCommand(r),
 		verificationCommand(r),
+		qualityCommand(r),
 	}
 }
 
@@ -430,6 +431,23 @@ func verificationCommand(r *remote) *cobra.Command {
 	return cmd
 }
 
+// qualityCommand shows the test health of a project.
+func qualityCommand(r *remote) *cobra.Command {
+	return &cobra.Command{
+		Use:   "quality <project>",
+		Short: "Show the test results of a project's baseline and open pull requests",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var q mcp.QualityInfo
+			if err := r.call(cmd.Context(), http.MethodGet, "/quality?project="+url.QueryEscape(args[0]), nil, &q); err != nil {
+				return err
+			}
+			printQuality(cmd.OutOrStdout(), q)
+			return nil
+		},
+	}
+}
+
 // artifactCommand downloads artifacts.
 func artifactCommand(r *remote) *cobra.Command {
 	artifact := &cobra.Command{Use: "artifact", Short: "Download job artifacts"}
@@ -639,6 +657,52 @@ func printCouncil(w io.Writer, d mcp.CouncilDetail) {
 	}
 	if d.Decision != nil {
 		fmt.Fprintf(w, "Decision: %s by %s: %s\n", d.Decision.Ref(), safeText(d.Decision.DecidedBy), safeText(d.Decision.Choice))
+	}
+}
+
+// printQuality shows the baseline and the open pull requests with one row
+// per suite and cell. Names come from the repo, so they go through safeText.
+func printQuality(w io.Writer, q mcp.QualityInfo) {
+	fmt.Fprintf(w, "%s, default branch %s\n", safeText(q.Project), safeText(q.DefaultBranch))
+	if q.Baseline == nil {
+		fmt.Fprintln(w, "Baseline: no results yet")
+	} else {
+		fmt.Fprintf(w, "Baseline at %s\n", safeText(q.Baseline.SHA[:min(12, len(q.Baseline.SHA))]))
+		printCells(w, q.Baseline.Cells)
+	}
+	for _, c := range q.Changes {
+		status := "no report"
+		if v := c.Verification; v != nil {
+			status = string(v.Status)
+			if !v.Current {
+				status += " (not the latest commit)"
+			}
+		}
+		fmt.Fprintf(w, "\nPull request #%d at %s: %s\n", c.Number, safeText(c.SHA[:min(12, len(c.SHA))]), status)
+		printCells(w, c.Cells)
+	}
+}
+
+func printCells(w io.Writer, cells []mcp.QualityCell) {
+	if len(cells) == 0 {
+		fmt.Fprintln(w, "No results yet")
+		return
+	}
+	rows := [][]string{{"SUITE", "ENVIRONMENT", "CELL", "STATUS", "PASSED", "FAILED", "SKIPPED", "ERRORED", "JOB"}}
+	for _, c := range cells {
+		cell := make([]string, 0, len(c.Cell))
+		for _, k := range slices.Sorted(maps.Keys(c.Cell)) {
+			cell = append(cell, k+"="+c.Cell[k])
+		}
+		rows = append(rows, []string{dash(safeText(c.Suite)), dash(safeText(c.Environment)), dash(safeText(strings.Join(cell, ","))), string(c.Status),
+			strconv.Itoa(c.Counts.Passed), strconv.Itoa(c.Counts.Failed), strconv.Itoa(c.Counts.Skipped), strconv.Itoa(c.Counts.Errored), c.Job})
+	}
+	table(w, rows)
+	for _, c := range cells {
+		for _, f := range c.Failures {
+			msg, _, _ := strings.Cut(f.Message, "\n")
+			fmt.Fprintf(w, "%s %s %s: %s\n", strings.ToUpper(string(f.Status)), safeText(c.Suite), safeText(strings.TrimSpace(f.Classname+" "+f.Name)), safeText(msg))
+		}
 	}
 }
 

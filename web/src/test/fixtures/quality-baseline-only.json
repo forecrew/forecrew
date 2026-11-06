@@ -1,0 +1,54 @@
+{
+  "project": "app",
+  "default_branch": "main",
+  "baseline": {
+    "sha": "0123456789abcdef",
+    "cells": [
+      {
+        "environment": "linux",
+        "cell": {
+          "go": "1.26"
+        },
+        "suite": "unit",
+        "status": "passed",
+        "counts": {
+          "passed": 40,
+          "failed": 0,
+          "skipped": 0,
+          "errored": 0
+        },
+        "job": "JOB-30",
+        "failures": []
+      },
+      {
+        "environment": "linux",
+        "cell": {
+          "go": "1.26"
+        },
+        "suite": "e2e",
+        "status": "failed",
+        "counts": {
+          "passed": 8,
+          "failed": 1,
+          "skipped": 0,
+          "errored": 0
+        },
+        "job": "JOB-31",
+        "failures": [
+          {
+            "id": "00000000-0000-0000-0000-000000000000",
+            "account_id": "00000000-0000-0000-0000-000000000000",
+            "run_id": "00000000-0000-0000-0000-000000000000",
+            "name": "link expires",
+            "classname": "web",
+            "status": "failed",
+            "duration_ms": 0,
+            "message": "known failure"
+          }
+        ]
+      }
+    ]
+  },
+  "changes": null
+}
+
