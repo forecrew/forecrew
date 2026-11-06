@@ -337,8 +337,18 @@ func (s *Service) GateProtected(ctx context.Context, g domain.Gate) (bool, error
 		return true, err
 	}
 	// A learn gate also asks for the register files it carries.
-	if protected, _ := registerTarget(policy, registerSamples()); learn && protected {
-		return true, nil
+	if learn {
+		goal, err := s.Store.Goals().Get(ctx, g.AccountID, g.GoalID)
+		if err != nil {
+			return true, err
+		}
+		paths, err := s.registerPaths(ctx, goal)
+		if err != nil {
+			return true, err
+		}
+		if protected, _ := registerTarget(policy, paths); protected {
+			return true, nil
+		}
 	}
 	for _, k := range ks {
 		t, err := policy.Target(k.Section, k.Path, "")

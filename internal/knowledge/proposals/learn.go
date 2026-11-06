@@ -45,10 +45,26 @@ type Learned struct {
 // learnTitlePrefix starts the title of a learn gate.
 const learnTitlePrefix = "Learnings of "
 
-// registerSamples are paths of the files the learn step writes, one for each
-// folder. The policy places a folder by a sample: the files differ only in name.
-func registerSamples() []string {
-	return []string{registers.AssumptionsDir + "/A-1.yaml", registers.DecisionsDir + "/DEC-1.md"}
+// registerPaths returns the paths of the register files the learn step writes
+// for the goal: one for each of its assumptions and decisions, as
+// registers.Export names them.
+func (s *Service) registerPaths(ctx context.Context, goal domain.Goal) ([]string, error) {
+	as, err := s.Store.Assumptions().List(ctx, goal.AccountID, store.AssumptionFilter{ProjectID: goal.ProjectID, GoalID: goal.ID})
+	if err != nil {
+		return nil, fmt.Errorf("list the assumptions of %s: %w", goal.Ref(), err)
+	}
+	ds, err := s.Store.Decisions().List(ctx, goal.AccountID, store.DecisionFilter{ProjectID: goal.ProjectID, GoalID: goal.ID})
+	if err != nil {
+		return nil, fmt.Errorf("list the decisions of %s: %w", goal.Ref(), err)
+	}
+	var out []string
+	for _, a := range as {
+		out = append(out, registers.AssumptionsDir+"/"+a.Ref()+".yaml")
+	}
+	for _, d := range ds {
+		out = append(out, registers.DecisionsDir+"/"+d.Ref()+".md")
+	}
+	return out, nil
 }
 
 // registerTarget merges what the policy says of the paths: whether any is in a
@@ -352,7 +368,11 @@ func (s *Service) LearnDecide(ctx context.Context, b LearnBatch, gate string) (L
 		return out, err
 	}
 	// The register files go through the same sections as any change.
-	if _, owned := registerTarget(policy, registerSamples()); owned {
+	paths, err := s.registerPaths(ctx, goal)
+	if err != nil {
+		return out, err
+	}
+	if _, owned := registerTarget(policy, paths); owned {
 		r.codeowners = true
 	}
 	if r.codeowners {

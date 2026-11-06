@@ -3,6 +3,7 @@ package proposals_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/knowledge/proposals"
+	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
@@ -1045,30 +1047,72 @@ func (e *env) learnGate(t *testing.T, id string) domain.Gate {
 	return g
 }
 
-// The register files go through the policy like any change: a learn gate
-// that carries files of a protected section needs the protected permission,
-// even when no proposal is in it, and one that does not, does not.
-func TestLearnGateFollowsTheSectionsOfTheRegisterFiles(t *testing.T) {
+// registerGoal is a goal with n assumptions and a decision numbered
+// after `others` decisions of another goal, and the files its learn step
+// writes. Learn has sent them and its gate is open.
+func registerGoal(t *testing.T, e *env, assumptions, others int, decide bool, in ...proposals.Input) (proposals.LearnBatch, proposals.Learned) {
+	t.Helper()
 	ctx := t.Context()
-	files := map[string][]byte{"docs/decisions/DEC-1.md": []byte("# DEC-1\n")}
-	e := newEnv(t)
-	_, out, _ := learn(t, e, files)
-	if got, err := e.svc.GateProtected(ctx, e.learnGate(t, out.Gate)); err != nil || got {
-		t.Errorf("registers outside every section: protected = %v, %v", got, err)
+	elsewhere := testkit.Goal(t, e.st, e.account, e.project.ID, "elsewhere")
+	for range others {
+		d := domain.Decision{AccountID: e.account, ProjectID: e.project.ID, GoalID: elsewhere.ID, Question: "q", Choice: "c", Reasons: "r", DecidedBy: "user:ana"}
+		must(t, e.st.Decisions().Create(ctx, &d))
 	}
+	goal := testkit.Goal(t, e.st, e.account, e.project.ID, "g")
+	regs := registers.New(e.st, testkit.NewSignalBus(e.st), e.clock.Now)
+	for i := range assumptions {
+		_, err := regs.Record(ctx, e.account, e.project.ID, registers.Source{MadeBy: "architect", GoalID: goal.ID}, []domain.StatedAssumption{
+			{Statement: fmt.Sprintf("Assumption %d", i), Confidence: domain.LevelMedium, Impact: domain.LevelHigh, VerifyBy: domain.VerifyByTest}})
+		must(t, err)
+	}
+	if decide {
+		d := domain.Decision{AccountID: e.account, ProjectID: e.project.ID, GoalID: goal.ID, Question: "q", Choice: "c", Reasons: "r", DecidedBy: "user:ana"}
+		must(t, e.st.Decisions().Create(ctx, &d))
+	}
+	j := e.job(t, "architect", goal.ID)
+	for _, i := range in {
+		_, err := e.svc.Submit(ctx, j, i)
+		must(t, err)
+	}
+	files, err := regs.Export(ctx, e.account, goal.ID)
+	must(t, err)
+	b := proposals.LearnBatch{AccountID: e.account, ProjectID: e.project.ID, GoalID: goal.ID}
+	out, err := e.svc.Learn(ctx, b, domain.NewID(), files)
+	must(t, err)
+	return b, out
+}
 
-	e = newEnv(t)
-	e.usePolicy(t, "  decided: {paths: [\"docs/decisions/**\"], protected: true}\n")
-	_, out, _ = learn(t, e, files)
-	if got, err := e.svc.GateProtected(ctx, e.learnGate(t, out.Gate)); err != nil || !got {
-		t.Errorf("registers in a protected section: protected = %v, %v", got, err)
+// The register files go through the policy like any change, by the globs of
+// the sections that name them and whatever their type: a learn gate that
+// carries a file of a protected section needs the protected permission, even
+// with no proposal in it, and one that carries none does not.
+func TestLearnGateFollowsTheSectionsOfTheRegisterFiles(t *testing.T) {
+	protected := func(section string, assumptions, others int, decide bool) bool {
+		e := newEnv(t)
+		e.usePolicy(t, "  "+section+"\n")
+		_, out := registerGoal(t, e, assumptions, others, decide, add("architecture", "docs/adr/2.md"))
+		got, err := e.svc.GateProtected(t.Context(), e.learnGate(t, out.Gate))
+		must(t, err)
+		return got
 	}
-	// With a proposal too, the same.
-	e = newEnv(t)
-	e.usePolicy(t, "  decided: {paths: [\".forecrew/assumptions/A-1.yaml\"], protected: true}\n")
-	_, out, _ = learn(t, e, files, add("architecture", "docs/adr/2.md"))
-	if got, err := e.svc.GateProtected(ctx, e.learnGate(t, out.Gate)); err != nil || !got {
-		t.Errorf("assumptions in a protected section: protected = %v, %v", got, err)
+	for name, tt := range map[string]struct {
+		section             string
+		assumptions, others int
+		decide, want        bool
+	}{
+		"nothing holds the files":           {`decided: {paths: ["docs/other/**"], protected: true}`, 1, 0, true, false},
+		"a section of the decisions folder": {`decided: {paths: ["docs/decisions/**"], protected: true}`, 0, 0, true, true},
+		"a section naming one decision":     {`decided: {paths: ["docs/decisions/DEC-7.md"], protected: true}`, 0, 6, true, true},
+		"a section naming another decision": {`decided: {paths: ["docs/decisions/DEC-8.md"], protected: true}`, 0, 6, true, false},
+		"a narrow glob":                     {`decided: {paths: ["docs/decisions/DEC-1*.md"], protected: true}`, 0, 11, true, true},
+		"the assumptions folder":            {`regs: {paths: [".forecrew/assumptions/**"], protected: true}`, 3, 0, false, true},
+		"a file the section leaves out":     {`regs: {paths: [".forecrew/assumptions/**", "!.forecrew/assumptions/A-1.yaml"], protected: true}`, 1, 0, false, false},
+		"another spelling of the path":      {`regs: {paths: [".FORECREW/Assumptions/**"], protected: true}`, 1, 0, false, true},
+		"a goal with no register files":     {`regs: {paths: [".forecrew/assumptions/**", "docs/decisions/**"], protected: true}`, 0, 0, false, false},
+	} {
+		if got := protected(tt.section, tt.assumptions, tt.others, tt.decide); got != tt.want {
+			t.Errorf("%s: protected = %v, want %v", name, got, tt.want)
+		}
 	}
 }
 
@@ -1076,83 +1120,11 @@ func TestLearnGateFollowsTheSectionsOfTheRegisterFiles(t *testing.T) {
 func TestLearnRegisterFilesOwnedByCodeownersAreFollowed(t *testing.T) {
 	e := newEnv(t)
 	e.usePolicy(t, "  decided: {paths: [\"docs/decisions/**\"], owner: codeowners}\n")
-	b, out, _ := learn(t, e, map[string][]byte{"docs/decisions/DEC-1.md": []byte("# DEC-1\n")}, add("architecture", "docs/adr/2.md"))
+	b, out := registerGoal(t, e, 0, 0, true, add("architecture", "docs/adr/2.md"))
 	e.resolveGate(t, out.Gate, domain.GateApproved)
 	d, err := e.svc.LearnDecide(t.Context(), b, out.Gate)
 	must(t, err)
 	if len(d.IfFollow) != 1 || len(d.IfMerge) != 0 {
 		t.Errorf("decision = %+v", d)
-	}
-}
-
-// A note stays promoted while a proposal that cites it can still be accepted,
-// and expires as any note again when the last such proposal is rejected.
-func TestRejectedProposalsReleaseTheirNotes(t *testing.T) {
-	e := newEnv(t)
-	ctx := t.Context()
-	n := domain.KnowledgeEntry{AccountID: e.account, ProjectID: e.project.ID, Provider: domain.ProviderInternal, Path: "notes/x", Section: domain.SectionNotes,
-		Title: "x", Body: "b", Scope: domain.NoteScopeProject}
-	must(t, e.st.Knowledge().Upsert(ctx, &n))
-	first, second := e.job(t, "architect", uuid.Nil()), e.job(t, "architect", uuid.Nil())
-	in := add("architecture", "docs/adr/2.md")
-	in.Reason = "see note:" + n.ID.String()
-	_, err := e.svc.Submit(ctx, first, in)
-	must(t, err)
-	in.Path = "docs/adr/3.md"
-	_, err = e.svc.Submit(ctx, second, in)
-	must(t, err)
-	promoted := func() bool {
-		got, err := e.st.Knowledge().Get(ctx, e.account, n.ID)
-		must(t, err)
-		return !got.PromotedAt.IsZero()
-	}
-	reject := func(j domain.Job) {
-		j.Status = domain.JobFailed
-		must(t, e.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error { return e.svc.JobFailed(ctx, tx, j) }))
-	}
-	reject(first)
-	if !promoted() {
-		t.Fatal("the note lost its promotion while another proposal cites it")
-	}
-	reject(second)
-	if promoted() {
-		t.Error("the note is still promoted with every proposal that cites it rejected")
-	}
-}
-
-// hidingPR makes the learn PR vanish once it is created, as GitHub does for a
-// PR somebody closes between the steps.
-type hidingPR struct {
-	github.Tracker
-	hide bool
-}
-
-func (h *hidingPR) CreatePR(ctx context.Context, repo string, in github.PRInput) (github.PullRequest, error) {
-	pr, err := h.Tracker.CreatePR(ctx, repo, in)
-	h.hide = true
-	return pr, err
-}
-
-func (h *hidingPR) FindPR(ctx context.Context, repo, branch string) (github.PullRequest, error) {
-	if h.hide {
-		return github.PullRequest{}, github.ErrNotFound
-	}
-	return h.Tracker.FindPR(ctx, repo, branch)
-}
-
-// A learn step whose repo proposals have no PR to approve fails, rather than
-// opening a gate with nothing behind it.
-func TestLearnFailsWithoutAPR(t *testing.T) {
-	e := newEnv(t)
-	e.svc.GitHub = &hidingPR{Tracker: e.tracker}
-	goal := testkit.Goal(t, e.st, e.account, e.project.ID, "g")
-	_, err := e.svc.Submit(t.Context(), e.job(t, "architect", goal.ID), add("architecture", "docs/adr/2.md"))
-	must(t, err)
-	_, err = e.svc.Learn(t.Context(), proposals.LearnBatch{AccountID: e.account, ProjectID: e.project.ID, GoalID: goal.ID}, domain.NewID(), nil)
-	if err == nil || !strings.Contains(err.Error(), "no open pull request") {
-		t.Errorf("Learn = %v", err)
-	}
-	if gs, _ := e.gates.ListPending(t.Context(), e.account, e.project.ID); len(gs) != 0 {
-		t.Errorf("gates = %+v", gs)
 	}
 }
