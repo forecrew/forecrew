@@ -1,7 +1,7 @@
 #!/bin/sh
 # A mke2fs that runs in a Debian 13 container, for hosts whose own is older than
 # 1.47.1 or lacks libarchive (Ubuntu 24.04, for one). Use it as
-# FORECREW_MKE2FS=deploy/images/mke2fs-docker.sh deploy/images/build.sh rootfs ...
+# MKE2FS=deploy/images/mke2fs-docker.sh deploy/images/build.sh rootfs ...
 # or `forecrew image rootfs --mke2fs deploy/images/mke2fs-docker.sh`. The paths
 # mke2fs is given are mounted at the same place in the container.
 set -eu

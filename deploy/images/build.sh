@@ -40,11 +40,23 @@ done
 case $kind in qcow2 | rootfs) ;; *) die "kind is qcow2 or rootfs" ;; esac
 [ "$kind" != rootfs ] || [ -n "$kernel" ] || die "a rootfs image needs --kernel, the kernel the microVM boots"
 
-forecrew=${FORECREW:-forecrew}
+# abspath prints an absolute path: the build changes directory, so every path
+# and command the caller gave must not depend on where it started.
+abspath() {
+	case $1 in
+	/*) echo "$1" ;;
+	*/*) echo "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")" ;;
+	*) command -v "$1" || die "$1 is not on PATH" ;;
+	esac
+}
+forecrew=$(abspath "${FORECREW:-forecrew}")
+worker=$(abspath "$worker")
+[ -z "$kernel" ] || kernel=$(abspath "$kernel")
+[ -z "$key" ] || key=$(abspath "$key")
+[ -z "${MKE2FS:-}" ] || MKE2FS=$(abspath "$MKE2FS")
 here=$(cd "$(dirname "$0")" && pwd)
 out=$here/out
 mkdir -p "$out"
-worker=$(cd "$(dirname "$worker")" && pwd)/$(basename "$worker")
 
 (
 	cd "$here/linux"
