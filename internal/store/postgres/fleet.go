@@ -341,6 +341,25 @@ func (r machineRepo) UpdateState(ctx context.Context, id uuid.UUID, from, to dom
 	return fmt.Errorf("machine %s is %s, not %s: %w", id, m.State, from, store.ErrConflict)
 }
 
+func (r machineRepo) Retire(ctx context.Context, id uuid.UUID, from domain.MachineState, jobsTaken int) error {
+	if _, err := from.Transition(domain.MachineDraining); err != nil {
+		return err
+	}
+	tag, err := r.db.Exec(ctx, `UPDATE machines SET state = 'draining', updated_at = now()
+		WHERE id = $1 AND state = $2 AND jobs_taken = $3
+		  AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.worker_id = machines.worker_id AND j.status = 'running')`, id, string(from), jobsTaken)
+	if err != nil {
+		return mapErr(err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	if _, err := r.Get(ctx, id); err != nil {
+		return err
+	}
+	return fmt.Errorf("machine %s is in use: %w", id, store.ErrConflict)
+}
+
 func (r machineRepo) SetExternalID(ctx context.Context, id uuid.UUID, externalID string) error {
 	return mustUpdate(ctx, r.db, `UPDATE machines SET external_id = $2, updated_at = now() WHERE id = $1`, id, externalID)
 }

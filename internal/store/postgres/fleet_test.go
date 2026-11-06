@@ -3,16 +3,22 @@
 package postgres
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/fleet"
+	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 )
@@ -286,6 +292,112 @@ func TestLeaseNextEphemeral(t *testing.T) {
 	must(t, err)
 	if got.ID != big.ID {
 		t.Fatalf("static worker leased %s", got.Ref())
+	}
+}
+
+// readyMachine returns a ready machine of a new shape with its worker, and
+// the jobs for it.
+func readyMachine(t *testing.T, f *fixture, name string, maxJobs, jobs int) (string, domain.Worker) {
+	t.Helper()
+	ctx := t.Context()
+	prov, shape := fleetRows(t, f.pool, name, f.account)
+	must(t, exec(f.pool, `UPDATE shapes SET max_jobs = $1 WHERE id = $2`, maxJobs, shape))
+	w := domain.Worker{AccountID: f.account, Name: "machine-" + name, TokenHash: mcp.HashToken(name), Ephemeral: true}
+	must(t, f.st.Workers().Create(ctx, &w))
+	var machine string
+	must(t, f.pool.QueryRow(ctx, `INSERT INTO machines (account_id, provider_id, shape_id, assigned_at, state, worker_id) VALUES ($1, $2, $3, now(), 'ready', $4) RETURNING id`,
+		f.account, prov, shape, w.ID).Scan(&machine))
+	for range jobs {
+		j := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Role: "developer", Runtime: "codex",
+			Spec: domain.JobSpec{Repo: "acme/forecrew", Prompt: "go", Timeout: domain.Duration(time.Hour)}}
+		must(t, f.st.Jobs().Create(ctx, &j))
+	}
+	return machine, w
+}
+
+// lease is a poll of an ephemeral worker: the real lease and its record on the
+// machine in one transaction. It reports whether the job was leased.
+func lease(ctx context.Context, st store.Store, w domain.Worker) (bool, error) {
+	err := st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		j, err := tx.Jobs().LeaseNext(ctx, w.AccountID, w.ID, []string{"runtime:codex"}, domain.LeaseDuration)
+		if err != nil {
+			return err
+		}
+		return fleet.RecordLease(ctx, tx, w, j)
+	})
+	if errors.Is(err, store.ErrNoJob) || errors.Is(err, store.ErrConflict) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// Of concurrent polls through the real LeaseNext and RecordLease only
+// max_jobs win, and the losers leave their jobs queued.
+func TestConcurrentLeases(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	machine, w := readyMachine(t, f, "a", 2, 8)
+	var won atomic.Int64
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			ok, err := lease(ctx, f.st, w)
+			if err != nil {
+				t.Error(err)
+			}
+			if ok {
+				won.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+	var taken int
+	var state string
+	must(t, f.pool.QueryRow(ctx, `SELECT jobs_taken, state FROM machines WHERE id = $1`, machine).Scan(&taken, &state))
+	running, err := f.st.Jobs().List(ctx, f.account, store.JobFilter{Status: domain.JobRunning})
+	must(t, err)
+	if won.Load() != 2 || taken != 2 || state != "busy" || len(running) != 2 {
+		t.Fatalf("%d won, jobs_taken %d, %s, %d running", won.Load(), taken, state, len(running))
+	}
+}
+
+// A lease racing Retire: whichever wins, a machine never drains under a
+// running job.
+func TestRetireRacesLease(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	for i := range 30 {
+		id, w := readyMachine(t, f, fmt.Sprintf("r%d", i), 1, 1)
+		machine := uuid.MustParse(id)
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			if _, err := lease(ctx, f.st, w); err != nil {
+				t.Error(err)
+			}
+		})
+		wg.Go(func() {
+			if err := f.st.Machines().Retire(ctx, machine, domain.MachineReady, 0); err != nil && !errors.Is(err, store.ErrConflict) {
+				t.Error(err)
+			}
+		})
+		wg.Wait()
+		m, err := f.st.Machines().Get(ctx, machine)
+		must(t, err)
+		running, err := f.st.Jobs().List(ctx, f.account, store.JobFilter{Status: domain.JobRunning, WorkerID: w.ID})
+		must(t, err)
+		if (m.State == domain.MachineDraining) == (len(running) == 1) {
+			t.Fatalf("round %d: machine %s with %d running jobs", i, m.State, len(running))
+		}
+		for _, j := range running {
+			_, err := f.st.Jobs().Complete(ctx, f.account, j.ID, w.ID, store.JobResult{Status: domain.JobSucceeded})
+			must(t, err)
+		}
+		queued, err := f.st.Jobs().List(ctx, f.account, store.JobFilter{Status: domain.JobQueued})
+		must(t, err)
+		for _, j := range queued {
+			_, err := f.st.Jobs().Cancel(ctx, f.account, j.ID)
+			must(t, err)
+		}
 	}
 }
 

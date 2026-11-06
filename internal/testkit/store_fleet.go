@@ -282,6 +282,24 @@ func (r machineRepo) UpdateState(_ context.Context, id uuid.UUID, from, to domai
 	})
 }
 
+func (r machineRepo) Retire(_ context.Context, id uuid.UUID, from domain.MachineState, jobsTaken int) error {
+	if _, err := from.Transition(domain.MachineDraining); err != nil {
+		return err
+	}
+	return r.s.do(func(d *storeData, now time.Time) error {
+		m, err := d.machines.find(machineID(id))
+		if err != nil {
+			return err
+		}
+		running := m.WorkerID != uuid.Nil() && d.jobs.exists(func(j domain.Job) bool { return j.Status == domain.JobRunning && j.WorkerID == m.WorkerID })
+		if m.State != from || m.JobsTaken != jobsTaken || running {
+			return fmt.Errorf("machine %s is in use: %w", id, store.ErrConflict)
+		}
+		m.State, m.UpdatedAt = domain.MachineDraining, now
+		return nil
+	})
+}
+
 func (r machineRepo) SetExternalID(_ context.Context, id uuid.UUID, externalID string) error {
 	return byID(r.s, machinesT, machineID(id), func(m *domain.Machine, now time.Time) error {
 		m.ExternalID, m.UpdatedAt = externalID, now

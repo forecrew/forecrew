@@ -42,10 +42,12 @@ type assignment struct {
 	expires time.Time // of its bootstrap token
 }
 
-// transition takes a machine out of service, with why.
+// transition takes a machine out of service, with why. A forced one goes
+// whatever it is doing; any other only if it is still not in use.
 type transition struct {
 	machine domain.Machine
 	why     string
+	forced  bool
 }
 
 // plan is what the controller should do now, and why jobs wait.
@@ -190,13 +192,13 @@ func (p *planner) sweep() {
 		p.count(*m, 1)
 		switch {
 		case bootExpired(*m, shape, p.s.now):
-			p.out.fail = append(p.out.fail, transition{*m, fmt.Sprintf("did not come up within %d seconds", shape.BootTimeoutSeconds)})
+			p.out.fail = append(p.out.fail, transition{machine: *m, why: fmt.Sprintf("did not come up within %d seconds", shape.BootTimeoutSeconds)})
 			p.count(*m, -1)
 		case m.State == domain.MachineDraining:
 		case !m.DeadlineAt.IsZero() && !p.s.now.Before(m.DeadlineAt):
-			p.out.drain = append(p.out.drain, transition{*m, "past its deadline"})
+			p.out.drain = append(p.out.drain, transition{*m, "past its deadline", true})
 		case m.State == domain.MachineBusy && p.runningOn[m.WorkerID] == 0 && m.JobsTaken >= shape.MaxJobs:
-			p.out.drain = append(p.out.drain, transition{*m, "finished its jobs"})
+			p.out.drain = append(p.out.drain, transition{machine: *m, why: "finished its jobs"})
 		case m.JobsTaken < shape.MaxJobs:
 			p.slots[m.ID] = shape.MaxJobs - m.JobsTaken
 			p.live = append(p.live, m)
@@ -512,7 +514,7 @@ func (p *planner) trim() {
 			p.out.withdraw = append(p.out.withdraw, *m)
 		case m.State == domain.MachineBooting && !m.Warm():
 		case !p.s.now.Before(p.idleSince(m).Add(time.Duration(shape.IdleSeconds) * time.Second)):
-			p.out.drain = append(p.out.drain, transition{*m, "idle"})
+			p.out.drain = append(p.out.drain, transition{machine: *m, why: "idle"})
 		}
 	}
 }

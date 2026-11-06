@@ -381,7 +381,7 @@ func (c *Controller) apply(ctx context.Context, s *snapshot, p *plan) []error {
 		keep(c.failMachine(ctx, t.machine, t.why))
 	}
 	for _, t := range p.drain {
-		keep(c.drainMachine(ctx, t.machine, t.why))
+		keep(c.drainMachine(ctx, t))
 	}
 	for _, m := range p.withdraw {
 		keep(c.finish(ctx, m, domain.MachineRequested, "no longer needed"))
@@ -440,15 +440,27 @@ func (c *Controller) failMachine(ctx context.Context, m domain.Machine, why stri
 	})
 }
 
-// drainMachine stops m taking jobs and revokes its worker.
-func (c *Controller) drainMachine(ctx context.Context, m domain.Machine, why string) error {
-	c.cfg.Logger.InfoContext(ctx, "machine draining", "machine_id", m.ID, "why", why)
-	return c.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
-		if err := tx.Machines().UpdateState(ctx, m.ID, m.State, domain.MachineDraining, ""); err != nil {
+// drainMachine stops a machine taking jobs and revokes its worker. Only a
+// forced drain may end a machine in use; any other leaves one that leased
+// since the snapshot alone, in the same transaction as the revocation.
+func (c *Controller) drainMachine(ctx context.Context, t transition) error {
+	m := t.machine
+	err := c.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		var err error
+		if t.forced {
+			err = tx.Machines().UpdateState(ctx, m.ID, m.State, domain.MachineDraining, "")
+		} else {
+			err = tx.Machines().Retire(ctx, m.ID, m.State, m.JobsTaken)
+		}
+		if err != nil {
 			return fmt.Errorf("drain machine %s: %w", m.ID, err)
 		}
 		return revokeWorker(ctx, tx, m)
 	})
+	if err == nil {
+		c.cfg.Logger.InfoContext(ctx, "machine draining", "machine_id", m.ID, "why", t.why)
+	}
+	return err
 }
 
 func revokeWorker(ctx context.Context, tx store.Store, m domain.Machine) error {
