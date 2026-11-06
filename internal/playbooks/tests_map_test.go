@@ -11,7 +11,8 @@ import (
 )
 
 type mapOut struct {
-	Ready       bool `json:"ready"`
+	Ready       bool     `json:"ready"`
+	IfReady     []string `json:"if_ready"`
 	IfArchitect []struct {
 		TaskID string   `json:"task_id"`
 		Branch string   `json:"branch"`
@@ -54,6 +55,9 @@ func TestTestsMap(t *testing.T) {
 	if got.Ready || !strings.Contains(got.Feedback, "No test engineer job") || len(got.Tests) != 0 {
 		t.Errorf("without a job = %+v", got)
 	}
+	if got.IfReady == nil || len(got.IfReady) != 0 {
+		t.Errorf("if_ready without a job = %#v", got.IfReady)
+	}
 
 	// The first job covers AC-1 only; a retry adds AC-2 and reports only its
 	// own files.
@@ -67,6 +71,9 @@ func TestTestsMap(t *testing.T) {
 	got = p.testsMap(t, task)
 	if !got.Ready || got.Feedback != "" || len(got.IfArchitect) != 0 {
 		t.Errorf("both criteria = %+v", got)
+	}
+	if !slices.Equal(got.IfReady, []string{task.ID.String()}) {
+		t.Errorf("if_ready = %v, want the task", got.IfReady)
 	}
 	if want := []string{"e2e/flow_test.go", "pkg/a_test.go", "pkg/testdata/in.json"}; !slices.Equal(got.Files, want) {
 		t.Errorf("files = %v, want %v", got.Files, want)

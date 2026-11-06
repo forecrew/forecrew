@@ -51,8 +51,8 @@ func (a *actions) testsBaseCheckRequest(ctx context.Context, call workflow.Actio
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
 	}
-	if with.Repo == "" || with.Base == "" || with.Head == "" {
-		return nil, errors.New("with: repo, base and head are required")
+	if with.Repo == "" || with.Base == "" {
+		return nil, errors.New("with: repo and base are required")
 	}
 	files := slices.Clone(with.Files)
 	suites := map[string]bool{}
@@ -63,6 +63,9 @@ func (a *actions) testsBaseCheckRequest(ctx context.Context, call workflow.Actio
 	out := baseCheckOutput{Requests: []workflow.JobRequest{}, Runnable: []workflow.JobRequest{}}
 	if len(suites) == 0 {
 		return out, nil
+	}
+	if with.Head == "" {
+		return nil, errors.New("with: head is required for tests")
 	}
 	paths, err := a.overlayPaths(ctx, call.Run, files)
 	if err != nil {

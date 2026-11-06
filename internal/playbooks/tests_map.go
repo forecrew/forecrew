@@ -23,6 +23,9 @@ type testsMapOutput struct {
 	// about the matrix, so that a foreach runs the test architect: inside it
 	// ${item} is this element, not the task of the outer foreach.
 	IfArchitect []architectJob `json:"if_architect"`
+	// IfReady holds the task's ID when Ready is set, for a foreach that runs
+	// steps only for tests that are ready.
+	IfReady []uuid.UUID `json:"if_ready"`
 	// Feedback tells the next job what is missing, when Ready is false.
 	Feedback string `json:"feedback"`
 	// Tests, Files and Suites are the union over the test engineer's jobs.
@@ -74,7 +77,7 @@ func (a *actions) testsMap(ctx context.Context, call workflow.ActionCall) (any, 
 	if err != nil {
 		return nil, err
 	}
-	out := testsMapOutput{IfArchitect: []architectJob{}, Tests: []newTest{}, Files: []string{}, Suites: []string{}}
+	out := testsMapOutput{IfArchitect: []architectJob{}, IfReady: []uuid.UUID{}, Tests: []newTest{}, Files: []string{}, Suites: []string{}}
 	covered := unionTests(docs, &out)
 	var uncovered []string
 	for _, c := range taskCriteria(t.Body) {
@@ -88,6 +91,9 @@ func (a *actions) testsMap(ctx context.Context, call workflow.ActionCall) (any, 
 	}
 	out.Feedback = strings.Join(feedback, "\n\n")
 	out.Ready = len(feedback) == 0
+	if out.Ready {
+		out.IfReady = append(out.IfReady, t.ID)
+	}
 	return out, nil
 }
 

@@ -147,7 +147,15 @@ func TestTestsBaseCheckRequestErrors(t *testing.T) {
 		return w
 	}
 	_, err := v.call(t, "tests.base_check_request", with(func(w map[string]any) { delete(w, "head") }))
-	wantErr(t, err, "repo, base and head are required")
+	wantErr(t, err, "head is required")
+	_, err = v.call(t, "tests.base_check_request", with(func(w map[string]any) { delete(w, "base") }))
+	wantErr(t, err, "repo and base are required")
+	// Without tests there is nothing to check, so no head is needed.
+	out, err := v.call(t, "tests.base_check_request", map[string]any{"repo": "acme/app", "base": "main", "tests": []any{}})
+	must(t, err)
+	if m := toMap(t, out); len(m["requests"].([]any)) != 0 || len(m["runnable"].([]any)) != 0 {
+		t.Errorf("output = %v", m)
+	}
 	_, err = v.call(t, "tests.base_check_request", with(func(w map[string]any) { w["x"] = 1 }))
 	wantErr(t, err, "unknown field")
 	_, err = v.call(t, "tests.base_check_request", base())
