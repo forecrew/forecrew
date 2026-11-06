@@ -345,3 +345,51 @@ func TestNewRefusesAScheduleOfAPlaybookWithOtherInputs(t *testing.T) {
 		t.Errorf("the default schedule: %v", err)
 	}
 }
+
+func TestWithStoredSettings(t *testing.T) {
+	ctx := t.Context()
+	st := testkit.NewStore(nil)
+	cfg := &config.Config{}
+	got := withStoredSettings(ctx, cfg, st, func(string) string { return "" }, slog.New(slog.DiscardHandler))
+	if got != cfg {
+		t.Error("an invalid merge must keep the file's config")
+	}
+	raw, err := config.Parse([]byte(minimalConfig), func(string) string { return "x" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ConfigSettings().Put(ctx, &domain.ConfigSetting{Kind: config.SettingPool, Name: "gpu", Spec: []byte(`{"kinds":["agent"],"roles":["*"],"credentials":{"runtimes":["*"],"repo_token":"read"}}`), UpdatedBy: "user:x"}); err != nil {
+		t.Fatal(err)
+	}
+	merged := withStoredSettings(ctx, raw, st, func(string) string { return "x" }, slog.New(slog.DiscardHandler))
+	if _, ok := merged.Pools["gpu"]; !ok {
+		t.Errorf("pools = %+v", merged.Pools)
+	}
+}
+
+const minimalConfig = `
+server:
+  public_base_url: https://forecrew.example.com
+github:
+  app_id: 1
+runtimes:
+  claude: {adapter: claude-code, vendor: anthropic}
+model_tiers:
+  fast: {anthropic: a}
+roles:
+  developer: {runtime: claude, tier: fast}
+`
+
+func TestOpenSecrets(t *testing.T) {
+	st := testkit.NewStore(nil)
+	if s, err := openSecrets(&config.Config{}, st); s != nil || err != nil {
+		t.Errorf("no key: %v, %v", s, err)
+	}
+	if _, err := openSecrets(&config.Config{SecretKey: "short"}, st); err == nil {
+		t.Error("a bad key was accepted")
+	}
+	s, err := openSecrets(&config.Config{SecretKey: strings.Repeat("A", 43) + "="}, st)
+	if s == nil || err != nil {
+		t.Errorf("a key: %v, %v", s, err)
+	}
+}

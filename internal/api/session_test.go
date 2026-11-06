@@ -1,6 +1,7 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/api"
 	"github.com/forecrew/forecrew/internal/auth"
@@ -258,5 +260,21 @@ func TestNoSessionService(t *testing.T) {
 	}
 	if r := e.do(t, "POST", "/api/v1/auth/discover", `{}`, ""); r.status != 200 || !strings.Contains(r.body, `"connections":[]`) {
 		t.Errorf("discover = %d %s", r.status, r.body)
+	}
+}
+
+// TestApplyFromASessionIsFromTheBrowser: a browser session is how a person
+// confirms a plan a model wrote.
+func TestApplyFromASessionIsFromTheBrowser(t *testing.T) {
+	e := newSessionEnv(t)
+	testkit.Bind(t, e.st, e.org.ID, domain.SubjectUser, e.user.ID, domain.RoleScopeOrganization, domain.RoleOwner, uuid.Nil())
+	var got mcp.ConfigApplyInput
+	e.svc.ConfigApplyFunc = func(_ context.Context, _ domain.Actor, in mcp.ConfigApplyInput) (mcp.ConfigApplied, error) {
+		got = in
+		return mcp.ConfigApplied{}, nil
+	}
+	resp, body := e.do(t, http.MethodPost, "/api/v1/config/plans/p/apply", `{"word":"acme"}`, e.cookie, nil)
+	if resp.StatusCode != http.StatusOK || !got.Browser || got.Word != "acme" {
+		t.Fatalf("%d %s: %+v", resp.StatusCode, body, got)
 	}
 }

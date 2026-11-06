@@ -155,7 +155,7 @@ func TestFleetAgentSchemas(t *testing.T) {
 
 // jobMCPTools are the tools of docs/contracts/job-mcp.md.
 var jobMCPTools = []string{"kb_search", "kb_propose", "request_access", "assumption_record", "evidence_attach",
-	"notes_write", "ask_human", "report_progress", "council_read"}
+	"notes_write", "ask_human", "report_progress", "council_read", "config_read", "config_plan"}
 
 // TestJobMCPSchemas: every gateway tool has an input and an output schema,
 // and they accept and refuse sample calls.

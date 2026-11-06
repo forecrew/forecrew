@@ -53,6 +53,7 @@ roles:
   security-reviewer:    {runtime: claude, tier: strong}
   ux:                   {runtime: claude, tier: strong}
   triage:               {runtime: claude, tier: fast}
+  assistant:            {runtime: claude, tier: strong}
   knowledge-curator:    {runtime: claude, tier: strong}
 
 policy:

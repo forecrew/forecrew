@@ -58,7 +58,7 @@ func (s *Server) session(next http.Handler, token string) http.Handler {
 			s.cfg.Logger.ErrorContext(r.Context(), "resolve session", "error", err)
 			s.fail(w, r, errors.New("internal error, try again later"), http.StatusInternalServerError, "internal")
 		default:
-			next.ServeHTTP(w, r.WithContext(mcp.WithCaller(r.Context(), caller)))
+			next.ServeHTTP(w, r.WithContext(context.WithValue(mcp.WithCaller(r.Context(), caller), browserKey{}, true)))
 		}
 	})
 }
@@ -108,6 +108,17 @@ func (s *Server) sameOrigin(r *http.Request) bool {
 	}
 	public, err := url.Parse(s.cfg.PublicURL)
 	return err == nil && o.Scheme == public.Scheme && o.Host == public.Host
+}
+
+// browserKey marks a request that came with a browser session.
+type browserKey struct{}
+
+// fromBrowser reports whether r came with a session of the web UI. A token
+// never counts, in a header or in the cookie of token_login: this is how a
+// plan a model wrote is confirmed by a person.
+func fromBrowser(r *http.Request) bool {
+	ok, _ := r.Context().Value(browserKey{}).(bool)
+	return ok
 }
 
 // clearOn401 clears the session cookie when the answer is 401.

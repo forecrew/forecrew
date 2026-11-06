@@ -168,6 +168,22 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/service-accounts/{service_account}/disable", serve(s, http.StatusOK, setServiceAccountInput(true), t.SetServiceAccountDisabled))
 	route("POST /api/v1/service-accounts/{service_account}/enable", serve(s, http.StatusOK, setServiceAccountInput(false), t.SetServiceAccountDisabled))
 
+	route("GET /api/v1/config/schema", serve(s, http.StatusOK, configKindInput, list(t.ConfigSchema)))
+	route("GET /api/v1/config/resources", serve(s, http.StatusOK, configGetInput, list(t.ConfigGet)))
+	route("GET /api/v1/config/export", serve(s, http.StatusOK, noInput, noArg(t.ConfigExport)))
+	route("POST /api/v1/config/import", serve(s, http.StatusCreated, configImportInput, t.ConfigImport))
+	route("GET /api/v1/config/plans", serve(s, http.StatusOK, configPlansInput, list(t.ConfigPlans)))
+	route("POST /api/v1/config/plans", serve(s, http.StatusCreated, configPlanInput, t.ConfigPlan))
+	route("GET /api/v1/config/plans/{plan}", serve(s, http.StatusOK, planRefInput, t.ConfigGetPlan))
+	route("POST /api/v1/config/plans/{plan}/apply", serve(s, http.StatusOK, configApplyInput, t.ConfigApply))
+	route("POST /api/v1/config/plans/{plan}/request-approval", serve(s, http.StatusOK, planRefInput, t.ConfigRequestApproval))
+	route("POST /api/v1/config/plans/{plan}/revert", serve(s, http.StatusCreated, planRefInput, t.ConfigRevert))
+	route("POST /api/v1/config/plans/{plan}/cancel", serve(s, http.StatusOK, planRefInput, t.ConfigCancel))
+	route("PUT /api/v1/config/plans/{plan}/secrets/{secret}", serve(s, http.StatusOK, configSecretInput, t.ConfigPutSecret))
+	route("GET /api/v1/assistant/conversations", serve(s, http.StatusOK, assistantListInput, list(t.AssistantList)))
+	route("POST /api/v1/assistant/messages", serve(s, http.StatusAccepted, bodyOf[mcp.AssistantSendInput], t.AssistantSend))
+	route("GET /api/v1/assistant/conversations/{conversation}", serve(s, http.StatusOK, assistantRefInput, t.AssistantGet))
+
 	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errors.New("no such endpoint"), http.StatusNotFound, "not_found")
 	})
@@ -267,6 +283,22 @@ func RouteAccess() map[string]mcp.Access {
 		"PATCH /api/v1/service-accounts/{service_account}":        tool[mcp.ToolUpdateServiceAccount],
 		"POST /api/v1/service-accounts/{service_account}/disable": tool[mcp.ToolSetServiceAccount],
 		"POST /api/v1/service-accounts/{service_account}/enable":  tool[mcp.ToolSetServiceAccount],
+
+		"GET /api/v1/config/schema":                          tool[mcp.ToolConfigSchema],
+		"GET /api/v1/config/resources":                       tool[mcp.ToolConfigGet],
+		"GET /api/v1/config/export":                          tool[mcp.ToolConfigExport],
+		"POST /api/v1/config/import":                         tool[mcp.ToolConfigImport],
+		"GET /api/v1/config/plans":                           tool[mcp.ToolConfigPlans],
+		"POST /api/v1/config/plans":                          tool[mcp.ToolConfigPlan],
+		"GET /api/v1/config/plans/{plan}":                    tool[mcp.ToolConfigGetPlan],
+		"POST /api/v1/config/plans/{plan}/apply":             tool[mcp.ToolConfigApply],
+		"POST /api/v1/config/plans/{plan}/request-approval":  tool[mcp.ToolConfigApply],
+		"POST /api/v1/config/plans/{plan}/revert":            tool[mcp.ToolConfigRevert],
+		"POST /api/v1/config/plans/{plan}/cancel":            tool[mcp.ToolConfigCancel],
+		"PUT /api/v1/config/plans/{plan}/secrets/{secret}":   {Permission: domain.PermConfigApply},
+		"GET /api/v1/assistant/conversations":                tool[mcp.ToolAssistantList],
+		"POST /api/v1/assistant/messages":                    tool[mcp.ToolAssistantSend],
+		"GET /api/v1/assistant/conversations/{conversation}": tool[mcp.ToolAssistantGet],
 	}
 }
 

@@ -30,6 +30,7 @@ func NewHandler(svc ToolService, st store.Store, engine *authz.Engine, version s
 
 func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logger *slog.Logger) {
 	r := registrar{srv: srv, engine: engine, access: ToolAccess(), logger: logger}
+	registerConfigTools(r, svc)
 	project := "Project name or repo (owner/name)."
 	gate := "Gate ref (GATE-7) or UUID."
 	saveAsLesson := "Also propose the feedback as an entry of the lessons section, with this gate as its source. Needs feedback; the project's knowledge policy must have a lessons section in the repo."

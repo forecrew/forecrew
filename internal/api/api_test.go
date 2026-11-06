@@ -148,6 +148,21 @@ func TestEndpoints(t *testing.T) {
 		{"GET", "/api/v1/providers", "", 200, mcp.ToolListProviders, nil},
 		{"GET", "/api/v1/fleet", "", 200, mcp.ToolFleetOverview, nil},
 		{"GET", "/api/v1/images?name=linux", "", 200, mcp.ToolListImages, mcp.ListImagesInput{Name: "linux"}},
+		{"GET", "/api/v1/config/schema?kind=shape", "", 200, mcp.ToolConfigSchema, mcp.ConfigKindInput{Kind: "shape"}},
+		{"GET", "/api/v1/config/resources?kind=team&name=core", "", 200, mcp.ToolConfigGet, mcp.ConfigGetInput{Kind: "team", Name: "core"}},
+		{"GET", "/api/v1/config/export", "", 200, mcp.ToolConfigExport, nil},
+		{"POST", "/api/v1/config/import", `{"yaml":"y"}`, 201, mcp.ToolConfigImport, mcp.ConfigImportInput{YAML: "y", Source: domain.ConfigFromYAML}},
+		{"GET", "/api/v1/config/plans?inbox=true&limit=3", "", 200, mcp.ToolConfigPlans, mcp.ConfigPlansInput{Inbox: true, Limit: 3}},
+		{"POST", "/api/v1/config/plans", `{"title":"t","changes":[],"source":"cli"}`, 201, mcp.ToolConfigPlan, mcp.ConfigPlanInput{Title: "t", Changes: []mcp.ConfigWanted{}, Source: domain.ConfigFromCLI}},
+		{"GET", "/api/v1/config/plans/p1", "", 200, mcp.ToolConfigGetPlan, mcp.ConfigPlanRefInput{Plan: "p1"}},
+		{"POST", "/api/v1/config/plans/p1/request-approval", "", 200, mcp.ToolConfigApply, mcp.ConfigPlanRefInput{Plan: "p1"}},
+		{"POST", "/api/v1/config/plans/p1/revert", "", 201, mcp.ToolConfigRevert, mcp.ConfigPlanRefInput{Plan: "p1"}},
+		{"POST", "/api/v1/config/plans/p1/cancel", "", 200, mcp.ToolConfigCancel, mcp.ConfigPlanRefInput{Plan: "p1"}},
+		{"POST", "/api/v1/config/plans/p1/apply", `{"word":"acme"}`, 200, "config_apply_confirmed", mcp.ConfigApplyInput{Plan: "p1", Word: "acme"}},
+		{"PUT", "/api/v1/config/plans/p1/secrets/conn-okta", `{"value":"v"}`, 200, "config_put_secret", mcp.ConfigSecretInput{Plan: "p1", Secret: "conn-okta"}},
+		{"POST", "/api/v1/assistant/messages", `{"message":"hi"}`, 202, mcp.ToolAssistantSend, mcp.AssistantSendInput{Message: "hi"}},
+		{"GET", "/api/v1/assistant/conversations?limit=2", "", 200, mcp.ToolAssistantList, mcp.AssistantListInput{Limit: 2}},
+		{"GET", "/api/v1/assistant/conversations/c1", "", 200, mcp.ToolAssistantGet, mcp.AssistantRefInput{Conversation: "c1"}},
 		{"GET", "/api/v1/gates?project=app", "", 200, mcp.ToolListPendingGates, mcp.ProjectFilterInput{Project: "app"}},
 		{"POST", "/api/v1/gates/GATE-7/approve", `{"feedback":"ok"}`, 200, mcp.ToolApprove, mcp.GateDecisionInput{Gate: "GATE-7", Feedback: "ok"}},
 		{"POST", "/api/v1/gates/GATE-7/approve", "", 200, mcp.ToolApprove, mcp.GateDecisionInput{Gate: "GATE-7"}},
@@ -559,5 +574,40 @@ func TestCreateGoalCouncilsOverREST(t *testing.T) {
 	}
 	if got := calls[1].Input.(mcp.CreateGoalInput).Councils; got != nil {
 		t.Errorf("absent councils = %v", *got)
+	}
+}
+
+// TestApplyIsNotFromTheBrowserWithAToken: a token never counts as a person in
+// the web UI, in a header or in the cookie of token_login, and nothing in the
+// body can say so; a source of a model is refused.
+func TestApplyIsNotFromTheBrowserWithAToken(t *testing.T) {
+	e := newEnv(t)
+	var got []mcp.ConfigApplyInput
+	e.svc.ConfigApplyFunc = func(_ context.Context, _ domain.Actor, in mcp.ConfigApplyInput) (mcp.ConfigApplied, error) {
+		got = append(got, in)
+		return mcp.ConfigApplied{}, nil
+	}
+	post := func(body string, cookie bool) int {
+		req, err := http.NewRequestWithContext(t.Context(), "POST", e.server.URL+"/api/v1/config/plans/p/apply", strings.NewReader(body))
+		must(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		if cookie {
+			req.AddCookie(&http.Cookie{Name: api.CookieName, Value: token})
+		} else {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		return e.send(t, req).status
+	}
+	if code := post(`{}`, false); code != 200 || got[0].Browser {
+		t.Errorf("token: %d %+v", code, got)
+	}
+	if code := post(`{}`, true); code != 200 || got[1].Browser {
+		t.Errorf("token in the cookie: %d %+v", code, got)
+	}
+	if code := post(`{"browser":true}`, false); code != 400 {
+		t.Errorf("a body claiming the browser: %d", code)
+	}
+	if r := e.do(t, "POST", "/api/v1/config/plans", `{"changes":[],"source":"assistant"}`, "bearer"); r.status != 400 {
+		t.Errorf("source assistant over REST: %d", r.status)
 	}
 }

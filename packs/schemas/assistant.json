@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Assistant",
+  "description": "Output of the assistant role: what it says to the person. A plan is never part of it: plans come from config_plan, and only the server draws them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reply"],
+  "properties": {
+    "reply": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8000,
+      "description": "What you say to the person, in their language, as plain markdown."
+    },
+    "assumptions": {"$ref": "common.json#/$defs/assumptions"}
+  }
+}

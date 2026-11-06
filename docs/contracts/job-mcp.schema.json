@@ -723,6 +723,152 @@
         "round",
         "contributions"
       ]
+    },
+    "config_read_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Only this kind of resource."
+        },
+        "name": {
+          "type": "string",
+          "description": "Only this name."
+        },
+        "schema": {
+          "type": "boolean",
+          "description": "Also return the JSON Schemas of the specs."
+        },
+        "waiting": {
+          "type": "boolean",
+          "description": "Also return the jobs that wait, and why."
+        }
+      }
+    },
+    "config_read_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resources",
+        "schemas",
+        "waiting"
+      ],
+      "properties": {
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "schemas": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "waiting": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "job",
+              "role"
+            ],
+            "properties": {
+              "job": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "config_plan_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "changes"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "pattern": "\\S",
+          "maxLength": 200,
+          "description": "Short title of the change, in the person's language."
+        },
+        "changes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "name"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "spec": {
+                "type": "object",
+                "description": "The whole spec, as config_read with schema describes it. Never a secret: secrets are references."
+              },
+              "delete": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "based_on": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Repo or web text the plan draws on, which nobody verified."
+        }
+      }
+    },
+    "config_plan_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan",
+        "changes",
+        "lowers_protection",
+        "secure_fields"
+      ],
+      "properties": {
+        "plan": {
+          "type": "string"
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "lowers_protection": {
+          "type": "boolean"
+        },
+        "secure_fields": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
     }
   }
 }

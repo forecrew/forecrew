@@ -120,6 +120,20 @@ const (
 	ToolListKnowledge          = "list_knowledge"
 	ToolGetTrace               = "get_trace"
 	ToolListImages             = "list_images"
+
+	ToolConfigSchema  = "config_schema"
+	ToolConfigGet     = "config_get"
+	ToolConfigPlan    = "config_plan"
+	ToolConfigApply   = "config_apply"
+	ToolConfigRevert  = "config_revert"
+	ToolConfigExport  = "config_export"
+	ToolConfigImport  = "config_import"
+	ToolConfigPlans   = "config_plans"
+	ToolConfigGetPlan = "config_get_plan"
+	ToolConfigCancel  = "config_cancel"
+	ToolAssistantSend = "assistant_send"
+	ToolAssistantGet  = "assistant_get"
+	ToolAssistantList = "assistant_list"
 )
 
 // Tools returns every MCP tool name.
@@ -139,11 +153,39 @@ func Tools() []string {
 		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview,
 		ToolGetTrace, ToolListKnowledgeProposals, ToolListKnowledge,
 		ToolListImages,
+		ToolConfigSchema, ToolConfigGet, ToolConfigPlan, ToolConfigApply, ToolConfigRevert, ToolConfigExport, ToolConfigImport,
+		ToolConfigPlans, ToolConfigGetPlan, ToolConfigCancel, ToolAssistantSend, ToolAssistantGet, ToolAssistantList,
 	}
 }
 
 // ToolService implements one method per MCP tool.
 type ToolService interface {
+	ConfigSchema(ctx context.Context, by domain.Actor, in ConfigKindInput) ([]ConfigSchema, error)
+	// ConfigGet returns what the caller may read of the configuration.
+	ConfigGet(ctx context.Context, by domain.Actor, in ConfigGetInput) ([]ConfigResource, error)
+	// ConfigPlan validates the wanted changes and stores a plan.
+	ConfigPlan(ctx context.Context, by domain.Actor, in ConfigPlanInput) (ConfigPlanView, error)
+	// ConfigApply applies a plan, as the person confirming it. Only REST
+	// calls it; over MCP config_apply is ConfigRequestApproval.
+	ConfigApply(ctx context.Context, by domain.Actor, in ConfigApplyInput) (ConfigApplied, error)
+	// ConfigRequestApproval puts a plan in the Inbox of people who can
+	// confirm it and says where.
+	ConfigRequestApproval(ctx context.Context, by domain.Actor, in ConfigPlanRefInput) (ConfigConfirmation, error)
+	// ConfigRevert makes a new plan with the previous values of an applied
+	// one.
+	ConfigRevert(ctx context.Context, by domain.Actor, in ConfigPlanRefInput) (ConfigPlanView, error)
+	ConfigExport(ctx context.Context, by domain.Actor) (ConfigExport, error)
+	ConfigImport(ctx context.Context, by domain.Actor, in ConfigImportInput) (ConfigPlanView, error)
+	ConfigPlans(ctx context.Context, by domain.Actor, in ConfigPlansInput) ([]ConfigPlanView, error)
+	ConfigGetPlan(ctx context.Context, by domain.Actor, in ConfigPlanRefInput) (ConfigPlanView, error)
+	ConfigCancel(ctx context.Context, by domain.Actor, in ConfigPlanRefInput) (ConfigPlanView, error)
+	// ConfigPutSecret saves a secure field of a plan. REST only.
+	ConfigPutSecret(ctx context.Context, by domain.Actor, in ConfigSecretInput) (ConfigPlanView, error)
+	// AssistantSend adds a message to a conversation and starts its turn.
+	AssistantSend(ctx context.Context, by domain.Actor, in AssistantSendInput) (AssistantView, error)
+	AssistantGet(ctx context.Context, by domain.Actor, in AssistantRefInput) (AssistantView, error)
+	AssistantList(ctx context.Context, by domain.Actor, in AssistantListInput) ([]domain.AssistantConversation, error)
+
 	// OnboardProject registers the repo as a project if needed and starts
 	// the onboarding playbook.
 	OnboardProject(ctx context.Context, by domain.Actor, in OnboardProjectInput) (OnboardProjectOutput, error)

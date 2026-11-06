@@ -54,7 +54,7 @@ func (s *Service) client(c domain.Connection) *http.Client {
 
 // provider returns the protocol of c.
 func (s *Service) provider(ctx context.Context, c domain.Connection) (provider, error) {
-	secret, err := s.clientSecret(c.ClientSecretRef)
+	secret, err := s.clientSecret(ctx, c)
 	if err != nil {
 		return nil, err
 	}

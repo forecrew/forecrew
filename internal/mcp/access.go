@@ -109,6 +109,20 @@ func ToolAccess() map[string]Access {
 		ToolListKnowledgeProposals: {Permission: domain.PermProjectRead},
 		ToolListKnowledge:          {Permission: domain.PermProjectRead},
 		ToolGetTrace:               {Permission: domain.PermProjectRead},
+
+		ToolConfigSchema:  {Permission: domain.PermConfigRead},
+		ToolConfigGet:     {Permission: domain.PermConfigRead},
+		ToolConfigPlan:    {Permission: domain.PermConfigApply},
+		ToolConfigApply:   {Permission: domain.PermConfigApply},
+		ToolConfigRevert:  {Permission: domain.PermConfigApply},
+		ToolConfigExport:  {Permission: domain.PermConfigRead},
+		ToolConfigImport:  {Permission: domain.PermConfigApply},
+		ToolConfigPlans:   {Permission: domain.PermConfigRead},
+		ToolConfigGetPlan: {Permission: domain.PermConfigRead},
+		ToolConfigCancel:  {Permission: domain.PermConfigApply},
+		ToolAssistantSend: {Permission: domain.PermConfigRead},
+		ToolAssistantGet:  {Permission: domain.PermConfigRead},
+		ToolAssistantList: {Permission: domain.PermConfigRead},
 	}
 }
 

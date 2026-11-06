@@ -17,6 +17,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/config"
+	cfgres "github.com/forecrew/forecrew/internal/config/resource"
 	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/evidence"
@@ -29,6 +30,7 @@ import (
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
+	"github.com/forecrew/forecrew/internal/secrets"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -123,12 +125,21 @@ type Config struct {
 	// config.DefaultTokenTTL.
 	TokenTTL time.Duration
 	Now      func() time.Time // defaults to the real time
+	// Server is forecrew.yaml as read; nil leaves server settings out of the
+	// configuration resources. Getenv reads what it refers to.
+	Server *config.Config
+	Getenv func(string) string
+	// Repo reads repos and opens the pull requests of repo plans.
+	Repo cfgres.Repo
+	// Secrets is the secret store; nil refuses secure fields.
+	Secrets secrets.Store
 }
 
 // Service is the mcp.ToolService.
 type Service struct {
-	cfg   Config
-	authz *authz.Engine
+	cfg    Config
+	authz  *authz.Engine
+	config *cfgres.Engine
 }
 
 var _ mcp.ToolService = (*Service)(nil)
@@ -148,7 +159,20 @@ func New(cfg Config) *Service {
 	if cfg.Proposals != nil {
 		engine.WithProtection(cfg.Proposals)
 	}
-	return &Service{cfg: cfg, authz: engine}
+	s := &Service{cfg: cfg, authz: engine}
+	s.config = cfgres.NewEngine(cfgres.Config{
+		Store: cfg.Store, Access: func(st store.Store) cfgres.Access { return s.in(st) }, Server: cfg.Server, Getenv: cfg.Getenv,
+		Repo: cfg.Repo, Secrets: cfg.Secrets, Logger: cfg.Logger, Now: cfg.Now,
+	})
+	return s
+}
+
+// in returns the service working in the transaction st.
+func (s *Service) in(st store.Store) *Service {
+	c := *s
+	c.cfg.Store = st
+	c.authz = authz.New(st, s.cfg.Logger)
+	return &c
 }
 
 // allow checks that by holds p on a project.

@@ -24,6 +24,7 @@ func TestLoadPacks(t *testing.T) {
 		pool     string
 	}{
 		"onboarding-analyst":   {config.TierStrong, false, domain.PoolBuild},
+		"assistant":            {config.TierStrong, true, domain.PoolControl},
 		"product-owner":        {config.TierBest, true, domain.PoolControl},
 		"architect":            {config.TierBest, true, domain.PoolControl},
 		"developer":            {config.TierStrong, false, domain.PoolBuild},
