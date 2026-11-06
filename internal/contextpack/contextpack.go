@@ -116,15 +116,8 @@ func (b *StoreBuilder) input(ctx context.Context, req workflow.JobRequest, role 
 		goalID = cmp.Or(goalID, spec.GoalID)
 	}
 	if goalID != uuid.Nil() {
-		g, err := b.store.Goals().Get(ctx, acc, goalID)
-		if err != nil {
-			return Input{}, fmt.Errorf("load goal %s: %w", goalID, err)
-		}
-		goal = &g
-		in.Goal = Text{Heading: fmt.Sprintf("Goal %s: %s", goal.Ref(), goal.Title), Body: goal.Body}
-		in.Goal.Untrusted, in.Goal.Source = b.untrusted(goal.CreatedBy), goal.CreatedBy
-		if goal.Kind == domain.GoalBug {
-			b.bugReport(&in, *goal)
+		if goal, err = b.goalText(ctx, acc, goalID, &in); err != nil {
+			return Input{}, err
 		}
 	}
 	if err := b.jobTexts(ctx, req, &in); err != nil {
@@ -180,6 +173,21 @@ func (b *StoreBuilder) council(ctx context.Context, acc uuid.UUID, t workflow.Co
 	}
 	in.Framing = Text{Heading: "The facilitator's framing", Body: fenced("json", framing.String()), Untrusted: true, Source: "facilitator of " + c.Ref()}
 	return nil
+}
+
+// goalText loads the goal and sets the Goal section of in, and the Spec
+// section's trust when the goal is a bug.
+func (b *StoreBuilder) goalText(ctx context.Context, acc, goalID uuid.UUID, in *Input) (*domain.Goal, error) {
+	g, err := b.store.Goals().Get(ctx, acc, goalID)
+	if err != nil {
+		return nil, fmt.Errorf("load goal %s: %w", goalID, err)
+	}
+	in.Goal = Text{Heading: fmt.Sprintf("Goal %s: %s", g.Ref(), g.Title), Body: g.Body}
+	in.Goal.Untrusted, in.Goal.Source = b.untrusted(g.CreatedBy), g.CreatedBy
+	if g.Kind == domain.GoalBug {
+		b.bugReport(in, g)
+	}
+	return &g, nil
 }
 
 // bugReport marks the goal and the spec of a bug as untrusted whoever created

@@ -159,7 +159,7 @@ func TestBugfixTestPassesOnBase(t *testing.T) {
 		}
 	}
 	named := func(status domain.TestStatus) outcome {
-		return func(j domain.Job) (domain.TestRunStatus, []domain.TestResult) {
+		return func(domain.Job) (domain.TestRunStatus, []domain.TestResult) {
 			run := domain.TestRunPassed
 			if status != domain.TestPassed {
 				run = domain.TestRunFailed
