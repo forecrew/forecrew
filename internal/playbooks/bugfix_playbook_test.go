@@ -39,12 +39,17 @@ func startBugfix(t *testing.T) *v2Run {
 
 // bugMap is the output of a test engineer for a bug: one test for AC-1.
 func bugMap(escalation any) map[string]any {
-	tests := []any{map[string]any{"criterion": "AC-1", "suite": "unit", "id": "pkg::TestAC1Charge", "file": "pkg/a_test.go"}}
+	return bugMapOf("pkg::TestAC1Charge", "pkg/a_test.go", escalation)
+}
+
+// bugMapOf is bugMap with the test named id in file.
+func bugMapOf(id, file string, escalation any) map[string]any {
+	tests := []any{map[string]any{"criterion": "AC-1", "suite": "unit", "id": id, "file": file}}
 	if escalation != nil {
 		tests = []any{}
 	}
 	return map[string]any{
-		"summary": "A test that pays with a saved card.", "tests": tests, "files": []any{"pkg/a_test.go"},
+		"summary": "A test that pays with a saved card.", "tests": tests, "files": []any{file},
 		"untestable": []any{}, "assumptions": []any{}, "escalation": escalation,
 	}
 }
@@ -144,14 +149,46 @@ func TestBugfixTestPassesOnBase(t *testing.T) {
 		t.Error("the developer started with a test that passes on base")
 	}
 	r.decide(t, domain.GateNeedsYou, mcp.ToolApprove, "It needs two saved cards.")
-	eng := r.reproduce(t, 2, bugMap(nil))
+	// The second attempt tests under another name; only it counts from now on.
+	const second, file = "pkg::TestAC1ChargeSavedCard", "pkg/saved_test.go"
+	eng := r.reproduce(t, 2, bugMapOf(second, file, nil))
 	for _, want := range []string{"passed on the base branch", "It needs two saved cards."} {
 		if !strings.Contains(eng.Feedback, want) {
 			t.Errorf("second request lacks %q:\n%s", want, eng.Feedback)
 		}
 	}
-	r.baseJobs(t, failedRun)
-	r.push(t, 1)
+	named := func(status domain.TestStatus) outcome {
+		return func(j domain.Job) (domain.TestRunStatus, []domain.TestResult) {
+			run := domain.TestRunPassed
+			if status != domain.TestPassed {
+				run = domain.TestRunFailed
+			}
+			return run, []domain.TestResult{{Classname: "pkg", Name: "TestAC1ChargeSavedCard", Status: status}}
+		}
+	}
+	for _, j := range r.commands(t, 2, named(domain.TestFailed)) {
+		if j.Spec.Overlay == nil || !slices.Equal(j.Spec.Overlay.Paths, []string{file}) {
+			t.Errorf("base check overlay = %+v", j.Spec.Overlay)
+		}
+	}
+	dev := r.push(t, 1)
+	if !slices.Equal(dev.LockedPaths, []string{file}) {
+		t.Errorf("locked paths = %v, want only the second test", dev.LockedPaths)
+	}
+	pr := r.prAt(t, 1)
+	r.checks(t, 0, 1, 1, domain.ChecksSuccess)
+	r.commands(t, 3, named(domain.TestPassed))
+	r.commands(t, 2, named(domain.TestFailed))
+	r.review(t, 0, 1, 1, approveReview())
+	g = r.pendingGate(t, domain.GateMergeApproval)
+	if !strings.Contains(g.Summary, "Verification: Passed: ") {
+		t.Errorf("merge gate:\n%s", g.Summary)
+	}
+	r.decide(t, domain.GateMergeApproval, mcp.ToolApprove, "")
+	r.waitRun(t, domain.RunSucceeded)
+	if !r.prNow(t, pr.Number).Merged {
+		t.Error("not merged")
+	}
 }
 
 // A test engineer that cannot reproduce the bug asks a human, with what it
