@@ -416,7 +416,14 @@ type MCPTokenRepo interface {
 type AuditFilter struct {
 	ProjectID uuid.UUID
 	SubjectID uuid.UUID
-	Limit     int
+	// Actor is an exact Actor.String(), Action an exact action and
+	// SubjectType an exact subject type.
+	Actor       string
+	Action      string
+	SubjectType string
+	// Since includes entries from this time on, Until those before it.
+	Since, Until time.Time
+	Limit        int
 }
 
 // AuditRepo is the append-only audit log.
