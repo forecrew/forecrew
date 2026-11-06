@@ -103,6 +103,16 @@ func (r gateRepo) Create(ctx context.Context, g *domain.Gate) error {
 		if err != nil {
 			return err
 		}
+		// A gate of a job takes the job row before the account's gate
+		// counter, the order of Complete and of every job tool: the other
+		// way round deadlocks. The key-share lock does not block a writer
+		// that does not change the key, and conflicts with Complete's
+		// exclusive lock.
+		if g.JobID != uuid.Nil() {
+			if _, err := tx.Exec(ctx, `SELECT 1 FROM jobs WHERE account_id = $1 AND id = $2 FOR KEY SHARE`, g.AccountID, g.JobID); err != nil {
+				return mapErr(err)
+			}
+		}
 		n, err := nextNumber(ctx, tx, g.AccountID, string(domain.RefGate))
 		if err != nil {
 			return mapErr(err)
