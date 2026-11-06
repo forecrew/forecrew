@@ -21,6 +21,7 @@ import (
 	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/images"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
 )
@@ -35,7 +36,9 @@ type Config struct {
 	Tools mcp.ToolService
 	// Artifacts serves artifact downloads; nil leaves the endpoint out.
 	Artifacts ArtifactOpener
-	Store     store.Store
+	// Images registers and removes images; nil leaves those routes out.
+	Images ImageAdmin
+	Store  store.Store
 	// Authz checks RouteAccess on every route.
 	Authz *authz.Engine
 	// Auth resolves session cookies and serves sign-in discovery; nil means
@@ -125,6 +128,11 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/knowledge/proposals", serve(s, http.StatusOK, listKnowledgeProposalsInput, list(t.ListKnowledgeProposals)))
 	route("POST /api/v1/knowledge/proposals", serve(s, http.StatusCreated, bodyOf[mcp.ProposeKnowledgeInput], t.ProposeKnowledge))
 
+	route("GET /api/v1/images", serve(s, http.StatusOK, listImagesInput, list(t.ListImages)))
+	if s.cfg.Images != nil {
+		route("POST /api/v1/images", serve(s, http.StatusCreated, bodyOf[images.AddInput], s.cfg.Images.AddImage))
+		route("DELETE /api/v1/images/{image}", serve(s, http.StatusOK, imageInput, s.cfg.Images.DeleteImage))
+	}
 	route("GET /api/v1/workers", serve(s, http.StatusOK, noInput, list(noArg(t.ListWorkers))))
 	route("GET /api/v1/machines", serve(s, http.StatusOK, listMachinesInput, list(t.ListMachines)))
 	route("GET /api/v1/shapes", serve(s, http.StatusOK, noInput, list(noArg(t.ListShapes))))
@@ -226,6 +234,10 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/shapes":    tool[mcp.ToolListShapes],
 		"GET /api/v1/providers": tool[mcp.ToolListProviders],
 		"GET /api/v1/fleet":     tool[mcp.ToolFleetOverview],
+
+		"GET /api/v1/images":            tool[mcp.ToolListImages],
+		"POST /api/v1/images":           {Permission: domain.PermWorkerManage},
+		"DELETE /api/v1/images/{image}": {Permission: domain.PermWorkerManage},
 
 		"GET /api/v1/gates":                         tool[mcp.ToolListPendingGates],
 		"POST /api/v1/gates/{gate}/approve":         tool[mcp.ToolApprove],
@@ -441,6 +453,22 @@ func listKnowledgeInput(r *http.Request) (mcp.ListKnowledgeInput, error) {
 	limit, err := intParam(q.Get("limit"), "limit")
 	return mcp.ListKnowledgeInput{Project: q.Get("project"), Section: q.Get("section"), Kind: domain.KnowledgeKind(q.Get("kind")),
 		Provider: q.Get("provider"), Goal: q.Get("goal"), Limit: int(limit)}, err
+}
+
+// ImageAdmin registers and removes machine images. They are REST and CLI
+// operations only, not MCP tools: an agent never registers an image others
+// trust (fleet.md, Images). *tools.Service implements it.
+type ImageAdmin interface {
+	AddImage(ctx context.Context, by domain.Actor, in images.AddInput) (mcp.ImageInfo, error)
+	DeleteImage(ctx context.Context, by domain.Actor, ref string) (mcp.ImageInfo, error)
+}
+
+func imageInput(r *http.Request) (string, error) { return r.PathValue("image"), nil }
+
+func listImagesInput(r *http.Request) (mcp.ListImagesInput, error) {
+	q := r.URL.Query()
+	limit, err := intParam(q.Get("limit"), "limit")
+	return mcp.ListImagesInput{Name: q.Get("name"), OS: q.Get("os"), Arch: q.Get("arch"), Format: q.Get("format"), Limit: int(limit)}, err
 }
 
 func noteInput(r *http.Request) (mcp.DeleteNoteInput, error) {

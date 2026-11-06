@@ -115,7 +115,7 @@ func TestArtifactDownloadCutShort(t *testing.T) {
 		body := io.NopCloser(io.MultiReader(strings.NewReader("part"), iotest.ErrReader(errors.New("storage down"))))
 		return domain.Artifact{Name: "a.txt", ContentType: "text/plain", Size: 100}, body, nil
 	}
-	hs := httptest.NewServer(api.New(api.Config{Tools: svc, Artifacts: svc, Store: st, Authz: authz.New(st, nil), Logger: slog.New(slog.DiscardHandler), TokenLogin: true}).Handler())
+	hs := httptest.NewServer(api.New(api.Config{Tools: svc, Artifacts: svc, Images: &fakeImages{}, Store: st, Authz: authz.New(st, nil), Logger: slog.New(slog.DiscardHandler), TokenLogin: true}).Handler())
 	t.Cleanup(hs.Close)
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", hs.URL+"/api/v1/artifacts/"+domain.NewID().String(), nil)
 	req.Header.Set("Authorization", "Bearer "+token)

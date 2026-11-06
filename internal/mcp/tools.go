@@ -119,6 +119,7 @@ const (
 	ToolListKnowledgeProposals = "list_knowledge_proposals"
 	ToolListKnowledge          = "list_knowledge"
 	ToolGetTrace               = "get_trace"
+	ToolListImages             = "list_images"
 )
 
 // Tools returns every MCP tool name.
@@ -137,6 +138,7 @@ func Tools() []string {
 		ToolListServiceAccounts, ToolCreateServiceAccount, ToolUpdateServiceAccount, ToolSetServiceAccount,
 		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview,
 		ToolGetTrace, ToolListKnowledgeProposals, ToolListKnowledge,
+		ToolListImages,
 	}
 }
 
@@ -162,6 +164,7 @@ type ToolService interface {
 	ListProviders(ctx context.Context, by domain.Actor) ([]ProviderInfo, error)
 	// FleetOverview says whether jobs have somewhere to run, and where.
 	FleetOverview(ctx context.Context, by domain.Actor) (fleet.Overview, error)
+	ListImages(ctx context.Context, by domain.Actor, in ListImagesInput) ([]ImageInfo, error)
 	ListPendingGates(ctx context.Context, by domain.Actor, in ProjectFilterInput) ([]GateInfo, error)
 	// Approve resolves a gate of any kind as approved (retry for needs_you).
 	Approve(ctx context.Context, by domain.Actor, in GateDecisionInput) (domain.Gate, error)
@@ -769,6 +772,23 @@ type ProviderInfo struct {
 	domain.CapacityProvider
 	Online    bool             `json:"online"`
 	Ownership domain.Ownership `json:"ownership"`
+}
+
+// ListImagesInput filters list_images; empty fields match everything.
+type ListImagesInput struct {
+	Name   string `json:"name,omitempty"`
+	OS     string `json:"os,omitempty"`     // linux, windows or macos
+	Arch   string `json:"arch,omitempty"`   // amd64 or arm64
+	Format string `json:"format,omitempty"` // rootfs, qcow2, vhdx, ami or tart
+	Limit  int    `json:"limit,omitempty"`  // default 100, at most 500
+}
+
+// ImageInfo is a machine image the organization can use.
+type ImageInfo struct {
+	domain.Image
+	// Scope is "organization" for the organization's own images and
+	// "instance" for the ones every organization may use.
+	Scope string `json:"scope"`
 }
 
 // WorkerInfo is a worker with its online state and running jobs.

@@ -70,6 +70,7 @@ type ToolService struct {
 	GetTraceFunc               func(context.Context, domain.Actor, mcp.GetTraceInput) (mcp.Trace, error)
 	ListKnowledgeFunc          func(context.Context, domain.Actor, mcp.ListKnowledgeInput) (mcp.KnowledgeListing, error)
 	ListKnowledgeProposalsFunc func(context.Context, domain.Actor, mcp.ListKnowledgeProposalsInput) ([]mcp.KnowledgeProposalInfo, error)
+	ListImagesFunc             func(context.Context, domain.Actor, mcp.ListImagesInput) ([]mcp.ImageInfo, error)
 
 	ListAssumptionsFunc   func(context.Context, domain.Actor, mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error)
 	ResolveAssumptionFunc func(context.Context, domain.Actor, mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error)
@@ -162,6 +163,11 @@ func (s *ToolService) FleetOverview(ctx context.Context, by domain.Actor) (fleet
 // ListWorkers implements mcp.ToolService.
 func (s *ToolService) ListWorkers(ctx context.Context, by domain.Actor) ([]mcp.WorkerInfo, error) {
 	return invoke[any](ctx, s, mcp.ToolListWorkers, by, nil, s.ListWorkersFunc)
+}
+
+// ListImages implements mcp.ToolService.
+func (s *ToolService) ListImages(ctx context.Context, by domain.Actor, in mcp.ListImagesInput) ([]mcp.ImageInfo, error) {
+	return invoke(ctx, s, mcp.ToolListImages, by, in, s.ListImagesFunc)
 }
 
 // ListPendingGates implements mcp.ToolService.

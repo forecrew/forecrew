@@ -325,7 +325,7 @@ func New(d Deps) (*App, error) {
 	a.handler = a.routes(workers.Handler(), jobGateway.Handler(),
 		mcp.NewHandler(toolSvc, st, access, d.Version, log),
 		api.New(api.Config{
-			Tools: toolSvc, Artifacts: toolSvc, Store: st, Authz: access, Auth: a.auth, Logger: log, PublicURL: cfg.Server.PublicBaseURL,
+			Tools: toolSvc, Artifacts: toolSvc, Images: toolSvc, Store: st, Authz: access, Auth: a.auth, Logger: log, PublicURL: cfg.Server.PublicBaseURL,
 			TokenLogin: cfg.Auth.TokenLogin, SessionMaxAge: cfg.Auth.SessionAbsolute, Now: d.Now,
 		}).Handler())
 	return a, nil

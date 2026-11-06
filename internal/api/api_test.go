@@ -30,6 +30,7 @@ var t0 = time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
 
 type env struct {
 	svc     *testkit.ToolService
+	images  *fakeImages
 	store   *testkit.Store
 	server  *httptest.Server
 	client  *http.Client // keeps cookies
@@ -47,14 +48,14 @@ func newEnv(t *testing.T) *env {
 func newEnvFor(t *testing.T, now func() time.Time, account domain.Account) *env {
 	t.Helper()
 	st := testkit.NewStore(now)
-	e := &env{svc: &testkit.ToolService{}, store: st, logs: &bytes.Buffer{}, account: account}
+	e := &env{svc: &testkit.ToolService{}, images: &fakeImages{}, store: st, logs: &bytes.Buffer{}, account: account}
 	must(t, st.Accounts().Create(t.Context(), &e.account))
 	laptop := domain.MCPToken{AccountID: e.account.ID, Name: "laptop", TokenHash: mcp.HashToken(token)}
 	must(t, st.MCPTokens().Create(t.Context(), &laptop))
 	must(t, st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: e.account.ID, Name: "old", TokenHash: mcp.HashToken("fcm_old"), RevokedAt: testkit.NewClock(t0).Now()}))
 	e.actor = domain.Actor{AccountID: e.account.ID, Kind: domain.ActorMCP, Name: "laptop", Credential: domain.Credential{Kind: domain.CredentialToken, ID: laptop.ID}}
 	srv := api.New(api.Config{
-		Tools: e.svc, Artifacts: e.svc, Store: st, Authz: authz.New(st, nil), Logger: slog.New(slog.NewJSONHandler(e.logs, nil)), TokenLogin: true,
+		Tools: e.svc, Artifacts: e.svc, Images: e.images, Store: st, Authz: authz.New(st, nil), Logger: slog.New(slog.NewJSONHandler(e.logs, nil)), TokenLogin: true,
 		Auth: auth.New(auth.Config{Store: st, Auth: config.Auth{TokenLogin: true}}),
 	})
 	e.server = httptest.NewTLSServer(srv.Handler())
@@ -146,6 +147,7 @@ func TestEndpoints(t *testing.T) {
 		{"GET", "/api/v1/shapes", "", 200, mcp.ToolListShapes, nil},
 		{"GET", "/api/v1/providers", "", 200, mcp.ToolListProviders, nil},
 		{"GET", "/api/v1/fleet", "", 200, mcp.ToolFleetOverview, nil},
+		{"GET", "/api/v1/images?name=linux", "", 200, mcp.ToolListImages, mcp.ListImagesInput{Name: "linux"}},
 		{"GET", "/api/v1/gates?project=app", "", 200, mcp.ToolListPendingGates, mcp.ProjectFilterInput{Project: "app"}},
 		{"POST", "/api/v1/gates/GATE-7/approve", `{"feedback":"ok"}`, 200, mcp.ToolApprove, mcp.GateDecisionInput{Gate: "GATE-7", Feedback: "ok"}},
 		{"POST", "/api/v1/gates/GATE-7/approve", "", 200, mcp.ToolApprove, mcp.GateDecisionInput{Gate: "GATE-7"}},
