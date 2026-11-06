@@ -1,12 +1,16 @@
 package tools_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/store"
 )
 
 // traceFixture stores a goal with every kind of node and returns its refs.
@@ -181,5 +185,147 @@ func TestGetTraceRefused(t *testing.T) {
 			_, err := f.svc.GetTrace(ctx, tt.by, mcp.GetTraceInput{Ref: tt.ref})
 			wantErr(t, err, tt.want)
 		})
+	}
+}
+
+// memberWith returns an actor who holds only perms on the project.
+func (f *fixture) memberWith(t *testing.T, project uuid.UUID, perms ...domain.Permission) domain.Actor {
+	t.Helper()
+	role := domain.Role{AccountID: f.account.ID, Name: "r" + domain.NewID().String()[28:], Scope: projectScope, Permissions: perms, Custom: true}
+	must(t, f.st.Roles().Create(t.Context(), &role))
+	by, id := f.member(t, "", "", uuid.Nil())
+	must(t, f.st.RoleBindings().Create(t.Context(), &domain.RoleBinding{AccountID: f.account.ID, SubjectKind: domain.SubjectUser, SubjectID: id, RoleID: role.ID, ProjectID: project, CreatedBy: "user:op"}))
+	return by
+}
+
+func kindsOf(tr mcp.Trace) map[string]int {
+	out := map[string]int{}
+	for _, n := range tr.Nodes {
+		out[n.Kind]++
+	}
+	return out
+}
+
+func TestGetTraceNeedsGoalReadForTheChain(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := f.traceFixture(t)
+	reader := f.memberWith(t, f.project.ID, domain.PermProjectRead)
+
+	// The chain behind a goal, spec, task or change is for goal.read.
+	for _, ref := range []string{g.Ref(), "SPEC-2", "TASK-1", "acme/app#9"} {
+		if _, err := f.svc.GetTrace(ctx, reader, mcp.GetTraceInput{Ref: ref}); !errors.Is(err, authz.ErrDenied) {
+			t.Errorf("%s: err = %v, want denied", ref, err)
+		}
+	}
+	// A council, decision or assumption shows what only project.read allows.
+	tr, err := f.svc.GetTrace(ctx, reader, mcp.GetTraceInput{Ref: "COUNCIL-1"})
+	must(t, err)
+	want := map[string]int{"council": 1, "decision": 5, "assumption": 2}
+	if tr.Goal != "" || len(kindsOf(tr)) != len(want) || kindsOf(tr)["council"] != 1 || kindsOf(tr)["decision"] != 5 || kindsOf(tr)["assumption"] != 2 {
+		t.Fatalf("kinds = %v, goal %q", kindsOf(tr), tr.Goal)
+	}
+	for _, e := range tr.Edges {
+		if e.From == "GOAL-1" || e.To == "GOAL-1" || strings.HasPrefix(e.To, "SPEC") || strings.HasPrefix(e.To, "TASK") {
+			t.Errorf("edge %+v leaks the chain", e)
+		}
+	}
+	if strings.Contains(tr.Untrusted, "Login") || strings.Contains(tr.Untrusted, "Spec revision") {
+		t.Errorf("untrusted text leaks the chain: %s", tr.Untrusted)
+	}
+}
+
+func TestGetTraceNeedsJobReadForVerification(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := f.traceFixture(t)
+	noJobs := f.memberWith(t, f.project.ID, domain.PermProjectRead, domain.PermGoalRead)
+	tr, err := f.svc.GetTrace(ctx, noJobs, mcp.GetTraceInput{Ref: g.Ref()})
+	must(t, err)
+	if k := kindsOf(tr); k["verification"] != 0 || k["merge"] != 1 || k["change"] != 2 || k["task"] != 1 {
+		t.Errorf("kinds = %v", k)
+	}
+	withJobs := f.memberWith(t, f.project.ID, domain.PermProjectRead, domain.PermGoalRead, domain.PermJobRead)
+	tr, err = f.svc.GetTrace(ctx, withJobs, mcp.GetTraceInput{Ref: g.Ref()})
+	must(t, err)
+	if kindsOf(tr)["verification"] != 1 {
+		t.Errorf("kinds = %v", kindsOf(tr))
+	}
+}
+
+func TestGetTraceStaysInTheProjectOfTheGoal(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := f.traceFixture(t)
+	other := f.secondProject(t)
+	// Records of another project that point at the goal.
+	c := domain.Council{AccountID: f.account.ID, ProjectID: other.ID, GoalID: g.ID, Kind: domain.CouncilAdhoc, Question: "Elsewhere?"}
+	must(t, f.st.Councils().Create(ctx, &c))
+	d := domain.Decision{AccountID: f.account.ID, ProjectID: other.ID, GoalID: g.ID, Question: "Elsewhere", Choice: "x", DecidedBy: "user:ana"}
+	must(t, f.st.Decisions().Create(ctx, &d))
+	a := domain.Assumption{AccountID: f.account.ID, ProjectID: other.ID, GoalID: g.ID, MadeBy: "pm", Status: domain.AssumptionUnverified, Dependents: []domain.Dependent{},
+		StatedAssumption: domain.StatedAssumption{Statement: "Elsewhere", Confidence: domain.LevelLow, Impact: domain.LevelLow, VerifyBy: domain.VerifyByTest}}
+	must(t, f.st.Assumptions().Create(ctx, &a))
+	sp := domain.Spec{AccountID: f.account.ID, ProjectID: other.ID, GoalID: g.ID, Revision: 3, Body: "elsewhere"}
+	must(t, f.st.Specs().Create(ctx, &sp))
+	task := domain.Task{AccountID: f.account.ID, ProjectID: other.ID, GoalID: g.ID, SpecID: sp.ID, Seq: 2, Title: "elsewhere", Status: domain.TaskOpen}
+	must(t, f.st.Tasks().Create(ctx, &task))
+	ch := domain.Change{AccountID: f.account.ID, ProjectID: other.ID, TaskID: task.ID, Repo: "acme/second", Number: 5, Branch: "b", HeadSHA: "a", State: domain.ChangeOpen, URL: "u"}
+	must(t, f.st.Changes().Upsert(ctx, &ch))
+	stray := domain.Change{AccountID: f.account.ID, ProjectID: other.ID, TaskID: mustTask(t, f, g).ID, Repo: "acme/second", Number: 6, Branch: "b", HeadSHA: "a", State: domain.ChangeOpen, URL: "u"}
+	must(t, f.st.Changes().Upsert(ctx, &stray))
+
+	tr, err := f.svc.GetTrace(ctx, f.by, mcp.GetTraceInput{Ref: g.Ref()})
+	must(t, err)
+	if len(tr.Nodes) != 16 {
+		for _, n := range tr.Nodes {
+			t.Logf("%s %s", n.Kind, n.ID)
+		}
+		t.Fatalf("%d nodes, want the 16 of the goal's own project", len(tr.Nodes))
+	}
+	for _, n := range tr.Nodes {
+		if strings.Contains(n.Title, "lsewhere") || n.ID == "acme/second#6" {
+			t.Errorf("node %+v is from another project", n)
+		}
+	}
+
+	// Who reads the record's project but not the goal's is refused the chain.
+	byOther := f.memberWith(t, other.ID, domain.PermProjectRead, domain.PermGoalRead)
+	if _, err := f.svc.GetTrace(ctx, byOther, mcp.GetTraceInput{Ref: c.Ref()}); !errors.Is(err, authz.ErrDenied) {
+		t.Errorf("council of another project: err = %v, want denied", err)
+	}
+}
+
+func mustTask(t *testing.T, f *fixture, g domain.Goal) domain.Task {
+	t.Helper()
+	ts, err := f.st.Tasks().List(t.Context(), f.account.ID, store.TaskFilter{GoalID: g.ID, ProjectID: f.project.ID})
+	must(t, err)
+	return ts[0]
+}
+
+func TestGetTraceAttachesAssumptionsToTheDecisionsThatRestOnThem(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	g := f.traceFixture(t)
+	as, err := f.st.Assumptions().List(ctx, f.account.ID, store.AssumptionFilter{GoalID: g.ID})
+	must(t, err)
+	d := domain.Decision{AccountID: f.account.ID, ProjectID: f.project.ID, GoalID: g.ID, Question: "Built on it", Choice: "go", DecidedBy: "user:ana"}
+	// A-2 is the one that rests on nothing else.
+	var loose domain.Assumption
+	for _, a := range as {
+		if a.Statement == "Loose" {
+			loose = a
+		}
+	}
+	d.Assumptions = []uuid.UUID{loose.ID}
+	must(t, f.st.Decisions().Create(ctx, &d))
+	tr, err := f.svc.GetTrace(ctx, f.by, mcp.GetTraceInput{Ref: g.Ref()})
+	must(t, err)
+	edges := map[string]bool{}
+	for _, e := range tr.Edges {
+		edges[e.From+">"+e.To] = true
+	}
+	if !edges[loose.Ref()+">"+d.Ref()] || edges[loose.Ref()+">GOAL-1"] {
+		t.Errorf("edges = %v", tr.Edges)
 	}
 }
