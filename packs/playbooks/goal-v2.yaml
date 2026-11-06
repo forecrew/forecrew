@@ -1,4 +1,4 @@
-description: The goal playbook with the testing system. Like goal, and for each task a test engineer writes the tests from the spec before the code and locks them for the developer, every PR head runs the test matrix and the fail-on-base check into a verification report, and a human can merge only a head whose report passed.
+description: The goal playbook with the testing system. Like goal, and for each task a test engineer writes the tests from the spec before the code and locks them for the developer, every PR head runs the test matrix and the fail-on-base check into a verification report, and the merge gate merges only a head whose report passed. A human who merges the PR on GitHub is not stopped by it, because goal.assess and github.merge_pr return early for a merged PR, so that merge skips the report.
 inputs: [repo, goal_id, platforms]
 steps:
   # The goal's GitHub issue, with the labels of the playbook.
