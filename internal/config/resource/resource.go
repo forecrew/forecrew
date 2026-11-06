@@ -111,6 +111,8 @@ type Env struct {
 	Server *config.Config
 	Getenv func(string) string
 	Repo   Repo
+	// CheckSchedule refuses a schedule forecrewd would not start.
+	CheckSchedule func(config.Schedule) error
 	// repo collects the files of a repo plan while applying.
 	files   []FileChange
 	project *domain.Project
@@ -204,9 +206,9 @@ func base[S any](kind, title, scope string, read domain.Permission) Area {
 // areas is the registry; the order is the order of Apply, so what others
 // refer to comes first.
 var areas = []Area{
-	organizationArea(), runtimeArea(), poolArea(), authArea(),
+	organizationArea(), runtimeArea(), poolArea(), authArea(), scheduleArea(),
 	connectionArea(), domainArea(), memberArea(), teamArea(), roleBindingArea(),
-	providerArea(), shapeArea(), fleetPolicyArea(), scheduleArea(),
+	providerArea(), shapeArea(), fleetPolicyArea(),
 	integrationArea(), knowledgePolicyArea(), repoFileArea(),
 }
 

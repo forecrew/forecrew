@@ -21,6 +21,8 @@ func TestWithSettings(t *testing.T) {
 		{Kind: SettingPool, Name: "gpu", Spec: []byte(`{"kinds":["agent"],"roles":["*"],"credentials":{"runtimes":["*"],"repo_token":"read"}}`)},
 		{Kind: SettingRuntime, Name: "other", Spec: []byte(`{"adapter":"claude-code","vendor":"anthropic","credential_env":["ANTHROPIC_API_KEY"]}`)},
 		{Kind: SettingAuth, Name: AuthSettingName, Spec: []byte(`{"session_idle":"1h"}`)},
+		{Kind: SettingSchedule, Name: "curate:*", Spec: []byte(`{"playbook":"curate","project":"*","cron":"@daily"}`)},
+		{Kind: SettingSchedule, Name: "curate:acme/app", Spec: []byte(`{"playbook":"curate","project":"acme/app","cron":"@hourly"}`)},
 	}, env(nil))
 	if err != nil {
 		t.Fatal(err)
@@ -34,6 +36,12 @@ func TestWithSettings(t *testing.T) {
 	if got.Runtimes["other"].Adapter != AdapterClaudeCode {
 		t.Errorf("runtime = %+v", got.Runtimes["other"])
 	}
+	if len(got.Schedules) != 2 || got.Schedules[0].Cron != "@daily" || got.Schedules[1].Project != "acme/app" {
+		t.Errorf("schedules = %+v", got.Schedules)
+	}
+	if c.Schedules[0].Cron == "@daily" {
+		t.Error("the file's schedules changed")
+	}
 	if got.Auth.SessionIdle != time.Hour || got.Auth.SessionAbsolute != DefaultSessionAbsolute {
 		t.Errorf("auth = %+v", got.Auth)
 	}
@@ -46,6 +54,9 @@ func TestWithSettingsRefused(t *testing.T) {
 		"invalid pool":            {Kind: SettingPool, Name: "x", Spec: []byte(`{"kinds":[]}`)},
 		"runtime":                 {Kind: SettingRuntime, Name: "x", Spec: []byte(`{"adapter":"nope"}`)},
 		"auth":                    {Kind: SettingAuth, Name: AuthSettingName, Spec: []byte(`{"nope":true}`)},
+		"schedule name":           {Kind: SettingSchedule, Name: "x", Spec: []byte(`{"playbook":"curate","project":"*","cron":"@daily"}`)},
+		"schedule cron":           {Kind: SettingSchedule, Name: "curate:*", Spec: []byte(`{"playbook":"curate","project":"*","cron":"nope"}`)},
+		"schedule key":            {Kind: SettingSchedule, Name: "curate:*", Spec: []byte(`{"nope":1}`)},
 		"a variable of forecrewd": {Kind: SettingRuntime, Name: "x", Spec: []byte(`{"adapter":"claude-code","vendor":"anthropic","credential_env":["FORECREW_DATABASE_URL"],"base_url":"https://evil.example.com"}`)},
 		"an instance connection reading the environment": {Kind: SettingAuth, Name: AuthSettingName,
 			Spec: []byte(`{"connections":{"x":{"kind":"oidc","issuer":"https://evil.example.com","client_id":"c","client_secret_ref":"env:FORECREW_GITHUB_WEBHOOK_SECRET"}}}`)},

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
@@ -400,66 +399,4 @@ func fleetPolicyProtection(_ context.Context, _ *Env, old, want *Resource) []str
 
 func policyRow(e *Env, s fleetPolicySpec) domain.FleetPolicy {
 	return domain.FleetPolicy{AccountID: e.Actor.AccountID, Routing: s.Routing, AllowedShapes: s.AllowedShapes, Quotas: s.Quotas, Egress: s.Egress, Plan: s.Plan}
-}
-
-type scheduleSpec struct {
-	// Target is the location or machine type the window applies to.
-	Target string   `json:"target"`
-	Days   []string `json:"days"` // mon, tue, ...
-	From   string   `json:"from"` // HH:MM
-	To     string   `json:"to"`   // HH:MM
-	Zone   string   `json:"zone,omitempty"`
-}
-
-var weekDays = []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
-
-func validClock(s string) bool {
-	return len(s) == 5 && s[2] == ':' && s[:2] >= "00" && s[:2] <= "23" && s[3:] >= "00" && s[3:] <= "59"
-}
-
-func scheduleArea() Area {
-	a := base[scheduleSpec](KindSchedule, "Schedule", ScopeOrganization, domain.PermWorkerRead)
-	a.Affects = "Stored for the worker schedules of a later version; nothing acts on it yet."
-	a.Needs = needsOf(domain.PermWorkerManage)
-	a.Read = scheduleRead
-	a.Validate = scheduleValidate
-	a.Apply = scheduleApply
-	return a
-}
-
-func scheduleRead(ctx context.Context, e *Env) ([]Resource, error) {
-	rows, err := e.Store.ConfigSettings().List(ctx, e.Actor.AccountID, KindSchedule)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Resource, 0, len(rows))
-	for _, s := range rows {
-		out = append(out, Resource{Kind: KindSchedule, Name: s.Name, Spec: s.Spec})
-	}
-	return out, nil
-}
-
-func scheduleValidate(_ context.Context, _ *Env, _ *Resource, want Resource) error {
-	s, err := decode[scheduleSpec](want.Spec)
-	if err != nil {
-		return err
-	}
-	switch {
-	case !domain.ValidName(want.Name):
-		return invalid("schedule name %q must be a lowercase name", want.Name)
-	case s.Target == "":
-		return invalid("target is required")
-	case len(s.Days) == 0 || slices.ContainsFunc(s.Days, func(d string) bool { return !slices.Contains(weekDays, strings.ToLower(d)) }):
-		return invalid("days must list %s", strings.Join(weekDays, ", "))
-	case !validClock(s.From) || !validClock(s.To):
-		return invalid("from and to are times such as 22:00")
-	}
-	return nil
-}
-
-func scheduleApply(ctx context.Context, e *Env, old, want *Resource) error {
-	if want == nil {
-		return e.Store.ConfigSettings().Delete(ctx, e.Actor.AccountID, KindSchedule, old.Name)
-	}
-	return e.Store.ConfigSettings().Put(ctx, &domain.ConfigSetting{AccountID: e.Actor.AccountID, Kind: KindSchedule, Name: want.Name, Spec: want.Spec, UpdatedBy: e.Actor.String()})
 }

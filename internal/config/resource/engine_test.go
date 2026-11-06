@@ -89,10 +89,11 @@ func TestEverySettingHasAResource(t *testing.T) {
 		"server": "where forecrewd listens", "github": "the GitHub App", "evidence": "artifact storage", "fleet": "the instance's currency",
 		"sizing": "moves with roles", "policy": "moves with roles", "model_tiers": "T69", "roles": "T69",
 		"max_test_results_size": "a limit of the server", "actions": "a limit of the server", "testing": "the projects on the testing playbook, a rollout switch",
+		"knowledge": "how old knowledge may get, a tuning value of the server",
 	}
 	for _, key := range fieldNames(config.Config{}, "yaml") {
 		_, isBootstrap := bootstrap[key]
-		_, isResource := map[string]bool{"pools": true, "runtimes": true, "auth": true}[key]
+		_, isResource := map[string]bool{"pools": true, "runtimes": true, "auth": true, "schedules": true}[key]
 		if !isBootstrap && !isResource {
 			t.Errorf("forecrew.yaml key %s is neither a resource nor a bootstrap setting", key)
 		}
@@ -158,7 +159,9 @@ func TestPlanValidation(t *testing.T) {
 		"delete nothing": {Kind: "team", Name: "ghost", Delete: true},
 		"no delete":      {Kind: "organization", Name: "organization", Delete: true},
 		"file value":     {Kind: "runtime", Name: "claude", Delete: true},
-		"bad schedule":   wanted(t, "schedule", "night", map[string]any{"target": "x", "days": []string{"noday"}, "from": "22:00", "to": "06:00"}),
+		"bad schedule":   wanted(t, "schedule", "curate:acme/app", map[string]any{"playbook": "curate", "project": "acme/app", "cron": "nope"}),
+		"schedule name":  wanted(t, "schedule", "other", map[string]any{"playbook": "curate", "project": "acme/app", "cron": "@daily"}),
+		"file schedule":  {Kind: "schedule", Name: "curate:*", Delete: true},
 		"bad pool":       wanted(t, "pool", "gpu", map[string]any{"kinds": []string{}}),
 		"binding name":   wanted(t, "role_binding", "x", map[string]any{"subject_kind": "team", "subject": "core", "role": "viewer"}),
 		"repo file path": wanted(t, "repo_file", "app:.github/workflows/x.yml", map[string]any{"content": "x"}),
@@ -371,7 +374,7 @@ func TestRevertRestoresValues(t *testing.T) {
 	w.apply(w.owner, w.plan(w.owner, wanted(t, "team", "core", team("Core"))))
 	before := w.spec("team", "core")
 	first := w.plan(w.owner, wanted(t, "team", "core", team("Base")), wanted(t, "team", "added", team("Added")),
-		wanted(t, "schedule", "night", map[string]any{"target": "home", "days": []string{"mon"}, "from": "22:00", "to": "06:00"}))
+		wanted(t, "schedule", "curate:acme/app", map[string]any{"playbook": "curate", "project": "acme/app", "cron": "@daily"}))
 	w.apply(w.owner, first)
 	r, err := w.engine.Revert(ctx, w.owner, first.ID, domain.ConfigFromForm, "")
 	check(t, err)
@@ -385,7 +388,7 @@ func TestRevertRestoresValues(t *testing.T) {
 	if got := w.spec("team", "core"); got != before {
 		t.Errorf("team = %s, want %s", got, before)
 	}
-	if w.spec("team", "added") != "" || w.spec("schedule", "night") != "" {
+	if w.spec("team", "added") != "" || w.spec("schedule", "curate:acme/app") != "" {
 		t.Error("created resources are still there")
 	}
 	got, _ := w.st.ConfigPlans().Get(ctx, w.account.ID, first.ID)
@@ -663,7 +666,7 @@ func TestExportImportRoundTrip(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 	w.apply(w.owner, w.plan(w.owner, wanted(t, "team", "core", team("Core")),
-		wanted(t, "schedule", "night", map[string]any{"target": "home", "days": []string{"mon"}, "from": "22:00", "to": "06:00"}),
+		wanted(t, "schedule", "curate:acme/app", map[string]any{"playbook": "curate", "project": "acme/app", "cron": "@daily"}),
 		wanted(t, "pool", "gpu", map[string]any{"kinds": []string{"agent"}, "roles": []string{"*"}, "credentials": map[string]any{"runtimes": []string{"*"}, "repo_token": "read"}})))
 	first, err := w.engine.Export(ctx, w.owner)
 	check(t, err)
@@ -793,6 +796,36 @@ func testInstanceConnections(t *testing.T, w *world) {
 	if !slices.ContainsFunc(p.LowersProtection, func(r string) bool { return strings.Contains(r, "sign-in connections") }) {
 		t.Errorf("reasons = %v", p.LowersProtection)
 	}
+}
+
+func TestSchedules(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	rs, err := w.engine.Get(ctx, w.owner, "schedule", "curate:*")
+	check(t, err)
+	if len(rs) != 1 || rs[0].Origin != resource.OriginFile {
+		t.Fatalf("schedules = %+v", rs)
+	}
+	// Over the file's default; forecrewd reads it at startup.
+	p := w.plan(w.owner, wanted(t, "schedule", "curate:*", map[string]any{"playbook": "curate", "project": "*", "cron": "@daily"}))
+	if !slices.Contains(p.Needs, domain.PermOrgManage) || !strings.Contains(p.Affects, "restarts") || !strings.Contains(p.Cost, "agent jobs") {
+		t.Errorf("plan = %+v", p)
+	}
+	w.apply(w.owner, p)
+	stored, err := resource.Stored(ctx, w.st)
+	check(t, err)
+	cfg, err := config.Parse([]byte(serverYAML), env)
+	check(t, err)
+	merged, err := cfg.WithSettings(stored, env)
+	check(t, err)
+	if len(merged.Schedules) != 1 || merged.Schedules[0].Cron != "@daily" {
+		t.Errorf("schedules = %+v", merged.Schedules)
+	}
+	// A playbook forecrewd would not start is refused with the plan.
+	strict := resource.NewEngine(resource.Config{Store: w.st, Server: cfg, Getenv: env, CheckSchedule: func(config.Schedule) error { return errors.New("no such playbook") }})
+	_, err = strict.Plan(ctx, w.owner, resource.PlanRequest{Source: domain.ConfigFromCLI, Changes: []mcp.ConfigWanted{
+		wanted(t, "schedule", "ghost:*", map[string]any{"playbook": "ghost", "project": "*", "cron": "@daily"})}})
+	wantErr(t, err, mcp.ErrInvalidInput)
 }
 
 func TestRepoFilesOpenAPullRequest(t *testing.T) {

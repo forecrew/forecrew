@@ -129,6 +129,8 @@ type Config struct {
 	// configuration resources. Getenv reads what it refers to.
 	Server *config.Config
 	Getenv func(string) string
+	// CheckSchedule refuses a schedule forecrewd would not start.
+	CheckSchedule func(config.Schedule) error
 	// Repo reads repos and opens the pull requests of repo plans.
 	Repo cfgres.Repo
 	// Secrets is the secret store; nil refuses secure fields.
@@ -161,7 +163,7 @@ func New(cfg Config) *Service {
 	}
 	s := &Service{cfg: cfg, authz: engine}
 	s.config = cfgres.NewEngine(cfgres.Config{
-		Store: cfg.Store, Access: func(st store.Store) cfgres.Access { return s.in(st) }, Server: cfg.Server, Getenv: cfg.Getenv,
+		Store: cfg.Store, Access: func(st store.Store) cfgres.Access { return s.in(st) }, Server: cfg.Server, Getenv: cfg.Getenv, CheckSchedule: cfg.CheckSchedule,
 		Repo: cfg.Repo, Secrets: cfg.Secrets, Logger: cfg.Logger, Now: cfg.Now,
 	})
 	return s

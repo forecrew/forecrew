@@ -29,7 +29,7 @@ a resource nor listed as a bootstrap setting.
 | `provider` | location | `capacity_providers` | `worker.manage`; `billing.manage` for its [budget fields](permissions.md#budget-fields) |
 | `shape` | machine type | `shapes` | as `provider` |
 | `fleet_policy` | `fleet` | `fleet_policy` | as `provider` |
-| `schedule` | schedule | `config_settings` of the organization | `worker.manage`. Stored only: nothing acts on it before the worker schedules of 4.4 |
+| `schedule` | `<playbook>:<project>` | `config_settings` over `schedules` | `org.manage`; the playbook must be one forecrewd can schedule |
 | `integration` | project | `.forecrew/profile.yaml` | `project.manage` on the project |
 | `knowledge_policy` | project | `.forecrew/knowledge-policy.yaml` | `project.manage` on the project |
 | `repo_file` | `<project>:.forecrew/<path>` | the file | `project.manage` on the project |
