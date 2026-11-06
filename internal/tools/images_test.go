@@ -57,13 +57,25 @@ func TestAddAndListImages(t *testing.T) {
 	root := f.st.AddMember(f.account.ID, domain.User{Name: "root", InstanceAdmin: true}, "")
 	testkit.Bind(t, f.st, f.account.ID, domain.SubjectUser, root.ID, orgScope, domain.RoleAdmin, uuid.Nil())
 	rootActor := domain.UserActor(f.account.ID, root.ID, domain.Credential{})
+	// Windows and macOS images are never instance-wide, not even from an instance admin;
+	// the organization registers its own.
+	for _, osName := range []domain.MachineOS{domain.OSWindows, domain.OSMacOS} {
+		m := signedManifest(t, "licensed", "1")
+		m.OS, m.Version = osName, string(osName)
+		if _, err := f.svc.AddImage(ctx, rootActor, images.AddInput{Manifest: m, Instance: true}); !errors.Is(err, mcp.ErrInvalidInput) {
+			t.Errorf("instance %s image: %v", osName, err)
+		}
+		if _, err := f.svc.AddImage(ctx, admin, images.AddInput{Manifest: m}); err != nil {
+			t.Errorf("organization %s image: %v", osName, err)
+		}
+	}
 	shared, err := f.svc.AddImage(ctx, rootActor, images.AddInput{Manifest: signedManifest(t, "shared", "1"), Instance: true})
 	if err != nil || shared.Scope != "instance" || shared.AccountID != uuid.Nil() {
 		t.Fatalf("instance image = %+v, %v", shared, err)
 	}
 
 	// Anyone with worker.read lists both; a viewer lacks the permission.
-	got, err := f.svc.ListImages(ctx, admin, mcp.ListImagesInput{})
+	got, err := f.svc.ListImages(ctx, admin, mcp.ListImagesInput{OS: "linux"})
 	if err != nil || len(got) != 2 {
 		t.Fatalf("ListImages = %v, %v", got, err)
 	}
