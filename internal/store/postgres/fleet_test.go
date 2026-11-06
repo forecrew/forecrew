@@ -14,6 +14,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/testkit"
 )
 
 // hash32 returns a fake SHA-256 for bytea columns.
@@ -219,6 +220,9 @@ func TestMachineLeasesOnlyItsOrganization(t *testing.T) {
 	orgB, workerB, jobB := secondOrg(t, f)
 	mine := f.newJob(t)
 	labels := []string{"runtime:claude-code", "runtime:codex"}
+	prov, shape := fleetRows(t, f.pool, "b", orgB)
+	must(t, exec(f.pool, `INSERT INTO machines (account_id, provider_id, shape_id, assigned_at, state, worker_id) VALUES ($1, $2, $3, now(), 'ready', $4)`,
+		orgB, prov, shape, workerB.ID))
 
 	_, err := f.st.Jobs().LeaseNext(ctx, f.account, workerB.ID, labels, domain.LeaseDuration)
 	wantErr(t, err, store.ErrNoJob)
@@ -229,6 +233,59 @@ func TestMachineLeasesOnlyItsOrganization(t *testing.T) {
 	}
 	if j, _ := f.st.Jobs().Get(ctx, f.account, mine.ID); j.Status != domain.JobQueued {
 		t.Fatalf("job of the other organization = %s", j.Status)
+	}
+}
+
+// The store contract, on the same suite as the fake.
+func TestFleetStore(t *testing.T) {
+	f := newFixture(t)
+	testkit.FleetStoreSuite(t, f.st, f.account, f.project.ID)
+}
+
+// A machine's worker leases only what its shape fits, while the machine can
+// still take jobs, and one with no machine leases nothing.
+func TestLeaseNextEphemeral(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	prov, shape := fleetRows(t, f.pool, "a", f.account) // 2 CPU, 4096 MB, 20 GB
+	w := domain.Worker{AccountID: f.account, Name: "machine-a", TokenHash: hash32(1), Ephemeral: true}
+	must(t, f.st.Workers().Create(ctx, &w))
+	labels := []string{"runtime:codex"}
+	job := func(r domain.Resources) domain.Job {
+		j := domain.Job{AccountID: f.account, ProjectID: f.project.ID, Role: "developer", Runtime: "codex", Resources: r, Spec: domain.JobSpec{Repo: "acme/forecrew", Prompt: "go"}}
+		must(t, f.st.Jobs().Create(ctx, &j))
+		return j
+	}
+	big := job(domain.Resources{MinMemoryMB: 8192})
+	_ = job(domain.Resources{GPU: 1})
+	fits := job(domain.Resources{MinCPU: 2, MinDiskGB: 20})
+
+	_, err := f.st.Jobs().LeaseNext(ctx, f.account, w.ID, labels, domain.LeaseDuration)
+	wantErr(t, err, store.ErrNoJob) // no machine
+
+	var machine string
+	must(t, f.pool.QueryRow(ctx, `INSERT INTO machines (account_id, provider_id, shape_id, assigned_at, worker_id) VALUES ($1, $2, $3, now(), $4) RETURNING id`,
+		f.account, prov, shape, w.ID).Scan(&machine))
+	_, err = f.st.Jobs().LeaseNext(ctx, f.account, w.ID, labels, domain.LeaseDuration)
+	wantErr(t, err, store.ErrNoJob) // requested
+
+	must(t, exec(f.pool, `UPDATE machines SET state = 'ready' WHERE id = $1`, machine))
+	got, err := f.st.Jobs().LeaseNext(ctx, f.account, w.ID, labels, domain.LeaseDuration)
+	must(t, err)
+	if got.ID != fits.ID {
+		t.Fatalf("leased %s, not the job that fits; the big one is %s", got.Ref(), big.Ref())
+	}
+	must(t, exec(f.pool, `UPDATE shapes SET memory_mb = 8192 WHERE id = $1`, shape))
+	must(t, exec(f.pool, `UPDATE machines SET jobs_taken = 1 WHERE id = $1`, machine))
+	_, err = f.st.Jobs().LeaseNext(ctx, f.account, w.ID, labels, domain.LeaseDuration)
+	wantErr(t, err, store.ErrNoJob) // max_jobs reached
+
+	// A static worker reports no size, so resources do not restrict it.
+	static := f.newWorker(t, "static")
+	got, err = f.st.Jobs().LeaseNext(ctx, f.account, static.ID, labels, domain.LeaseDuration)
+	must(t, err)
+	if got.ID != big.ID {
+		t.Fatalf("static worker leased %s", got.Ref())
 	}
 }
 

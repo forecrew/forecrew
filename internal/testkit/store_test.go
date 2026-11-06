@@ -1243,3 +1243,8 @@ func TestAccessStore(t *testing.T) {
 	f := newFixture(t)
 	AccessStoreSuite(t, f.st, fakeAccessSeed{f.st}, f.account, f.project.ID)
 }
+
+func TestFleetStore(t *testing.T) {
+	f := newFixture(t)
+	FleetStoreSuite(t, f.st, f.account, f.project.ID)
+}

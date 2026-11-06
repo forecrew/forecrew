@@ -125,6 +125,13 @@ func (r jobRepo) LeaseNext(ctx context.Context, accountID, workerID uuid.UUID, l
 			WHERE account_id = $1 AND status = 'queued' AND (run_after IS NULL OR run_after <= now())
 			  AND pool = (SELECT w.pool FROM workers w WHERE w.id = $2 AND w.account_id = $1)
 			  AND (needs || CASE WHEN kind = 'agent' THEN ARRAY[lower('runtime:' || runtime)] ELSE '{}'::text[] END) <@ $3::text[]
+			  AND (NOT (SELECT w.ephemeral FROM workers w WHERE w.id = $2 AND w.account_id = $1) OR EXISTS (
+			    SELECT 1 FROM machines m JOIN shapes s ON s.id = m.shape_id
+			    WHERE m.worker_id = $2 AND m.account_id = $1 AND m.state IN ('ready', 'busy') AND m.jobs_taken < s.max_jobs
+			      AND s.cpu >= COALESCE((jobs.resources->>'min_cpu')::int, 0)
+			      AND s.memory_mb >= COALESCE((jobs.resources->>'min_memory_mb')::int, 0)
+			      AND s.disk_gb >= COALESCE((jobs.resources->>'min_disk_gb')::int, 0)
+			      AND s.gpu >= COALESCE((jobs.resources->>'gpu')::int, 0)))
 			ORDER BY created_at, id
 			LIMIT 1
 			FOR UPDATE SKIP LOCKED
