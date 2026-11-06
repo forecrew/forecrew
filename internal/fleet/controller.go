@@ -25,6 +25,8 @@ const (
 	ReconcileInterval = 10 * time.Second
 	// maxErrorLength bounds a machine's error (fleet-agent-api.md).
 	maxErrorLength = 2000
+	// errGone is the error of a machine its provider no longer has.
+	errGone = "gone from the provider"
 	// settle lets a burst of wake-ups end in one reconcile.
 	settle = time.Second
 )
@@ -63,6 +65,9 @@ type Controller struct {
 	cfg Config
 
 	mu sync.Mutex // one Reconcile at a time
+	// issuing keeps assigning a machine and delivering it to an agent, which
+	// runs outside Reconcile, from crossing.
+	issuing sync.Mutex
 	// applied holds what each direct machine last got from Update. After a
 	// restart it is empty, and Update allows applying the same values again.
 	applied map[uuid.UUID]string
@@ -228,7 +233,7 @@ func (c *Controller) ReconcileInstances(ctx context.Context, p domain.CapacityPr
 	}
 	for _, m := range active {
 		if !seen[m.ID] && m.State != domain.MachineRequested {
-			if err := c.failMachine(ctx, m, "gone from the provider"); err != nil {
+			if err := c.failMachine(ctx, m, errGone); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -412,6 +417,8 @@ func (c *Controller) createMachine(ctx context.Context, s *snapshot, m *domain.M
 }
 
 func (c *Controller) assignMachine(ctx context.Context, a assignment) error {
+	c.issuing.Lock()
+	defer c.issuing.Unlock()
 	m := a.machine
 	return c.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := tx.Machines().Assign(ctx, m.ID, a.org); err != nil {
@@ -482,6 +489,12 @@ func revokeWorker(ctx context.Context, tx store.Store, m domain.Machine) error {
 // finish moves m, gone from its provider, to destroyed.
 func (c *Controller) finish(ctx context.Context, m domain.Machine, from domain.MachineState, why string) error {
 	delete(c.applied, m.ID)
+	return c.finishRow(ctx, m, from, why)
+}
+
+// finishRow is finish for a machine of an agent, which has no entry in applied
+// and whose reports do not hold the controller's lock.
+func (c *Controller) finishRow(ctx context.Context, m domain.Machine, from domain.MachineState, why string) error {
 	return c.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := tx.Machines().UpdateState(ctx, m.ID, from, domain.MachineDestroyed, ""); err != nil {
 			return fmt.Errorf("finish machine %s: %w", m.ID, err)
@@ -563,13 +576,9 @@ func (c *Controller) start(ctx context.Context, p domain.CapacityProvider, d Pro
 	if err != nil {
 		return c.failMachine(ctx, m, "image: "+err.Error())
 	}
-	token, hash := newToken(prefixBootstrapToken)
-	t := domain.BootstrapToken{MachineID: m.ID, AccountID: m.AccountID, TokenHash: hash}
-	if m.AccountID != uuid.Nil() {
-		t.ExpiresAt = c.cfg.Now().Add(time.Duration(shape.BootTimeoutSeconds) * time.Second)
-	}
-	if err := c.cfg.Store.BootstrapTokens().Issue(ctx, &t); err != nil {
-		return fmt.Errorf("machine %s: issue token: %w", m.ID, err)
+	token, err := c.issue(ctx, m, shape)
+	if err != nil {
+		return err
 	}
 	u, err := c.desired(ctx, p, m)
 	if err != nil {
@@ -588,6 +597,19 @@ func (c *Controller) start(ctx context.Context, p domain.CapacityProvider, d Pro
 	}
 	c.applied[m.ID] = appliedKey(u)
 	return c.started(ctx, m, inst.ExternalID)
+}
+
+// issue mints machine m's bootstrap token, replacing the one it had.
+func (c *Controller) issue(ctx context.Context, m domain.Machine, shape domain.Shape) (string, error) {
+	token, hash := newToken(prefixBootstrapToken)
+	t := domain.BootstrapToken{MachineID: m.ID, AccountID: m.AccountID, TokenHash: hash}
+	if m.AccountID != uuid.Nil() {
+		t.ExpiresAt = c.cfg.Now().Add(time.Duration(shape.BootTimeoutSeconds) * time.Second)
+	}
+	if err := c.cfg.Store.BootstrapTokens().Issue(ctx, &t); err != nil {
+		return "", fmt.Errorf("machine %s: issue token: %w", m.ID, err)
+	}
+	return token, nil
 }
 
 func (c *Controller) image(ctx context.Context, p domain.CapacityProvider, s domain.Shape, account uuid.UUID) (domain.Image, error) {

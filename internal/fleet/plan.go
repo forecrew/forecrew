@@ -194,6 +194,8 @@ func (p *planner) sweep() {
 		switch {
 		case pr.Status == domain.ProviderRevoked && pr.Mode == domain.ProviderModeDirect:
 			p.revoked(m)
+		case pr.Status == domain.ProviderRevoked:
+			p.cutOff(m)
 		case bootExpired(*m, shape, p.s.now):
 			p.out.fail = append(p.out.fail, transition{machine: *m, why: fmt.Sprintf("did not come up within %d seconds", shape.BootTimeoutSeconds)})
 			p.count(*m, -1)
@@ -216,7 +218,6 @@ func (p *planner) sweep() {
 }
 
 // revoked ends a machine of a revoked direct provider, whatever it is doing.
-// A fleet agent is told by its token; forecrewd itself holds no such line.
 func (p *planner) revoked(m *domain.Machine) {
 	switch m.State {
 	case domain.MachineDraining:
@@ -225,6 +226,18 @@ func (p *planner) revoked(m *domain.Machine) {
 	default:
 		p.out.drain = append(p.out.drain, transition{*m, "its location was revoked", true})
 	}
+}
+
+// cutOff ends the row of a machine of a revoked agent provider: the agent lost
+// its token, so nothing will ever start this machine or say it is gone. It
+// must not hold a limit for good, and its job is requeued through its lease.
+func (p *planner) cutOff(m *domain.Machine) {
+	p.count(*m, -1)
+	if m.State == domain.MachineRequested {
+		p.out.withdraw = append(p.out.withdraw, *m)
+		return
+	}
+	p.out.fail = append(p.out.fail, transition{machine: *m, why: "its location was revoked"})
 }
 
 func readiness(s domain.MachineState) int {
