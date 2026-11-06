@@ -200,6 +200,11 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/assistant/conversations", serve(s, http.StatusOK, assistantListInput, list(t.AssistantList)))
 	route("POST /api/v1/assistant/messages", serve(s, http.StatusAccepted, bodyOf[mcp.AssistantSendInput], t.AssistantSend))
 	route("GET /api/v1/assistant/conversations/{conversation}", serve(s, http.StatusOK, assistantRefInput, t.AssistantGet))
+	route("GET /api/v1/members", serve(s, http.StatusOK, noInput, list(noArg(t.ListMembers))))
+	route("POST /api/v1/members/{user}/suspend", serve(s, http.StatusOK, setMemberInput(true), t.SetMemberSuspended))
+	route("POST /api/v1/members/{user}/resume", serve(s, http.StatusOK, setMemberInput(false), t.SetMemberSuspended))
+	route("DELETE /api/v1/members/{user}", serve(s, http.StatusOK, memberInput, t.RemoveMember))
+	route("PATCH /api/v1/organization", serve(s, http.StatusOK, bodyOf[mcp.UpdateOrganizationInput], t.UpdateOrganization))
 
 	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errors.New("no such endpoint"), http.StatusNotFound, "not_found")
@@ -334,6 +339,11 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/assistant/conversations":                tool[mcp.ToolAssistantList],
 		"POST /api/v1/assistant/messages":                    tool[mcp.ToolAssistantSend],
 		"GET /api/v1/assistant/conversations/{conversation}": tool[mcp.ToolAssistantGet],
+		"GET /api/v1/members":                                tool[mcp.ToolListMembers],
+		"POST /api/v1/members/{user}/suspend":                tool[mcp.ToolSetMemberSuspended],
+		"POST /api/v1/members/{user}/resume":                 tool[mcp.ToolSetMemberSuspended],
+		"DELETE /api/v1/members/{user}":                      tool[mcp.ToolRemoveMember],
+		"PATCH /api/v1/organization":                         tool[mcp.ToolUpdateOrganization],
 	}
 }
 
@@ -563,6 +573,16 @@ func listImagesInput(r *http.Request) (mcp.ListImagesInput, error) {
 	q := r.URL.Query()
 	limit, err := intParam(q.Get("limit"), "limit")
 	return mcp.ListImagesInput{Name: q.Get("name"), OS: q.Get("os"), Arch: q.Get("arch"), Format: q.Get("format"), Limit: int(limit)}, err
+}
+
+func memberInput(r *http.Request) (mcp.MemberRefInput, error) {
+	return mcp.MemberRefInput{User: r.PathValue("user")}, nil
+}
+
+func setMemberInput(suspended bool) func(*http.Request) (mcp.SetMemberInput, error) {
+	return func(r *http.Request) (mcp.SetMemberInput, error) {
+		return mcp.SetMemberInput{User: r.PathValue("user"), Suspended: suspended}, nil
+	}
 }
 
 func noteInput(r *http.Request) (mcp.DeleteNoteInput, error) {

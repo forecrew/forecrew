@@ -176,6 +176,7 @@ func Tools() []string {
 		ToolConfigSchema, ToolConfigGet, ToolConfigPlan, ToolConfigApply, ToolConfigRevert, ToolConfigExport, ToolConfigImport,
 		ToolConfigPlans, ToolConfigGetPlan, ToolConfigCancel, ToolAssistantSend, ToolAssistantGet, ToolAssistantList,
 		ToolCreateProvider, ToolRevokeProvider, ToolCreateJoinCode, ToolListJoinCodes, ToolConfirmJoin,
+		ToolListMembers, ToolSetMemberSuspended, ToolRemoveMember, ToolUpdateOrganization,
 	}
 }
 
@@ -354,6 +355,7 @@ type ToolService interface {
 	// the default branch and each open pull request.
 	ProjectQuality(ctx context.Context, by domain.Actor, in ProjectInput) (QualityInfo, error)
 	AccessService
+	OrgService
 }
 
 // AccessService manages who may do what: teams, role bindings and service

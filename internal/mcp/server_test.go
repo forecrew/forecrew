@@ -273,6 +273,10 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolCreateJoinCode, map[string]any{"cloud": true}, mcp.CreateJoinCodeInput{Cloud: true}},
 		{mcp.ToolListJoinCodes, nil, mcp.ListJoinCodesInput{WrapUntrusted: true}},
 		{mcp.ToolConfirmJoin, map[string]any{"join": "j", "name": "home", "facts_hash": "h"}, mcp.ConfirmJoinInput{Join: "j", Name: "home", FactsHash: "h", WrapUntrusted: true}},
+		{mcp.ToolListMembers, nil, nil},
+		{mcp.ToolSetMemberSuspended, map[string]any{"user": "u", "suspended": true}, mcp.SetMemberInput{User: "u", Suspended: true}},
+		{mcp.ToolRemoveMember, map[string]any{"user": "u"}, mcp.MemberRefInput{User: "u"}},
+		{mcp.ToolUpdateOrganization, map[string]any{"name": "Acme", "slug": "acme"}, mcp.UpdateOrganizationInput{Name: "Acme", Slug: "acme"}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))
@@ -581,6 +585,7 @@ func TestEveryToolChecksItsPermission(t *testing.T) {
 		mcp.ToolConfigPlan: {"changes": []any{}}, mcp.ToolConfigApply: {"plan": "p"}, mcp.ToolConfigRevert: {"plan": "p"}, mcp.ToolConfigImport: {"yaml": "y"},
 		mcp.ToolConfigGetPlan: {"plan": "p"}, mcp.ToolConfigCancel: {"plan": "p"}, mcp.ToolAssistantSend: {"message": "m"}, mcp.ToolAssistantGet: {"conversation": "c"},
 		mcp.ToolCreateProvider: {"name": "n", "kind": "aws"}, mcp.ToolRevokeProvider: {"provider": "n"}, mcp.ToolConfirmJoin: {"join": "j", "name": "n", "facts_hash": "h"},
+		mcp.ToolSetMemberSuspended: {"user": "u", "suspended": true}, mcp.ToolRemoveMember: {"user": "u"},
 	}
 	for name, a := range mcp.ToolAccess() {
 		if a.Permission == "" || a.Own {

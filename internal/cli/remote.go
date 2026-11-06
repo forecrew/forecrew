@@ -189,6 +189,7 @@ func (r *remote) commands() []*cobra.Command {
 		teamsCommand(r),
 		bindingsCommand(r),
 		serviceAccountsCommand(r),
+		membersCommand(r),
 		knowledgeCommand(r),
 		councilsCommand(r),
 		verificationCommand(r),

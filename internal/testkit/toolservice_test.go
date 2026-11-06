@@ -121,6 +121,10 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.CreateJoinCode(ctx, by, mcp.CreateJoinCodeInput{}); return err },
 		func() error { _, err := s.ListJoinCodes(ctx, by, mcp.ListJoinCodesInput{}); return err },
 		func() error { _, err := s.ConfirmJoin(ctx, by, mcp.ConfirmJoinInput{}); return err },
+		func() error { _, err := s.ListMembers(ctx, by); return err },
+		func() error { _, err := s.SetMemberSuspended(ctx, by, mcp.SetMemberInput{}); return err },
+		func() error { _, err := s.RemoveMember(ctx, by, mcp.MemberRefInput{}); return err },
+		func() error { _, err := s.UpdateOrganization(ctx, by, mcp.UpdateOrganizationInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

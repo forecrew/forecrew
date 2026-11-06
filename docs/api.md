@@ -181,6 +181,10 @@ structs in `internal/domain` and `internal/mcp`.
 `POST /webhooks/tracker/{connection}` takes the webhooks of a tracker, outside
 `/api/v1`: the adapter checks the signature (`401`), and the event only says
 which ticket to read ([contracts/tracker.md](contracts/tracker.md)).
+| `GET /api/v1/members` | `list_members` | | `200` members, by name: `user_id`, `name`, `email` (only with `member.manage`), `status` (`active`, `invited`, `suspended`), `source`, `disabled`, `roles` (the roles bound to the member directly: `role`, `scope`, `project`; those of their teams are the teams'), `teams` (slugs), `last_seen_at`, `created_at`. A project the caller cannot read is not named |
+| `POST /api/v1/members/{user}/suspend`, `.../resume` | `set_member_suspended` | `{user}` is the user UUID; body optional | `200` the member. Suspending ends their sessions and revokes their personal tokens in the organization in the same transaction; `409` for the last Owner, and for resuming a member who is not suspended |
+| `DELETE /api/v1/members/{user}` | `remove_member` | | `200` the member, removed with their teams and roles; sessions end and personal tokens are revoked in the same transaction. `409` for the last Owner |
+| `PATCH /api/v1/organization` | `update_organization` | `{"name", "slug"}`, both optional, one required | `200` the organization; `409` when the slug is taken |
 
 ### Artifact downloads
 

@@ -150,6 +150,9 @@ GitHub links of issues, pull requests and gates.
 and body of such a goal, in `get_goal` and `list_goals`, are marked as untrusted
 data: the client may be an agent. See
 [contracts/tracker.md](contracts/tracker.md).
+| `list_members` | The members of the organization, by name: `user_id`, `name`, `email` (only with `member.manage`), `status`, `source`, `disabled`, `roles` held directly (`role`, `scope`, `project`), `teams` (slugs). CLI: `forecrew members` |
+| `set_member_suspended`, `remove_member` | Suspend (`suspended: true`) or resume a member, or remove one with their teams and roles (`user`: UUID). Both end the member's sessions and revoke their personal tokens in the organization in the same transaction (a resumed member makes new tokens). You need `member.manage` and every permission of the member's roles, their teams' included; the last Owner stays. CLI: `forecrew members suspend\|resume\|remove <user>` (a UUID, an email or a name) |
+| `update_organization` | Rename the organization or change its `slug` (`org.manage`); links that carry the slug stop working. CLI: `forecrew org update [--name] [--slug]` |
 
 ### Assumption and decision registers
 

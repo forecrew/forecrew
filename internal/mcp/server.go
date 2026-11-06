@@ -336,6 +336,34 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 			return result(out, "%s opened as pull request #%d.", out.Proposal, out.Number), err
 		})
 	registerAccessTools(r, svc)
+	registerOrgTools(r, svc)
+}
+
+// registerOrgTools adds the tools of the organization and its members.
+func registerOrgTools(r registrar, svc ToolService) {
+	user := "User UUID."
+	register(r, ToolListMembers, "List the members of the organization with their status, source, the roles they hold directly and their teams. Emails are shown with member.manage only.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			m, err := svc.ListMembers(ctx, by)
+			return list("members", m, "%d members.", len(m)), err
+		})
+	register(r, ToolSetMemberSuspended, "Suspend a member or let a suspended one back in. Suspending ends their sessions and revokes their personal tokens in this organization. You need every permission of their roles, teams included. The last Owner cannot be suspended.",
+		fieldDocs{"user": user, "suspended": "true to suspend, false to let them back in."},
+		func(ctx context.Context, by domain.Actor, in SetMemberInput) (toolResult, error) {
+			m, err := svc.SetMemberSuspended(ctx, by, in)
+			return result(m, "%s is %s.", m.Name, m.Status), err
+		}, "user", "suspended")
+	register(r, ToolRemoveMember, "Remove a member from the organization with their teams and roles; their sessions end and their personal tokens are revoked. You need every permission of their roles, teams included. The last Owner cannot be removed.",
+		fieldDocs{"user": user}, func(ctx context.Context, by domain.Actor, in MemberRefInput) (toolResult, error) {
+			m, err := svc.RemoveMember(ctx, by, in)
+			return result(m, "%s was removed.", m.Name), err
+		}, "user")
+	register(r, ToolUpdateOrganization, "Rename the organization or change its slug. Links that carry the slug stop working.",
+		fieldDocs{"name": "New name; unchanged when left out.", "slug": "New slug: lowercase letters, digits and -; unchanged when left out."},
+		func(ctx context.Context, by domain.Actor, in UpdateOrganizationInput) (toolResult, error) {
+			a, err := svc.UpdateOrganization(ctx, by, in)
+			return result(a, "Organization %s updated.", a.Slug), err
+		})
 }
 
 func registerProviderTools(r registrar, svc ToolService) {
