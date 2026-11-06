@@ -66,7 +66,7 @@ func TestRetroContext(t *testing.T) {
 		"the reviewer said request_changes", "No migration test.", "major db/m.sql: Add a down migration ## Forged heading",
 		"(developer) failed after", "lint failed: unused variable", "(developer) canceled",
 		"4 jobs, $2.00 in all", "- developer: 2 jobs, $1.50", "- reviewer: 2 jobs, $0.50",
-		"note:" + note.ID.String() + ` "Spool Trick", written by developer, tags disk`, "Use tmpfs.",
+		"note:" + note.ID.String() + ":\n<untrusted-data", "title: Spool Trick\nwritten by: developer\ntags: disk", "Use tmpfs.",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("the history lacks %q:\n%s", want, text)

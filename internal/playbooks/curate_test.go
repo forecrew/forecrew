@@ -1,6 +1,7 @@
 package playbooks_test
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -10,6 +11,8 @@ import (
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/knowledge"
+	"github.com/forecrew/forecrew/internal/playbooks"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -90,8 +93,8 @@ func TestCuratePrepare(t *testing.T) {
 		t.Fatalf("counts = %v", m)
 	}
 	for _, want := range []string{
-		"### 1. Entries marked for re-verification (1)", "path docs/adr/flagged.md. Marked because: commit abc changed internal/queue/lease.go",
-		"### 2. Entries not verified for 100 days (2)", "docs/adr/stale.md. Last verified: 2025-08-13", "docs/adr/old.md",
+		"### 1. Entries marked for re-verification (1)", "path: docs/adr/flagged.md\nMarked because: commit abc changed internal/queue/lease.go",
+		"### 2. Entries not verified for 100 days (2)", "path: docs/adr/stale.md\nLast verified: 2025-08-13", "docs/adr/old.md",
 		"note:" + c.notes["unread"].ID.String(), "Note unread", "<untrusted-data", "duplicates and contradictions",
 	} {
 		if !strings.Contains(text, want) {
@@ -353,5 +356,32 @@ func TestCurateToolsEdgeCases(t *testing.T) {
 	// Nothing found, nothing to do.
 	if m := toolsEnv(t, toolsProfile).tools(t); len(opened(m)) != 0 || len(m["skipped"].([]any)) != 0 {
 		t.Errorf("nothing found: %v", m)
+	}
+}
+
+// policyOf is a KnowledgeSeeder that reads a fixed policy.
+type policyOf struct {
+	playbooks.KnowledgeSeeder
+	p knowledge.Policy
+}
+
+func (s policyOf) Policy(context.Context, domain.Project) (knowledge.Policy, error) { return s.p, nil }
+
+// What a section closed to the curator holds reaches neither its work list nor
+// its power to clear flags.
+func TestCurateLeavesClosedSectionsOut(t *testing.T) {
+	c := newCurateEnv(t)
+	p, err := knowledge.ParsePolicy([]byte("version: 1\nsections:\n  architecture: {paths: [\"docs/adr/**\"], access: {read: [architect]}}\n"))
+	must(t, err)
+	c.knowledge = policyOf{p: p}
+	c.register()
+	m := c.prepare(t)
+	if m["reverify"] != float64(0) || m["stale"] != float64(0) || strings.Contains(m["text"].(string), "flagged.md") {
+		t.Errorf("a closed section reached the work list: %v", m)
+	}
+	out, err := c.call(t, "curate.finish", map[string]any{"jobs": []any{curatorOutput(t, []map[string]string{{"path": "docs/adr/flagged.md", "reason": "x"}}, nil)}})
+	must(t, err)
+	if toMap(t, out)["cleared"] != float64(0) {
+		t.Errorf("a flag of a closed section was cleared: %v", out)
 	}
 }
