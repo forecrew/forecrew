@@ -14,6 +14,8 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/bmatcuk/doublestar/v4"
+
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/schema"
 )
@@ -297,13 +299,36 @@ func (p Policy) checkEntry(section, file string) bool {
 	return checkRepoPath(section, p.Sections[section], file) == nil
 }
 
+// globsHold reports whether file matches one of the globs and none of the "!"
+// globs, ignoring case as on a case-insensitive checkout. Unlike Indexable it
+// does not ask for a text file: any change to the file is a change to the
+// section that names it.
+func globsHold(globs []string, file string) bool {
+	file = strings.ToLower(file)
+	held := false
+	for _, g := range globs {
+		neg, isNeg := strings.CutPrefix(g, "!")
+		if m, _ := doublestar.Match(strings.ToLower(neg), file); m {
+			if isNeg {
+				return false
+			}
+			held = true
+		}
+	}
+	return held
+}
+
 // PathTarget says what the policy makes of a change to file in the repo that
 // no proposal names, such as the register files the learn step writes: the
-// sections that hold it (a protected one also by another spelling of its
-// path), whether any is protected, and the distinct approvers, sorted. Sections
+// sections whose globs hold it, whatever the file's type, whether any is protected, and the distinct approvers, sorted. Sections
 // is empty for a file no section holds.
 func (p Policy) PathTarget(file string) Target {
-	t := Target{Provider: RepoProvider, Repo: true, Sections: p.alsoHolding("", file)}
+	t := Target{Provider: RepoProvider, Repo: true}
+	for _, name := range slices.Sorted(maps.Keys(p.Sections)) {
+		if o := p.Sections[name]; !Reserved(name) && p.Providers[o.Provider].Kind == domain.ProviderKindRepo && globsHold(o.Paths, file) {
+			t.Sections = append(t.Sections, name)
+		}
+	}
 	for _, name := range t.Sections {
 		o := p.Sections[name]
 		owner := o.Owner
