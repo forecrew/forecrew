@@ -87,6 +87,11 @@ func (s *Server) Handler() http.Handler {
 	signedIn("GET /api/v1/me", http.HandlerFunc(s.me))
 	signedIn("PUT /api/v1/session/organization", http.HandlerFunc(s.switchOrganization))
 	signedIn("DELETE /api/v1/sessions", http.HandlerFunc(s.signOutEverywhere))
+	signedIn("GET /api/v1/sessions", http.HandlerFunc(s.sessions))
+	signedIn("DELETE /api/v1/sessions/{session}", http.HandlerFunc(s.endSession))
+	signedIn("GET /api/v1/identities", http.HandlerFunc(s.identities))
+	signedIn("POST /api/v1/cli/authorize", http.HandlerFunc(s.cliAuthorize))
+	handle("POST /api/v1/cli/token", http.HandlerFunc(s.cliToken))
 
 	route := func(pattern string, h http.Handler) {
 		handle(pattern, s.protect(s.needOrganization(s.guard(pattern, h))))
@@ -232,9 +237,14 @@ func RouteAccess() map[string]mcp.Access {
 		"DELETE /api/v1/session": {Public: true},
 		"GET /api/v1/me":         {},
 
-		"POST /api/v1/auth/discover":       {Public: true},
-		"PUT /api/v1/session/organization": {},
-		"DELETE /api/v1/sessions":          {},
+		"POST /api/v1/auth/discover":        {Public: true},
+		"PUT /api/v1/session/organization":  {},
+		"DELETE /api/v1/sessions":           {},
+		"GET /api/v1/sessions":              {},
+		"DELETE /api/v1/sessions/{session}": {},
+		"GET /api/v1/identities":            {},
+		"POST /api/v1/cli/authorize":        {},
+		"POST /api/v1/cli/token":            {Public: true},
 
 		"POST /api/v1/projects":             tool[mcp.ToolOnboardProject],
 		"GET /api/v1/projects":              tool[mcp.ToolListProjects],

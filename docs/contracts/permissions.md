@@ -271,7 +271,8 @@ object up and checks the permission on the object's project.
 | MCP tool | REST route | Needs |
 |----------|------------|-------|
 | | `POST /api/v1/session`, `DELETE /api/v1/session` | public |
-| | `GET /api/v1/me`, `PUT /api/v1/session/organization`, `DELETE /api/v1/sessions` | signed in |
+| | `GET /api/v1/me`, `PUT /api/v1/session/organization`, `DELETE /api/v1/sessions`, `GET /api/v1/sessions`, `DELETE /api/v1/sessions/{session}`, `GET /api/v1/identities`, `POST /api/v1/cli/authorize` | signed in; the last four work on the calling person's own records, and `cli/authorize` needs a session |
+| | `POST /api/v1/cli/token` | public: a code from `cli/authorize` and its PKCE verifier |
 | | `POST /api/v1/auth/discover` | public |
 | `onboard_project` | `POST /api/v1/projects` | `project.create` |
 | `list_projects` | `GET /api/v1/projects` | `project.read` |
