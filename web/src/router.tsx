@@ -15,6 +15,7 @@ import { InboxPage } from "@/routes/inbox"
 import { JobPage } from "@/routes/job"
 import { JobsPage } from "@/routes/jobs"
 import { LoginPage } from "@/routes/login"
+import { QualityPage } from "@/routes/quality"
 import { ProjectPage } from "@/routes/project"
 import { OnboardPage, ProjectsPage } from "@/routes/projects"
 import { TokensPage } from "@/routes/tokens"
@@ -86,6 +87,7 @@ const routeTree = root.addChildren([
     child("/projects/$name", ProjectPage),
     createRoute({ getParentRoute: () => app, path: "/jobs", validateSearch: search, component: JobsPage }),
     child("/jobs/$ref", JobPage),
+    child("/quality", QualityPage),
     child("/workers", WorkersPage),
     child("/tokens", TokensPage),
   ]),

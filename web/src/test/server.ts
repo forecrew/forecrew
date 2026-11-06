@@ -22,6 +22,13 @@ import goal from "./fixtures/goal.json"
 import goalCreate from "./fixtures/goal-create.json"
 import goals from "./fixtures/goals.json"
 import job from "./fixtures/job.json"
+import jobArtifacts from "./fixtures/job-artifacts.json"
+import jobArtifactsEmpty from "./fixtures/job-artifacts-empty.json"
+import jobCommand from "./fixtures/job-command.json"
+import quality from "./fixtures/quality.json"
+import qualityBaselineOnly from "./fixtures/quality-baseline-only.json"
+import qualityEmpty from "./fixtures/quality-empty.json"
+import verification from "./fixtures/verification.json"
 import jobCancel from "./fixtures/job-cancel.json"
 import jobCancelConflict from "./fixtures/job-cancel-conflict.json"
 import jobDispatch from "./fixtures/job-dispatch.json"
@@ -72,7 +79,10 @@ export const handlers = [
   http.get("/api/v1/jobs/:ref/logs", ({ request }) =>
     HttpResponse.json(new URL(request.url).searchParams.get("after_seq") === String(jobLogs.next_seq) ? jobLogsCaughtUp : jobLogs),
   ),
+  http.get("/api/v1/jobs/:ref/artifacts", () => HttpResponse.json(jobArtifactsEmpty)),
   http.get("/api/v1/jobs/:ref", () => HttpResponse.json(job)),
+  http.get("/api/v1/quality", () => HttpResponse.json(quality)),
+  http.get("/api/v1/changes/:change/verification", () => HttpResponse.json(verification)),
   http.get("/api/v1/workers", () => HttpResponse.json(workers)),
   http.get("/api/v1/tokens", () => HttpResponse.json(tokens)),
   http.post("/api/v1/tokens/:id/revoke", ({ params }) =>
@@ -102,7 +112,7 @@ export const server = setupServer(...handlers)
 export const fx = {
   me, session, projects, projectsEmpty, project, projectOnboard, goals, goalsEmpty, goal, goalCreate, jobs, jobsEmpty, job,
   jobQueued, jobFailed, jobDispatch, jobCancel, jobLogs, jobLogsCaughtUp, jobLogsEmpty, jobLogsAllKinds, projectMinimalProfile, projectUnknownCommands, workers, workersEmpty, gates, gatesEmpty, gateApprove,
-  gateRequestChanges, gateReject, tokens, tokensEmpty, tokenRevoke, tokenRevokeSelf,
+  gateRequestChanges, gateReject, jobArtifacts, jobArtifactsEmpty, jobCommand, quality, qualityBaselineOnly, qualityEmpty, verification, tokens, tokensEmpty, tokenRevoke, tokenRevokeSelf,
   councils, councilsEmpty, councilRunning, councilDecided, councilFailed, councilPending, councilStart, councilConstraint,
   assumptions, assumptionResolve, decisions, decisionsEmpty, gatesCouncil,
 }

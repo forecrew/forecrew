@@ -267,3 +267,57 @@ test("puts Open on GitHub at the right end of the action row", async () => {
   expect(link.parentElement).toBe(approve.parentElement)
   expect(link.className).toContain("ml-auto")
 })
+
+describe("verification on merge cards", () => {
+  test("shows the status, environments, traceability and the report link beside the summary", async () => {
+    const asked: string[] = []
+    server.use(
+      http.get("/api/v1/changes/:change/verification", ({ params }) => {
+        asked.push(decodeURIComponent(String(params.change)))
+        return HttpResponse.json(fx.verification)
+      }),
+    )
+    await renderApp("/inbox")
+    const first = await screen.findByRole("article", { name: /GATE-9/ })
+    const panel = await within(first).findByRole("region", { name: "GATE-9 verification" })
+    expect(asked).toEqual(["https://github.com/acme/app/pull/9"])
+    expect(within(panel).getByRole("list", { name: "Blocking reasons" })).toHaveTextContent("AC-3 has no test")
+    expect(within(panel).getByText(/Environments:/).parentElement).toHaveTextContent("linux (go go1.26.1")
+    const table = within(panel).getByRole("region", { name: /criteria table/ })
+    expect(within(table).getByText("AC-2").closest("tr")).toHaveTextContent("auth::TestLinkExpires")
+    expect(within(panel).getByRole("link", { name: "Download report" })).toHaveAttribute("href", expect.stringMatching(/^\/api\/v1\/artifacts\//))
+    const summary = within(first).getByText("Adds email sign-in. Tests pass.")
+    expect(summary.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  test("asks only for merge approvals", async () => {
+    const asked: string[] = []
+    server.use(
+      http.get("/api/v1/changes/:change/verification", ({ params }) => {
+        asked.push(String(params.change))
+        return HttpResponse.json(fx.verification)
+      }),
+    )
+    const { user } = await renderApp("/inbox")
+    await screen.findByRole("region", { name: "GATE-9 verification" })
+    await user.click(item("Approve the spec"))
+    await screen.findByRole("article", { name: /GATE-10/ })
+    expect(screen.queryByRole("region", { name: /verification/ })).not.toBeInTheDocument()
+    expect(asked).toHaveLength(1)
+  })
+
+  test("shows nothing when the pull request has no report yet", async () => {
+    server.use(http.get("/api/v1/changes/:change/verification", errors.notFound))
+    await renderApp("/inbox")
+    const first = await screen.findByRole("article", { name: /GATE-9/ })
+    await waitFor(() => expect(within(first).queryByRole("alert")).not.toBeInTheDocument())
+    expect(within(first).queryByRole("region", { name: /verification/ })).not.toBeInTheDocument()
+  })
+
+  test("says when the verification cannot be loaded", async () => {
+    server.use(http.get("/api/v1/changes/:change/verification", errors.invalidInput))
+    await renderApp("/inbox")
+    const first = await screen.findByRole("article", { name: /GATE-9/ })
+    expect(await within(first).findByRole("alert")).toHaveTextContent(/Could not load the verification/)
+  })
+})

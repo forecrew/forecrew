@@ -85,6 +85,9 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
       return json(route, names[council[1]!] ? fixture(`council-${names[council[1]!]}`) : fixture("error-not-found"), names[council[1]!] ? 200 : 404)
     }
     if (req.method() === "GET" && path === "/assumptions") return json(route, fixture("assumptions"))
+    if (req.method() === "GET" && path === "/quality") return json(route, fixture("quality"))
+    if (req.method() === "GET" && /^\/changes\/[^/]+\/verification$/.test(path)) return json(route, fixture("verification"))
+    if (req.method() === "GET" && /^\/jobs\/[^/]+\/artifacts$/.test(path)) return json(route, fixture("job-artifacts"))
     if (req.method() === "GET" && path.startsWith("/projects/")) return json(route, fixture("project"))
     if (req.method() === "GET" && /^\/goals\/[^/]+$/.test(path)) return json(route, fixture("goal"))
     if (req.method() === "GET" && /^\/jobs\/[^/]+\/logs$/.test(path)) {

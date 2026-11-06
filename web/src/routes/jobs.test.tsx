@@ -317,3 +317,59 @@ describe("following the log", () => {
     expect(cursors.length).toBe(before)
   })
 })
+
+describe("job page artifacts and tests", () => {
+  const useJob = (job: object, artifacts: object[]) =>
+    server.use(
+      http.get("/api/v1/jobs/:ref", () => HttpResponse.json(job)),
+      http.get("/api/v1/jobs/:ref/artifacts", () => HttpResponse.json(artifacts)),
+    )
+
+  test("a command job shows its test counts and artifacts to download", async () => {
+    useJob(fx.jobCommand, fx.jobArtifacts)
+    await renderApp("/jobs/JOB-45")
+    expect(await screen.findByRole("heading", { name: "JOB-45 · command" })).toBeInTheDocument()
+    const tests = screen.getByText("Tests").nextElementSibling!
+    expect(tests).toHaveTextContent("failed 7 passed, 2 failed, 1 skipped")
+    // a command job has no runtime or model
+    expect(screen.queryByText("Runtime")).not.toBeInTheDocument()
+    expect(screen.queryByText(/model/)).not.toBeInTheDocument()
+
+    const list = await screen.findByRole("list", { name: "Artifacts" })
+    const items = within(list).getAllByRole("listitem") as [HTMLElement, HTMLElement]
+    expect(items).toHaveLength(2)
+    const xml = within(items[0]).getByRole("link", { name: /reports\/unit.xml/ })
+    expect(xml).toHaveAttribute("href", `/api/v1/artifacts/${fx.jobArtifacts[0]!.id}`)
+    expect(xml).toHaveAttribute("download", "unit.xml")
+    expect(items[0]).toHaveTextContent("20 KB · application/xml")
+    expect(items[1]).toHaveTextContent("1.5 MB · image/png")
+  })
+
+  test("a command job without artifacts says so", async () => {
+    useJob(fx.jobCommand, fx.jobArtifactsEmpty)
+    await renderApp("/jobs/JOB-45")
+    expect(await screen.findByText("No artifacts.")).toBeInTheDocument()
+  })
+
+  test("a command job says when the artifacts cannot be loaded", async () => {
+    server.use(http.get("/api/v1/jobs/:ref", () => HttpResponse.json(fx.jobCommand)), http.get("/api/v1/jobs/:ref/artifacts", errors.invalidInput))
+    await renderApp("/jobs/JOB-45")
+    expect(await screen.findByText(/Could not load the artifacts/)).toBeInTheDocument()
+  })
+
+  test("an agent job shows no tests, and artifacts only when it has some", async () => {
+    await renderApp("/jobs/JOB-41")
+    await screen.findByRole("heading", { name: "JOB-41 · developer" })
+    await screen.findByRole("log", { name: "Job log" })
+    expect(screen.queryByText("Tests")).not.toBeInTheDocument()
+    expect(screen.queryByRole("heading", { name: "Artifacts" })).not.toBeInTheDocument()
+    expect(screen.getByText("Runtime")).toBeInTheDocument()
+  })
+
+  test("an agent job with files lists them", async () => {
+    useJob(fx.job, fx.jobArtifacts)
+    await renderApp("/jobs/JOB-41")
+    expect(await screen.findByRole("heading", { name: "Artifacts" })).toBeInTheDocument()
+    expect(within(screen.getByRole("list", { name: "Artifacts" })).getAllByRole("link")).toHaveLength(2)
+  })
+})

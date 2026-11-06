@@ -184,6 +184,7 @@ func TestEndpoints(t *testing.T) {
 		{"PATCH", "/api/v1/service-accounts/ci", `{"name":"build"}`, 200, mcp.ToolUpdateServiceAccount, mcp.UpdateServiceAccountInput{ServiceAccount: "ci", Name: "build"}},
 		{"POST", "/api/v1/service-accounts/ci/disable", "", 200, mcp.ToolSetServiceAccount, mcp.SetServiceAccountInput{ServiceAccount: "ci", Disabled: true}},
 		{"POST", "/api/v1/service-accounts/ci/enable", "", 200, mcp.ToolSetServiceAccount, mcp.SetServiceAccountInput{ServiceAccount: "ci"}},
+		{"GET", "/api/v1/changes/https%3A%2F%2Fgithub.com%2Facme%2Fapp%2Fpull%2F9/verification", "", 200, mcp.ToolVerificationReport, mcp.VerificationReportInput{Change: "https://github.com/acme/app/pull/9"}},
 		{"GET", "/api/v1/quality?project=app", "", 200, mcp.ToolProjectQuality, mcp.ProjectInput{Project: "app"}},
 	}
 	seen := map[string]bool{}

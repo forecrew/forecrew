@@ -7,7 +7,7 @@ review code; the UI links to it.
 
 Screens: Home (what needs me, is everything healthy), Inbox (decide gates,
 filtered by project; a goal page decides its own pending gates with the same
-cards), Goals, Councils, Decisions, Projects, Jobs, Workers and Tokens (dig into detail; a queued or
+cards), Goals, Councils, Decisions, Projects, Jobs, Quality, Workers and Tokens (dig into detail; a queued or
 running job can be canceled from the job page and from the job tables), and a
 command menu (Ctrl+K or Cmd+K) to jump anywhere or start a goal, a council or
 an onboarding.
@@ -38,8 +38,12 @@ left out, not faked:
   and Fleet in a right column.
 - **Inbox.** A list with filter chips and the keyboard hint on the left, the
   selected decision on the right: its actions first (Open on GitHub at the
-  right end), then the summary, then the feedback box. Verification, reviews
-  and assumptions are not shown (no data).
+  right end), then the summary, then, on a merge approval, the pull request's
+  verification (status, blocking reasons, environments with tool versions, the
+  criteria traceability table, flaky tests and the link to the rendered report),
+  then the feedback box. A pull request with no report yet shows nothing. The
+  goal page lists the verification status of each task and opens its report on
+  demand. Reviews and assumptions are not shown (no data).
 - **Inbox cards by kind.** A `council_decision` card shows the council's brief
   (read with `get_council`): each option with its pros, cons, cost, risk and
   votes, the dissent, the assumptions and the open questions. Approve accepts
@@ -70,9 +74,20 @@ left out, not faked:
   policy), the reasons, dissent, the assumptions it rests on, and a link to
   its council, and for a decision that belongs to a goal a link to the
   Gates section of the goal, where the decided gate is listed.
+- **Quality.** Per project (all of them, or the one the switcher picks): the
+  baseline on the default branch (the newest commit tested outside a pull
+  request) and each open pull request, from `GET /api/v1/quality`. Each has the
+  totals (passed, failed, skipped, flaky), a suites by environments grid, the
+  failing tests, and for a pull request its verification report (criteria
+  coverage, flaky tests). A result in the grid is a link to its job and says its
+  status and counts in words, so colour is never the only signal; an empty
+  environment is the worker's host and a missing result reads "no result".
+  Live updates, the trace view and coverage change are not part of it.
 - **Job.** A back link, the title with the state badge and a line with goal,
   worker and model, the log beside the details, the cost and the tokens; Cancel
-  stays at the top right.
+  stays at the top right. A command job shows its test counts and has no
+  runtime or model; the Artifacts list (name, size, type, download link) shows
+  for a command job always and for an agent job only when it has files.
 
 - `web/src/index.css` holds the theme exactly as `shadcn init` writes it, with
   one change: dark mode follows `prefers-color-scheme` instead of a `.dark`

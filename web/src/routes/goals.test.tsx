@@ -115,11 +115,12 @@ describe("goal page", () => {
     expect(within(row).getByRole("link", { name: /Issue/ })).toHaveAttribute("href", "https://github.com/acme/app/issues/6")
     expect(within(row).getByRole("link", { name: /PR #9/ })).toHaveAttribute("href", "https://github.com/acme/app/pull/9")
     expect(within(row).getByText("checks failing")).toBeInTheDocument()
+    expect(within(row).getByText("failed", { selector: "span" })).toBeInTheDocument()
     expect(within(row).getByText("2")).toBeInTheDocument()
     expect(within(row).getByText("$0.75")).toBeInTheDocument()
     const second = within(tasks).getByText("Verify the link").closest("tr")!
     expect(within(second).getByText("nothing")).toBeInTheDocument()
-    expect(within(second).getAllByText("none")).toHaveLength(2)
+    expect(within(second).getAllByText("none")).toHaveLength(3)
 
     const gates = screen.getByRole("heading", { name: "Gates" }).closest("section")!
     expect(within(gates).getByText("pending")).toBeInTheDocument()
@@ -238,5 +239,41 @@ describe("goal page", () => {
     expect(await screen.findByText(/Hello <script>alert\(1\)<\/script>/)).toBeInTheDocument()
     expect(container.querySelector("script, img")).toBeNull()
     expect(container.querySelector("a[href^='javascript']")).toBeNull()
+  })
+})
+
+describe("goal page verification", () => {
+  test("lists the verification of a task and opens its report on demand", async () => {
+    const asked: string[] = []
+    server.use(
+      http.get("/api/v1/changes/:change/verification", ({ params }) => {
+        asked.push(String(params.change))
+        return HttpResponse.json(fx.verification)
+      }),
+    )
+    const { user } = await renderApp("/goals/GOAL-3")
+    const section = (await screen.findByRole("heading", { name: "Verification" })).closest("section")!
+    // the merge card of the goal asks for its pull request; the task's report waits until it is opened
+    expect(asked.filter((a) => a.startsWith("TASK-"))).toEqual([])
+    await user.click(within(section).getByText(/TASK-12/))
+    expect(await within(section).findByRole("region", { name: "TASK-12 verification" })).toHaveTextContent("AC-3 has no test")
+    expect(asked.filter((a) => a.startsWith("TASK-"))).toEqual(["TASK-12"])
+    expect(within(section).queryByText(/TASK-13/)).not.toBeInTheDocument()
+  })
+
+  test("marks a stale report and has no section when no task has one", async () => {
+    const stale = structuredClone(fx.goal)
+    stale.tasks[0]!.verification!.current = false
+    server.use(http.get("/api/v1/goals/:ref", () => HttpResponse.json(stale)))
+    const { unmount } = await renderApp("/goals/GOAL-3")
+    expect(await screen.findByText("failed (stale)")).toBeInTheDocument()
+    unmount()
+
+    const none = structuredClone(fx.goal)
+    delete (none.tasks[0] as { verification?: unknown } | undefined)?.verification
+    server.use(http.get("/api/v1/goals/:ref", () => HttpResponse.json(none)))
+    await renderApp("/goals/GOAL-3")
+    await screen.findByRole("heading", { name: "Tasks" })
+    expect(screen.queryByRole("heading", { name: "Verification" })).not.toBeInTheDocument()
   })
 })

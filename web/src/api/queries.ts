@@ -22,6 +22,9 @@ export const keys = {
   council: (ref: string) => ["council", ref] as const,
   decisions: (project?: string) => ["decisions", project ?? ""] as const,
   assumptions: (project: string) => ["assumptions", project] as const,
+  artifacts: (job: string) => ["artifacts", job] as const,
+  quality: (project: string) => ["quality", project] as const,
+  verification: (change: string, project: string) => ["verification", change, project] as const,
   workers: ["workers"] as const,
   tokens: ["tokens"] as const,
 }
@@ -106,6 +109,11 @@ export const useAssumptions = (project: string, enabled = true) =>
     enabled,
     ...poll,
   })
+export const useArtifacts = (job: string) => useQuery({ queryKey: keys.artifacts(job), queryFn: () => api.listArtifacts(job) })
+export const useQuality = (project: string) => useQuery({ queryKey: keys.quality(project), queryFn: () => api.getQuality(project), ...poll })
+/** The verification report of a change; a 404 (no report yet) is an error the caller can read. */
+export const useVerification = (change: string, project = "", enabled = true) =>
+  useQuery({ queryKey: keys.verification(change, project), queryFn: () => api.getVerification(change, project), enabled, retry: false, ...poll })
 export const useTokens = () => useQuery({ queryKey: keys.tokens, queryFn: api.listTokens, ...poll })
 export const useWorkers = () => useQuery({ queryKey: keys.workers, queryFn: api.listWorkers, ...poll })
 
