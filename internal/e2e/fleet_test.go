@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/fleet"
@@ -22,13 +23,18 @@ import (
 func (w *world) addFleet() {
 	w.t.Helper()
 	ctx := w.t.Context()
-	p := domain.CapacityProvider{AccountID: w.account.ID, Name: "home", Kind: domain.ProviderFake, Mode: domain.ProviderModeDirect, Status: domain.ProviderActive}
+	p := domain.CapacityProvider{AccountID: w.account.ID, Name: "home", Kind: domain.ProviderFake, Mode: domain.ProviderModeDirect, Status: domain.ProviderActive,
+		Capabilities: domain.ProviderCapabilities{ImageFormats: []domain.ImageFormat{domain.ImageRootfs}}}
 	must(w.t, w.st.CapacityProviders().Create(ctx, &p))
+	// The shape's image must be registered, as a person would, for the resolver to find it.
+	img := testkit.TestImage(uuid.Nil(), "forecrew-linux", "1", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	must(w.t, w.st.Images().Create(ctx, &img))
 	must(w.t, w.st.Shapes().Create(ctx, &domain.Shape{
 		AccountID: w.account.ID, ProviderID: p.ID, Name: "small", OS: domain.OSLinux, Arch: domain.ArchAMD64, CPU: 2, MemoryMB: 4096, DiskGB: 20,
 		Pool: domain.PoolControl, Labels: []string{"runtime:claude-code"}, Image: "forecrew-linux", Max: 2, Enabled: true,
 	}))
 	w.machines.Configure(func(f *testkit.FakeProvider) {
+		f.Caps.ImageFormats = []domain.ImageFormat{domain.ImageRootfs}
 		f.OnBoot = func(req fleet.CreateRequest) {
 			client := worker.NewClient(w.url, req.Bootstrap.Token, nil)
 			client.BootstrapWait = 10 * time.Millisecond
