@@ -340,8 +340,7 @@ without a review flow wait at the same gate. One `knowledge_proposal` gate asks 
 human; approving merges the PR after the checks, rejecting closes it and rejects
 the proposals.
 
-**Curation** (playbook `curate`; schedule it, see `schedules` in config.md, for
-example weekly). `curate.prepare` lists, for a curator job with `task: curate`:
+**Curation** (playbook `curate`; scheduled weekly for every onboarded project by default; see `schedules` in config.md). `curate.prepare` lists, for a curator job with `task: curate`:
 
 1. entries marked `needs_reverify` (a push changed what they mention);
 2. entries whose `last_verified`, else creation time, is older than
