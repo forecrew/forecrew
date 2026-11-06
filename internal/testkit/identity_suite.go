@@ -27,6 +27,7 @@ func IdentityStoreSuite(t *testing.T, st store.Store, account uuid.UUID) {
 	s.domains()
 	s.sessions()
 	s.tokens()
+	s.oauth()
 	s.lastOwner()
 }
 
@@ -35,6 +36,116 @@ type identitySuite struct {
 	st      store.Store
 	account uuid.UUID
 	n       int
+}
+
+// oauth checks clients, the single use of grants, families and the sweep.
+func (s *identitySuite) oauth() {
+	ctx := s.t.Context()
+	r := s.st.OAuth()
+	s.n++
+	client := domain.OAuthClient{ClientID: "client-" + strconv.Itoa(s.n), Name: "Tool", RedirectURIs: []string{"https://tool.example/cb"}}
+	s.must(r.CreateClient(ctx, &client))
+	s.wantErr(r.CreateClient(ctx, &domain.OAuthClient{ClientID: client.ClientID, Name: "Twin", RedirectURIs: client.RedirectURIs}), store.ErrConflict)
+	_, err := r.GetClient(ctx, "nobody")
+	s.wantErr(err, store.ErrNotFound)
+	client.Name, client.RedirectURIs = "Renamed", []string{"https://tool.example/other"}
+	s.must(r.UpdateClient(ctx, &client))
+	s.must(r.TouchClient(ctx, client.ID))
+	got, err := r.GetClient(ctx, client.ClientID)
+	s.must(err)
+	byID, err := r.GetClientByID(ctx, client.ID)
+	s.must(err)
+	if got.Name != "Renamed" || len(got.RedirectURIs) != 1 || got.LastUsedAt.IsZero() || byID.ClientID != client.ClientID {
+		s.t.Fatalf("client = %+v, by ID %+v", got, byID)
+	}
+
+	person := s.user("oauth@example.com", true)
+	s.member(person)
+	u := person.ID
+	family := domain.NewID()
+	hash := func(v string) []byte { h := sha256.Sum256([]byte(v + strconv.Itoa(s.n))); return h[:] }
+	grant := func(kind domain.OAuthGrantKind, token string, family uuid.UUID, ttl time.Duration) domain.OAuthGrant {
+		g := domain.OAuthGrant{Kind: kind, TokenHash: hash(token), FamilyID: family, ClientID: client.ID, UserID: u, AccountID: s.account,
+			Scopes: []domain.Scope{domain.ScopeRead}, Resource: "https://f.example/mcp", ExpiresAt: time.Now().Add(ttl)}
+		if kind == domain.OAuthCode {
+			g.RedirectURI, g.CodeChallenge = "https://tool.example/cb", "challenge"
+		}
+		s.must(r.CreateGrant(ctx, &g))
+		return g
+	}
+	if ok, err := r.UserAuthorized(ctx, client.ID, u); err != nil || ok {
+		s.t.Fatalf("UserAuthorized before = %v, %v", ok, err)
+	}
+	code := grant(domain.OAuthCode, "code", family, time.Minute)
+	if ok, err := r.UserAuthorized(ctx, client.ID, u); err != nil || !ok {
+		s.t.Fatalf("UserAuthorized after = %v, %v", ok, err)
+	}
+	if apps, err := r.ListFamilies(ctx, s.account, u); err != nil || len(apps) != 0 {
+		s.t.Fatalf("a code is no connected app: %+v, %v", apps, err)
+	}
+	s.must(r.UseGrant(ctx, code.ID))
+	s.wantErr(r.UseGrant(ctx, code.ID), store.ErrConflict)
+	stored, err := r.GetGrantByTokenHash(ctx, hash("code"))
+	s.must(err)
+	if stored.Usable(time.Now()) || stored.UsedAt.IsZero() || stored.CodeChallenge != "challenge" || stored.RedirectURI == "" {
+		s.t.Fatalf("code = %+v", stored)
+	}
+
+	access := grant(domain.OAuthAccess, "access", family, time.Hour)
+	s.wantErr(r.UseGrant(ctx, access.ID), store.ErrConflict)
+	refresh := grant(domain.OAuthRefresh, "refresh", family, time.Hour)
+	other := domain.NewID()
+	grant(domain.OAuthRefresh, "other", other, time.Hour)
+	expired := grant(domain.OAuthRefresh, "expired", domain.NewID(), -time.Hour)
+	apps, err := r.ListFamilies(ctx, s.account, u)
+	s.must(err)
+	if len(apps) != 2 || apps[0].FamilyID != other || apps[1].FamilyID != family {
+		s.t.Fatalf("families = %+v", apps)
+	}
+
+	s.must(r.RevokeFamily(ctx, family))
+	for _, id := range []uuid.UUID{access.ID, refresh.ID} {
+		g, err := r.GetGrant(ctx, id)
+		s.must(err)
+		if g.RevokedAt.IsZero() || g.Usable(time.Now()) {
+			s.t.Fatalf("grant of a revoked family = %+v", g)
+		}
+	}
+	s.must(r.RevokeByUser(ctx, domain.NewID(), u))
+	if apps, _ := r.ListFamilies(ctx, s.account, u); len(apps) != 1 {
+		s.t.Fatalf("another organization's revocation reached this one: %+v", apps)
+	}
+	s.must(r.RevokeByUser(ctx, s.account, u))
+	if apps, _ := r.ListFamilies(ctx, s.account, u); len(apps) != 0 {
+		s.t.Fatalf("families after RevokeByUser = %+v", apps)
+	}
+	again := grant(domain.OAuthRefresh, "again", domain.NewID(), time.Hour)
+	s.must(r.RevokeByUser(ctx, uuid.Nil(), u))
+	if g, err := r.GetGrant(ctx, again.ID); err != nil || g.RevokedAt.IsZero() {
+		s.t.Fatalf("RevokeByUser everywhere = %+v, %v", g, err)
+	}
+
+	if n, err := r.DeleteUnusedClients(ctx, time.Now().Add(time.Hour)); err != nil || n != 0 {
+		s.t.Fatalf("a client with grants was deleted: %d, %v", n, err)
+	}
+	n, err := r.DeleteExpiredGrants(ctx, time.Now())
+	s.must(err)
+	if n != 1 {
+		s.t.Fatalf("DeleteExpiredGrants = %d", n)
+	}
+	_, err = r.GetGrant(ctx, expired.ID)
+	s.wantErr(err, store.ErrNotFound)
+	if _, err := r.DeleteExpiredGrants(ctx, time.Now().Add(2*time.Hour)); err != nil {
+		s.t.Fatal(err)
+	}
+	if n, err := r.DeleteUnusedClients(ctx, time.Now().Add(-time.Hour)); err != nil || n != 0 {
+		s.t.Fatalf("a client in use was deleted: %d, %v", n, err)
+	}
+	if n, err := r.DeleteUnusedClients(ctx, time.Now().Add(time.Hour)); err != nil || n < 1 {
+		s.t.Fatalf("DeleteUnusedClients = %d, %v", n, err)
+	}
+	_, err = r.GetClient(ctx, client.ClientID)
+	s.wantErr(err, store.ErrNotFound)
 }
 
 func (s *identitySuite) must(err error) {

@@ -16,24 +16,28 @@ import (
 // identityData holds the rows of sign-in. The tables are global, so their
 // key's account is always zero, except where a row belongs to an organization.
 type identityData struct {
-	users       table[domain.User]
-	identities  table[domain.Identity]
-	memberships table[domain.Membership]
-	invitations table[domain.Invitation]
-	connections table[domain.Connection]
-	domains     table[domain.VerifiedDomain]
-	sessions    table[domain.Session]
+	users        table[domain.User]
+	identities   table[domain.Identity]
+	memberships  table[domain.Membership]
+	invitations  table[domain.Invitation]
+	connections  table[domain.Connection]
+	domains      table[domain.VerifiedDomain]
+	sessions     table[domain.Session]
+	oauthClients table[domain.OAuthClient]
+	oauthGrants  table[domain.OAuthGrant]
 }
 
 func newIdentityData() identityData {
 	return identityData{
-		users:       table[domain.User]{key: func(r domain.User) (uuid.UUID, uuid.UUID) { return uuid.Nil(), r.ID }},
-		identities:  table[domain.Identity]{key: func(r domain.Identity) (uuid.UUID, uuid.UUID) { return r.UserID, r.ID }},
-		memberships: table[domain.Membership]{key: func(r domain.Membership) (uuid.UUID, uuid.UUID) { return r.AccountID, r.UserID }},
-		invitations: table[domain.Invitation]{key: func(r domain.Invitation) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		connections: table[domain.Connection]{key: func(r domain.Connection) (uuid.UUID, uuid.UUID) { return uuid.Nil(), r.ID }},
-		domains:     table[domain.VerifiedDomain]{key: func(r domain.VerifiedDomain) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
-		sessions:    table[domain.Session]{key: func(r domain.Session) (uuid.UUID, uuid.UUID) { return r.UserID, r.ID }},
+		users:        table[domain.User]{key: func(r domain.User) (uuid.UUID, uuid.UUID) { return uuid.Nil(), r.ID }},
+		identities:   table[domain.Identity]{key: func(r domain.Identity) (uuid.UUID, uuid.UUID) { return r.UserID, r.ID }},
+		memberships:  table[domain.Membership]{key: func(r domain.Membership) (uuid.UUID, uuid.UUID) { return r.AccountID, r.UserID }},
+		invitations:  table[domain.Invitation]{key: func(r domain.Invitation) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		connections:  table[domain.Connection]{key: func(r domain.Connection) (uuid.UUID, uuid.UUID) { return uuid.Nil(), r.ID }},
+		domains:      table[domain.VerifiedDomain]{key: func(r domain.VerifiedDomain) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		sessions:     table[domain.Session]{key: func(r domain.Session) (uuid.UUID, uuid.UUID) { return r.UserID, r.ID }},
+		oauthClients: table[domain.OAuthClient]{key: func(r domain.OAuthClient) (uuid.UUID, uuid.UUID) { return uuid.Nil(), r.ID }},
+		oauthGrants:  table[domain.OAuthGrant]{key: func(r domain.OAuthGrant) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 	}
 }
 
@@ -45,6 +49,8 @@ func (i identityData) clone() identityData {
 	i.connections = i.connections.clone()
 	i.domains = i.domains.clone()
 	i.sessions = i.sessions.clone()
+	i.oauthClients = i.oauthClients.clone()
+	i.oauthGrants = i.oauthGrants.clone()
 	return i
 }
 
