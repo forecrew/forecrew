@@ -21,8 +21,10 @@ at boot. Its labels are in `/etc/forecrew/labels` and in the manifest's
 
 ## Build
 
-Needs Packer with the plugins the templates name (`packer init` fetches them).
-Build the worker for the image first (`CGO_ENABLED=0 go build ./cmd/forecrew-worker`
+Needs Packer with the plugins the templates pin exactly (`packer init` fetches
+them). The inputs are pinned too: a dated Debian cloud image with its checksum,
+the `debian:trixie-slim` index digest, the Chocolatey and macOS base VM
+versions; bump them together, on purpose. Build the worker for the image first (`CGO_ENABLED=0 go build ./cmd/forecrew-worker`
 with the image's `GOOS` and `GOARCH`).
 
 ```sh
@@ -38,11 +40,46 @@ their own account; nothing in them is specific to Forecrew's infrastructure.
 - **microVM kernel.** A `rootfs` image comes with the kernel it boots
   (`contents.kernel`). Use a kernel with virtio block, virtio net and ext4 built
   in; Firecracker publishes one, and its build configs are in the Firecracker
-  repository. The kernel is a build input, not built here. The rootfs needs
-  `mke2fs` 1.47.1 or newer (for example Debian 13): older ones cannot make a
-  file system from a tar and keep file owners.
+  repository. The kernel is a build input, not built here. Its digest and the
+  build time are signed with the image, and the fleet agent checks the kernel
+  file against it (`images.VerifyKernel`), so a kernel cannot be swapped under a
+  signed manifest.
+- **mke2fs.** The rootfs needs `mke2fs` 1.47.1 or newer **with libarchive**
+  (Debian 13: `apt-get install e2fsprogs libarchive13t64`): older ones cannot make
+  a file system from a tar and keep file owners, and without libarchive `mke2fs -d`
+  cannot read the tar. `forecrew image rootfs` tries a small tar first and says
+  which is missing. Before 1.47.4 `-d` fails on files of 2 GiB and more, so the
+  converter refuses an image that has one. On a host with an older `mke2fs` use
+  `deploy/images/mke2fs-docker.sh`, which runs a Debian 13 one in a container
+  (`MKE2FS=deploy/images/mke2fs-docker.sh deploy/images/build.sh rootfs ...`).
+- **CI** (`.github/workflows/images.yml`) validates every template and builds the
+  Linux qcow2 on each change; the artifacts are the image and an unsigned
+  manifest, since CI does not sign or register. The rootfs and the boot test
+  need a kernel: **the repository variables `FORECREW_KERNEL_URL` and
+  `FORECREW_KERNEL_SHA256` are the owner's to set**, to a kernel they trust; the
+  two jobs are skipped until they are.
 - **Windows and macOS** need licensed hosts, so CI only runs `packer validate` on
-  them (`make images-validate`); see Licensing.
+  them (`make images-validate`); see Licensing. The Tart plugin ships darwin binaries only, so off macOS the macOS template is checked for syntax (`packer validate -syntax-only`), and fully on a Mac.
+
+## What an image needs
+
+A Linux image, however it is made, must hold what the worker and the init use;
+`forecrew image rootfs` checks it and lists everything missing at once:
+
+| Needs | Why |
+|-------|-----|
+| `sh` | the init and `forecrew-start` are POSIX shell scripts |
+| `ip` (iproute2) | the init configures the network from the kernel command line |
+| `git` | the worker clones and commits with it |
+| CA certificates | the worker and git speak HTTPS |
+| `claude`, `codex`, `opencode` | the agent CLIs of agent jobs; `--no-agent-clis` for an image of command jobs only |
+
+`forecrew-start` checks `git` and the worker again when the machine boots, with
+the image's own `PATH`, and fails with the reason instead of on the first job.
+The image's **environment** (a Docker image's `Config.Env`: `PATH` to its
+toolchains, `GOFLAGS`, ...) is saved to `/etc/forecrew/env` and applied to the
+worker as data (names are checked, `FORECREW_*` is reserved, nothing is run as
+shell); it is part of the cache key.
 
 ## Docker images as machine contents
 
@@ -53,14 +90,16 @@ image works unchanged as the contents of a microVM:
 forecrew image rootfs --from forecrew-env:3f9a... --worker ./forecrew-worker --label docker --cache /var/cache/forecrew-images
 ```
 
-The command exports the image's file system, adds the worker and the guest
-files (`/opt/forecrew/`), and makes an ext4 file with `mke2fs`. The result is
-cached under the image's content ID, the added files and the size, so the same
-environment hash is converted once and every later machine reuses the file. The
-image needs `/bin/sh`; device nodes are dropped (the guest mounts `devtmpfs`),
-paths that leave the root are refused, and size and file count are bounded. The
-file system is sized from the content plus room to write; a provider resizes the
-disk copy to the shape's `disk_gb`.
+The command exports the image's file system by its content ID (so a tag that
+moves meanwhile cannot change what is converted), adds the worker and the guest
+files (`/opt/forecrew/`) and the image's environment, and makes an ext4 file with
+`mke2fs`. The result is cached under the image's content ID, the added files and
+the size, so the same environment hash is converted once and every later machine
+reuses the file. Device nodes are dropped (the guest mounts `devtmpfs`), paths
+that leave the root are refused, and size and file count are bounded. The file
+system is sized from the content in whole blocks per file plus an inode per
+entry, the journal and room to write; a provider resizes the disk copy to the
+shape's `disk_gb`.
 
 ## Inside the guest
 
@@ -71,14 +110,13 @@ converter and the templates alike.
   mounts the pseudo file systems, brings up the network from the kernel command
   line (`forecrew.ip=`, `forecrew.gw=`, `forecrew.dns=`), copies `bootstrap.env`
   from the **config disk** (`forecrew.config=`, default `/dev/vdb`, ext4 or
-  vfat, read-only) into RAM, runs the worker and powers the machine off when it
-  ends.
+  vfat, read-only) into `/run`, which is RAM, runs the worker and powers the
+  machine off when it ends.
 - `forecrew-start` (Linux, macOS) and `forecrew-start.ps1` (Windows) read the
   settings the provider delivered, write `worker.yaml` and run the worker with
-  only its token in the environment. The settings file is read as data, never as
-  shell, with a fixed set of keys and a restricted character set, and deleted
-  once read. It never reaches a disk of the host: the provider delivers it by
-  cloud-init, a config disk, `tart exec` or Hyper-V, into a RAM disk.
+  only its token and the image's environment. The settings file is read as data,
+  never as shell, with a fixed set of keys and a restricted character set, and
+  deleted once read.
 
 | Setting | Meaning |
 |---------|---------|
@@ -86,9 +124,21 @@ converter and the templates alike.
 | `FORECREW_BOOTSTRAP_TOKEN` or `FORECREW_WORKER_TOKEN` | the machine's one-time `fcb_` token, or a worker token; exactly one |
 | `FORECREW_WORKER_NAME`, `FORECREW_WORKER_LABELS`, `FORECREW_WORKER_MAX_JOBS` | optional; the labels add to the image's |
 
-Where the file goes: `/run/forecrew/bootstrap.env` (Linux),
-`/var/run/forecrew/bootstrap.env` (macOS), `C:\ProgramData\Forecrew\run\bootstrap.env`
-(Windows). On systemd images `forecrew-worker.service` starts when the file
+Where the file goes, and what that means for the token:
+
+| OS | Path | Storage | Delivery the provider must use |
+|----|------|---------|--------------------------------|
+| Linux microVM | `/run/forecrew/bootstrap.env` | RAM (`/run` is tmpfs), copied by the init from the config disk | a read-only config disk made for this machine |
+| Linux VM (systemd) | `/run/forecrew/bootstrap.env` | RAM | cloud-init `write_files` to `/run`, or a config drive the guest copies there |
+| macOS (Tart) | `/var/run/forecrew/bootstrap.env` | **the machine's own disk**, mode 0700 root | `tart exec` into the running machine after it is assigned |
+| Windows | `C:\ProgramData\Forecrew\run\bootstrap.env` | **the machine's own disk**, ACL for SYSTEM and administrators only | WinRM or Hyper-V guest services into the running machine after it is assigned |
+
+RAM holds the token on Linux only. On macOS and Windows it is a file on the
+guest's disk until `forecrew-start` reads and deletes it, so T62 (Windows) and
+T63 (macOS) must deliver it into the running machine, never bake it into the
+image, a shared folder or a host path, and must destroy the disk with the
+machine (fleet.md: it is never written to the host's disk outside the guest's
+own image). On systemd images `forecrew-worker.service` starts when the file
 exists and powers the machine off when the worker ends.
 
 ## Signing and trust
@@ -109,9 +159,14 @@ image, against the public keys in its own local configuration, and refuses the
 machine otherwise: a tampered file or a manifest signed by an unknown key does
 not boot. forecrewd checks the form only.
 
+A signature also covers the kernel's digest on a `rootfs` image and the build
+time to the second, so an organization admin cannot swap the kernel under, or
+re-date, a signed instance manifest.
+
 **Registering** is for a person: `forecrew image add <manifest>`
 (`POST /api/v1/images`) needs a person's credentials and `worker.manage`; an
-instance-wide image (`--instance`) also needs an instance admin. A service
+instance-wide image (`--instance`) also needs an instance admin and must be a
+Linux image: Windows and macOS images are never instance-wide. A service
 account, an ownerless token or a machine is refused, and there is no MCP tool
 for it, so an agent can never put an image in the table that others trust. CI
 may build and publish files; a person signs and registers. `forecrew image list`
@@ -123,17 +178,36 @@ Images are versioned: a shape names `name` for the newest build or `name@version
 to pin one. `forecrew image prune [--keep 3] [--dry-run] [--instance]` is the
 retention rule: of each image (same owner, name, OS, architecture and format) the
 newest builds stay and the rest are removed. An image a live machine's shape
-pins is kept (`409`), so a running fleet is never pulled from under. Prune from
-a schedule if you build often.
+pins is kept (`409`): for every live machine, the image `Resolve` gives its
+shape's reference, for the machine's organization and the formats its provider
+starts, is in use. So a running fleet is never pulled from under. A scheduled
+prune means a person's token on a cron job (`forecrew image prune` calls the
+API, and deleting an image is for a person, not a service account); forecrewd
+does not prune by itself.
+
+## Windows and macOS builds
+
+- **Windows** is built on your host from an ISO you supply; the template refuses to
+  run until you set `license_confirmed=true`, and takes the SHA-256 of the
+  Chocolatey `install.ps1` you reviewed (`chocolatey_installer_sha256`): the script
+  runs only if its hash matches, at a pinned Chocolatey version. The build's
+  Administrator password is random, per build and sensitive. The image is
+  **generalized with sysprep**, so every clone has its own SID, WinRM is turned off
+  before it, and the answer file (`sysprep.xml`) gives each clone's Administrator a
+  random password at its first boot and disables the account; the worker runs as
+  SYSTEM and needs no login. Clones share neither a password nor a SID.
+- **macOS** needs an Apple silicon Mac. The base VM is pinned by digest
+  (`base_vm=registry/name@sha256:...`, which you resolve and review). The base
+  VM's login (`admin`/`admin` in the public Cirrus images) is replaced by a random
+  password nobody keeps and remote login is turned off at the end of the build, so
+  the provider reaches the machine with `tart exec`, not ssh.
 
 ## Licensing
 
-Forecrew does not distribute Windows or macOS. The Windows template builds on
-your host from an ISO you supply and refuses to run until you set
-`license_confirmed=true`; the result is an unsigned manifest that you check,
-sign with your own key and register under your organization, and only fleet
-agents configured with your key will use it. The macOS template needs an Apple
-silicon Mac, as the macOS licence allows macOS VMs on Apple hardware only. The
+Forecrew does not distribute Windows or macOS. The Windows result is an unsigned
+manifest that you check, sign with your own key and register under your
+organization, and only fleet agents configured with your key will use it. The
+macOS licence allows macOS VMs on Apple hardware only. The
 terms of both, and the 24-hour minimum of cloud Macs, are to be rechecked before
 selling machines (decision 29 of the plan).
 

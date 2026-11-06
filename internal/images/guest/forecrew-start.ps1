@@ -2,7 +2,12 @@
 # provider delivered, as forecrew-start does on Linux. The settings are KEY=value
 # lines in C:\ProgramData\Forecrew\run\bootstrap.env (see forecrew-start for the
 # keys). The file is read as data, deleted once read, and the machine powers off
-# when the worker ends: it is thrown away after its jobs.
+# when the worker ends: it is thrown away after its jobs. On Windows the folder
+# is on the machine's own disk, not in RAM: only SYSTEM and administrators may
+# read it (the ACL set here and at image build), the provider delivers the file
+# into the running machine (WinRM, Hyper-V guest services) once it is assigned,
+# never in the image or on a host share, and the disk is destroyed with the
+# machine.
 $ErrorActionPreference = 'Stop'
 
 $root = if ($env:FORECREW_ROOT) { $env:FORECREW_ROOT } else { 'C:\ProgramData\Forecrew' }
@@ -14,6 +19,12 @@ $workDir = if ($env:FORECREW_WORK_DIR) { $env:FORECREW_WORK_DIR } else { 'C:\Pro
 function Stop-Machine {
     if ($env:FORECREW_NO_SHUTDOWN) { return }
     Stop-Computer -Force
+}
+
+# Only SYSTEM and administrators read the folder the token arrives in.
+if (Get-Command icacls -ErrorAction SilentlyContinue) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $envFile) | Out-Null
+    icacls (Split-Path $envFile) /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'Administrators:(OI)(CI)F' | Out-Null
 }
 
 # The provider delivers the file around boot: wait for it for a while.

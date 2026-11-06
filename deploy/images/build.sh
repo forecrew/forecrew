@@ -8,7 +8,10 @@
 # The output is in deploy/images/out. Without --key the manifest is unsigned:
 # a person signs it with `forecrew image sign` before `forecrew image add`.
 # Needs packer, qemu (qcow2) or docker (rootfs), and the forecrew CLI (FORECREW,
-# default `forecrew` on PATH). The rootfs also needs mke2fs 1.47.1 or newer.
+# default `forecrew` on PATH). The rootfs also needs mke2fs 1.47.1 or newer with
+# libarchive (the package libarchive13t64 on Debian and Ubuntu); `forecrew image
+# rootfs` says if yours cannot. On a host with an older one set
+# MKE2FS=deploy/images/mke2fs-docker.sh. ARCH is amd64 (default) or arm64.
 set -eu
 
 die() {
@@ -70,8 +73,9 @@ if [ "$kind" = qcow2 ]; then
 	# shellcheck disable=SC2086
 	manifest qcow2 "$out/linux-qcow2-$arch/$name.qcow2" "$uri_base/$name.qcow2" "$out/packages-qcow2-$arch.txt" $common --label docker
 else
+	cd "$here"
 	# shellcheck disable=SC2086
-	"$forecrew" image rootfs --tar "$out/linux-rootfs-$arch.tar" --name "$name" --worker "$worker" --cache "$out/cache" $common >"$out/rootfs.path"
+	"$forecrew" image rootfs --tar "$out/linux-rootfs-$arch.tar" --name "$name" --worker "$worker" --cache "$out/cache" ${MKE2FS:+--mke2fs "$MKE2FS"} $common >"$out/rootfs.path"
 	cp "$(cat "$out/rootfs.path")" "$out/$name.ext4"
 	# shellcheck disable=SC2086
 	manifest rootfs "$out/$name.ext4" "$uri_base/$name.ext4" "$out/packages-rootfs-$arch.txt" \
