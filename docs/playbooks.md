@@ -215,7 +215,10 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `github.open_or_update_pr` | `repo`, `title`, `body`, `head`, `base`, optional `previous`, `task_id` (defaults to the run's task) | `{number, url, head_sha}`. Updates the open PR from `head` or opens one, upserts its `changes` row and adds it (`owner/name#number`) as a dependent of the assumptions the task rests on. With `previous`, the number of an earlier round's PR, it fails when a human closed that PR instead of opening another, and when a human merged it outputs `merged: true` with `merge_sha` and changes nothing. `if_open` is `[number]`, or `[]` for a merged PR, for a `foreach` that skips steps. |
 | `github.merge_pr` | `repo`, `number`, optional `check_profile`, `sha`, `require_verification` | `{merged, already_merged, sha}` (the merge commit). Squash-merges unless already merged. Only a head whose checks succeeded (or has none) is merged; it fails on failed or running checks, with `check_profile` when the profile file at the head is invalid, with `sha`, the head that was approved, when the head moved away from it, and with `require_verification` unless the stored verification report of the head being merged has the status `passed` (no report, for example after a push that came after it, `failed` and `incomplete` are all refused, with the blocking reasons in the error). The report's status decides, never the check run `forecrew/verification`: an incomplete report is a neutral check run, which the checks above count as passed. Use `on_failure: escalate`. |
 | `actions.install_workflow` | `repo`, `branch` | `{path, changed}`. Writes the `forecrew-matrix` workflow (`packs/workflows`) to `.github/workflows/forecrew-matrix.yml` on `branch`, which command jobs of pool `actions` dispatch (actions.md). `changed` is false when the file is already identical. Needs the App's Contents and Workflows write permissions. Fails when forecrewd has no GitHub Actions support configured. The `onboarding-tests` playbook runs it. |
-| `goal.intake` | `repo`, `goal_id` | `{issue_number, issue_url, default_branch}`. Creates the labels `forecrew:goal` and `forecrew:task` if missing and opens the goal's issue, labeled `forecrew:goal`, unless the goal has one. |
+| `goal.intake` | `repo`, `goal_id` | `{issue_number, issue_url, default_branch}`. Creates the labels `forecrew:goal` and `forecrew:task` if missing and opens the goal's issue, labeled `forecrew:goal`, unless the goal has one. For a goal of kind `bug` it also creates `forecrew:bug`, puts it on the issue and adds it to an issue the goal has already. |
+| `bug.spec` | `goal_id` | `{spec_id, revision}`. Stores the report of a bug goal as its spec (revision 1, one criterion, `AC-1`: the failure no longer happens, shown by a regression test) and moves the goal to spec review. A repeated call returns the same spec. Refuses a goal that is not a bug. |
+| `bug.plan` | `goal_id`, `spec_id`, `platforms` | `{valid, errors, tasks}`, like `goal.plan`, with the one task `Fix: <title>` for `AC-1` and its issue under the goal's; moves the goal to planned. |
+| `bug.reproduced` | `ready`, `feedback`, `tests`, `base`, `missing` | `{done, feedback, if_stuck}`. `ready`, `feedback` and `tests` are from `tests.map`, `base` is the output of `tests.base_check_result`, `missing` the one of `tests.base_check_request`. `done` is true when the test engineer's tests are ready, there is one and it failed on the default branch. Else `feedback` says why (no test, `cannot_reproduce`, a test that passes on base, a base check no worker could run) and `if_stuck` is `[feedback]`, for a `foreach` that opens a gate. |
 | `goal.size` | `goal_id`, `triage` | `{councils, if_product, if_technical}`. A goal without a size takes it from `triage`, the `triage` job's output: the councils the sizing rule gives (config.md, sizing) are stored as `goals.size`. A goal that has a size keeps it and `triage` is not read: a human's override (create_goal with `councils`) is such a size, so that goal skips the triage job. `if_product` and `if_technical` are `[goal_id]` when the goal gets that council, else `[]`, for a `foreach` that skips the council steps. Refuses a triage with an unknown grade, no area or no reason. |
 | `goal.spec` | `goal_id`, `job_id`, `spec` | `{spec_id, revision, summary}`. Stores the product owner's output as the next spec revision (once per job), adds the spec as a dependent of the assumptions the job stated, renders it under the goal's text in the goal issue, moves the goal to `spec_review`. `summary` is the text of the `spec_approval` gate. |
 | `goal.plan` | `goal_id`, `spec_id`, `platforms`, `plan`, `spec` | `{valid, errors, tasks: [{id, ref, number, seq, title, issue_number, branch, needs, criteria}]}`. Stores the architect's tasks in order, one issue per task (labels `forecrew:task` and `needs:<label>`, a sub-issue of the goal's), comments the plan on the goal issue and moves the goal to `planned`. `needs` are the task's labels plus `platforms`. A plan that cannot be used (the architect escalated, no task, an unknown criterion, a dependency that is not an earlier task, criteria of the spec that no task covers) stores nothing: the output is `valid: false` with `errors` as the architect's feedback, which is also commented on the goal issue (once per call) for the human a `needs_you` gate asks. Kept tasks and issues are not created twice. |
@@ -803,3 +806,48 @@ It is `goal` with these differences, task by task:
 - An environment the matrix needs and the repo lacks stays a failure of
   `matrix.plan` or `verification.build` for a human; the playbook does not run
   the `environment-engineer`.
+
+## Bug-fix playbook
+
+`packs/playbooks/bugfix.yaml` fixes a bug: reproduce, a failing regression test,
+the fix, verification, review, and a merge with your approval. `report_bug`
+(MCP, `POST /api/v1/bugs`, `forecrew report-bug`) creates a goal of kind `bug`
+(`goals.kind`) and starts it; so does `@forecrew bug` in a comment on an issue,
+which makes that issue the goal's issue. It uses the testing system, so like
+`goal-v2` it is only for the projects listed in `testing.projects`; for any
+other `report_bug` answers with an error and `@forecrew bug` replies with it.
+It takes the inputs of `goal`. `goal` and `goal-v2` did not change.
+
+1. **Intake.** `goal.intake` opens the goal's issue labeled `forecrew:goal` and
+   `forecrew:bug`, or labels the issue the command was given on.
+2. **Report as spec, bug as task.** `bug.spec` stores the report as the spec
+   with the one criterion `AC-1`, and `bug.plan` stores one task and its issue.
+   There is no product owner, no architect and no spec approval: the report is
+   the spec. The task exists before the test because the test engineer, the
+   lock and the verification all work on a task and its branch `agent/TASK-n`.
+3. **Reproduce.** A loop of at most three rounds (a needs_you gate for a
+   fourth): a `test-engineer` job writes one test that reproduces the bug, or
+   escalates with `cannot_reproduce:` and what it tried; `tests.map` checks its
+   output; the tests run on the default branch with the test files laid over it
+   (`tests.base_check_request`, command jobs, `tests.base_check_result`). Then
+   `bug.reproduced` decides. When the test fails on base the round is good.
+   Otherwise (the test passes on base, so it does not reproduce the bug; no
+   test; `cannot_reproduce`; a base check no worker could run) a needs_you gate
+   shows the attempt, quoted as untrusted data. Approve it with your note (steps,
+   versions, logs) to run the test engineer again with the reason and the note;
+   reject it to stop the run. A needs_you gate has no "request changes"
+   ([permissions.md](contracts/permissions.md)), so the note travels with
+   approve.
+4. **Fix.** The delivery loop of `goal-v2`, step for step: the developer with
+   the regression test locked, the checks, the verification of the head (the
+   matrix, the base check again and the report), the reviewer, the human
+   assumption reviews and the merge gate. `github.merge_pr` merges only the
+   verified head with a passed report.
+5. **Close.** `goal.close` comments the summary on the issue, with a
+   "Regression tests" list naming the tests, and closes it. A rejected or failed
+   run is settled by `goal.settle`, as in `goal`.
+
+The engine cannot include steps from another file, so the delivery loop is
+written out again in `bugfix.yaml`; a test fails when it differs from the one
+in `goal-v2.yaml`, so change both together. An engine `include` would remove
+the copy.
