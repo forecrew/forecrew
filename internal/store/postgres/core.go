@@ -150,11 +150,11 @@ func mustUpdate(ctx context.Context, db dbtx, q string, args ...any) error {
 
 type goalRepo struct{ db dbtx }
 
-var goalCols = `id, account_id, project_id, number, title, body, platforms, status, ` + cint("issue_number") + `, size, created_by, created_at, updated_at`
+var goalCols = `id, account_id, project_id, number, kind, title, body, platforms, status, ` + cint("issue_number") + `, size, created_by, created_at, updated_at`
 
 func scanGoal(row pgx.Row) (g domain.Goal, err error) {
 	var size []byte
-	err = row.Scan(&g.ID, &g.AccountID, &g.ProjectID, &g.Number, &g.Title, &g.Body, &g.Platforms, &g.Status, &g.IssueNumber, &size, &g.CreatedBy, &g.CreatedAt, &g.UpdatedAt)
+	err = row.Scan(&g.ID, &g.AccountID, &g.ProjectID, &g.Number, &g.Kind, &g.Title, &g.Body, &g.Platforms, &g.Status, &g.IssueNumber, &size, &g.CreatedBy, &g.CreatedAt, &g.UpdatedAt)
 	utc(&g.CreatedAt, &g.UpdatedAt)
 	if err != nil || size == nil {
 		return g, err
@@ -192,14 +192,15 @@ func (r goalRepo) Create(ctx context.Context, g *domain.Goal) error {
 			return mapErr(err)
 		}
 		g.Number = n
+		g.Kind = g.Kind.OrDefault()
 		g.Platforms = domain.NormalizeLabels(g.Platforms)
 		size, err := goalSize(g.Size)
 		if err != nil {
 			return err
 		}
-		return mapErr(tx.QueryRow(ctx, `INSERT INTO goals (id, account_id, project_id, number, title, body, platforms, status, issue_number, size, created_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING created_at, updated_at`,
-			g.ID, g.AccountID, g.ProjectID, g.Number, g.Title, g.Body, g.Platforms, string(g.Status), opt(g.IssueNumber), size, g.CreatedBy).Scan(&g.CreatedAt, &g.UpdatedAt))
+		return mapErr(tx.QueryRow(ctx, `INSERT INTO goals (id, account_id, project_id, number, kind, title, body, platforms, status, issue_number, size, created_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING created_at, updated_at`,
+			g.ID, g.AccountID, g.ProjectID, g.Number, string(g.Kind), g.Title, g.Body, g.Platforms, string(g.Status), opt(g.IssueNumber), size, g.CreatedBy).Scan(&g.CreatedAt, &g.UpdatedAt))
 	})
 }
 

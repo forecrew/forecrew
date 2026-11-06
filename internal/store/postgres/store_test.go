@@ -119,9 +119,22 @@ func TestGoals(t *testing.T) {
 	}
 	_, err = repo.GetByNumber(ctx, f.account, 9)
 	wantErr(t, err, store.ErrNotFound)
+	if got.Kind != domain.GoalFeature {
+		t.Fatalf("default kind = %q", got.Kind)
+	}
+	bug := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Kind: domain.GoalBug, Title: "Crash", CreatedBy: "user:me"}
+	must(t, repo.Create(ctx, &bug))
+	got, err = repo.Get(ctx, f.account, bug.ID)
+	if err != nil || got.Kind != domain.GoalBug {
+		t.Fatalf("bug kind = %+v, %v", got, err)
+	}
+	bad := domain.Goal{AccountID: f.account, ProjectID: f.project.ID, Kind: "other", Title: "x", CreatedBy: "user:me"}
+	if err := repo.Create(ctx, &bad); err == nil {
+		t.Fatal("unknown kind accepted")
+	}
 
 	list, err := repo.List(ctx, f.account, store.GoalFilter{ProjectID: f.project.ID})
-	if err != nil || len(list) != 2 || list[0].ID != g.ID {
+	if err != nil || len(list) != 3 || list[0].ID != g.ID {
 		t.Fatalf("list = %+v, %v", list, err)
 	}
 	list, _ = repo.List(ctx, f.account, store.GoalFilter{Status: domain.GoalPlanned})
