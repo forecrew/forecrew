@@ -49,6 +49,7 @@ func providerArea() Area {
 	a.Read = providerRead
 	a.Validate = providerValidate
 	a.Steps = providerSteps
+	a.Normalize = providerNormalize
 	a.Apply = applyProvider
 	a.Protection = providerProtection
 	a.Cost = func(Resource) string { return "Free. It is your machine." }
@@ -57,11 +58,7 @@ func providerArea() Area {
 }
 
 func providerRead(ctx context.Context, e *Env) ([]Resource, error) {
-	f, ok := fleetOf(e)
-	if !ok {
-		return nil, nil
-	}
-	rows, err := f.CapacityProviders().List(ctx, e.Actor.AccountID)
+	rows, err := e.Store.CapacityProviders().List(ctx, e.Actor.AccountID)
 	if err != nil {
 		return nil, err
 	}
@@ -76,9 +73,6 @@ func providerRead(ctx context.Context, e *Env) ([]Resource, error) {
 }
 
 func providerValidate(_ context.Context, e *Env, old *Resource, want Resource) error {
-	if _, ok := fleetOf(e); !ok {
-		return unavailable("locations")
-	}
 	s, err := decode[providerSpec](want.Spec)
 	if err != nil {
 		return err
@@ -131,6 +125,19 @@ func wider(reason string, before, after []string) []string {
 	return nil
 }
 
+// providerNormalize writes the default mode, so a spec without it reads as
+// what is stored.
+func providerNormalize(raw json.RawMessage) (json.RawMessage, error) {
+	s, err := decode[providerSpec](raw)
+	if err != nil {
+		return nil, err
+	}
+	if s.Mode == "" {
+		s.Mode = domain.ProviderModeAgent
+	}
+	return encode(s), nil
+}
+
 func providerRow(e *Env, name string, s providerSpec) domain.CapacityProvider {
 	p := domain.CapacityProvider{AccountID: e.Actor.AccountID, Name: name, Kind: s.ProviderKind, Mode: s.Mode, Status: domain.ProviderPending,
 		Limits: s.Limits, NetworkAllow: s.NetworkAllow, Tags: s.Tags}
@@ -141,38 +148,34 @@ func providerRow(e *Env, name string, s providerSpec) domain.CapacityProvider {
 }
 
 func applyProvider(ctx context.Context, e *Env, old, want *Resource) error {
-	f, ok := fleetOf(e)
-	if !ok {
-		return unavailable("locations")
-	}
 	if old == nil {
 		s, err := decode[providerSpec](want.Spec)
 		if err != nil {
 			return err
 		}
 		p := providerRow(e, want.Name, s)
-		return f.CapacityProviders().Create(ctx, &p)
+		return e.Store.CapacityProviders().Create(ctx, &p)
 	}
-	row, err := f.CapacityProviders().GetByName(ctx, e.Actor.AccountID, old.Name)
+	row, err := e.Store.CapacityProviders().GetByName(ctx, e.Actor.AccountID, old.Name)
 	if err != nil {
 		return missing(err, "location "+old.Name)
 	}
 	if want == nil {
-		return f.CapacityProviders().SetStatus(ctx, row.ID, domain.ProviderRevoked)
+		return e.Store.CapacityProviders().SetStatus(ctx, row.ID, domain.ProviderRevoked)
 	}
 	s, err := decode[providerSpec](want.Spec)
 	if err != nil {
 		return err
 	}
 	row.Limits, row.NetworkAllow, row.Tags = s.Limits, s.NetworkAllow, s.Tags
-	if err := f.CapacityProviders().Update(ctx, &row); err != nil {
+	if err := e.Store.CapacityProviders().Update(ctx, &row); err != nil {
 		return err
 	}
 	switch {
 	case s.Paused && row.Status == domain.ProviderActive:
-		return f.CapacityProviders().SetStatus(ctx, row.ID, domain.ProviderPaused)
+		return e.Store.CapacityProviders().SetStatus(ctx, row.ID, domain.ProviderPaused)
 	case !s.Paused && row.Status == domain.ProviderPaused:
-		return f.CapacityProviders().SetStatus(ctx, row.ID, domain.ProviderActive)
+		return e.Store.CapacityProviders().SetStatus(ctx, row.ID, domain.ProviderActive)
 	}
 	return nil
 }
@@ -209,6 +212,7 @@ func shapeArea() Area {
 	a.AlsoRead = domain.PermBillingManage
 	a.Read = shapeRead
 	a.Validate = shapeValidate
+	a.Normalize = shapeNormalize
 	a.Apply = applyShape
 	a.Retire = shapeRetire
 	a.Protection = shapeProtection
@@ -217,15 +221,11 @@ func shapeArea() Area {
 }
 
 func shapeRead(ctx context.Context, e *Env) ([]Resource, error) {
-	f, ok := fleetOf(e)
-	if !ok {
-		return nil, nil
-	}
-	rows, err := f.Shapes().List(ctx, e.Actor.AccountID)
+	rows, err := e.Store.Shapes().List(ctx, e.Actor.AccountID)
 	if err != nil {
 		return nil, err
 	}
-	providers, err := f.CapacityProviders().List(ctx, e.Actor.AccountID)
+	providers, err := e.Store.CapacityProviders().List(ctx, e.Actor.AccountID)
 	if err != nil {
 		return nil, err
 	}
@@ -242,9 +242,6 @@ func shapeRead(ctx context.Context, e *Env) ([]Resource, error) {
 }
 
 func shapeValidate(_ context.Context, e *Env, _ *Resource, want Resource) error {
-	if _, ok := fleetOf(e); !ok {
-		return unavailable("machine types")
-	}
 	s, err := decode[shapeSpec](want.Spec)
 	if err != nil {
 		return err
@@ -286,41 +283,40 @@ func shapeCost(want Resource) string {
 	return ""
 }
 
+// shapeNormalize writes the defaults the row gets, so a spec without them
+// reads as what is stored.
+func shapeNormalize(raw json.RawMessage) (json.RawMessage, error) {
+	s, err := decode[shapeSpec](raw)
+	if err != nil {
+		return nil, err
+	}
+	d := domain.Shape{Pool: s.Pool, Labels: s.Labels, BootTimeoutSeconds: s.BootTimeoutSeconds, MaxJobs: s.MaxJobs}.WithDefaults()
+	s.Pool, s.Labels, s.BootTimeoutSeconds, s.MaxJobs = d.Pool, domain.NormalizeLabels(d.Labels), d.BootTimeoutSeconds, d.MaxJobs
+	return encode(s), nil
+}
+
 func shapeRow(e *Env, name string, s shapeSpec) domain.Shape {
 	row := domain.Shape{AccountID: e.Actor.AccountID, Name: name, OS: s.OS, Arch: s.Arch, CPU: s.CPU, MemoryMB: s.MemoryMB, DiskGB: s.DiskGB, GPU: s.GPU, Pool: s.Pool, Labels: s.Labels,
 		ProviderConfig: s.ProviderConfig, Image: s.Image, PricePerMinute: s.PricePerMinute, MonthlyBudget: s.MonthlyBudget, WarmMin: s.WarmMin, Max: s.Max, IdleSeconds: s.IdleSeconds,
 		BootTimeoutSeconds: s.BootTimeoutSeconds, MaxJobs: s.MaxJobs, Note: s.Note, Enabled: s.Enabled}
-	if row.Pool == "" {
-		row.Pool = domain.PoolBuild
-	}
-	if row.BootTimeoutSeconds == 0 {
-		row.BootTimeoutSeconds = 300
-	}
-	if row.MaxJobs == 0 {
-		row.MaxJobs = 1
-	}
-	return row
+	return row.WithDefaults()
 }
 
 func applyShape(ctx context.Context, e *Env, old, want *Resource) error {
-	f, ok := fleetOf(e)
-	if !ok {
-		return unavailable("machine types")
-	}
 	s, err := decode[shapeSpec](want.Spec)
 	if err != nil {
 		return err
 	}
-	p, err := f.CapacityProviders().GetByName(ctx, e.Actor.AccountID, s.Provider)
+	p, err := e.Store.CapacityProviders().GetByName(ctx, e.Actor.AccountID, s.Provider)
 	if err != nil {
 		return missing(err, "location "+s.Provider)
 	}
 	row := shapeRow(e, want.Name, s)
 	row.ProviderID = p.ID
 	if old == nil {
-		return f.Shapes().Create(ctx, &row)
+		return e.Store.Shapes().Create(ctx, &row)
 	}
-	cur, err := f.Shapes().GetByName(ctx, e.Actor.AccountID, old.Name)
+	cur, err := e.Store.Shapes().GetByName(ctx, e.Actor.AccountID, old.Name)
 	if err != nil {
 		return missing(err, "machine type "+old.Name)
 	}
@@ -328,7 +324,7 @@ func applyShape(ctx context.Context, e *Env, old, want *Resource) error {
 		return invalid("a machine type does not move to another location")
 	}
 	row.ID = cur.ID
-	return f.Shapes().Update(ctx, &row)
+	return e.Store.Shapes().Update(ctx, &row)
 }
 
 type fleetPolicySpec struct {
@@ -355,11 +351,7 @@ func fleetPolicyArea() Area {
 }
 
 func fleetPolicyRead(ctx context.Context, e *Env) ([]Resource, error) {
-	f, ok := fleetOf(e)
-	if !ok {
-		return nil, nil
-	}
-	p, err := f.FleetPolicies().Get(ctx, e.Actor.AccountID)
+	p, err := e.Store.FleetPolicies().Get(ctx, e.Actor.AccountID)
 	if err != nil {
 		return nil, err
 	}
@@ -367,9 +359,6 @@ func fleetPolicyRead(ctx context.Context, e *Env) ([]Resource, error) {
 }
 
 func fleetPolicyValidate(_ context.Context, e *Env, _ *Resource, want Resource) error {
-	if _, ok := fleetOf(e); !ok {
-		return unavailable("fleet policies")
-	}
 	s, err := decode[fleetPolicySpec](want.Spec)
 	if err != nil {
 		return err
@@ -385,16 +374,12 @@ func fleetPolicyValidate(_ context.Context, e *Env, _ *Resource, want Resource) 
 }
 
 func fleetPolicyApply(ctx context.Context, e *Env, _, want *Resource) error {
-	f, ok := fleetOf(e)
-	if !ok {
-		return unavailable("fleet policies")
-	}
 	s, err := decode[fleetPolicySpec](want.Spec)
 	if err != nil {
 		return err
 	}
 	p := policyRow(e, s)
-	return f.FleetPolicies().Put(ctx, &p)
+	return e.Store.FleetPolicies().Put(ctx, &p)
 }
 
 func fleetPolicyProtection(_ context.Context, _ *Env, old, want *Resource) []string {
