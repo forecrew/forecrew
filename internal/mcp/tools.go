@@ -15,6 +15,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/knowledge"
 )
 
@@ -110,6 +111,10 @@ const (
 	ToolCreateServiceAccount = "create_service_account"
 	ToolUpdateServiceAccount = "update_service_account"
 	ToolSetServiceAccount    = "set_service_account_disabled"
+	ToolListMachines         = "list_machines"
+	ToolListShapes           = "list_shapes"
+	ToolListProviders        = "list_providers"
+	ToolFleetOverview        = "fleet_overview"
 )
 
 // Tools returns every MCP tool name.
@@ -126,6 +131,7 @@ func Tools() []string {
 		ToolListTeamMembers, ToolAddTeamMember, ToolRemoveTeamMember,
 		ToolListRoleBindings, ToolCreateRoleBinding, ToolDeleteRoleBinding,
 		ToolListServiceAccounts, ToolCreateServiceAccount, ToolUpdateServiceAccount, ToolSetServiceAccount,
+		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview,
 	}
 }
 
@@ -139,6 +145,16 @@ type ToolService interface {
 	JobStatus(ctx context.Context, by domain.Actor, in JobRefInput) (JobInfo, error)
 	JobLogs(ctx context.Context, by domain.Actor, in JobLogsInput) (JobLogsOutput, error)
 	ListWorkers(ctx context.Context, by domain.Actor) ([]WorkerInfo, error)
+	// ListMachines lists the organization's machines: those that exist, or
+	// those of one state.
+	ListMachines(ctx context.Context, by domain.Actor, in ListMachinesInput) ([]MachineInfo, error)
+	// ListShapes lists the shapes offered to the organization.
+	ListShapes(ctx context.Context, by domain.Actor) ([]ShapeInfo, error)
+	// ListProviders lists the organization's capacity providers and the
+	// instance-wide ones.
+	ListProviders(ctx context.Context, by domain.Actor) ([]ProviderInfo, error)
+	// FleetOverview says whether jobs have somewhere to run, and where.
+	FleetOverview(ctx context.Context, by domain.Actor) (fleet.Overview, error)
 	ListPendingGates(ctx context.Context, by domain.Actor, in ProjectFilterInput) ([]GateInfo, error)
 	// Approve resolves a gate of any kind as approved (retry for needs_you).
 	Approve(ctx context.Context, by domain.Actor, in GateDecisionInput) (domain.Gate, error)
@@ -541,9 +557,11 @@ type JobRefInput struct {
 type JobInfo struct {
 	domain.Job
 	Ref string `json:"ref"` // JOB-41
-	// Reason explains the state: why a queued job waits (no matching
-	// worker), the error of a failed job.
+	// Reason explains the state: why a queued job waits, the error of a
+	// failed job.
 	Reason string `json:"reason,omitempty"`
+	// ReasonCode is the code of why a queued job waits (fleet.ReasonCode).
+	ReasonCode string `json:"reason_code,omitempty"`
 	// WorkerName is the worker running the job.
 	WorkerName string `json:"worker_name,omitempty"`
 	// Tests sums the test runs of a command job; nil for other jobs and
@@ -693,6 +711,39 @@ type JobLogsOutput struct {
 	Events []domain.JobEvent `json:"events"`
 	// NextSeq is the after_seq of the next call.
 	NextSeq int64 `json:"next_seq"`
+}
+
+// ListMachinesInput is the input of list_machines.
+type ListMachinesInput struct {
+	State string `json:"state,omitempty"` // one state; by default the machines that exist
+	Limit int    `json:"limit,omitempty"` // default 100, at most 500
+}
+
+// MachineInfo is a machine with the names people know.
+type MachineInfo struct {
+	domain.Machine
+	Name     string `json:"name"`     // linux-small-8f2
+	Shape    string `json:"shape"`    // name of its shape
+	Provider string `json:"provider"` // name of its provider
+	JobRef   string `json:"job_ref,omitempty"`
+}
+
+// ShapeInfo is a shape with its provider's name and whose it is. An
+// instance-wide shape comes without its provider_config, which is the
+// instance's own business.
+type ShapeInfo struct {
+	domain.Shape
+	Provider  string           `json:"provider"`
+	Ownership domain.Ownership `json:"ownership"`
+}
+
+// ProviderInfo is a capacity provider with whether it is online and whose it
+// is. An instance-wide provider comes without what says how the instance is
+// built: host, account, checks, tags and network.
+type ProviderInfo struct {
+	domain.CapacityProvider
+	Online    bool             `json:"online"`
+	Ownership domain.Ownership `json:"ownership"`
 }
 
 // WorkerInfo is a worker with its online state and running jobs.

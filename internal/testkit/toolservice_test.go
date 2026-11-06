@@ -70,6 +70,10 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.CreateServiceAccount(ctx, by, mcp.CreateServiceAccountInput{}); return err },
 		func() error { _, err := s.UpdateServiceAccount(ctx, by, mcp.UpdateServiceAccountInput{}); return err },
 		func() error { _, err := s.SetServiceAccountDisabled(ctx, by, mcp.SetServiceAccountInput{}); return err },
+		func() error { _, err := s.ListMachines(ctx, by, mcp.ListMachinesInput{}); return err },
+		func() error { _, err := s.ListShapes(ctx, by); return err },
+		func() error { _, err := s.ListProviders(ctx, by); return err },
+		func() error { _, err := s.FleetOverview(ctx, by); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

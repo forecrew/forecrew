@@ -25,7 +25,8 @@ A queued job waits until a worker leases it. Check, in order:
 2. **Does a worker match?** A worker leases a job only if it is in the job's
    pool and has every label the job needs plus `runtime:<adapter>` (for
    example `runtime:claude-code`). `job_status` then says
-   `no online worker in pool <pool> with labels ...`. See
+   `Nothing here runs ...` or `No machine in the ... zone is online`
+   ([all reasons](../mcp.md#why-a-job-waits)). See
    [no matching worker](#no-matching-worker).
 3. **Is it waiting out a retry backoff?** After a failed attempt that gave the
    job back, it waits 30 s doubling per attempt up to 10 minutes before it can

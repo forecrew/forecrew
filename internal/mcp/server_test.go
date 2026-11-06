@@ -234,6 +234,10 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolUpdateServiceAccount, map[string]any{"service_account": "ci", "name": "build"}, mcp.UpdateServiceAccountInput{ServiceAccount: "ci", Name: "build"}},
 		{mcp.ToolSetServiceAccount, map[string]any{"service_account": "ci", "disabled": true}, mcp.SetServiceAccountInput{ServiceAccount: "ci", Disabled: true}},
 		{mcp.ToolProjectQuality, map[string]any{"project": "app"}, mcp.ProjectInput{Project: "app"}},
+		{mcp.ToolListMachines, map[string]any{"state": "busy", "limit": 5}, mcp.ListMachinesInput{State: "busy", Limit: 5}},
+		{mcp.ToolListShapes, nil, nil},
+		{mcp.ToolListProviders, nil, nil},
+		{mcp.ToolFleetOverview, nil, nil},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))

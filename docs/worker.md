@@ -45,8 +45,9 @@ roles and job kinds each pool runs and which credentials its jobs receive:
   (`credential_env`) only of the runtimes the pool lists. A `control` job
   never gets a write token, even if it had write paths. Command jobs never
   get runtime keys.
-- `job_status` says when no online worker of the job's pool has its labels,
-  for example `no online worker in pool control with labels runtime:codex`.
+- `job_status` says why a job waits, for example `No machine in the Reasoning
+  zone is online`, or `Nothing here runs a machine with gpu` when workers of its
+  pool are online and none has its labels ([mcp.md](mcp.md#why-a-job-waits)).
 - The read-only roles of the packs, `architect` and `product-owner`, run in
   `control`. Until a worker of that pool is online their jobs stay queued and
   `job_status` says why. The Compose stack ships one (`worker-control`, see

@@ -100,6 +100,10 @@ func ToolAccess() map[string]Access {
 		ToolCreateServiceAccount: {Permission: domain.PermServiceAccountManage},
 		ToolUpdateServiceAccount: {Permission: domain.PermServiceAccountManage},
 		ToolSetServiceAccount:    {Permission: domain.PermServiceAccountManage},
+		ToolListMachines:         {Permission: domain.PermWorkerRead},
+		ToolListShapes:           {Permission: domain.PermWorkerRead},
+		ToolListProviders:        {Permission: domain.PermWorkerRead},
+		ToolFleetOverview:        {Permission: domain.PermWorkerRead},
 	}
 }
 

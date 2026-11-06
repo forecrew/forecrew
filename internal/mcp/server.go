@@ -73,6 +73,27 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 			}
 			return list("workers", w, "%d workers, %d online.", len(w), online), err
 		})
+	register(r, ToolListMachines, "List the organization's machines with their state, shape, provider and job: those that exist, or those of one state.",
+		fieldDocs{"state": "One state: requested, booting, ready, busy, draining, destroyed or failed.", "limit": "Maximum machines to return; default 100, maximum 500."},
+		func(ctx context.Context, by domain.Actor, in ListMachinesInput) (toolResult, error) {
+			m, err := svc.ListMachines(ctx, by, in)
+			return list("machines", m, "%d machines.", len(m)), err
+		})
+	register(r, ToolListShapes, "List the machine types offered to the organization: its own and the instance-wide ones.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			s, err := svc.ListShapes(ctx, by)
+			return list("shapes", s, "%d shapes.", len(s)), err
+		})
+	register(r, ToolListProviders, "List the capacity providers (locations) machines come from: the organization's own and the instance-wide ones.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			p, err := svc.ListProviders(ctx, by)
+			return list("providers", p, "%d providers.", len(p)), err
+		})
+	register(r, ToolFleetOverview, "Say whether jobs have somewhere to run: every location and static worker in one list, what runs now, and why each waiting job waits.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			o, err := svc.FleetOverview(ctx, by)
+			return result(o, "%d jobs running, %d waiting.", o.Working, o.Waiting), err
+		})
 	register(r, ToolListPendingGates, "List gates waiting for a human decision (profile, spec and merge approvals, and jobs that need you) with the GitHub link of what each is about, optionally for one project.",
 		fieldDocs{"project": project}, func(ctx context.Context, by domain.Actor, in ProjectFilterInput) (toolResult, error) {
 			g, err := svc.ListPendingGates(ctx, by, in)

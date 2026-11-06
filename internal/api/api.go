@@ -122,6 +122,10 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/knowledge/proposals", serve(s, http.StatusCreated, bodyOf[mcp.ProposeKnowledgeInput], t.ProposeKnowledge))
 
 	route("GET /api/v1/workers", serve(s, http.StatusOK, noInput, list(noArg(t.ListWorkers))))
+	route("GET /api/v1/machines", serve(s, http.StatusOK, listMachinesInput, list(t.ListMachines)))
+	route("GET /api/v1/shapes", serve(s, http.StatusOK, noInput, list(noArg(t.ListShapes))))
+	route("GET /api/v1/providers", serve(s, http.StatusOK, noInput, list(noArg(t.ListProviders))))
+	route("GET /api/v1/fleet", serve(s, http.StatusOK, noInput, noArg(t.FleetOverview)))
 
 	route("GET /api/v1/gates", serve(s, http.StatusOK, gateFilterInput, list(t.ListPendingGates)))
 	route("POST /api/v1/gates/{gate}/approve", serve(s, http.StatusOK, gateDecisionInput, t.Approve))
@@ -209,7 +213,11 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/changes/{change}/verification": tool[mcp.ToolVerificationReport],
 		"GET /api/v1/quality":                       tool[mcp.ToolProjectQuality],
 
-		"GET /api/v1/workers": tool[mcp.ToolListWorkers],
+		"GET /api/v1/workers":   tool[mcp.ToolListWorkers],
+		"GET /api/v1/machines":  tool[mcp.ToolListMachines],
+		"GET /api/v1/shapes":    tool[mcp.ToolListShapes],
+		"GET /api/v1/providers": tool[mcp.ToolListProviders],
+		"GET /api/v1/fleet":     tool[mcp.ToolFleetOverview],
 
 		"GET /api/v1/gates":                         tool[mcp.ToolListPendingGates],
 		"POST /api/v1/gates/{gate}/approve":         tool[mcp.ToolApprove],
@@ -438,6 +446,12 @@ func listJobsInput(r *http.Request) (mcp.ListJobsInput, error) {
 	return mcp.ListJobsInput{
 		Project: q.Get("project"), Goal: q.Get("goal"), Status: domain.JobStatus(q.Get("status")), Limit: int(limit),
 	}, err
+}
+
+func listMachinesInput(r *http.Request) (mcp.ListMachinesInput, error) {
+	q := r.URL.Query()
+	limit, err := intParam(q.Get("limit"), "limit")
+	return mcp.ListMachinesInput{State: q.Get("state"), Limit: int(limit)}, err
 }
 
 func listTestRunsInput(r *http.Request) (mcp.ListTestRunsInput, error) {

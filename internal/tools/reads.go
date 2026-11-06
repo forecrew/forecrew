@@ -36,7 +36,7 @@ func (s *Service) jobInfo(ctx context.Context, by domain.Actor, j domain.Job) (m
 	if err != nil {
 		return mcp.JobInfo{}, err
 	}
-	return mcp.JobInfo{Job: v.Job, Ref: v.Ref(), Reason: v.Reason, WorkerName: v.WorkerName, Tests: tests}, nil
+	return mcp.JobInfo{Job: v.Job, Ref: v.Ref(), Reason: v.Reason, ReasonCode: v.ReasonCode, WorkerName: v.WorkerName, Tests: tests}, nil
 }
 
 // JobLogs implements mcp.ToolService.

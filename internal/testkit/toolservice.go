@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/mcp"
 )
@@ -32,6 +33,10 @@ type ToolService struct {
 	JobStatusFunc          func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error)
 	JobLogsFunc            func(context.Context, domain.Actor, mcp.JobLogsInput) (mcp.JobLogsOutput, error)
 	ListWorkersFunc        func(context.Context, domain.Actor, any) ([]mcp.WorkerInfo, error)
+	ListMachinesFunc       func(context.Context, domain.Actor, mcp.ListMachinesInput) ([]mcp.MachineInfo, error)
+	ListShapesFunc         func(context.Context, domain.Actor, any) ([]mcp.ShapeInfo, error)
+	ListProvidersFunc      func(context.Context, domain.Actor, any) ([]mcp.ProviderInfo, error)
+	FleetOverviewFunc      func(context.Context, domain.Actor, any) (fleet.Overview, error)
 	ListPendingGatesFunc   func(context.Context, domain.Actor, mcp.ProjectFilterInput) ([]mcp.GateInfo, error)
 	ApproveFunc            func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
 	RequestChangesFunc     func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
@@ -123,6 +128,26 @@ func (s *ToolService) JobStatus(ctx context.Context, by domain.Actor, in mcp.Job
 // JobLogs implements mcp.ToolService.
 func (s *ToolService) JobLogs(ctx context.Context, by domain.Actor, in mcp.JobLogsInput) (mcp.JobLogsOutput, error) {
 	return invoke(ctx, s, mcp.ToolJobLogs, by, in, s.JobLogsFunc)
+}
+
+// ListMachines implements mcp.ToolService.
+func (s *ToolService) ListMachines(ctx context.Context, by domain.Actor, in mcp.ListMachinesInput) ([]mcp.MachineInfo, error) {
+	return invoke(ctx, s, mcp.ToolListMachines, by, in, s.ListMachinesFunc)
+}
+
+// ListShapes implements mcp.ToolService.
+func (s *ToolService) ListShapes(ctx context.Context, by domain.Actor) ([]mcp.ShapeInfo, error) {
+	return invoke[any](ctx, s, mcp.ToolListShapes, by, nil, s.ListShapesFunc)
+}
+
+// ListProviders implements mcp.ToolService.
+func (s *ToolService) ListProviders(ctx context.Context, by domain.Actor) ([]mcp.ProviderInfo, error) {
+	return invoke[any](ctx, s, mcp.ToolListProviders, by, nil, s.ListProvidersFunc)
+}
+
+// FleetOverview implements mcp.ToolService.
+func (s *ToolService) FleetOverview(ctx context.Context, by domain.Actor) (fleet.Overview, error) {
+	return invoke[any](ctx, s, mcp.ToolFleetOverview, by, nil, s.FleetOverviewFunc)
 }
 
 // ListWorkers implements mcp.ToolService.
