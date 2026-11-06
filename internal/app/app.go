@@ -256,7 +256,11 @@ func New(d Deps) (*App, error) {
 	kbProposals := &proposals.Service{Store: st, Policy: syncer.Policy, GitHub: d.GitHub, Gates: gateSvc, Roles: catalog, Log: log}
 	gateSvc.WithLessons(kbProposals)
 	jobSvc.WithRegistrar(kbProposals) // also hears of failed and canceled jobs (jobs.FailureRegistrar)
-	creator := &jobCreator{store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0).WithKnowledge(search).WithAssumptions(regs), jobs: jobSvc, knowledge: syncer, councils: seats, models: cfg.ModelOn}
+	tasks, err := roles.LoadTasks(d.Files)
+	if err != nil {
+		return nil, err
+	}
+	creator := &jobCreator{tasks: tasks, store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0).WithKnowledge(search).WithAssumptions(regs), jobs: jobSvc, knowledge: syncer, councils: seats, models: cfg.ModelOn}
 
 	actions := workflow.Actions{}
 	var engine *workflow.Engine

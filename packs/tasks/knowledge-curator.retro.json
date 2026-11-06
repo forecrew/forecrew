@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Retro",
+  "description": "Output of the knowledge-curator's retro of a goal: what it proposed. The proposals themselves were made with kb_propose.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "proposals", "assumptions"],
+  "properties": {
+    "summary": {"$ref": "../schemas/common.json#/$defs/text", "description": "What the goal taught and what you proposed, in a few sentences; or why you proposed nothing."},
+    "proposals": {
+      "description": "Every proposal you made with kb_propose, with the ref it returned.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "section", "path"],
+        "properties": {
+          "ref": {"$ref": "../schemas/common.json#/$defs/text", "description": "The proposal's ref, for example KB-12."},
+          "section": {"$ref": "../schemas/common.json#/$defs/text"},
+          "path": {"$ref": "../schemas/common.json#/$defs/text"}
+        }
+      }
+    },
+    "assumptions": {"$ref": "../schemas/common.json#/$defs/assumptions"}
+  }
+}

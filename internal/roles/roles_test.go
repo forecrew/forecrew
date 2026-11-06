@@ -71,3 +71,15 @@ func TestProposalReviewer(t *testing.T) {
 		t.Errorf("tools = %v", got.AllowedTools)
 	}
 }
+
+func TestForTask(t *testing.T) {
+	r := Role{Name: "knowledge-curator", WritePaths: []string{"knowledge/**"}, AllowedTools: []string{"Read", "Write", "mcp__forecrew__kb_propose"}, DefinitionOfDone: []string{"committed"}, EscalateWhen: []string{"stuck"}, Instructions: "seed"}
+	got := r.ForTask(Task{Role: "knowledge-curator", Name: "retro", Instructions: "retro", OutputSchema: json.RawMessage(`{"type":"object"}`)})
+	if got.Instructions != "retro" || string(got.OutputSchema) != `{"type":"object"}` || !got.ReadOnly() || slices.Contains(got.AllowedTools, "Write") || !slices.Contains(got.AllowedTools, "mcp__forecrew__kb_propose") ||
+		len(got.DefinitionOfDone) != 0 || len(got.EscalateWhen) != 0 {
+		t.Errorf("ForTask = %+v", got)
+	}
+	if r.Instructions != "seed" || r.ReadOnly() || len(r.DefinitionOfDone) != 1 {
+		t.Errorf("ForTask changed the role: %+v", r)
+	}
+}

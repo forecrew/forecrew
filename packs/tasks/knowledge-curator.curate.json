@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Curation",
+  "description": "Output of the knowledge-curator's periodic upkeep: the entries it found still true, the notes it wants dropped and the proposals it made with kb_propose.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "reverified", "drop_notes", "proposals", "assumptions"],
+  "properties": {
+    "summary": {"$ref": "../schemas/common.json#/$defs/text", "description": "What you checked and what you found, in a few sentences."},
+    "reverified": {
+      "description": "Entries marked for re-verification that you read against the current code and found still true.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path": {"$ref": "../schemas/common.json#/$defs/text", "description": "The entry's path, as listed."},
+          "reason": {"$ref": "../schemas/common.json#/$defs/text", "description": "What you read that shows the entry is still true."}
+        }
+      }
+    },
+    "drop_notes": {
+      "description": "Listed project notes to delete: stale, wrong, or already in the knowledge base.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["note", "reason"],
+        "properties": {
+          "note": {"$ref": "../schemas/common.json#/$defs/text", "description": "The note's id, as listed."},
+          "reason": {"$ref": "../schemas/common.json#/$defs/text"}
+        }
+      }
+    },
+    "proposals": {
+      "description": "Every proposal you made with kb_propose, with the ref it returned.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref", "section", "path"],
+        "properties": {
+          "ref": {"$ref": "../schemas/common.json#/$defs/text"},
+          "section": {"$ref": "../schemas/common.json#/$defs/text"},
+          "path": {"$ref": "../schemas/common.json#/$defs/text"}
+        }
+      }
+    },
+    "assumptions": {"$ref": "../schemas/common.json#/$defs/assumptions"}
+  }
+}

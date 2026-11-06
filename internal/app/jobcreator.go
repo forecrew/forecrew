@@ -34,6 +34,8 @@ type jobCreator struct {
 	// knowledge gives the paths of the project's curated knowledge; nil
 	// leaves the role's write paths as they are.
 	knowledge pathSource
+	// tasks are the tasks of the role packs, by role.name.
+	tasks map[string]roles.Task
 	// councils and models make a council turn's job: the step's prompt and
 	// schema, on the runtime its member is pinned to.
 	councils *councils.Set
@@ -93,6 +95,9 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	if req.Kind.OrDefault() == domain.JobKindCommand {
 		return c.createCommand(ctx, req)
 	}
+	if req.Task != "" && (req.ProposalReview || req.Council != nil) {
+		return uuid.Nil(), fmt.Errorf("create %s job: a task, a proposal review and a council turn exclude each other: %w", req.Role, jobs.ErrInvalid)
+	}
 	if req.Command != nil || req.Environment != nil || len(req.Cell) > 0 || req.Suite != "" || req.Overlay != nil || req.Timeout != 0 {
 		return uuid.Nil(), fmt.Errorf("create %s job: command, environment, cell, suite, overlay and timeout are only for command jobs: %w", req.Role, jobs.ErrInvalid)
 	}
@@ -148,8 +153,8 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	return j.ID, nil
 }
 
-// jobRole resolves the role of req, as a council turn or the review of a
-// knowledge proposal when req is one.
+// jobRole resolves the role of req, as a council turn, the review of a
+// knowledge proposal or a task of the role when req is one.
 func (c *jobCreator) jobRole(ctx context.Context, req workflow.JobRequest) (roles.Role, error) {
 	role, err := c.roles.Resolve(ctx, req.AccountID, req.ProjectID, req.Role)
 	if err != nil {
@@ -157,6 +162,13 @@ func (c *jobCreator) jobRole(ctx context.Context, req workflow.JobRequest) (role
 	}
 	if req.Council != nil {
 		return c.councilRole(ctx, req, role)
+	}
+	if req.Task != "" {
+		t, ok := c.tasks[role.Name+"."+req.Task]
+		if !ok {
+			return roles.Role{}, fmt.Errorf("role %s has no task %q: %w", role.Name, req.Task, jobs.ErrInvalid)
+		}
+		return role.ForTask(t), nil
 	}
 	if req.ProposalReview {
 		reviewer, err := c.roles.Resolve(ctx, req.AccountID, req.ProjectID, ReviewerRole)
@@ -227,7 +239,7 @@ func (c *jobCreator) createCommand(ctx context.Context, req workflow.JobRequest)
 	if req.Repo != "" && !strings.EqualFold(req.Repo, project.Repo) {
 		return uuid.Nil(), fmt.Errorf("create command job: repo %s is not the repo of project %s: %w", req.Repo, project.Name, jobs.ErrInvalid)
 	}
-	if req.Role != "" || req.Pool != "" || req.Prompt != "" || req.Feedback != "" || len(req.LockedPaths) > 0 || req.Council != nil {
+	if req.Role != "" || req.Pool != "" || req.Prompt != "" || req.Feedback != "" || len(req.LockedPaths) > 0 || req.Council != nil || req.Task != "" {
 		return uuid.Nil(), fmt.Errorf("create command job: role, pool, prompt, feedback, locked_paths and council are not for command jobs: %w", jobs.ErrInvalid)
 	}
 	if req.BaseRef == "" {
