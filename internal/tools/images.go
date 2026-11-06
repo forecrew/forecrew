@@ -75,8 +75,8 @@ func (s *Service) imageManager(ctx context.Context, by domain.Actor, instance bo
 	if !instance {
 		return nil
 	}
-	id, err := uuid.Parse(by.Name)
-	if err != nil {
+	id, ok := by.SubjectID()
+	if !ok {
 		return fmt.Errorf("instance images need an instance admin: %w", authz.ErrDenied)
 	}
 	u, err := s.cfg.Store.Directory().User(ctx, id)
@@ -92,6 +92,11 @@ func (s *Service) imageManager(ctx context.Context, by domain.Actor, instance bo
 func (s *Service) AddImage(ctx context.Context, by domain.Actor, in images.AddInput) (mcp.ImageInfo, error) {
 	if err := s.imageManager(ctx, by, in.Instance); err != nil {
 		return mcp.ImageInfo{}, err
+	}
+	// Forecrew cannot distribute Windows or macOS (fleet.md, Images; decision
+	// 29): those images are the organization's own, built from its licences.
+	if in.Instance && in.OS != domain.OSLinux {
+		return mcp.ImageInfo{}, fmt.Errorf("an instance-wide image must be a Linux image, not %q: Windows and macOS images are registered by the organization that holds the licence: %w", in.OS, mcp.ErrInvalidInput)
 	}
 	account, scope := by.AccountID, ScopeOrganization
 	if in.Instance {
