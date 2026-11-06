@@ -1,7 +1,9 @@
 #!/bin/sh
 # Starts forecrew-worker on a Forecrew machine from the settings its provider
 # delivered, then runs it in the foreground. The settings are KEY=value lines
-# in /run/forecrew/bootstrap.env (a RAM disk: the token never reaches a disk):
+# in /run/forecrew/bootstrap.env. On Linux /run is a RAM disk, so the token
+# never reaches a disk; on macOS the folder is on the machine's own disk (mode
+# 0700, root), deleted once read and destroyed with the machine:
 #
 #   FORECREW_SERVER_URL         forecrewd's URL (required)
 #   FORECREW_BOOTSTRAP_TOKEN    the one-time fcb_ token of this machine, or

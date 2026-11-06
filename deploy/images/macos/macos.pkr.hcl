@@ -6,7 +6,7 @@
 packer {
   required_plugins {
     tart = {
-      version = ">= 1.21.0"
+      version = "= 1.21.0"
       source  = "github.com/cirruslabs/tart"
     }
   }
@@ -19,8 +19,11 @@ variable "version" {
 
 variable "base_vm" {
   type        = string
-  description = "Tart VM to start from: a macOS install with the Xcode command line tools and an admin account."
-  default     = "ghcr.io/cirruslabs/macos-tahoe-base:latest"
+  description = "Tart VM to start from, pinned by digest (registry/name@sha256:<hex>): a macOS install with the Xcode command line tools and an admin account. Resolve the digest of the tag you trust (tart pull, or the registry) and review what it holds."
+  validation {
+    condition     = can(regex("@sha256:[0-9a-f]{64}$", var.base_vm))
+    error_message = "The base_vm variable must be pinned by digest, as registry/name@sha256 followed by 64 hex digits."
+  }
 }
 
 variable "ssh_username" {
@@ -29,9 +32,10 @@ variable "ssh_username" {
 }
 
 variable "ssh_password" {
-  type      = string
-  sensitive = true
-  default   = "admin"
+  type        = string
+  sensitive   = true
+  default     = "admin"
+  description = "The base VM's login. provision-macos.sh replaces it with a random password nobody keeps."
 }
 
 variable "worker_binary" {
@@ -97,5 +101,9 @@ build {
     direction   = "download"
     source      = "/etc/forecrew/packages"
     destination = "${var.output_dir}/packages-macos-arm64.txt"
+  }
+  # Last, because it turns remote login off.
+  provisioner "shell" {
+    script = "lockdown-macos.sh"
   }
 }

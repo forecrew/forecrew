@@ -5,11 +5,11 @@
 packer {
   required_plugins {
     qemu = {
-      version = ">= 1.1.8"
+      version = "= 1.1.8"
       source  = "github.com/hashicorp/qemu"
     }
     docker = {
-      version = ">= 1.1.5"
+      version = "= 1.1.5"
       source  = "github.com/hashicorp/docker"
     }
   }
@@ -36,19 +36,26 @@ variable "worker_binary" {
 
 variable "base_image_url" {
   type        = string
-  description = "Debian generic cloud image the qcow2 is built on."
-  default     = "https://cloud.debian.org/images/cloud/trixie/latest/debian-13-generic-amd64.qcow2"
+  description = "Debian generic cloud image the qcow2 is built on. Empty: the dated release pinned in locals, for var.arch."
+  default     = ""
 }
 
 variable "base_image_checksum" {
-  type    = string
-  default = "file:https://cloud.debian.org/images/cloud/trixie/latest/SHA512SUMS"
+  type        = string
+  description = "sha512:<hex> of base_image_url. Empty: the pinned one. Always give it with another URL."
+  default     = ""
 }
 
 variable "container_image" {
   type        = string
-  description = "Base image of the microVM root filesystem. Pin it by digest for a reproducible build."
-  default     = "debian:trixie-slim"
+  description = "Base image of the microVM root filesystem, by digest. Empty: the digest pinned in locals."
+  default     = ""
+}
+
+variable "uefi_firmware" {
+  type        = string
+  description = "arm64 only: path of the UEFI firmware (AAVMF) the VM boots, for example /usr/share/AAVMF/AAVMF_CODE.fd."
+  default     = ""
 }
 
 variable "cli_package_json" {
@@ -79,11 +86,27 @@ variable "accelerator" {
 }
 
 variable "qemu_binary" {
-  type    = string
-  default = "qemu-system-x86_64"
+  type        = string
+  description = "Empty: qemu-system-x86_64 for amd64, qemu-system-aarch64 for arm64."
+  default     = ""
 }
 
 locals {
+  # Pinned: a dated Debian cloud image with its checksum (from the release's
+  # SHA512SUMS), and the debian:trixie-slim index digest. Bump them together,
+  # on purpose: a moving "latest" would make two builds of one version differ.
+  debian_release = "20261103-2651"
+  debian_checksums = {
+    amd64 = "sha512:1207e6e3efaff8ee77ab7a32c156a3eea6a9e53f94cfc48efbd1f49ba554ca36ac62ab27395aa813a1775a8c0a393b1a1ce5377d9e5670f6113e3110c57fee4b"
+    arm64 = "sha512:878f563f6c95af7fe1e8e51cd39470a1cdb570dddbee22377c85a347bce9d521d95f2cf0f825a38bc0a757889034fac6d83e932f04a3a122ab08cea68cc9ff8a"
+  }
+  base_image_url      = coalesce(var.base_image_url, "https://cloud.debian.org/images/cloud/trixie/${local.debian_release}/debian-13-generic-${var.arch}-${local.debian_release}.qcow2")
+  base_image_checksum = coalesce(var.base_image_checksum, local.debian_checksums[var.arch])
+  container_image     = coalesce(var.container_image, "debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2")
+  qemu_binary         = coalesce(var.qemu_binary, var.arch == "amd64" ? "qemu-system-x86_64" : "qemu-system-aarch64")
+  machine_type        = var.arch == "amd64" ? "pc" : "virt"
+  qemuargs            = var.arch == "arm64" ? [["-bios", var.uefi_firmware], ["-cpu", "host"]] : []
+
   # Cloud-init NoCloud seed for the build VM only; provision-linux.sh locks
   # the account and resets cloud-init before the image is kept.
   user_data = <<-EOT
@@ -99,13 +122,15 @@ locals {
 }
 
 source "qemu" "qcow2" {
-  iso_url          = var.base_image_url
-  iso_checksum     = var.base_image_checksum
+  iso_url          = local.base_image_url
+  iso_checksum     = local.base_image_checksum
   disk_image       = true
   format           = "qcow2"
   disk_size        = "20G"
   accelerator      = var.accelerator
-  qemu_binary      = var.qemu_binary
+  qemu_binary      = local.qemu_binary
+  machine_type     = local.machine_type
+  qemuargs         = local.qemuargs
   headless         = true
   memory           = 4096
   cpus             = 2
@@ -123,7 +148,7 @@ source "qemu" "qcow2" {
 }
 
 source "docker" "rootfs" {
-  image       = var.container_image
+  image       = local.container_image
   platform    = "linux/${var.arch}"
   export_path = "${var.output_dir}/linux-rootfs-${var.arch}.tar"
 }
@@ -153,13 +178,13 @@ build {
     only             = ["qemu.qcow2"]
     script           = "provision-linux.sh"
     environment_vars = ["FORECREW_IMAGE_KIND=vm"]
-    execute_command  = "sudo -E sh '{{ .Path }}'"
+    execute_command  = "{{ .Vars }} sudo -E sh '{{ .Path }}'"
   }
   provisioner "shell" {
     only             = ["docker.rootfs"]
     script           = "provision-linux.sh"
     environment_vars = ["FORECREW_IMAGE_KIND=container"]
-    execute_command  = "sh '{{ .Path }}'"
+    execute_command  = "{{ .Vars }} sh '{{ .Path }}'"
   }
 
   # What the image holds, for the manifest.

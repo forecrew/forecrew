@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- forecrew-worker on a macOS Forecrew machine. The provider writes
-     /var/run/forecrew/bootstrap.env (over ssh or tart exec) once the machine is
-     assigned; forecrew-start reads and deletes it, so the job starts when the
-     file appears and runs once. The provider destroys the machine afterwards. -->
+     /var/run/forecrew/bootstrap.env into the running machine (tart exec) once it
+     is assigned; forecrew-start reads and deletes it, so the job starts when the
+     file appears and runs once. The folder is mode 0700 root on the machine's
+     own disk, not in RAM: it never goes in the image or a shared folder, and
+     the disk is destroyed with the machine. -->
 <plist version="1.0">
 <dict>
   <key>Label</key>

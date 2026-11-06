@@ -1,7 +1,9 @@
 name: images
 
 # The image pipeline (docs/images.md). Windows and macOS need licensed hosts,
-# so only their templates are validated here.
+# so only their templates are validated here. CI builds and publishes files
+# and unsigned manifests; it does not sign or register anything: a person
+# signs with their own key and registers (docs/images.md, Signing and trust).
 on:
   pull_request:
     paths:
@@ -18,22 +20,99 @@ on:
 permissions:
   contents: read
 
+env:
+  PACKER_VERSION: "1.16.2"
+
 jobs:
   templates:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: hashicorp/setup-packer@v3
+      # Pinned by commit: v3.4.0.
+      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789
         with:
-          version: "1.14.2"
+          version: ${{ env.PACKER_VERSION }}
       - name: shellcheck
         run: shellcheck -s sh deploy/images/*.sh deploy/images/*/*.sh internal/images/guest/forecrew-init internal/images/guest/forecrew-start
       - run: make images-validate
 
+  # The Linux VM image: Packer boots the pinned Debian cloud image under KVM and
+  # provisions it. The artifact is the qcow2 and its unsigned manifest.
+  qcow2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789
+        with:
+          version: ${{ env.PACKER_VERSION }}
+      - name: KVM and QEMU
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-x86 qemu-utils xorriso
+      - name: Build
+        run: |
+          make build
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o forecrew-worker ./cmd/forecrew-worker
+          FORECREW=bin/forecrew deploy/images/build.sh qcow2 --version "ci-${GITHUB_RUN_NUMBER}" --worker ./forecrew-worker \
+            --uri-base "https://example.invalid/forecrew-images"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-qcow2
+          path: |
+            deploy/images/out/linux-qcow2-amd64/*.qcow2
+            deploy/images/out/linux-qcow2-amd64/*.manifest.json
+          if-no-files-found: error
+
+  # The microVM root filesystem: Packer builds the container, forecrew converts
+  # its export with a Debian 13 mke2fs (the runner's is older than 1.47.1).
+  # The kernel is the owner's to supply: set the repository variables
+  # FORECREW_KERNEL_URL and FORECREW_KERNEL_SHA256 (docs/images.md).
+  rootfs:
+    if: vars.FORECREW_KERNEL_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+      - uses: hashicorp/setup-packer@ce93c3c08a6c2ff2275bf4b54ff0d9a75f6c9789
+        with:
+          version: ${{ env.PACKER_VERSION }}
+      - name: Kernel
+        env:
+          URL: ${{ vars.FORECREW_KERNEL_URL }}
+          SHA256: ${{ vars.FORECREW_KERNEL_SHA256 }}
+        run: |
+          curl -fsSL -o vmlinux "$URL"
+          echo "$SHA256  vmlinux" | sha256sum -c
+      - name: Build
+        env:
+          MKE2FS: ${{ github.workspace }}/deploy/images/mke2fs-docker.sh
+        run: |
+          make build
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o forecrew-worker ./cmd/forecrew-worker
+          FORECREW=bin/forecrew deploy/images/build.sh rootfs --version "ci-${GITHUB_RUN_NUMBER}" --worker ./forecrew-worker \
+            --uri-base "https://example.invalid/forecrew-images" --kernel vmlinux
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-rootfs
+          path: |
+            deploy/images/out/*.ext4
+            deploy/images/out/*.manifest.json
+          if-no-files-found: error
+
   # Boots a converted root filesystem under KVM and checks that its worker
   # reaches a fake server. The runner's mke2fs is older than 1.47.1, so the test
-  # runs in a Debian 13 container; the kernel is a build input (a Firecracker
-  # CI kernel with virtio and ext4 built in) named by repository variables.
+  # runs in a Debian 13 container with libarchive13t64 (mke2fs reads a tar
+  # through it).
   boot:
     if: vars.FORECREW_KERNEL_URL != ''
     runs-on: ubuntu-latest
@@ -66,4 +145,4 @@ jobs:
         run: |
           docker run --rm --device /dev/kvm -v "$PWD:/w" -w /w \
             -e FORECREW_TEST_KERNEL=/w/vmlinux -e FORECREW_TEST_WORKER=/w/forecrew-worker -e FORECREW_TEST_ROOTFS_TAR=/w/base.tar \
-            debian:trixie-slim sh -c 'apt-get update -qq && apt-get install -y -qq e2fsprogs qemu-system-x86 qemu-utils >/dev/null && ./images.test -test.run Boots -test.v'
+            debian:trixie-slim sh -c 'apt-get update -qq && apt-get install -y -qq e2fsprogs libarchive13t64 qemu-system-x86 qemu-utils >/dev/null && ./images.test -test.run Boots -test.v'

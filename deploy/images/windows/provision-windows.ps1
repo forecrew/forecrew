@@ -1,17 +1,37 @@
-# Provisions the Forecrew Windows image: Git and common toolchains from Chocolatey
-# at pinned versions, the worker's start-up task, a clean network setup. The
-# worker and forecrew-start.ps1 are already in C:\ProgramData\Forecrew.
+# Provisions the Forecrew Windows image: Git and common toolchains from
+# Chocolatey at pinned versions, the agent CLIs, the worker's start-up task, and
+# a finish script that turns the build's WinRM access off and runs sysprep
+# /generalize. The worker, forecrew-start.ps1, package.json and sysprep.xml are
+# already in C:\ProgramData\Forecrew. Needs CHOCOLATEY_INSTALLER_SHA256.
 $ErrorActionPreference = 'Stop'
 $root = 'C:\ProgramData\Forecrew'
 
-# Chocolatey's installer and the package versions are the ones you trust: pin
-# them here. Versions below are what the image was last validated with.
-Set-ExecutionPolicy Bypass -Scope Process -Force
+# Only SYSTEM and administrators read the folder the provider delivers the
+# bootstrap settings into (the file holds a one-time token).
+icacls "$root\run" /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'Administrators:(OI)(CI)F' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'icacls failed' }
+
+# Chocolatey: the version is pinned and the installer script must have the hash
+# you reviewed; it is not run from the network as it comes.
+$chocoVersion = '2.7.5'
+$expected = $env:CHOCOLATEY_INSTALLER_SHA256
+if (-not $expected) { throw 'CHOCOLATEY_INSTALLER_SHA256 is not set' }
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-if (-not (Get-Command choco -ErrorAction SilentlyContinue)) {
-    Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+$installer = Join-Path $env:TEMP 'choco-install.ps1'
+Invoke-WebRequest -UseBasicParsing -Uri 'https://community.chocolatey.org/install.ps1' -OutFile $installer
+if ((Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash -ne $expected.ToUpper()) {
+    throw 'the Chocolatey installer does not have the reviewed hash'
 }
-$packages = [ordered]@{ git = '2.50.1'; golang = '1.24.5'; nodejs = '24.4.1'; python = '3.13.5'; jq = '1.7.1' }
+$env:chocolateyVersion = $chocoVersion
+Set-ExecutionPolicy Bypass -Scope Process -Force
+& $installer
+if ($LASTEXITCODE -ne 0) { throw 'the Chocolatey install failed' }
+Remove-Item -LiteralPath $installer -Force
+
+# Package versions are pinned. They were the newest of each line when the
+# template was written and are not exercised by Forecrew's CI, which has no
+# Windows host: check them and bump them as you build.
+$packages = [ordered]@{ git = '2.56.0.4'; golang = '1.27.3'; nodejs = '24.22.2'; python = '3.14.10'; jq = '1.8.2' }
 foreach ($name in $packages.Keys) {
     choco install $name --version $packages[$name] -y --no-progress
     if ($LASTEXITCODE -ne 0) { throw "choco install $name failed" }
@@ -43,11 +63,19 @@ Register-ScheduledTask -TaskName 'ForecrewWorker' -Action $action -Trigger $trig
 & "$root\forecrew-worker.exe" version
 if ($LASTEXITCODE -ne 0) { throw 'forecrew-worker does not run' }
 
-# The build's WinRM access does not travel with the image: Packer's shutdown
-# command runs this last.
+# Packer's shutdown command runs this last. It starts a detached script and
+# returns, because turning WinRM off ends the session that called it. The
+# detached one removes the build's remote access, then runs sysprep: a new SID
+# for every clone, and sysprep.xml gives the Administrator of each clone a
+# random password and disables it, so no machine shares the build's password.
 @'
+Start-Process -WindowStyle Hidden -FilePath powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'C:\ProgramData\Forecrew\sysprep-run.ps1'
+'@ | Set-Content -LiteralPath (Join-Path $root 'finish.ps1') -Encoding ascii
+@'
+Start-Sleep -Seconds 10
 winrm set winrm/config/service '@{AllowUnencrypted="false"}'
 Disable-NetFirewallRule -DisplayName 'WinRM-HTTP' -ErrorAction SilentlyContinue
-Remove-Item -LiteralPath $PSCommandPath -Force
-shutdown /s /t 10 /f /d p:4:1 /c "Packer shutdown"
-'@ | Set-Content -LiteralPath (Join-Path $root 'finish.ps1') -Encoding ascii
+Stop-Service WinRM -Force
+Set-Service WinRM -StartupType Disabled
+& "$env:SystemRoot\System32\Sysprep\sysprep.exe" /generalize /oobe /shutdown /quiet /unattend:C:\ProgramData\Forecrew\sysprep.xml
+'@ | Set-Content -LiteralPath (Join-Path $root 'sysprep-run.ps1') -Encoding ascii

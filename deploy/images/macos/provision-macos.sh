@@ -15,7 +15,8 @@ fi
 # recorded in /etc/forecrew/packages and in the manifest.
 brew install git go node python jq
 
-sudo install -d -m 0755 /opt/forecrew /opt/forecrew-cli /etc/forecrew /var/lib/forecrew-worker /var/run/forecrew
+sudo install -d -m 0700 /var/run/forecrew
+sudo install -d -m 0755 /opt/forecrew /opt/forecrew-cli /etc/forecrew /var/lib/forecrew-worker
 sudo install -m 0644 /tmp/package.json /tmp/package-lock.json /opt/forecrew-cli/
 (cd /opt/forecrew-cli && sudo env PATH="$PATH" npm ci --omit=dev --no-audit --no-fund)
 labels="git go node python"

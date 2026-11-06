@@ -25,7 +25,7 @@ test-docker:
 test-toolbox-browser:
 	go test -count=1 -tags 'docker browser' -run Browser ./internal/worker/
 
-# Needs /dev/kvm, qemu, Docker with alpine:latest, mke2fs 1.47.1 or newer and a
+# Needs /dev/kvm, qemu, Docker with alpine:latest, mke2fs 1.47.1 or newer with libarchive and a
 # kernel (FORECREW_TEST_KERNEL, see internal/images/boot_kvm_test.go): boots a
 # converted root filesystem and checks that its worker reaches a fake server.
 test-kvm:

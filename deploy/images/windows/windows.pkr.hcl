@@ -6,7 +6,7 @@
 packer {
   required_plugins {
     qemu = {
-      version = ">= 1.1.8"
+      version = "= 1.1.8"
       source  = "github.com/hashicorp/qemu"
     }
   }
@@ -33,7 +33,16 @@ variable "license_confirmed" {
   description = "Set to true to confirm that you hold a licence for the ISO and for running it as a build machine."
   validation {
     condition     = var.license_confirmed
-    error_message = "Set license_confirmed=true to confirm that you hold a Windows Server licence that covers this use (docs/images.md, Licensing)."
+    error_message = "Set license_confirmed to true to confirm that you hold a Windows Server licence that covers this use."
+  }
+}
+
+variable "chocolatey_installer_sha256" {
+  type        = string
+  description = "SHA-256 of the Chocolatey install.ps1 you reviewed (Get-FileHash). The script runs only if its hash matches; the Chocolatey version is pinned in provision-windows.ps1."
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{64}$", var.chocolatey_installer_sha256))
+    error_message = "The chocolatey_installer_sha256 variable must be 64 hex digits."
   }
 }
 
@@ -73,9 +82,12 @@ variable "accelerator" {
   default = "kvm"
 }
 
-locals {
-  # Used by the build only; the account's password is replaced before shutdown.
-  admin_password = uuidv4()
+# Used by the build only. Sysprep generalizes the image and the clones' own
+# first boot gives the account another random password and disables it, so
+# machines share neither this password nor a SID.
+local "admin_password" {
+  expression = uuidv4()
+  sensitive  = true
 }
 
 source "qemu" "windows" {
@@ -103,7 +115,9 @@ source "qemu" "windows" {
   winrm_username   = "Administrator"
   winrm_password   = local.admin_password
   winrm_timeout    = "2h"
-  # finish.ps1 (written by provision-windows.ps1) removes the build's WinRM access.
+  # finish.ps1 (written by provision-windows.ps1) turns WinRM off and runs
+  # sysprep /generalize /shutdown, which takes a while.
+  shutdown_timeout = "45m"
   shutdown_command = "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\ProgramData\\Forecrew\\finish.ps1"
   output_directory = "${var.output_dir}/windows-qcow2"
   vm_name          = "forecrew-windows-${var.version}-amd64.qcow2"
@@ -128,8 +142,13 @@ build {
     sources     = [var.cli_package_json, var.cli_package_lock]
     destination = "C:\\ProgramData\\Forecrew\\cli\\"
   }
+  provisioner "file" {
+    source      = "sysprep.xml"
+    destination = "C:\\ProgramData\\Forecrew\\sysprep.xml"
+  }
   provisioner "powershell" {
-    script = "provision-windows.ps1"
+    script           = "provision-windows.ps1"
+    environment_vars = ["CHOCOLATEY_INSTALLER_SHA256=${var.chocolatey_installer_sha256}"]
   }
   provisioner "file" {
     direction   = "download"
