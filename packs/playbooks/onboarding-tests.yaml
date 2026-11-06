@@ -1,0 +1,216 @@
+description: The tests part of onboarding, also run again to refresh it. A test architect and an environment engineer propose a test strategy, matrix and environments in a PR; a human approves it; the existing tests then run once on every target as a baseline, and their failures become issues.
+inputs: [repo, project]
+steps:
+  # Checks the GitHub App and reads the default branch. The project is
+  # onboarding (the first time) or onboarded (a refresh): its status is kept.
+  - id: register
+    type: action
+    action: project.register
+    with: {repo: '${inputs.repo}', keep: true}
+
+  # One round per review: propose, validate, open or update the PR, ask for
+  # approval. The third requested change opens a needs_you gate, as every
+  # round after it.
+  - id: plan
+    type: loop
+    max_iterations: 3
+    until: steps.deliver.output.0.approval.output.0.decision.output.decision != changes_requested
+    on_failure: escalate
+    steps:
+      # The two roles get a second try, with the errors, when the matrix does
+      # not load or an environment is missing or invalid, or when one of them
+      # stopped. When the tries run out a needs_you gate opens; approving it
+      # gives one more.
+      - id: draft
+        type: loop
+        max_iterations: 2
+        until: steps.check.output.valid
+        on_failure: escalate
+        steps:
+          - id: feedback
+            type: action
+            action: onboarding.tests_feedback
+            with: {human: '${steps.deliver.output.0.approval.output.0.decision.output.feedback}', errors: '${steps.check.output.errors}'}
+          - id: architect
+            type: job
+            with:
+              role: test-architect
+              repo: '${inputs.repo}'
+              branch: agent/onboarding-tests
+              needs: [linux]
+              feedback: '${steps.feedback.output}'
+            on_failure: escalate
+          - id: engineer
+            type: job
+            with:
+              role: environment-engineer
+              repo: '${inputs.repo}'
+              branch: agent/onboarding-tests
+              needs: [linux]
+              feedback: '${steps.feedback.output}'
+            on_failure: escalate
+          # The jobs leave no commit when the repo has its test plan already.
+          - id: head
+            type: action
+            action: onboarding.tests_head
+            with: {repo: '${inputs.repo}', head_sha: '${steps.engineer.head_sha}'}
+          - id: matrix
+            type: action
+            action: matrix.plan
+            with: {repo: '${inputs.repo}', ref: '${steps.head.output.ref}', scope: all}
+          - id: check
+            type: action
+            action: onboarding.tests_check
+            with: {errors: '${steps.matrix.output.errors}', architect: '${steps.architect.output.escalation}', engineer: '${steps.engineer.output.escalation}'}
+      # Only when the jobs changed something.
+      - id: deliver
+        type: foreach
+        items: '${steps.head.output.if_pushed}'
+        steps:
+          - id: smoke_plan
+            type: action
+            action: tests.smoke_plan
+            with: {repo: '${inputs.repo}', ref: '${item}', environments: '${steps.engineer.output.environments}'}
+          # The workflow command jobs of provider actions dispatch, on the
+          # same branch, when an environment runs on GitHub Actions.
+          - id: install
+            type: foreach
+            items: '${steps.smoke_plan.output.if_actions}'
+            steps:
+              - id: workflow
+                type: action
+                action: actions.install_workflow
+                with: {repo: '${inputs.repo}', branch: agent/onboarding-tests}
+                on_failure: escalate
+          # Builds every new or changed environment and runs its versions
+          # commands. A failure escalates: a human reads why, and approving
+          # runs it again.
+          - id: smoke
+            type: foreach
+            parallel: 4
+            items: '${steps.smoke_plan.output.requests}'
+            steps:
+              - id: smoke_job
+                type: job
+                with:
+                  kind: command
+                  repo: '${inputs.repo}'
+                  base_ref: '${steps.register.output.default_branch}'
+                  branch: agent/onboarding-tests
+                  from: '${item}'
+                on_failure: escalate
+          - id: proposal
+            type: action
+            action: onboarding.tests_proposal
+            with: {plan: '${steps.architect.output}', environments: '${steps.engineer.output}'}
+          - id: pr
+            type: action
+            action: github.open_or_update_pr
+            with:
+              repo: '${inputs.repo}'
+              title: '${steps.proposal.output.title}'
+              body: '${steps.proposal.output.body}'
+              head: agent/onboarding-tests
+              base: '${steps.register.output.default_branch}'
+              # As in onboarding: a PR closed meanwhile fails the run, one a
+              # human merged is an approval.
+              previous: '${steps.pr.output.number}'
+          - id: approval
+            type: foreach
+            items: '${steps.pr.output.if_open}'
+            steps:
+              - id: checks
+                type: wait
+                timeout: 1h
+                on_failure: escalate
+                with: {signal: checks.completed, repo: '${inputs.repo}', sha: '${steps.pr.output.head_sha}'}
+              - id: decision
+                type: gate
+                with:
+                  kind: test_plan_approval
+                  title: 'Approve the test plan of ${inputs.project} (round ${iteration})'
+                  summary: 'Review ${steps.pr.output.url}. Approving merges it; merging it on GitHub approves, closing it rejects.'
+                  subject_repo: '${inputs.repo}'
+                  subject_number: '${steps.pr.output.number}'
+
+  # Squash-merges the PR unless GitHub merged it already, once its checks
+  # finished without failing. Otherwise a needs_you gate opens; approving it
+  # merges again.
+  - id: land
+    type: foreach
+    items: '${steps.deliver.output}'   # one item when the jobs changed something
+    steps:
+      - id: merge
+        type: action
+        action: github.merge_pr
+        with: {repo: '${inputs.repo}', number: '${item.pr.output.number}'}
+        on_failure: escalate
+
+  # The baseline: every suite in every cell, on the merge commit (the default
+  # branch when there was nothing to merge). Failures do not stop it: a
+  # failing suite is a result.
+  - id: at
+    type: action
+    action: onboarding.baseline_ref
+    with: {repo: '${inputs.repo}', merged: '${steps.land.output.0.merge.output.sha}'}
+  - id: baseline
+    type: action
+    action: matrix.plan
+    with: {repo: '${inputs.repo}', ref: '${steps.at.output.sha}', scope: all}
+    on_failure: escalate
+  - id: cells
+    type: foreach
+    parallel: 8
+    items: '${steps.baseline.output.jobs}'
+    steps:
+      - id: cell_job
+        type: job
+        with: {kind: command, repo: '${inputs.repo}', base_ref: '${steps.at.output.sha}', from: '${item}'}
+        on_failure: escalate
+  # The report has no criteria and no base check. A required cell that failed
+  # runs once more, so a test that passes the second time is known as flaky.
+  - id: report
+    type: action
+    action: verification.build
+    with: {sha: '${steps.at.output.sha}', baseline: true, change: '${steps.deliver.output.0.pr.output.number}'}
+    on_failure: escalate
+  - id: rerun
+    type: action
+    action: verification.rerun_cells
+    with: {report_id: '${steps.report.output.report_id}'}
+  - id: reruns
+    type: foreach
+    parallel: 8
+    items: '${steps.rerun.output.requests}'
+    steps:
+      - id: rerun_job
+        type: job
+        with: {kind: command, repo: '${inputs.repo}', base_ref: '${steps.at.output.sha}', from: '${item}'}
+        on_failure: escalate
+  - id: final
+    type: action
+    action: verification.build
+    with: {sha: '${steps.at.output.sha}', baseline: true, change: '${steps.deliver.output.0.pr.output.number}'}
+    on_failure: escalate
+
+  # One issue per failing suite and environment, one for the flaky tests, each
+  # filed once.
+  - id: issues
+    type: action
+    action: baseline.file_issues
+    with: {report_id: '${steps.final.output.report_id}'}
+    on_failure: escalate
+
+  # The project is onboarded now that the baseline ran, whatever it found.
+  - id: finish
+    type: action
+    action: onboarding.finish
+
+# A failed or rejected test part leaves the project onboarded, without a
+# baseline: its profile is stored. The failure opened a needs_you gate that
+# says why.
+finally:
+  - id: settle
+    type: action
+    action: onboarding.settle
+    with: {profile_done: true}

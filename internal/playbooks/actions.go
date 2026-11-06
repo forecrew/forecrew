@@ -33,6 +33,9 @@ func (a *actions) installWorkflow(ctx context.Context, call workflow.ActionCall)
 	if with.Repo == "" || with.Branch == "" {
 		return nil, errors.New("with: repo and branch are required")
 	}
+	if a.Actions == nil || a.Packs == nil {
+		return nil, errors.New("forecrewd has no GitHub Actions support configured: it cannot install the workflow")
+	}
 	template, err := actionsprovider.Template(a.Packs)
 	if err != nil {
 		return nil, err

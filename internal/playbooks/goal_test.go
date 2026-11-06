@@ -125,6 +125,13 @@ func (f failing) CreateIssue(ctx context.Context, repo string, in github.IssueIn
 	return f.Tracker.CreateIssue(ctx, repo, in)
 }
 
+func (f failing) ListOpenIssues(ctx context.Context, repo, label string) ([]github.Issue, error) {
+	if err := f.errs["ListOpenIssues"]; err != nil {
+		return nil, err
+	}
+	return f.Tracker.ListOpenIssues(ctx, repo, label)
+}
+
 func (f failing) AddSubIssue(ctx context.Context, repo string, parent, child int) error {
 	if err := f.errs["AddSubIssue"]; err != nil {
 		return err

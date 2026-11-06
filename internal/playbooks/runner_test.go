@@ -44,6 +44,10 @@ func startRun(t *testing.T, v *env, playbook string, req workflow.StartRequest) 
 		Now: v.clock.Now, Workers: 2, Sweep: 5 * time.Millisecond,
 	})
 	must(t, err)
+	if v.cfg != nil { // the playbooks start each other
+		v.runs = e
+		v.register()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	wg.Go(func() { _ = e.Run(ctx) })

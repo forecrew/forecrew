@@ -38,7 +38,8 @@ type Deps struct {
 	Tracker github.Tracker
 	// Actions and Packs are what actions.install_workflow needs: GitHub's
 	// file and Actions calls, and the packs holding the workflow template.
-	// Without them the action is not registered.
+	// Without them the action fails, since the onboarding-tests playbook
+	// names it.
 	Actions github.Actions
 	Packs   fs.FS
 	Signals workflow.SignalBus
@@ -88,14 +89,21 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["github.merge_pr"] = d.mergePR
 	registry["discover.github"] = d.discoverGitHub
 	registry["matrix.plan"] = d.matrixPlan
-	if d.Actions != nil && d.Packs != nil {
-		registry["actions.install_workflow"] = d.installWorkflow
-	}
+	registry["actions.install_workflow"] = d.installWorkflow
 	registry["profile.validate"] = d.validateProfile
 	registry["profile.feedback"] = d.profileFeedback
 	registry["onboarding.proposal"] = d.onboardingProposal
 	registry["onboarding.settle"] = d.settleOnboarding
 	registry["onboarding.complete"] = d.completeOnboarding
+	registry["onboarding.finish"] = d.finishOnboarding
+	registry["onboarding.start_tests"] = d.startTests
+	registry["onboarding.tests_feedback"] = d.testsFeedback
+	registry["onboarding.tests_check"] = d.testsCheck
+	registry["onboarding.tests_head"] = d.testsHead
+	registry["onboarding.tests_proposal"] = d.testsProposal
+	registry["onboarding.baseline_ref"] = d.baselineRef
+	registry["tests.smoke_plan"] = d.testsSmokePlan
+	registry["baseline.file_issues"] = d.baselineIssues
 	registry["goal.intake"] = d.goalIntake
 	registry["goal.size"] = d.goalSize
 	registry["goal.spec"] = d.goalSpec

@@ -66,7 +66,6 @@ func TestInstallWorkflowErrors(t *testing.T) {
 
 func TestInstallWorkflowNeedsItsDependencies(t *testing.T) {
 	v := newEnv(t)
-	if v.actions["actions.install_workflow"] != nil {
-		t.Error("the action is registered without Actions and Packs")
-	}
+	_, err := v.call(t, "actions.install_workflow", map[string]any{"repo": "acme/app", "branch": "main"})
+	wantErr(t, err, "no GitHub Actions support")
 }
