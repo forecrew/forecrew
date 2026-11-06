@@ -121,10 +121,16 @@ func TestConfigApplyAsks(t *testing.T) {
 	if code != 0 || len(got) != 1 || !strings.Contains(out, "fci_x") {
 		t.Fatalf("apply: %d %q %+v", code, out, got)
 	}
-	plan.LowersProtection, plan.ConfirmWord, plan.PRURL = []string{"Removes an Owner"}, "acme", "https://x"
-	out, _, code = e.runIn(t, "acme\n", "config", "apply", "p")
-	if code != 0 || got[1].Word != "acme" || !strings.Contains(out, "Lowers protection: Removes an Owner") || !strings.Contains(out, "https://x") {
-		t.Fatalf("second confirmation: %d %q %+v", code, out, got)
+	plan.PRURL = "https://x"
+	if out, _, code = e.runIn(t, "yes\n", "config", "apply", "p"); code != 0 || !strings.Contains(out, "https://x") {
+		t.Fatalf("a pull request: %d %q", code, out)
+	}
+	// A plan that lowers protection is not for a terminal.
+	plan.LowersProtection, plan.ConfirmWord = []string{"Removes an Owner"}, "acme"
+	calls := len(got)
+	out, errOut, code := e.runIn(t, "acme\n", "config", "apply", "p")
+	if code == 0 || len(got) != calls || !strings.Contains(errOut, "web UI") || !strings.Contains(out, "Lowers protection: Removes an Owner") {
+		t.Fatalf("%d %q %q", code, out, errOut)
 	}
 }
 

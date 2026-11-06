@@ -204,8 +204,16 @@ line: `forecrew fleet`, `forecrew machines [--state]`, `forecrew shapes` and
 ### Configuration
 
 Any MCP client can read the configuration and propose changes with your
-permissions. Nothing changes until you confirm the plan in the web UI: see
-[config-resources.md](contracts/config-resources.md).
+permissions. Nothing an MCP client proposes changes anything until you confirm
+the plan in the web UI: see [config-resources.md](contracts/config-resources.md).
+
+**What a token can do over REST.** This holds for plans made through MCP, by the
+assistant or by an ownerless token, and for every plan that lowers protection:
+those need a browser session. Other plans, made over REST or the CLI, can be
+applied over REST with a personal token that holds `config.apply` and what their
+resources need, like the management tools it could call anyway. So a token you
+give an agent with a shell can apply a plan it made itself over REST, unless it
+lowers protection: give such an agent a token without those permissions.
 
 | Tool | What it does |
 |------|--------------|

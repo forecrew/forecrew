@@ -241,7 +241,7 @@ The MCP tools `config_*` and `assistant_*` over REST
 | `GET /api/v1/config/plans` | `config_plans` | `?inbox=true&limit=` |
 | `POST /api/v1/config/plans` | `config_plan` | `{"title", "request", "changes", "source"}`; `source` is `form`, `cli` or `yaml` |
 | `GET /api/v1/config/plans/{plan}` | `config_get_plan` | |
-| `POST /api/v1/config/plans/{plan}/apply` | | `{"word"}`, the second confirmation. Answers the plan and `show_once`, what it generated, stored nowhere. `409` for a plan that moved, expired, has an empty secure field, or that only the web UI confirms |
+| `POST /api/v1/config/plans/{plan}/apply` | | `{"word"}`, the second confirmation. Answers the plan and `show_once`, what it generated, stored nowhere. `409` for a plan that moved, expired, has an empty secure field, or that only a browser session confirms (from the assistant, an MCP client or an ownerless token, or lowering protection) |
 | `POST /api/v1/config/plans/{plan}/request-approval` | `config_apply` | |
 | `POST /api/v1/config/plans/{plan}/revert` | `config_revert` | |
 | `POST /api/v1/config/plans/{plan}/cancel` | `config_cancel` | |

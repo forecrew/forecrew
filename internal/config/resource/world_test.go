@@ -124,7 +124,8 @@ func (w *world) plan(by domain.Actor, changes ...mcp.ConfigWanted) domain.Config
 
 func (w *world) apply(by domain.Actor, p domain.ConfigPlan) mcp.ConfigApplied {
 	w.t.Helper()
-	out, err := w.engine.Apply(w.t.Context(), by, resource.Confirmation{Plan: p.ID, Word: p.ConfirmWord})
+	// Plans that lower protection are confirmed from a browser session.
+	out, err := w.engine.Apply(w.t.Context(), by, resource.Confirmation{Plan: p.ID, Word: p.ConfirmWord, Browser: len(p.LowersProtection) > 0})
 	check(w.t, err)
 	return out
 }

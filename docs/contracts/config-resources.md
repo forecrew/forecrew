@@ -88,6 +88,11 @@ Confirming is a step of the protocol, not a parameter.
 |-----------|--------------|
 | the assistant, an MCP client (`source` `assistant`, `mcp`) | a person in the web UI: `apply` with the session cookie. The API sets this from the request; no field of the body or tool input can |
 | forms, the CLI, YAML (`form`, `cli`, `yaml`) | a person, by the web UI or by a personal token; `forecrew config apply` shows the plan and asks |
+| any source, when the plan lowers protection | a person in the web UI, with the second confirmation |
+
+A plan from an ownerless token has source `mcp` whichever entry point it came
+through: no person stands behind it. A session means a real browser session; a
+token in the cookie of `token_login` does not count.
 
 Service accounts, jobs and workers never confirm. `config_apply` over MCP never
 applies: it moves the plan to the Inbox and answers with the plan and a link
@@ -105,8 +110,9 @@ clients.
 ### Lowering protection
 
 A plan that lowers protection lists why in `lowers_protection`, and `apply`
-needs `word`, the organization's slug, typed by the same person: removing an
-Owner, turning off sign-in enforcement, opening network access, adding Forecrew
+needs a browser session and `word`, the organization's slug, typed by the same
+person: adding or removing an Owner, turning off or deleting a sign-in
+connection, turning off sign-in enforcement, opening network access, adding Forecrew
 Cloud as a fallback, moving a machine type to another trust zone, giving a pool
 a repo write token, adding an instance admin, allowing token sign-in, removing
 the token cap, changing a runtime's `base_url` or `credential_env`, changing an

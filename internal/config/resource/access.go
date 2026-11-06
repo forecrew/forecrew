@@ -141,7 +141,13 @@ func memberNeeds(ctx context.Context, e *Env, _, want *Resource, _ []domain.Conf
 }
 
 func memberProtection(ctx context.Context, e *Env, old, want *Resource) []string {
-	if old == nil || (want != nil && !strings.Contains(string(want.Spec), string(domain.MembershipSuspended))) {
+	if old == nil {
+		if s, _ := decode[memberSpec](want.Spec); slices.Contains(s.Roles, domain.RoleOwner) {
+			return []string{"Adds an Owner"}
+		}
+		return nil
+	}
+	if want != nil && !strings.Contains(string(want.Spec), string(domain.MembershipSuspended)) {
 		return nil
 	}
 	id, err := uuid.Parse(old.Name)
@@ -559,13 +565,14 @@ func roleBindingApply(ctx context.Context, e *Env, old, want *Resource) error {
 }
 
 func roleBindingProtection(_ context.Context, _ *Env, old, want *Resource) []string {
-	if want != nil || old == nil {
+	s, _ := decode[bindingSpec](firstOf(old, want).Spec)
+	if s.Role != domain.RoleOwner || s.Project != "" {
 		return nil
 	}
-	if s, _ := decode[bindingSpec](old.Spec); s.Role == domain.RoleOwner && s.Project == "" {
-		return []string{"Removes an Owner"}
+	if want != nil {
+		return []string{"Adds an Owner"}
 	}
-	return nil
+	return []string{"Removes an Owner"}
 }
 
 // bindings lists the organization's bindings with their spec.
@@ -659,6 +666,7 @@ func connectionArea() Area {
 	a.Needs = connectionNeeds
 	a.Secrets = connectionSecrets
 	a.Apply = connectionApply
+	a.Protection = connectionProtection
 	a.Retire = connectionRetire
 	return a
 }
@@ -723,6 +731,18 @@ func connectionRetire(spec json.RawMessage) json.RawMessage {
 	s, _ := decode[connectionSpec](spec)
 	s.Enabled = false
 	return encode(s)
+}
+
+func connectionProtection(_ context.Context, _ *Env, old, want *Resource) []string {
+	if old == nil || want == nil {
+		return nil
+	}
+	o, _ := decode[connectionSpec](old.Spec)
+	w, _ := decode[connectionSpec](want.Spec)
+	if o.Enabled && !w.Enabled {
+		return []string{"Turns off the sign-in connection " + want.Name}
+	}
+	return nil
 }
 
 // connectionRow turns a spec into the domain row of the actor's organization.
