@@ -179,6 +179,8 @@ func resultID(r domain.TestResult) string {
 
 // suiteRun is a stored test run of the base check.
 type suiteRun struct {
+	// environment is the name of the environment the run ran in.
+	environment string
 	// commandFailed: the command really failed, with an exit code above 0,
 	// and the run is not an oversized one. Not set for a timeout or a
 	// command that did not start (-1), nor for an errored run whose command
@@ -195,7 +197,7 @@ func (a *actions) loadSuiteRun(ctx context.Context, r domain.TestRun) (suiteRun,
 	if err != nil {
 		return suiteRun{}, fmt.Errorf("results of test run %s: %w", r.ID, err)
 	}
-	sr := suiteRun{failed: map[string]bool{}}
+	sr := suiteRun{environment: r.Environment, failed: map[string]bool{}}
 	oversized := false
 	for _, res := range results {
 		id := resultID(res)
@@ -253,14 +255,63 @@ func (a *actions) loadSuiteRuns(ctx context.Context, accountID uuid.UUID, runs [
 	return bySuite, nil
 }
 
+// requestedRun is the part of a base check request that says which run it
+// asks for.
+type requestedRun struct {
+	Suite       string `json:"suite"`
+	Environment *struct {
+		Name string `json:"name"`
+	} `json:"environment"`
+}
+
+// unrun returns the suites that have fewer stored runs than requests, in an
+// environment: a job that succeeded without leaving a run (or was lost) is
+// no failure on base, only a check nobody did. Requests that are not objects
+// are an error.
+func unrun(requests []json.RawMessage, bySuite map[string][]suiteRun) (map[string]bool, error) {
+	type slot struct{ suite, env string }
+	want := map[slot]int{}
+	for i, raw := range requests {
+		var r requestedRun
+		if err := json.Unmarshal(raw, &r); err != nil {
+			return nil, fmt.Errorf("with: requests[%d]: %w", i, err)
+		}
+		k := slot{suite: r.Suite}
+		if r.Environment != nil {
+			k.env = r.Environment.Name
+		}
+		want[k]++
+	}
+	out := map[string]bool{}
+	for k, n := range want {
+		have := 0
+		for _, r := range bySuite[k.suite] {
+			if r.environment == k.env {
+				have++
+			}
+		}
+		if have < n {
+			out[k.suite] = true
+		}
+	}
+	return out, nil
+}
+
 // testsBaseCheckResult is the action tests.base_check_result. It reads the
 // test runs the base check's jobs stored and says, for each new test,
 // whether it failed on base (see failedOnBase and docs/playbooks.md). ok is
 // true when every new test failed on base.
+//
+// With with.requests, the output of tests.base_check_request, it compares the
+// runs with the requests: a suite that has fewer runs than requests in an
+// environment was not checked everywhere, so its tests are left out of
+// new_tests (the verification then says they were not checked) and ok is
+// false.
 func (a *actions) testsBaseCheckResult(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
-		Runs  []jobRefs `json:"runs"`
-		Tests []newTest `json:"tests"`
+		Runs     []jobRefs          `json:"runs"`
+		Tests    []newTest          `json:"tests"`
+		Requests *[]json.RawMessage `json:"requests"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -268,6 +319,12 @@ func (a *actions) testsBaseCheckResult(ctx context.Context, call workflow.Action
 	bySuite, err := a.loadSuiteRuns(ctx, call.Run.AccountID, with.Runs)
 	if err != nil {
 		return nil, err
+	}
+	var unchecked map[string]bool
+	if with.Requests != nil {
+		if unchecked, err = unrun(*with.Requests, bySuite); err != nil {
+			return nil, err
+		}
 	}
 	out := baseCheckResult{NewTests: []baseCheckTest{}, OK: true}
 	seen := map[newTest]bool{} // a test has one entry per criterion it checks
@@ -277,6 +334,10 @@ func (a *actions) testsBaseCheckResult(ctx context.Context, call workflow.Action
 			continue
 		}
 		seen[t] = true
+		if unchecked[t.Suite] {
+			out.OK = false
+			continue
+		}
 		failed := failedOnBase(bySuite[t.Suite], t.ID)
 		out.NewTests = append(out.NewTests, baseCheckTest{ID: t.ID, FailedOnBase: failed})
 		out.OK = out.OK && failed
