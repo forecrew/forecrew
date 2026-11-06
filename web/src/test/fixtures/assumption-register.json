@@ -1,0 +1,78 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000090",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 4,
+    "goal_id": "018f0000-0000-7000-8000-000000000020",
+    "made_by": "architect",
+    "job_id": "018f0000-0000-7000-8000-000000000070",
+    "statement": "Links are sent by the existing mailer.",
+    "confidence": "medium",
+    "impact": "high",
+    "verify_by": "test",
+    "status": "unverified",
+    "dependents": [
+      {
+        "kind": "goal",
+        "id": "GOAL-3"
+      },
+      {
+        "kind": "task",
+        "id": "TASK-12"
+      }
+    ],
+    "created_at": "2026-03-01T08:00:00Z",
+    "updated_at": "2026-03-01T08:00:00Z",
+    "ref": "A-4",
+    "source": "JOB-41"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000091",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 5,
+    "goal_id": "018f0000-0000-7000-8000-000000000020",
+    "made_by": "product-owner",
+    "statement": "Admins \u003cb\u003enever\u003c/b\u003e sign in with a password.",
+    "confidence": "low",
+    "impact": "medium",
+    "verify_by": "ask-human",
+    "status": "accepted",
+    "evidence": "Ana accepts the risk.",
+    "dependents": [
+      {
+        "kind": "spec",
+        "id": "SPEC-2"
+      }
+    ],
+    "resolved_by": "mcp:laptop",
+    "resolved_at": "2026-03-01T10:20:00Z",
+    "created_at": "2026-03-01T08:10:00Z",
+    "updated_at": "2026-03-01T10:20:00Z",
+    "ref": "A-5",
+    "source": "SPEC-2"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000092",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 6,
+    "made_by": "developer",
+    "job_id": "018f0000-0000-7000-8000-000000000071",
+    "statement": "The mailer retries on failure.",
+    "confidence": "high",
+    "impact": "low",
+    "verify_by": "research",
+    "status": "invalidated",
+    "evidence": "It does not retry: see mailer.go.",
+    "dependents": [],
+    "resolved_by": "mcp:laptop",
+    "resolved_at": "2026-03-01T11:10:00Z",
+    "created_at": "2026-03-01T10:00:00Z",
+    "updated_at": "2026-03-01T11:10:00Z",
+    "ref": "A-6",
+    "source": "JOB-42"
+  }
+]
+

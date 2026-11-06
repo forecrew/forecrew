@@ -1,0 +1,136 @@
+{
+  "sections": [
+    {
+      "name": "architecture",
+      "provider": "repo",
+      "provider_kind": "repo",
+      "paths": [
+        "docs/adr/**"
+      ],
+      "owner": "architect",
+      "protected": false
+    },
+    {
+      "name": "conventions",
+      "provider": "wiki",
+      "provider_kind": "confluence",
+      "instance": "acme.atlassian.net",
+      "paths": [
+        "ENG/Conventions"
+      ],
+      "owner": "human",
+      "protected": false
+    },
+    {
+      "name": "vision",
+      "provider": "repo",
+      "provider_kind": "repo",
+      "paths": [
+        "knowledge/vision/**"
+      ],
+      "owner": "human",
+      "protected": true
+    },
+    {
+      "name": "notes",
+      "provider": "internal",
+      "provider_kind": "internal",
+      "paths": [],
+      "protected": false
+    },
+    {
+      "name": "generated",
+      "paths": [],
+      "protected": false
+    }
+  ],
+  "entries": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000110",
+      "kind": "entry",
+      "provider": "repo",
+      "section": "architecture",
+      "path": "docs/adr/0001-queue.md",
+      "title": "Jobs wait in Postgres",
+      "source_url": "https://github.com/acme/app/blob/main/docs/adr/0001-queue.md",
+      "snippet": "Jobs wait in a Postgres table.",
+      "untrusted": true,
+      "provenance": {
+        "author_role": "architect",
+        "source": "JOB-12",
+        "created": "2026-02-26T00:40:00Z",
+        "last_verified": "2026-02-26T17:20:00Z"
+      },
+      "needs_reverify": false,
+      "rank": 0,
+      "body": "# Jobs wait in Postgres\n\nJobs wait in a Postgres table, leased by workers.\n"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000111",
+      "kind": "entry",
+      "provider": "repo",
+      "section": "vision",
+      "path": "knowledge/vision/why.md",
+      "title": "Why Forecrew",
+      "source_url": "https://github.com/acme/app/blob/main/knowledge/vision/why.md",
+      "snippet": "Agents build what humans decide.",
+      "untrusted": false,
+      "provenance": {
+        "author_role": "human",
+        "source": "human",
+        "created": "2026-02-25T08:00:00Z",
+        "last_verified": "2026-03-01T10:20:00Z"
+      },
+      "needs_reverify": true,
+      "reverify_reason": "abc123 changed internal/queue",
+      "rank": 0,
+      "body": "Agents build what humans decide.\n"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000112",
+      "kind": "note",
+      "provider": "internal",
+      "section": "notes",
+      "path": "note-1",
+      "title": "The spool is \u003ci\u003eflaky\u003c/i\u003e",
+      "source_url": "",
+      "snippet": "Retry the spool test once.",
+      "untrusted": true,
+      "provenance": {
+        "author_role": "developer",
+        "source": "JOB-41",
+        "created": "2026-03-01T11:00:00Z"
+      },
+      "needs_reverify": false,
+      "scope": "goal",
+      "goal_id": "018f0000-0000-7000-8000-000000000020",
+      "tags": [
+        "tests"
+      ],
+      "expires_at": "2026-03-02T21:20:00Z",
+      "rank": 0,
+      "body": "Retry the spool test once; \u003cscript\u003ealert(1)\u003c/script\u003e it fails on a cold cache.\n"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000113",
+      "kind": "note",
+      "provider": "internal",
+      "section": "notes",
+      "path": "note-2",
+      "title": "Use make test",
+      "source_url": "",
+      "snippet": "Run make test, not go test.",
+      "untrusted": true,
+      "provenance": {
+        "author_role": "developer",
+        "source": "JOB-40",
+        "created": "2026-03-01T10:30:00Z"
+      },
+      "needs_reverify": false,
+      "scope": "project",
+      "rank": 0,
+      "body": "Run make test, not go test.\n"
+    }
+  ]
+}
+

@@ -1,7 +1,9 @@
 import type {
   Artifact, Assumption, AssumptionStatus, Council, CouncilDetail, CouncilStatus, Decision, StartCouncilInput,
   CreateGoalInput, Discovery, DispatchJobInput, ErrorBody, Gate, GateInfo, Goal, GoalDetail, GoalStatus, Job, JobInfo,
-  JobLogs, JobStatus, OnboardInput, OnboardResult, Project, QualityInfo, RevokeResult, Session, Token, VerificationInfo, Worker,
+  JobLogs, JobStatus, KnowledgeKind, KnowledgeListing, KnowledgeProposal, KnowledgeProposalStatus, KnowledgeResult, Level,
+  OnboardInput, OnboardResult, Project, ProposeKnowledgeInput, ProposeKnowledgeResult, QualityInfo, RevokeResult, Session, Token,
+  Trace, VerificationInfo, Worker,
 } from "./types"
 
 /** An error answer of the API. */
@@ -107,11 +109,22 @@ export const api = {
   addConstraint: (ref: string, constraint: string) =>
     request<Council>("POST", `/api/v1/councils/${seg(ref)}/constraints`, { constraint }),
 
-  listAssumptions: (f: { project: string; status?: AssumptionStatus }) =>
+  listAssumptions: (f: { project: string; goal?: string; status?: AssumptionStatus | ""; impact?: Level | "" }) =>
     request<Assumption[]>("GET", `/api/v1/assumptions${query(f)}`),
   resolveAssumption: (ref: string, status: AssumptionStatus, evidence?: string) =>
     request<Assumption>("POST", `/api/v1/assumptions/${seg(ref)}/resolve`, evidence ? { status, evidence } : { status }),
   listDecisions: (f: { project: string }) => request<Decision[]>("GET", `/api/v1/decisions${query(f)}`),
+
+  getTrace: (ref: string) => request<Trace>("GET", `/api/v1/trace${query({ ref })}`),
+
+  listKnowledge: (f: { project: string; section?: string; kind?: KnowledgeKind | ""; provider?: string; goal?: string }) =>
+    request<KnowledgeListing>("GET", `/api/v1/knowledge/entries${query(f)}`),
+  searchKnowledge: (f: { project: string; q: string; section?: string; kind?: KnowledgeKind | ""; provider?: string }) =>
+    request<KnowledgeResult[]>("GET", `/api/v1/knowledge${query(f)}`),
+  listKnowledgeProposals: (f: { project: string; status?: KnowledgeProposalStatus | "" }) =>
+    request<KnowledgeProposal[]>("GET", `/api/v1/knowledge/proposals${query(f)}`),
+  proposeKnowledge: (input: ProposeKnowledgeInput) => request<ProposeKnowledgeResult>("POST", "/api/v1/knowledge/proposals", input),
+  deleteNote: (id: string) => request<{ note: string; message: string }>("DELETE", `/api/v1/knowledge/notes/${seg(id)}`),
 
   listGates: (f: { project?: string } = {}) => request<GateInfo[]>("GET", `/api/v1/gates${query(f)}`),
   approve: (ref: string, feedback?: string) =>

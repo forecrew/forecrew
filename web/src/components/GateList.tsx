@@ -10,6 +10,7 @@ import { Field } from "@/components/Field"
 import { Markdown } from "@/components/Markdown"
 import { StatusBadge } from "@/components/StatusBadge"
 import { VerificationSection } from "@/components/Verification"
+import { WhyLink } from "@/components/WhyLink"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -202,6 +203,7 @@ function GateCard({ gate, selected, mode, setMode, onSelect, note, setNote, onDe
                 </Button>
               </>
             )}
+            {gate.task_ref || gate.goal_ref ? <WhyLink to={(gate.task_ref || gate.goal_ref)!} /> : null}
             {gate.url ? (
               <ExternalLink href={gate.url} className="ml-auto text-sm">
                 Open on GitHub

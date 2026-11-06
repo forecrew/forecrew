@@ -16,7 +16,9 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/testkit"
 )
 
 // update rewrites the web UI fixtures: go test ./internal/api -update.
@@ -374,6 +376,9 @@ func fixtureEnv(t *testing.T) *env {
 		tok.RevokedAt = t0
 		return mcp.NewRevokeTokenOutput(tok, tok.Current), nil
 	}
+	registerTrace(s)
+	registerKnowledge(s)
+	registerKnowledgeProposals(s, acc.ID)
 	s.CancelJobFunc = func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error) {
 		j := jobs[0]
 		j.Status, j.FinishedAt, j.Error = domain.JobCanceled, t0, "canceled"
@@ -416,6 +421,167 @@ func fixtureEnv(t *testing.T) *env {
 		}, nil
 	}
 	return e
+}
+
+// registerTrace answers the trace endpoint.
+func registerTrace(s *testkit.ToolService) {
+	s.GetTraceFunc = func(context.Context, domain.Actor, mcp.GetTraceInput) (mcp.Trace, error) {
+		return mcp.Trace{
+			Focus: "TASK-12", Goal: "GOAL-3",
+			Nodes: []mcp.TraceNode{
+				{ID: "GOAL-3", Kind: mcp.TraceGoal, Title: "Sign in with an email link", Status: "in_progress", Summary: "Let users sign in without a password.", URL: "https://github.com/acme/app/issues/5", At: at(-300)},
+				{ID: "COUNCIL-1", Kind: mcp.TraceCouncil, Title: "Which mailer?", Status: "decided", Summary: "Use the existing mailer.", At: at(-290), Attrs: map[string]string{"kind": "technical"}},
+				{ID: "SPEC-1", Kind: mcp.TraceSpec, Title: "Spec revision 1", Summary: "Users can sign in with an email link.", At: at(-280)},
+				{ID: "SPEC-2", Kind: mcp.TraceSpec, Title: "Spec revision 2", Summary: "Say what happens to expired links.", At: at(-250)},
+				{ID: "DEC-1", Kind: mcp.TraceDecision, Title: "Which mailer?", Status: "existing mailer", Summary: "It is already in production.", At: at(-270), Attrs: map[string]string{"decided_by": "user:ana"}},
+				{ID: "DEC-2", Kind: mcp.TraceDecision, Title: "Approve the spec", Status: "approved", At: at(-240), Attrs: map[string]string{"decided_by": "mcp:laptop"}},
+				{ID: "TASK-12", Kind: mcp.TraceTask, Title: "Send the sign-in link", Status: "merged", URL: "https://github.com/acme/app/issues/6", At: at(-200)},
+				{ID: "acme/app#9", Kind: mcp.TraceChange, Title: "Pull request #9", Status: "merged", URL: "https://github.com/acme/app/pull/9", At: at(-100), Attrs: map[string]string{"branch": "agent/task-12"}},
+				{ID: "verification:acme/app#9", Kind: mcp.TraceVerification, Title: "Verification of #9", Status: "passed", At: at(-60), Attrs: map[string]string{"sha": "abc123"}},
+				{ID: "merge:acme/app#9", Kind: mcp.TraceMerge, Title: "Merged #9", Status: "merged", URL: "https://github.com/acme/app/pull/9", At: at(-50)},
+				{ID: "A-4", Kind: mcp.TraceAssumption, Title: "Links are sent by the existing mailer.", Status: "unverified", At: at(-240), Attrs: map[string]string{"impact": "high", "confidence": "medium", "verify_by": "test", "made_by": "architect"}},
+				{ID: "A-5", Kind: mcp.TraceAssumption, Title: "Admins <b>never</b> sign in with a password.", Status: "accepted", At: at(-230), Attrs: map[string]string{"impact": "medium", "confidence": "low", "verify_by": "ask-human", "made_by": "product-owner", "evidence": "Ana accepts the risk."}},
+			},
+			Edges: []mcp.TraceEdge{
+				{From: "GOAL-3", To: "COUNCIL-1", Label: "asked"}, {From: "GOAL-3", To: "SPEC-1", Label: "written"}, {From: "SPEC-1", To: "SPEC-2", Label: "revised"},
+				{From: "COUNCIL-1", To: "DEC-1", Label: "decided"}, {From: "DEC-1", To: "SPEC-1", Label: "informs"}, {From: "SPEC-2", To: "DEC-2", Label: "decided"},
+				{From: "SPEC-2", To: "TASK-12", Label: "planned"}, {From: "TASK-12", To: "acme/app#9", Label: "built"},
+				{From: "acme/app#9", To: "verification:acme/app#9", Label: "verified"}, {From: "verification:acme/app#9", To: "merge:acme/app#9", Label: "merged"},
+				{From: "A-4", To: "TASK-12", Label: "affects"}, {From: "A-4", To: "GOAL-3", Label: "affects"}, {From: "A-5", To: "SPEC-2", Label: "affects"},
+			},
+		}, nil
+	}
+
+}
+
+// registerKnowledge answers the knowledge endpoints.
+func registerKnowledge(s *testkit.ToolService) {
+	entries := []knowledge.Listing{
+		{Result: knowledge.Result{
+			ID: fid(110), Kind: domain.KnowledgeEntryKind, Provider: "repo", Section: "architecture", Path: "docs/adr/0001-queue.md", Title: "Jobs wait in Postgres",
+			SourceURL: "https://github.com/acme/app/blob/main/docs/adr/0001-queue.md", Snippet: "Jobs wait in a Postgres table.", Untrusted: true,
+			Provenance: domain.Provenance{AuthorRole: "architect", Source: "JOB-12", Created: at(-5000), LastVerified: at(-4000)},
+		}, Body: "# Jobs wait in Postgres\n\nJobs wait in a Postgres table, leased by workers.\n"},
+		{Result: knowledge.Result{
+			ID: fid(111), Kind: domain.KnowledgeEntryKind, Provider: "repo", Section: "vision", Path: "knowledge/vision/why.md", Title: "Why Forecrew",
+			SourceURL: "https://github.com/acme/app/blob/main/knowledge/vision/why.md", Snippet: "Agents build what humans decide.",
+			Provenance: domain.Provenance{AuthorRole: "human", Source: "human", Created: at(-6000), LastVerified: at(-100)}, NeedsReverify: true, ReverifyReason: "abc123 changed internal/queue",
+		}, Body: "Agents build what humans decide.\n"},
+		{Result: knowledge.Result{
+			ID: fid(112), Kind: domain.KnowledgeNoteKind, Provider: domain.ProviderInternal, Section: domain.SectionNotes, Path: "note-1", Title: "The spool is <i>flaky</i>",
+			Snippet: "Retry the spool test once.", Untrusted: true, Provenance: domain.Provenance{AuthorRole: "developer", Source: "JOB-41", Created: at(-60)},
+			Scope: domain.NoteScopeGoal, GoalID: fid(20), Tags: []string{"tests"}, ExpiresAt: at(2000),
+		}, Body: "Retry the spool test once; <script>alert(1)</script> it fails on a cold cache.\n"},
+		{Result: knowledge.Result{
+			ID: fid(113), Kind: domain.KnowledgeNoteKind, Provider: domain.ProviderInternal, Section: domain.SectionNotes, Path: "note-2", Title: "Use make test",
+			Snippet: "Run make test, not go test.", Untrusted: true, Provenance: domain.Provenance{AuthorRole: "developer", Source: "JOB-40", Created: at(-90)}, Scope: domain.NoteScopeProject,
+		}, Body: "Run make test, not go test.\n"},
+	}
+	sections := []mcp.KnowledgeSectionInfo{
+		{Name: "architecture", Provider: "repo", ProviderKind: domain.ProviderKindRepo, Paths: []string{"docs/adr/**"}, Owner: "architect"},
+		{Name: "conventions", Provider: "wiki", ProviderKind: domain.ProviderKindConfluence, Instance: "acme.atlassian.net", Paths: []string{"ENG/Conventions"}, Owner: "human"},
+		{Name: "vision", Provider: "repo", ProviderKind: domain.ProviderKindRepo, Paths: []string{"knowledge/vision/**"}, Owner: "human", Protected: true},
+		{Name: domain.SectionNotes, Provider: domain.ProviderInternal, ProviderKind: domain.ProviderInternal, Paths: []string{}},
+		{Name: domain.SectionGenerated, Paths: []string{}},
+	}
+	s.ListKnowledgeFunc = func(_ context.Context, _ domain.Actor, in mcp.ListKnowledgeInput) (mcp.KnowledgeListing, error) {
+		out := mcp.KnowledgeListing{Sections: sections, Entries: []knowledge.Listing{}}
+		for _, e := range entries {
+			if (in.Section == "" || e.Section == in.Section) && (in.Kind == "" || e.Kind == in.Kind) && (in.Provider == "" || e.Provider == in.Provider) {
+				out.Entries = append(out.Entries, e)
+			}
+		}
+		return out, nil
+	}
+	s.SearchKnowledgeFunc = func(_ context.Context, _ domain.Actor, in mcp.SearchKnowledgeInput) ([]knowledge.Result, error) {
+		var out []knowledge.Result
+		for _, e := range entries {
+			if strings.Contains(strings.ToLower(e.Body), strings.ToLower(in.Query)) && (in.Kind == "" || e.Kind == in.Kind) && (in.Provider == "" || e.Provider == in.Provider) {
+				r := e.Result
+				r.Rank = 0.5
+				out = append(out, r)
+			}
+		}
+		return out, nil
+	}
+}
+
+// registerKnowledgeProposals answers the proposal endpoints and the note deletion.
+func registerKnowledgeProposals(s *testkit.ToolService, acc uuid.UUID) {
+	s.ListKnowledgeProposalsFunc = func(_ context.Context, _ domain.Actor, in mcp.ListKnowledgeProposalsInput) ([]mcp.KnowledgeProposalInfo, error) {
+		all := []mcp.KnowledgeProposalInfo{
+			{KnowledgeProposal: domain.KnowledgeProposal{
+				ID: fid(120), AccountID: acc, ProjectID: fid(10), Number: 5, Provider: "repo", Section: "architecture", Path: "docs/adr/0002-retries.md", Action: domain.KnowledgeAdd,
+				Body: "Jobs retry three times.", Reason: "The retry rule is not written down. <b>Please</b> review.", ProposedBy: "architect", JobID: fid(70), GoalID: fid(20), Batch: domain.BatchStandalone,
+				ExternalRef: "12", ChangeID: fid(80), Status: domain.KnowledgeOpen, CreatedAt: at(-30), UpdatedAt: at(-30),
+			}, Ref: "KB-5", GoalRef: "GOAL-3", URL: "https://github.com/acme/app/pull/12"},
+			{KnowledgeProposal: domain.KnowledgeProposal{
+				ID: fid(121), AccountID: acc, ProjectID: fid(10), Number: 4, Provider: "repo", Section: "vision", Path: "knowledge/vision/why.md", Action: domain.KnowledgeEdit,
+				Body: "Agents build what humans decide, and ask when unsure.", Reason: "Say that agents ask.", ProposedBy: "product-owner", Batch: domain.BatchStandalone,
+				GateID: fid(130), Status: domain.KnowledgeOpen, CreatedAt: at(-120), UpdatedAt: at(-120),
+			}, Ref: "KB-4", Gate: &mcp.GateInfo{Gate: domain.Gate{ID: fid(130), AccountID: acc, ProjectID: fid(10), Number: 12, Kind: domain.GateKnowledgeProposal, Status: domain.GatePending, Title: "Change vision/why.md", CreatedAt: at(-120)}, Ref: "GATE-12", Project: "app", CanResolve: true}},
+			{KnowledgeProposal: domain.KnowledgeProposal{
+				ID: fid(122), AccountID: acc, ProjectID: fid(10), Number: 3, Provider: "repo", Section: "architecture", Path: "docs/adr/0001-queue.md", Action: domain.KnowledgeEdit,
+				Body: "Jobs wait in Postgres.", Reason: "Shorter.", ProposedBy: "user:ana", Batch: domain.BatchStandalone, Status: domain.KnowledgeAccepted, CreatedAt: at(-900), UpdatedAt: at(-800),
+			}, Ref: "KB-3"},
+		}
+		var out []mcp.KnowledgeProposalInfo
+		for _, k := range all {
+			if in.Status == "" || k.Status == in.Status {
+				out = append(out, k)
+			}
+		}
+		return out, nil
+	}
+	s.ProposeKnowledgeFunc = func(context.Context, domain.Actor, mcp.ProposeKnowledgeInput) (mcp.ProposeKnowledgeOutput, error) {
+		return mcp.ProposeKnowledgeOutput{Proposal: "KB-6", Status: domain.KnowledgeOpen, Number: 13, URL: "https://github.com/acme/app/pull/13"}, nil
+	}
+	s.DeleteNoteFunc = func(_ context.Context, _ domain.Actor, _ mcp.DeleteNoteInput) (mcp.DeleteNoteOutput, error) {
+		return mcp.DeleteNoteOutput{Note: fid(112), Message: "Note The spool is flaky deleted."}, nil
+	}
+}
+
+// assumptionRegister makes list_assumptions and resolve_assumption answer with
+// the register of the Assumptions page (A-4 to A-6), which the Inbox fixtures'
+// A-7 and A-8 do not cover: the first has what rests on it, the second was
+// accepted with evidence and the third was invalidated.
+func assumptionRegister(e *env) {
+	acc := fid(1)
+	s := e.svc
+	assumptions := []mcp.AssumptionInfo{
+		{Assumption: domain.Assumption{
+			ID: fid(90), AccountID: acc, ProjectID: fid(10), Number: 4, GoalID: fid(20), MadeBy: "architect", JobID: fid(70),
+			StatedAssumption: domain.StatedAssumption{Statement: "Links are sent by the existing mailer.", Confidence: domain.LevelMedium, Impact: domain.LevelHigh, VerifyBy: domain.VerifyByTest},
+			Status:           domain.AssumptionUnverified, Dependents: []domain.Dependent{{Kind: domain.DependentGoal, ID: "GOAL-3"}, {Kind: domain.DependentTask, ID: "TASK-12"}},
+			CreatedAt: at(-240), UpdatedAt: at(-240),
+		}, Ref: "A-4", Source: "JOB-41"},
+		{Assumption: domain.Assumption{
+			ID: fid(91), AccountID: acc, ProjectID: fid(10), Number: 5, GoalID: fid(20), MadeBy: "product-owner",
+			StatedAssumption: domain.StatedAssumption{Statement: "Admins <b>never</b> sign in with a password.", Confidence: domain.LevelLow, Impact: domain.LevelMedium, VerifyBy: domain.VerifyByAskHuman},
+			Status:           domain.AssumptionAccepted, Evidence: "Ana accepts the risk.", Dependents: []domain.Dependent{{Kind: domain.DependentSpec, ID: "SPEC-2"}},
+			ResolvedBy: "mcp:laptop", ResolvedAt: at(-100), CreatedAt: at(-230), UpdatedAt: at(-100),
+		}, Ref: "A-5", Source: "SPEC-2"},
+		{Assumption: domain.Assumption{
+			ID: fid(92), AccountID: acc, ProjectID: fid(10), Number: 6, MadeBy: "developer", JobID: fid(71),
+			StatedAssumption: domain.StatedAssumption{Statement: "The mailer retries on failure.", Confidence: domain.LevelHigh, Impact: domain.LevelLow, VerifyBy: domain.VerifyByResearch},
+			Status:           domain.AssumptionInvalidated, Evidence: "It does not retry: see mailer.go.", Dependents: []domain.Dependent{},
+			ResolvedBy: "mcp:laptop", ResolvedAt: at(-50), CreatedAt: at(-120), UpdatedAt: at(-50),
+		}, Ref: "A-6", Source: "JOB-42"},
+	}
+	s.ListAssumptionsFunc = func(_ context.Context, _ domain.Actor, in mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error) {
+		var out []mcp.AssumptionInfo
+		for _, a := range assumptions {
+			if (in.Status == "" || a.Status == in.Status) && (in.Impact == "" || a.Impact == in.Impact) {
+				out = append(out, a)
+			}
+		}
+		return out, nil
+	}
+	s.ResolveAssumptionFunc = func(_ context.Context, _ domain.Actor, in mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error) {
+		a := assumptions[0]
+		a.Status, a.Evidence, a.ResolvedBy, a.ResolvedAt = in.Status, in.Evidence, "mcp:laptop", t0
+		return a, nil
+	}
 }
 
 func fixtureJob(number int64, status domain.JobStatus, role string, attempts int, started time.Time) domain.Job {
@@ -594,6 +760,24 @@ func fixtureCases() []fixtureCase {
 				panic(err)
 			}
 		}},
+		{"trace", "GET", "/api/v1/trace?ref=TASK-12", "", 200, "bearer", nil},
+		{"trace-not-found", "GET", "/api/v1/trace?ref=GOAL-99", "", 404, "bearer", func(e *env) {
+			e.svc.GetTraceFunc = func(context.Context, domain.Actor, mcp.GetTraceInput) (mcp.Trace, error) {
+				return mcp.Trace{}, fmt.Errorf("goal GOAL-99: %w", mcp.ErrNotFound)
+			}
+		}},
+		{"assumption-register", "GET", "/api/v1/assumptions?project=app", "", 200, "bearer", assumptionRegister},
+		{"assumption-register-empty", "GET", "/api/v1/assumptions?project=app&status=verified", "", 200, "bearer", assumptionRegister},
+		{"assumption-register-resolve", "POST", "/api/v1/assumptions/A-4/resolve", `{"status":"verified","evidence":"The mailer is in production: see mailer.go."}`, 200, "bearer", assumptionRegister},
+		{"knowledge-entries", "GET", "/api/v1/knowledge/entries?project=app", "", 200, "bearer", nil},
+		{"knowledge-notes", "GET", "/api/v1/knowledge/entries?project=app&kind=note&goal=GOAL-3", "", 200, "bearer", nil},
+		{"knowledge-entries-empty", "GET", "/api/v1/knowledge/entries?project=app&section=security", "", 200, "bearer", nil},
+		{"knowledge-search", "GET", "/api/v1/knowledge?project=app&q=postgres", "", 200, "bearer", nil},
+		{"knowledge-search-empty", "GET", "/api/v1/knowledge?project=app&q=zebra", "", 200, "bearer", nil},
+		{"knowledge-proposals", "GET", "/api/v1/knowledge/proposals?project=app", "", 200, "bearer", nil},
+		{"knowledge-proposals-empty", "GET", "/api/v1/knowledge/proposals?project=app&status=rejected", "", 200, "bearer", nil},
+		{"knowledge-propose", "POST", "/api/v1/knowledge/proposals", `{"project":"app","section":"architecture","path":"docs/adr/0003-x.md","body":"x","reason":"y"}`, 201, "bearer", nil},
+		{"knowledge-note-delete", "DELETE", "/api/v1/knowledge/notes/" + fid(112).String(), "", 200, "bearer", nil},
 		{"error-unauthorized", "GET", "/api/v1/me", "", 401, "", nil},
 		{"error-not-found", "GET", "/api/v1/goals/GOAL-99", "", 404, "bearer", func(e *env) {
 			e.svc.GetGoalFunc = func(context.Context, domain.Actor, mcp.GoalRefInput) (mcp.GoalDetail, error) {

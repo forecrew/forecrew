@@ -143,7 +143,141 @@ export interface GoalDetail {
   spec?: Spec
   tasks: Task[]
   gates: GateInfo[]
+  assumptions?: Assumption[]
   cost_usd: number
+}
+
+export const LEVELS: Level[] = ["low", "medium", "high"]
+export const ASSUMPTION_STATUSES: AssumptionStatus[] = ["unverified", "verified", "invalidated", "accepted"]
+
+export type TraceKind = "goal" | "council" | "spec" | "decision" | "task" | "change" | "verification" | "merge" | "assumption"
+
+/** One step of a trace (get_trace). Title, summary and attrs are agent text. */
+export interface TraceNode {
+  id: string
+  kind: TraceKind
+  title: string
+  status?: string
+  summary?: string
+  url?: string
+  at: string
+  attrs?: Record<string, string>
+}
+
+export interface TraceEdge {
+  from: string
+  to: string
+  label?: string
+}
+
+export interface Trace {
+  /** The node asked for. */
+  focus: string
+  /** The goal the chain belongs to; absent for a record of no goal. */
+  goal?: string
+  nodes: TraceNode[]
+  edges: TraceEdge[]
+}
+
+export type KnowledgeKind = "entry" | "note" | "generated"
+
+export interface Provenance {
+  author_role: string
+  source: string
+  created: string
+  last_verified?: string
+}
+
+/** A search hit or a listed entry (search_knowledge, list_knowledge). Text is untrusted where `untrusted` says so. */
+export interface KnowledgeResult {
+  id: string
+  kind: KnowledgeKind
+  provider: string
+  section: string
+  path: string
+  title: string
+  source_url?: string
+  snippet: string
+  untrusted: boolean
+  provenance: Provenance
+  needs_reverify: boolean
+  reverify_reason?: string
+  scope?: "goal" | "project"
+  goal_id?: string
+  tags?: string[]
+  expires_at?: string
+}
+
+export interface KnowledgeEntry extends KnowledgeResult {
+  /** The whole Markdown. */
+  body: string
+}
+
+export interface KnowledgeSection {
+  name: string
+  provider?: string
+  provider_kind?: string
+  instance?: string
+  /** Repo globs, or the provider's locations. */
+  paths: string[]
+  owner?: string
+  protected: boolean
+}
+
+export interface KnowledgeListing {
+  sections: KnowledgeSection[]
+  entries: KnowledgeEntry[]
+}
+
+export type KnowledgeAction = "add" | "edit" | "retire"
+export type KnowledgeProposalStatus = "queued" | "open" | "accepted" | "rejected"
+
+export interface KnowledgeProposal {
+  id: string
+  /** KB-<number> */
+  ref: string
+  number: number
+  section: string
+  path: string
+  action: KnowledgeAction
+  body: string
+  reason: string
+  proposed_by: string
+  status: KnowledgeProposalStatus
+  goal_ref?: string
+  /** The pull request of a proposal to the repo provider. */
+  url?: string
+  /** The knowledge_proposal gate a human decides. */
+  gate?: GateInfo
+  created_at: string
+}
+
+export interface ProposeKnowledgeInput {
+  project: string
+  section: string
+  path: string
+  body: string
+  reason: string
+  action?: KnowledgeAction
+}
+
+export interface ProposeKnowledgeResult {
+  proposal: string
+  status: KnowledgeProposalStatus
+  number: number
+  url: string
+}
+
+export type IntegrationStatus = "proposed" | "approved" | "connected"
+
+/** A tool the team uses outside the repo, from the approved profile. */
+export interface Integration {
+  tool: string
+  instance?: string
+  uses: string[]
+  confidence: Level
+  status: IntegrationStatus
+  mapping?: Record<string, string[]>
 }
 
 export interface ProfileComponent {
@@ -164,6 +298,7 @@ export interface Profile {
   components?: ProfileComponent[]
   platforms?: string[]
   open_questions?: string[]
+  integrations?: Integration[]
 }
 
 export interface Project {
@@ -531,6 +666,7 @@ export interface CouncilDetail extends Council {
 
 export interface Assumption {
   id: string
+  project_id: string
   /** A-<number> */
   ref: string
   number: number
@@ -544,6 +680,8 @@ export interface Assumption {
   /** The job (JOB-41), else the council's ID, else the spec it came from. */
   source?: string
   dependents: { kind: string; id: string }[]
+  resolved_by?: string
+  resolved_at?: string
   created_at: string
 }
 
