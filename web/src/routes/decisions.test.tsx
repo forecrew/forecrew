@@ -27,6 +27,16 @@ test("links a decision to its council", async () => {
   await waitFor(() => expect(router.state.location.pathname).toBe(`/councils/${fx.decisions[0]!.council_id}`))
 })
 
+test("links a decision of a goal to the gates of the goal", async () => {
+  const { user, router } = await renderApp("/decisions?project=app")
+  const list = await screen.findByRole("list", { name: "Decisions" })
+  const [first, second] = within(list).getAllByRole("listitem")
+  expect(within(second!).queryByRole("link", { name: "Open its gate on the goal" })).not.toBeInTheDocument()
+  await user.click(within(first!).getByRole("link", { name: "Open its gate on the goal" }))
+  await waitFor(() => expect(router.state.location.pathname).toBe(`/goals/${fx.decisions[0]!.goal_id}`))
+  expect(router.state.location.hash).toBe("gates")
+})
+
 test("asks only for the project of the address", async () => {
   const seen: string[] = []
   server.use(

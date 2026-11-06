@@ -68,7 +68,8 @@ left out, not faked:
 - **Decisions.** The decisions register of the chosen project, newest first:
   the question, the choice among the options, who decided (a person, or the
   policy), the reasons, dissent, the assumptions it rests on, and a link to
-  its council.
+  its council, and for a decision that belongs to a goal a link to the
+  Gates section of the goal, where the decided gate is listed.
 - **Job.** A back link, the title with the state badge and a line with goal,
   worker and model, the log beside the details, the cost and the tokens; Cancel
   stays at the top right.
