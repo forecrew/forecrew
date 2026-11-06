@@ -26,7 +26,7 @@ const ContentSecurityPolicy = "default-src 'self'; base-uri 'self'; form-action 
 const notBuilt = "UI not built: run make web\n"
 
 // reserved are the paths of the other handlers; the UI never answers for them.
-var reserved = []string{"/api", "/auth", "/mcp", "/webhooks", "/worker", "/healthz"}
+var reserved = []string{"/api", "/auth", "/mcp", "/webhooks", "/worker", "/fleet", "/healthz"}
 
 // Handler serves the built UI: files that exist, and index.html for any other
 // path (client-side routes) except the reserved ones.
