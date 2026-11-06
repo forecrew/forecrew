@@ -90,6 +90,7 @@ type Store interface {
 	Machines() MachineRepo
 	BootstrapTokens() BootstrapTokenRepo
 	FleetPolicies() FleetPolicyRepo
+	Images() ImageRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
 	// must use the ctx passed to fn.
@@ -1028,10 +1029,9 @@ type SCIMTokenRepo interface {
 }
 
 // The fleet repositories (docs/contracts/fleet.md, data-model.md, migration
-// 00007). ProviderJoinCodeRepo, ImageRepo and UsageRepo are contracts only
+// 00007). ProviderJoinCodeRepo and UsageRepo are contracts only
 // until they join Store, each with the Postgres implementation and the
-// testkit fake: ProviderJoinCodeRepo by T59, ImageRepo by T60 and UsageRepo by
-// T65. They serve a controller that works across organizations, so the calls
+// testkit fake: ProviderJoinCodeRepo by T59 and UsageRepo by T65. They serve a controller that works across organizations, so the calls
 // that find a provider, machine or token by its ID or hash are unscoped; the
 // zero account ID means the instance-wide rows.
 

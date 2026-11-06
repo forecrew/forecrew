@@ -1049,6 +1049,14 @@ func TestKnowledgeStore(t *testing.T) {
 	KnowledgeProposalStoreSuite(t, st, acc.ID, p.ID)
 }
 
+func TestImageStore(t *testing.T) {
+	st := NewStore(nil)
+	a, b := domain.Account{Name: "a"}, domain.Account{Name: "b"}
+	must(t, st.Accounts().Create(t.Context(), &a))
+	must(t, st.Accounts().Create(t.Context(), &b))
+	ImageStoreSuite(t, st, a.ID, b.ID)
+}
+
 func TestStoreCouncils(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
