@@ -76,8 +76,9 @@ func newFixture(t *testing.T) *fixture {
 		Store: st, Gates: f.gates, Jobs: f.jobs, Creator: f.creator, Playbooks: f.playbooks, GitHub: f.tracker, Evidence: f.ev, Logger: logger, Councils: seats,
 		Registers: f.regs,
 		Roles: testkit.Roles{
-			"reviewer":  {Name: "reviewer"},
-			"developer": {Name: "developer", WritePaths: []string{"src/**"}},
+			"reviewer":       {Name: "reviewer"},
+			"developer":      {Name: "developer", WritePaths: []string{"src/**"}},
+			"test-architect": {Name: "test-architect"}, "environment-engineer": {Name: "environment-engineer"},
 		},
 	})
 	f.by = domain.Actor{AccountID: f.account.ID, Kind: domain.ActorMCP, Name: "laptop"}
@@ -232,6 +233,12 @@ func TestOnboardProjectRefreshErrors(t *testing.T) {
 			must(t, f.st.WorkflowRuns().Create(t.Context(), &r))
 		}},
 		{name: "playbook fails", repo: "acme/app", want: boom, setup: func(_ *testing.T, f *fixture) { f.playbooks.Err = boom }},
+		{name: "a test role is not configured", repo: "acme/app", want: mcp.ErrInvalidInput, setup: func(_ *testing.T, f *fixture) {
+			f.svc = tools.New(tools.Config{Store: f.st, Playbooks: f.playbooks, GitHub: f.tracker, Roles: testkit.Roles{"test-architect": {Name: "test-architect"}}})
+		}},
+		{name: "no roles", repo: "acme/app", want: mcp.ErrInvalidInput, setup: func(_ *testing.T, f *fixture) {
+			f.svc = tools.New(tools.Config{Store: f.st, Playbooks: f.playbooks, GitHub: f.tracker})
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
