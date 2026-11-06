@@ -63,6 +63,9 @@ type UpdateRequest struct {
 	Deadline     time.Time         `json:"deadline,omitzero"` // zero: none
 }
 
+// Key is a value to compare two updates by.
+func (u UpdateRequest) Key() string { return appliedKey(u) }
+
 // Instance is a machine as a provider sees it.
 type Instance struct {
 	ExternalID string `json:"external_id"`
