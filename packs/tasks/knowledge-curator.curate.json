@@ -8,7 +8,7 @@
   "properties": {
     "summary": {"$ref": "../schemas/common.json#/$defs/text", "description": "What you checked and what you found, in a few sentences."},
     "reverified": {
-      "description": "Entries marked for re-verification that you read against the current code and found still true.",
+      "description": "Entries, marked for re-verification or not verified for long, that you read against the current code and found still true. Each loses its flag and gets today as its last_verified.",
       "type": "array",
       "items": {
         "type": "object",

@@ -1,0 +1,40 @@
+description: Keep a project's knowledge base true and small. Weekly by default (a schedule in forecrew.yaml starts it). A knowledge-curator job first works through the entries marked needs_reverify, checking them against the current code, then looks for duplicates, contradictions and entries not verified for knowledge.verify_window, and for old project notes nobody found; it proposes edits, retirements and promotions with kb_propose, clears the flag of what is still true and drops unread notes. Then discovery runs again, and a tool that is new to the profile or much more used becomes a PR on the profile, as proposed, once per tool.
+inputs: [repo]
+steps:
+  # What to look at; one item in if_curate when there is anything to curate.
+  - id: prepare
+    type: action
+    action: curate.prepare
+    on_failure: escalate
+  # A read-only job of the curator. Its proposals go out when it completes,
+  # like any job's (the knowledge-proposal playbook).
+  - id: curate
+    type: foreach
+    items: '${steps.prepare.output.if_curate}'
+    steps:
+      - id: curator
+        type: job
+        with:
+          role: knowledge-curator
+          task: curate
+          repo: '${inputs.repo}'
+          feedback: '${steps.prepare.output.text}'
+        on_failure: escalate
+  # What the curator decided without a proposal: entries it found still true
+  # lose their flag, unread notes it named are deleted.
+  - id: finish
+    type: action
+    action: curate.finish
+    with: {jobs: '${steps.curate.output}'}
+    on_failure: escalate
+  # The tools the team uses, as onboarding finds them, against the profile.
+  - id: discover
+    type: action
+    action: discover.github
+    with: {repo: '${inputs.repo}'}
+    on_failure: escalate
+  - id: tools
+    type: action
+    action: curate.tools
+    with: {repo: '${inputs.repo}', integrations: '${steps.discover.output.integrations}'}
+    on_failure: escalate

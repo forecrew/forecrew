@@ -268,6 +268,9 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `knowledge.decide` | `job_id`, `provider` | `{if_merge, if_follow}`. Anything but an approved gate rejects the proposals and closes the PR. `if_merge` holds the PR when forecrewd merges it, `if_follow` when it is owned by `codeowners`, whose reviewers and a human merge it. Both are empty without an open PR. |
 | `knowledge.settle` | `job_id`, `provider` | `{failed}`. Last step and `finally` step: a merged PR or an approved gate accepts the proposals, a closed PR rejects them. In a run that failed or was canceled what is still in review is rejected and the PR closed. |
 | `knowledge.access_pr` | `gate_id`, `section`, `level`, `role` | `{opened, number, url}`. When the `access_request` gate was approved and the policy does not grant it yet, opens a PR `agent/kb-access-GATE-n` that adds the role to the section's access list. A human merges it; the policy is never changed directly. |
+| `curate.prepare` | none | `{text, if_curate, reverify, stale, notes}`. The curator's work list: entries marked `needs_reverify`, entries not verified for `knowledge.verify_window` and old project notes that no search returned, with excerpts marked as data and each list bounded. `if_curate` has one item when there is something to curate (two curated entries or more, or anything listed) and none otherwise. Reads only. |
+| `curate.finish` | `jobs` (the foreach of curator jobs) | `{cleared, dropped, skipped}`. Applies what the curator decided without a proposal, after checking the index: an entry it found still true loses `needs_reverify` and gets `last_verified` now; a project note it named is deleted only when it is old, unread and not promoted. |
+| `curate.tools` | `repo`, `integrations` (the output of `discover.github`) | `{opened, skipped}`. For each discovered tool that is new to the profile, or at least three times (and ten) more used than the profile recorded, opens a PR on `.forecrew/profile.yaml`: the tool added as `proposed` with its evidence, or its evidence updated. Once per tool, ever (the audit log remembers it); at most three PRs per run; a profile that would be invalid is not proposed. |
 | `goal.retro_context` | `goal_id` | `{text, notes}`. The goal's history for the retro job: spec revisions, what humans answered at the goal's gates, the reviews that asked for changes, the jobs that failed or were canceled, costs by role and the goal's notes with their ids. Everything a person or agent wrote is marked as data, each text cut and each list bounded. Reads only. |
 | `goal.learn` | `goal_id` | `{proposals, files, number, branch, head_sha, gate, if_gate}`. The learn step: writes in one PR `agent/learn-GOAL-n` the goal's register files (`.forecrew/assumptions/A-n.yaml`, `docs/decisions/DEC-n.md`, as `registers.Export` gives them, only when they differ from the default branch) and the goal's queued `per_goal` proposals for the repo (`entry`: provenance frontmatter, then the body; source `GOAL-n`). It checks them against the policy again first: what the policy no longer allows, or a section that became protected, is rejected and audited. Proposals for a provider without a review flow wait at the gate. Opens one `knowledge_proposal` gate, with the call's key as ID, for the PR and those proposals; `gate` is its ID (empty when there was nothing to send) and `if_gate` holds it for a `foreach`. Idempotent for its key. |
 | `goal.learn_decide` | `goal_id`, `gate` | `{if_merge, if_follow}`. Anything but an approved gate closes the learn PR and rejects the proposals; an approval accepts the ones copied across by hand and says how the PR gets merged (`if_follow` when a section it changes is owned by `codeowners`). |
@@ -459,7 +462,10 @@ started for a goal with the engine, as councils are.
 
 ## The curate playbook
 
-See [knowledge.md](knowledge.md#upkeep).
+`packs/playbooks/curate.yaml`, input `repo`, is started by a schedule
+(`schedules` in config.md): `curate.prepare`, a `knowledge-curator` job with
+`task: curate` when there is something to curate, `curate.finish`,
+`discover.github` and `curate.tools`. See [knowledge.md](knowledge.md#upkeep).
 
 ## The onboarding playbook
 
