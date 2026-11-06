@@ -103,7 +103,7 @@ steps:
           - id: tmap
             type: action
             action: tests.map
-            with: {task_id: '${item.id}', needs: '${item.needs}'}
+            with: {task_id: '${item.id}', needs: '${item.needs}', repo: '${inputs.repo}'}
           - id: matrix_work
             type: foreach
             items: '${steps.tmap.output.if_architect}'

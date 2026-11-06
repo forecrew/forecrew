@@ -28,6 +28,7 @@ type v2Run struct {
 func startGoalV2(t *testing.T, linuxOnly ...bool) *v2Run {
 	t.Helper()
 	v := newEnv(t, domain.ProjectOnboarded)
+	v.matrixFiles(t, "agent/TASK-1") // the test engineer's suites are checked at the branch
 	for round := 1; round <= 4; round++ {
 		v.matrixFiles(t, v2sha(round))
 	}
