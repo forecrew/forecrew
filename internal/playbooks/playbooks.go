@@ -126,6 +126,7 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["tests.base_check_result"] = d.testsBaseCheckResult
 	registry["verification.build"] = d.verificationBuild
 	registry["verification.rerun_cells"] = d.verificationRerunCells
+	registry["verification.read"] = d.verificationRead
 	registry["knowledge.seed"] = d.seedKnowledge
 	registry["knowledge.propose"] = d.knowledgePropose
 	registry["knowledge.assess"] = d.knowledgeAssess

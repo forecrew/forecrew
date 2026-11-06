@@ -10,6 +10,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -44,6 +45,12 @@ type assessOutput struct {
 // one it rests on was invalidated after the developer job with.job_id
 // finished, the round is not done and the feedback says which assumptions.
 // Without with.task_id the register is not read.
+//
+// With with.require_verification the verification report of the PR at
+// with.sha decides too: a failed report gives the rework feedback with what
+// blocks, a passed one puts its status and link in the gate summary, and no
+// report or an incomplete one is an error, since the playbook must finish
+// the verification (and ask a human about missing workers) before it assesses.
 func (a *actions) assess(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		Repo   string          `json:"repo"`
@@ -57,6 +64,9 @@ func (a *actions) assess(ctx context.Context, call workflow.ActionCall) (any, er
 		// TaskID and JobID are the task and the developer job of the round.
 		TaskID uuid.UUID `json:"task_id"`
 		JobID  uuid.UUID `json:"job_id"`
+		// RequireVerification makes the verification report of the commit
+		// part of the decision.
+		RequireVerification bool `json:"require_verification"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -88,6 +98,16 @@ func (a *actions) assess(ctx context.Context, call workflow.ActionCall) (any, er
 	if with.Checks == "failure" || review.Verdict != "approve" {
 		feedback = append(feedback, reworkFeedback(pr.URL, with.Checks, review))
 	}
+	var verified string
+	if with.RequireVerification {
+		var failed string
+		if verified, failed, err = a.verificationForGate(ctx, call.Run.AccountID, with.Repo, pr, with.SHA); err != nil {
+			return nil, err
+		}
+		if failed != "" {
+			feedback = append(feedback, failed)
+		}
+	}
 	var rests []domain.Assumption
 	if with.TaskID != uuid.Nil() {
 		var held string
@@ -101,7 +121,30 @@ func (a *actions) assess(ctx context.Context, call workflow.ActionCall) (any, er
 	if len(feedback) > 0 {
 		return assessOutput{IfReady: []int{}, Feedback: strings.Join(feedback, "\n\n")}, nil
 	}
-	return assessOutput{Done: true, IfReady: []int{pr.Number}, GateSummary: gateSummary(pr.URL, with.SHA, with.Checks, review, result, rests)}, nil
+	return assessOutput{Done: true, IfReady: []int{pr.Number}, GateSummary: gateSummary(pr.URL, with.SHA, with.Checks, verified, review, result, rests)}, nil
+}
+
+// verificationForGate reads the report of the PR's head sha. It returns the
+// text for the merge gate (status, summary and where the report is) when the
+// report passed, and the developer's rework feedback when it failed. A head
+// without a report and an incomplete report are errors.
+func (a *actions) verificationForGate(ctx context.Context, accountID uuid.UUID, repo string, pr github.PullRequest, sha string) (gate, rework string, err error) {
+	rep, found, err := a.headReport(ctx, accountID, repo, pr.Number, sha)
+	switch {
+	case err != nil:
+		return "", "", err
+	case !found:
+		return "", "", fmt.Errorf("%s#%d has no verification report at %s: build it before assessing", repo, pr.Number, sha)
+	case rep.Status == domain.VerificationIncomplete:
+		return "", "", fmt.Errorf("the verification of %s#%d at %s is incomplete: finish it before assessing", repo, pr.Number, sha)
+	case rep.Status == domain.VerificationFailed:
+		var b strings.Builder
+		fmt.Fprintf(&b, "The verification of %s at %s failed: %s\n", pr.URL, sha, rep.Summary())
+		b.WriteString("\nWhat blocks the merge, from the test results of the repo; fix the code, never the tests that were written from the spec:\n")
+		b.WriteString(contextpack.WrapUntrusted("verification report", strings.Join(rep.Blocking, "\n")))
+		return "", strings.TrimSpace(b.String()), nil
+	}
+	return fmt.Sprintf("%s Report: %s (the comment and the check `forecrew/verification`).", rep.Summary(), pr.URL), "", nil
 }
 
 // assumptionFeedback returns the assumptions the task rests on and, when
@@ -251,13 +294,16 @@ func commentLine(c reviewComment) string {
 }
 
 // gateSummary is the text of the merge_approval gate.
-func gateSummary(prURL, sha, checks string, review reviewDoc, result devResult, rests []domain.Assumption) string {
+func gateSummary(prURL, sha, checks, verified string, review reviewDoc, result devResult, rests []domain.Assumption) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s at %s.\n\n", prURL, sha)
 	if checks == "none" {
 		b.WriteString("Checks: none, the repo has no checks.\n")
 	} else {
 		fmt.Fprintf(&b, "Checks: %s.\n", checks)
+	}
+	if verified != "" {
+		fmt.Fprintf(&b, "Verification: %s\n", verified)
 	}
 	fmt.Fprintf(&b, "Review: %s. %s\n", strings.ReplaceAll(review.Verdict, "_", " "), strings.TrimSpace(review.Summary))
 	var checked []string
