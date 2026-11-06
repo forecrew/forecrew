@@ -165,8 +165,14 @@ func configSecrets(t *testing.T, st store.Store, scope uuid.UUID) {
 		}
 	}
 
-	v := domain.StoredSecret{AccountID: scope, Name: "conn-x", Nonce: []byte{1}, Ciphertext: []byte{2}, UpdatedBy: "user:me"}
+	v := domain.StoredSecret{AccountID: scope, Name: "conn-x", KeyID: "old", Nonce: []byte{1}, Ciphertext: []byte{2}, UpdatedBy: "user:me"}
 	must(st.Secrets().Put(ctx, &v))
+	if rows, err := st.Secrets().ListStale(ctx, "new", 10); err != nil || len(rows) != 1 || rows[0].KeyID != "old" || rows[0].AccountID != scope {
+		t.Fatalf("ListStale = %+v, %v", rows, err)
+	}
+	if rows, err := st.Secrets().ListStale(ctx, "old", 10); err != nil || len(rows) != 0 {
+		t.Fatalf("ListStale of the same key = %+v, %v", rows, err)
+	}
 	v.ID, v.Ciphertext = uuid.Nil(), []byte{3}
 	must(st.Secrets().Put(ctx, &v))
 	got, err := st.Secrets().Get(ctx, scope, "conn-x")

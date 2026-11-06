@@ -138,24 +138,28 @@ func (r configSettingRepo) Delete(ctx context.Context, accountID uuid.UUID, kind
 
 type secretRepo struct{ db dbtx }
 
-const secretCols = `id, COALESCE(account_id, ` + zeroUUID + `), name, nonce, ciphertext, updated_by, created_at, updated_at`
+const secretCols = `id, COALESCE(account_id, ` + zeroUUID + `), name, key_id, nonce, ciphertext, updated_by, created_at, updated_at`
 
 func scanSecret(row pgx.Row) (s domain.StoredSecret, err error) {
-	err = row.Scan(&s.ID, &s.AccountID, &s.Name, &s.Nonce, &s.Ciphertext, &s.UpdatedBy, &s.CreatedAt, &s.UpdatedAt)
+	err = row.Scan(&s.ID, &s.AccountID, &s.Name, &s.KeyID, &s.Nonce, &s.Ciphertext, &s.UpdatedBy, &s.CreatedAt, &s.UpdatedAt)
 	utc(&s.CreatedAt, &s.UpdatedAt)
 	return s, err
 }
 
 func (r secretRepo) Put(ctx context.Context, s *domain.StoredSecret) error {
 	s.ID = newID(s.ID)
-	return mapErr(r.db.QueryRow(ctx, `INSERT INTO secrets (id, account_id, name, nonce, ciphertext, updated_by) VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (account_id, name) DO UPDATE SET nonce = EXCLUDED.nonce, ciphertext = EXCLUDED.ciphertext, updated_by = EXCLUDED.updated_by, updated_at = now()
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO secrets (id, account_id, name, key_id, nonce, ciphertext, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (account_id, name) DO UPDATE SET key_id = EXCLUDED.key_id, nonce = EXCLUDED.nonce, ciphertext = EXCLUDED.ciphertext, updated_by = EXCLUDED.updated_by, updated_at = now()
 		RETURNING id, created_at, updated_at`,
-		s.ID, opt(s.AccountID), s.Name, s.Nonce, s.Ciphertext, s.UpdatedBy).Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt))
+		s.ID, opt(s.AccountID), s.Name, s.KeyID, s.Nonce, s.Ciphertext, s.UpdatedBy).Scan(&s.ID, &s.CreatedAt, &s.UpdatedAt))
 }
 
 func (r secretRepo) Get(ctx context.Context, accountID uuid.UUID, name string) (domain.StoredSecret, error) {
 	return one(ctx, r.db, scanSecret, `SELECT `+secretCols+` FROM secrets WHERE account_id IS NOT DISTINCT FROM $1 AND name = $2`, opt(accountID), name)
+}
+
+func (r secretRepo) ListStale(ctx context.Context, keyID string, limit int) ([]domain.StoredSecret, error) {
+	return many(ctx, r.db, scanSecret, `SELECT `+secretCols+` FROM secrets WHERE key_id <> $1 ORDER BY id LIMIT $2`, keyID, limit)
 }
 
 func (r secretRepo) Delete(ctx context.Context, accountID uuid.UUID, name string) error {

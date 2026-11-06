@@ -122,8 +122,10 @@ type App struct {
 	catalog *roles.Catalog
 	creator *jobCreator
 	tools   *tools.Service
-	auth    *auth.Service
-	engine  *workflow.Engine
+	// vault is the secret store; nil without a key.
+	vault  *secrets.Encrypted
+	auth   *auth.Service
+	engine *workflow.Engine
 	// retention deletes expired artifacts and orphan objects; nil without
 	// evidence storage.
 	retention *evidence.Retention
@@ -303,9 +305,13 @@ func New(d Deps) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("start workflow engine: %w", err)
 	}
-	vault, err := openSecrets(cfg, st)
+	encrypted, err := openSecrets(cfg, st)
 	if err != nil {
 		return nil, err
+	}
+	var vault secrets.Store // a nil *Encrypted must stay a nil interface
+	if encrypted != nil {
+		vault = encrypted
 	}
 	authSvc := auth.New(auth.Config{Store: st, Auth: cfg.Auth, BaseURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now, GitHubURL: d.GitHubURL, GitHubAPIURL: d.GitHubAPIURL, Secrets: vault})
 	toolSvc := tools.New(tools.Config{
@@ -340,7 +346,7 @@ func New(d Deps) (*App, error) {
 	warnDeprecated(cfg, log)
 	a := &App{
 		auth:      authSvc,
-		schedules: schedules, syncs: syncs, provider: provider, d: d, jobs: jobSvc, fleet: machines, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
+		schedules: schedules, syncs: syncs, provider: provider, d: d, jobs: jobSvc, fleet: machines, catalog: catalog, creator: creator, tools: toolSvc, vault: encrypted, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
 		webhooks: webhook.NewHandler([]byte(cfg.GitHub.WebhookSecret), hooks),
 		poller:   webhook.NewPoller(hooks),
 	}
@@ -461,6 +467,7 @@ func (a *App) Run(ctx context.Context) error {
 	if err := a.auth.Start(ctx); err != nil {
 		return fmt.Errorf("start sign-in: %w", err)
 	}
+	a.rotateSecrets(ctx)
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	var wg sync.WaitGroup
@@ -509,7 +516,7 @@ func withStoredSettings(ctx context.Context, cfg *config.Config, st store.Store,
 
 // openSecrets opens the secret store; without a key it is off and secure
 // fields answer unavailable.
-func openSecrets(cfg *config.Config, st store.Store) (secrets.Store, error) {
+func openSecrets(cfg *config.Config, st store.Store) (*secrets.Encrypted, error) {
 	if cfg.SecretKey == "" {
 		return nil, nil
 	}
@@ -517,5 +524,28 @@ func openSecrets(cfg *config.Config, st store.Store) (secrets.Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", config.EnvSecretKey, err)
 	}
-	return secrets.New(st.Secrets(), key)
+	var previous [][]byte
+	if cfg.SecretKeyPrevious != "" {
+		old, err := secrets.ParseKey(cfg.SecretKeyPrevious)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", config.EnvSecretKeyPrevious, err)
+		}
+		previous = append(previous, old)
+	}
+	return secrets.New(st.Secrets(), key, previous...)
+}
+
+// rotateSecrets moves values to the current key of the secret store. A
+// failure is logged: values under a key the server holds still read.
+func (a *App) rotateSecrets(ctx context.Context) {
+	if a.vault == nil {
+		return
+	}
+	n, err := a.vault.Rotate(ctx)
+	switch {
+	case err != nil:
+		a.d.Logger.ErrorContext(ctx, "rotate the secret store", "moved", n, "error", err)
+	case n > 0:
+		a.d.Logger.InfoContext(ctx, "secret store rotated", "moved", n)
+	}
 }

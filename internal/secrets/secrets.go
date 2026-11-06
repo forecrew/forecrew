@@ -8,7 +8,9 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"uuid"
@@ -22,6 +24,9 @@ const KeySize = 32
 
 // MaxValueSize is the largest secret accepted.
 const MaxValueSize = 64 << 10
+
+// rotateBatch is how many values Rotate reads at a time.
+const rotateBatch = 100
 
 // Errors of the store.
 var (
@@ -55,7 +60,9 @@ type Store interface {
 // Encrypted is the Store of values encrypted in the database.
 type Encrypted struct {
 	repo store.SecretRepo
-	aead cipher.AEAD
+	// current encrypts; every key of keys decrypts.
+	current string
+	keys    map[string]cipher.AEAD
 }
 
 var _ Store = (*Encrypted)(nil)
@@ -70,8 +77,13 @@ func ParseKey(encoded string) ([]byte, error) {
 	return key, nil
 }
 
-// New returns a store over repo under key.
-func New(repo store.SecretRepo, key []byte) (*Encrypted, error) {
+// KeyID names a key in the database without giving anything of it away.
+func KeyID(key []byte) string {
+	sum := sha256.Sum256(append([]byte("forecrew secret key id\x00"), key...))
+	return hex.EncodeToString(sum[:8])
+}
+
+func newAEAD(key []byte) (cipher.AEAD, error) {
 	if len(key) != KeySize {
 		return nil, fmt.Errorf("the key must be %d bytes: %w", KeySize, ErrInvalid)
 	}
@@ -83,7 +95,53 @@ func New(repo store.SecretRepo, key []byte) (*Encrypted, error) {
 	if err != nil {
 		return nil, fmt.Errorf("secret key: %w", err)
 	}
-	return &Encrypted{repo: repo, aead: aead}, nil
+	return aead, nil
+}
+
+// New returns a store over repo that encrypts under key. Values under a
+// previous key still read, until Rotate moves them.
+func New(repo store.SecretRepo, key []byte, previous ...[]byte) (*Encrypted, error) {
+	e := &Encrypted{repo: repo, current: KeyID(key), keys: map[string]cipher.AEAD{}}
+	for _, k := range append([][]byte{key}, previous...) {
+		aead, err := newAEAD(k)
+		if err != nil {
+			return nil, err
+		}
+		e.keys[KeyID(k)] = aead
+	}
+	return e, nil
+}
+
+// Rotate encrypts again, under the current key, every value under a previous
+// one. A value under a key the store does not hold stops it with ErrCorrupt,
+// and what it already moved stays moved: running it again goes on. It returns
+// how many values it moved.
+func (e *Encrypted) Rotate(ctx context.Context) (int, error) {
+	moved := 0
+	for {
+		rows, err := e.repo.ListStale(ctx, e.current, rotateBatch)
+		if err != nil {
+			return moved, err
+		}
+		if len(rows) == 0 {
+			return moved, nil
+		}
+		for _, row := range rows {
+			value, err := e.open(row)
+			if err != nil {
+				return moved, err
+			}
+			nonce, ciphertext, err := e.seal(row.AccountID, row.Name, value)
+			if err != nil {
+				return moved, err
+			}
+			row.KeyID, row.Nonce, row.Ciphertext = e.current, nonce, ciphertext
+			if err := e.repo.Put(ctx, &row); err != nil {
+				return moved, err
+			}
+			moved++
+		}
+	}
 }
 
 // additional binds a value to its scope and name, so a row copied to
@@ -111,14 +169,34 @@ func (e *Encrypted) put(ctx context.Context, repo store.SecretRepo, by domain.Ac
 	if len(value) == 0 || len(value) > MaxValueSize {
 		return fmt.Errorf("a value is 1 to %d bytes: %w", MaxValueSize, ErrInvalid)
 	}
-	nonce := make([]byte, e.aead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return fmt.Errorf("nonce: %w", err)
+	nonce, ciphertext, err := e.seal(accountID, name, value)
+	if err != nil {
+		return err
 	}
-	return repo.Put(ctx, &domain.StoredSecret{
-		AccountID: accountID, Name: name, Nonce: nonce, UpdatedBy: by.String(),
-		Ciphertext: e.aead.Seal(nil, nonce, value, additional(accountID, name)),
-	})
+	return repo.Put(ctx, &domain.StoredSecret{AccountID: accountID, Name: name, KeyID: e.current, Nonce: nonce, Ciphertext: ciphertext, UpdatedBy: by.String()})
+}
+
+// seal encrypts a value under the current key.
+func (e *Encrypted) seal(accountID uuid.UUID, name string, value []byte) (nonce, ciphertext []byte, err error) {
+	aead := e.keys[e.current]
+	nonce = make([]byte, aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, nil, fmt.Errorf("nonce: %w", err)
+	}
+	return nonce, aead.Seal(nil, nonce, value, additional(accountID, name)), nil
+}
+
+// open decrypts a row under the key it names.
+func (e *Encrypted) open(row domain.StoredSecret) ([]byte, error) {
+	aead, ok := e.keys[row.KeyID]
+	if !ok {
+		return nil, fmt.Errorf("%s is under a key this server does not hold: %w", row.Name, ErrCorrupt)
+	}
+	value, err := aead.Open(nil, row.Nonce, row.Ciphertext, additional(row.AccountID, row.Name))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", row.Name, ErrCorrupt)
+	}
+	return value, nil
 }
 
 // Promote implements Store. A value is bound to its name, so it is encrypted
@@ -163,11 +241,7 @@ func (e *Encrypted) get(ctx context.Context, repo store.SecretRepo, accountID uu
 	if err != nil {
 		return nil, err
 	}
-	value, err := e.aead.Open(nil, row.Nonce, row.Ciphertext, additional(accountID, name))
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", name, ErrCorrupt)
-	}
-	return value, nil
+	return e.open(row)
 }
 
 // Delete implements Store. Deleting what is not there succeeds.

@@ -154,6 +154,22 @@ The assistant never sees or asks for a secret.
   conversations, plan titles, requests, repo files and imports, and is not
   stored. A reply of the assistant that holds one is replaced.
 
+### Rotating the key
+
+Every row of `secrets` names the key that encrypted it (`key_id`, a hash that
+says nothing of the key).
+
+1. Set `FORECREW_SECRET_KEY` to the new key and `FORECREW_SECRET_KEY_PREVIOUS` to
+   the old one, and restart forecrewd. New values take the new key at once, and
+   old ones keep reading.
+2. At startup forecrewd encrypts every old value again. The log says `secret
+   store rotated`; a failure is logged, and the next start goes on from there.
+3. Once a start logged no failure, remove `FORECREW_SECRET_KEY_PREVIOUS` and
+   restart.
+
+A value under a key the server no longer holds does not read, and sign-in
+through its connection fails with an error naming it; nothing is overwritten.
+
 ## The assistant
 
 Role `assistant`: strong tier, read-only, pool `control`, job tools
@@ -172,4 +188,6 @@ Role `assistant`: strong tier, read-only, pool `control`, job tools
 - The answer of a turn is recorded when the conversation is next read, so
   nothing has to watch the job.
 - Earlier turns and everything `config_read` returns reach the model as
-  untrusted data. A plan that draws on such text says so in `untrusted`.
+  untrusted data. The server writes a plan's `untrusted` line from the gateway's
+  audit of the job: a turn that called `config_read` or `kb_search` successfully
+  gets it whatever the model says. `based_on` can only add to it.

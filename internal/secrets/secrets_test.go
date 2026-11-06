@@ -69,7 +69,7 @@ func TestRowsBoundToScopeAndKey(t *testing.T) {
 	}
 	row, _ := st.Secrets().Get(ctx, a, "x")
 	moved := row
-	moved.ID, moved.AccountID = domain.NewID(), b
+	moved.ID, moved.AccountID = domain.NewID(), b // keeps its key
 	if err := st.Secrets().Put(ctx, &moved); err != nil {
 		t.Fatal(err)
 	}
@@ -141,5 +141,51 @@ func TestPromote(t *testing.T) {
 	}
 	if err := s.Promote(ctx, st.Secrets(), by, acc, "staged/none", "y"); !errors.Is(err, secrets.ErrNotFound) {
 		t.Fatalf("Promote of nothing: %v", err)
+	}
+}
+
+func TestRotate(t *testing.T) {
+	ctx := context.Background()
+	st := testkit.NewStore(time.Now)
+	next := bytes.Repeat([]byte{9}, secrets.KeySize)
+	acc, by := domain.NewID(), domain.SystemActor(domain.NewID(), "t")
+	old, _ := secrets.New(st.Secrets(), key)
+	for _, name := range []string{"a", "b"} {
+		if err := old.Put(ctx, by, acc, name, []byte("v-"+name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Without the previous key the values do not read, and Rotate says so.
+	alone, _ := secrets.New(st.Secrets(), next)
+	if _, err := alone.Get(ctx, acc, "a"); !errors.Is(err, secrets.ErrCorrupt) {
+		t.Fatalf("Get under an unknown key: %v", err)
+	}
+	if _, err := alone.Rotate(ctx); !errors.Is(err, secrets.ErrCorrupt) {
+		t.Fatalf("Rotate = %v", err)
+	}
+	// With it they read at once, and new values take the new key.
+	both, err := secrets.New(st.Secrets(), next, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := both.Get(ctx, acc, "a"); err != nil || string(got) != "v-a" {
+		t.Fatalf("Get = %q, %v", got, err)
+	}
+	if n, err := both.Rotate(ctx); err != nil || n != 2 {
+		t.Fatalf("Rotate = %d, %v", n, err)
+	}
+	if n, err := both.Rotate(ctx); err != nil || n != 0 {
+		t.Fatalf("a second Rotate = %d, %v", n, err)
+	}
+	// The previous key can go now.
+	if got, err := alone.Get(ctx, acc, "b"); err != nil || string(got) != "v-b" {
+		t.Fatalf("Get after the rotation = %q, %v", got, err)
+	}
+	row, _ := st.Secrets().Get(ctx, acc, "a")
+	if row.KeyID != secrets.KeyID(next) || strings.Contains(row.KeyID, string(next)) {
+		t.Errorf("key id = %q", row.KeyID)
+	}
+	if _, err := secrets.New(st.Secrets(), next, []byte("short")); !errors.Is(err, secrets.ErrInvalid) {
+		t.Errorf("a bad previous key: %v", err)
 	}
 }

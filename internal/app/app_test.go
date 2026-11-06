@@ -388,8 +388,30 @@ func TestOpenSecrets(t *testing.T) {
 	if _, err := openSecrets(&config.Config{SecretKey: "short"}, st); err == nil {
 		t.Error("a bad key was accepted")
 	}
-	s, err := openSecrets(&config.Config{SecretKey: strings.Repeat("A", 43) + "="}, st)
+	key, next := strings.Repeat("A", 43)+"=", strings.Repeat("B", 43)+"="
+	s, err := openSecrets(&config.Config{SecretKey: key}, st)
 	if s == nil || err != nil {
-		t.Errorf("a key: %v, %v", s, err)
+		t.Fatalf("a key: %v, %v", s, err)
 	}
+	if _, err := openSecrets(&config.Config{SecretKey: key, SecretKeyPrevious: "short"}, st); err == nil {
+		t.Error("a bad previous key was accepted")
+	}
+	by := domain.SystemActor(domain.NewID(), "t")
+	if err := s.Put(t.Context(), by, by.AccountID, "x", []byte("v")); err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := openSecrets(&config.Config{SecretKey: next, SecretKeyPrevious: key}, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	(&App{vault: rotated, d: Deps{Logger: slog.New(slog.DiscardHandler)}}).rotateSecrets(t.Context())
+	alone, err := openSecrets(&config.Config{SecretKey: next}, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := alone.Get(t.Context(), by.AccountID, "x"); err != nil || string(got) != "v" {
+		t.Fatalf("after the rotation: %q, %v", got, err)
+	}
+	(&App{}).rotateSecrets(t.Context()) // no store, nothing to do
+	(&App{vault: alone, d: Deps{Logger: slog.New(slog.DiscardHandler)}}).rotateSecrets(t.Context())
 }

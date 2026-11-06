@@ -210,6 +210,7 @@ type StoredSecret struct {
 	ID         uuid.UUID `json:"id"`
 	AccountID  uuid.UUID `json:"account_id,omitzero"`
 	Name       string    `json:"name"`
+	KeyID      string    `json:"-"` // the key it is encrypted under
 	Nonce      []byte    `json:"-"`
 	Ciphertext []byte    `json:"-"`
 	UpdatedBy  string    `json:"updated_by"`
