@@ -199,7 +199,7 @@ function CouncilView({ council: c }: { council: CouncilDetail }) {
         {c.status === "failed" ? (
           <Alert variant="destructive">
             <AlertTitle>This council failed</AlertTitle>
-            <AlertDescription>{c.gate?.status === "rejected" ? "Its brief was rejected." : "It could not finish."}</AlertDescription>
+            <AlertDescription className="text-destructive!">{c.gate?.status === "rejected" ? "Its brief was rejected." : "It could not finish."}</AlertDescription>
           </Alert>
         ) : null}
         {c.status === "canceled" ? (
