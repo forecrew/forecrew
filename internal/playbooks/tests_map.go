@@ -2,12 +2,14 @@ package playbooks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/contextpack"
+	"github.com/forecrew/forecrew/internal/matrix"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -47,10 +49,18 @@ type architectJob struct {
 // the task (with its branch and with.needs, the worker labels of the task)
 // when the escalation is about the test matrix or a suite, which is how a test
 // engineer reports that the matrix must change first.
+//
+// A test mapped to a criterion the task does not have is not ready either:
+// it would count for nothing. With with.repo it also reads the matrix at the
+// task's branch, and a matrix that is invalid or lacks a suite is not ready and, like an escalation about the matrix,
+// asks the test architect.
 func (a *actions) testsMap(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		TaskID uuid.UUID `json:"task_id"`
 		Needs  []string  `json:"needs"`
+		// Repo, when set, makes the action check the suites of the tests
+		// against the matrix at the task's branch.
+		Repo string `json:"repo"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -84,6 +94,21 @@ func (a *actions) testsMap(ctx context.Context, call workflow.ActionCall) (any, 
 	}
 	if len(docs) > 0 && len(uncovered) > 0 {
 		feedback = append(feedback, fmt.Sprintf("Every acceptance criterion needs a test or an untestable entry with a reason. Missing: %s.", strings.Join(uncovered, ", ")))
+	}
+	if strays := strayTests(docs, taskCriteria(t.Body)); len(strays) > 0 {
+		feedback = append(feedback, "These tests are mapped to a criterion the task does not have, so no criterion would show them: "+strings.Join(strays, ", ")+".")
+	}
+	if with.Repo != "" && len(out.Suites) > 0 {
+		problem, err := a.matrixProblem(ctx, with.Repo, taskBranch(t), out.Suites)
+		if err != nil {
+			return nil, err
+		}
+		if problem != "" {
+			feedback = append(feedback, "The test matrix at the task's branch cannot run these tests: "+problem+"\n\nThe matrix must change first.")
+			if len(out.IfArchitect) == 0 {
+				out.IfArchitect = append(out.IfArchitect, architectJob{TaskID: t.ID, Branch: taskBranch(t), Needs: append([]string{}, with.Needs...)})
+			}
+		}
 	}
 	out.Feedback = strings.Join(feedback, "\n\n")
 	out.Ready = len(feedback) == 0
@@ -122,4 +147,42 @@ func unionTests(docs []testMapDoc, out *testsMapOutput) map[string]bool {
 func needsMatrix(escalation string) bool {
 	lower := strings.ToLower(escalation)
 	return strings.Contains(lower, "matrix") || strings.Contains(lower, "suite")
+}
+
+// strayTests names the tests mapped to a criterion that is not in criteria,
+// each once as "suite id (criterion)". With no criteria there are none.
+func strayTests(docs []testMapDoc, criteria []string) []string {
+	var out []string
+	if len(criteria) == 0 {
+		return out
+	}
+	for _, doc := range docs {
+		for _, x := range doc.Tests {
+			if s := fmt.Sprintf("%s (%s)", contextpack.OneLine(x.ID), contextpack.OneLine(x.Criterion)); !slices.Contains(criteria, x.Criterion) && !slices.Contains(out, s) {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
+
+// matrixProblem says, in one line, why the matrix of repo at ref cannot run
+// the suites: it is missing or invalid, or has no such suite. It is empty when the suites can run. Only a failed read is an
+// error.
+func (a *actions) matrixProblem(ctx context.Context, repo, ref string, suites []string) (string, error) {
+	m, envs, err := matrix.Load(a.repoReader(ctx, repo, ref))
+	scope := matrix.Scope{Suites: suites}
+	if err == nil {
+		err = scope.Check(m)
+	}
+	if err == nil {
+		_, err = matrix.Expand(m, envs, scope)
+	}
+	switch {
+	case errors.Is(err, matrix.ErrInvalid):
+		return contextpack.OneLine(err.Error()), nil
+	case err != nil:
+		return "", err
+	}
+	return "", nil
 }

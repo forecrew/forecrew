@@ -141,3 +141,79 @@ func TestTestsMapLatestJobOfOneInstant(t *testing.T) {
 		t.Errorf("map = %+v", got)
 	}
 }
+
+// A test mapped to a criterion the task does not have is not ready.
+func TestTestsMapStrayTests(t *testing.T) {
+	p := newPlanned(t)
+	task := p.plan(t, "One")[0]
+	p.tester(t, task, `{"files":[],"tests":[{"criterion":"AC-1","suite":"unit","id":"T","file":"a_test.go"},{"criterion":"AC-2","suite":"unit","id":"U","file":"a_test.go"},`+
+		`{"criterion":"AC-9","suite":"unit","id":"pkg::TestGhost","file":"a_test.go"}],"untestable":[],"escalation":null}`)
+	got := p.testsMap(t, task)
+	if got.Ready || !strings.Contains(got.Feedback, "pkg::TestGhost (AC-9)") || strings.Contains(got.Feedback, "Missing") || len(got.IfArchitect) != 0 {
+		t.Errorf("map = %+v", got)
+	}
+	// A retry that maps it to a real criterion does not make the first mapping go away.
+	p.tester(t, task, `{"files":[],"tests":[{"criterion":"AC-1","suite":"unit","id":"pkg::TestGhost","file":"a_test.go"}],"untestable":[],"escalation":null}`)
+	if got := p.testsMap(t, task); got.Ready {
+		t.Errorf("map = %+v", got)
+	}
+}
+
+// With repo, the suites of the tests are checked against the matrix at the
+// task's branch.
+func TestTestsMapChecksTheMatrix(t *testing.T) {
+	both := `{"files":[],"tests":[{"criterion":"AC-1","suite":"unit","id":"T","file":"a_test.go"},{"criterion":"AC-2","suite":"%s","id":"U","file":"b_test.go"}],"untestable":[],"escalation":null}`
+	call := func(p *planned, task domain.Task) mapOut {
+		out, err := p.call(t, "tests.map", map[string]any{"task_id": task.ID.String(), "needs": []string{"go"}, "repo": "acme/app"})
+		must(t, err)
+		b, _ := json.Marshal(out)
+		var got mapOut
+		must(t, json.Unmarshal(b, &got))
+		return got
+	}
+
+	p := newPlanned(t)
+	task := p.plan(t, "One")[0]
+	p.tester(t, task, strings.Replace(both, "%s", "e2e", 1))
+	got := call(p, task) // no matrix at the branch
+	if got.Ready || !strings.Contains(got.Feedback, "matrix.yaml does not exist") || len(got.IfArchitect) != 1 || got.IfArchitect[0].Branch != "agent/TASK-1" {
+		t.Errorf("no matrix = %+v", got)
+	}
+	p.matrixFiles(t, "agent/TASK-1")
+	if got := call(p, task); !got.Ready {
+		t.Errorf("matrix with both suites = %+v", got)
+	}
+
+	q := newPlanned(t)
+	task = q.plan(t, "One")[0]
+	q.matrixFiles(t, "agent/TASK-1")
+	q.tester(t, task, strings.Replace(both, "%s", "nope", 1))
+	if got := call(q, task); got.Ready || !strings.Contains(got.Feedback, `no suite "nope"`) || len(got.IfArchitect) != 1 {
+		t.Errorf("unknown suite = %+v", got)
+	}
+
+	// A matrix that is invalid.
+	r := newPlanned(t)
+	task = r.plan(t, "One")[0]
+	m := "version: 1\naxes: {os: [linux]}\nenvironments: [{match: {}, environment: lin}]\nsuites:\n  - {name: unit, command: [t], level: unit, reports: [r.xml]}\n  - {name: win, command: [t], level: unit, reports: [r.xml], axes: {os: [windows]}}\n"
+	must(t, r.tracker.SetFile("acme/app", "agent/TASK-1", ".forecrew/matrix.yaml", []byte(m)))
+	must(t, r.tracker.SetFile("acme/app", "agent/TASK-1", ".forecrew/environments/lin.yaml", []byte(linuxGoYAML)))
+	r.tester(t, task, strings.Replace(both, "%s", "win", 1))
+	if got := call(r, task); got.Ready || !strings.Contains(got.Feedback, "suites.win.axes") {
+		t.Errorf("invalid matrix = %+v", got)
+	}
+
+	// Without repo the matrix is not read.
+	if got := (func() mapOut { return r.testsMap(t, task) })(); !got.Ready {
+		t.Errorf("without repo = %+v", got)
+	}
+
+	// A failed read is an error.
+	s := newPlanned(t)
+	task = s.plan(t, "One")[0]
+	s.tester(t, task, strings.Replace(both, "%s", "e2e", 1))
+	s.wrapped = &failingFiles{Tracker: s.tracker, n: 1}
+	s.register()
+	_, err := s.call(t, "tests.map", map[string]any{"task_id": task.ID.String(), "repo": "acme/app"})
+	wantErr(t, err, "connection reset")
+}

@@ -256,6 +256,19 @@ func TestBuildCriteria(t *testing.T) {
 		{"a test of another criterion is not counted", []run{{env: "linux-go", cell: linux(), results: pass("a::T1")}}, nil,
 			verification.Inputs{Criteria: []string{"AC-1"}, Tests: []verification.MapTest{{Criterion: "AC-9", Suite: "unit", ID: "a::T1"}}},
 			domain.VerificationFailed, map[string]string{"AC-1": "untested"}, []string{"AC-1 has no test"}},
+		{"a failing test of a criterion the task lacks blocks", []run{{env: "linux-go", cell: linux(), results: join(pass("a::T1"), fail("pkg::TestGhost"))}}, nil,
+			verification.Inputs{Criteria: []string{"AC-1"}, Tests: []verification.MapTest{{Criterion: "AC-1", Suite: "unit", ID: "a::T1"}, {Criterion: "AC-9", Suite: "unit", ID: "pkg::TestGhost"}}},
+			domain.VerificationFailed, map[string]string{"AC-1": "passed"}, []string{"pkg::TestGhost of no criterion of the task failed"}},
+		{"an absent test of a criterion the task lacks blocks", []run{{env: "linux-go", cell: linux(), results: pass("a::T1")}}, nil,
+			verification.Inputs{Criteria: []string{"AC-1"}, Tests: []verification.MapTest{{Criterion: "AC-1", Suite: "unit", ID: "a::T1"}, {Criterion: "AC-9", Suite: "unit", ID: "pkg::TestGhost"}, {Criterion: "AC-8", Suite: "unit", ID: "pkg::TestGhost"}}},
+			domain.VerificationFailed, map[string]string{"AC-1": "passed"}, []string{"pkg::TestGhost of no criterion of the task did not run"}},
+		{"a passing test of a criterion the task lacks does not block", []run{{env: "linux-go", cell: linux(), results: pass("a::T1", "pkg::TestGhost")}}, nil,
+			verification.Inputs{Criteria: []string{"AC-1"}, Tests: []verification.MapTest{{Criterion: "AC-1", Suite: "unit", ID: "a::T1"}, {Criterion: "AC-9", Suite: "unit", ID: "pkg::TestGhost"}}},
+			domain.VerificationPassed, map[string]string{"AC-1": "passed"}, nil},
+		{"a test of a criterion the task lacks waits for its cell", []run{{env: "linux-go", cell: linux(), results: pass("a::T1", "pkg::TestGhost")}},
+			[]verification.Expected{unit, req("mac-go", mac(), "unit")},
+			verification.Inputs{Criteria: []string{"AC-1"}, Tests: []verification.MapTest{{Criterion: "AC-1", Suite: "unit", ID: "a::T1"}, {Criterion: "AC-9", Suite: "unit", ID: "pkg::TestGhost"}}},
+			domain.VerificationIncomplete, map[string]string{"AC-1": "untested"}, []string{"pkg::TestGhost of no criterion of the task has no result yet"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -327,7 +340,7 @@ func TestBuildNewTests(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
-			f.add(run{env: "linux-go", cell: linux(), results: pass("a::T1")})
+			f.add(run{env: "linux-go", cell: linux(), results: pass("a::T1", "a::T2")})
 			in := verification.Inputs{BaseCheck: tt.checks}
 			mapped := tt.mapped
 			for _, c := range tt.checks {
@@ -337,6 +350,9 @@ func TestBuildNewTests(t *testing.T) {
 			}
 			for _, id := range mapped {
 				in.Tests = append(in.Tests, verification.MapTest{Criterion: "AC-1", Suite: "unit", ID: id})
+			}
+			if len(mapped) > 0 {
+				in.Criteria = []string{"AC-1"}
 			}
 			rep := f.build(in)
 			if rep.Status != tt.status || !reflect.DeepEqual(rep.NewTests, tt.want) {

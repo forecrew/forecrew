@@ -485,6 +485,42 @@ func (bd *builder) criteria(rep *Report, in Inputs) error {
 		}
 		rep.Criteria[id] = c
 	}
+	return bd.strays(rep, in.Tests)
+}
+
+// strays checks the tests mapped to a criterion the task does not have: they
+// are tests of the change like the others, so one that failed or did not run
+// blocks, though no criterion shows it.
+func (bd *builder) strays(rep *Report, tests []MapTest) error {
+	var failed, absent, pending []string
+	seen := map[string]bool{}
+	for _, t := range tests {
+		if _, ok := rep.Criteria[t.Criterion]; ok || seen[t.Suite+"\x00"+t.ID] {
+			continue
+		}
+		seen[t.Suite+"\x00"+t.ID] = true
+		st, wait, err := bd.testStatus(t.Suite, t.ID)
+		if err != nil {
+			return err
+		}
+		switch {
+		case st == string(domain.TestFailed) || st == string(domain.TestErrored):
+			failed = append(failed, t.ID)
+		case st == TestMissing && wait:
+			pending = append(pending, t.ID)
+		case st == TestMissing:
+			absent = append(absent, t.ID)
+		}
+	}
+	if len(failed) > 0 {
+		bd.hard = append(bd.hard, fmt.Sprintf("%s of no criterion of the task failed", listTests(failed)))
+	}
+	if len(absent) > 0 {
+		bd.hard = append(bd.hard, fmt.Sprintf("%s of no criterion of the task did not run", listTests(absent)))
+	}
+	if len(pending) > 0 {
+		bd.pending = append(bd.pending, fmt.Sprintf("%s of no criterion of the task has no result yet", listTests(pending)))
+	}
 	return nil
 }
 
