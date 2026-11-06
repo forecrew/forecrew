@@ -27,6 +27,9 @@ func TestGoalPRText(t *testing.T) {
 	if m["title"] != "TASK-1: Charge cards" || m["ready"] != true {
 		t.Errorf("title = %v", m["title"])
 	}
+	if got, ok := m["if_escalated"].([]any); !ok || len(got) != 0 {
+		t.Errorf("if_escalated = %#v, want []", m["if_escalated"])
+	}
 	body := m["body"].(string)
 	for _, want := range []string{
 		"Adds the charge call.", "## Task TASK-1: Charge cards", "**AC-1** A payment succeeds.",
@@ -46,8 +49,12 @@ func TestGoalPRTextErrors(t *testing.T) {
 	with := map[string]any{"task_id": task.ID.String(), "result": stuck}
 	out, err := p.callKey(t, "goal.pr_text", "k", with)
 	must(t, err)
-	if m := toMap(t, out); m["ready"] != false || m["title"] != "" || m["body"] != "" {
+	m := toMap(t, out)
+	if m["ready"] != false || m["title"] != "" || m["body"] != "" {
 		t.Errorf("output = %v", m)
+	}
+	if got, _ := m["if_escalated"].([]any); len(got) != 1 || !strings.Contains(got[0].(string), "<untrusted-data") || !strings.Contains(got[0].(string), "The payment sandbox is missing.") {
+		t.Errorf("if_escalated = %#v", m["if_escalated"])
 	}
 	// The reason is commented once per call.
 	_, err = p.callKey(t, "goal.pr_text", "k", with)

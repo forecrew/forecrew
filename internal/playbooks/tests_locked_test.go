@@ -55,12 +55,22 @@ func TestTestsLockedPaths(t *testing.T) {
 	// A retry reports only what it changed itself: the first job still counts.
 	p.testerJob(t, "test-engineer", task[0], `{"files":["pkg/b_test.go","pkg/a_test.go","web/[id]/x{1}*?.test.ts","pkg/a_test.go"]}`)
 	p.testerJob(t, "test-engineer", task[1], `{"files":["other_test.go"]}`)
-	// The rerun a human approved runs without the lock; the first round has it.
-	for iteration, locked := range map[int]bool{0: true, 1: true, 2: false, 3: false} {
-		out, err = p.call(t, "tests.locked_paths", map[string]any{"task_id": task[0].ID.String(), "iteration": iteration})
+	// Only a later round after an approved gate runs without the lock; the
+	// human's note reaches it, and a later round after any other decision.
+	for _, tt := range []struct {
+		iteration int
+		decision  string
+		locked    bool
+		feedback  string
+	}{
+		{0, "approved", true, ""}, {1, "approved", true, ""}, {2, "approved", false, "Fix it."}, {3, "approved", false, "Fix it."},
+		{2, "", true, "Fix it."}, {2, "changes_requested", true, "Fix it."}, {1, "", true, ""},
+	} {
+		out, err = p.call(t, "tests.locked_paths", map[string]any{"task_id": task[0].ID.String(), "iteration": tt.iteration, "decision": tt.decision, "feedback": " Fix it. "})
 		must(t, err)
-		if n := len(toMap(t, out)["locked_paths"].([]any)); (n > 0) != locked {
-			t.Errorf("iteration %d: %d locked paths, locked = %v", iteration, n, locked)
+		m := toMap(t, out)
+		if n := len(m["locked_paths"].([]any)); (n > 0) != tt.locked || m["feedback"] != tt.feedback {
+			t.Errorf("%+v: %d locked paths, feedback %q", tt, n, m["feedback"])
 		}
 	}
 	out, err = p.call(t, "tests.locked_paths", with(task[0]))
