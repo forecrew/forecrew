@@ -243,7 +243,8 @@ func userAdd(ctx context.Context, env Env, st store.Store, key, org, role string
 	return auth.AssignTokens(ctx, st)
 }
 
-// userDisable disables the user of key and ends their sessions.
+// userDisable disables the user of key and ends their sessions and OAuth
+// grants.
 func userDisable(ctx context.Context, env Env, st store.Store, key string) error {
 	return st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		u, err := findUser(ctx, tx, key)
@@ -254,6 +255,9 @@ func userDisable(ctx context.Context, env Env, st store.Store, key string) error
 			return err
 		}
 		if err := tx.Sessions().RevokeByUser(ctx, u.ID, uuid.Nil()); err != nil {
+			return err
+		}
+		if err := tx.OAuth().RevokeByUser(ctx, uuid.Nil(), u.ID); err != nil {
 			return err
 		}
 		return auditInOrganizations(ctx, env, tx, u.ID, "user.disabled")

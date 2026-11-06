@@ -91,6 +91,7 @@ type Store interface {
 	Connections() ConnectionRepo
 	VerifiedDomains() VerifiedDomainRepo
 	Sessions() SessionRepo
+	OAuth() OAuthRepo
 	CapacityProviders() CapacityProviderRepo
 	Shapes() ShapeRepo
 	Machines() MachineRepo
@@ -753,8 +754,7 @@ type ProposalRepo interface {
 // The repositories below belong to identity and access (migration 00005,
 // docs/contracts/identity.md). Those not in Store yet are contracts only,
 // added with the Postgres implementation and the testkit fake by the task
-// that first uses them: TeamRepo by T53, OAuthRepo by T55 and SCIMTokenRepo by
-// T56. Lookups that discover who is signing in (by token hash, by provider subject, by
+// that first uses them: TeamRepo by T53 and SCIMTokenRepo by T56. Lookups that discover who is signing in (by token hash, by provider subject, by
 // verified email or domain) are unscoped; every other call takes the
 // organization. Calls that may leave an organization without an active
 // Owner fail with ErrLastOwner and change nothing.
@@ -1021,11 +1021,19 @@ type OAuthRepo interface {
 	CreateClient(ctx context.Context, c *domain.OAuthClient) error
 	// GetClient finds a client by its public client_id.
 	GetClient(ctx context.Context, clientID string) (domain.OAuthClient, error)
+	// GetClientByID finds a client by OAuthClient.ID, the ClientID of a grant.
+	GetClientByID(ctx context.Context, id uuid.UUID) (domain.OAuthClient, error)
+	// UpdateClient writes the name and redirect URIs, which a client ID
+	// metadata document may change.
+	UpdateClient(ctx context.Context, c *domain.OAuthClient) error
 	TouchClient(ctx context.Context, id uuid.UUID) error
 	// DeleteUnusedClients deletes clients without grants that were not
 	// used since t.
 	DeleteUnusedClients(ctx context.Context, t time.Time) (int, error)
 	CreateGrant(ctx context.Context, g *domain.OAuthGrant) error
+	// GetGrant finds a grant by ID, whatever its state; it is unscoped like
+	// GetGrantByTokenHash.
+	GetGrant(ctx context.Context, id uuid.UUID) (domain.OAuthGrant, error)
 	// GetGrantByTokenHash is unscoped: the token identifies the user and
 	// organization. Used, revoked and expired grants are returned too.
 	GetGrantByTokenHash(ctx context.Context, hash []byte) (domain.OAuthGrant, error)
@@ -1034,11 +1042,21 @@ type OAuthRepo interface {
 	// family).
 	UseGrant(ctx context.Context, id uuid.UUID) error
 	RevokeFamily(ctx context.Context, familyID uuid.UUID) error
-	// ListFamilies returns one grant per active family of the user in the
-	// organization (the connected apps), newest first.
+	// ListFamilies returns the newest grant of every active family of the
+	// user in the organization (the connected apps), newest first. A family
+	// is active while it has an unused, unrevoked access or refresh token
+	// that has not expired.
 	ListFamilies(ctx context.Context, accountID, userID uuid.UUID) ([]domain.OAuthGrant, error)
-	// RevokeByUser revokes the user's grants in the organization.
+	// UserAuthorized reports whether the user ever authorized the client,
+	// in any organization, as far as grants are kept.
+	UserAuthorized(ctx context.Context, clientID, userID uuid.UUID) (bool, error)
+	// RevokeByUser revokes the user's grants in the organization, in every
+	// organization when accountID is zero.
 	RevokeByUser(ctx context.Context, accountID, userID uuid.UUID) error
+	// DeleteExpiredGrants deletes the grants that expired before t: an
+	// expired code or refresh token is refused whether its row exists or
+	// not. It returns how many.
+	DeleteExpiredGrants(ctx context.Context, t time.Time) (int, error)
 }
 
 // SCIMTokenRepo stores SCIM bearer tokens. Name is unique per

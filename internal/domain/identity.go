@@ -437,6 +437,12 @@ type OAuthGrant struct {
 	CreatedAt     time.Time      `json:"created_at"`
 }
 
+// Usable reports whether the grant may be used at now: not revoked, not
+// expired and, for a code or refresh token, not used yet.
+func (g OAuthGrant) Usable(now time.Time) bool {
+	return g.RevokedAt.IsZero() && g.UsedAt.IsZero() && now.Before(g.ExpiresAt)
+}
+
 // SCIMToken is a bearer token of an organization's SCIM endpoint
 // (enterprise). Only its SHA-256 is stored.
 type SCIMToken struct {
