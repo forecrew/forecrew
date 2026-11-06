@@ -1247,6 +1247,15 @@ func (s fakeAccessSeed) Link(_ *testing.T, _, userID uuid.UUID, id int64, login 
 	s.st.LinkGitHub(userID, id, login)
 }
 
+func TestConfigStore(t *testing.T) {
+	f := newFixture(t)
+	j := newJob(f)
+	if err := f.st.Jobs().Create(t.Context(), &j); err != nil {
+		t.Fatal(err)
+	}
+	ConfigStoreSuite(t, f.st, f.account, f.project.ID, j.ID)
+}
+
 func TestAccessStore(t *testing.T) {
 	f := newFixture(t)
 	AccessStoreSuite(t, f.st, fakeAccessSeed{f.st}, f.account, f.project.ID)

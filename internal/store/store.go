@@ -91,6 +91,10 @@ type Store interface {
 	BootstrapTokens() BootstrapTokenRepo
 	FleetPolicies() FleetPolicyRepo
 	Images() ImageRepo
+	ConfigPlans() ConfigPlanRepo
+	ConfigSettings() ConfigSettingRepo
+	Secrets() SecretRepo
+	Conversations() ConversationRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
 	// must use the ctx passed to fn.
@@ -109,6 +113,9 @@ type AccountRepo interface {
 	List(ctx context.Context) ([]domain.Account, error)
 	// SetMaxTokenTTL sets the organization's token cap; zero removes it.
 	SetMaxTokenTTL(ctx context.Context, id uuid.UUID, ttl time.Duration) error
+	// Rename writes the organization's name and slug; a slug that is taken
+	// fails with ErrConflict.
+	Rename(ctx context.Context, id uuid.UUID, name, slug string) error
 }
 
 // ProjectRepo stores projects. Name and Repo are unique per account
@@ -1227,4 +1234,61 @@ type UsageRepo interface {
 	// SumByProvider sums a provider's records of every organization, for
 	// its monthly budget.
 	SumByProvider(ctx context.Context, providerID uuid.UUID, from, to time.Time) (UsageTotal, error)
+}
+
+// ConfigPlanFilter selects change plans, newest first; zero fields match
+// everything.
+type ConfigPlanFilter struct {
+	Status    domain.ConfigPlanStatus
+	CreatedBy string
+	Open      bool // pending or awaiting approval
+	// ConversationID keeps the plans of a conversation.
+	ConversationID uuid.UUID
+	Limit          int
+}
+
+// ConfigPlanRepo stores change plans (docs/contracts/config-resources.md).
+type ConfigPlanRepo interface {
+	Create(ctx context.Context, p *domain.ConfigPlan) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.ConfigPlan, error)
+	List(ctx context.Context, accountID uuid.UUID, f ConfigPlanFilter) ([]domain.ConfigPlan, error)
+	// Move is the compare-and-set of a plan's status: it writes Status,
+	// Changes, AppliedBy, AppliedAt and PRURL of p when the stored status is
+	// from.
+	Move(ctx context.Context, p *domain.ConfigPlan, from domain.ConfigPlanStatus) error
+}
+
+// ConfigSettingRepo stores the resources without a table of their own. The
+// zero account ID is the scope of the whole server.
+type ConfigSettingRepo interface {
+	List(ctx context.Context, accountID uuid.UUID, kind string) ([]domain.ConfigSetting, error)
+	// ListAll returns every setting of a scope, whatever its kind.
+	ListAll(ctx context.Context, accountID uuid.UUID) ([]domain.ConfigSetting, error)
+	// Put creates or replaces the setting of (account, kind, name).
+	Put(ctx context.Context, s *domain.ConfigSetting) error
+	Delete(ctx context.Context, accountID uuid.UUID, kind, name string) error
+}
+
+// SecretRepo stores encrypted secrets; internal/secrets holds the key. The
+// zero account ID is the scope of the whole server.
+type SecretRepo interface {
+	// Put creates or replaces the value of (account, name).
+	Put(ctx context.Context, s *domain.StoredSecret) error
+	Get(ctx context.Context, accountID uuid.UUID, name string) (domain.StoredSecret, error)
+	Delete(ctx context.Context, accountID uuid.UUID, name string) error
+}
+
+// ConversationRepo stores conversations with the assistant.
+type ConversationRepo interface {
+	Create(ctx context.Context, c *domain.AssistantConversation) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.AssistantConversation, error)
+	// GetByJob returns the conversation a job is a turn of.
+	GetByJob(ctx context.Context, accountID, jobID uuid.UUID) (domain.AssistantConversation, error)
+	// List returns the conversations of owner, newest first.
+	List(ctx context.Context, accountID uuid.UUID, owner string, limit int) ([]domain.AssistantConversation, error)
+	// AddMessage stores a message; a second message of the same author for
+	// a job fails with ErrConflict, so an answer is recorded once.
+	AddMessage(ctx context.Context, m *domain.AssistantMessage) error
+	// Messages returns a conversation's messages, oldest first.
+	Messages(ctx context.Context, accountID, conversationID uuid.UUID) ([]domain.AssistantMessage, error)
 }

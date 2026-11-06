@@ -240,19 +240,20 @@ func TestSecretRef(t *testing.T) {
 
 func TestOrganizationSecretRef(t *testing.T) {
 	tests := map[string]bool{
-		"env:FORECREW_CONN_OKTA":                        true,
-		"secret:conn-okta":                              true,
-		"secret:conn-acme/okta":                         true,
-		"env:FORECREW_CONN_":                            false,
-		"secret:conn-":                                  false,
-		"env:FORECREW_DATABASE_URL":                     false, // an instance secret
-		"env:FORECREW_CONNX":                            false,
-		"env:PATH":                                      false,
-		"secret:forecrew-google":                        false,
-		"secret:connection":                             false,
-		"secret:conn-a/../../b":                         false,
-		"store:okta":                                    false, // reserved for the secret store
-		"env:FORECREW_CONN_lower":                       false,
+		"env:FORECREW_CONN_OKTA":    true,
+		"secret:conn-okta":          true,
+		"secret:conn-acme/okta":     true,
+		"env:FORECREW_CONN_":        false,
+		"secret:conn-":              false,
+		"env:FORECREW_DATABASE_URL": false, // an instance secret
+		"env:FORECREW_CONNX":        false,
+		"env:PATH":                  false,
+		"secret:forecrew-google":    false,
+		"secret:connection":         false,
+		"secret:conn-a/../../b":     false,
+		"store:okta":                true,
+		"store:../okta":             false,
+		"env:FORECREW_CONN_lower":   false,
 		"env:FORECREW_CONN_" + strings.Repeat("A", 114): true,
 		"env:FORECREW_CONN_" + strings.Repeat("A", 115): false,
 		"secret:conn-" + strings.Repeat("a", 123):       true,

@@ -11,6 +11,8 @@
     "assumption.resolve",
     "audit.read",
     "billing.manage",
+    "config.apply",
+    "config.read",
     "connection.manage",
     "council.start",
     "gate.approve.access_request",

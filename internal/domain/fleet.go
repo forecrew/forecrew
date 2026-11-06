@@ -985,13 +985,13 @@ var imageURISchemes = []string{"https", "http", "s3", "gs", "oci", "ami"}
 var secretKeyRE = regexp.MustCompile(`(?i)secret|passw(or)?d|token|credential|private[_-]?key|api[_-]?key|access[_-]?key`)
 
 // checkNoSecrets adds a problem per secret in v, decoded JSON: a value under
-// a secret-looking key that is not a reference (ValidSecretRef), or a string
+// a secret-looking key that is not a reference its host resolves, or a string
 // that looks like a credential. The messages never hold the value.
 func (p *problems) checkNoSecrets(field string, v any) {
 	switch x := v.(type) {
 	case map[string]any:
 		for _, k := range sortedKeys(x) {
-			if ref, ok := x[k].(string); secretKeyRE.MatchString(k) && (!ok || !ValidSecretRef(ref)) {
+			if ref, ok := x[k].(string); secretKeyRE.MatchString(k) && (!ok || !validHostSecretRef(ref)) {
 				p.addf("%s.%s: looks like a secret; give env:NAME or secret:name instead", field, k)
 				continue
 			}

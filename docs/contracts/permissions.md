@@ -134,6 +134,8 @@ feature: see identity.md, Tokens.
 | `worker.read` | read | organization | list workers, machines, capacity providers, shapes, images and fleet usage |
 | `worker.manage` | admin | organization | add, move and revoke workers; capacity providers, join codes, shapes, the fleet policy and the organization's images (locations and machine types, shown to users as Manage machines), except [budget fields](#budget-fields) |
 | `pool.manage` | admin | organization | worker pools |
+| `config.read` | read | organization | configuration resources and change plans, within what the caller may read of each area, and the assistant |
+| `config.apply` | write | organization | make change plans and ask for their approval; applying one also needs what each of its resources needs ([config-resources.md](config-resources.md#permissions)) |
 | `project.create` | write | organization | onboard a repo as a project |
 | `project.read` | read | project | a project, its profile, councils, assumptions, decisions, knowledge and improvement proposals |
 | `project.manage` | admin | project | project settings and project role bindings |
@@ -194,6 +196,8 @@ protected knowledge, access requests or improvement proposals) and
 | `assumption.resolve` | x | x |  |  |  | x | x |  |  |
 | `audit.read` | x | x |  |  |  |  |  |  |  |
 | `billing.manage` | x |  | x |  |  |  |  |  |  |
+| `config.apply` | x | x | x | x |  |  |  |  |  |
+| `config.read` | x | x | x | x | x |  |  |  |  |
 | `connection.manage` | x | x |  |  |  |  |  |  |  |
 | `council.start` | x | x |  |  |  | x | x | x |  |
 | `gate.approve.access_request` | x | x |  |  |  | x | x |  |  |
@@ -315,6 +319,21 @@ object up and checks the permission on the object's project.
 | `create_invitation` | `POST /api/v1/invitations` | `member.manage` |
 | `list_invitations` | `GET /api/v1/invitations` | `member.manage` |
 | `revoke_invitation` | `POST /api/v1/invitations/{invitation}/revoke` | `member.manage` |
+| `config_schema` | `GET /api/v1/config/schema` | `config.read` |
+| `config_get` | `GET /api/v1/config/resources` | `config.read`, and each area's read permission: what the caller cannot read is left out |
+| `config_plan` | `POST /api/v1/config/plans` | `config.apply`, and the read permission of each area the plan touches |
+| `config_apply` | `POST /api/v1/config/plans/{plan}/request-approval` | `config.apply`; it never applies, it puts the plan in the Inbox |
+| | `POST /api/v1/config/plans/{plan}/apply` | `config.apply` and everything the plan's resources need; only a person, and a plan of the assistant or an MCP client only from the web UI's session |
+| `config_revert` | `POST /api/v1/config/plans/{plan}/revert` | `config.apply`; the new plan is confirmed like any other |
+| `config_export` | `GET /api/v1/config/export` | `config.read`, and each area's read permission |
+| `config_import` | `POST /api/v1/config/import` | `config.apply`, as `config_plan` |
+| `config_plans` | `GET /api/v1/config/plans` | `config.read`; plans the caller did not make and cannot read every part of are left out |
+| `config_get_plan` | `GET /api/v1/config/plans/{plan}` | `config.read`, as `config_plans`; `404` otherwise |
+| `config_cancel` | `POST /api/v1/config/plans/{plan}/cancel` | `config.apply` |
+| | `PUT /api/v1/config/plans/{plan}/secrets/{secret}` | `config.apply` and what the plan needs; deliberately not an MCP tool, because what passes through a client passes through its model |
+| `assistant_send` | `POST /api/v1/assistant/messages` | `config.read`; with a project, `project.read` on it |
+| `assistant_get` | `GET /api/v1/assistant/conversations/{conversation}` | `config.read`; own conversations only, `404` for another's |
+| `assistant_list` | `GET /api/v1/assistant/conversations` | `config.read`; own conversations only |
 
 For a binding on the organization, No escalation also concerns everything
 the member or service account already holds; for a binding on a project, only

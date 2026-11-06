@@ -129,11 +129,11 @@ for `github`), the `client_id`, the client secret **by reference**, `jit`
   forms. Every organization can name every reference in the namespace, so
   the operator puts only connection secrets there, and an instance whose
   organizations do not trust each other waits for the secret store.
-- **The secret store (T66)** adds a third form, `store:name`, which resolves
-  in the connection's own organization (at instance level for an instance
-  connection). The CHECK already accepts it on both; `domain.ValidSecretRef`
-  refuses it until the store exists, so T66 changes only the domain and this
-  file.
+- **The secret store** adds a third form, `store:name`, which resolves in
+  the connection's own organization (at instance level for an instance
+  connection), so it is allowed on every connection: it reaches no other
+  organization's values and none of forecrewd's own. See
+  [config-resources.md](config-resources.md), Secrets.
 - **Instance-level connections** come from `auth.connections` in
   forecrew.yaml and are usable by every organization (for example the GitHub
   App and a company-wide Google). forecrewd upserts them at startup by name
