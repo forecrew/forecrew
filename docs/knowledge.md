@@ -4,7 +4,7 @@ How forecrewd indexes, searches and guards a project's knowledge. The
 contract (providers, policy, entry format, proposals) is
 [contracts/knowledge.md](contracts/knowledge.md); this page describes what
 runs today (providers, index, search, access control and proposals).
-Curation and promotion of notes are T39, external providers 4.19.
+The retro, the curator and scheduled playbooks are described under Upkeep; external providers are 4.19.
 
 ## What is indexed
 
@@ -318,6 +318,55 @@ sent like `propose_knowledge`: a PR `agent/kb-KB-n`, no job, no gate. It needs
 feedback, is refused for `reject`, and needs a `lessons` section in the repo
 (the default policy has one at `knowledge/lessons/`). The gate is resolved
 whether or not the lesson could be saved; the error then says so.
+
+## Upkeep
+
+The knowledge curator tends the base after the seed, with two read-only tasks
+(`packs/tasks/`): the retro of a goal and the periodic curation. Both propose with
+`kb_propose` only; they change no file.
+
+**Retro** (playbook `learn`, started per goal; the goal playbook does not start
+it yet). A `knowledge-curator` job with `task: retro` is given the goal's
+history (`goal.retro_context`: spec revisions, what humans answered at gates,
+what the reviewer asked to change, failed jobs, costs, the goal's notes) and
+proposes at most eight entries: lessons, and facts the work showed. It cites a
+note worth keeping as `note:<id>` in the reason, which promotes it. Its
+proposals, and those of the goal's other jobs, are `per_goal` and wait. Then
+`goal.learn` writes the PR `agent/learn-GOAL-n` with the goal's register files
+(`.forecrew/assumptions/A-n.yaml`, `docs/decisions/DEC-n.md`, as the registers
+export them, only when they differ from the default branch) and the repo
+proposals, after checking each against the policy again; proposals to a provider
+without a review flow wait at the same gate. One `knowledge_proposal` gate asks a
+human; approving merges the PR after the checks, rejecting closes it and rejects
+the proposals.
+
+**Curation** (playbook `curate`; schedule it, see `schedules` in config.md, for
+example weekly). `curate.prepare` lists, for a curator job with `task: curate`:
+
+1. entries marked `needs_reverify` (a push changed what they mention);
+2. entries whose `last_verified`, else creation time, is older than
+   `knowledge.verify_window` (180 days);
+3. project notes older than the window that no search returned (hits are counted
+   by `kb_search` and `search_knowledge`, the curator's own searches excepted)
+   and that are not promoted.
+
+The job reads each against the current code. What it proposes goes out like any
+job's proposals when it completes. What it found still true it lists under
+`reverified`: `curate.finish` clears the flag and sets `last_verified` in the
+index (the reason is in the audit log; the repo file is not touched, and the
+next change to the entry replaces the index row as usual). A note it lists under
+`drop_notes` is deleted, but only if it is a project note of this project, older
+than the window, unread and not promoted: forecrewd checks, whatever the agent
+says. It also looks for duplicates and contradictions with `kb_search`.
+
+Then `discover.github` runs again and `curate.tools` compares what it finds with
+the `integrations` of `.forecrew/profile.yaml` on the default branch. A tool that
+is not there becomes a PR on the profile adding it as `proposed` with its
+evidence; a tool the profile has whose links in recent issues and pull requests
+are at least three times what it recorded, and at least ten, gets a PR that
+updates its evidence and keeps its status. A tool gets a PR once, ever, even if a
+human closes it; at most three PRs per run. A human merges the PR; connecting a
+tool that needs credentials is a separate human step.
 
 ## Access requests
 

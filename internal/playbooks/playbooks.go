@@ -121,6 +121,9 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["goal.close"] = d.closeGoal
 	registry["goal.settle"] = d.settleGoal
 	registry["tests.map"] = d.testsMap
+	registry["curate.prepare"] = d.curatePrepare
+	registry["curate.finish"] = d.curateFinish
+	registry["curate.tools"] = d.curateTools
 	registry["goal.retro_context"] = d.retroContext
 	registry["goal.learn"] = d.learnGoal
 	registry["goal.learn_decide"] = d.learnDecide
