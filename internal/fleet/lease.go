@@ -18,6 +18,7 @@ import (
 const (
 	prefixBootstrapToken = "fcb_"
 	prefixWorkerToken    = "fcw_"
+	prefixProviderToken  = "fcp_"
 )
 
 // newToken returns a random token and its hash.
