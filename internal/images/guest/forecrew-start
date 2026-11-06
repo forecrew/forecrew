@@ -2,7 +2,8 @@
 # Starts forecrew-worker on a Forecrew machine from the settings its provider
 # delivered, then runs it in the foreground. The settings are KEY=value lines
 # in /run/forecrew/bootstrap.env. On Linux /run is a RAM disk, so the token
-# never reaches a disk; on macOS the folder is on the machine's own disk (mode
+# never reaches a disk through it (cloud-init, if it delivered the file, keeps
+# its user-data, token included, under /var/lib/cloud: prefer a config drive); on macOS the folder is on the machine's own disk (mode
 # 0700, root), deleted once read and destroyed with the machine:
 #
 #   FORECREW_SERVER_URL         forecrewd's URL (required)

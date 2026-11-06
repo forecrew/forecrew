@@ -42,7 +42,7 @@ their own account; nothing in them is specific to Forecrew's infrastructure.
   in; Firecracker publishes one, and its build configs are in the Firecracker
   repository. The kernel is a build input, not built here. Its digest and the
   build time are signed with the image, and the fleet agent checks the kernel
-  file against it (`images.VerifyKernel`), so a kernel cannot be swapped under a
+  file against it (`images.VerifyFile`, which takes the image file and its kernel file together), so a kernel cannot be swapped under a
   signed manifest.
 - **mke2fs.** The rootfs needs `mke2fs` 1.47.1 or newer **with libarchive**
   (Debian 13: `apt-get install e2fsprogs libarchive13t64`): older ones cannot make
@@ -64,15 +64,19 @@ their own account; nothing in them is specific to Forecrew's infrastructure.
 ## What an image needs
 
 A Linux image, however it is made, must hold what the worker and the init use;
-`forecrew image rootfs` checks it and lists everything missing at once:
+`forecrew image rootfs` checks it and lists everything missing at once. Commands
+are looked for in the usual directories (`/bin`, `/usr/bin`, `/usr/local/bin`, ...)
+and in the directories of the image's own `PATH`, so an image that keeps its CLIs
+elsewhere, like the toolbox base image's `/opt/forecrew-cli/node_modules/.bin`,
+passes.
 
 | Needs | Why |
 |-------|-----|
 | `sh` | the init and `forecrew-start` are POSIX shell scripts |
-| `ip` (iproute2) | the init configures the network from the kernel command line |
 | `git` | the worker clones and commits with it |
 | CA certificates | the worker and git speak HTTPS |
 | `claude`, `codex`, `opencode` | the agent CLIs of agent jobs; `--no-agent-clis` for an image of command jobs only |
+| `ip` (iproute2), optional | the init configures the network from `forecrew.ip=`; without it the conversion only warns and the kernel's own `ip=` must configure the network (the init says so at boot) |
 
 `forecrew-start` checks `git` and the worker again when the machine boots, with
 the image's own `PATH`, and fails with the reason instead of on the first job.
@@ -129,11 +133,11 @@ Where the file goes, and what that means for the token:
 | OS | Path | Storage | Delivery the provider must use |
 |----|------|---------|--------------------------------|
 | Linux microVM | `/run/forecrew/bootstrap.env` | RAM (`/run` is tmpfs), copied by the init from the config disk | a read-only config disk made for this machine |
-| Linux VM (systemd) | `/run/forecrew/bootstrap.env` | RAM | cloud-init `write_files` to `/run`, or a config drive the guest copies there |
+| Linux VM (systemd) | `/run/forecrew/bootstrap.env` | RAM, but see below | a config drive the guest copies into `/run`; cloud-init `write_files` works but **cloud-init keeps its user-data, token included, on the machine's disk** (`/var/lib/cloud`) until the machine is destroyed |
 | macOS (Tart) | `/var/run/forecrew/bootstrap.env` | **the machine's own disk**, mode 0700 root | `tart exec` into the running machine after it is assigned |
-| Windows | `C:\ProgramData\Forecrew\run\bootstrap.env` | **the machine's own disk**, ACL for SYSTEM and administrators only | WinRM or Hyper-V guest services into the running machine after it is assigned |
+| Windows | `C:\ProgramData\Forecrew\run\bootstrap.env` | **the machine's own disk**, ACL for SYSTEM and administrators only | into the running machine after it is assigned: Hyper-V PowerShell Direct. WinRM is turned off in the image, so it is not a route. A Proxmox clone needs the QEMU guest agent or a config disk the guest copies the file from, which T62 must provide |
 
-RAM holds the token on Linux only. On macOS and Windows it is a file on the
+RAM holds the token on Linux only, and on a systemd image delivered by cloud-init not even there. On macOS and Windows it is a file on the
 guest's disk until `forecrew-start` reads and deletes it, so T62 (Windows) and
 T63 (macOS) must deliver it into the running machine, never bake it into the
 image, a shared folder or a host path, and must destroy the disk with the
