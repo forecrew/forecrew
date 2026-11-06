@@ -1112,6 +1112,13 @@ type MachineRepo interface {
 	// when not empty; moving to booting sets BootingAt, to ready ReadyAt
 	// unless it is set, to destroyed DestroyedAt.
 	UpdateState(ctx context.Context, id uuid.UUID, from, to domain.MachineState, errMsg string) error
+	// Retire moves a machine nothing needs to draining, only if it is still
+	// from, still has jobsTaken and no job runs on its worker: a lease between
+	// the controller's look and this update keeps the machine. It compares
+	// both because a look can see the machine after a lease and the jobs
+	// before it, and a lease not committed yet is seen only through
+	// jobs_taken. ErrConflict otherwise.
+	Retire(ctx context.Context, id uuid.UUID, from domain.MachineState, jobsTaken int) error
 	SetExternalID(ctx context.Context, id uuid.UUID, externalID string) error
 	// Assign gives an unassigned machine its organization and sets
 	// AssignedAt; ErrConflict when it already has one.

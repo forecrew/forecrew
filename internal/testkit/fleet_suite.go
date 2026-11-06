@@ -18,6 +18,7 @@ func FleetStoreSuite(t *testing.T, st store.Store, account, project uuid.UUID) {
 	prov := s.providers()
 	shape := s.shapes(prov)
 	s.machines(prov, shape)
+	s.retire(prov, shape)
 	s.tokens(prov, shape)
 	s.policies()
 }
@@ -261,6 +262,39 @@ func (s *fleetSuite) machines(prov domain.CapacityProvider, shape domain.Shape) 
 		}
 	}
 	s.must(r.UpdateState(ctx, live.ID, domain.MachineRequested, domain.MachineDestroyed, ""))
+}
+
+// retire checks that Retire leaves a machine in use alone: in another state,
+// with a job taken since the look, or with a job running.
+func (s *fleetSuite) retire(prov domain.CapacityProvider, shape domain.Shape) {
+	ctx := s.t.Context()
+	r := s.st.Machines()
+	m := domain.Machine{AccountID: s.account, ProviderID: prov.ID, ShapeID: shape.ID}
+	s.must(r.Create(ctx, &m))
+	s.must(r.UpdateState(ctx, m.ID, domain.MachineRequested, domain.MachineBooting, ""))
+	w := domain.Worker{AccountID: s.account, Name: "machine-retire", TokenHash: fleetHash(7), Ephemeral: true}
+	s.must(s.st.Workers().Create(ctx, &w))
+	s.must(r.SetWorker(ctx, m.ID, w.ID))
+	s.must(r.UpdateState(ctx, m.ID, domain.MachineBooting, domain.MachineReady, ""))
+
+	s.want(r.Retire(ctx, m.ID, domain.MachineBusy, 0), store.ErrConflict)
+	s.want(r.Retire(ctx, m.ID, domain.MachineReady, 1), store.ErrConflict)
+	s.want(r.Retire(ctx, domain.NewID(), domain.MachineReady, 0), store.ErrNotFound)
+	if err := r.Retire(ctx, m.ID, domain.MachineRequested, 0); !errors.Is(err, domain.ErrInvalidTransition) {
+		s.t.Fatalf("transition: %v", err)
+	}
+	j, err := s.st.Jobs().LeaseNext(ctx, s.account, w.ID, []string{"runtime:codex"}, domain.LeaseDuration)
+	s.must(err)
+	s.want(r.Retire(ctx, m.ID, domain.MachineReady, 0), store.ErrConflict) // it runs a job
+	_, err = s.st.Jobs().Complete(ctx, s.account, j.ID, w.ID, store.JobResult{Status: domain.JobSucceeded})
+	s.must(err)
+	s.must(r.Retire(ctx, m.ID, domain.MachineReady, 0))
+	got, err := r.Get(ctx, m.ID)
+	s.must(err)
+	if got.State != domain.MachineDraining {
+		s.t.Fatalf("machine = %s", got.State)
+	}
+	s.must(r.UpdateState(ctx, m.ID, domain.MachineDraining, domain.MachineDestroyed, ""))
 }
 
 func (s *fleetSuite) tokens(prov domain.CapacityProvider, shape domain.Shape) {

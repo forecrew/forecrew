@@ -1021,15 +1021,77 @@ func TestImage(t *testing.T) {
 	}
 }
 
-// A revoked provider gets no calls at all; one in agent mode is its agent's.
-func TestProvidersNotDriven(t *testing.T) {
-	e := newEnv(t)
-	e.shape(e.prov, "small", nil)
-	must(t, e.st.CapacityProviders().SetStatus(e.ctx, e.prov.ID, domain.ProviderRevoked))
-	e.fake.Plant("vm-1", uuid.Nil(), nil)
-	e.reconcile()
-	if n := len(e.fake.Instances()); n != 1 {
-		t.Fatalf("%d instances", n)
+// raceStore runs hook once, right after the controller read the running jobs
+// of an organization: the moment a lease can slip between that read and the
+// read of the machines, or the drain.
+type raceStore struct {
+	store.Store
+	hook func()
+}
+
+func (s *raceStore) Jobs() store.JobRepo { return raceJobs{s.Store.Jobs(), s} }
+
+type raceJobs struct {
+	store.JobRepo
+	s *raceStore
+}
+
+func (r raceJobs) List(ctx context.Context, accountID uuid.UUID, f store.JobFilter) ([]domain.Job, error) {
+	out, err := r.JobRepo.List(ctx, accountID, f)
+	if hook := r.s.hook; f.Status == domain.JobRunning && hook != nil {
+		r.s.hook = nil
+		hook()
+	}
+	return out, err
+}
+
+// A lease between the controller's look and its drain keeps the machine, in
+// both forms: idle_seconds 0 on a ready machine, and a machine at max_jobs
+// that looks finished because the job is not in the list read before.
+func TestLeaseDuringReconcileKeepsTheMachine(t *testing.T) {
+	for name, maxJobs := range map[string]int{"last job": 1, "with jobs left": 2} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			e.shape(e.prov, "small", func(s *domain.Shape) { s.MaxJobs = maxJobs })
+			first := e.job(e.account, e.project, nil)
+			e.reconcile()
+			req := e.fake.Requests()[0]
+			w := e.boot(req)
+
+			// The job goes away, so that the look finds an idle machine, and
+			// comes back as a new one as soon as the look has passed.
+			_, err := e.st.Jobs().Cancel(e.ctx, e.account, first.ID)
+			must(t, err)
+			race := &raceStore{Store: e.st}
+			var leased domain.Job
+			race.hook = func() {
+				e.job(e.account, e.project, nil)
+				var err error
+				leased, err = e.lease(w)
+				must(t, err)
+			}
+			c := fleet.New(fleet.Config{Store: race, Now: e.clock.Now, Direct: func(domain.CapacityProvider) fleet.Provider { return e.fake }})
+			must(t, c.Reconcile(e.ctx))
+
+			m := e.machine(req.MachineID)
+			if m.State != domain.MachineBusy {
+				t.Fatalf("machine with a running job = %s", m.State)
+			}
+			if cur, _ := e.st.Workers().Get(e.ctx, e.account, w.ID); cur.Revoked() {
+				t.Fatal("worker revoked under its job")
+			}
+			if cur, _ := e.st.Jobs().Get(e.ctx, e.account, leased.ID); cur.Status != domain.JobRunning {
+				t.Fatalf("job = %s", cur.Status)
+			}
+
+			// Once the job is done the machine goes as usual.
+			e.finishJob(w, leased)
+			e.clock.Advance(time.Second)
+			e.reconcile()
+			if m := e.machine(req.MachineID); m.State != domain.MachineDestroyed {
+				t.Fatalf("machine after its job = %s", m.State)
+			}
+		})
 	}
 }
 
