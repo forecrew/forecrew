@@ -1,6 +1,6 @@
 # Data model
 
-Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access, 00007 the fleet). Each table maps to a
+Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access, 00007 the fleet, 00008 invitation GitHub ID). Each table maps to a
 type in `internal/domain` and a repository in `store.Store`; JSON names in
 `domain` equal the column names. The DDL below is the contract; T02 may add
 indexes but not change columns, types or constraints without a contract
@@ -757,6 +757,7 @@ CREATE TABLE invitations (
   account_id   uuid NOT NULL REFERENCES accounts(id),
   email        text,
   github_login text,
+  github_user_id bigint CHECK (github_user_id > 0),    -- migration 00008; the stable ID of github_login, resolved at creation
   roles        jsonb NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(roles) = 'array'),  -- [domain.Grant]
   token_hash   bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
   expires_at   timestamptz NOT NULL,

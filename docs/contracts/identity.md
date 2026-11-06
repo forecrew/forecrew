@@ -56,7 +56,9 @@ flowchart LR
   memberships, their role bindings in the organization and the membership.
   Their sessions, personal tokens and OAuth grants in the organization end
   in the same transaction, through separate calls inside `Store.WithTx`.
-- **Invitation.** An email or a GitHub login (exactly one), the roles to
+- **Invitation.** An email or a GitHub login (exactly one; a login is
+  resolved to its stable GitHub user ID at creation, and acceptance compares the
+  ID, because a login can be renamed and then taken), the roles to
   grant on acceptance (`domain.Grant`: a role on the organization or one
   project), an expiry, `invited_by` and, once accepted, `accepted_by` and
   `accepted_at`. Its link carries a random token; only the SHA-256 is

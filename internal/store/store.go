@@ -63,7 +63,7 @@ type Store interface {
 	WorkflowRuns() WorkflowRunRepo
 	StepRuns() StepRunRepo
 	WebhookDeliveries() WebhookDeliveryRepo
-	MCPTokens() MCPTokenRepo
+	MCPTokens() PersonalTokenRepo
 	Audit() AuditRepo
 	Artifacts() ArtifactRepo
 	TestRuns() TestRunRepo
@@ -78,6 +78,13 @@ type Store interface {
 	Roles() RoleRepo
 	RoleBindings() RoleBindingRepo
 	Directory() DirectoryRepo
+	Users() UserRepo
+	Identities() IdentityRepo
+	Memberships() MembershipRepo
+	Invitations() InvitationRepo
+	Connections() ConnectionRepo
+	VerifiedDomains() VerifiedDomainRepo
+	Sessions() SessionRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
 	// must use the ctx passed to fn.
@@ -91,6 +98,8 @@ type AccountRepo interface {
 	// given and taken fails with ErrConflict.
 	Create(ctx context.Context, a *domain.Account) error
 	Get(ctx context.Context, id uuid.UUID) (domain.Account, error)
+	// GetBySlug finds the organization a sign-in or a server command names.
+	GetBySlug(ctx context.Context, slug string) (domain.Account, error)
 	List(ctx context.Context) ([]domain.Account, error)
 	// SetMaxTokenTTL sets the organization's token cap; zero removes it.
 	SetMaxTokenTTL(ctx context.Context, id uuid.UUID, ttl time.Duration) error
@@ -693,13 +702,10 @@ type ProposalRepo interface {
 }
 
 // The repositories below belong to identity and access (migration 00005,
-// docs/contracts/identity.md). Like the team's, they are contracts only,
-// added to Store with the Postgres implementation and the testkit fake by
-// the task that first uses them: UserRepo, IdentityRepo, MembershipRepo,
-// InvitationRepo, ConnectionRepo, SessionRepo and PersonalTokenRepo by T52;
-// TeamRepo, ServiceAccountRepo, RoleRepo and RoleBindingRepo by T53;
-// OAuthRepo by T55; VerifiedDomainRepo and SCIMTokenRepo by T56. Lookups
-// that discover who is signing in (by token hash, by provider subject, by
+// docs/contracts/identity.md). Those not in Store yet are contracts only,
+// added with the Postgres implementation and the testkit fake by the task
+// that first uses them: TeamRepo by T53, OAuthRepo by T55 and SCIMTokenRepo by
+// T56. Lookups that discover who is signing in (by token hash, by provider subject, by
 // verified email or domain) are unscoped; every other call takes the
 // organization. Calls that may leave an organization without an active
 // Owner fail with ErrLastOwner and change nothing.
@@ -720,6 +726,9 @@ type UserRepo interface {
 	// email, verified or not, ignoring case. Only a verified one proves who
 	// a person is, and several users may share an unverified one.
 	ListByEmail(ctx context.Context, email string) ([]domain.User, error)
+	// ListInstanceAdmins is unscoped: it returns the users flagged as
+	// instance admins, which forecrewd checks against config at startup.
+	ListInstanceAdmins(ctx context.Context) ([]domain.User, error)
 	// Update writes Name, Email, EmailVerified and InstanceAdmin.
 	Update(ctx context.Context, u *domain.User) error
 	Seen(ctx context.Context, id uuid.UUID) error // LastSeenAt = now
@@ -946,8 +955,7 @@ type SessionRepo interface {
 	DeleteExpired(ctx context.Context, t time.Time) (int, error)
 }
 
-// PersonalTokenRepo is MCPTokenRepo with owners; T52 makes it the type of
-// Store.MCPTokens.
+// PersonalTokenRepo is MCPTokenRepo with owners.
 type PersonalTokenRepo interface {
 	MCPTokenRepo
 	ListByOwner(ctx context.Context, accountID uuid.UUID, kind domain.SubjectKind, ownerID uuid.UUID) ([]domain.MCPToken, error)

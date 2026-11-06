@@ -48,6 +48,10 @@ func (r accountRepo) Get(_ context.Context, id uuid.UUID) (domain.Account, error
 	return getRow(r.s, accountsT, id, id)
 }
 
+func (r accountRepo) GetBySlug(_ context.Context, slug string) (domain.Account, error) {
+	return findRow(r.s, accountsT, func(a domain.Account) bool { return a.Slug == slug })
+}
+
 func (r accountRepo) List(context.Context) ([]domain.Account, error) {
 	return listRows(r.s, accountsT, 0, func(domain.Account) bool { return true })
 }

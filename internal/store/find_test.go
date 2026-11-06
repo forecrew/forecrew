@@ -38,3 +38,12 @@ func TestFindActive(t *testing.T) {
 		}
 	}
 }
+
+func TestFreeTokenName(t *testing.T) {
+	used := map[string]bool{"a": true, "a-2": true}
+	for name, want := range map[string]string{"b": "b", "a": "a-3", "a-2": "a-2-2"} {
+		if got := store.FreeTokenName(name, used); got != want {
+			t.Errorf("%s = %s, want %s", name, got, want)
+		}
+	}
+}
