@@ -1,6 +1,7 @@
 package fleet_test
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"slices"
@@ -1100,12 +1101,13 @@ func TestFailingProviderBacksOff(t *testing.T) {
 	}
 }
 
-// raceStore runs hook once, right after the controller read the running jobs
-// of an organization: the moment a lease can slip between that read and the
-// read of the machines, or the drain.
+// raceStore runs hook once, right after the controller read the jobs of an
+// organization in status: the moment a lease can slip between two reads, or
+// before the drain. status defaults to running.
 type raceStore struct {
 	store.Store
-	hook func()
+	status domain.JobStatus
+	hook   func()
 }
 
 func (s *raceStore) Jobs() store.JobRepo { return raceJobs{s.Store.Jobs(), s} }
@@ -1117,11 +1119,29 @@ type raceJobs struct {
 
 func (r raceJobs) List(ctx context.Context, accountID uuid.UUID, f store.JobFilter) ([]domain.Job, error) {
 	out, err := r.JobRepo.List(ctx, accountID, f)
-	if hook := r.s.hook; f.Status == domain.JobRunning && hook != nil {
+	if hook := r.s.hook; f.Status == cmp.Or(r.s.status, domain.JobRunning) && hook != nil {
 		r.s.hook = nil
 		hook()
 	}
 	return out, err
+}
+
+// A lease in the middle of the look starts no second machine for its job.
+func TestLeaseDuringReconcileStartsNoSecondMachine(t *testing.T) {
+	e := newEnv(t)
+	e.shape(e.prov, "small", nil)
+	e.job(e.account, e.project, nil)
+	e.reconcile()
+	w := e.boot(e.fake.Requests()[0])
+	race := &raceStore{Store: e.st, status: domain.JobQueued, hook: func() {
+		_, err := e.lease(w)
+		must(t, err)
+	}}
+	c := fleet.New(fleet.Config{Store: race, Now: e.clock.Now, Direct: func(domain.CapacityProvider) fleet.Provider { return e.fake }})
+	must(t, c.Reconcile(e.ctx))
+	if n := len(e.fake.Requests()); n != 1 {
+		t.Fatalf("%d machines for one job", n)
+	}
 }
 
 // A lease between the controller's look and its drain keeps the machine, in

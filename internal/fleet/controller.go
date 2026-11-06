@@ -277,10 +277,16 @@ func (c *Controller) started(ctx context.Context, m domain.Machine, externalID s
 
 // load reads a snapshot of the organization only, or of all of them. Budgets
 // and warm machines cross organizations, so machines are always all read.
+// Machines come before jobs: a lease between the two reads then shows as a
+// machine with a place left and no such job, which starts nothing. The other
+// way round a queued job and a full machine would start a second one.
 func (c *Controller) load(ctx context.Context, only uuid.UUID) (*snapshot, error) {
 	st := c.cfg.Store
 	s := &snapshot{now: c.cfg.Now(), currency: c.cfg.Currency, providers: map[uuid.UUID]domain.CapacityProvider{}, shapes: map[uuid.UUID]domain.Shape{}, jobEnds: map[uuid.UUID]time.Time{}}
 	if err := c.loadFleet(ctx, s); err != nil {
+		return nil, err
+	}
+	if err := c.loadMachines(ctx, s); err != nil {
 		return nil, err
 	}
 	accounts, err := st.Accounts().List(ctx)
@@ -300,7 +306,7 @@ func (c *Controller) load(ctx context.Context, only uuid.UUID) (*snapshot, error
 		}
 		s.orgs = append(s.orgs, o)
 	}
-	return s, c.loadMachines(ctx, s)
+	return s, nil
 }
 
 // loadFleet reads the providers and the instance-wide shapes.
