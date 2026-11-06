@@ -31,7 +31,8 @@ func init() {
 		50, notesWrite)
 	register("kb_propose", "kb.propose",
 		"Propose adding, editing or retiring an entry of a curated section you may propose to: body is the full new Markdown without frontmatter (empty to retire), reason why the knowledge base should change. "+
-			"You do not change the entry: its owner reviews the proposal, and a proposal of a goal waits for the goal's learn step. For working knowledge that needs no review use notes_write.",
+			"You do not change the entry: its owner reviews the proposal, and a proposal of a goal waits for the goal's learn step. For working knowledge that needs no review use notes_write. "+
+			"To promote a note into the entry, write note:<the note's id> in the reason: the note then stops expiring.",
 		20, kbPropose)
 	register("request_access", "request_access",
 		"Ask a human for read, propose or write access to a knowledge section you do not have, with a reason. It returns at once and you go on without the access: approval changes the knowledge policy through a pull request, for later jobs.",
