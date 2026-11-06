@@ -377,3 +377,109 @@ type knowledgeSection struct {
 	provider string
 	paths    int
 }
+
+// closedKnowledge stores an entry in a section only the architect reads and
+// one in an open section, and returns a service over a policy that says so.
+func closedKnowledge(t *testing.T, f *fixture) *tools.Service {
+	t.Helper()
+	ctx := t.Context()
+	policy, err := knowledge.ParsePolicy([]byte("version: 1\nsections:\n  secret:\n    access: {read: [architect]}\n  open: {}\n"))
+	must(t, err)
+	for _, e := range []domain.KnowledgeEntry{
+		{Provider: "repo", Path: "knowledge/secret/a.md", Section: "secret", Title: "Hidden", Body: "queue secret"},
+		{Provider: "repo", Path: "knowledge/open/a.md", Section: "open", Title: "Shown", Body: "queue open"},
+	} {
+		e.AccountID, e.ProjectID = f.account.ID, f.project.ID
+		must(t, f.st.Knowledge().Upsert(ctx, &e))
+	}
+	for _, k := range []domain.KnowledgeProposal{
+		{Section: "secret", Path: "knowledge/secret/b.md", Action: domain.KnowledgeAdd, Body: "b", Reason: "r", ProposedBy: "architect", Batch: domain.BatchStandalone, Status: domain.KnowledgeOpen},
+		{Section: "open", Path: "knowledge/open/b.md", Action: domain.KnowledgeAdd, Body: "b", Reason: "r", ProposedBy: "architect", Batch: domain.BatchStandalone, Status: domain.KnowledgeOpen},
+	} {
+		k.AccountID, k.ProjectID, k.Provider = f.account.ID, f.project.ID, "repo"
+		must(t, f.st.KnowledgeProposals().Create(ctx, &k))
+	}
+	idx := &knowledge.Index{Store: f.st}
+	search := &knowledge.Search{Index: idx, Policy: func(context.Context, domain.Project) (knowledge.Policy, error) { return policy, nil }}
+	return tools.New(tools.Config{Store: f.st, Search: search})
+}
+
+func TestClosedSectionsAreForPeople(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	svc := closedKnowledge(t, f)
+	sa, err := f.svc.CreateServiceAccount(ctx, f.by, mcp.CreateServiceAccountInput{Name: "ci"})
+	must(t, err)
+	testkit.Bind(t, f.st, f.account.ID, domain.SubjectServiceAccount, sa.ID, projectScope, domain.RoleMaintainer, f.project.ID)
+	robot := domain.Actor{AccountID: f.account.ID, Kind: domain.ActorServiceAccount, Name: sa.ID.String()}
+
+	sectionsOf := func(l mcp.KnowledgeListing) (names []string) {
+		for _, s := range l.Sections {
+			names = append(names, s.Name)
+		}
+		return names
+	}
+	titlesOf := func(l mcp.KnowledgeListing) (titles []string) {
+		for _, e := range l.Entries {
+			titles = append(titles, e.Title)
+		}
+		return titles
+	}
+	// A person sees every section.
+	l, err := svc.ListKnowledge(ctx, f.by, mcp.ListKnowledgeInput{Project: "app"})
+	must(t, err)
+	if got := strings.Join(sectionsOf(l), " "); got != "open secret notes generated" || len(l.Entries) != 2 {
+		t.Fatalf("person: sections %q, entries %v", got, titlesOf(l))
+	}
+	found, err := svc.SearchKnowledge(ctx, f.by, mcp.SearchKnowledgeInput{Project: "app", Query: "queue"})
+	must(t, err)
+	if len(found) != 2 {
+		t.Fatalf("person search = %+v", found)
+	}
+	ps, err := svc.ListKnowledgeProposals(ctx, f.by, mcp.ListKnowledgeProposalsInput{Project: "app"})
+	must(t, err)
+	if len(ps) != 2 {
+		t.Fatalf("person proposals = %+v", ps)
+	}
+
+	// A service account sees the open ones only, in every view.
+	l, err = svc.ListKnowledge(ctx, robot, mcp.ListKnowledgeInput{Project: "app"})
+	must(t, err)
+	if got := strings.Join(sectionsOf(l), " "); got != "open notes generated" || strings.Join(titlesOf(l), " ") != "Shown" {
+		t.Errorf("service account: sections %q, entries %v", got, titlesOf(l))
+	}
+	found, err = svc.SearchKnowledge(ctx, robot, mcp.SearchKnowledgeInput{Project: "app", Query: "queue"})
+	if err != nil || len(found) != 1 || found[0].Title != "Shown" {
+		t.Errorf("service account search = %+v, %v", found, err)
+	}
+	ps, err = svc.ListKnowledgeProposals(ctx, robot, mcp.ListKnowledgeProposalsInput{Project: "app"})
+	if err != nil || len(ps) != 1 || ps[0].Section != "open" {
+		t.Errorf("service account proposals = %+v, %v", ps, err)
+	}
+	// Without a policy to judge by, a service account is told so.
+	if _, err := f.svc.ListKnowledgeProposals(ctx, robot, mcp.ListKnowledgeProposalsInput{Project: "app"}); !errors.Is(err, mcp.ErrUnavailable) {
+		t.Errorf("without a knowledge base: %v", err)
+	}
+}
+
+func TestListKnowledgeProposalsWrapsTheTextForMCP(t *testing.T) {
+	f := newFixture(t)
+	closedKnowledge(t, f)
+	got, err := f.svc.ListKnowledgeProposals(t.Context(), f.by, mcp.ListKnowledgeProposalsInput{Project: "app", WrapUntrusted: true})
+	must(t, err)
+	if len(got) != 2 {
+		t.Fatalf("proposals = %+v", got)
+	}
+	for _, p := range got {
+		for _, text := range []string{p.Body, p.Reason, p.Path} {
+			if !strings.HasPrefix(text, "<untrusted-data") || !strings.Contains(text, "knowledge proposal "+p.Ref) {
+				t.Errorf("%s: %q is not wrapped", p.Ref, text)
+			}
+		}
+	}
+	plain, err := f.svc.ListKnowledgeProposals(t.Context(), f.by, mcp.ListKnowledgeProposalsInput{Project: "app"})
+	must(t, err)
+	if plain[0].Body != "b" {
+		t.Errorf("REST text is wrapped: %q", plain[0].Body)
+	}
+}
