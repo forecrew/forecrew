@@ -12,6 +12,23 @@ import (
 	"github.com/forecrew/forecrew/internal/store"
 )
 
+// checkLimitedOrder checks that a limit keeps the oldest run, or with Newest
+// the latest one.
+func checkLimitedOrder(t *testing.T, repo store.TestRunRepo, account, oldest, newest uuid.UUID) {
+	t.Helper()
+	for name, tt := range map[string]struct {
+		f    store.TestRunFilter
+		want uuid.UUID
+	}{
+		"newest": {store.TestRunFilter{Newest: true, Limit: 1}, newest},
+		"oldest": {store.TestRunFilter{Limit: 1}, oldest},
+	} {
+		if list, err := repo.List(t.Context(), account, tt.f); err != nil || len(list) != 1 || list[0].ID != tt.want {
+			t.Errorf("%s = %+v, %v; want run %s", name, list, err, tt.want)
+		}
+	}
+}
+
 func TestTestRuns(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
@@ -70,12 +87,14 @@ func TestTestRuns(t *testing.T) {
 		{"job", store.TestRunFilter{JobID: job.ID}, 1},
 		{"change", store.TestRunFilter{ChangeID: change.ID}, 1},
 		{"sha", store.TestRunFilter{SHA: "def456"}, 1},
+		{"no change", store.TestRunFilter{NoChange: true}, 1},
 		{"project and limit", store.TestRunFilter{ProjectID: f.project.ID, Limit: 1}, 1},
 	} {
 		if list, err := repo.List(ctx, f.account, tt.f); err != nil || len(list) != tt.want {
 			t.Errorf("List %s = %d runs, %v; want %d", tt.name, len(list), err, tt.want)
 		}
 	}
+	checkLimitedOrder(t, repo, f.account, run.ID, bare.ID)
 	if cs, err := f.st.Changes().List(ctx, f.account, store.ChangeFilter{HeadSHA: "abc123"}); err != nil || len(cs) != 1 {
 		t.Errorf("changes by head = %+v, %v", cs, err)
 	}
