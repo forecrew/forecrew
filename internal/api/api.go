@@ -170,6 +170,9 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/tokens", serve(s, http.StatusCreated, bodyOf[mcp.CreateTokenInput], t.CreateToken))
 	route("POST /api/v1/tokens/{token}/revoke", serve(s, http.StatusOK, tokenInput, t.RevokeToken))
 
+	route("GET /api/v1/connected-apps", serve(s, http.StatusOK, noInput, list(noArg(t.ListConnectedApps))))
+	route("POST /api/v1/connected-apps/{app}/revoke", serve(s, http.StatusOK, connectedAppInput, t.RevokeConnectedApp))
+
 	route("POST /api/v1/invitations", serve(s, http.StatusCreated, bodyOf[mcp.CreateInvitationInput], t.CreateInvitation))
 	route("GET /api/v1/invitations", serve(s, http.StatusOK, noInput, list(noArg(t.ListInvitations))))
 	route("POST /api/v1/invitations/{invitation}/revoke", serve(s, http.StatusOK, invitationInput, t.RevokeInvitation))
@@ -321,6 +324,8 @@ func RouteAccess() map[string]mcp.Access {
 
 		"POST /api/v1/invitations":                                tool[mcp.ToolCreateInvitation],
 		"GET /api/v1/invitations":                                 tool[mcp.ToolListInvitations],
+		"GET /api/v1/connected-apps":                              tool[mcp.ToolListConnectedApps],
+		"POST /api/v1/connected-apps/{app}/revoke":                tool[mcp.ToolRevokeConnectedApp],
 		"POST /api/v1/invitations/{invitation}/revoke":            tool[mcp.ToolRevokeInvitation],
 		"GET /api/v1/roles":                                       tool[mcp.ToolListRoles],
 		"GET /api/v1/teams":                                       tool[mcp.ToolListTeams],
@@ -513,6 +518,10 @@ func constraintInput(r *http.Request) (mcp.AddCouncilConstraintInput, error) {
 
 func tokenInput(r *http.Request) (mcp.RevokeTokenInput, error) {
 	return mcp.RevokeTokenInput{Token: r.PathValue("token")}, nil
+}
+
+func connectedAppInput(r *http.Request) (mcp.ConnectedAppInput, error) {
+	return mcp.ConnectedAppInput{App: r.PathValue("app")}, nil
 }
 
 func invitationInput(r *http.Request) (mcp.InvitationRefInput, error) {

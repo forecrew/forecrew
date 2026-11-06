@@ -99,7 +99,8 @@ repository does not.
   creating one for a service account (`token.manage`) concerns the roles of
   that service account. Its scopes stay within the highest class of the
   owner's permissions and within the token the call is made with, and a
-  credential below `write` creates none.
+  credential below `write` creates none. An OAuth grant creates none at all:
+  a token would outlive the person disconnecting the app.
 - **An instance admin recovering access** (identity.md, Recovery) holds every
   permission on the organization they entered, in a session only, whatever
   their bindings. The entry is audited as `instance_admin.entered`.
@@ -123,6 +124,12 @@ current permissions: a request may use a permission when the owner has it
 | `read` | permissions of class read: reading projects, goals, jobs, gates, workers, the organization and the audit log |
 | `write` | also class write: creating goals, dispatching and canceling jobs, resolving gates, proposing knowledge, deciding proposals, onboarding projects |
 | `admin` | also class admin: every `*.manage` permission |
+
+An **OAuth grant** acts as its user (`user:<id>`, identity.md), so roles and
+gates apply as for a personal token, but it is an app, not the person at a
+browser. Its access tokens work on `/mcp` only and are refused on `/api/v1`,
+so nothing that is served there alone, and no rule that needs a session,
+reaches it; `authz.Delegated` names such a caller for rules on `/mcp`.
 
 An **ownerless token** has no owner's permissions to meet, so it is limited
 only by its scopes (`admin` on the rows from before migration 00005), in its
@@ -350,15 +357,17 @@ object up and checks the permission on the object's project.
 | `update_service_account` | `PATCH /api/v1/service-accounts/{service_account}` | `service_account.manage` |
 | `set_service_account_disabled` | `POST /api/v1/service-accounts/{service_account}/disable`, `.../enable` | `service_account.manage`, No escalation |
 | `list_members` | `GET /api/v1/members` | `org.read`; emails only with `member.manage`; a project the caller cannot read is not named |
-| `set_member_suspended` | `POST /api/v1/members/{user}/suspend`, `.../resume` | `member.manage`, No escalation; ends the member's sessions and personal tokens in the organization |
-| `remove_member` | `DELETE /api/v1/members/{user}` | `member.manage`, No escalation; ends the member's sessions and personal tokens in the organization |
+| `set_member_suspended` | `POST /api/v1/members/{user}/suspend`, `.../resume` | `member.manage`, No escalation; ends the member's sessions, personal tokens and OAuth grants in the organization |
+| `remove_member` | `DELETE /api/v1/members/{user}` | `member.manage`, No escalation; ends the member's sessions, personal tokens and OAuth grants in the organization |
 | `update_organization` | `PATCH /api/v1/organization` | `org.manage` |
 | `list_audit` | `GET /api/v1/audit` | `audit.read` |
 | `list_connections` | `GET /api/v1/connections` | `connection.manage` |
 | `create_connection` | `POST /api/v1/connections` | `connection.manage`; never sets JIT or a group claim, so No escalation has nothing to cover |
 | `set_connection_enabled` | `POST /api/v1/connections/{connection}/enable`, `.../disable` | `connection.manage`; enabling needs a test sign-in that worked |
 | | `GET /auth/{connection}/login?test=1` | a session with `connection.manage` in the connection's organization |
-| `create_token` | `POST /api/v1/tokens` | own; `token.manage` for a service account's |
+| `create_token` | `POST /api/v1/tokens` | own; `token.manage` for a service account's; never through an OAuth grant |
+| `list_connected_apps` | `GET /api/v1/connected-apps` | own, class read; nobody sees another person's |
+| `revoke_connected_app` | `POST /api/v1/connected-apps/{app}/revoke` | own, with class write unless it is the app in use; another person's is `404` |
 | `create_invitation` | `POST /api/v1/invitations` | `member.manage` |
 | `list_invitations` | `GET /api/v1/invitations` | `member.manage` |
 | `revoke_invitation` | `POST /api/v1/invitations/{invitation}/revoke` | `member.manage` |

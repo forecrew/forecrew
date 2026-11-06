@@ -129,6 +129,8 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.ListConnections(ctx, by); return err },
 		func() error { _, err := s.CreateConnection(ctx, by, mcp.CreateConnectionInput{}); return err },
 		func() error { _, err := s.SetConnectionEnabled(ctx, by, mcp.SetConnectionInput{}); return err },
+		func() error { _, err := s.ListConnectedApps(ctx, by); return err },
+		func() error { _, err := s.RevokeConnectedApp(ctx, by, mcp.ConnectedAppInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

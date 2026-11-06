@@ -54,6 +54,8 @@ type ToolService struct {
 	CreateTokenFunc            func(context.Context, domain.Actor, mcp.CreateTokenInput) (mcp.CreateTokenOutput, error)
 	CreateInvitationFunc       func(context.Context, domain.Actor, mcp.CreateInvitationInput) (mcp.CreateInvitationOutput, error)
 	ListInvitationsFunc        func(context.Context, domain.Actor, any) ([]domain.Invitation, error)
+	ListConnectedAppsFunc      func(context.Context, domain.Actor, any) ([]mcp.ConnectedApp, error)
+	RevokeConnectedAppFunc     func(context.Context, domain.Actor, mcp.ConnectedAppInput) (mcp.ConnectedApp, error)
 	RevokeInvitationFunc       func(context.Context, domain.Actor, mcp.InvitationRefInput) (domain.Invitation, error)
 	ListArtifactsFunc          func(context.Context, domain.Actor, mcp.JobRefInput) ([]domain.Artifact, error)
 	ListTestRunsFunc           func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error)
@@ -330,6 +332,16 @@ func (s *ToolService) ListInvitations(ctx context.Context, by domain.Actor) ([]d
 // RevokeInvitation implements mcp.ToolService.
 func (s *ToolService) RevokeInvitation(ctx context.Context, by domain.Actor, in mcp.InvitationRefInput) (domain.Invitation, error) {
 	return invoke(ctx, s, mcp.ToolRevokeInvitation, by, in, s.RevokeInvitationFunc)
+}
+
+// ListConnectedApps implements mcp.ToolService.
+func (s *ToolService) ListConnectedApps(ctx context.Context, by domain.Actor) ([]mcp.ConnectedApp, error) {
+	return invoke[any](ctx, s, mcp.ToolListConnectedApps, by, nil, s.ListConnectedAppsFunc)
+}
+
+// RevokeConnectedApp implements mcp.ToolService.
+func (s *ToolService) RevokeConnectedApp(ctx context.Context, by domain.Actor, in mcp.ConnectedAppInput) (mcp.ConnectedApp, error) {
+	return invoke(ctx, s, mcp.ToolRevokeConnectedApp, by, in, s.RevokeConnectedAppFunc)
 }
 
 // ListArtifacts implements mcp.ToolService.

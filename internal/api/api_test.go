@@ -222,6 +222,8 @@ func TestEndpoints(t *testing.T) {
 			mcp.CreateInvitationInput{Email: "a@b.c", Roles: []mcp.RoleGrant{{Role: "viewer", Project: "app"}}}},
 		{"GET", "/api/v1/invitations", "", 200, mcp.ToolListInvitations, nil},
 		{"POST", "/api/v1/invitations/some-id/revoke", "", 200, mcp.ToolRevokeInvitation, mcp.InvitationRefInput{Invitation: "some-id"}},
+		{"GET", "/api/v1/connected-apps", "", 200, mcp.ToolListConnectedApps, nil},
+		{"POST", "/api/v1/connected-apps/some-id/revoke", "", 200, mcp.ToolRevokeConnectedApp, mcp.ConnectedAppInput{App: "some-id"}},
 		{"GET", "/api/v1/changes/9/verification?project=app", "", 200, mcp.ToolVerificationReport, mcp.VerificationReportInput{Change: "9", Project: "app"}},
 		{"GET", "/api/v1/changes/TASK-12/verification", "", 200, mcp.ToolVerificationReport, mcp.VerificationReportInput{Change: "TASK-12"}},
 		{"GET", "/api/v1/roles", "", 200, mcp.ToolListRoles, nil},

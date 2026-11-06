@@ -65,7 +65,11 @@ func (s *Service) CreateToken(ctx context.Context, by domain.Actor, in mcp.Creat
 	if err != nil {
 		return out, err
 	}
-	// A leaked read token must not be able to outlive its revocation.
+	// A leaked read token must not be able to outlive its revocation, and
+	// neither may a connected app outlive the person disconnecting it.
+	if err := s.authz.RefuseDelegated(ctx, by); err != nil {
+		return out, err
+	}
 	if err := s.authz.AuthorizeScope(ctx, by, domain.ScopeWrite); err != nil {
 		return out, err
 	}

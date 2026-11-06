@@ -24,6 +24,8 @@ organization and one owner, has scopes and an expiry, and stops working when
 its owner is disabled or is no longer an active member. Create one with
 `POST /api/v1/tokens`; see [runbooks/mcp-token.md](runbooks/mcp-token.md).
 
+OAuth access tokens (`fca_...`, docs/mcp.md) are for `/mcp` and get `401` here.
+
 **Sessions.** People sign in through a connection, in the browser:
 
 - `POST /api/v1/auth/discover` (public) takes `{"org": "<slug>", "email": "...",
@@ -155,6 +157,8 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/gates/{gate}/reject` | `reject` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `rejected` |
 | `GET /api/v1/tokens` | `list_tokens` | | `200` tokens with `id`, `name`, `created_at`, `last_used_at`, `revoked_at`, `owner_kind`, `owner_id`, `scopes`, `expires_at` and `current` (the token of this request); no hash or secret |
 | `POST /api/v1/tokens` | `create_token` | `{"name", "scopes": ["read"], "ttl": "720h", "service_account": "ci"}`; `ttl` defaults to `auth.token_default_ttl`, at most `8760h`, `service_account` to yourself | `201` `{"token": {...}, "secret": "fcm_..."}`; the secret is shown once. `403` for a scope above the owner's roles or above the token you use |
+| `GET /api/v1/connected-apps` | `list_connected_apps` | | `200` your connected apps in the organization, the OAuth clients you authorized: `id`, `name`, `client`, `scopes`, `refreshed_at`, `current` |
+| `POST /api/v1/connected-apps/{app}/revoke` | `revoke_connected_app` | `{app}` is the ID | `200` the app; its tokens stop working at once. `403` when a read-scoped credential disconnects an app; `404` when it is not an active app of yours |
 | `POST /api/v1/tokens/{token}/revoke` | `revoke_token` | `{token}` is a name or ID; body optional | `200` `{"token": {...}, "self": false, "message": "..."}`; `403` when a read-scoped credential revokes another of your tokens (the token in use can always end itself); `404` when no active token has that name or ID, or it is someone else's and you lack `token.manage`. `self` is true when the caller revoked the token it used: the next request, with the header or the session cookie, gets `401` |
 | `POST /api/v1/invitations` | `create_invitation` | `{"email" or "github_login", "roles": [{"role": "member"}, {"role": "maintainer", "project": "app"}], "ttl": "168h"}`; `ttl` defaults to 7 days, at most `720h`. A `github_login` is resolved to its GitHub user ID now, and only that account can accept; an unknown login is `400`, and `503` when GitHub cannot be reached | `201` `{"invitation": {...}, "url": "..."}`; the link is shown once |
 | `GET /api/v1/invitations` | `list_invitations` | | `200` invitations, newest first |

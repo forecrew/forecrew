@@ -207,7 +207,7 @@ func (r *remote) commands() []*cobra.Command {
 		listCommand(r, "projects", "List projects", "/projects", printProjects),
 		onboardCommand(r),
 		reportBugCommand(r),
-		tokensCommand(r), invitationsCommand(r),
+		tokensCommand(r), connectedAppsCommand(r), invitationsCommand(r),
 		listCommand(r, "gates", "List the gates waiting for a decision", "/gates", printGates),
 		decideCommand(r, "approve", "approve", "Approve a gate (GATE-7 or UUID); on a needs_you gate this retries"),
 		decideCommand(r, "reject", "reject", "Reject a gate (GATE-7 or UUID); on a needs_you gate this stops the work"),
@@ -606,6 +606,26 @@ func tokensCommand(r *remote) *cobra.Command {
 	return tokens
 }
 
+// connectedAppsCommand lists the caller's connected apps; its subcommand
+// disconnects one.
+func connectedAppsCommand(r *remote) *cobra.Command {
+	apps := listCommand(r, "connected-apps", "List your connected apps: the OAuth clients you authorized", "/connected-apps", printConnectedApps)
+	apps.AddCommand(&cobra.Command{
+		Use:   "revoke <id>",
+		Short: "Disconnect an app; its tokens stop working at once",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var out mcp.ConnectedApp
+			if err := r.call(cmd.Context(), http.MethodPost, "/connected-apps/"+url.PathEscape(args[0])+"/revoke", nil, &out); err != nil {
+				return err
+			}
+			cmd.Printf("%s disconnected\n", out.Name)
+			return nil
+		},
+	})
+	return apps
+}
+
 // invitationsCommand lists the organization's invitations; its subcommands
 // create and revoke them.
 func invitationsCommand(r *remote) *cobra.Command {
@@ -902,6 +922,18 @@ func printArtifacts(w io.Writer, items []domain.Artifact) {
 	rows := [][]string{{"ID", "NAME", "TYPE", "SIZE", "SHA256"}}
 	for _, a := range items {
 		rows = append(rows, []string{a.ID.String(), a.Name, dash(a.ContentType), strconv.FormatInt(a.Size, 10), a.SHA256[:min(12, len(a.SHA256))]})
+	}
+	table(w, rows)
+}
+
+func printConnectedApps(w io.Writer, items []mcp.ConnectedApp) {
+	rows := [][]string{{"NAME", "ID", "SCOPES", "REFRESHED"}}
+	for _, a := range items {
+		scopes := make([]string, len(a.Scopes))
+		for i, s := range a.Scopes {
+			scopes[i] = string(s)
+		}
+		rows = append(rows, []string{a.Name, a.ID.String(), strings.Join(scopes, ","), a.RefreshedAt.UTC().Format(time.RFC3339)})
 	}
 	table(w, rows)
 }

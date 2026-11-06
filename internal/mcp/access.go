@@ -149,6 +149,8 @@ func ToolAccess() map[string]Access {
 		ToolListConnections:    {Permission: domain.PermConnectionManage},
 		ToolCreateConnection:   {Permission: domain.PermConnectionManage},
 		ToolSetConnection:      {Permission: domain.PermConnectionManage},
+		ToolListConnectedApps:  {},
+		ToolRevokeConnectedApp: {},
 	}
 }
 

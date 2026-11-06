@@ -18,15 +18,16 @@ import (
 )
 
 // NewHandler returns the MCP server over streamable HTTP, protected by bearer
-// token authentication. Mount it at /mcp. Each tool checks ToolAccess and
-// calls the matching ToolService method as the token's actor.
-func NewHandler(svc ToolService, st store.Store, engine *authz.Engine, version string, logger *slog.Logger) http.Handler {
+// token authentication: personal tokens, and OAuth access tokens issued for
+// res. Mount it at /mcp. Each tool checks ToolAccess and calls the matching
+// ToolService method as the credential's actor.
+func NewHandler(svc ToolService, st store.Store, engine *authz.Engine, version string, res Resource, logger *slog.Logger) http.Handler {
 	srv := sdk.NewServer(&sdk.Implementation{Name: "forecrew", Version: version}, nil)
 	registerTools(srv, svc, engine, logger)
 	// Stateless: every request carries its own token, so there is no session
 	// to hijack and nothing to lose on restart; all tools are request/response.
 	h := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return srv }, &sdk.StreamableHTTPOptions{Stateless: true})
-	return Authenticate(st, nil, logger)(h)
+	return AuthenticateResource(st, nil, logger, res)(h)
 }
 
 func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logger *slog.Logger) {
@@ -195,6 +196,16 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 			out, err := svc.CreateToken(ctx, by, in)
 			return result(out, "Token %s created. Copy the secret now: it is not stored.", out.Token.Name), err
 		}, "name", "scopes")
+	register(r, ToolListConnectedApps, "List your connected apps in this organization: the OAuth clients you authorized, with their scopes and which one you are using.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			a, err := svc.ListConnectedApps(ctx, by)
+			return list("apps", a, "%d connected apps.", len(a)), err
+		})
+	register(r, ToolRevokeConnectedApp, "Disconnect one of your connected apps by ID; its tokens stop working at once. Disconnecting the app you are using ends your own access.",
+		fieldDocs{"app": "ID of the connected app, from list_connected_apps."}, func(ctx context.Context, by domain.Actor, in ConnectedAppInput) (toolResult, error) {
+			a, err := svc.RevokeConnectedApp(ctx, by, in)
+			return result(a, "%s disconnected.", a.Name), err
+		}, "app")
 	register(r, ToolCreateInvitation, "Invite someone by email or GitHub login, with the roles they get on acceptance. The answer holds the link, shown this once; they accept by signing in through it.",
 		fieldDocs{"email": "Email address to invite.", "github_login": "GitHub login to invite, instead of an email.", "roles": "Roles to grant: role name, and project for one project.", "ttl": "How long the link works, for example 168h; default 7 days."},
 		func(ctx context.Context, by domain.Actor, in CreateInvitationInput) (toolResult, error) {

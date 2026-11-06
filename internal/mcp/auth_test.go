@@ -195,3 +195,149 @@ func TestAuthenticateChecksTheOwner(t *testing.T) {
 }
 
 var t0 = time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+// grantEnv is a member with an access token for the resource.
+type grantEnv struct {
+	authEnv
+	res   mcp.Resource
+	user  domain.User
+	grant domain.OAuthGrant
+}
+
+const accessToken = "fca_test-access"
+
+func newGrantEnv(t *testing.T, change ...func(*domain.OAuthGrant)) grantEnv {
+	t.Helper()
+	e := grantEnv{authEnv: newAuthEnv(t), res: mcp.NewResource("https://forecrew.example/")}
+	e.user = e.store.AddMember(e.actor.AccountID, domain.User{Name: "ana"}, "")
+	client := domain.OAuthClient{ClientID: "app", Name: "App", RedirectURIs: []string{"https://app.example/cb"}}
+	if err := e.store.OAuth().CreateClient(t.Context(), &client); err != nil {
+		t.Fatal(err)
+	}
+	e.grant = domain.OAuthGrant{Kind: domain.OAuthAccess, TokenHash: mcp.HashToken(accessToken), FamilyID: domain.NewID(), ClientID: client.ID, UserID: e.user.ID,
+		AccountID: e.actor.AccountID, Scopes: []domain.Scope{domain.ScopeRead}, Resource: e.res.URL, ExpiresAt: time.Now().Add(time.Hour)}
+	for _, c := range change {
+		c(&e.grant)
+	}
+	if err := e.store.OAuth().CreateGrant(t.Context(), &e.grant); err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+// call sends the token through the middleware and returns the answer and the
+// caller that reached the handler.
+func (e grantEnv) call(t *testing.T, token string) (*httptest.ResponseRecorder, *mcp.Caller) {
+	t.Helper()
+	var got *mcp.Caller
+	h := mcp.AuthenticateResource(e.store, nil, slog.New(slog.DiscardHandler), e.res)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		c, _ := mcp.CallerFromContext(r.Context())
+		got = &c
+	}))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", strings.NewReader("{}"))
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec, got
+}
+
+func TestResourceChallenge(t *testing.T) {
+	e := newGrantEnv(t)
+	if e.res.URL != "https://forecrew.example/mcp" || e.res.Metadata != "https://forecrew.example/.well-known/oauth-protected-resource/mcp" {
+		t.Fatalf("resource = %+v", e.res)
+	}
+	want := `Bearer resource_metadata="https://forecrew.example/.well-known/oauth-protected-resource/mcp", scope="read write"`
+	rec, _ := e.call(t, "")
+	if rec.Code != http.StatusUnauthorized || rec.Header().Get("WWW-Authenticate") != want {
+		t.Errorf("missing token: %d %q", rec.Code, rec.Header().Get("WWW-Authenticate"))
+	}
+	rec, _ = e.call(t, "fcm_nope")
+	if rec.Code != http.StatusUnauthorized || rec.Header().Get("WWW-Authenticate") != want+`, error="invalid_token"` {
+		t.Errorf("bad token: %d %q", rec.Code, rec.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func TestAuthenticateResourceTakesGrantsAndTokens(t *testing.T) {
+	e := newGrantEnv(t)
+	rec, c := e.call(t, accessToken)
+	if rec.Code != http.StatusOK || c == nil {
+		t.Fatalf("status %d, caller %+v", rec.Code, c)
+	}
+	want := domain.UserActor(e.actor.AccountID, e.user.ID, domain.Credential{Kind: domain.CredentialOAuthGrant, ID: e.grant.ID})
+	if c.Actor != want || len(c.Scopes) != 1 || c.Scopes[0] != domain.ScopeRead {
+		t.Errorf("caller = %+v", c)
+	}
+	if _, c := e.call(t, testToken); c == nil || c.Actor != e.actor {
+		t.Errorf("personal token: caller = %+v", c)
+	}
+}
+
+func TestAuthenticateResourceRefusesGrants(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(*domain.OAuthGrant)
+	}{
+		{"another resource", func(g *domain.OAuthGrant) { g.Resource = "https://other.example/mcp" }},
+		{"expired", func(g *domain.OAuthGrant) { g.ExpiresAt = time.Now().Add(-time.Second) }},
+		{"revoked", func(g *domain.OAuthGrant) { g.RevokedAt = time.Now() }},
+		{"a refresh token", func(g *domain.OAuthGrant) { g.Kind = domain.OAuthRefresh }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newGrantEnv(t, tt.change)
+			if tt.name == "revoked" {
+				if err := e.store.OAuth().RevokeFamily(t.Context(), e.grant.FamilyID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if rec, c := e.call(t, accessToken); rec.Code != http.StatusUnauthorized || c != nil {
+				t.Errorf("status %d, caller %+v", rec.Code, c)
+			}
+		})
+	}
+}
+
+// TestAuthenticateNeverTakesGrants is /api/v1: an access token is for /mcp.
+func TestAuthenticateNeverTakesGrants(t *testing.T) {
+	e := newGrantEnv(t)
+	reached := false
+	h := mcp.Authenticate(e.store, nil, slog.New(slog.DiscardHandler))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true }))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/images", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized || reached {
+		t.Errorf("status %d, reached %v", rec.Code, reached)
+	}
+}
+
+func TestLostAccessRevokesGrants(t *testing.T) {
+	tests := []struct {
+		name string
+		lose func(t *testing.T, e grantEnv) error
+	}{
+		{"suspended", func(t *testing.T, e grantEnv) error {
+			return e.store.Memberships().SetStatus(t.Context(), e.actor.AccountID, e.user.ID, domain.MembershipSuspended)
+		}},
+		{"removed", func(t *testing.T, e grantEnv) error {
+			return e.store.Memberships().Remove(t.Context(), e.actor.AccountID, e.user.ID)
+		}},
+		{"disabled", func(t *testing.T, e grantEnv) error { return e.store.Users().SetDisabled(t.Context(), e.user.ID, true) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newGrantEnv(t)
+			if err := tt.lose(t, e); err != nil {
+				t.Fatal(err)
+			}
+			if rec, _ := e.call(t, accessToken); rec.Code != http.StatusUnauthorized {
+				t.Fatalf("status %d", rec.Code)
+			}
+			if g, err := e.store.OAuth().GetGrant(t.Context(), e.grant.ID); err != nil || g.RevokedAt.IsZero() {
+				t.Errorf("grant = %+v, %v", g, err)
+			}
+		})
+	}
+}

@@ -134,24 +134,26 @@ const (
 	ToolAcceptTicket            = "accept_ticket"
 	ToolDismissTicket           = "dismiss_ticket"
 
-	ToolConfigSchema   = "config_schema"
-	ToolConfigGet      = "config_get"
-	ToolConfigPlan     = "config_plan"
-	ToolConfigApply    = "config_apply"
-	ToolConfigRevert   = "config_revert"
-	ToolConfigExport   = "config_export"
-	ToolConfigImport   = "config_import"
-	ToolConfigPlans    = "config_plans"
-	ToolConfigGetPlan  = "config_get_plan"
-	ToolConfigCancel   = "config_cancel"
-	ToolAssistantSend  = "assistant_send"
-	ToolAssistantGet   = "assistant_get"
-	ToolAssistantList  = "assistant_list"
-	ToolCreateProvider = "create_provider"
-	ToolRevokeProvider = "revoke_provider"
-	ToolCreateJoinCode = "create_join_code"
-	ToolListJoinCodes  = "list_join_codes"
-	ToolConfirmJoin    = "confirm_join"
+	ToolConfigSchema       = "config_schema"
+	ToolConfigGet          = "config_get"
+	ToolConfigPlan         = "config_plan"
+	ToolConfigApply        = "config_apply"
+	ToolConfigRevert       = "config_revert"
+	ToolConfigExport       = "config_export"
+	ToolConfigImport       = "config_import"
+	ToolConfigPlans        = "config_plans"
+	ToolConfigGetPlan      = "config_get_plan"
+	ToolConfigCancel       = "config_cancel"
+	ToolAssistantSend      = "assistant_send"
+	ToolAssistantGet       = "assistant_get"
+	ToolAssistantList      = "assistant_list"
+	ToolCreateProvider     = "create_provider"
+	ToolRevokeProvider     = "revoke_provider"
+	ToolCreateJoinCode     = "create_join_code"
+	ToolListJoinCodes      = "list_join_codes"
+	ToolConfirmJoin        = "confirm_join"
+	ToolListConnectedApps  = "list_connected_apps"
+	ToolRevokeConnectedApp = "revoke_connected_app"
 )
 
 // Tools returns every MCP tool name.
@@ -179,6 +181,7 @@ func Tools() []string {
 		ToolListMembers, ToolSetMemberSuspended, ToolRemoveMember, ToolUpdateOrganization,
 		ToolListAudit,
 		ToolListConnections, ToolCreateConnection, ToolSetConnection,
+		ToolListConnectedApps, ToolRevokeConnectedApp,
 	}
 }
 
@@ -295,6 +298,12 @@ type ToolService interface {
 	// CreateToken creates a personal token of the caller, or with
 	// token.manage a service account's; the secret is in the answer only.
 	CreateToken(ctx context.Context, by domain.Actor, in CreateTokenInput) (CreateTokenOutput, error)
+	// ListConnectedApps lists the caller's connected apps in the
+	// organization: the OAuth authorizations that are still active.
+	ListConnectedApps(ctx context.Context, by domain.Actor) ([]ConnectedApp, error)
+	// RevokeConnectedApp ends one of them; its access and refresh tokens stop
+	// working at once. Another person's, or one that ended, is ErrNotFound.
+	RevokeConnectedApp(ctx context.Context, by domain.Actor, in ConnectedAppInput) (ConnectedApp, error)
 	// CreateInvitation invites someone by email or GitHub login, with roles;
 	// the link is in the answer only.
 	CreateInvitation(ctx context.Context, by domain.Actor, in CreateInvitationInput) (CreateInvitationOutput, error)
@@ -755,6 +764,24 @@ type TokenInfo struct {
 func NewTokenInfo(t domain.MCPToken, current bool) TokenInfo {
 	return TokenInfo{ID: t.ID, Name: t.Name, CreatedAt: t.CreatedAt, LastUsedAt: t.LastUsedAt, RevokedAt: t.RevokedAt, Current: current,
 		OwnerKind: t.OwnerKind, OwnerID: t.OwnerID, Scopes: t.Scopes, ExpiresAt: t.ExpiresAt}
+}
+
+// ConnectedApp is one OAuth authorization of the caller, the family of its
+// tokens.
+type ConnectedApp struct {
+	ID     uuid.UUID      `json:"id"` // the grants' FamilyID
+	Name   string         `json:"name"`
+	Client string         `json:"client"` // public client_id
+	Scopes []domain.Scope `json:"scopes"`
+	// RefreshedAt is when it last got a token.
+	RefreshedAt time.Time `json:"refreshed_at"`
+	// Current is set on the app that made the call.
+	Current bool `json:"current,omitempty"`
+}
+
+// ConnectedAppInput is the input of revoke_connected_app.
+type ConnectedAppInput struct {
+	App string `json:"app"`
 }
 
 // CreateTokenInput is the input of create_token.
