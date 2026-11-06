@@ -90,11 +90,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: shellcheck
-        run: shellcheck deploy/backup/*.sh deploy/tests/*.sh deploy/worker/*.sh deploy/worker/control/*.sh
+        run: shellcheck deploy/backup/*.sh deploy/tests/*.sh deploy/worker/*.sh deploy/worker/control/*.sh deploy/fleet-agent/*.sh
       - name: backup script
         run: deploy/tests/backup_test.sh
       - name: worker install script
         run: deploy/tests/install_test.sh
+      - name: fleet agent install script
+        run: deploy/tests/install_fleet_agent_test.sh
 
   compose:
     runs-on: ubuntu-latest
@@ -170,7 +172,7 @@ jobs:
       - name: PSScriptAnalyzer
         shell: pwsh
         run: |
-          $findings = Invoke-ScriptAnalyzer -Path deploy/worker/install.ps1 -Severity Warning, Error
+          $findings = @('deploy/worker/install.ps1', 'deploy/fleet-agent/install.ps1') | ForEach-Object { Invoke-ScriptAnalyzer -Path $_ -Severity Warning, Error }
           $findings | Format-List
           if ($findings) { exit 1 }
 

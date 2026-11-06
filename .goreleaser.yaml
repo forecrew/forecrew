@@ -35,9 +35,18 @@ builds:
     flags: [-trimpath]
     ldflags: ["-s -w -X main.version={{.Version}}"]
 
+  - id: forecrew-fleet-agent
+    main: ./cmd/forecrew-fleet-agent
+    binary: forecrew-fleet-agent
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+
 # One archive per binary and platform. The names have no version so that
 # .../releases/latest/download/forecrew-worker_linux_amd64.tar.gz is stable;
-# deploy/worker/install.sh relies on it.
+# deploy/worker/install.sh and deploy/fleet-agent/install.sh rely on it.
 archives:
   - id: forecrewd
     ids: [forecrewd]
@@ -53,6 +62,12 @@ archives:
       - {goos: windows, formats: [zip]}
   - id: forecrew-worker
     ids: [forecrew-worker]
+    name_template: "{{ .Binary }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - {goos: windows, formats: [zip]}
+  - id: forecrew-fleet-agent
+    ids: [forecrew-fleet-agent]
     name_template: "{{ .Binary }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     format_overrides:
