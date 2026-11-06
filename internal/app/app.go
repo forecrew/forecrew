@@ -391,7 +391,7 @@ func New(d Deps) (*App, error) {
 	}
 	agents := fleetapi.New(fleetapi.Config{Store: st, Fleet: machines, Logger: log, Now: d.Now})
 	a.handler = a.routes(workers.Handler(), agents.Handler(), jobGateway.Handler(),
-		mcp.NewHandler(toolSvc, st, access, d.Version, log),
+		mcp.NewHandler(toolSvc, st, access, d.Version, mcp.NewResource(cfg.Server.PublicBaseURL), log),
 		api.New(api.Config{
 			Tools: toolSvc, Artifacts: toolSvc, Images: toolSvc, Store: st, Authz: access, Auth: a.auth, Logger: log, PublicURL: cfg.Server.PublicBaseURL,
 			TokenLogin: cfg.Auth.TokenLogin, SessionMaxAge: cfg.Auth.SessionAbsolute, Now: d.Now,

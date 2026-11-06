@@ -2,6 +2,7 @@ package authz_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -270,6 +271,73 @@ func TestTokenStates(t *testing.T) {
 	}
 }
 
+func TestOAuthGrantBoundsTheUser(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	_, id := f.user(t)
+	testkit.Bind(t, f.st, f.account, domain.SubjectUser, id, domain.RoleScopeOrganization, domain.RoleViewer, uuid.Nil())
+	client := domain.OAuthClient{ClientID: "app", Name: "App", RedirectURIs: []string{"https://app.example/cb"}}
+	must(t, f.st.OAuth().CreateClient(ctx, &client))
+	grant := func(change func(*domain.OAuthGrant)) domain.Actor {
+		h := sha256.Sum256([]byte(domain.NewID().String()))
+		g := domain.OAuthGrant{Kind: domain.OAuthAccess, TokenHash: h[:], FamilyID: domain.NewID(), ClientID: client.ID, UserID: id, AccountID: f.account,
+			Scopes: []domain.Scope{domain.ScopeWrite}, Resource: "https://f.example/mcp", ExpiresAt: time.Now().Add(time.Hour)}
+		change(&g)
+		must(t, f.st.OAuth().CreateGrant(ctx, &g))
+		return domain.UserActor(f.account, id, domain.Credential{Kind: domain.CredentialOAuthGrant, ID: g.ID})
+	}
+	org := authz.Organization(f.account)
+
+	by := grant(func(*domain.OAuthGrant) {})
+	if !f.can(t, by, domain.PermOrgRead, org) {
+		t.Error("a write grant cannot use a read permission its user holds")
+	}
+	if f.can(t, by, domain.PermGoalCreate, org) {
+		t.Error("the scope of a grant added a permission its Viewer lacks")
+	}
+	must(t, f.engine.AuthorizeScope(ctx, by, domain.ScopeWrite))
+	if err := f.engine.AuthorizeScope(ctx, by, domain.ScopeAdmin); !errors.Is(err, authz.ErrDenied) {
+		t.Errorf("admin scope = %v", err)
+	}
+	narrow := grant(func(g *domain.OAuthGrant) { g.Scopes = []domain.Scope{domain.ScopeRead} })
+	if err := f.engine.AuthorizeScope(ctx, narrow, domain.ScopeWrite); !errors.Is(err, authz.ErrDenied) {
+		t.Errorf("write on a read grant = %v", err)
+	}
+
+	for name, change := range map[string]func(*domain.OAuthGrant){
+		"expired":   func(g *domain.OAuthGrant) { g.ExpiresAt = time.Now().Add(-time.Minute) },
+		"a refresh": func(g *domain.OAuthGrant) { g.Kind = domain.OAuthRefresh },
+		"another person's": func(g *domain.OAuthGrant) {
+			_, other := f.user(t)
+			g.UserID = other
+		},
+	} {
+		if f.can(t, grant(change), domain.PermOrgRead, org) {
+			t.Errorf("%s grant allowed", name)
+		}
+	}
+}
+
+func TestRefuseDelegated(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	_, id := f.user(t)
+	session := domain.UserActor(f.account, id, domain.Credential{Kind: domain.CredentialSession, ID: domain.NewID()})
+	must(t, f.engine.RefuseDelegated(ctx, session))
+	grant := domain.UserActor(f.account, id, domain.Credential{Kind: domain.CredentialOAuthGrant, ID: domain.NewID()})
+	if !authz.IsPerson(grant) || !authz.Delegated(grant) || authz.Delegated(session) {
+		t.Error("a grant is a person's, delegated; a session is not delegated")
+	}
+	if err := f.engine.RefuseDelegated(ctx, grant); !errors.Is(err, authz.ErrDenied) {
+		t.Fatalf("err = %v", err)
+	}
+	entries, err := f.st.Audit().List(ctx, f.account, store.AuditFilter{})
+	must(t, err)
+	if len(entries) != 1 || entries[0].Action != "access.denied" || entries[0].Credential != grant.Credential.String() {
+		t.Fatalf("audit = %+v", entries)
+	}
+}
+
 func TestAuthorizeScope(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
@@ -288,7 +356,7 @@ func TestAuthorizeScope(t *testing.T) {
 	}
 	must(t, f.engine.AuthorizeScope(ctx, domain.UserActor(f.account, id, domain.Credential{Kind: domain.CredentialSession, ID: domain.NewID()}), domain.ScopeAdmin))
 
-	// A grant has no scopes until T55, and a denied read is not audited.
+	// A grant that is not stored has no scopes, and a denied read is not audited.
 	grant := domain.UserActor(f.account, id, domain.Credential{Kind: domain.CredentialOAuthGrant, ID: domain.NewID()})
 	if err := f.engine.AuthorizeScope(ctx, grant, domain.ScopeRead); !errors.Is(err, authz.ErrDenied) {
 		t.Fatalf("grant = %v", err)

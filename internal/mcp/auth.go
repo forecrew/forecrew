@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
@@ -21,10 +23,10 @@ import (
 type Caller struct {
 	// Actor holds the subject, its organization and its credential.
 	Actor domain.Actor
-	// Scopes bound a token; nil for a session, which only has its user's
-	// permissions.
+	// Scopes bound a token or OAuth grant; nil for a session, which only has
+	// its user's permissions.
 	Scopes []domain.Scope
-	// TokenName is the name of the token; empty for a session.
+	// TokenName is the name of the token; empty for a session or OAuth grant.
 	TokenName string
 	// BreakGlass is an instance admin in an organization they are not an
 	// active member of (docs/contracts/identity.md, Recovery).
@@ -101,13 +103,101 @@ func tokenCaller(ctx context.Context, st store.Store, token string, now time.Tim
 	return c, t, nil
 }
 
+// PrefixAccessToken starts an OAuth access token (docs/contracts/identity.md).
+const PrefixAccessToken = "fca_"
+
+// Paths of /mcp as an OAuth protected resource.
+const (
+	ResourcePath = "/mcp"
+	MetadataPath = "/.well-known/oauth-protected-resource/mcp"
+)
+
+// challengeScopes is what a 401 tells a client to ask for: enough for the
+// work of the MCP tools. admin is there for whoever asks for it on purpose.
+const challengeScopes = "read write"
+
+// Resource is /mcp as an OAuth protected resource. The zero Resource takes no
+// OAuth grants.
+type Resource struct {
+	URL      string // the audience of access tokens
+	Metadata string // the protected resource metadata (RFC 9728)
+}
+
+// NewResource returns the resource of the forecrewd at publicURL.
+func NewResource(publicURL string) Resource {
+	base := strings.TrimRight(publicURL, "/")
+	return Resource{URL: base + ResourcePath, Metadata: base + MetadataPath}
+}
+
+// challenge is the WWW-Authenticate header of a 401: where a client finds
+// out how to sign in. A failed token also gets invalid_token (RFC 6750).
+func (res Resource) challenge(failed bool) string {
+	if res.URL == "" {
+		return "Bearer"
+	}
+	c := fmt.Sprintf("Bearer resource_metadata=%q, scope=%q", res.Metadata, challengeScopes)
+	if failed {
+		c += `, error="invalid_token"`
+	}
+	return c
+}
+
+// grantCaller returns the caller of an OAuth access token, after checking
+// that it was issued for this resource, is usable, and that its user still
+// has access. A user who lost it loses their grants there, whichever path made
+// that change (docs/contracts/identity.md).
+func grantCaller(ctx context.Context, st store.Store, token string, res Resource, now time.Time) (Caller, error) {
+	g, err := st.OAuth().GetGrantByTokenHash(ctx, HashToken(token))
+	if errors.Is(err, store.ErrNotFound) || (err == nil && (g.Kind != domain.OAuthAccess || g.Resource != res.URL || !g.Usable(now))) {
+		return Caller{}, errNoAccess
+	}
+	if err != nil {
+		return Caller{}, err
+	}
+	ok, err := UserActive(ctx, st, g.AccountID, g.UserID)
+	if err != nil {
+		return Caller{}, err
+	}
+	if !ok {
+		if err := st.OAuth().RevokeByUser(ctx, g.AccountID, g.UserID); err != nil {
+			return Caller{}, err
+		}
+		return Caller{}, errNoAccess
+	}
+	cred := domain.Credential{Kind: domain.CredentialOAuthGrant, ID: g.ID}
+	return Caller{Actor: domain.UserActor(g.AccountID, g.UserID, cred), Scopes: g.Scopes}, nil
+}
+
+// UserActive reports whether the user is enabled and an active member of the
+// organization.
+func UserActive(ctx context.Context, st store.Store, accountID, userID uuid.UUID) (bool, error) {
+	user, err := st.Users().Get(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	m, err := st.Memberships().Get(ctx, accountID, userID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return m.Status == domain.MembershipActive && user.DisabledAt.IsZero(), nil
+}
+
 // Authenticate returns middleware that requires "Authorization: Bearer
 // <token>" with a usable personal, service account or ownerless token. It
 // looks the token up by hash, checks its owner, records its use, and attaches
 // the Caller to the request context; see CallerFromContext. Failures answer
-// 401 in the API error format. It serves the MCP endpoint and /api/v1. now
-// defaults to the real time.
+// 401 in the API error format. It serves /api/v1, which takes no OAuth access
+// token: those are for /mcp alone. now defaults to the real time.
 func Authenticate(st store.Store, now func() time.Time, logger *slog.Logger) func(http.Handler) http.Handler {
+	return AuthenticateResource(st, now, logger, Resource{})
+}
+
+// AuthenticateResource is Authenticate for res: it also takes OAuth access
+// tokens for it, and a 401 says how to get one. It serves /mcp.
+func AuthenticateResource(st store.Store, now func() time.Time, logger *slog.Logger, res Resource) func(http.Handler) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
@@ -116,21 +206,29 @@ func Authenticate(st store.Store, now func() time.Time, logger *slog.Logger) fun
 			scheme, token, ok := strings.Cut(r.Header.Get("Authorization"), " ")
 			token = strings.TrimSpace(token)
 			if !ok || !strings.EqualFold(scheme, "bearer") || token == "" {
-				writeAuthError(w, http.StatusUnauthorized, "unauthorized", "missing bearer token")
+				writeAuthError(w, http.StatusUnauthorized, res.challenge(false), "unauthorized", "missing bearer token")
 				return
 			}
-			c, t, err := tokenCaller(r.Context(), st, token, now())
+			var c Caller
+			var err error
+			if res.URL != "" && strings.HasPrefix(token, PrefixAccessToken) {
+				c, err = grantCaller(r.Context(), st, token, res, now())
+			} else {
+				var t domain.MCPToken
+				if c, t, err = tokenCaller(r.Context(), st, token, now()); err == nil {
+					if err := st.MCPTokens().Touch(r.Context(), t.AccountID, t.ID); err != nil {
+						logger.WarnContext(r.Context(), "touch token", "account_id", t.AccountID, "error", err)
+					}
+				}
+			}
 			switch {
 			case errors.Is(err, errNoAccess):
-				writeAuthError(w, http.StatusUnauthorized, "unauthorized", errNoAccess.Error())
+				writeAuthError(w, http.StatusUnauthorized, res.challenge(true), "unauthorized", errNoAccess.Error())
 				return
 			case err != nil:
 				logger.ErrorContext(r.Context(), "look up token", "error", err)
-				writeAuthError(w, http.StatusInternalServerError, "internal", "internal error")
+				writeAuthError(w, http.StatusInternalServerError, "", "internal", "internal error")
 				return
-			}
-			if err := st.MCPTokens().Touch(r.Context(), t.AccountID, t.ID); err != nil {
-				logger.WarnContext(r.Context(), "touch token", "account_id", t.AccountID, "error", err)
 			}
 			next.ServeHTTP(w, r.WithContext(WithCaller(r.Context(), c)))
 		})
@@ -149,9 +247,9 @@ func TokenActor(t domain.MCPToken) domain.Actor {
 	return domain.Actor{AccountID: t.AccountID, Kind: domain.ActorMCP, Name: t.Name, Credential: domain.Credential{Kind: domain.CredentialToken, ID: t.ID}}
 }
 
-func writeAuthError(w http.ResponseWriter, status int, code, message string) {
-	if status == http.StatusUnauthorized {
-		w.Header().Set("WWW-Authenticate", "Bearer")
+func writeAuthError(w http.ResponseWriter, status int, challenge, code, message string) {
+	if challenge != "" {
+		w.Header().Set("WWW-Authenticate", challenge)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

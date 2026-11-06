@@ -45,7 +45,7 @@ func newEnv(t *testing.T) *env {
 	e := &env{svc: &testkit.ToolService{}, store: st, logs: &bytes.Buffer{},
 		actor: domain.Actor{AccountID: account.ID, Kind: domain.ActorMCP, Name: "laptop", Credential: domain.Credential{Kind: domain.CredentialToken, ID: tok.ID}}}
 	logger := slog.New(slog.NewJSONHandler(e.logs, nil))
-	e.server = httptest.NewServer(mcp.NewHandler(e.svc, st, authz.New(st, nil), "test", logger))
+	e.server = httptest.NewServer(mcp.NewHandler(e.svc, st, authz.New(st, nil), "test", mcp.Resource{}, logger))
 	t.Cleanup(e.server.Close)
 	return e
 }
@@ -234,6 +234,8 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolCreateInvitation, map[string]any{"email": "a@b.c", "roles": []map[string]string{{"role": "member"}}}, mcp.CreateInvitationInput{Email: "a@b.c", Roles: []mcp.RoleGrant{{Role: "member"}}}},
 		{mcp.ToolListInvitations, nil, nil},
 		{mcp.ToolRevokeInvitation, map[string]any{"invitation": "x"}, mcp.InvitationRefInput{Invitation: "x"}},
+		{mcp.ToolListConnectedApps, nil, nil},
+		{mcp.ToolRevokeConnectedApp, map[string]any{"app": "x"}, mcp.ConnectedAppInput{App: "x"}},
 		{mcp.ToolVerificationReport, map[string]any{"change": "9", "project": "app"}, mcp.VerificationReportInput{Change: "9", Project: "app"}},
 		{mcp.ToolListRoles, nil, nil},
 		{mcp.ToolListTeams, nil, nil},

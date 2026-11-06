@@ -218,7 +218,14 @@ func (e *Engine) load(ctx context.Context, by domain.Actor) (*caller, error) {
 			v.scopes = t.Scopes
 		}
 	case domain.CredentialOAuthGrant:
-		v.bounded = true // no scopes until grants exist (T55): nothing is allowed
+		v.bounded = true
+		g, err := e.st.OAuth().GetGrant(ctx, by.Credential.ID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("read grant: %w", err)
+		}
+		if err == nil && g.Kind == domain.OAuthAccess && g.UserID == id && g.AccountID == by.AccountID && g.Usable(time.Now()) {
+			v.scopes = g.Scopes
+		}
 	}
 	bound, err := e.st.RoleBindings().Effective(ctx, by.AccountID, kind, id)
 	if err != nil {
@@ -432,6 +439,24 @@ func mayResolve(by domain.Actor) bool { return IsPerson(by) }
 // agents and workers are not.
 func IsPerson(by domain.Actor) bool {
 	return by.Kind == domain.ActorUser || by.Kind == domain.ActorMCP
+}
+
+// Delegated reports whether by is an app acting for a person through an OAuth
+// grant. It still counts as that person's actor, within the grant's scopes, but
+// the person is not at the keyboard: a rule meant for someone in a browser
+// refuses it, and it mints no credential that outlives the grant. Grants only
+// reach /mcp, so what only /api/v1 serves never sees one.
+func Delegated(by domain.Actor) bool { return by.Credential.Kind == domain.CredentialOAuthGrant }
+
+// RefuseDelegated returns nil unless by is Delegated. A refusal wraps ErrDenied
+// and is audited.
+func (e *Engine) RefuseDelegated(ctx context.Context, by domain.Actor) error {
+	if !Delegated(by) {
+		return nil
+	}
+	res := Organization(by.AccountID)
+	e.record(ctx, by, res, map[string]string{"rule": "not_for_connected_apps", "resource": res.UID().String()})
+	return fmt.Errorf("a connected app cannot do this: %w", ErrDenied)
 }
 
 // CanResolve reports whether by may resolve g, for the gate list.

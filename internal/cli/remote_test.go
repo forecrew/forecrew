@@ -263,6 +263,29 @@ func TestJobsCancel(t *testing.T) {
 	}
 }
 
+func TestConnectedAppsCommand(t *testing.T) {
+	e := newRemoteEnv(t)
+	id := domain.NewID()
+	e.svc.ListConnectedAppsFunc = func(context.Context, domain.Actor, any) ([]mcp.ConnectedApp, error) {
+		return []mcp.ConnectedApp{{ID: id, Name: "Claude", Scopes: []domain.Scope{domain.ScopeRead, domain.ScopeWrite}, RefreshedAt: time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)}}, nil
+	}
+	out, errOut, code := e.run(t, "connected-apps")
+	if code != 0 || !strings.Contains(out, "Claude") || !strings.Contains(out, "read,write") || !strings.Contains(out, "2026-03-01T12:00:00Z") {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
+	}
+	e.svc.RevokeConnectedAppFunc = func(_ context.Context, _ domain.Actor, in mcp.ConnectedAppInput) (mcp.ConnectedApp, error) {
+		return mcp.ConnectedApp{ID: id, Name: "Claude"}, nil
+	}
+	out, errOut, code = e.run(t, "connected-apps", "revoke", id.String())
+	if code != 0 || !strings.Contains(out+errOut, "Claude disconnected") {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
+	}
+	calls := e.svc.Calls()
+	if last := calls[len(calls)-1]; last.Tool != mcp.ToolRevokeConnectedApp || last.Input != (mcp.ConnectedAppInput{App: id.String()}) {
+		t.Errorf("call = %+v", last)
+	}
+}
+
 func TestTokensCommand(t *testing.T) {
 	e := newRemoteEnv(t)
 	used := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
