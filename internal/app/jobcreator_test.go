@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -417,7 +418,7 @@ func TestJobCreatorProposalReview(t *testing.T) {
 // A repo without a commit has no policy file and nothing to protect: its
 // project can onboard, so the analyst's job is created.
 func TestJobCreatorAllowsWritersInAnEmptyRepo(t *testing.T) {
-	f := newFixture(t)
+	f := newFixture(t, func(d *Deps) { d.GitHub = headEmpty{d.GitHub} })
 	p := domain.Project{AccountID: f.account.ID, Name: "empty", Repo: "acme/empty", DefaultBranch: "main", Status: domain.ProjectRegistered}
 	must(t, f.st.Projects().Create(t.Context(), &p))
 	f.tracker.Install("acme/empty") // no commit, so no branch
@@ -426,6 +427,14 @@ func TestJobCreatorAllowsWritersInAnEmptyRepo(t *testing.T) {
 			t.Errorf("%s: %v", role, err)
 		}
 	}
+}
+
+// headEmpty answers the read of a branch head like GitHub does for a repo
+// without commits (409), which the fake tracker answers with a 404.
+type headEmpty struct{ github.Tracker }
+
+func (headEmpty) HeadSHA(context.Context, string, string) (string, error) {
+	return "", fmt.Errorf("get branch: %w", github.ErrEmptyRepo)
 }
 
 // headFails makes the read of a branch head fail like a GitHub outage.
@@ -449,6 +458,26 @@ func TestJobCreatorRefusesWritersWhenThePolicyCannotBeRead(t *testing.T) {
 		if got := errors.Is(err, knowledge.ErrPolicyUnknown); got != wantErr {
 			t.Errorf("%s: err = %v, want policy refusal %v", role, err, wantErr)
 		}
+	}
+}
+
+// headMissing answers the read of a branch head with a 404, as a renamed
+// default branch or lost access to the repo does.
+type headMissing struct{ github.Tracker }
+
+func (headMissing) HeadSHA(context.Context, string, string) (string, error) {
+	return "", fmt.Errorf("get branch: %w", github.ErrNotFound)
+}
+
+// A 404 on the default branch is no empty repo: the policy that protects
+// curated paths may exist, so a writing role's job is refused.
+func TestJobCreatorRefusesWritersOnABranch404(t *testing.T) {
+	f := newFixture(t, func(d *Deps) { d.GitHub = headMissing{d.GitHub} })
+	p := domain.Project{AccountID: f.account.ID, Name: "renamed", Repo: "acme/renamed", DefaultBranch: "main", Status: domain.ProjectOnboarded}
+	must(t, f.st.Projects().Create(t.Context(), &p))
+	_, err := f.creator.Create(t.Context(), workflow.JobRequest{AccountID: f.account.ID, ProjectID: p.ID, Role: "developer"})
+	if !errors.Is(err, knowledge.ErrPolicyUnknown) {
+		t.Errorf("err = %v, want policy refusal", err)
 	}
 }
 
