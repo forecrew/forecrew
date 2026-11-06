@@ -403,6 +403,14 @@ gateway. Do not bind an unauthenticated service on the worker's machine to all
 addresses while it runs toolbox jobs. The worker does not rewrite https
 certificates: a private CA is not trusted in the container.
 
+**Custom endpoints.** A runtime's `base_url` is handed to the CLI as is. A
+loopback one (`localhost`, `127.0.0.1`) reaches the container's own loopback,
+not the host's, so a model server on the worker's machine must be given by an
+address the container can reach. The endpoint's `key_env` is a credential like
+the others: by name, and subject to the same refused names. The `opencode`
+runtime does not run in a toolbox container yet (the base image has no
+opencode): such a job fails with a message saying so.
+
 **MCP servers.** The toolbox's `mcp_servers` are stdio servers the agent CLI
 starts inside the container, from the same MCP configuration as the gateway
 (`--mcp-config` with `--strict-mcp-config` for claude-code, `-c mcp_servers.*`

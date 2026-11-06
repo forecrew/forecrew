@@ -482,3 +482,70 @@ func TestToolboxContainerIsGoneBeforeTheEvidenceIsRead(t *testing.T) {
 		t.Error("the container was still there when the evidence was uploaded")
 	}
 }
+
+// namedEnv is a worker whose adapter has the name of a real runtime.
+func namedEnv(t *testing.T, name string, fn func(ctx context.Context, spec runtime.RunSpec, _ func(domain.JobEvent)) (runtime.Result, error)) (*testEnv, *toolboxEngine) {
+	t.Helper()
+	g := newToolboxEngine(t)
+	e := newEnv(t, named{funcAdapter{fn}, name})
+	e.cfg.DockerBin, e.cfg.Toolboxes = g.bin, toolboxFiles()
+	e.rebuild()
+	return e, g
+}
+
+func TestToolboxRefusesOpencode(t *testing.T) {
+	e, g := namedEnv(t, runtime.Opencode, func(context.Context, runtime.RunSpec, func(domain.JobEvent)) (runtime.Result, error) {
+		t.Error("the agent ran")
+		return runtime.Result{}, nil
+	})
+	s := toolboxSpec(e, securityBox, func(s *domain.JobSpec) {
+		s.Runtime = runtime.Opencode
+		s.Endpoint = &domain.Endpoint{BaseURL: "http://models.example.com/v1", KeyEnv: "EP_KEY"}
+	})
+	c := e.doComplete(s)
+	if c.Status != StatusFailed || !strings.Contains(c.Error, "opencode runtime does not run in a toolbox container") {
+		t.Fatalf("completion = %+v", c)
+	}
+	if hasCall(calls(t, g.log), "run --rm") || hasCall(calls(t, g.log), "build") {
+		t.Errorf("docker was used:\n%s", strings.Join(calls(t, g.log), "\n"))
+	}
+}
+
+func TestToolboxEndpointKeyIsPassedByName(t *testing.T) {
+	const key = "ep-secret-0123456789abcdef"
+	var out []string
+	e, g := namedEnv(t, runtime.ClaudeCode, func(ctx context.Context, spec runtime.RunSpec, _ func(domain.JobEvent)) (runtime.Result, error) {
+		var err error
+		out, err = inBox(ctx, spec, `echo "key=[$EP_KEY]"`)
+		return runtime.Result{}, err
+	})
+	s := toolboxSpec(e, securityBox, func(s *domain.JobSpec) {
+		s.Runtime = runtime.ClaudeCode
+		s.Env["EP_KEY"] = key
+		s.Endpoint = &domain.Endpoint{BaseURL: "http://models.example.com/v1", KeyEnv: "EP_KEY"}
+	})
+	if c := e.doComplete(s); c.Status != StatusSucceeded {
+		t.Fatalf("completion = %+v", c)
+	}
+	if len(out) != 1 || out[0] != "key=["+key+"]" {
+		t.Errorf("the job saw %q", out)
+	}
+	got := calls(t, g.log)
+	if !hasCall(got, "-e EP_KEY ") {
+		t.Error("the endpoint key was not passed by name")
+	}
+	for _, c := range got {
+		if strings.Contains(c, key) {
+			t.Errorf("the endpoint key is in a command line: %s", c)
+		}
+	}
+
+	// An endpoint key named like a variable the docker client reads is refused.
+	s = toolboxSpec(e, securityBox, func(s *domain.JobSpec) {
+		s.Runtime = runtime.ClaudeCode
+		s.Endpoint = &domain.Endpoint{BaseURL: "http://models.example.com/v1", KeyEnv: "DOCKER_HOST"}
+	})
+	if c := e.doComplete(s); c.Status != StatusFailed || !strings.Contains(c.Error, "DOCKER_HOST") {
+		t.Errorf("reserved endpoint key: %+v", c)
+	}
+}
