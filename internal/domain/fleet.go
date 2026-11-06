@@ -842,9 +842,18 @@ func ParseImageRef(ref string) (name, version string, ok bool) {
 }
 
 // SigningPayload returns the bytes Signature signs: the fields that say
-// what the image is, so a signature cannot be moved to another image.
+// what the image is, so a signature cannot be moved to another image, the
+// digest of the kernel of a rootfs image (empty for any other), so nobody can
+// swap it, and the build time to the second (the database keeps less than a
+// nanosecond), so a build cannot be given another date. One per line, in that
+// order.
 func (i Image) SigningPayload() []byte {
-	return fmt.Appendf(nil, "%s\n%s\n%s\n%s\n%s\n%s\n", i.Name, i.Version, i.OS, i.Arch, i.Format, i.Digest)
+	var kernel string
+	if i.Contents.Kernel != nil {
+		kernel = i.Contents.Kernel.Digest
+	}
+	return fmt.Appendf(nil, "%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n", i.Name, i.Version, i.OS, i.Arch, i.Format, i.Digest, kernel,
+		i.BuiltAt.UTC().Format(time.RFC3339))
 }
 
 // validSignature reports whether s is ed25519:<base64 of 64 bytes>.
@@ -945,8 +954,14 @@ func checkURI(p *problems, field, s string) {
 	u, err := url.Parse(s)
 	if err != nil || u.Scheme == "" || u.User != nil {
 		p.addf("%s must be an absolute URI without credentials", field)
+	} else if !slices.Contains(imageURISchemes, strings.ToLower(u.Scheme)) {
+		p.addf("%s: scheme %q is not one of %s", field, u.Scheme, strings.Join(imageURISchemes, ", "))
 	}
 }
+
+// imageURISchemes are where an image or kernel may be fetched from: HTTP(S),
+// object storage, a local file, an OCI registry (Tart) and an AMI.
+var imageURISchemes = []string{"https", "http", "s3", "gs", "file", "oci", "ami"}
 
 // secretKeyRE matches config keys that would hold a secret.
 var secretKeyRE = regexp.MustCompile(`(?i)secret|passw(or)?d|token|credential|private[_-]?key|api[_-]?key|access[_-]?key`)
