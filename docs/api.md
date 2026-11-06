@@ -227,6 +227,29 @@ council, assumption or decision of no goal is a trace of one node and no
 text. Which nodes a caller gets depends on `goal.read` and `job.read`
 (permissions.md).
 
+### Configuration
+
+The MCP tools `config_*` and `assistant_*` over REST
+([config-resources.md](contracts/config-resources.md)):
+
+| Route | Tool | Body or query |
+|-------|------|---------------|
+| `GET /api/v1/config/schema` | `config_schema` | `?kind=` |
+| `GET /api/v1/config/resources` | `config_get` | `?kind=&name=` |
+| `GET /api/v1/config/export` | `config_export` | |
+| `POST /api/v1/config/import` | `config_import` | `{"yaml"}` |
+| `GET /api/v1/config/plans` | `config_plans` | `?inbox=true&limit=` |
+| `POST /api/v1/config/plans` | `config_plan` | `{"title", "request", "changes", "source"}`; `source` is `form`, `cli` or `yaml` |
+| `GET /api/v1/config/plans/{plan}` | `config_get_plan` | |
+| `POST /api/v1/config/plans/{plan}/apply` | | `{"word"}`, the second confirmation. Answers the plan and `show_once`, what it generated, stored nowhere. `409` for a plan that moved, expired, has an empty secure field, or that only the web UI confirms |
+| `POST /api/v1/config/plans/{plan}/request-approval` | `config_apply` | |
+| `POST /api/v1/config/plans/{plan}/revert` | `config_revert` | |
+| `POST /api/v1/config/plans/{plan}/cancel` | `config_cancel` | |
+| `PUT /api/v1/config/plans/{plan}/secrets/{secret}` | | `{"value"}`; write-only |
+| `POST /api/v1/assistant/messages` | `assistant_send` | `{"conversation", "message", "project", "page"}`; `202` |
+| `GET /api/v1/assistant/conversations` | `assistant_list` | `?limit=` |
+| `GET /api/v1/assistant/conversations/{conversation}` | `assistant_get` | |
+
 ### Planned endpoints
 
 Contract only (T31), with the planned MCP tools of [mcp.md](mcp.md#planned-tools),

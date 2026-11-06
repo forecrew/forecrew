@@ -201,6 +201,28 @@ line: `forecrew fleet`, `forecrew machines [--state]`, `forecrew shapes` and
 | `policy` | Cloud could run this, but your policy keeps jobs on your machines | Routing or `allowed_shapes` rule out the only shape that fits |
 | `trust_zone` | No machine in the Reasoning zone is online | Nothing of its pool exists or is online |
 
+### Configuration
+
+Any MCP client can read the configuration and propose changes with your
+permissions. Nothing changes until you confirm the plan in the web UI: see
+[config-resources.md](contracts/config-resources.md).
+
+| Tool | What it does |
+|------|--------------|
+| `config_schema` | The kinds of resources and the JSON Schema of each spec. |
+| `config_get` | The configuration you may read; secrets only as references. |
+| `config_plan` | Stores a change plan with a readable diff. Changes nothing. |
+| `config_apply` | Puts a plan in your Inbox and answers with the link to confirm it. It never applies. |
+| `config_revert` | A new plan with the previous values of an applied plan. |
+| `config_export` | The configuration as YAML, without secrets. |
+| `config_import` | A plan from exported YAML. |
+| `config_plans` | Change plans; with `inbox`, those waiting for you. |
+| `config_get_plan` | One plan, with what it needs and which secure fields are empty. |
+| `config_cancel` | Drops a plan that was not applied. |
+| `assistant_send` | Tells the assistant what you want; it answers in a job. Secrets are refused. |
+| `assistant_get` | One of your conversations, with its plans. |
+| `assistant_list` | Your conversations. |
+
 ### Planned tools
 
 Contract only (T31): these tools are not served yet. Each joins the list
