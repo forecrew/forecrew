@@ -12,7 +12,7 @@ const EnvWorkerToken = "FORECREW_WORKER_TOKEN"
 
 // EnvBootstrapToken holds the one-time token of a machine's worker, in place
 // of a worker token (fleet.md, Bootstrap tokens).
-const EnvBootstrapToken = "FORECREW_BOOTSTRAP_TOKEN"
+const EnvBootstrapToken = "FORECREW_BOOTSTRAP_TOKEN" // #nosec G101 -- the name of a variable
 
 // DefaultMaxJobs is the number of jobs a worker runs at once by default.
 const DefaultMaxJobs = 1

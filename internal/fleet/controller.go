@@ -279,21 +279,9 @@ func (c *Controller) started(ctx context.Context, m domain.Machine, externalID s
 // and warm machines cross organizations, so machines are always all read.
 func (c *Controller) load(ctx context.Context, only uuid.UUID) (*snapshot, error) {
 	st := c.cfg.Store
-	now := c.cfg.Now()
-	s := &snapshot{now: now, currency: c.cfg.Currency, providers: map[uuid.UUID]domain.CapacityProvider{}, shapes: map[uuid.UUID]domain.Shape{}, jobEnds: map[uuid.UUID]time.Time{}}
-	providers, err := st.CapacityProviders().ListAll(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list providers: %w", err)
-	}
-	for _, p := range providers {
-		s.providers[p.ID] = p
-	}
-	hosted, err := st.Shapes().List(ctx, uuid.Nil())
-	if err != nil {
-		return nil, fmt.Errorf("list shapes: %w", err)
-	}
-	for _, sh := range hosted {
-		s.shapes[sh.ID] = sh
+	s := &snapshot{now: c.cfg.Now(), currency: c.cfg.Currency, providers: map[uuid.UUID]domain.CapacityProvider{}, shapes: map[uuid.UUID]domain.Shape{}, jobEnds: map[uuid.UUID]time.Time{}}
+	if err := c.loadFleet(ctx, s); err != nil {
+		return nil, err
 	}
 	accounts, err := st.Accounts().List(ctx)
 	if err != nil {
@@ -312,23 +300,49 @@ func (c *Controller) load(ctx context.Context, only uuid.UUID) (*snapshot, error
 		}
 		s.orgs = append(s.orgs, o)
 	}
-	if s.machines, err = st.Machines().List(ctx, store.MachineFilter{Since: monthStart(now)}); err != nil {
-		return nil, fmt.Errorf("list machines: %w", err)
+	return s, c.loadMachines(ctx, s)
+}
+
+// loadFleet reads the providers and the instance-wide shapes.
+func (c *Controller) loadFleet(ctx context.Context, s *snapshot) error {
+	providers, err := c.cfg.Store.CapacityProviders().ListAll(ctx)
+	if err != nil {
+		return fmt.Errorf("list providers: %w", err)
+	}
+	for _, p := range providers {
+		s.providers[p.ID] = p
+	}
+	hosted, err := c.cfg.Store.Shapes().List(ctx, uuid.Nil())
+	if err != nil {
+		return fmt.Errorf("list shapes: %w", err)
+	}
+	for _, sh := range hosted {
+		s.shapes[sh.ID] = sh
+	}
+	return nil
+}
+
+// loadMachines reads this month's machines and when busy ones last finished.
+func (c *Controller) loadMachines(ctx context.Context, s *snapshot) error {
+	var err error
+	if s.machines, err = c.cfg.Store.Machines().List(ctx, store.MachineFilter{Since: monthStart(s.now)}); err != nil {
+		return fmt.Errorf("list machines: %w", err)
 	}
 	slices.Reverse(s.machines) // oldest first
 	for _, m := range s.machines {
-		if m.State == domain.MachineBusy && m.JobID != uuid.Nil() {
-			j, err := st.Jobs().Get(ctx, m.AccountID, m.JobID)
-			if err != nil {
-				return nil, fmt.Errorf("job of machine %s: %w", m.ID, err)
-			}
-			s.jobEnds[m.ID] = j.FinishedAt
-			if j.FinishedAt.IsZero() {
-				s.jobEnds[m.ID] = m.UpdatedAt // given back or requeued
-			}
+		if m.State != domain.MachineBusy || m.JobID == uuid.Nil() {
+			continue
+		}
+		j, err := c.cfg.Store.Jobs().Get(ctx, m.AccountID, m.JobID)
+		if err != nil {
+			return fmt.Errorf("job of machine %s: %w", m.ID, err)
+		}
+		s.jobEnds[m.ID] = j.FinishedAt
+		if j.FinishedAt.IsZero() {
+			s.jobEnds[m.ID] = m.UpdatedAt // given back or requeued
 		}
 	}
-	return s, nil
+	return nil
 }
 
 func (c *Controller) loadOrg(ctx context.Context, id uuid.UUID) (organization, error) {
