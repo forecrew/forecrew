@@ -109,8 +109,9 @@ func (s *Search) Run(ctx context.Context, q Query) ([]Result, error) {
 		}
 	}
 	if len(found) > 0 && q.Role != CuratorRole {
+		// A read that could not be counted is no reason to refuse it.
 		if err := s.Index.Store.Knowledge().CountHits(ctx, q.Project.AccountID, found); err != nil {
-			return nil, err
+			s.Index.log().WarnContext(ctx, "count knowledge hits", "error", err)
 		}
 	}
 	return out, nil

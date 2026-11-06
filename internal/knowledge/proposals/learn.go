@@ -113,6 +113,12 @@ func (s *Service) Learn(ctx context.Context, b LearnBatch, key uuid.UUID, files 
 	if out.Number == 0 && len(live) == 0 {
 		return out, nil
 	}
+	// A proposal sent to the repo is in the PR: without it, or without its head
+	// to merge, there is nothing to approve.
+	sentToRepo := slices.ContainsFunc(live, func(k domain.KnowledgeProposal) bool { return k.ChangeID != uuid.Nil() })
+	if (sentToRepo || out.Number > 0) && (out.Number == 0 || out.HeadSHA == "") {
+		return out, fmt.Errorf("the learn PR of %s has no open pull request or head to approve", goal.Ref())
+	}
 	g, err := s.Gates.Open(ctx, gates.OpenRequest{
 		ID: key, AccountID: b.AccountID, ProjectID: b.ProjectID, Kind: domain.GateKnowledgeProposal, GoalID: goal.ID,
 		Title:   learnTitlePrefix + goal.Ref(),

@@ -310,6 +310,7 @@ func (s *Service) finish(ctx context.Context, ks []domain.KnowledgeProposal, sta
 		action = "knowledge.proposal_rejected"
 	}
 	return s.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		var moved []domain.KnowledgeProposal
 		for i := range ks {
 			k := ks[i]
 			from := k.Status
@@ -323,8 +324,12 @@ func (s *Service) finish(ctx context.Context, ks []domain.KnowledgeProposal, sta
 			if err := audit(ctx, tx, k, domain.SystemActor(k.AccountID, domain.ForecrewdName).String(), action, map[string]any{"why": why}); err != nil {
 				return err
 			}
+			moved = append(moved, k)
 		}
-		return nil
+		if status != domain.KnowledgeRejected {
+			return nil
+		}
+		return release(ctx, tx, moved)
 	})
 }
 
@@ -387,18 +392,20 @@ func (s *Service) JobFailed(ctx context.Context, tx store.Store, j domain.Job) e
 	if err != nil {
 		return fmt.Errorf("list proposals of %s: %w", j.Ref(), err)
 	}
+	var rejected []domain.KnowledgeProposal
 	for _, k := range queued {
 		from := k.Status
 		k.Status = domain.KnowledgeRejected
 		if err := tx.KnowledgeProposals().Update(ctx, &k, from); err != nil {
 			return err
 		}
+		rejected = append(rejected, k)
 		why := map[string]any{"why": "the job " + string(j.Status) + ", so its proposals were not sent"}
 		if err := audit(ctx, tx, k, domain.SystemActor(k.AccountID, domain.ForecrewdName).String(), "knowledge.proposal_rejected", why); err != nil {
 			return err
 		}
 	}
-	return nil
+	return release(ctx, tx, rejected)
 }
 
 // startRun stores a run for the engine's sweep to advance. It works in a
