@@ -38,6 +38,13 @@ describe("council list", () => {
     await waitFor(() => expect(seen).toContain("?project=app&status=decided"))
   })
 
+  test("does not say none were started when a filter hides them", async () => {
+    server.use(http.get("/api/v1/councils", () => HttpResponse.json(fx.councilsEmpty)))
+    await renderApp("/councils?project=app&status=failed")
+    expect(await screen.findByText("No failed councils in this project.")).toBeInTheDocument()
+    expect(screen.queryByText(/No councils yet/)).not.toBeInTheDocument()
+  })
+
   test("says when there are none, and has the way to start one", async () => {
     server.use(http.get("/api/v1/councils", () => HttpResponse.json(fx.councilsEmpty)))
     const { user, router } = await renderApp("/councils?project=app")

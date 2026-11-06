@@ -53,7 +53,11 @@ export function CouncilsPage() {
           ))}
         </NativeSelect>
       </div>
-      <Async query={councils} isEmpty={(d) => d.length === 0} empty="No councils yet. Start one with Start a council.">
+      <Async
+        query={councils}
+        isEmpty={(d) => d.length === 0}
+        empty={status ? `No ${status} councils${project ? " in this project" : ""}.` : "No councils yet. Start one with Start a council."}
+      >
         {(items) => (
           <TableWrap label="Councils">
             <Table>
