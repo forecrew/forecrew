@@ -263,7 +263,7 @@ object up and checks the permission on the object's project.
 | `delete_note` | `DELETE /api/v1/knowledge/notes/{note}` | `knowledge.propose`, the closest write permission: deleting an agent note curates knowledge, and the catalog has no narrower one |
 | `propose_knowledge` | `POST /api/v1/knowledge/proposals` | `knowledge.propose` and, for a protected section, `gate.approve.knowledge_protected`, because the caller is recorded as its approver; so a service account proposes to unprotected sections only |
 | `start_council` | `POST /api/v1/councils` | `council.start` |
-| `list_councils` | `GET /api/v1/councils` | `project.read` |
+| `list_councils` | `GET /api/v1/councils` | `project.read`; `gate_id` only with `gate.read` |
 | `get_council` | `GET /api/v1/councils/{council}` | `project.read`; its gate and `gate_id` only with `gate.read` |
 | `add_council_constraint` | `POST /api/v1/councils/{council}/constraints` | `council.start`; `gate_id` only with `gate.read` |
 | `list_workers` | `GET /api/v1/workers` | `worker.read` |

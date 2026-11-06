@@ -370,6 +370,70 @@ func TestAccessRequestsNeedAPerson(t *testing.T) {
 	}
 }
 
+// TestListCouncilsKeepsTheProjectsOfTheCaller: without a project a list has
+// the councils of the projects the caller may read, with a project it needs
+// project.read there, and gate_id is left out without gate.read.
+func TestListCouncilsKeepsTheProjectsOfTheCaller(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	second := f.secondProject(t)
+	start := func(project string) mcp.CouncilInfo {
+		t.Helper()
+		c, err := f.svc.StartCouncil(ctx, f.by, mcp.StartCouncilInput{Project: project, Question: "q", Roles: []string{"architect", "ux"}})
+		must(t, err)
+		return c
+	}
+	mine, theirs := start("app"), start(second.Name)
+	g := f.gateOn(t, domain.GateCouncilDecision, f.project.ID)
+	c := mine.Council
+	c.GateID = g.ID
+	must(t, f.st.Councils().Update(ctx, &c))
+	ids := func(cs []mcp.CouncilInfo) []uuid.UUID {
+		out := make([]uuid.UUID, len(cs))
+		for i, x := range cs {
+			out[i] = x.ID
+		}
+		return out
+	}
+
+	viewer, _ := f.member(t, projectScope, domain.RoleViewer, f.project.ID)
+	got, err := f.svc.ListCouncils(ctx, viewer, mcp.ListCouncilsInput{})
+	must(t, err)
+	if !slices.Equal(ids(got), []uuid.UUID{mine.ID}) || got[0].GateID != g.ID {
+		t.Fatalf("a project viewer sees %+v", got)
+	}
+	if got, err = f.svc.ListCouncils(ctx, viewer, mcp.ListCouncilsInput{Project: "app"}); err != nil || len(got) != 1 {
+		t.Errorf("with its project: %+v, %v", got, err)
+	}
+	_, err = f.svc.ListCouncils(ctx, viewer, mcp.ListCouncilsInput{Project: second.Name})
+	wantErr(t, err, authz.ErrDenied)
+	_, err = f.svc.ListCouncils(ctx, viewer, mcp.ListCouncilsInput{Project: "ghost"})
+	wantErr(t, err, mcp.ErrNotFound)
+
+	everyone, _ := f.member(t, orgScope, domain.RoleViewer, uuid.Nil())
+	if got, err = f.svc.ListCouncils(ctx, everyone, mcp.ListCouncilsInput{}); err != nil || !slices.Equal(ids(got), []uuid.UUID{theirs.ID, mine.ID}) {
+		t.Errorf("an organization viewer sees %+v, %v", got, err)
+	}
+	nobody, _ := f.member(t, "", "", uuid.Nil())
+	if got, err = f.svc.ListCouncils(ctx, nobody, mcp.ListCouncilsInput{}); err != nil || len(got) != 0 {
+		t.Errorf("without a role: %+v, %v", got, err)
+	}
+	billing, _ := f.member(t, orgScope, domain.RoleBilling, uuid.Nil())
+	if got, err = f.svc.ListCouncils(ctx, billing, mcp.ListCouncilsInput{}); err != nil || len(got) != 0 {
+		t.Errorf("billing: %+v, %v", got, err)
+	}
+
+	role := domain.Role{AccountID: f.account.ID, Name: "readers", Scope: projectScope, Permissions: []domain.Permission{domain.PermProjectRead}, Custom: true}
+	must(t, f.st.Roles().Create(ctx, &role))
+	noGates, id := f.member(t, "", "", uuid.Nil())
+	must(t, f.st.RoleBindings().Create(ctx, &domain.RoleBinding{AccountID: f.account.ID, SubjectKind: domain.SubjectUser, SubjectID: id, RoleID: role.ID, ProjectID: f.project.ID, CreatedBy: "user:op"}))
+	got, err = f.svc.ListCouncils(ctx, noGates, mcp.ListCouncilsInput{})
+	must(t, err)
+	if len(got) != 1 || got[0].ID != mine.ID || got[0].GateID != uuid.Nil() {
+		t.Fatalf("without gate.read: %+v", got)
+	}
+}
+
 func TestServiceAccountNeverResolvesAGate(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()

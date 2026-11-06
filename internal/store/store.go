@@ -464,10 +464,13 @@ type VerificationReportRepo interface {
 // CouncilFilter selects councils; zero fields match everything.
 type CouncilFilter struct {
 	ProjectID uuid.UUID
-	GoalID    uuid.UUID
-	GateID    uuid.UUID
-	Status    domain.CouncilStatus
-	Limit     int
+	// InProjects, when not nil, keeps the councils of these projects only;
+	// empty matches nothing.
+	InProjects []uuid.UUID
+	GoalID     uuid.UUID
+	GateID     uuid.UUID
+	Status     domain.CouncilStatus
+	Limit      int
 }
 
 // CouncilRepo stores councils and their contributions.

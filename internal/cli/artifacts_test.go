@@ -244,7 +244,7 @@ func TestCouncilCommands(t *testing.T) {
 	if last.Input != (mcp.AddCouncilConstraintInput{Council: "COUNCIL-2", Constraint: "Stay small"}) {
 		t.Fatalf("input = %+v", last.Input)
 	}
-	for _, args := range [][]string{{"councils", "start", "app"}, {"councils", "list"}, {"councils", "show"}, {"councils", "constrain", "COUNCIL-2"}} {
+	for _, args := range [][]string{{"councils", "start", "app"}, {"councils", "list", "a", "b"}, {"councils", "show"}, {"councils", "constrain", "COUNCIL-2"}} {
 		if _, _, code := e.run(t, args...); code == 0 {
 			t.Errorf("%v accepted", args)
 		}
