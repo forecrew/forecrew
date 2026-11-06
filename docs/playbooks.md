@@ -378,6 +378,11 @@ test files from `head` are run on `base` (`tests.base_check_request`) and
   did not run in a run that finished, or were all skipped. The test's result is
   its worst over the required results of its suite (all of them when the suite
   has no required result).
+- A test of the test map that is mapped to a criterion the task does not have
+  is a test of the change like any other: it blocks when it failed or did not
+  run in a finished required cell, and leaves the report `incomplete` while a
+  required result is missing. Only a criterion of the task is shown in the
+  table.
 - A new test that passed on the base branch (`base_check`) blocks; one with
   no `base_check` entry leaves the report `incomplete`. A change whose task
   lists no acceptance criteria blocks, and a sha with no stored run at all is
@@ -745,6 +750,12 @@ It is `goal` with these differences, task by task:
 
 ### Limits of goal-v2
 
+- The report gates the merge this playbook does. A human who merges the PR on
+  GitHub is not stopped: `goal.assess` and `github.merge_pr` return early for
+  a merged PR, so that merge skips the report. A head that moved after the
+  approval is not merged either (`sha`): a human must then reject the gate of
+  the failed merge, or merge the PR on GitHub, since the playbook does not
+  verify the new head by itself.
 - Per task, at most two rounds of test design before the developer, then at
   most three build rounds per delivery and five deliveries, as in `goal`.
 - Per round, the verification starts at most one command job per cell and
