@@ -273,7 +273,7 @@ object up and checks the permission on the object's project.
 | `list_councils` | `GET /api/v1/councils` | `project.read`; `gate_id` only with `gate.read` |
 | `get_council` | `GET /api/v1/councils/{council}` | `project.read`; its gate and `gate_id` only with `gate.read` |
 | `add_council_constraint` | `POST /api/v1/councils/{council}/constraints` | `council.start`; `gate_id` only with `gate.read` |
-| `list_workers` | `GET /api/v1/workers` | `worker.read` |
+| `list_workers` | `GET /api/v1/workers` | `worker.read`; a running job shows only with `job.read` on its project |
 | `list_machines` | `GET /api/v1/machines` | `worker.read`; a machine's job shows only with `job.read` on its project |
 | `list_shapes` | `GET /api/v1/shapes` | `worker.read` |
 | `list_providers` | `GET /api/v1/providers` | `worker.read` |

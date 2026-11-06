@@ -152,7 +152,7 @@ func TestWorkers(t *testing.T) {
 	f.lease(t)
 	must(t, f.st.Workers().Seen(ctx, f.account, f.worker.ID, []string{"Go"}, "v1.2.3"))
 
-	views, err := f.svc.Workers(ctx, f.account)
+	views, err := f.svc.Workers(ctx, f.account, func(uuid.UUID) bool { return true })
 	must(t, err)
 	if len(views) != 2 {
 		t.Fatalf("views = %+v", views)
@@ -167,15 +167,15 @@ func TestWorkers(t *testing.T) {
 	}
 
 	f.clock.Advance(domain.OnlineWindow)
-	if views, _ = f.svc.Workers(ctx, f.account); !views[0].Online {
+	if views, _ = f.svc.Workers(ctx, f.account, func(uuid.UUID) bool { return true }); !views[0].Online {
 		t.Fatal("offline at exactly the online window")
 	}
 	f.clock.Advance(time.Second)
-	if views, _ = f.svc.Workers(ctx, f.account); views[0].Online {
+	if views, _ = f.svc.Workers(ctx, f.account, func(uuid.UUID) bool { return true }); views[0].Online {
 		t.Fatal("online after the online window")
 	}
 
-	_, err = New(noWorkers{f.st}, f.bus, nil, f.svc.logger, f.clock.Now).Workers(ctx, f.account)
+	_, err = New(noWorkers{f.st}, f.bus, nil, f.svc.logger, f.clock.Now).Workers(ctx, f.account, func(uuid.UUID) bool { return true })
 	wantErr(t, err, errDown)
 }
 

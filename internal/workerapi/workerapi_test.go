@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/jobs"
@@ -347,18 +348,18 @@ func TestOnlineFollowsLastSeen(t *testing.T) {
 	e := newEnv(t)
 	ctx := t.Context()
 	_, token := e.addWorker(t, "box")
-	views, err := e.jobs.Workers(ctx, e.account)
+	views, err := e.jobs.Workers(ctx, e.account, func(uuid.UUID) bool { return true })
 	if err != nil || len(views) != 1 || views[0].Online {
 		t.Fatalf("before poll = %+v, %v", views, err)
 	}
 	st, body := e.call(t, token, "/worker/v1/poll", map[string]any{"labels": []string{"Go"}, "free_slots": 0, "version": "v2"})
 	wantStatus(t, st, http.StatusNoContent, body)
-	views, _ = e.jobs.Workers(ctx, e.account)
+	views, _ = e.jobs.Workers(ctx, e.account, func(uuid.UUID) bool { return true })
 	if !views[0].Online || views[0].Version != "v2" || !slices.Equal(views[0].Labels, []string{"go"}) {
 		t.Fatalf("after poll = %+v", views)
 	}
 	e.clock.Advance(domain.OnlineWindow + 2*time.Second)
-	if views, _ = e.jobs.Workers(ctx, e.account); views[0].Online {
+	if views, _ = e.jobs.Workers(ctx, e.account, func(uuid.UUID) bool { return true }); views[0].Online {
 		t.Fatalf("after the online window = %+v", views)
 	}
 	// A heartbeat counts as seen, too.
@@ -366,7 +367,7 @@ func TestOnlineFollowsLastSeen(t *testing.T) {
 	st, body = e.call(t, token, jobPath(j.ID, "heartbeat"), nil)
 	wantStatus(t, st, http.StatusOK, body)
 	e.clock.Advance(-(domain.OnlineWindow + 2*time.Second))
-	if views, _ = e.jobs.Workers(ctx, e.account); !views[0].Online {
+	if views, _ = e.jobs.Workers(ctx, e.account, func(uuid.UUID) bool { return true }); !views[0].Online {
 		t.Fatalf("after heartbeat = %+v", views)
 	}
 }

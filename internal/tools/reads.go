@@ -63,7 +63,11 @@ func (s *Service) ListWorkers(ctx context.Context, by domain.Actor) ([]mcp.Worke
 	if err := s.allowOrg(ctx, by, domain.PermWorkerRead); err != nil {
 		return nil, err
 	}
-	views, err := s.cfg.Jobs.Workers(ctx, by.AccountID)
+	visible, err := s.scope(ctx, by, domain.PermJobRead, uuid.Nil())
+	if err != nil {
+		return nil, err
+	}
+	views, err := s.cfg.Jobs.Workers(ctx, by.AccountID, visible.Has)
 	if err != nil {
 		return nil, err
 	}

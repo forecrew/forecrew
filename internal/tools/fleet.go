@@ -49,6 +49,9 @@ func (s *Service) ListMachines(ctx context.Context, by domain.Actor, in mcp.List
 	out := make([]mcp.MachineInfo, len(machines))
 	for i, m := range machines {
 		shape := shapes[m.ShapeID]
+		if shape.Ownership() == domain.OwnershipHosted {
+			m.ExternalID = "" // the instance's own business
+		}
 		out[i] = mcp.MachineInfo{Machine: m, Name: fleet.MachineName(shape, m), Shape: shape.Name, Provider: providers[m.ProviderID].Name}
 		if m.JobID == uuid.Nil() {
 			continue
@@ -101,7 +104,8 @@ func (s *Service) providers(ctx context.Context, accountID uuid.UUID) ([]domain.
 	return append(own, hosted...), nil
 }
 
-// ListShapes implements mcp.ToolService.
+// ListShapes implements mcp.ToolService. Instance-wide shapes show as far as
+// the organization's policy lets it use them, without the instance's settings.
 func (s *Service) ListShapes(ctx context.Context, by domain.Actor) ([]mcp.ShapeInfo, error) {
 	if err := s.allowOrg(ctx, by, domain.PermWorkerRead); err != nil {
 		return nil, err
@@ -110,10 +114,17 @@ func (s *Service) ListShapes(ctx context.Context, by domain.Actor) ([]mcp.ShapeI
 	if err != nil {
 		return nil, err
 	}
+	policy, err := s.cfg.Store.FleetPolicies().Get(ctx, by.AccountID)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]mcp.ShapeInfo, 0, len(shapes))
 	for _, sh := range shapes {
 		if sh.Ownership() == domain.OwnershipHosted {
-			sh.ProviderConfig = nil
+			if !policy.Allows(sh) {
+				continue
+			}
+			sh.ProviderConfig, sh.MonthlyBudget = nil, nil
 		}
 		out = append(out, mcp.ShapeInfo{Shape: sh, Provider: providers[sh.ProviderID].Name, Ownership: sh.Ownership()})
 	}
@@ -121,26 +132,47 @@ func (s *Service) ListShapes(ctx context.Context, by domain.Actor) ([]mcp.ShapeI
 	return out, nil
 }
 
-// ListProviders implements mcp.ToolService.
+// ListProviders implements mcp.ToolService. An instance-wide provider shows
+// when the organization's policy lets it use one of its shapes, with what
+// its jobs need to know and nothing of how the instance is built.
 func (s *Service) ListProviders(ctx context.Context, by domain.Actor) ([]mcp.ProviderInfo, error) {
 	if err := s.allowOrg(ctx, by, domain.PermWorkerRead); err != nil {
 		return nil, err
+	}
+	shapes, err := s.ListShapes(ctx, by)
+	if err != nil {
+		return nil, err
+	}
+	allowed := map[uuid.UUID]bool{}
+	for _, sh := range shapes {
+		allowed[sh.ProviderID] = true
 	}
 	providers, err := s.providers(ctx, by.AccountID)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now()
-	out := make([]mcp.ProviderInfo, len(providers))
-	for i, p := range providers {
+	out := make([]mcp.ProviderInfo, 0, len(providers))
+	for _, p := range providers {
 		online := p.Online(now)
 		if p.Ownership() == domain.OwnershipHosted {
-			p.Tags, p.NetworkAllow = nil, nil
-			p.Capabilities.Host, p.Capabilities.CloudAccount, p.Capabilities.Checks = "", "", nil
+			if !allowed[p.ID] {
+				continue
+			}
+			p = hostedView(p)
 		}
-		out[i] = mcp.ProviderInfo{CapacityProvider: p, Online: online, Ownership: p.Ownership()}
+		out = append(out, mcp.ProviderInfo{CapacityProvider: p, Online: online, Ownership: p.Ownership()})
 	}
 	return out, nil
+}
+
+// hostedView leaves out of an instance-wide provider what says how the
+// instance is built or what it may spend.
+func hostedView(p domain.CapacityProvider) domain.CapacityProvider {
+	c := &p.Capabilities
+	c.Host, c.CloudAccount, c.Region, c.AgentVersion, c.Checks = "", "", "", "", nil
+	p.Tags, p.NetworkAllow, p.Limits = nil, nil, domain.ProviderLimits{}
+	return p
 }
 
 // FleetOverview implements mcp.ToolService.
