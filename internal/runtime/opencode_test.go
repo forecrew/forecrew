@@ -641,14 +641,9 @@ func TestOpencodeMalformedLine(t *testing.T) {
 }
 
 func TestOpencodeTimeoutAndDetect(t *testing.T) {
-	pidfile := filepath.Join(t.TempDir(), "pid")
-	a := newFakeOpencode("FAKE_HANG=1", "FAKE_PIDFILE="+pidfile)
-	spec := opencodeSpec()
-	spec.Timeout = 500 * time.Millisecond
-	if _, _, err := collect(t, a, spec); !errors.Is(err, ErrTimeout) {
-		t.Fatalf("err = %v, want ErrTimeout", err)
-	}
-	assertChildGone(t, pidfile)
+	a := runToTimeout(t, opencodeSpec(), func(pidfile string) Adapter {
+		return newFakeOpencode("FAKE_HANG=1", "FAKE_PIDFILE="+pidfile)
+	})
 
 	if v, err := a.Detect(context.Background()); err != nil || v != OpencodeVersion {
 		t.Errorf("Detect = %q, %v", v, err)
@@ -661,16 +656,7 @@ func TestOpencodeTimeoutAndDetect(t *testing.T) {
 func TestOpencodeCancellation(t *testing.T) {
 	pidfile := filepath.Join(t.TempDir(), "pid")
 	a := newFakeOpencode("FAKE_HANG=1", "FAKE_PIDFILE="+pidfile)
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		for range 200 {
-			if _, err := os.Stat(pidfile); err == nil {
-				break
-			}
-			time.Sleep(25 * time.Millisecond)
-		}
-		cancel()
-	}()
+	ctx := cancelWhenStarted(t, pidfile)
 	spec := opencodeSpec()
 	spec.WorkDir = t.TempDir()
 	if _, err := a.Run(ctx, spec, func(domain.JobEvent) {}); !errors.Is(err, context.Canceled) {
