@@ -179,7 +179,7 @@ func TestCallEachTool(t *testing.T) {
 		args  map[string]any
 		input any // expected ToolService input
 	}{
-		{mcp.ToolOnboardProject, map[string]any{"repo": "acme/app", "name": "App", "default_branch": "trunk"}, mcp.OnboardProjectInput{Repo: "acme/app", Name: "App", DefaultBranch: "trunk"}},
+		{mcp.ToolOnboardProject, map[string]any{"repo": "acme/app", "name": "App", "default_branch": "trunk", "refresh": true}, mcp.OnboardProjectInput{Repo: "acme/app", Name: "App", DefaultBranch: "trunk", Refresh: true}},
 		{mcp.ToolCreateGoal, map[string]any{"project": "app", "title": "Login", "body": "Add login", "platforms": []string{"web", "ios"}}, mcp.CreateGoalInput{Project: "app", Title: "Login", Body: "Add login", Platforms: []string{"web", "ios"}}},
 		{mcp.ToolJobStatus, map[string]any{"job": "JOB-1"}, mcp.JobRefInput{Job: "JOB-1"}},
 		{mcp.ToolJobLogs, map[string]any{"job": "JOB-1", "after_seq": 5, "limit": 10}, mcp.JobLogsInput{Job: "JOB-1", AfterSeq: 5, Limit: 10}},

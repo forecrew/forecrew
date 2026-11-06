@@ -127,6 +127,7 @@ func TestEndpoints(t *testing.T) {
 		input              any
 	}{
 		{"POST", "/api/v1/projects", `{"repo":"acme/app","name":"App","default_branch":"trunk"}`, 202, mcp.ToolOnboardProject, mcp.OnboardProjectInput{Repo: "acme/app", Name: "App", DefaultBranch: "trunk"}},
+		{"POST", "/api/v1/projects", `{"repo":"acme/app","refresh":true}`, 202, mcp.ToolOnboardProject, mcp.OnboardProjectInput{Repo: "acme/app", Refresh: true}},
 		{"GET", "/api/v1/projects", "", 200, mcp.ToolListProjects, nil},
 		{"GET", "/api/v1/projects/acme/app", "", 200, mcp.ToolGetProject, mcp.ProjectInput{Project: "acme/app"}},
 		{"POST", "/api/v1/goals", `{"project":"app","title":"Login","body":"b","platforms":["web"]}`, 201, mcp.ToolCreateGoal, mcp.CreateGoalInput{Project: "app", Title: "Login", Body: "b", Platforms: []string{"web"}}},
