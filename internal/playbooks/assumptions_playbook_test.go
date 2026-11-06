@@ -165,6 +165,13 @@ func TestRejectedAssumptionSendsTheRoundBack(t *testing.T) {
 	if got := r.assumption(t, "Amounts are in cents"); got.Status != domain.AssumptionInvalidated || got.Evidence != "Prices are in euros with decimals." {
 		t.Fatalf("invalidated = %+v", got)
 	}
+	// The task is back in progress while the developer reworks it. Once the
+	// developer answers, the engine opens the PR and moves it to in review
+	// again at once, so this is the only time to look.
+	r.waitStep(t, build(0, 1, 2, "dev/1/develop"), domain.StepWaiting)
+	if got := r.taskStatus(t, 0); got != domain.TaskInProgress {
+		t.Errorf("task = %s while the developer reworks it", got)
+	}
 	dev := r.develop(t, 0, 1, 2)
 	for _, want := range []string{
 		cents.Ref() + " was invalidated. Evidence:\n<untrusted-data source=\"evidence " + cents.Ref() + "\"", "Prices are in euros with decimals.",
@@ -173,9 +180,6 @@ func TestRejectedAssumptionSendsTheRoundBack(t *testing.T) {
 		if !strings.Contains(dev.Feedback, want) {
 			t.Errorf("rework feedback lacks %q:\n%s", want, dev.Feedback)
 		}
-	}
-	if r.taskStatus(t, 0) != domain.TaskInProgress {
-		t.Errorf("task = %s", r.taskStatus(t, 0))
 	}
 }
 

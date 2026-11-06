@@ -26,7 +26,7 @@ type runner struct {
 	human  domain.Actor
 	run    domain.WorkflowRun
 	// register, when set, is told of every job the test finishes, as the
-	// job service does (see withRegisters).
+	// job service does (see startRegistered).
 	register *registers.Service
 }
 
