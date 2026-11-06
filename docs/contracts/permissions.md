@@ -40,7 +40,7 @@ engine](#the-engine).
   `access_request` gate; only a person with `gate.approve.access_request`
   answers it, and what it grants still merges as a pull request.
 - **The one exception on gates:** a PR merged or closed on GitHub resolves
-  the `profile_approval`, `merge_approval` and `knowledge_proposal` gates
+  the `profile_approval`, `test_plan_approval`, `merge_approval` and `knowledge_proposal` gates
   whose subject it is, approved or rejected, as the actor `github:github`, and
   sends back the pending assumption reviews of its task as `forecrewd`. No
   permission is checked: the decision was made on GitHub, under GitHub's own
