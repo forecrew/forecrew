@@ -158,3 +158,8 @@ func (s *Service) ConfigPutSecret(ctx context.Context, by domain.Actor, in mcp.C
 	}
 	return s.config.PutSecret(ctx, by, id, in.Secret, []byte(in.Value))
 }
+
+// RunConfigSweep drops what expired plans left until ctx is done.
+func (s *Service) RunConfigSweep(ctx context.Context) {
+	s.config.RunSweep(ctx, cfgres.SweepEvery)
+}

@@ -482,6 +482,7 @@ func (a *App) Run(ctx context.Context) error {
 	wg.Go(func() { a.syncs.Run(runCtx) })
 	wg.Go(func() { a.auth.RunSweep(runCtx, auth.SweepEvery) })
 	wg.Go(func() { a.schedules.Run(runCtx) })
+	wg.Go(func() { a.tools.RunConfigSweep(runCtx) })
 	if a.retention != nil {
 		wg.Go(func() { a.retention.Run(runCtx, a.d.RetainEvery) })
 	}

@@ -41,6 +41,10 @@ func (r configPlanRepo) List(_ context.Context, accountID uuid.UUID, f store.Con
 	})
 }
 
+func (r configPlanRepo) ListExpired(_ context.Context, now time.Time, limit int) ([]domain.ConfigPlan, error) {
+	return listRows(r.s, configPlansT, limit, func(p domain.ConfigPlan) bool { return p.Status.Open() && !now.Before(p.ExpiresAt) })
+}
+
 func (r configPlanRepo) Move(_ context.Context, p *domain.ConfigPlan, from domain.ConfigPlanStatus) error {
 	if _, err := from.Transition(p.Status); err != nil {
 		return err

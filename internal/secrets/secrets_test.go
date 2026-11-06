@@ -111,3 +111,35 @@ func TestParseKey(t *testing.T) {
 		}
 	}
 }
+
+func TestPromote(t *testing.T) {
+	ctx := context.Background()
+	st := testkit.NewStore(time.Now)
+	s, _ := secrets.New(st.Secrets(), key)
+	acc, by := domain.NewID(), domain.SystemActor(domain.NewID(), "t")
+	if err := s.Put(ctx, by, acc, "staged/p/x", []byte("v")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Promote(ctx, st.Secrets(), by, acc, "staged/p/x", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.Get(ctx, acc, "x"); err != nil || string(got) != "v" {
+		t.Fatalf("Get = %q, %v", got, err)
+	}
+	if ok, _ := s.Has(ctx, acc, "staged/p/x"); ok {
+		t.Error("the staged value is still there")
+	}
+	// A live value is never replaced.
+	if err := s.Put(ctx, by, acc, "staged/q/x", []byte("other")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Promote(ctx, st.Secrets(), by, acc, "staged/q/x", "x"); !errors.Is(err, secrets.ErrExists) {
+		t.Fatalf("Promote over a live value: %v", err)
+	}
+	if got, _ := s.Get(ctx, acc, "x"); string(got) != "v" {
+		t.Errorf("Get = %q", got)
+	}
+	if err := s.Promote(ctx, st.Secrets(), by, acc, "staged/none", "y"); !errors.Is(err, secrets.ErrNotFound) {
+		t.Fatalf("Promote of nothing: %v", err)
+	}
+}

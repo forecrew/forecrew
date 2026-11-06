@@ -11,7 +11,8 @@ import (
 type ConfigPlanStatus string
 
 // Change plan states. A plan past ExpiresAt that was not applied reads as
-// ConfigPlanExpired (ConfigPlan.StatusAt); that state is never stored.
+// ConfigPlanExpired (ConfigPlan.StatusAt) at once, and is stored so when the
+// sweep has dropped its staged secrets.
 const (
 	ConfigPlanPending  ConfigPlanStatus = "pending"
 	ConfigPlanAwaiting ConfigPlanStatus = "awaiting_approval" // in the Inbox of people who can confirm it
@@ -23,12 +24,12 @@ const (
 
 // ConfigPlanStatuses returns every stored state.
 func ConfigPlanStatuses() []ConfigPlanStatus {
-	return []ConfigPlanStatus{ConfigPlanPending, ConfigPlanAwaiting, ConfigPlanApplied, ConfigPlanCanceled, ConfigPlanReverted}
+	return []ConfigPlanStatus{ConfigPlanPending, ConfigPlanAwaiting, ConfigPlanApplied, ConfigPlanCanceled, ConfigPlanReverted, ConfigPlanExpired}
 }
 
 var configPlanTransitions = transitions[ConfigPlanStatus]{
-	ConfigPlanPending:  {ConfigPlanAwaiting, ConfigPlanApplied, ConfigPlanCanceled},
-	ConfigPlanAwaiting: {ConfigPlanApplied, ConfigPlanCanceled},
+	ConfigPlanPending:  {ConfigPlanAwaiting, ConfigPlanApplied, ConfigPlanCanceled, ConfigPlanExpired},
+	ConfigPlanAwaiting: {ConfigPlanApplied, ConfigPlanCanceled, ConfigPlanExpired},
 	ConfigPlanApplied:  {ConfigPlanReverted},
 }
 
@@ -117,7 +118,11 @@ type ConfigStep struct {
 	Detail   string         `json:"detail,omitempty"`
 	// Secret is the name in the secret store of a secret_required step.
 	Secret string `json:"secret,omitempty"`
-	// Filled says the secret store holds Secret; set when the plan is read.
+	// Reuses says Secret was saved before this plan: confirming uses the
+	// value there and replaces nothing.
+	Reuses bool `json:"reuses,omitempty"`
+	// Filled says the value is there: staged for this plan, or saved before
+	// it when Reuses is set. Set when the plan is read.
 	Filled bool `json:"filled"`
 }
 

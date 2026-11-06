@@ -660,7 +660,6 @@ func connectionArea() Area {
 	a.Secrets = connectionSecrets
 	a.Apply = connectionApply
 	a.Retire = connectionRetire
-	a.Lost = connectionLost
 	return a
 }
 
@@ -724,13 +723,6 @@ func connectionRetire(spec json.RawMessage) json.RawMessage {
 	s, _ := decode[connectionSpec](spec)
 	s.Enabled = false
 	return encode(s)
-}
-
-func connectionLost(old, want *Resource) string {
-	if old != nil && want != nil && !touches(diffSpecs(old, want), "client_secret_ref") {
-		return ""
-	}
-	return "A replaced client secret does not come back."
 }
 
 // connectionRow turns a spec into the domain row of the actor's organization.

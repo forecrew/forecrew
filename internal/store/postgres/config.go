@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 	"uuid"
 
 	"github.com/jackc/pgx/v5"
@@ -70,6 +71,11 @@ func (r configPlanRepo) List(ctx context.Context, accountID uuid.UUID, f store.C
 		w.conds = append(w.conds, "status IN ('pending','awaiting_approval')")
 	}
 	return many(ctx, r.db, scanConfigPlan, `SELECT `+configPlanCols+` FROM config_plans`+w.sql("created_at DESC, id DESC", f.Limit), w.args...)
+}
+
+func (r configPlanRepo) ListExpired(ctx context.Context, now time.Time, limit int) ([]domain.ConfigPlan, error) {
+	return many(ctx, r.db, scanConfigPlan, `SELECT `+configPlanCols+` FROM config_plans
+		WHERE status IN ('pending','awaiting_approval') AND expires_at <= $1 ORDER BY expires_at, id LIMIT $2`, now, limit)
 }
 
 func (r configPlanRepo) Move(ctx context.Context, p *domain.ConfigPlan, from domain.ConfigPlanStatus) error {

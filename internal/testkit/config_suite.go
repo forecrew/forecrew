@@ -84,6 +84,12 @@ func configPlans(t *testing.T, st store.Store, accountID, conversationID, jobID 
 		Needs:   []domain.Permission{domain.PermTeamManage}, LowersProtection: []string{"why"}, ConfirmWord: "acme", Reversible: true, BaseDigest: "d", CreatedBy: "user:me",
 		ConversationID: conversationID, JobID: jobID, ExpiresAt: time.Now().Add(time.Hour)}
 	must(st.ConfigPlans().Create(ctx, &p))
+	if rows, err := st.ConfigPlans().ListExpired(ctx, p.ExpiresAt.Add(-time.Minute), 10); err != nil || len(rows) != 0 {
+		t.Fatalf("ListExpired before the expiry = %+v, %v", rows, err)
+	}
+	if rows, err := st.ConfigPlans().ListExpired(ctx, p.ExpiresAt.Add(time.Minute), 10); err != nil || len(rows) != 1 || rows[0].ID != p.ID {
+		t.Fatalf("ListExpired = %+v, %v", rows, err)
+	}
 	row, err := st.ConfigPlans().Get(ctx, accountID, p.ID)
 	if err != nil || len(row.Changes) != 1 || string(row.Changes[0].New) != `{"a": 1}` && string(row.Changes[0].New) != `{"a":1}` || row.Steps[0].Secret != "conn-okta" ||
 		row.Needs[0] != domain.PermTeamManage || row.LowersProtection[0] != "why" || row.ConversationID != conversationID || row.JobID != jobID {
