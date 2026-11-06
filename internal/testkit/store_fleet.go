@@ -16,6 +16,7 @@ func providersT(d *storeData) *table[domain.CapacityProvider] { return &d.provid
 func shapesT(d *storeData) *table[domain.Shape]               { return &d.shapes }
 func machinesT(d *storeData) *table[domain.Machine]           { return &d.machines }
 func bootstrapT(d *storeData) *table[domain.BootstrapToken]   { return &d.bootstrap }
+func joinCodesT(d *storeData) *table[domain.ProviderJoinCode] { return &d.joinCodes }
 
 // CapacityProviders implements store.Store.
 func (s *Store) CapacityProviders() store.CapacityProviderRepo { return providerRepo{s} }
@@ -31,6 +32,9 @@ func (s *Store) BootstrapTokens() store.BootstrapTokenRepo { return bootstrapRep
 
 // FleetPolicies implements store.Store.
 func (s *Store) FleetPolicies() store.FleetPolicyRepo { return policyRepo{s} }
+
+// ProviderJoinCodes implements store.Store.
+func (s *Store) ProviderJoinCodes() store.ProviderJoinCodeRepo { return joinCodeRepo{s} }
 
 // byID edits the row with id, whatever its organization; ErrNotFound when
 // there is none.
@@ -130,6 +134,9 @@ func (r providerRepo) SetStatus(_ context.Context, id uuid.UUID, status domain.P
 
 func (r providerRepo) SetToken(_ context.Context, id uuid.UUID, hash []byte) error {
 	return byID(r.s, providersT, providerID(id), func(p *domain.CapacityProvider, now time.Time) error {
+		if p.Status == domain.ProviderRevoked {
+			return store.ErrNotFound
+		}
 		p.TokenHash, p.Status, p.UpdatedAt = hash, domain.ProviderActive, now
 		return nil
 	})
@@ -460,6 +467,70 @@ func (r policyRepo) Put(_ context.Context, p *domain.FleetPolicy) error {
 		}
 		p.CreatedAt = now
 		d.policies.insert(*p)
+		return nil
+	})
+}
+
+type joinCodeRepo struct{ s *Store }
+
+func joinCodeID(id uuid.UUID) func(domain.ProviderJoinCode) bool {
+	return func(c domain.ProviderJoinCode) bool { return c.ID == id }
+}
+
+func (r joinCodeRepo) Create(_ context.Context, c *domain.ProviderJoinCode) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		if d.joinCodes.exists(func(x domain.ProviderJoinCode) bool { return bytes.Equal(x.CodeHash, c.CodeHash) }) {
+			return fmt.Errorf("join code exists: %w", store.ErrConflict)
+		}
+		if c.ID == uuid.Nil() {
+			c.ID = uuid.New()
+		}
+		c.CreatedAt = now
+		d.joinCodes.insert(*c)
+		return nil
+	})
+}
+
+func (r joinCodeRepo) Get(_ context.Context, id uuid.UUID) (domain.ProviderJoinCode, error) {
+	return findRow(r.s, joinCodesT, joinCodeID(id))
+}
+
+func (r joinCodeRepo) List(_ context.Context, accountID uuid.UUID) ([]domain.ProviderJoinCode, error) {
+	rows, err := listRows(r.s, joinCodesT, 0, func(c domain.ProviderJoinCode) bool { return c.AccountID == accountID })
+	slices.Reverse(rows) // inserted oldest first
+	return rows, err
+}
+
+func (r joinCodeRepo) GetByCodeHash(_ context.Context, hash []byte) (domain.ProviderJoinCode, error) {
+	return findRow(r.s, joinCodesT, func(c domain.ProviderJoinCode) bool { return bytes.Equal(c.CodeHash, hash) })
+}
+
+func (r joinCodeRepo) Claim(_ context.Context, id uuid.UUID, claimHash []byte, kind domain.ProviderKind, facts domain.ProviderCapabilities) error {
+	return byID(r.s, joinCodesT, joinCodeID(id), func(c *domain.ProviderJoinCode, now time.Time) error {
+		if !c.Usable(now) || c.ProviderID != uuid.Nil() || (len(c.ClaimHash) != 0 && !bytes.Equal(c.ClaimHash, claimHash)) {
+			return fmt.Errorf("join code %s: %w", id, store.ErrConflict)
+		}
+		c.ClaimHash, c.Kind, c.Facts = claimHash, kind, facts
+		return nil
+	})
+}
+
+func (r joinCodeRepo) Confirm(_ context.Context, id, providerID uuid.UUID) error {
+	return byID(r.s, joinCodesT, joinCodeID(id), func(c *domain.ProviderJoinCode, now time.Time) error {
+		if !c.Usable(now) || c.ProviderID != uuid.Nil() || len(c.ClaimHash) == 0 {
+			return fmt.Errorf("join code %s: %w", id, store.ErrConflict)
+		}
+		c.ProviderID = providerID
+		return nil
+	})
+}
+
+func (r joinCodeRepo) MarkUsed(_ context.Context, id uuid.UUID) error {
+	return byID(r.s, joinCodesT, joinCodeID(id), func(c *domain.ProviderJoinCode, now time.Time) error {
+		if !c.UsedAt.IsZero() || c.ProviderID == uuid.Nil() {
+			return fmt.Errorf("join code %s: %w", id, store.ErrConflict)
+		}
+		c.UsedAt = now
 		return nil
 	})
 }

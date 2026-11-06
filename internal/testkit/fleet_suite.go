@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ func FleetStoreSuite(t *testing.T, st store.Store, account, project uuid.UUID) {
 	s.retire(prov, shape)
 	s.tokens(prov, shape)
 	s.policies()
+	s.joinCodes(prov)
 }
 
 type fleetSuite struct {
@@ -371,4 +373,66 @@ func (s *fleetSuite) policies() {
 	if err := r.Put(ctx, &bad); !errors.Is(err, domain.ErrInvalidRecord) {
 		s.t.Fatalf("invalid policy: %v", err)
 	}
+}
+
+func (s *fleetSuite) joinCodes(prov domain.CapacityProvider) {
+	ctx := s.t.Context()
+	r := s.st.ProviderJoinCodes()
+	c := domain.ProviderJoinCode{AccountID: s.account, CodeHash: fleetHash(20), ExpiresAt: time.Now().Add(time.Hour)}
+	s.must(r.Create(ctx, &c))
+	s.want(r.Create(ctx, &domain.ProviderJoinCode{AccountID: s.account, CodeHash: fleetHash(20), ExpiresAt: time.Now().Add(time.Hour)}), store.ErrConflict)
+	got, err := r.GetByCodeHash(ctx, fleetHash(20))
+	s.must(err)
+	if got.ID != c.ID || got.AccountID != s.account || got.CreatedAt.IsZero() || !got.Usable(time.Now()) {
+		s.t.Fatalf("join code %+v", got)
+	}
+	_, err = r.GetByCodeHash(ctx, fleetHash(21))
+	s.want(err, store.ErrNotFound)
+	_, err = r.Get(ctx, uuid.New())
+	s.want(err, store.ErrNotFound)
+	s.want(r.Confirm(ctx, c.ID, prov.ID), store.ErrConflict) // nobody claimed it
+	s.want(r.MarkUsed(ctx, c.ID), store.ErrConflict)         // nobody confirmed it
+	s.want(r.Claim(ctx, uuid.New(), fleetHash(30), domain.ProviderFake, domain.ProviderCapabilities{}), store.ErrNotFound)
+
+	s.must(r.Claim(ctx, c.ID, fleetHash(30), domain.ProviderFake, domain.ProviderCapabilities{Host: "first"}))
+	s.must(r.Claim(ctx, c.ID, fleetHash(30), domain.ProviderFake, domain.ProviderCapabilities{Host: "nas"})) // the same agent again
+	s.want(r.Claim(ctx, c.ID, fleetHash(31), domain.ProviderFake, domain.ProviderCapabilities{}), store.ErrConflict)
+	got, err = r.Get(ctx, c.ID)
+	s.must(err)
+	if got.Facts.Host != "nas" || got.Kind != domain.ProviderFake || !bytes.Equal(got.ClaimHash, fleetHash(30)) {
+		s.t.Fatalf("claimed %+v", got)
+	}
+
+	s.must(r.Confirm(ctx, c.ID, prov.ID))
+	s.want(r.Confirm(ctx, c.ID, prov.ID), store.ErrConflict)
+	s.want(r.Claim(ctx, c.ID, fleetHash(30), domain.ProviderFake, domain.ProviderCapabilities{Host: "other"}), store.ErrConflict) // confirmed as it was
+	s.must(r.MarkUsed(ctx, c.ID))
+	s.want(r.MarkUsed(ctx, c.ID), store.ErrConflict) // handed over once
+	got, err = r.Get(ctx, c.ID)
+	s.must(err)
+	if got.UsedAt.IsZero() || got.ProviderID != prov.ID || got.Usable(time.Now()) {
+		s.t.Fatalf("used %+v", got)
+	}
+
+	old := domain.ProviderJoinCode{AccountID: s.account, CodeHash: fleetHash(22), ExpiresAt: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)}
+	s.must(r.Create(ctx, &old))
+	s.want(r.Claim(ctx, old.ID, fleetHash(30), domain.ProviderFake, domain.ProviderCapabilities{}), store.ErrConflict)
+	hosted := domain.ProviderJoinCode{CodeHash: fleetHash(23), ExpiresAt: time.Now().Add(time.Hour)}
+	s.must(r.Create(ctx, &hosted))
+	own, err := r.List(ctx, s.account)
+	s.must(err)
+	if len(own) != 2 || own[0].ID != old.ID {
+		s.t.Fatalf("listed %+v", own)
+	}
+	wide, err := r.List(ctx, uuid.Nil())
+	s.must(err)
+	if len(wide) != 1 || wide[0].ID != hosted.ID {
+		s.t.Fatalf("instance-wide %+v", wide)
+	}
+
+	// A revoked provider stays revoked, whoever brings a token.
+	gone := domain.CapacityProvider{AccountID: s.account, Name: "gone", Kind: domain.ProviderFake}
+	s.must(s.st.CapacityProviders().Create(ctx, &gone))
+	s.must(s.st.CapacityProviders().SetStatus(ctx, gone.ID, domain.ProviderRevoked))
+	s.want(s.st.CapacityProviders().SetToken(ctx, gone.ID, fleetHash(40)), store.ErrNotFound)
 }
