@@ -3,6 +3,7 @@ package playbooks_test
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 	"uuid"
 
@@ -403,4 +404,67 @@ func TestTestsBaseCheckResultComparesRunsWithRequests(t *testing.T) {
 	}
 	_, err := v.call(t, "tests.base_check_result", map[string]any{"runs": []any{linux.String()}, "tests": tests, "requests": []any{"nope"}})
 	wantErr(t, err, "requests[0]")
+}
+
+func TestTestsBaseCheckRequestOnlyRunnable(t *testing.T) {
+	v := newEnv(t)
+	v.matrixFiles(t, "abc")
+	call := func(only bool) map[string]any {
+		out, err := v.call(t, "tests.base_check_request", map[string]any{
+			"repo": "acme/app", "base": "main", "head": "abc", "only_runnable": only,
+			"tests": newTests([3]string{"unit", "pkg::TestA", "a_test.go"}, [3]string{"e2e", "e2e::Flow", "e2e/flow_test.go"}),
+		})
+		must(t, err)
+		return toMap(t, out)
+	}
+	suites := func(list any) []string {
+		var out []string
+		for _, r := range list.([]any) {
+			m := r.(map[string]any)
+			out = append(out, m["suite"].(string)+"@"+m["environment"].(map[string]any)["name"].(string))
+		}
+		return out
+	}
+	all := []string{"unit@linux-go", "e2e@linux-go", "unit@win"}
+
+	// Without the option every request is runnable and nobody is missing.
+	m := call(false)
+	if !slices.Equal(suites(m["requests"]), all) || !slices.Equal(suites(m["runnable"]), all) || m["missing"] != "" {
+		t.Errorf("without only_runnable = %v", m)
+	}
+	// Nobody is online.
+	m = call(true)
+	if !slices.Equal(suites(m["requests"]), all) || len(m["runnable"].([]any)) != 0 {
+		t.Errorf("nobody online = %v", m)
+	}
+	for _, want := range []string{"no online worker in pool build has the labels docker, linux: base check of unit in linux-go, base check of e2e in linux-go", "the labels windows: base check of unit in win"} {
+		if !strings.Contains(m["missing"].(string), want) {
+			t.Errorf("missing = %q, want %q", m["missing"], want)
+		}
+	}
+	w := domain.Worker{AccountID: v.account, Name: "box", TokenHash: []byte("box")}
+	must(t, v.st.Workers().Create(t.Context(), &w))
+	must(t, v.st.Workers().Seen(t.Context(), v.account, w.ID, []string{"docker", "linux"}, "1"))
+	m = call(true)
+	if !slices.Equal(suites(m["requests"]), all) || !slices.Equal(suites(m["runnable"]), []string{"unit@linux-go", "e2e@linux-go"}) ||
+		strings.Contains(m["missing"].(string), "linux") || !strings.Contains(m["missing"].(string), "windows") {
+		t.Errorf("one worker = %v", m)
+	}
+	// No tests, nothing to run.
+	out, err := v.call(t, "tests.base_check_request", map[string]any{"repo": "acme/app", "base": "main", "head": "abc", "tests": []any{}, "only_runnable": true})
+	must(t, err)
+	if m := toMap(t, out); len(m["runnable"].([]any)) != 0 || m["missing"] != "" {
+		t.Errorf("no tests = %v", m)
+	}
+}
+
+func TestTestsBaseCheckRequestWorkersFail(t *testing.T) {
+	v := newEnv(t)
+	v.matrixFiles(t, "abc")
+	v.st = failingWorkers{Store: v.st}
+	v.register()
+	_, err := v.call(t, "tests.base_check_request", map[string]any{
+		"repo": "acme/app", "base": "main", "head": "abc", "only_runnable": true, "tests": newTests([3]string{"unit", "pkg::TestA", "a_test.go"}),
+	})
+	wantErr(t, err, "list workers")
 }

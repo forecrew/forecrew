@@ -22,12 +22,20 @@ import (
 // baseCheckOutput is the output of tests.base_check_request.
 type baseCheckOutput struct {
 	Requests []workflow.JobRequest `json:"requests"`
+	// Runnable are the requests an online worker can run: all of them
+	// unless with.only_runnable is set. Missing says, for a person, which
+	// requests have no worker.
+	Runnable []workflow.JobRequest `json:"runnable"`
+	Missing  string                `json:"missing"`
 }
 
 // testsBaseCheckRequest is the action tests.base_check_request. For every
 // suite the new tests belong to and every environment the matrix at head
 // runs it in, it returns one command job request that runs the suite on
-// base with the test files from head laid over it.
+// base with the test files from head laid over it. With with.only_runnable,
+// runnable leaves out the requests no online worker can lease (a queued job
+// nobody can run would hold the run forever), and missing names them;
+// tests.base_check_result then sees fewer runs than requests.
 func (a *actions) testsBaseCheckRequest(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		Repo  string    `json:"repo"`
@@ -36,7 +44,8 @@ func (a *actions) testsBaseCheckRequest(ctx context.Context, call workflow.Actio
 		Tests []newTest `json:"tests"`
 		// Files are the files of the test map; with the files of tests they
 		// are laid over base.
-		Files []string `json:"files"`
+		Files        []string `json:"files"`
+		OnlyRunnable bool     `json:"only_runnable"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -50,7 +59,7 @@ func (a *actions) testsBaseCheckRequest(ctx context.Context, call workflow.Actio
 		suites[t.Suite] = true
 		files = append(files, t.File)
 	}
-	out := baseCheckOutput{Requests: []workflow.JobRequest{}}
+	out := baseCheckOutput{Requests: []workflow.JobRequest{}, Runnable: []workflow.JobRequest{}}
 	if len(suites) == 0 {
 		return out, nil
 	}
@@ -91,7 +100,38 @@ func (a *actions) testsBaseCheckRequest(ctx context.Context, call workflow.Actio
 			return nil, fmt.Errorf("%s: suite %q runs in no cell", testsys.MatrixFile, name)
 		}
 	}
+	out.Runnable = out.Requests
+	if with.OnlyRunnable {
+		if err := a.dropUnrunnableRequests(ctx, call.Run.AccountID, &out); err != nil {
+			return nil, err
+		}
+	}
 	return out, nil
+}
+
+// dropUnrunnableRequests keeps in out.Runnable the requests an online worker
+// can lease and describes the others in out.Missing.
+func (a *actions) dropUnrunnableRequests(ctx context.Context, accountID uuid.UUID, out *baseCheckOutput) error {
+	check, err := a.newWorkerCheck(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	out.Runnable = []workflow.JobRequest{}
+	var missing []unrunnableJob
+	for _, r := range out.Requests {
+		var env domain.Environment
+		if r.Environment != nil {
+			env = *r.Environment
+		}
+		pool, labels, ok := check.canRun(env, r.Needs)
+		if ok {
+			out.Runnable = append(out.Runnable, r)
+			continue
+		}
+		missing = append(missing, unrunnableJob{Key: "base check of " + r.Suite + " in " + env.Name, Pool: pool, Needs: labels})
+	}
+	out.Missing = missingText(missing)
+	return nil
 }
 
 // overlayPaths returns the globs of files for the overlay. Only test files
