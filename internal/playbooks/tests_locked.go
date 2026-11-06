@@ -1,6 +1,7 @@
 package playbooks
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -46,7 +47,9 @@ func (a *actions) testerOutputs(ctx context.Context, t domain.Task) ([]testMapDo
 	if err != nil {
 		return nil, fmt.Errorf("list jobs of %s: %w", t.Ref(), err)
 	}
-	slices.SortStableFunc(jobs, func(x, y domain.Job) int { return x.CreatedAt.Compare(y.CreatedAt) })
+	slices.SortFunc(jobs, func(x, y domain.Job) int {
+		return cmp.Or(x.CreatedAt.Compare(y.CreatedAt), cmp.Compare(x.Number, y.Number))
+	})
 	var docs []testMapDoc
 	for _, j := range jobs {
 		if j.Role != testerRole || len(j.Output) == 0 {
