@@ -107,7 +107,7 @@ GitHub got.
 - Timeout, connection refused, TLS error: GitHub cannot reach
   `https://<host>/webhooks/github`. Check DNS, the port GitHub reaches (443 in own-domain mode), the load balancer
   and the certificate.
-- `2xx` but nothing happens: the login is not in `github.allowlist`
+- `2xx` but nothing happens: the commenter has no linked GitHub identity with an active membership in the project's organization, and the login is not in the deprecated `github.allowlist`
   (case-insensitive; empty means nobody), the App is not installed on the
   repository, or the repo is not a project. Look at the forecrewd log for the
   delivery.

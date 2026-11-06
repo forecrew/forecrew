@@ -6,7 +6,7 @@ inputs, outputs and rules. The web UI and the `forecrew` CLI use it.
 Implemented by `internal/api`.
 
 Bodies are JSON (`Content-Type: application/json`), times are RFC 3339 in
-UTC, IDs are UUID strings. Everything is scoped to the account of the token.
+UTC, IDs are UUID strings. Everything is scoped to the organization of the token or session.
 Goals, jobs, tasks and gates are named by human ref (`GOAL-3`, `JOB-41`,
 `TASK-12`, `GATE-7`) or UUID; projects by name or `owner/name`.
 
@@ -16,24 +16,55 @@ Organizations, people, sessions and tokens are described in
 [contracts/identity.md](contracts/identity.md); what each endpoint needs is
 in [contracts/permissions.md](contracts/permissions.md#what-every-entry-point-needs).
 The organization is stored as an account, so answers name it `account`
-(with its `slug`). Sign-in through connections and server-side sessions
-replace the token login below in T52.
+(with its `slug`).
 
-Send an MCP/API token (`fcm_...`, see [mcp.md](mcp.md)) as
-`Authorization: Bearer <token>`, or, in a browser, log in once and let the
-session cookie carry it.
+**Tokens.** Scripts, the CLI and MCP clients send a personal or service account
+token (`fcm_...`) as `Authorization: Bearer <token>`. A token belongs to one
+organization and one owner, has scopes and an expiry, and stops working when
+its owner is disabled or is no longer an active member. Create one with
+`POST /api/v1/tokens`; see [runbooks/mcp-token.md](runbooks/mcp-token.md).
 
-`POST /api/v1/session` takes `{"token": "fcm_..."}` as `application/json` (else `415`), checks it like any other
-call and sets the cookie `forecrew_session` (`HttpOnly`, `Secure`,
-`SameSite=Strict`, `Path=/api/`, 30 days). `DELETE /api/v1/session` clears it
-and needs no token. `GET /api/v1/me` shows who the caller is. These answers carry
-`Cache-Control: no-store`. A cookie request that gets `401` (the token was
-revoked) also clears the cookie.
+**Sessions.** People sign in through a connection, in the browser:
 
-A request with the `Authorization` header never uses the cookie. With only
-the cookie, every request that is not `GET` or `HEAD` must be sent as
+- `POST /api/v1/auth/discover` (public) takes `{"org": "<slug>", "email": "...",
+  "invite": "fci_..."}`, all optional, and answers which connections the sign-in
+  page shows: the instance's, plus those of the organization the input points
+  at. `redirect` is set when the email's domain enforces one connection.
+- `GET /auth/<connection>/login` (optional `org` and `invite`) sends the browser
+  to the provider; `GET /auth/<connection>/callback` finishes the sign-in and
+  redirects to `/`. These are outside `/api/v1`, and a refusal is an HTML page.
+- A sign-in resolves to a user by identity, then by verified email (only
+  through an instance connection or an organization's connection for a domain
+  it verified), then by the invitation of the link. Anyone else is refused.
+- The answer sets the cookie `forecrew_session` (`HttpOnly`, `Secure`,
+  `SameSite=Strict`, `Path=/`). The session ends after `auth.session_idle`
+  without use and `auth.session_absolute` after sign-in, and at once when the
+  user is disabled or leaves or is suspended from the current organization.
+
+A session has a current organization. With several memberships and none named at
+sign-in it has none until `PUT /api/v1/session/organization` picks one; until
+then only `/me` and the session endpoints work, and the rest answers `403`
+`no_organization`. Instance admins (`auth.instance_admins`) may switch to any
+organization to recover access; that is audited as `instance_admin.entered`.
+A session from an organization's own connection stays in that organization: it
+cannot name another at sign-in or switch to one, and only accepts that
+organization's invitations.
+
+`DELETE /api/v1/session` signs out and needs no credential; `DELETE
+/api/v1/sessions` ends every session of the caller. `GET /api/v1/me` shows who
+the caller is. These answers carry `Cache-Control: no-store`. A cookie request
+that gets `401` also clears the cookie.
+
+A request with the `Authorization` header never uses the cookie. With only the
+cookie, every request that is not `GET` or `HEAD` must be sent as
 `Content-Type: application/json` (also a `DELETE` or a `POST` without a body),
-else it is refused with `415`. A cross-site form cannot send that type.
+else it is refused with `415`, and its `Origin`, when present, must be the
+public URL or the host of the request, else `403` `bad_origin`.
+
+**Token login (legacy).** With `auth.token_login` on, `POST /api/v1/session`
+takes `{"token": "fcm_..."}` as `application/json` and keeps the token in the
+cookie. It is off by default and answers `403` `token_login_disabled`; see
+[runbooks/upgrade.md](runbooks/upgrade.md).
 
 ## Errors
 
@@ -47,8 +78,9 @@ Non-2xx responses have this body:
 |--------|--------|------|
 | 400 | `bad_request` | Malformed JSON, unknown or mistyped fields, bad query parameter, missing `token` on login. |
 | 400 | `invalid_input` | The tool refused the input: a field is missing or malformed, a bad ref, a decision the gate does not allow (`request-changes` on a `needs_you` gate, or without `feedback`). |
-| 401 | `unauthorized` | Missing, unknown, revoked or expired token. |
+| 401 | `unauthorized` | Missing, unknown, expired or revoked token, or a session that ended. |
 | 403 | `forbidden` | The caller lacks the permission, on the project the call is about or at all; the message names it. See [contracts/permissions.md](contracts/permissions.md). |
+| 403 | `bad_origin`, `no_organization`, `token_login_disabled` | See [Authentication](#authentication). |
 | 404 | `not_found` | Unknown project, goal, job, gate or active token, or one of another account; unknown endpoint. |
 | 409 | `conflict` | The state does not allow it, for example a gate that is already decided, a job that is not queued or running (`cancel`), a name that is taken, a binding that exists or the last Owner. |
 | 413 | `too_large` | Body over 1 MiB. |
@@ -91,11 +123,18 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/gates/{gate}/approve` | `approve` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `approved` |
 | `POST /api/v1/gates/{gate}/request-changes` | `request_changes` | `{"feedback": "required"}` | `200` the gate, now `changes_requested` |
 | `POST /api/v1/gates/{gate}/reject` | `reject` | `{"feedback": "optional"}` (body optional) | `200` the gate, now `rejected` |
-| `GET /api/v1/tokens` | `list_tokens` | | `200` tokens with `id`, `name`, `created_at`, `last_used_at`, `revoked_at` and `current` (the token of this request); no hash or secret |
+| `GET /api/v1/tokens` | `list_tokens` | | `200` tokens with `id`, `name`, `created_at`, `last_used_at`, `revoked_at`, `owner_kind`, `owner_id`, `scopes`, `expires_at` and `current` (the token of this request); no hash or secret |
+| `POST /api/v1/tokens` | `create_token` | `{"name", "scopes": ["read"], "ttl": "720h", "service_account": "ci"}`; `ttl` defaults to `auth.token_default_ttl`, at most `8760h`, `service_account` to yourself | `201` `{"token": {...}, "secret": "fcm_..."}`; the secret is shown once. `403` for a scope above the owner's roles or above the token you use |
 | `POST /api/v1/tokens/{token}/revoke` | `revoke_token` | `{token}` is a name or ID; body optional | `200` `{"token": {...}, "self": false, "message": "..."}`; `403` when a read-scoped credential revokes another of your tokens (the token in use can always end itself); `404` when no active token has that name or ID, or it is someone else's and you lack `token.manage`. `self` is true when the caller revoked the token it used: the next request, with the header or the session cookie, gets `401` |
-| `POST /api/v1/session` | | `{"token": "fcm_..."}` | `200` session, sets the cookie |
-| `DELETE /api/v1/session` | | | `204`, clears the cookie |
-| `GET /api/v1/me` | | | `200` session: `token`, `account` (the current organization), `user` (absent for a service account or an ownerless token), `roles` (`role`, `scope`, `project_id`, `team_id` when it comes through a team), `permissions` (held on the organization and, for project-scoped ones, on every project) and `projects` (by project ID, the project-scoped permissions on each project where the caller has any). A token shows what it can use, its scopes applied |
+| `POST /api/v1/invitations` | `create_invitation` | `{"email" or "github_login", "roles": [{"role": "member"}, {"role": "maintainer", "project": "app"}], "ttl": "168h"}`; `ttl` defaults to 7 days, at most `720h`. A `github_login` is resolved to its GitHub user ID now, and only that account can accept; an unknown login is `400`, and `503` when GitHub cannot be reached | `201` `{"invitation": {...}, "url": "..."}`; the link is shown once |
+| `GET /api/v1/invitations` | `list_invitations` | | `200` invitations, newest first |
+| `POST /api/v1/invitations/{invitation}/revoke` | `revoke_invitation` | `{invitation}` is its ID; body optional | `200` the invitation |
+| `POST /api/v1/auth/discover` | | `{"org", "email", "invite"}`, all optional | `200` `{"connections": [{"id", "kind", "name", "login_url"}], "redirect": "optional", "token_login": false}` |
+| `POST /api/v1/session` | | `{"token": "fcm_..."}`; needs `auth.token_login` | `200` `me`, sets the cookie |
+| `DELETE /api/v1/session` | | | `204`, ends the session and clears the cookie |
+| `DELETE /api/v1/sessions` | | | `204`, ends every session of the caller |
+| `PUT /api/v1/session/organization` | | `{"organization": "<slug>"}` | `200` `me`; `403` unless you are an active member |
+| `GET /api/v1/me` | | | `200` session: `token` (for a token), `account` (the current organization; absent until a session picks one), `user` (absent for a service account or an ownerless token), `organizations` (`id`, `name`, `slug`, the ones the session can switch to), `roles` (`role`, `scope`, `project_id`, `team_id` when it comes through a team), `permissions` (held on the organization and, for project-scoped ones, on every project) and `projects` (by project ID, the project-scoped permissions on each project where the caller has any). A token shows what it can use, its scopes applied |
 | `GET /api/v1/roles` | `list_roles` | | `200` roles with `name`, `scope`, `permissions`, `built_in`, `custom` |
 | `GET /api/v1/teams` | `list_teams` | | `200` teams |
 | `POST /api/v1/teams` | `create_team` | `{"name", "slug"}`; `slug` is derived from the name when left out | `201` team; `409` when the slug is taken |

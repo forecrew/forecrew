@@ -112,9 +112,10 @@ You need Node 24 or newer and pnpm 11.
 make web-dev            # Vite dev server on http://localhost:5173
 ```
 
-The dev server proxies `/api` to a forecrewd on `http://localhost:8080` (set
+The dev server proxies `/api` and `/auth` to a forecrewd on `http://localhost:8080` (set
 `FORECREW_URL` for another address). Start that forecrewd on your machine as
-usual, create a token (`forecrew token create dev`) and log in with it.
+usual and sign in through a connection, or set `auth.token_login` and log in with
+a token (`forecrew token create dev --user <you>`).
 
 The session cookie is `Secure`, so the browser only keeps it on HTTPS or on
 `localhost`. Run the UI on `localhost` as above; opening the dev server through
@@ -152,9 +153,11 @@ web/src
   test/         MSW server, render helper, fixtures/
 ```
 
-- **Login.** The login page posts the pasted token to `POST /api/v1/session`;
-  the server answers with an HttpOnly cookie. The token is never kept in the
-  page or in browser storage. Every `401` goes back to the login page, which
+- **Login.** The login page links to the connections of
+  `POST /api/v1/auth/discover`, passing on `org` and `invite` from its URL. With
+  `auth.token_login` on it also posts a pasted token to `POST /api/v1/session`.
+  Either way the server answers with an HttpOnly cookie, and nothing is kept in
+  the page or in browser storage. Every `401` goes back to the login page, which
   returns to where you were. State-changing calls are sent as
   `application/json`, which the API requires for cookie sessions.
 - **Cancel and revoke.** "Cancel job" (job page, jobs page, goal jobs table) and
@@ -162,8 +165,8 @@ web/src
   its worker within about 30 s and its playbook takes its failure path; the
   job, job lists and gates refresh after it. The Tokens page lists the account's
   tokens (the one you are using is badged "this session"); revoking that one
-  logs you out and goes to the login page. Tokens are only created on the server
-  (`forecrew token create`), never in the UI.
+  logs you out and goes to the login page. Tokens are created with the API, the
+  CLI or `forecrew token create` on the server, not in the UI yet.
 - **Live data.** Lists poll every 5 s with TanStack Query; a running job's log
   polls every 2 s and asks only for events after the last one it has
   (`after_seq`). Polling pauses while the tab is hidden.
