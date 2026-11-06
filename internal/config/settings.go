@@ -61,45 +61,53 @@ func (c *Config) WithSettings(settings []Setting, getenv func(string) string) (*
 	out := *c
 	out.Pools = maps.Clone(c.Pools)
 	out.Runtimes = maps.Clone(c.Runtimes)
+	if out.Runtimes == nil {
+		out.Runtimes = map[string]Runtime{}
+	}
 	for _, s := range settings {
-		switch s.Kind {
-		case SettingPool:
-			var p Pool
-			if err := decodeStrict(s.Spec, &p); err != nil {
-				return nil, fmt.Errorf("pool %s: %w", s.Name, err)
-			}
-			out.Pools[s.Name] = p
-		case SettingRuntime:
-			var r Runtime
-			if err := decodeStrict(s.Spec, &r); err != nil {
-				return nil, fmt.Errorf("runtime %s: %w", s.Name, err)
-			}
-			if err := c.checkCredentialEnv(s.Name, r); err != nil {
-				return nil, err
-			}
-			r.Credentials = map[string]string{}
-			for _, env := range r.CredentialEnv {
-				r.Credentials[env] = getenv(env)
-			}
-			if out.Runtimes == nil {
-				out.Runtimes = map[string]Runtime{}
-			}
-			out.Runtimes[s.Name] = r
-		case SettingAuth:
-			var a Auth
-			if err := decodeStrict(s.Spec, &a); err != nil {
-				return nil, fmt.Errorf("auth: %w", err)
-			}
-			if err := c.checkConnectionRefs(a); err != nil {
-				return nil, err
-			}
-			out.Auth = a
-			out.readAuth(getenv)
-			out.applyAuthDefaults()
+		if err := c.apply(&out, s, getenv); err != nil {
+			return nil, err
 		}
 	}
 	if err := out.Validate(); err != nil {
 		return nil, err
 	}
 	return &out, nil
+}
+
+// apply puts one setting on out; c is the file.
+func (c *Config) apply(out *Config, s Setting, getenv func(string) string) error {
+	switch s.Kind {
+	case SettingPool:
+		var p Pool
+		if err := decodeStrict(s.Spec, &p); err != nil {
+			return fmt.Errorf("pool %s: %w", s.Name, err)
+		}
+		out.Pools[s.Name] = p
+	case SettingRuntime:
+		var r Runtime
+		if err := decodeStrict(s.Spec, &r); err != nil {
+			return fmt.Errorf("runtime %s: %w", s.Name, err)
+		}
+		if err := c.checkCredentialEnv(s.Name, r); err != nil {
+			return err
+		}
+		r.Credentials = map[string]string{}
+		for _, env := range r.CredentialEnv {
+			r.Credentials[env] = getenv(env)
+		}
+		out.Runtimes[s.Name] = r
+	case SettingAuth:
+		var a Auth
+		if err := decodeStrict(s.Spec, &a); err != nil {
+			return fmt.Errorf("auth: %w", err)
+		}
+		if err := c.checkConnectionRefs(a); err != nil {
+			return err
+		}
+		out.Auth = a
+		out.readAuth(getenv)
+		out.applyAuthDefaults()
+	}
+	return nil
 }
