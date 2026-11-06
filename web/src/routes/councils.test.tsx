@@ -192,6 +192,9 @@ describe("constraint form", () => {
         bodies.push(await request.json())
         return HttpResponse.json(fx.councilConstraint)
       }),
+      http.get("/api/v1/councils/:ref", () =>
+        HttpResponse.json(bodies.length ? { ...fx.councilRunning, constraints: [...(fx.councilRunning.constraints ?? []), "No new services"] } : fx.councilRunning),
+      ),
     )
     const { user } = await renderApp("/councils/COUNCIL-2")
     const box = await screen.findByLabelText("Add a constraint")
@@ -199,6 +202,8 @@ describe("constraint form", () => {
     await user.click(screen.getByRole("button", { name: "Add constraint" }))
     await waitFor(() => expect(bodies).toEqual([{ constraint: "No new services" }]))
     await waitFor(() => expect(box).toHaveValue(""))
+    // the council is read again and shows the new constraint
+    expect(await within(section("Question")).findByText("No new services", {}, { timeout: 2000 })).toBeInTheDocument()
   })
 
   test("asks for text first", async () => {
