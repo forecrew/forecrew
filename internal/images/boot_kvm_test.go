@@ -25,7 +25,8 @@ import (
 //
 // Needs /dev/kvm, qemu-system-x86_64, Docker with alpine:latest, mke2fs
 // 1.47.1 or newer, and a kernel with virtio block and ext4 built in:
-// FORECREW_TEST_KERNEL names one (a Firecracker CI kernel has everything);
+// FORECREW_TEST_ROOTFS_TAR and FORECREW_TEST_WORKER replace the Docker export
+// and the worker build (CI uses them). FORECREW_TEST_KERNEL names one (a Firecracker CI kernel has everything);
 // otherwise the host's /boot/vmlinuz-linux is used and its virtio_net
 // modules are loaded by the guest's init.
 func TestRootfsBootsAndTheWorkerReachesTheServer(t *testing.T) {
@@ -39,7 +40,10 @@ func TestRootfsBootsAndTheWorkerReachesTheServer(t *testing.T) {
 	realMke2fs(t)
 
 	kernel, modules := bootKernel(t)
-	worker := buildWorker(t)
+	worker := os.Getenv("FORECREW_TEST_WORKER")
+	if worker == "" {
+		worker = buildWorker(t)
+	}
 
 	// A worker needs git; the image under test has none, and the test is not
 	// about git, so a stub says it is there.
@@ -59,7 +63,18 @@ func TestRootfsBootsAndTheWorkerReachesTheServer(t *testing.T) {
 		files = append(files, File{Path: "etc/forecrew/modules", Mode: 0o644, Data: []byte(list.String())})
 	}
 	c := &Converter{CacheDir: t.TempDir(), Docker: DockerCLI{}}
-	root, err := c.Convert(t.Context(), Request{Ref: "alpine:latest", Files: files})
+	var root Result
+	if tarball := os.Getenv("FORECREW_TEST_ROOTFS_TAR"); tarball != "" {
+		// CI exports the base image on the host and converts it where mke2fs is new enough.
+		f, openErr := os.Open(tarball) // #nosec G304 -- the CI's file
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		defer func() { _ = f.Close() }()
+		root, err = c.ConvertTar(t.Context(), f, "base", "ci", Request{Files: files})
+	} else {
+		root, err = c.Convert(t.Context(), Request{Ref: "alpine:latest", Files: files})
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

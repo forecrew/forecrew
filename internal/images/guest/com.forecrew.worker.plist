@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- forecrew-worker on a macOS Forecrew machine. The provider writes
+     /var/run/forecrew/bootstrap.env (over ssh or tart exec) once the machine is
+     assigned; forecrew-start reads and deletes it, so the job starts when the
+     file appears and runs once. The provider destroys the machine afterwards. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.forecrew.worker</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/forecrew/forecrew-start</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>FORECREW_BOOTSTRAP_ENV</key>
+    <string>/var/run/forecrew/bootstrap.env</string>
+    <key>FORECREW_WORK_DIR</key>
+    <string>/var/lib/forecrew-worker/work</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>KeepAlive</key>
+  <dict>
+    <key>PathState</key>
+    <dict>
+      <key>/var/run/forecrew/bootstrap.env</key>
+      <true/>
+    </dict>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>StandardOutPath</key>
+  <string>/var/log/forecrew-worker.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/forecrew-worker.log</string>
+</dict>
+</plist>

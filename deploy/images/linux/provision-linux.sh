@@ -1,0 +1,63 @@
+#!/bin/sh
+# Provisions a Forecrew Linux image, in a build VM (FORECREW_IMAGE_KIND=vm) or a
+# build container (container): git, common toolchains, the agent CLIs at the
+# versions package.json pins, and the worker with its start-up files. Files
+# arrive in /tmp from the Packer template.
+set -eu
+
+kind=${FORECREW_IMAGE_KIND:?FORECREW_IMAGE_KIND is vm or container}
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+# iproute2 and kmod: the microVM init configures the network and loads modules.
+apt-get install -y --no-install-recommends \
+	ca-certificates curl git openssh-client unzip jq procps iproute2 kmod \
+	build-essential make pkg-config python3 python3-venv python3-pip \
+	golang-go nodejs npm
+labels="go node python git"
+if [ "$kind" = vm ]; then
+	apt-get install -y --no-install-recommends docker.io cloud-init
+	systemctl enable docker
+	labels="$labels docker"
+fi
+
+# Agent CLIs: exact versions from package.json, every dependency pinned by
+# package-lock.json, owned by root so the agents cannot change them.
+install -d -m 0755 /opt/forecrew-cli
+install -m 0644 /tmp/package.json /tmp/package-lock.json /opt/forecrew-cli/
+(cd /opt/forecrew-cli && npm ci --omit=dev --no-audit --no-fund && npm cache clean --force)
+for cli in claude codex opencode; do
+	ln -sf "/opt/forecrew-cli/node_modules/.bin/$cli" "/usr/local/bin/$cli"
+	"$cli" --version >/dev/null
+	labels="$labels runtime:$(case $cli in claude) echo claude-code ;; *) echo "$cli" ;; esac)"
+done
+
+# The worker and the files that start it.
+install -d -m 0755 /opt/forecrew /etc/forecrew /var/lib/forecrew-worker
+install -m 0755 /tmp/forecrew-worker /opt/forecrew/forecrew-worker
+install -m 0755 /tmp/forecrew-guest/forecrew-init /tmp/forecrew-guest/forecrew-start /opt/forecrew/
+for l in $labels; do echo "$l"; done >/etc/forecrew/labels
+/opt/forecrew/forecrew-worker version
+
+# What the image holds, as name=version lines for the manifest.
+{
+	for p in git golang-go nodejs python3; do
+		echo "$p=$(dpkg-query -W -f='${Version}' "$p")"
+	done
+	for cli in claude-code codex opencode-ai; do
+		pkg=$(case $cli in claude-code) echo @anthropic-ai/claude-code ;; codex) echo @openai/codex ;; *) echo opencode-ai ;; esac)
+		echo "$cli=$(node -p "require('/opt/forecrew-cli/node_modules/$pkg/package.json').version")"
+	done
+} >/etc/forecrew/packages
+
+if [ "$kind" = vm ]; then
+	install -m 0644 /tmp/forecrew-guest/forecrew-worker.service /etc/systemd/system/forecrew-worker.service
+	systemctl enable forecrew-worker.service
+	# No identity travels with the image: each machine makes its own.
+	cloud-init clean --logs --seed
+	rm -f /etc/ssh/ssh_host_*
+	truncate -s 0 /etc/machine-id
+fi
+
+apt-get clean
+rm -rf /var/lib/apt/lists/* /tmp/forecrew-guest /tmp/forecrew-worker /tmp/package.json /tmp/package-lock.json

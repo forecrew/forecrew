@@ -1,0 +1,69 @@
+name: images
+
+# The image pipeline (docs/images.md). Windows and macOS need licensed hosts,
+# so only their templates are validated here.
+on:
+  pull_request:
+    paths:
+      - "deploy/images/**"
+      - "internal/images/**"
+      - "deploy/worker/control/package*.json"
+      - ".github/workflows/images.yml"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/images/**"
+      - "internal/images/**"
+
+permissions:
+  contents: read
+
+jobs:
+  templates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-packer@v3
+        with:
+          version: "1.14.2"
+      - name: shellcheck
+        run: shellcheck -s sh deploy/images/*.sh deploy/images/*/*.sh internal/images/guest/forecrew-init internal/images/guest/forecrew-start
+      - run: make images-validate
+
+  # Boots a converted root filesystem under KVM and checks that its worker
+  # reaches a fake server. The runner's mke2fs is older than 1.47.1, so the test
+  # runs in a Debian 13 container; the kernel is a build input (a Firecracker
+  # CI kernel with virtio and ext4 built in) named by repository variables.
+  boot:
+    if: vars.FORECREW_KERNEL_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+      - name: Kernel
+        env:
+          URL: ${{ vars.FORECREW_KERNEL_URL }}
+          SHA256: ${{ vars.FORECREW_KERNEL_SHA256 }}
+        run: |
+          curl -fsSL -o vmlinux "$URL"
+          echo "$SHA256  vmlinux" | sha256sum -c
+      - name: Inputs
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o forecrew-worker ./cmd/forecrew-worker
+          id=$(docker create alpine:3.22 /nonexistent)
+          docker export "$id" -o base.tar
+          docker rm "$id"
+          go test -c -tags kvm -o images.test ./internal/images
+      - name: Allow KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Boot
+        run: |
+          docker run --rm --device /dev/kvm -v "$PWD:/w" -w /w \
+            -e FORECREW_TEST_KERNEL=/w/vmlinux -e FORECREW_TEST_WORKER=/w/forecrew-worker -e FORECREW_TEST_ROOTFS_TAR=/w/base.tar \
+            debian:trixie-slim sh -c 'apt-get update -qq && apt-get install -y -qq e2fsprogs qemu-system-x86 qemu-utils >/dev/null && ./images.test -test.run Boots -test.v'
