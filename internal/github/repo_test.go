@@ -1,6 +1,7 @@
 package github_test
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -119,6 +120,19 @@ func TestHeadSHAOfAnEmptyRepo(t *testing.T) {
 	})
 	_, err := e.client.HeadSHA(t.Context(), "acme/app", "main")
 	wantErr(t, err, github.ErrEmptyRepo)
+}
+
+// Another 409 is no empty repo: it stays a plain conflict.
+func TestHeadSHAConflictThatIsNotEmpty(t *testing.T) {
+	e := newEnv(t)
+	e.handle("GET /repos/acme/app/git/ref/heads/main", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"message":"Something else is wrong."}`))
+	})
+	_, err := e.client.HeadSHA(t.Context(), "acme/app", "main")
+	if errors.Is(err, github.ErrEmptyRepo) || !errors.Is(err, github.ErrConflict) {
+		t.Errorf("err = %v, want a conflict that is not ErrEmptyRepo", err)
+	}
 }
 
 func TestArchive(t *testing.T) {

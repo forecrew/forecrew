@@ -172,16 +172,21 @@ func (s *Syncer) backfill(ctx context.Context, p domain.Project) {
 // loadPolicy reads the policy file at the commit, or builds the default
 // policy from the repo's files.
 func (s *Syncer) loadPolicy(ctx context.Context, p domain.Project, rc *RepoClient) (Policy, error) {
-	data, err := s.API.GetFile(ctx, p.Repo, rc.Ref, PolicyFile)
+	data, readErr := s.API.GetFile(ctx, p.Repo, rc.Ref, PolicyFile)
 	switch {
-	case err == nil:
+	case readErr == nil:
 		return ParsePolicy(data)
-	case !errors.Is(err, github.ErrNotFound):
-		return Policy{}, err
+	case !errors.Is(readErr, github.ErrNotFound):
+		return Policy{}, readErr
 	}
 	tree, err := rc.files(ctx)
 	if err != nil {
 		return Policy{}, err
+	}
+	if _, listed := tree[PolicyFile]; listed {
+		// The file is in the tree but could not be read: that is not an
+		// absent policy, and the default must not stand in for it.
+		return Policy{}, readErr
 	}
 	names := make([]string, 0, len(tree))
 	for name := range tree {
