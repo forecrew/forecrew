@@ -95,8 +95,10 @@ type Overview struct {
 	Running   []RunningJob        `json:"running"`
 }
 
-// Overview returns the overview of an organization.
-func (c *Controller) Overview(ctx context.Context, accountID uuid.UUID) (Overview, error) {
+// Overview returns the overview of an organization. Machines and locations
+// are the organization's; of its jobs it lists those of the projects visible
+// says the caller may read.
+func (c *Controller) Overview(ctx context.Context, accountID uuid.UUID, visible func(project uuid.UUID) bool) (Overview, error) {
 	s, err := c.load(ctx, accountID)
 	if err != nil {
 		return Overview{}, err
@@ -106,10 +108,10 @@ func (c *Controller) Overview(ctx context.Context, accountID uuid.UUID) (Overvie
 	}
 	o := &s.orgs[0]
 	p := s.plan()
-	out := Overview{Routing: o.policy.Routing, Locations: s.locations(o), Queue: []WaitingJob{}, Running: s.runningJobs(o)}
+	out := Overview{Routing: o.policy.Routing, Locations: s.locations(o), Queue: []WaitingJob{}, Running: s.runningJobs(o, visible)}
 	out.Working = len(out.Running)
 	for _, j := range o.queued {
-		if r := p.reasons[j.ID]; r != (Reason{}) {
+		if r := p.reasons[j.ID]; r != (Reason{}) && visible(j.ProjectID) {
 			out.Queue = append(out.Queue, WaitingJob{Ref: j.Ref(), Role: j.Role, Code: r.Code, Sentence: r.Sentence})
 		}
 	}
@@ -242,7 +244,7 @@ func (s *snapshot) cost(shapes []domain.Shape) string {
 }
 
 // runningJobs lists what runs now, oldest first.
-func (s *snapshot) runningJobs(o *organization) []RunningJob {
+func (s *snapshot) runningJobs(o *organization, visible func(uuid.UUID) bool) []RunningJob {
 	onWorker := map[uuid.UUID]domain.Machine{}
 	for _, m := range s.machines {
 		if m.State.Counts() && m.WorkerID != uuid.Nil() {
@@ -255,6 +257,9 @@ func (s *snapshot) runningJobs(o *organization) []RunningJob {
 	}
 	out := []RunningJob{}
 	for _, j := range slices.Backward(o.running) {
+		if !visible(j.ProjectID) {
+			continue
+		}
 		r := RunningJob{Ref: j.Ref(), Role: j.Role, Machine: names[j.WorkerID], Location: names[j.WorkerID], Minutes: int(s.now.Sub(j.StartedAt) / time.Minute)}
 		if m, ok := onWorker[j.WorkerID]; ok {
 			r.Machine = MachineName(s.shapes[m.ShapeID], m)

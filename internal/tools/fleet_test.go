@@ -6,6 +6,7 @@ import (
 	"testing"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/mcp"
@@ -102,10 +103,10 @@ func TestListMachines(t *testing.T) {
 	}
 }
 
-type overviewFunc func(context.Context, uuid.UUID) (fleet.Overview, error)
+type overviewFunc func(context.Context, uuid.UUID, func(uuid.UUID) bool) (fleet.Overview, error)
 
-func (f overviewFunc) Overview(ctx context.Context, id uuid.UUID) (fleet.Overview, error) {
-	return f(ctx, id)
+func (f overviewFunc) Overview(ctx context.Context, id uuid.UUID, visible func(uuid.UUID) bool) (fleet.Overview, error) {
+	return f(ctx, id, visible)
 }
 
 func TestFleetOverview(t *testing.T) {
@@ -113,12 +114,71 @@ func TestFleetOverview(t *testing.T) {
 	if _, err := f.svc.FleetOverview(t.Context(), f.by); !errors.Is(err, mcp.ErrUnavailable) {
 		t.Fatalf("no fleet: %v", err)
 	}
-	svc := tools.New(tools.Config{Store: f.st, Fleet: overviewFunc(func(_ context.Context, id uuid.UUID) (fleet.Overview, error) {
+	svc := tools.New(tools.Config{Store: f.st, Fleet: overviewFunc(func(_ context.Context, id uuid.UUID, _ func(uuid.UUID) bool) (fleet.Overview, error) {
 		return fleet.Overview{Headline: id.String()}, nil
 	})})
 	o, err := svc.FleetOverview(t.Context(), f.by)
 	must(t, err)
 	if o.Headline != f.account.ID.String() {
 		t.Fatalf("overview = %+v", o)
+	}
+}
+
+// The fleet is the organization's: a role on one project does not read it.
+func TestFleetToolsNeedWorkerRead(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	u := f.st.AddMember(f.account.ID, domain.User{Name: "someone"}, "")
+	testkit.Bind(t, f.st, f.account.ID, domain.SubjectUser, u.ID, projectScope, domain.RoleProjectAdmin, f.project.ID)
+	by := domain.UserActor(f.account.ID, u.ID, domain.Credential{})
+	for name, call := range map[string]func() error{
+		"list_machines":  func() error { _, err := f.svc.ListMachines(ctx, by, mcp.ListMachinesInput{}); return err },
+		"list_shapes":    func() error { _, err := f.svc.ListShapes(ctx, by); return err },
+		"list_providers": func() error { _, err := f.svc.ListProviders(ctx, by); return err },
+		"fleet_overview": func() error { _, err := f.svc.FleetOverview(ctx, by); return err },
+	} {
+		if err := call(); !errors.Is(err, authz.ErrDenied) {
+			t.Errorf("%s: err = %v, want denied", name, err)
+		}
+	}
+}
+
+// worker.read reads the machines, and job.read decides what of their jobs
+// shows, project by project.
+func TestFleetKeepsJobsToTheirProjects(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	own, shape := fleetRows(t, f.st, f.account.ID, "home")
+	m := domain.Machine{AccountID: f.account.ID, ProviderID: own.ID, ShapeID: shape.ID}
+	must(t, f.st.Machines().Create(ctx, &m))
+	j := f.newJob(t, "developer", domain.Goal{}, domain.Task{}, 0)
+	_, err := f.st.Machines().TakeJob(ctx, m.ID, j.ID, f.clock.Now())
+	must(t, err)
+
+	role := domain.Role{AccountID: f.account.ID, Name: "machines", Scope: orgScope, Permissions: []domain.Permission{domain.PermWorkerRead}, Custom: true}
+	must(t, f.st.Roles().Create(ctx, &role))
+	u := f.st.AddMember(f.account.ID, domain.User{Name: "someone"}, "")
+	testkit.Bind(t, f.st, f.account.ID, domain.SubjectUser, u.ID, orgScope, "machines", uuid.Nil())
+	by := domain.UserActor(f.account.ID, u.ID, domain.Credential{})
+
+	list, err := f.svc.ListMachines(ctx, by, mcp.ListMachinesInput{})
+	must(t, err)
+	if len(list) != 1 || list[0].JobRef != "" || list[0].JobID != uuid.Nil() {
+		t.Fatalf("machines = %+v", list)
+	}
+	var seen bool
+	svc := tools.New(tools.Config{Store: f.st, Fleet: overviewFunc(func(_ context.Context, _ uuid.UUID, visible func(uuid.UUID) bool) (fleet.Overview, error) {
+		seen = visible(f.project.ID)
+		return fleet.Overview{}, nil
+	})})
+	if _, err := svc.FleetOverview(ctx, by); err != nil || seen {
+		t.Fatalf("err = %v, project visible = %v", err, seen)
+	}
+
+	testkit.Bind(t, f.st, f.account.ID, domain.SubjectUser, u.ID, projectScope, domain.RoleProjectAdmin, f.project.ID)
+	list, err = f.svc.ListMachines(ctx, by, mcp.ListMachinesInput{})
+	must(t, err)
+	if list[0].JobRef != j.Ref() {
+		t.Fatalf("machines = %+v", list)
 	}
 }

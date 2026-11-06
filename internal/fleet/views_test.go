@@ -2,17 +2,42 @@ package fleet_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
+func everyProject(uuid.UUID) bool { return true }
+
+// Machines are the organization's, but a job only shows to who may read its
+// project: its sentence could say what it needs.
+func TestOverviewKeepsToVisibleProjects(t *testing.T) {
+	e := newEnv(t)
+	e.shape(e.prov, "small", nil)
+	e.job(e.account, e.project, nil)
+	e.reconcile()
+	w := e.boot(e.fake.Requests()[0])
+	_, err := e.lease(w)
+	must(t, err)
+	e.job(e.account, e.project, func(j *domain.Job) { j.Needs = []string{"secret-tool"} })
+	o, err := e.c.Overview(e.ctx, e.account, func(uuid.UUID) bool { return false })
+	must(t, err)
+	if o.Working != 0 || o.Waiting != 0 || len(o.Queue) != 0 || len(o.Running) != 0 || strings.Contains(o.Headline, "secret-tool") {
+		t.Fatalf("overview = %+v", o)
+	}
+	if o.Locations[0].InUse != 1 {
+		t.Fatalf("locations = %+v", o.Locations)
+	}
+}
+
 func TestOverview(t *testing.T) {
 	e := newEnv(t)
-	o, err := e.c.Overview(e.ctx, e.account)
+	o, err := e.c.Overview(e.ctx, e.account, everyProject)
 	must(t, err)
 	if len(o.Locations) != 1 || o.Locations[0].Name != "Home" || o.Locations[0].Status != fleet.StatusOffline {
 		t.Fatalf("locations = %+v", o.Locations)
@@ -47,7 +72,7 @@ func TestOverview(t *testing.T) {
 	unmet := e.job(e.account, e.project, func(j *domain.Job) { j.Needs = []string{"gpu"} })
 	_ = waiting
 
-	o, err = e.c.Overview(e.ctx, e.account)
+	o, err = e.c.Overview(e.ctx, e.account, everyProject)
 	must(t, err)
 	if o.Working != 3 || o.Waiting != 1 || o.Queue[0].Ref != unmet.Ref() || o.Queue[0].Code != fleet.ReasonNoShape {
 		t.Fatalf("overview = %+v", o)
@@ -83,17 +108,17 @@ func TestOverview(t *testing.T) {
 func TestOverviewHeadlines(t *testing.T) {
 	e := newEnv(t)
 	other, _ := e.org("other")
-	o, err := e.c.Overview(e.ctx, other)
+	o, err := e.c.Overview(e.ctx, other, everyProject)
 	must(t, err)
 	if o.Headline != "No machines yet. Agents need somewhere to work." || o.Queue == nil || o.Running == nil {
 		t.Fatalf("overview = %+v", o)
 	}
-	o, err = e.c.Overview(e.ctx, e.account)
+	o, err = e.c.Overview(e.ctx, e.account, everyProject)
 	must(t, err)
 	if o.Headline != "Everything is fine. 0 jobs running, none waiting." {
 		t.Fatalf("headline = %q", o.Headline)
 	}
-	if _, err := e.c.Overview(e.ctx, domain.NewID()); !errors.Is(err, store.ErrNotFound) {
+	if _, err := e.c.Overview(e.ctx, domain.NewID(), everyProject); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("unknown organization: %v", err)
 	}
 }
@@ -111,7 +136,7 @@ func TestOverviewStatuses(t *testing.T) {
 	must(t, e.st.CapacityProviders().Create(e.ctx, &pending))
 	gone := e.provider(e.account, "gone", nil)
 	must(t, e.st.CapacityProviders().SetStatus(e.ctx, gone.ID, domain.ProviderRevoked))
-	o, err := e.c.Overview(e.ctx, e.account)
+	o, err := e.c.Overview(e.ctx, e.account, everyProject)
 	must(t, err)
 	got := map[string]string{}
 	for _, l := range o.Locations {

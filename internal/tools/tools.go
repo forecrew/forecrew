@@ -71,7 +71,7 @@ type JobService interface {
 // FleetService serves the fleet's read model; *fleet.Controller implements
 // it.
 type FleetService interface {
-	Overview(ctx context.Context, accountID uuid.UUID) (fleet.Overview, error)
+	Overview(ctx context.Context, accountID uuid.UUID, visible func(project uuid.UUID) bool) (fleet.Overview, error)
 }
 
 // Checker reads from GitHub; github.Tracker implements it.
