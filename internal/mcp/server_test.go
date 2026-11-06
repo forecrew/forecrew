@@ -190,6 +190,19 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolApprove, map[string]any{"gate": "GATE-1", "feedback": "ok"}, mcp.GateDecisionInput{Gate: "GATE-1", Feedback: "ok"}},
 		{mcp.ToolRequestChanges, map[string]any{"gate": "GATE-1", "feedback": "more tests"}, mcp.GateDecisionInput{Gate: "GATE-1", Feedback: "more tests"}},
 		{mcp.ToolReject, map[string]any{"gate": "GATE-1"}, mcp.GateDecisionInput{Gate: "GATE-1"}},
+		{mcp.ToolConfigSchema, map[string]any{"kind": "shape"}, mcp.ConfigKindInput{Kind: "shape"}},
+		{mcp.ToolConfigGet, map[string]any{"kind": "team"}, mcp.ConfigGetInput{Kind: "team"}},
+		{mcp.ToolConfigPlan, map[string]any{"title": "t", "changes": []any{}}, mcp.ConfigPlanInput{Title: "t", Changes: []mcp.ConfigWanted{}, Source: domain.ConfigFromMCP}},
+		{mcp.ToolConfigApply, map[string]any{"plan": "p"}, mcp.ConfigPlanRefInput{Plan: "p"}},
+		{mcp.ToolConfigRevert, map[string]any{"plan": "p"}, mcp.ConfigPlanRefInput{Plan: "p", Source: domain.ConfigFromMCP}},
+		{mcp.ToolConfigExport, nil, nil},
+		{mcp.ToolConfigImport, map[string]any{"yaml": "y"}, mcp.ConfigImportInput{YAML: "y", Source: domain.ConfigFromMCP}},
+		{mcp.ToolConfigPlans, map[string]any{"inbox": true}, mcp.ConfigPlansInput{Inbox: true}},
+		{mcp.ToolConfigGetPlan, map[string]any{"plan": "p"}, mcp.ConfigPlanRefInput{Plan: "p", Source: domain.ConfigFromMCP}},
+		{mcp.ToolConfigCancel, map[string]any{"plan": "p"}, mcp.ConfigPlanRefInput{Plan: "p", Source: domain.ConfigFromMCP}},
+		{mcp.ToolAssistantSend, map[string]any{"message": "hi"}, mcp.AssistantSendInput{Message: "hi"}},
+		{mcp.ToolAssistantGet, map[string]any{"conversation": "c"}, mcp.AssistantRefInput{Conversation: "c"}},
+		{mcp.ToolAssistantList, map[string]any{"limit": 3}, mcp.AssistantListInput{Limit: 3}},
 		{mcp.ToolDispatchJob, map[string]any{"project": "app", "role": "reviewer", "needs": []string{"linux"}, "prompt": "review the diff"}, mcp.DispatchJobInput{Project: "app", Role: "reviewer", Needs: []string{"linux"}, Prompt: "review the diff"}},
 		{mcp.ToolListProjects, nil, nil},
 		{mcp.ToolGetProject, map[string]any{"project": "app"}, mcp.ProjectInput{Project: "app"}},
@@ -545,6 +558,8 @@ func TestEveryToolChecksItsPermission(t *testing.T) {
 		mcp.ToolProjectQuality:   {"project": "p"},
 		mcp.ToolProposeKnowledge: {"project": "p", "section": "s", "path": "x", "body": "b", "reason": "r"},
 		mcp.ToolCreateInvitation: {"email": "a@b.c", "roles": []map[string]string{{"role": "member"}}}, mcp.ToolRevokeInvitation: {"invitation": "x"},
+		mcp.ToolConfigPlan: {"changes": []any{}}, mcp.ToolConfigApply: {"plan": "p"}, mcp.ToolConfigRevert: {"plan": "p"}, mcp.ToolConfigImport: {"yaml": "y"},
+		mcp.ToolConfigGetPlan: {"plan": "p"}, mcp.ToolConfigCancel: {"plan": "p"}, mcp.ToolAssistantSend: {"message": "m"}, mcp.ToolAssistantGet: {"conversation": "c"},
 	}
 	for name, a := range mcp.ToolAccess() {
 		if a.Permission == "" || a.Own {

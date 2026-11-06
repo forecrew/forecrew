@@ -92,6 +92,22 @@ type ToolService struct {
 	UpdateServiceAccountFunc      func(context.Context, domain.Actor, mcp.UpdateServiceAccountInput) (domain.ServiceAccount, error)
 	SetServiceAccountDisabledFunc func(context.Context, domain.Actor, mcp.SetServiceAccountInput) (domain.ServiceAccount, error)
 
+	ConfigSchemaFunc          func(context.Context, domain.Actor, mcp.ConfigKindInput) ([]mcp.ConfigSchema, error)
+	ConfigGetFunc             func(context.Context, domain.Actor, mcp.ConfigGetInput) ([]mcp.ConfigResource, error)
+	ConfigPlanFunc            func(context.Context, domain.Actor, mcp.ConfigPlanInput) (mcp.ConfigPlanView, error)
+	ConfigApplyFunc           func(context.Context, domain.Actor, mcp.ConfigApplyInput) (mcp.ConfigApplied, error)
+	ConfigRequestApprovalFunc func(context.Context, domain.Actor, mcp.ConfigPlanRefInput) (mcp.ConfigConfirmation, error)
+	ConfigRevertFunc          func(context.Context, domain.Actor, mcp.ConfigPlanRefInput) (mcp.ConfigPlanView, error)
+	ConfigExportFunc          func(context.Context, domain.Actor, any) (mcp.ConfigExport, error)
+	ConfigImportFunc          func(context.Context, domain.Actor, mcp.ConfigImportInput) (mcp.ConfigPlanView, error)
+	ConfigPlansFunc           func(context.Context, domain.Actor, mcp.ConfigPlansInput) ([]mcp.ConfigPlanView, error)
+	ConfigGetPlanFunc         func(context.Context, domain.Actor, mcp.ConfigPlanRefInput) (mcp.ConfigPlanView, error)
+	ConfigCancelFunc          func(context.Context, domain.Actor, mcp.ConfigPlanRefInput) (mcp.ConfigPlanView, error)
+	ConfigPutSecretFunc       func(context.Context, domain.Actor, mcp.ConfigSecretInput) (mcp.ConfigPlanView, error)
+	AssistantSendFunc         func(context.Context, domain.Actor, mcp.AssistantSendInput) (mcp.AssistantView, error)
+	AssistantGetFunc          func(context.Context, domain.Actor, mcp.AssistantRefInput) (mcp.AssistantView, error)
+	AssistantListFunc         func(context.Context, domain.Actor, mcp.AssistantListInput) ([]domain.AssistantConversation, error)
+
 	mu    sync.Mutex
 	calls []ToolCall
 }
@@ -432,4 +448,86 @@ func (s *ToolService) OpenArtifact(ctx context.Context, by domain.Actor, id stri
 		return domain.Artifact{}, nil, mcp.ErrNotFound
 	}
 	return s.OpenArtifactFunc(ctx, by, id)
+}
+
+// ConfigSchema implements mcp.ToolService.
+func (s *ToolService) ConfigSchema(ctx context.Context, by domain.Actor, in mcp.ConfigKindInput) ([]mcp.ConfigSchema, error) {
+	return invoke(ctx, s, mcp.ToolConfigSchema, by, in, s.ConfigSchemaFunc)
+}
+
+// ConfigGet implements mcp.ToolService.
+func (s *ToolService) ConfigGet(ctx context.Context, by domain.Actor, in mcp.ConfigGetInput) ([]mcp.ConfigResource, error) {
+	return invoke(ctx, s, mcp.ToolConfigGet, by, in, s.ConfigGetFunc)
+}
+
+// ConfigPlan implements mcp.ToolService.
+func (s *ToolService) ConfigPlan(ctx context.Context, by domain.Actor, in mcp.ConfigPlanInput) (mcp.ConfigPlanView, error) {
+	return invoke(ctx, s, mcp.ToolConfigPlan, by, in, s.ConfigPlanFunc)
+}
+
+// ConfigApply implements mcp.ToolService; it is recorded as "config_apply_confirmed" because config_apply over MCP is ConfigRequestApproval.
+func (s *ToolService) ConfigApply(ctx context.Context, by domain.Actor, in mcp.ConfigApplyInput) (mcp.ConfigApplied, error) {
+	return invoke(ctx, s, "config_apply_confirmed", by, in, s.ConfigApplyFunc)
+}
+
+// ConfigRequestApproval implements mcp.ToolService.
+func (s *ToolService) ConfigRequestApproval(ctx context.Context, by domain.Actor, in mcp.ConfigPlanRefInput) (mcp.ConfigConfirmation, error) {
+	return invoke(ctx, s, mcp.ToolConfigApply, by, in, s.ConfigRequestApprovalFunc)
+}
+
+// ConfigRevert implements mcp.ToolService.
+func (s *ToolService) ConfigRevert(ctx context.Context, by domain.Actor, in mcp.ConfigPlanRefInput) (mcp.ConfigPlanView, error) {
+	return invoke(ctx, s, mcp.ToolConfigRevert, by, in, s.ConfigRevertFunc)
+}
+
+// ConfigExport implements mcp.ToolService.
+func (s *ToolService) ConfigExport(ctx context.Context, by domain.Actor) (mcp.ConfigExport, error) {
+	return invoke[any](ctx, s, mcp.ToolConfigExport, by, nil, s.ConfigExportFunc)
+}
+
+// ConfigImport implements mcp.ToolService.
+func (s *ToolService) ConfigImport(ctx context.Context, by domain.Actor, in mcp.ConfigImportInput) (mcp.ConfigPlanView, error) {
+	return invoke(ctx, s, mcp.ToolConfigImport, by, in, s.ConfigImportFunc)
+}
+
+// ConfigPlans implements mcp.ToolService.
+func (s *ToolService) ConfigPlans(ctx context.Context, by domain.Actor, in mcp.ConfigPlansInput) ([]mcp.ConfigPlanView, error) {
+	return invoke(ctx, s, mcp.ToolConfigPlans, by, in, s.ConfigPlansFunc)
+}
+
+// ConfigGetPlan implements mcp.ToolService.
+func (s *ToolService) ConfigGetPlan(ctx context.Context, by domain.Actor, in mcp.ConfigPlanRefInput) (mcp.ConfigPlanView, error) {
+	return invoke(ctx, s, mcp.ToolConfigGetPlan, by, in, s.ConfigGetPlanFunc)
+}
+
+// ConfigCancel implements mcp.ToolService.
+func (s *ToolService) ConfigCancel(ctx context.Context, by domain.Actor, in mcp.ConfigPlanRefInput) (mcp.ConfigPlanView, error) {
+	return invoke(ctx, s, mcp.ToolConfigCancel, by, in, s.ConfigCancelFunc)
+}
+
+// ConfigPutSecret implements mcp.ToolService; the call is recorded without
+// its value.
+func (s *ToolService) ConfigPutSecret(ctx context.Context, by domain.Actor, in mcp.ConfigSecretInput) (mcp.ConfigPlanView, error) {
+	fn := s.ConfigPutSecretFunc
+	return invoke(ctx, s, "config_put_secret", by, mcp.ConfigSecretInput{Plan: in.Plan, Secret: in.Secret}, func(ctx context.Context, by domain.Actor, _ mcp.ConfigSecretInput) (mcp.ConfigPlanView, error) {
+		if fn == nil {
+			return mcp.ConfigPlanView{}, nil
+		}
+		return fn(ctx, by, in)
+	})
+}
+
+// AssistantSend implements mcp.ToolService.
+func (s *ToolService) AssistantSend(ctx context.Context, by domain.Actor, in mcp.AssistantSendInput) (mcp.AssistantView, error) {
+	return invoke(ctx, s, mcp.ToolAssistantSend, by, in, s.AssistantSendFunc)
+}
+
+// AssistantGet implements mcp.ToolService.
+func (s *ToolService) AssistantGet(ctx context.Context, by domain.Actor, in mcp.AssistantRefInput) (mcp.AssistantView, error) {
+	return invoke(ctx, s, mcp.ToolAssistantGet, by, in, s.AssistantGetFunc)
+}
+
+// AssistantList implements mcp.ToolService.
+func (s *ToolService) AssistantList(ctx context.Context, by domain.Actor, in mcp.AssistantListInput) ([]domain.AssistantConversation, error) {
+	return invoke(ctx, s, mcp.ToolAssistantList, by, in, s.AssistantListFunc)
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/forecrew/forecrew/internal/auth"
 	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/config"
+	"github.com/forecrew/forecrew/internal/config/resource"
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
@@ -45,6 +46,7 @@ import (
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/scheduler"
+	"github.com/forecrew/forecrew/internal/secrets"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/store/postgres"
 	"github.com/forecrew/forecrew/internal/tools"
@@ -62,7 +64,14 @@ const playbooksDir = "packs/playbooks"
 
 // Deps are what App is built from.
 type Deps struct {
+	// Config is the configuration in effect: forecrew.yaml with the stored
+	// settings over it.
 	Config *config.Config
+	// File is forecrew.yaml as read, what stored settings go over; it
+	// defaults to Config.
+	File *config.Config
+	// Getenv reads the environment; it defaults to os.Getenv.
+	Getenv func(string) string
 	Store  store.Store
 	// Ping reports whether the database is reachable, for /healthz.
 	Ping   func(context.Context) error
@@ -154,7 +163,8 @@ func Open(ctx context.Context, cfg *config.Config, logger *slog.Logger, version 
 		pool.Close()
 		return nil, err
 	}
-	a, err := New(Deps{Config: cfg, Store: postgres.New(pool), Ping: pool.Ping, GitHub: gh, Actions: gh, Logger: logger, Version: version})
+	st := postgres.New(pool)
+	a, err := New(Deps{Config: withStoredSettings(ctx, cfg, st, os.Getenv, logger), File: cfg, Store: st, Ping: pool.Ping, GitHub: gh, Actions: gh, Logger: logger, Version: version})
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -199,10 +209,8 @@ func (a *App) Close() {
 	a.closers = nil
 }
 
-// New builds every component. It fails when a role or a playbook is
-// invalid: a playbook calling an unregistered action or running an unknown
-// role stops startup.
-func New(d Deps) (*App, error) {
+// withDefaults fills in what Deps leaves out.
+func (d Deps) withDefaults() Deps {
 	if d.Files == nil {
 		d.Files = forecrew.Files
 	}
@@ -221,6 +229,20 @@ func New(d Deps) (*App, error) {
 	if d.Logger == nil {
 		d.Logger = slog.New(slog.DiscardHandler)
 	}
+	if d.Getenv == nil {
+		d.Getenv = os.Getenv
+	}
+	if d.File == nil {
+		d.File = d.Config
+	}
+	return d
+}
+
+// New builds every component. It fails when a role or a playbook is
+// invalid: a playbook calling an unregistered action or running an unknown
+// role stops startup.
+func New(d Deps) (*App, error) {
+	d = d.withDefaults()
 	cfg, st, log := d.Config, d.Store, d.Logger
 	ev, err := openEvidence(d)
 	if err != nil {
@@ -281,17 +303,21 @@ func New(d Deps) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("start workflow engine: %w", err)
 	}
-	authSvc := auth.New(auth.Config{Store: st, Auth: cfg.Auth, BaseURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now, GitHubURL: d.GitHubURL, GitHubAPIURL: d.GitHubAPIURL})
+	vault, err := openSecrets(cfg, st)
+	if err != nil {
+		return nil, err
+	}
+	authSvc := auth.New(auth.Config{Store: st, Auth: cfg.Auth, BaseURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now, GitHubURL: d.GitHubURL, GitHubAPIURL: d.GitHubAPIURL, Secrets: vault})
 	toolSvc := tools.New(tools.Config{
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes, Proposals: kbProposals,
 		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, Fleet: machines, Logger: log, PublicURL: cfg.Server.PublicBaseURL, TokenTTL: cfg.Auth.TokenDefaultTTL, Now: d.Now,
-		GitHubUserID: authSvc.GitHubUserID,
+		GitHubUserID: authSvc.GitHubUserID, Server: d.File, Getenv: d.Getenv, Repo: d.GitHub, Secrets: vault,
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
 	access := authz.New(st, log).WithProtection(kbProposals)
 	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Authz: access, Tracker: d.GitHub, Knowledge: syncs, Proposals: kbProposals, Bugs: toolSvc, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
 	jobGateway := jobmcp.New(jobmcp.Config{
-		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Search: search, Notes: notes, Proposals: kbProposals, Logger: log, Version: d.Version, Now: d.Now,
+		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Search: search, Notes: notes, Proposals: kbProposals, Assistant: toolSvc, Logger: log, Version: d.Version, Now: d.Now,
 	})
 	workers := workerapi.New(workerapi.Config{
 		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Endpoint: workerapi.RuntimeEndpoint(cfg), Pools: cfg.Pools, Logger: log,
@@ -463,4 +489,32 @@ func (a *App) Run(ctx context.Context) error {
 	stop()
 	wg.Wait()
 	return errors.Join(err, engineErr)
+}
+
+// withStoredSettings returns cfg with the settings stored over the file. A
+// bad stored value must not cost the server its start: it then runs on the
+// file, and says so.
+func withStoredSettings(ctx context.Context, cfg *config.Config, st store.Store, getenv func(string) string, log *slog.Logger) *config.Config {
+	settings, err := resource.Stored(ctx, st)
+	if err == nil {
+		var merged *config.Config
+		if merged, err = cfg.WithSettings(settings, getenv); err == nil {
+			return merged
+		}
+	}
+	log.ErrorContext(ctx, "stored settings are ignored, running on forecrew.yaml", "error", err)
+	return cfg
+}
+
+// openSecrets opens the secret store; without a key it is off and secure
+// fields answer unavailable.
+func openSecrets(cfg *config.Config, st store.Store) (secrets.Store, error) {
+	if cfg.SecretKey == "" {
+		return nil, nil
+	}
+	key, err := secrets.ParseKey(cfg.SecretKey)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", config.EnvSecretKey, err)
+	}
+	return secrets.New(st.Secrets(), key)
 }

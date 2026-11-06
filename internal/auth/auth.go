@@ -25,6 +25,7 @@ import (
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/secrets"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
@@ -74,6 +75,8 @@ type Config struct {
 	// process environment and the file system.
 	Getenv   func(string) string
 	ReadFile func(string) ([]byte, error)
+	// Secrets resolves store: references; nil refuses them.
+	Secrets secrets.Store
 }
 
 // Service signs people in and resolves sessions.
@@ -128,8 +131,20 @@ func NewToken(prefix string) (string, error) {
 	return prefix + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// clientSecret reads the secret a connection names; it stays in memory only.
-func (s *Service) clientSecret(ref string) (string, error) {
+// clientSecret reads the secret of a connection; it stays in memory only. A
+// store: reference reads in the connection's own organization.
+func (s *Service) clientSecret(ctx context.Context, c domain.Connection) (string, error) {
+	ref := c.ClientSecretRef
+	if _, ok := domain.StoreSecretName(ref); ok {
+		if s.cfg.Secrets == nil {
+			return "", errors.New("the secret store is not configured")
+		}
+		b, err := secrets.Resolve(ctx, s.cfg.Secrets, c.AccountID, ref)
+		if err != nil {
+			return "", fmt.Errorf("read the secret of %s: %w", c.Name, err)
+		}
+		return string(b), nil
+	}
 	if name, ok := strings.CutPrefix(ref, domain.SecretRefEnv); ok {
 		v := s.cfg.Getenv(name)
 		if v == "" {

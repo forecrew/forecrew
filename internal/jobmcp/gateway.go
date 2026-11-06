@@ -66,6 +66,8 @@ type Config struct {
 	// Proposals serves kb_propose and request_access; nil makes those tools
 	// answer unavailable.
 	Proposals *proposals.Service
+	// Assistant serves config_read and config_plan; nil answers unavailable.
+	Assistant Assistant
 	Logger    *slog.Logger
 	Version   string
 	Now       func() time.Time

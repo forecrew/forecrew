@@ -260,6 +260,12 @@ func (s *Service) coversHolder(ctx context.Context, by domain.Actor, kind domain
 	return nil
 }
 
+// CheckHolder is the rule of No escalation for acting on a subject that
+// holds roles (resource.Access).
+func (s *Service) CheckHolder(ctx context.Context, by domain.Actor, kind domain.SubjectKind, id uuid.UUID) error {
+	return s.coversHolder(ctx, by, kind, id)
+}
+
 // bindingPermission is what changing a binding needs: project.manage on its
 // project for a project binding, else the manage permission of its subject.
 func bindingPermission(b domain.RoleBinding) domain.Permission {

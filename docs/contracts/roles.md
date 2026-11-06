@@ -57,7 +57,7 @@ resources:           # optional, what its jobs need of a machine
 The job MCP gateway (job-mcp.md) adds role tools that expose its tools to
 the role's agent jobs: `kb.search`, `kb.propose`, `request_access`,
 `assumption.record`, `evidence.attach`, `notes.write`, `ask_human`,
-`report_progress` and `council.read`. A job sees a gateway tool only when
+`report_progress`, `council.read`, `config.read` and `config.plan`. A job sees a gateway tool only when
 its role lists the role tool. They become valid `tools` entries when the
 gateway registers them (T47 and the tasks that add each tool); until then
 `roles.Load` refuses them as unknown.

@@ -82,6 +82,19 @@ func TestToolServiceDefaults(t *testing.T) {
 		},
 		func() error { _, err := s.ListKnowledge(ctx, by, mcp.ListKnowledgeInput{}); return err },
 		func() error { _, err := s.ListImages(ctx, by, mcp.ListImagesInput{}); return err },
+		func() error { _, err := s.ConfigSchema(ctx, by, mcp.ConfigKindInput{}); return err },
+		func() error { _, err := s.ConfigGet(ctx, by, mcp.ConfigGetInput{}); return err },
+		func() error { _, err := s.ConfigPlan(ctx, by, mcp.ConfigPlanInput{}); return err },
+		func() error { _, err := s.ConfigRequestApproval(ctx, by, mcp.ConfigPlanRefInput{}); return err },
+		func() error { _, err := s.ConfigRevert(ctx, by, mcp.ConfigPlanRefInput{}); return err },
+		func() error { _, err := s.ConfigExport(ctx, by); return err },
+		func() error { _, err := s.ConfigImport(ctx, by, mcp.ConfigImportInput{}); return err },
+		func() error { _, err := s.ConfigPlans(ctx, by, mcp.ConfigPlansInput{}); return err },
+		func() error { _, err := s.ConfigGetPlan(ctx, by, mcp.ConfigPlanRefInput{}); return err },
+		func() error { _, err := s.ConfigCancel(ctx, by, mcp.ConfigPlanRefInput{}); return err },
+		func() error { _, err := s.AssistantSend(ctx, by, mcp.AssistantSendInput{}); return err },
+		func() error { _, err := s.AssistantGet(ctx, by, mcp.AssistantRefInput{}); return err },
+		func() error { _, err := s.AssistantList(ctx, by, mcp.AssistantListInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())
