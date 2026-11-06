@@ -70,12 +70,12 @@ func (s *Service) RequestAccess(ctx context.Context, j domain.Job, in AccessRequ
 		ID: domain.NewID(), AccountID: j.AccountID, ProjectID: j.ProjectID, Kind: domain.GateAccessRequest, Title: title,
 		Summary:     "Approving opens a pull request that changes the knowledge policy.\n\n" + contextpack.WrapUntrusted(j.Ref()+" reason", in.Reason),
 		SubjectRepo: p.Repo, GoalID: j.GoalID, TaskID: j.TaskID, JobID: j.ID,
+		// The job's lock, as completing it takes, before the gate counter:
+		// the request commits before the job finishes, or is refused.
+		Before: func(ctx context.Context, tx store.Store) error {
+			return tx.Jobs().LockLeased(ctx, j.AccountID, j.ID, j.WorkerID, j.Attempts)
+		},
 		Opened: func(ctx context.Context, tx store.Store, g domain.Gate) error {
-			// The job's lock, as completing it takes: the request commits
-			// before the job finishes, or is refused.
-			if err := tx.Jobs().LockLeased(ctx, j.AccountID, j.ID, j.WorkerID); err != nil {
-				return err
-			}
 			return startRun(ctx, tx, PlaybookAccess, j.AccountID, j.ProjectID, j.GoalID, j.TaskID,
 				map[string]any{"gate_id": g.ID, "section": in.Section, "level": in.Level, "role": j.Role})
 		},

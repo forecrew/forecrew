@@ -279,11 +279,22 @@ func lockLeased(ctx context.Context, tx dbtx, accountID, jobID, workerID uuid.UU
 	return nil
 }
 
-func (r jobRepo) LockLeased(ctx context.Context, accountID, jobID, workerID uuid.UUID) error {
+func (r jobRepo) LockLeased(ctx context.Context, accountID, jobID, workerID uuid.UUID, attempts int) error {
 	if workerID == uuid.Nil() {
 		return fmt.Errorf("job %s has no worker: %w", jobID, store.ErrLeaseLost)
 	}
-	return lockLeased(ctx, r.db, accountID, jobID, workerID)
+	var status string
+	var holder uuid.UUID
+	var got int
+	err := r.db.QueryRow(ctx, `SELECT status, `+cuuid("worker_id")+`, attempts FROM jobs WHERE account_id = $1 AND id = $2 FOR UPDATE`,
+		accountID, jobID).Scan(&status, &holder, &got)
+	if err != nil {
+		return mapErr(err)
+	}
+	if status != string(domain.JobRunning) || holder != workerID || got != attempts {
+		return fmt.Errorf("job %s is %s: %w", jobID, status, store.ErrLeaseLost)
+	}
+	return nil
 }
 
 func (r jobRepo) SetJobMCPTokenHash(ctx context.Context, accountID, jobID, workerID uuid.UUID, attempts int, hash []byte) error {

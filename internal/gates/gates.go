@@ -42,6 +42,11 @@ type OpenRequest struct {
 	// Opened, when set, runs in the transaction that stores a new gate, so
 	// what must refer to the gate does so before anyone can resolve it.
 	Opened func(ctx context.Context, tx store.Store, g domain.Gate) error `json:"-"`
+	// Before, when set, runs first in the transaction of Open, before the
+	// gate counter is taken. A caller that locks a job row (Jobs().LockLeased)
+	// does it here: every other writer takes the job row before the counter,
+	// and the reverse order deadlocks. Its error aborts Open.
+	Before func(ctx context.Context, tx store.Store) error `json:"-"`
 }
 
 // Service manages gates.
@@ -115,15 +120,16 @@ func (k *Keeper) Open(ctx context.Context, req OpenRequest) (domain.Gate, error)
 		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID, JobID: req.JobID, Origin: req.Origin,
 	}
 	err := k.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
-		if req.ID != uuid.Nil() {
-			existing, err := tx.Gates().Get(ctx, req.AccountID, req.ID)
-			if err == nil {
-				g = existing
-				return nil
-			}
-			if !errors.Is(err, store.ErrNotFound) {
+		if req.Before != nil {
+			if err := req.Before(ctx, tx); err != nil {
 				return err
 			}
+		}
+		if existing, found, err := existingGate(ctx, tx, req); err != nil || found {
+			if found {
+				g = existing
+			}
+			return err
 		}
 		if err := tx.Gates().Create(ctx, &g); err != nil {
 			return err
@@ -139,6 +145,18 @@ func (k *Keeper) Open(ctx context.Context, req OpenRequest) (domain.Gate, error)
 		return domain.Gate{}, fmt.Errorf("open %s gate: %w", req.Kind, err)
 	}
 	return g, nil
+}
+
+// existingGate returns the gate of req.ID, which makes Open idempotent.
+func existingGate(ctx context.Context, tx store.Store, req OpenRequest) (domain.Gate, bool, error) {
+	if req.ID == uuid.Nil() {
+		return domain.Gate{}, false, nil
+	}
+	g, err := tx.Gates().Get(ctx, req.AccountID, req.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return domain.Gate{}, false, nil
+	}
+	return g, err == nil, err
 }
 
 // Resolve implements Service. The gate and its audit entry are written in

@@ -240,7 +240,7 @@ func (s *Service) RecordAssumption(ctx context.Context, j domain.Job, a domain.S
 	var got domain.Assumption
 	var dup bool
 	err := s.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
-		if err := tx.Jobs().LockLeased(ctx, j.AccountID, j.ID, j.WorkerID); err != nil {
+		if err := tx.Jobs().LockLeased(ctx, j.AccountID, j.ID, j.WorkerID, j.Attempts); err != nil {
 			return err
 		}
 		if err := tx.Assumptions().Lock(ctx, j.AccountID, j.ProjectID, j.GoalID); err != nil {
