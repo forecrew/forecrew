@@ -23,11 +23,42 @@ type newTest struct {
 	File  string `json:"file"`
 }
 
-// testMapDoc is the part of the test engineer's output that the locked
-// tests and the base check use.
+// testMapDoc is the part of the test engineer's output (packs/schemas/test-map.json)
+// that the locked tests, the base check, the verification and tests.map use.
 type testMapDoc struct {
-	Files []string  `json:"files"`
-	Tests []newTest `json:"tests"`
+	Files []string `json:"files"`
+	Tests []struct {
+		Criterion string `json:"criterion"`
+		newTest
+	} `json:"tests"`
+	Untestable []struct {
+		Criterion string `json:"criterion"`
+		Reason    string `json:"reason"`
+	} `json:"untestable"`
+	Escalation *string `json:"escalation"`
+}
+
+// testerOutputs returns the outputs of the successful test-engineer jobs of
+// the task, oldest first. A retry reports only what it changed itself, so
+// every caller reads all of them.
+func (a *actions) testerOutputs(ctx context.Context, t domain.Task) ([]testMapDoc, error) {
+	jobs, err := a.Store.Jobs().List(ctx, t.AccountID, store.JobFilter{TaskID: t.ID, Status: domain.JobSucceeded})
+	if err != nil {
+		return nil, fmt.Errorf("list jobs of %s: %w", t.Ref(), err)
+	}
+	slices.SortStableFunc(jobs, func(x, y domain.Job) int { return x.CreatedAt.Compare(y.CreatedAt) })
+	var docs []testMapDoc
+	for _, j := range jobs {
+		if j.Role != testerRole || len(j.Output) == 0 {
+			continue
+		}
+		var doc testMapDoc
+		if err := parseOutput(j.Output, &doc); err != nil {
+			return nil, fmt.Errorf("output of the %s job %s of %s: %w", testerRole, j.Ref(), t.Ref(), err)
+		}
+		docs = append(docs, doc)
+	}
+	return docs, nil
 }
 
 // globEscaper makes a file name a glob that matches only that name, using
@@ -78,19 +109,12 @@ func (a *actions) testsLockedPaths(ctx context.Context, call workflow.ActionCall
 	if with.Iteration > 1 {
 		return lockedPathsOutput{LockedPaths: []string{}}, nil
 	}
-	jobs, err := a.Store.Jobs().List(ctx, t.AccountID, store.JobFilter{TaskID: t.ID, Status: domain.JobSucceeded})
+	docs, err := a.testerOutputs(ctx, t)
 	if err != nil {
-		return nil, fmt.Errorf("list jobs of %s: %w", t.Ref(), err)
+		return nil, err
 	}
 	var files []string
-	for _, j := range jobs {
-		if j.Role != testerRole || len(j.Output) == 0 {
-			continue
-		}
-		var doc testMapDoc
-		if err := parseOutput(j.Output, &doc); err != nil {
-			return nil, fmt.Errorf("output of the %s job %s of %s: %w", testerRole, j.Ref(), t.Ref(), err)
-		}
+	for _, doc := range docs {
 		files = append(files, doc.Files...)
 		for _, x := range doc.Tests {
 			files = append(files, x.File)
