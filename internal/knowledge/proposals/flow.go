@@ -313,7 +313,8 @@ func (s *Service) GateProtected(ctx context.Context, g domain.Gate) (bool, error
 	if err != nil {
 		return true, err
 	}
-	if len(ks) == 0 {
+	learn := strings.HasPrefix(g.Title, learnTitlePrefix) && g.GoalID != uuid.Nil()
+	if len(ks) == 0 && !learn {
 		return true, nil
 	}
 	p, err := s.Store.Projects().Get(ctx, g.AccountID, g.ProjectID)
@@ -323,6 +324,10 @@ func (s *Service) GateProtected(ctx context.Context, g domain.Gate) (bool, error
 	policy, err := s.Policy(ctx, p)
 	if err != nil {
 		return true, err
+	}
+	// A learn gate also asks for the register files it carries.
+	if protected, _ := registerTarget(policy, registerSamples()); learn && protected {
+		return true, nil
 	}
 	for _, k := range ks {
 		t, err := policy.Target(k.Section, k.Path, "")
