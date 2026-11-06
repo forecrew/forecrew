@@ -107,12 +107,7 @@ func (a *actions) assess(ctx context.Context, call workflow.ActionCall) (any, er
 	var unlocked bool
 	if with.RequireVerification {
 		var failed string
-		if with.TaskID != uuid.Nil() {
-			if unlocked, err = a.ranUnlocked(ctx, call.Run, with.TaskID); err != nil {
-				return nil, err
-			}
-		}
-		if verified, failed, err = a.verificationForGate(ctx, call.Run.AccountID, with.Repo, pr, with.SHA); err != nil {
+		if verified, unlocked, failed, err = a.verificationAndLock(ctx, call.Run, with.Repo, pr, with.SHA, with.TaskID); err != nil {
 			return nil, err
 		}
 		if failed != "" {
@@ -133,6 +128,19 @@ func (a *actions) assess(ctx context.Context, call workflow.ActionCall) (any, er
 		return assessOutput{IfReady: []int{}, Feedback: strings.Join(feedback, "\n\n")}, nil
 	}
 	return assessOutput{Done: true, IfReady: []int{pr.Number}, SHA: with.SHA, GateSummary: gateSummary(pr.URL, with.SHA, with.Checks, verified, unlocked, review, result, rests)}, nil
+}
+
+// verificationAndLock reads what the merge gate shows besides the review: the
+// verification of the PR's head sha (see verificationForGate) and, with a
+// task, whether one of its developer rounds ran without the lock.
+func (a *actions) verificationAndLock(ctx context.Context, run domain.WorkflowRun, repo string, pr github.PullRequest, sha string, taskID uuid.UUID) (verified string, unlocked bool, rework string, err error) {
+	if taskID != uuid.Nil() {
+		if unlocked, err = a.ranUnlocked(ctx, run, taskID); err != nil {
+			return "", false, "", err
+		}
+	}
+	verified, rework, err = a.verificationForGate(ctx, run.AccountID, repo, pr, sha)
+	return verified, unlocked, rework, err
 }
 
 // ranUnlocked reports whether a developer job of the task ran without the

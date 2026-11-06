@@ -9,6 +9,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/contextpack"
+	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/matrix"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -81,34 +82,9 @@ func (a *actions) testsMap(ctx context.Context, call workflow.ActionCall) (any, 
 			uncovered = append(uncovered, c)
 		}
 	}
-	var feedback []string
-	switch {
-	case len(docs) == 0:
-		feedback = append(feedback, "No test engineer job has finished for this task.")
-	case docs[len(docs)-1].Escalation != nil && strings.TrimSpace(*docs[len(docs)-1].Escalation) != "":
-		esc := *docs[len(docs)-1].Escalation
-		feedback = append(feedback, "The test engineer stopped and asked for a decision:\n"+contextpack.WrapUntrusted("test engineer escalation", esc))
-		if needsMatrix(esc) {
-			out.IfArchitect = append(out.IfArchitect, architectJob{TaskID: t.ID, Branch: taskBranch(t), Needs: append([]string{}, with.Needs...)})
-		}
-	}
-	if len(docs) > 0 && len(uncovered) > 0 {
-		feedback = append(feedback, fmt.Sprintf("Every acceptance criterion needs a test or an untestable entry with a reason. Missing: %s.", strings.Join(uncovered, ", ")))
-	}
-	if strays := strayTests(docs, taskCriteria(t.Body)); len(strays) > 0 {
-		feedback = append(feedback, "These tests are mapped to a criterion the task does not have, so no criterion would show them: "+strings.Join(strays, ", ")+".")
-	}
-	if with.Repo != "" && len(out.Suites) > 0 {
-		problem, err := a.matrixProblem(ctx, with.Repo, taskBranch(t), out.Suites)
-		if err != nil {
-			return nil, err
-		}
-		if problem != "" {
-			feedback = append(feedback, "The test matrix at the task's branch cannot run these tests: "+problem+"\n\nThe matrix must change first.")
-			if len(out.IfArchitect) == 0 {
-				out.IfArchitect = append(out.IfArchitect, architectJob{TaskID: t.ID, Branch: taskBranch(t), Needs: append([]string{}, with.Needs...)})
-			}
-		}
+	feedback, err := a.mapFeedback(ctx, t, docs, uncovered, with.Repo, with.Needs, &out)
+	if err != nil {
+		return nil, err
 	}
 	out.Feedback = strings.Join(feedback, "\n\n")
 	out.Ready = len(feedback) == 0
@@ -185,4 +161,40 @@ func (a *actions) matrixProblem(ctx context.Context, repo, ref string, suites []
 		return "", err
 	}
 	return "", nil
+}
+
+// mapFeedback says what keeps the tests of the task from being ready, and
+// asks the test architect (out.IfArchitect) when the matrix must change.
+func (a *actions) mapFeedback(ctx context.Context, t domain.Task, docs []testMapDoc, uncovered []string, repo string, needs []string, out *testsMapOutput) ([]string, error) {
+	architect := architectJob{TaskID: t.ID, Branch: taskBranch(t), Needs: append([]string{}, needs...)}
+	var feedback []string
+	switch {
+	case len(docs) == 0:
+		feedback = append(feedback, "No test engineer job has finished for this task.")
+	case docs[len(docs)-1].Escalation != nil && strings.TrimSpace(*docs[len(docs)-1].Escalation) != "":
+		esc := *docs[len(docs)-1].Escalation
+		feedback = append(feedback, "The test engineer stopped and asked for a decision:\n"+contextpack.WrapUntrusted("test engineer escalation", esc))
+		if needsMatrix(esc) {
+			out.IfArchitect = append(out.IfArchitect, architect)
+		}
+	}
+	if len(docs) > 0 && len(uncovered) > 0 {
+		feedback = append(feedback, fmt.Sprintf("Every acceptance criterion needs a test or an untestable entry with a reason. Missing: %s.", strings.Join(uncovered, ", ")))
+	}
+	if strays := strayTests(docs, taskCriteria(t.Body)); len(strays) > 0 {
+		feedback = append(feedback, "These tests are mapped to a criterion the task does not have, so no criterion would show them: "+strings.Join(strays, ", ")+".")
+	}
+	if repo != "" && len(out.Suites) > 0 {
+		problem, err := a.matrixProblem(ctx, repo, taskBranch(t), out.Suites)
+		if err != nil {
+			return nil, err
+		}
+		if problem != "" {
+			feedback = append(feedback, "The test matrix at the task's branch cannot run these tests: "+problem+"\n\nThe matrix must change first.")
+			if len(out.IfArchitect) == 0 {
+				out.IfArchitect = append(out.IfArchitect, architect)
+			}
+		}
+	}
+	return feedback, nil
 }
