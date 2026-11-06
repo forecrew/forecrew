@@ -208,6 +208,16 @@ func TestMachineLife(t *testing.T) {
 	}
 
 	e.clock.Advance(20 * time.Second)
+	e.runOnMachine(req, j)
+	if e.audited(e.account, fleet.ActionCreated) != 1 || e.audited(e.account, fleet.ActionDestroyed) != 1 {
+		t.Fatal("create and destroy not audited")
+	}
+}
+
+// runOnMachine runs job j on the machine of req, from boot to its end.
+func (e *env) runOnMachine(req fleet.CreateRequest, j domain.Job) {
+	t := e.t
+	t.Helper()
 	w := e.boot(req)
 	if !w.Ephemeral || w.Pool != domain.PoolBuild || w.MaxJobs != 1 || !slices.Contains(w.Labels, "linux") {
 		t.Fatalf("worker = %+v", w)
@@ -222,7 +232,7 @@ func TestMachineLife(t *testing.T) {
 
 	leased, err := e.lease(w)
 	must(t, err)
-	m = e.machine(req.MachineID)
+	m := e.machine(req.MachineID)
 	if leased.ID != j.ID || m.State != domain.MachineBusy || m.JobID != j.ID || m.JobsTaken != 1 {
 		t.Fatalf("after lease: %+v", m)
 	}
@@ -248,9 +258,6 @@ func TestMachineLife(t *testing.T) {
 	must(t, err)
 	if !cur.Revoked() {
 		t.Fatal("worker not revoked")
-	}
-	if e.audited(e.account, fleet.ActionCreated) != 1 || e.audited(e.account, fleet.ActionDestroyed) != 1 {
-		t.Fatal("create and destroy not audited")
 	}
 }
 

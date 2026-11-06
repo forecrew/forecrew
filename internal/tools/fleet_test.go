@@ -67,6 +67,13 @@ func TestFleetLists(t *testing.T) {
 		t.Fatalf("shapes = %+v", shapes)
 	}
 
+}
+
+func TestListMachines(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	own, shape := fleetRows(t, f.st, f.account.ID, "home")
+	hosted, hostedShape := fleetRows(t, f.st, uuid.Nil(), "cloud")
 	m := domain.Machine{AccountID: f.account.ID, ProviderID: own.ID, ShapeID: shape.ID}
 	must(t, f.st.Machines().Create(ctx, &m))
 	gone := domain.Machine{AccountID: f.account.ID, ProviderID: own.ID, ShapeID: shape.ID}
@@ -75,7 +82,7 @@ func TestFleetLists(t *testing.T) {
 	warm := domain.Machine{ProviderID: hosted.ID, ShapeID: hostedShape.ID} // nobody's yet
 	must(t, f.st.Machines().Create(ctx, &warm))
 	j := f.newJob(t, "developer", domain.Goal{}, domain.Task{}, 0)
-	_, err = f.st.Machines().TakeJob(ctx, m.ID, j.ID, f.clock.Now())
+	_, err := f.st.Machines().TakeJob(ctx, m.ID, j.ID, f.clock.Now())
 	must(t, err)
 
 	list, err := f.svc.ListMachines(ctx, f.by, mcp.ListMachinesInput{})
