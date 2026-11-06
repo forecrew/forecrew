@@ -1021,6 +1021,54 @@ func TestImage(t *testing.T) {
 	}
 }
 
+// A provider whose Create keeps failing is not asked on every pass: the
+// first failure is replaced at once, then the wait doubles, and a restart
+// does not reset it. A machine that comes up ends it.
+func TestFailingProviderBacksOff(t *testing.T) {
+	e := newEnv(t)
+	e.shape(e.prov, "small", nil)
+	j := e.job(e.account, e.project, nil)
+	e.fake.Configure(func(p *testkit.FakeProvider) { p.CreateErr = errors.New("quota exceeded") })
+	rows := func() int { return len(e.machines(store.MachineFilter{})) }
+	e.reconcile()
+	e.reconcile()
+	if n := rows(); n != 2 {
+		t.Fatalf("%d machines after two passes", n)
+	}
+	for range 5 {
+		e.reconcile()
+	}
+	e.restart()
+	e.reconcile()
+	if n := rows(); n != 2 {
+		t.Fatalf("%d machines: it did not wait", n)
+	}
+	wantReason(t, e.reason(j), fleet.ReasonOffline, "Only Home can run this, and it is failing to start machines")
+
+	e.clock.Advance(domain.RetryBackoff(1))
+	e.reconcile()
+	if n := rows(); n != 3 {
+		t.Fatalf("%d machines after the wait", n)
+	}
+	e.clock.Advance(domain.RetryBackoff(1))
+	e.reconcile()
+	if n := rows(); n != 3 {
+		t.Fatalf("%d machines: the wait must have doubled", n)
+	}
+	e.clock.Advance(domain.RetryBackoff(2))
+	e.fake.Configure(func(p *testkit.FakeProvider) { p.CreateErr = nil })
+	e.reconcile()
+	e.boot(e.fake.Requests()[0])
+	if n := rows(); n != 4 {
+		t.Fatalf("%d machines", n)
+	}
+	e.job(e.account, e.project, nil)
+	e.reconcile()
+	if n := rows(); n != 5 {
+		t.Fatalf("%d machines: a machine that came up ends the wait", n)
+	}
+}
+
 // raceStore runs hook once, right after the controller read the running jobs
 // of an organization: the moment a lease can slip between that read and the
 // read of the machines, or the drain.

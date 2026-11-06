@@ -350,9 +350,10 @@ func providerState(pr domain.CapacityProvider) string {
 // block is what stops a shape from taking a machine now.
 type block struct {
 	reason Reason
-	// offline names the location; shape waits in line for it when the
-	// reason is ReasonQueue.
+	// offline names the location that cannot start it, and status says
+	// how; empty is its own state.
 	offline domain.CapacityProvider
+	status  string
 	queue   bool
 }
 
@@ -364,6 +365,9 @@ func (p *planner) room(org uuid.UUID, s domain.Shape, isNew bool) *block {
 	cur := p.s.currency
 	if !pr.CanStart(p.s.now) {
 		return &block{offline: pr}
+	}
+	if isNew && p.failing(s) {
+		return &block{offline: pr, status: "failing to start machines"}
 	}
 	if isNew && p.shapeCount[s.ID] >= s.Max {
 		return &block{queue: true}
@@ -394,6 +398,30 @@ func (p *planner) room(org uuid.UUID, s domain.Shape, isNew bool) *block {
 	return nil
 }
 
+// failing reports a shape that should wait before its next machine: the
+// first failure is replaced at once, and from the second on the wait doubles
+// as a job's retry does. It reads the machines, so a restart keeps it: each
+// failure left a row. A machine that came up ends the count.
+func (p *planner) failing(s domain.Shape) bool {
+	failures := 0
+	var last time.Time
+	for _, m := range slices.Backward(p.s.machines) {
+		if m.ShapeID != s.ID {
+			continue
+		}
+		if !m.ReadyAt.IsZero() {
+			break
+		}
+		if m.Error != "" {
+			failures++
+			if m.UpdatedAt.After(last) {
+				last = m.UpdatedAt
+			}
+		}
+	}
+	return failures >= 2 && p.s.now.Before(last.Add(domain.RetryBackoff(failures-1)))
+}
+
 func limited(sentence string) *block {
 	return &block{reason: Reason{Code: ReasonLimit, Sentence: sentence}}
 }
@@ -418,7 +446,7 @@ func (p *planner) why(o *organization, j domain.Job, matches []domain.Shape, blo
 			return b.reason
 		}
 		offline = append(offline, displayName(b.offline.Name))
-		status = providerState(b.offline)
+		status = cmp.Or(b.status, providerState(b.offline))
 	}
 	if len(offline) > 0 {
 		return offlineReason(offline, status)
