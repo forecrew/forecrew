@@ -195,6 +195,11 @@ idle time starts again at `assigned_at`: the latest of `ready_at`, `assigned_at`
 and the end of its last job counts, so time spent warm is not held against it and
 it is not destroyed before its first job.
 
+**Audit.** Every create and destroy goes to the organization's audit log. An
+unassigned machine has no organization and `audit_log.account_id` is required,
+so what happens to it, and to an orphan with no known organization, reaches only
+the server log.
+
 **Boot timeout.** It starts at `booting_at`, when the provider has started the
 machine, and ends at `ready_at` (`Machine.BootExpired`). A machine kept
 `requested`, because its provider is offline or has no room, is not timing out:
