@@ -82,7 +82,9 @@ type Input struct {
 // and audited, and wraps ErrForbidden. A proposal of a goal's job to a
 // section that is not protected waits for the goal's learn step (per_goal);
 // the others go out when the job completes (standalone). Calling it again
-// with the same change, as a retried attempt does, returns the same row.
+// with the same change, as a retried attempt does, returns the same row. A
+// reason that cites agent notes as note:<id> promotes them (they stop
+// expiring).
 func (s *Service) Submit(ctx context.Context, j domain.Job, in Input) (domain.KnowledgeProposal, error) {
 	project, err := s.Store.Projects().Get(ctx, j.AccountID, j.ProjectID)
 	if err != nil {
@@ -125,6 +127,9 @@ func (s *Service) Submit(ctx context.Context, j domain.Job, in Input) (domain.Kn
 			return err
 		}
 		if err := tx.KnowledgeProposals().Create(ctx, &k); err != nil {
+			return err
+		}
+		if err := promote(ctx, tx, j, k.Reason); err != nil {
 			return err
 		}
 		return audit(ctx, tx, k, domain.SystemActor(k.AccountID, domain.ForecrewdName).String(), "knowledge.proposed", map[string]any{"job": j.Ref(), "role": j.Role})

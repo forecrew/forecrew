@@ -739,3 +739,51 @@ func TestJobFailedRejectsStandaloneProposals(t *testing.T) {
 		t.Errorf("%d rejections audited, want 2", n)
 	}
 }
+
+// A note a proposal cites is promoted and outlives its goal's grace; one it
+// does not cite, or one the job could not see, is not touched.
+func TestCitedNotesAreKeptWhenTheirGoalExpires(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	goal := testkit.Goal(t, e.st, e.account, e.project.ID, "g")
+	other := testkit.Goal(t, e.st, e.account, e.project.ID, "other")
+	note := func(path string, scope domain.NoteScope, g uuid.UUID) domain.KnowledgeEntry {
+		n := domain.KnowledgeEntry{AccountID: e.account, ProjectID: e.project.ID, Provider: domain.ProviderInternal, Path: path, Section: domain.SectionNotes,
+			Title: path, Body: "b", Scope: scope, GoalID: g}
+		must(t, e.st.Knowledge().Upsert(ctx, &n))
+		return n
+	}
+	cited, plain, foreign := note("notes/a", domain.NoteScopeGoal, goal.ID), note("notes/b", domain.NoteScopeGoal, goal.ID), note("notes/c", domain.NoteScopeGoal, other.ID)
+	project := note("notes/d", domain.NoteScopeProject, uuid.Nil())
+
+	j := e.job(t, "knowledge-curator", goal.ID)
+	in := add("architecture", "docs/adr/2.md")
+	in.Reason = "Learned in the goal: note:" + cited.ID.String() + ", note:" + foreign.ID.String() + ", note:" + project.ID.String() +
+		", note:" + cited.ID.String() + ", note:" + uuid.New().String() + " and docs/adr/1.md"
+	_, err := e.svc.Submit(ctx, j, in)
+	must(t, err)
+
+	must(t, e.st.Goals().UpdateStatus(ctx, e.account, goal.ID, domain.GoalDraft, domain.GoalCanceled))
+	must(t, e.st.Goals().UpdateStatus(ctx, e.account, other.ID, domain.GoalDraft, domain.GoalCanceled))
+	_, err = e.st.Knowledge().ExpireGoalNotes(ctx, e.account, time.Hour)
+	must(t, err)
+	_, err = e.st.Knowledge().DeleteExpired(ctx, e.account, e.clock.Now().Add(1000*time.Hour))
+	must(t, err)
+
+	have := func(n domain.KnowledgeEntry) (domain.KnowledgeEntry, bool) {
+		got, err := e.st.Knowledge().Get(ctx, e.account, n.ID)
+		return got, err == nil
+	}
+	if got, ok := have(cited); !ok || got.PromotedAt.IsZero() {
+		t.Errorf("the cited note = %+v, %v: want it promoted and kept", got, ok)
+	}
+	if got, ok := have(project); !ok || got.PromotedAt.IsZero() {
+		t.Errorf("the cited project note = %+v, %v", got, ok)
+	}
+	if _, ok := have(plain); ok {
+		t.Error("a note nobody cited survived its goal")
+	}
+	if _, ok := have(foreign); ok {
+		t.Error("a note of another goal was promoted by a job that could not see it")
+	}
+}
