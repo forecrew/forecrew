@@ -276,7 +276,9 @@ func (r auditRepo) Append(_ context.Context, e *domain.AuditEntry) error {
 func (r auditRepo) List(_ context.Context, accountID uuid.UUID, f store.AuditFilter) ([]domain.AuditEntry, error) {
 	return read(r.s, func(d *storeData) ([]domain.AuditEntry, error) {
 		return d.audit.newest(f.Limit, func(e domain.AuditEntry) bool {
-			return e.AccountID == accountID && zeroOr(f.ProjectID, e.ProjectID) && zeroOr(f.SubjectID, e.SubjectID)
+			return e.AccountID == accountID && zeroOr(f.ProjectID, e.ProjectID) && zeroOr(f.SubjectID, e.SubjectID) &&
+				zeroOr(f.Actor, e.Actor) && zeroOr(f.Action, e.Action) && zeroOr(f.SubjectType, e.SubjectType) &&
+				(f.Since.IsZero() || !e.CreatedAt.Before(f.Since)) && (f.Until.IsZero() || e.CreatedAt.Before(f.Until))
 		}), nil
 	})
 }

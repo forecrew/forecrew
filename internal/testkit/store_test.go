@@ -473,6 +473,15 @@ func TestStoreDeliveriesAndAudit(t *testing.T) {
 	if len(entries) != 2 || entries[0].Action != "gate.resolved" {
 		t.Fatalf("audit = %+v", entries)
 	}
+	for name, flt := range map[string]store.AuditFilter{
+		"action": {Action: "job.created"}, "actor": {Actor: "system:forecrewd", Action: "job.created"}, "none": {Actor: "user:x"},
+		"until": {Until: entries[1].CreatedAt}, "since": {Since: entries[0].CreatedAt.Add(time.Nanosecond)},
+	} {
+		got, _ := f.st.Audit().List(ctx, f.account, flt)
+		if (name == "action" || name == "actor") != (len(got) == 1) || (name == "none" || name == "until" || name == "since") != (len(got) == 0) {
+			t.Fatalf("filter %s = %+v", name, got)
+		}
+	}
 }
 
 func TestStoreWithTx(t *testing.T) {

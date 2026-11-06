@@ -458,5 +458,14 @@ func (r auditRepo) List(ctx context.Context, accountID uuid.UUID, f store.AuditF
 	w := newWhere(accountID)
 	andNot(w, "project_id = ?", f.ProjectID)
 	andNot(w, "subject_id = ?", f.SubjectID)
+	andNot(w, "actor = ?", f.Actor)
+	andNot(w, "action = ?", f.Action)
+	andNot(w, "subject_type = ?", f.SubjectType)
+	if !f.Since.IsZero() {
+		w.and("created_at >= ?", f.Since)
+	}
+	if !f.Until.IsZero() {
+		w.and("created_at < ?", f.Until)
+	}
 	return many(ctx, r.db, scanAudit, `SELECT `+auditCols+` FROM audit_log`+w.sql("created_at DESC, id DESC", f.Limit), w.args...)
 }

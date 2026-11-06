@@ -303,6 +303,16 @@ func TestAuditIsAppendOnly(t *testing.T) {
 	if len(list) != 1 || list[0].ID != e1.ID {
 		t.Fatalf("filtered = %+v", list)
 	}
+	for name, flt := range map[string]store.AuditFilter{
+		"actor": {Actor: "user:gian"}, "action": {Action: "gate.resolved"}, "type": {SubjectType: "gate"}, "until": {Until: e2.CreatedAt},
+	} {
+		if list, err = repo.List(ctx, f.account, flt); err != nil || len(list) != 1 || list[0].ID != e1.ID {
+			t.Fatalf("filter %s = %+v, %v", name, list, err)
+		}
+	}
+	if list, _ = repo.List(ctx, f.account, store.AuditFilter{Since: e2.CreatedAt}); len(list) != 1 || list[0].ID != e2.ID {
+		t.Fatalf("since the second entry: %+v", list)
+	}
 	orphan := domain.AuditEntry{AccountID: domain.NewID(), Actor: "a", Action: "b", SubjectType: "c"}
 	wantErr(t, repo.Append(ctx, &orphan), store.ErrNotFound)
 
