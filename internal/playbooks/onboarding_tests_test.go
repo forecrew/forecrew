@@ -259,8 +259,9 @@ func TestTestsBranch(t *testing.T) {
 		return out.(map[string]string)["branch"]
 	}
 	a, b := domain.NewID(), domain.NewID()
-	if run(a) != run(a) || run(a) == run(b) || !strings.HasPrefix(run(a), "agent/onboarding-tests-") {
-		t.Errorf("branches = %s %s", run(a), run(b))
+	first, again, other := run(a), run(a), run(b)
+	if first != again || first == other || !strings.HasPrefix(first, "agent/onboarding-tests-") {
+		t.Errorf("branches = %s %s %s", first, again, other)
 	}
 	_, err := v.call(t, "onboarding.tests_branch", map[string]any{"x": 1})
 	wantErr(t, err, "unknown field")
