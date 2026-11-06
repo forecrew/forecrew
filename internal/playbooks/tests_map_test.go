@@ -129,3 +129,15 @@ func TestTestsMapErrors(t *testing.T) {
 	_, err = p.call(t, "tests.map", map[string]any{"task_id": task.ID.String()})
 	wantErr(t, err, "output of the test-engineer job")
 }
+
+// Jobs created in the same instant are told apart by their numbers: the later
+// one is the latest.
+func TestTestsMapLatestJobOfOneInstant(t *testing.T) {
+	p := newPlanned(t)
+	task := p.plan(t, "One")[0]
+	p.testerJob(t, "test-engineer", task, `{"files":[],"tests":[],"untestable":[],"escalation":"AC-1 contradicts the spec"}`)
+	p.testerJob(t, "test-engineer", task, `{"files":[],"tests":[{"criterion":"AC-1","suite":"unit","id":"T","file":"a_test.go"},{"criterion":"AC-2","suite":"unit","id":"U","file":"a_test.go"}],"untestable":[],"escalation":null}`)
+	if got := p.testsMap(t, task); !got.Ready {
+		t.Errorf("map = %+v", got)
+	}
+}
