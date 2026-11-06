@@ -120,8 +120,8 @@ export function AppShell() {
         Tokens
       </Link>
       <p className="px-3 text-xs text-muted-foreground">
-        Signed in as <span className="font-mono">{me.data?.token}</span>
-        {me.data ? <> on {me.data.account.name}</> : null}
+        Signed in as <span className="font-mono">{me.data?.token ?? me.data?.user?.name}</span>
+        {me.data?.account ? <> on {me.data.account.name}</> : null}
       </p>
       <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => void logout()}>
         <LogOutIcon aria-hidden="true" /> Log out

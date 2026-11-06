@@ -29,6 +29,9 @@ interface Search {
   project?: string
   status?: string
   redirect?: string
+  /** The sign-in page: the organization of /login?org= and the invitation link. */
+  org?: string
+  invite?: string
   /** The decision the inbox opens with (a Home link). */
   gate?: string
   /** The question a new council opens with. */
@@ -37,7 +40,7 @@ interface Search {
 
 const search = (s: Record<string, unknown>): Search => {
   const out: Search = {}
-  for (const k of ["project", "status", "redirect", "gate", "question"] as const) {
+  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question"] as const) {
     const v = s[k]
     if (typeof v === "string" && v) out[k] = v
   }

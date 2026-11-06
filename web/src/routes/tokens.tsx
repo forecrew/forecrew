@@ -31,8 +31,8 @@ function RevokeToken({ token }: { token: Token }) {
         if (!res.self) return
         // The session is dead now: clear the cookie if we can, then start over.
         await api.logout().catch(() => {})
-        await navigate({ to: "/login" })
         qc.clear()
+        await navigate({ to: "/login" })
       }}
     />
   )

@@ -11,7 +11,7 @@ describe("login and session", () => {
     expect(router.state.location.search).toEqual({ redirect: "/goals?status=draft" })
 
     server.resetHandlers() // the session is valid from now on
-    await user.type(screen.getByLabelText("API token"), "fcm_secret")
+    await user.type(await screen.findByLabelText("API token"), "fcm_secret")
     await user.click(screen.getByRole("button", { name: "Log in" }))
     expect(await screen.findByRole("heading", { name: "Goals" })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe("/goals")
@@ -37,6 +37,41 @@ describe("login and session", () => {
     expect(type).toBe("application/json")
     expect(JSON.stringify({ ...localStorage })).not.toContain("fcm_secret")
     expect(JSON.stringify({ ...sessionStorage })).not.toContain("fcm_secret")
+  })
+
+  test("the sign-in page links to the connections and passes the invitation on", async () => {
+    server.use(http.get("/api/v1/me", errors.unauthorized))
+    let body: unknown
+    server.use(
+      http.post("/api/v1/auth/discover", async ({ request }) => {
+        body = await request.json()
+        return (await import("msw")).HttpResponse.json({ ...(await import("./server")).fx.authDiscover, token_login: false })
+      }),
+    )
+    await renderApp("/login?invite=fci_x")
+    const link = await screen.findByRole("link", { name: "Sign in with github" })
+    expect(link).toHaveAttribute("href", expect.stringContaining("/auth/"))
+    expect(body).toEqual({ invite: "fci_x" })
+    expect(screen.queryByLabelText("API token")).not.toBeInTheDocument()
+  })
+
+  test("the sign-in page says when the server has no way to sign in", async () => {
+    server.use(
+      http.get("/api/v1/me", errors.unauthorized),
+      http.post("/api/v1/auth/discover", async () => (await import("msw")).HttpResponse.json({ connections: [], token_login: false })),
+    )
+    await renderApp("/login")
+    expect(await screen.findByRole("alert")).toHaveTextContent("No way to sign in is set up")
+  })
+
+  test("the sign-in page offers another try when its options do not load", async () => {
+    server.use(http.get("/api/v1/me", errors.unauthorized), http.post("/api/v1/auth/discover", errors.invalidInput))
+    const { user } = await renderApp("/login")
+    expect(await screen.findByRole("alert")).toHaveTextContent("could not be loaded")
+    server.resetHandlers()
+    server.use(http.get("/api/v1/me", errors.unauthorized))
+    await user.click(screen.getByRole("button", { name: "Try again" }))
+    expect(await screen.findByRole("link", { name: "Sign in with github" })).toBeInTheDocument()
   })
 
   test("an empty token is refused without a request", async () => {

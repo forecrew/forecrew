@@ -1,19 +1,20 @@
-import { useQueryClient } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
 import { useState } from "react"
 import { ApiError, api } from "@/api/client"
 import { keys } from "@/api/queries"
 import { Field } from "@/components/Field"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { safeRedirect } from "@/lib/redirect"
 
-/** Paste an API token; the server answers with the session cookie. */
+/** Sign in through a connection, or, where the server allows it, with a pasted token. */
 export function LoginPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
-  const { redirect } = useSearch({ from: "/login" })
+  const { redirect, org, invite } = useSearch({ from: "/login" })
+  const discovery = useQuery({ queryKey: ["discover", org, invite], queryFn: () => api.discover({ org, invite }), retry: false })
   const [token, setToken] = useState("")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
@@ -43,11 +44,28 @@ export function LoginPage() {
       <Card className="w-full">
         <CardHeader>
           <h1 className="text-2xl font-semibold tracking-tight">Log in to Forecrew</h1>
-          <CardDescription>
-            Log in with an API token. Create one on the server with <code className="font-mono">forecrew token create</code>.
-          </CardDescription>
+          <CardDescription>Sign in with your organization's account.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {discovery.data?.connections.map((c) => (
+            <a key={c.id} href={c.login_url} className={buttonVariants({ variant: "outline", className: "w-full" })}>
+              Sign in with {c.name}
+            </a>
+          ))}
+          {discovery.isError && (
+            <div role="alert" className="space-y-2 text-sm">
+              <p>The sign-in options could not be loaded.</p>
+              <Button type="button" variant="outline" onClick={() => void discovery.refetch()}>
+                Try again
+              </Button>
+            </div>
+          )}
+          {discovery.data?.connections.length === 0 && !discovery.data.token_login && (
+            <p role="alert" className="text-sm">
+              No way to sign in is set up on this server yet. Ask your administrator to add a connection.
+            </p>
+          )}
+          {discovery.data?.token_login && (
           <form onSubmit={(e) => void submit(e)} className="space-y-4" noValidate>
             <Field label="API token" error={error}>
               {(p) => (
@@ -58,6 +76,7 @@ export function LoginPage() {
               {busy ? "Logging in…" : "Log in"}
             </Button>
           </form>
+          )}
         </CardContent>
       </Card>
     </main>

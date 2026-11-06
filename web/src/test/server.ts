@@ -37,6 +37,7 @@ import jobLogsAllKinds from "./fixtures/job-logs-all-kinds.json"
 import jobLogsCaughtUp from "./fixtures/job-logs-caught-up.json"
 import jobLogsEmpty from "./fixtures/job-logs-empty.json"
 import jobs from "./fixtures/jobs.json"
+import authDiscover from "./fixtures/auth-discover.json"
 import me from "./fixtures/me.json"
 import project from "./fixtures/project.json"
 import projectMinimalProfile from "./fixtures/project-minimal-profile.json"
@@ -66,6 +67,7 @@ import workersEmpty from "./fixtures/workers-empty.json"
 export const handlers = [
   http.post("/api/v1/session", () => HttpResponse.json(session)),
   http.delete("/api/v1/session", () => new HttpResponse(null, { status: 204 })),
+  http.post("/api/v1/auth/discover", () => HttpResponse.json(authDiscover)),
   http.get("/api/v1/me", () => HttpResponse.json(me)),
   http.get("/api/v1/projects", () => HttpResponse.json(projects)),
   http.post("/api/v1/projects", () => HttpResponse.json(projectOnboard, { status: 202 })),
@@ -110,7 +112,7 @@ export const server = setupServer(...handlers)
 
 /** The recorded payloads, for tests that change what the API answers. */
 export const fx = {
-  me, session, projects, projectsEmpty, project, projectOnboard, goals, goalsEmpty, goal, goalCreate, jobs, jobsEmpty, job,
+  authDiscover, me, session, projects, projectsEmpty, project, projectOnboard, goals, goalsEmpty, goal, goalCreate, jobs, jobsEmpty, job,
   jobQueued, jobFailed, jobDispatch, jobCancel, jobLogs, jobLogsCaughtUp, jobLogsEmpty, jobLogsAllKinds, projectMinimalProfile, projectUnknownCommands, workers, workersEmpty, gates, gatesEmpty, gateApprove,
   gateRequestChanges, gateReject, jobArtifacts, jobArtifactsEmpty, jobCommand, quality, qualityBaselineOnly, qualityEmpty, verification, tokens, tokensEmpty, tokenRevoke, tokenRevokeSelf,
   councils, councilsEmpty, councilRunning, councilDecided, councilFailed, councilPending, councilStart, councilConstraint,
