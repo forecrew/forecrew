@@ -45,6 +45,10 @@ type ToolService struct {
 	CancelJobFunc          func(context.Context, domain.Actor, mcp.JobRefInput) (mcp.JobInfo, error)
 	ListTokensFunc         func(context.Context, domain.Actor, any) ([]mcp.TokenInfo, error)
 	RevokeTokenFunc        func(context.Context, domain.Actor, mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error)
+	CreateTokenFunc        func(context.Context, domain.Actor, mcp.CreateTokenInput) (mcp.CreateTokenOutput, error)
+	CreateInvitationFunc   func(context.Context, domain.Actor, mcp.CreateInvitationInput) (mcp.CreateInvitationOutput, error)
+	ListInvitationsFunc    func(context.Context, domain.Actor, any) ([]domain.Invitation, error)
+	RevokeInvitationFunc   func(context.Context, domain.Actor, mcp.InvitationRefInput) (domain.Invitation, error)
 	ListArtifactsFunc      func(context.Context, domain.Actor, mcp.JobRefInput) ([]domain.Artifact, error)
 	ListTestRunsFunc       func(context.Context, domain.Actor, mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error)
 	StartCouncilFunc       func(context.Context, domain.Actor, mcp.StartCouncilInput) (mcp.CouncilInfo, error)
@@ -199,6 +203,26 @@ func (s *ToolService) ListTokens(ctx context.Context, by domain.Actor) ([]mcp.To
 // RevokeToken implements mcp.ToolService.
 func (s *ToolService) RevokeToken(ctx context.Context, by domain.Actor, in mcp.RevokeTokenInput) (mcp.RevokeTokenOutput, error) {
 	return invoke(ctx, s, mcp.ToolRevokeToken, by, in, s.RevokeTokenFunc)
+}
+
+// CreateToken implements mcp.ToolService.
+func (s *ToolService) CreateToken(ctx context.Context, by domain.Actor, in mcp.CreateTokenInput) (mcp.CreateTokenOutput, error) {
+	return invoke(ctx, s, mcp.ToolCreateToken, by, in, s.CreateTokenFunc)
+}
+
+// CreateInvitation implements mcp.ToolService.
+func (s *ToolService) CreateInvitation(ctx context.Context, by domain.Actor, in mcp.CreateInvitationInput) (mcp.CreateInvitationOutput, error) {
+	return invoke(ctx, s, mcp.ToolCreateInvitation, by, in, s.CreateInvitationFunc)
+}
+
+// ListInvitations implements mcp.ToolService.
+func (s *ToolService) ListInvitations(ctx context.Context, by domain.Actor) ([]domain.Invitation, error) {
+	return invoke[any](ctx, s, mcp.ToolListInvitations, by, nil, s.ListInvitationsFunc)
+}
+
+// RevokeInvitation implements mcp.ToolService.
+func (s *ToolService) RevokeInvitation(ctx context.Context, by domain.Actor, in mcp.InvitationRefInput) (domain.Invitation, error) {
+	return invoke(ctx, s, mcp.ToolRevokeInvitation, by, in, s.RevokeInvitationFunc)
 }
 
 // ListArtifacts implements mcp.ToolService.

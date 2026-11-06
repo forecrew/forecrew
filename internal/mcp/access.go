@@ -79,6 +79,10 @@ func ToolAccess() map[string]Access {
 		ToolGetCouncil:         {Permission: domain.PermProjectRead},
 		ToolAddConstraint:      {Permission: domain.PermCouncilStart},
 		ToolVerificationReport: {Permission: domain.PermJobRead},
+		ToolCreateToken:        {Permission: domain.PermTokenManage, Own: true},
+		ToolCreateInvitation:   {Permission: domain.PermMemberManage},
+		ToolListInvitations:    {Permission: domain.PermMemberManage},
+		ToolRevokeInvitation:   {Permission: domain.PermMemberManage},
 
 		ToolProjectQuality:       {Permission: domain.PermJobRead},
 		ToolListRoles:            {Permission: domain.PermOrgRead},

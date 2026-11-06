@@ -129,8 +129,12 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/gates/{gate}/reject", serve(s, http.StatusOK, gateDecisionInput, t.Reject))
 
 	route("GET /api/v1/tokens", serve(s, http.StatusOK, noInput, list(noArg(t.ListTokens))))
+	route("POST /api/v1/tokens", serve(s, http.StatusCreated, bodyOf[mcp.CreateTokenInput], t.CreateToken))
 	route("POST /api/v1/tokens/{token}/revoke", serve(s, http.StatusOK, tokenInput, t.RevokeToken))
 
+	route("POST /api/v1/invitations", serve(s, http.StatusCreated, bodyOf[mcp.CreateInvitationInput], t.CreateInvitation))
+	route("GET /api/v1/invitations", serve(s, http.StatusOK, noInput, list(noArg(t.ListInvitations))))
+	route("POST /api/v1/invitations/{invitation}/revoke", serve(s, http.StatusOK, invitationInput, t.RevokeInvitation))
 	route("GET /api/v1/roles", serve(s, http.StatusOK, noInput, list(noArg(t.ListRoles))))
 	route("GET /api/v1/teams", serve(s, http.StatusOK, noInput, list(noArg(t.ListTeams))))
 	route("POST /api/v1/teams", serve(s, http.StatusCreated, bodyOf[mcp.CreateTeamInput], t.CreateTeam))
@@ -169,13 +173,13 @@ func RouteAccess() map[string]mcp.Access {
 		"DELETE /api/v1/session": {Public: true},
 		"GET /api/v1/me":         {},
 
-		"POST /api/v1/projects":             tool[mcp.ToolOnboardProject],
-		"GET /api/v1/projects":              tool[mcp.ToolListProjects],
-		"GET /api/v1/projects/{project...}": tool[mcp.ToolGetProject],
-
 		"POST /api/v1/auth/discover":       {Public: true},
 		"PUT /api/v1/session/organization": {},
 		"DELETE /api/v1/sessions":          {},
+
+		"POST /api/v1/projects":             tool[mcp.ToolOnboardProject],
+		"GET /api/v1/projects":              tool[mcp.ToolListProjects],
+		"GET /api/v1/projects/{project...}": tool[mcp.ToolGetProject],
 
 		"POST /api/v1/goals":       tool[mcp.ToolCreateGoal],
 		"GET /api/v1/goals":        tool[mcp.ToolListGoals],
@@ -213,8 +217,12 @@ func RouteAccess() map[string]mcp.Access {
 		"POST /api/v1/gates/{gate}/reject":          tool[mcp.ToolReject],
 
 		"GET /api/v1/tokens":                 tool[mcp.ToolListTokens],
+		"POST /api/v1/tokens":                tool[mcp.ToolCreateToken],
 		"POST /api/v1/tokens/{token}/revoke": tool[mcp.ToolRevokeToken],
 
+		"POST /api/v1/invitations":                                tool[mcp.ToolCreateInvitation],
+		"GET /api/v1/invitations":                                 tool[mcp.ToolListInvitations],
+		"POST /api/v1/invitations/{invitation}/revoke":            tool[mcp.ToolRevokeInvitation],
 		"GET /api/v1/roles":                                       tool[mcp.ToolListRoles],
 		"GET /api/v1/teams":                                       tool[mcp.ToolListTeams],
 		"POST /api/v1/teams":                                      tool[mcp.ToolCreateTeam],
@@ -353,6 +361,10 @@ func constraintInput(r *http.Request) (mcp.AddCouncilConstraintInput, error) {
 
 func tokenInput(r *http.Request) (mcp.RevokeTokenInput, error) {
 	return mcp.RevokeTokenInput{Token: r.PathValue("token")}, nil
+}
+
+func invitationInput(r *http.Request) (mcp.InvitationRefInput, error) {
+	return mcp.InvitationRefInput{Invitation: r.PathValue("invitation")}, nil
 }
 
 func teamInput(r *http.Request) (mcp.TeamRefInput, error) {

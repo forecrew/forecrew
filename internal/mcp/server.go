@@ -145,6 +145,28 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 			out, err := svc.RevokeToken(ctx, by, in)
 			return result(out, "%s", revokeMessage(out.Token.Name, out.Self)), err
 		})
+	register(r, ToolCreateToken, "Create a personal API and MCP token for yourself, or with token.manage for a service account. Scopes cannot go above what the owner's roles allow. The answer holds the secret, shown this once.",
+		fieldDocs{"name": "Token name, unique among the owner's tokens.", "scopes": "read, write or admin.", "ttl": "How long it lasts, for example 720h; default auth.token_default_ttl.", "service_account": "Name of the service account the token is for; leave it out for your own."}, //nolint:gosec // field descriptions, not credentials
+		func(ctx context.Context, by domain.Actor, in CreateTokenInput) (toolResult, error) {
+			out, err := svc.CreateToken(ctx, by, in)
+			return result(out, "Token %s created. Copy the secret now: it is not stored.", out.Token.Name), err
+		}, "name", "scopes")
+	register(r, ToolCreateInvitation, "Invite someone by email or GitHub login, with the roles they get on acceptance. The answer holds the link, shown this once; they accept by signing in through it.",
+		fieldDocs{"email": "Email address to invite.", "github_login": "GitHub login to invite, instead of an email.", "roles": "Roles to grant: role name, and project for one project.", "ttl": "How long the link works, for example 168h; default 7 days."},
+		func(ctx context.Context, by domain.Actor, in CreateInvitationInput) (toolResult, error) {
+			out, err := svc.CreateInvitation(ctx, by, in)
+			return result(out, "Invitation created. Send the link: it is not stored."), err
+		}, "roles")
+	register(r, ToolListInvitations, "List the organization's invitations, newest first. Links are not stored and cannot be shown again.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			i, err := svc.ListInvitations(ctx, by)
+			return list("invitations", i, "%d invitations.", len(i)), err
+		})
+	register(r, ToolRevokeInvitation, "Revoke an invitation by ID; its link stops working at once.",
+		fieldDocs{"invitation": "Invitation UUID."}, func(ctx context.Context, by domain.Actor, in InvitationRefInput) (toolResult, error) {
+			i, err := svc.RevokeInvitation(ctx, by, in)
+			return result(i, "Invitation %s revoked.", i.ID), err
+		}, "invitation")
 	register(r, ToolListArtifacts, "List the artifacts a job uploaded (test reports, logs, screenshots) with name, type, size and SHA-256, by name. Download one with GET /api/v1/artifacts/{id} or `forecrew artifact get`.",
 		fieldDocs{"job": job}, func(ctx context.Context, by domain.Actor, in JobRefInput) (toolResult, error) {
 			a, err := svc.ListArtifacts(ctx, by, in)
