@@ -70,6 +70,7 @@ type storeData struct {
 	machines      table[domain.Machine]
 	bootstrap     table[domain.BootstrapToken]
 	policies      table[domain.FleetPolicy]
+	images        table[domain.Image]
 	// jobMCP holds the job MCP token hash of a job with the lease it was
 	// set for; a hash whose lease ended no longer matches (the Postgres
 	// trigger clears it).
@@ -121,6 +122,7 @@ func NewStore(now func() time.Time) *Store {
 		machines:      table[domain.Machine]{key: func(r domain.Machine) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		bootstrap:     table[domain.BootstrapToken]{key: func(r domain.BootstrapToken) (uuid.UUID, uuid.UUID) { return r.AccountID, r.MachineID }},
 		policies:      table[domain.FleetPolicy]{key: func(r domain.FleetPolicy) (uuid.UUID, uuid.UUID) { return r.AccountID, r.AccountID }},
+		images:        table[domain.Image]{key: func(r domain.Image) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 	}}}
 }
 
@@ -162,6 +164,7 @@ func (d *storeData) clone() *storeData {
 	c.jobMCP = maps.Clone(d.jobMCP)
 	c.identity = d.identity.clone()
 	c.access = d.access.clone()
+	c.images = d.images.clone()
 	return &c
 }
 
