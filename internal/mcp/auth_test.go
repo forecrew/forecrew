@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
@@ -20,7 +21,14 @@ import (
 const testToken = "fcm_test-token"
 
 // failingTokens fails every lookup like a database outage.
-type failingTokens struct{ store.MCPTokenRepo }
+type failingTokens struct{ store.PersonalTokenRepo }
+
+// failingStore is a store whose tokens fail.
+type failingStore struct{ *testkit.Store }
+
+func (s failingStore) MCPTokens() store.PersonalTokenRepo {
+	return failingTokens{s.Store.MCPTokens()}
+}
 
 func (failingTokens) GetByTokenHash(context.Context, []byte) (domain.MCPToken, error) {
 	return domain.MCPToken{}, errors.New("disk on fire")
@@ -42,7 +50,7 @@ func newAuthEnv(t *testing.T) authEnv {
 	if err := st.MCPTokens().Create(t.Context(), &tok); err != nil {
 		t.Fatal(err)
 	}
-	return authEnv{st, domain.Actor{AccountID: account.ID, Kind: domain.ActorMCP, Name: "laptop"}}
+	return authEnv{st, domain.Actor{AccountID: account.ID, Kind: domain.ActorMCP, Name: "laptop", Credential: domain.Credential{Kind: domain.CredentialToken, ID: tok.ID}}}
 }
 
 func TestAuthenticateRejects(t *testing.T) {
@@ -55,7 +63,7 @@ func TestAuthenticateRejects(t *testing.T) {
 		t.Fatal(err)
 	}
 	reached := false
-	h := mcp.Authenticate(e.store.MCPTokens(), slog.New(slog.DiscardHandler))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true }))
+	h := mcp.Authenticate(e.store, nil, slog.New(slog.DiscardHandler))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true }))
 	tests := []struct{ name, header string }{
 		{"missing", ""},
 		{"wrong scheme", "Basic " + testToken},
@@ -87,7 +95,7 @@ func TestAuthenticateSetsActorAndRecordsUse(t *testing.T) {
 	e := newAuthEnv(t)
 	var got domain.Actor
 	var ok bool
-	h := mcp.Authenticate(e.store.MCPTokens(), slog.New(slog.DiscardHandler))(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	h := mcp.Authenticate(e.store, nil, slog.New(slog.DiscardHandler))(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		got, ok = mcp.ActorFromContext(r.Context())
 	}))
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/x", nil)
@@ -108,7 +116,7 @@ func TestAuthenticateSetsActorAndRecordsUse(t *testing.T) {
 func TestAuthenticateStoreError(t *testing.T) {
 	e := newAuthEnv(t)
 	var logs bytes.Buffer
-	h := mcp.Authenticate(failingTokens{e.store.MCPTokens()}, slog.New(slog.NewJSONHandler(&logs, nil)))(http.NotFoundHandler())
+	h := mcp.Authenticate(failingStore{e.store}, nil, slog.New(slog.NewJSONHandler(&logs, nil)))(http.NotFoundHandler())
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	rec := httptest.NewRecorder()
@@ -117,3 +125,73 @@ func TestAuthenticateStoreError(t *testing.T) {
 		t.Errorf("status %d body %s logs %s", rec.Code, rec.Body, logs.String())
 	}
 }
+
+// A token stops with its owner, and carries its scopes and credential.
+func TestAuthenticateChecksTheOwner(t *testing.T) {
+	e := newAuthEnv(t)
+	ctx := t.Context()
+	account := e.actor.AccountID
+	u := domain.User{Name: "Ana"}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(e.store.Users().Create(ctx, &u))
+	must(e.store.Memberships().Create(ctx, &domain.Membership{AccountID: account, UserID: u.ID, Status: domain.MembershipActive, Source: domain.SourceManual}))
+	sa := domain.ServiceAccount{AccountID: account, Name: "ci", CreatedBy: "user:x"}
+	must(e.store.ServiceAccounts().Create(ctx, &sa))
+	personal := domain.MCPToken{AccountID: account, Name: "p", TokenHash: mcp.HashToken("fcm_p"), OwnerKind: domain.SubjectUser, OwnerID: u.ID, Scopes: []domain.Scope{domain.ScopeRead}}
+	must(e.store.MCPTokens().Create(ctx, &personal))
+	bot := domain.MCPToken{AccountID: account, Name: "b", TokenHash: mcp.HashToken("fcm_b"), OwnerKind: domain.SubjectServiceAccount, OwnerID: sa.ID, Scopes: []domain.Scope{domain.ScopeWrite}, ExpiresAt: t0.Add(time.Hour)}
+	must(e.store.MCPTokens().Create(ctx, &bot))
+
+	now := t0
+	var got mcp.Caller
+	h := mcp.Authenticate(e.store, func() time.Time { return now }, slog.New(slog.DiscardHandler))(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		got, _ = mcp.CallerFromContext(r.Context())
+	}))
+	call := func(token string) int {
+		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := call("fcm_p"); code != 200 || got.Actor != domain.UserActor(account, u.ID, domain.Credential{Kind: domain.CredentialToken, ID: personal.ID}) ||
+		got.TokenName != "p" || len(got.Scopes) != 1 {
+		t.Fatalf("personal = %d %+v", code, got)
+	}
+	if code := call("fcm_b"); code != 200 || got.Actor != domain.ServiceAccountActor(account, sa.ID, bot.ID) {
+		t.Fatalf("service account = %d %+v", code, got)
+	}
+	now = t0.Add(2 * time.Hour)
+	if code := call("fcm_b"); code != 401 {
+		t.Errorf("expired = %d", code)
+	}
+	now = t0
+	must(e.store.ServiceAccounts().SetDisabled(ctx, account, sa.ID, true))
+	if code := call("fcm_b"); code != 401 {
+		t.Errorf("disabled service account = %d", code)
+	}
+	must(e.store.Memberships().SetStatus(ctx, account, u.ID, domain.MembershipSuspended))
+	if code := call("fcm_p"); code != 401 {
+		t.Errorf("suspended = %d", code)
+	}
+	must(e.store.Memberships().SetStatus(ctx, account, u.ID, domain.MembershipActive))
+	if code := call("fcm_p"); code != 200 {
+		t.Errorf("active again = %d", code)
+	}
+	must(e.store.Users().SetDisabled(ctx, u.ID, true))
+	if code := call("fcm_p"); code != 401 {
+		t.Errorf("disabled user = %d", code)
+	}
+	must(e.store.Users().SetDisabled(ctx, u.ID, false))
+	must(e.store.Memberships().Remove(ctx, account, u.ID))
+	if code := call("fcm_p"); code != 401 {
+		t.Errorf("removed = %d", code)
+	}
+}
+
+var t0 = time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)

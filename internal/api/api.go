@@ -15,8 +15,11 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"time"
 
+	"github.com/forecrew/forecrew/internal/auth"
 	"github.com/forecrew/forecrew/internal/authz"
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
@@ -32,13 +35,21 @@ type Config struct {
 	Tools mcp.ToolService
 	// Artifacts serves artifact downloads; nil leaves the endpoint out.
 	Artifacts ArtifactOpener
-	Tokens    store.MCPTokenRepo
-	Accounts  store.AccountRepo
+	Store     store.Store
 	// Authz checks RouteAccess on every route.
 	Authz *authz.Engine
-	// Directory finds the user of GET /api/v1/me.
-	Directory store.DirectoryRepo
-	Logger    *slog.Logger
+	// Auth resolves session cookies and serves sign-in discovery; nil means
+	// no sessions, for callers that only use tokens.
+	Auth   *auth.Service
+	Logger *slog.Logger
+	// PublicURL is the origin browsers use; requests with a cookie must come
+	// from it or from the host they were sent to.
+	PublicURL string
+	// TokenLogin is auth.token_login: POST /api/v1/session with a token.
+	TokenLogin bool
+	// SessionMaxAge is how long a token login's cookie lasts.
+	SessionMaxAge time.Duration
+	Now           func() time.Time // defaults to the real time
 }
 
 // Server is the /api/v1 handler.
@@ -50,7 +61,10 @@ type Server struct {
 
 // New returns the API, to be mounted at /api/v1/.
 func New(cfg Config) *Server {
-	return &Server{cfg: cfg, auth: mcp.Authenticate(cfg.Tokens, cfg.Logger)}
+	if cfg.SessionMaxAge == 0 {
+		cfg.SessionMaxAge = config.DefaultSessionAbsolute
+	}
+	return &Server{cfg: cfg, auth: mcp.Authenticate(cfg.Store, cfg.Now, cfg.Logger)}
 }
 
 // Handler returns the routes under /api/v1/.
@@ -65,9 +79,15 @@ func (s *Server) Handler() http.Handler {
 
 	handle("POST /api/v1/session", http.HandlerFunc(s.login))
 	handle("DELETE /api/v1/session", http.HandlerFunc(s.logout))
-	route := func(pattern string, h http.Handler) { handle(pattern, s.protect(s.guard(pattern, h))) }
-	route("GET /api/v1/me", http.HandlerFunc(s.me))
+	handle("POST /api/v1/auth/discover", http.HandlerFunc(s.discover))
+	signedIn := func(pattern string, h http.Handler) { handle(pattern, s.protect(s.guard(pattern, h))) }
+	signedIn("GET /api/v1/me", http.HandlerFunc(s.me))
+	signedIn("PUT /api/v1/session/organization", http.HandlerFunc(s.switchOrganization))
+	signedIn("DELETE /api/v1/sessions", http.HandlerFunc(s.signOutEverywhere))
 
+	route := func(pattern string, h http.Handler) {
+		handle(pattern, s.protect(s.needOrganization(s.guard(pattern, h))))
+	}
 	route("POST /api/v1/projects", serve(s, http.StatusAccepted, bodyOf[mcp.OnboardProjectInput], t.OnboardProject))
 	route("GET /api/v1/projects", serve(s, http.StatusOK, noInput, list(noArg(t.ListProjects))))
 	route("GET /api/v1/projects/{project...}", serve(s, http.StatusOK, projectInput, t.GetProject))
@@ -152,6 +172,10 @@ func RouteAccess() map[string]mcp.Access {
 		"POST /api/v1/projects":             tool[mcp.ToolOnboardProject],
 		"GET /api/v1/projects":              tool[mcp.ToolListProjects],
 		"GET /api/v1/projects/{project...}": tool[mcp.ToolGetProject],
+
+		"POST /api/v1/auth/discover":       {Public: true},
+		"PUT /api/v1/session/organization": {},
+		"DELETE /api/v1/sessions":          {},
 
 		"POST /api/v1/goals":       tool[mcp.ToolCreateGoal],
 		"GET /api/v1/goals":        tool[mcp.ToolListGoals],

@@ -98,6 +98,7 @@ func testConfig() *config.Config {
 	return &config.Config{
 		Server: config.Server{Listen: "127.0.0.1:0", PublicBaseURL: "http://localhost:8080"},
 		GitHub: config.GitHub{AppID: 1, WebhookSecret: hookSecret, Allowlist: []string{"octocat"}},
+		Auth:   config.Auth{TokenLogin: true},
 		Runtimes: map[string]config.Runtime{
 			"claude": {Adapter: config.AdapterClaudeCode, Vendor: "anthropic", Credentials: map[string]string{"ANTHROPIC_API_KEY": apiKey}},
 			"codex":  {Adapter: config.AdapterCodex, Vendor: "openai"},

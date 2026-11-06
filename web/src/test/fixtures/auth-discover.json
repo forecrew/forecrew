@@ -1,0 +1,12 @@
+{
+  "connections": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000090",
+      "kind": "github",
+      "name": "github",
+      "login_url": "/auth/018f0000-0000-7000-8000-000000000090/login"
+    }
+  ],
+  "token_login": true
+}
+

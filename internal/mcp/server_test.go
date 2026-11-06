@@ -43,9 +43,9 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	e := &env{svc: &testkit.ToolService{}, store: st, logs: &bytes.Buffer{},
-		actor: domain.Actor{AccountID: account.ID, Kind: domain.ActorMCP, Name: "laptop"}}
+		actor: domain.Actor{AccountID: account.ID, Kind: domain.ActorMCP, Name: "laptop", Credential: domain.Credential{Kind: domain.CredentialToken, ID: tok.ID}}}
 	logger := slog.New(slog.NewJSONHandler(e.logs, nil))
-	e.server = httptest.NewServer(mcp.NewHandler(e.svc, st.MCPTokens(), authz.New(st, nil), "test", logger))
+	e.server = httptest.NewServer(mcp.NewHandler(e.svc, st, authz.New(st, nil), "test", logger))
 	t.Cleanup(e.server.Close)
 	return e
 }
