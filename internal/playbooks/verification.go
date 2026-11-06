@@ -100,7 +100,7 @@ type verificationOutput struct {
 // with.baseline builds the baseline report of onboarding instead: of a commit
 // on the default branch, with no criteria and no base check (task_id and
 // base_check are refused), shown nowhere on GitHub (no comment, no check run:
-// nothing is being merged) and never blocking. The report is kept under
+// nothing is being merged). The report is kept under
 // with.change, the pull request the commit came from; without one, under the
 // project's latest merged pull request, since a report belongs to a change.
 func (a *actions) verificationBuild(ctx context.Context, call workflow.ActionCall) (any, error) {

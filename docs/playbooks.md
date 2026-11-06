@@ -211,10 +211,10 @@ published in the same process and otherwise by the periodic sweep (30 s).
 
 | Action | `with` | Output |
 |--------|--------|--------|
-| `project.register` | `repo` | `{project_id, repo, default_branch}`. Fails unless the GitHub App is installed on the repo; moves the run's project registered → onboarding (already onboarding is fine). |
+| `project.register` | `repo`, optional `keep` | `{project_id, repo, default_branch}`. Fails unless the GitHub App is installed on the repo; moves the run's project registered → onboarding (already onboarding is fine). With `keep` the status is left alone and an onboarding or onboarded project is accepted (the test part of onboarding). |
 | `github.open_or_update_pr` | `repo`, `title`, `body`, `head`, `base`, optional `previous`, `task_id` (defaults to the run's task) | `{number, url, head_sha}`. Updates the open PR from `head` or opens one, upserts its `changes` row and adds it (`owner/name#number`) as a dependent of the assumptions the task rests on. With `previous`, the number of an earlier round's PR, it fails when a human closed that PR instead of opening another, and when a human merged it outputs `merged: true` with `merge_sha` and changes nothing. `if_open` is `[number]`, or `[]` for a merged PR, for a `foreach` that skips steps. |
 | `github.merge_pr` | `repo`, `number`, optional `check_profile`, `sha` | `{merged, already_merged, sha}` (the merge commit). Squash-merges unless already merged. Only a head whose checks succeeded (or has none) is merged; it fails on failed or running checks, with `check_profile` when the profile file at the head is invalid, and with `sha`, the head that was approved, when the head moved away from it. Use `on_failure: escalate`. |
-| `actions.install_workflow` | `repo`, `branch` | `{path, changed}`. Writes the `forecrew-matrix` workflow (`packs/workflows`) to `.github/workflows/forecrew-matrix.yml` on `branch`, which command jobs of pool `actions` dispatch (actions.md). `changed` is false when the file is already identical. Needs the App's Contents and Workflows write permissions. |
+| `actions.install_workflow` | `repo`, `branch` | `{path, changed}`. Writes the `forecrew-matrix` workflow (`packs/workflows`) to `.github/workflows/forecrew-matrix.yml` on `branch`, which command jobs of pool `actions` dispatch (actions.md). `changed` is false when the file is already identical. Needs the App's Contents and Workflows write permissions. Fails when forecrewd has no GitHub Actions support configured. The `onboarding-tests` playbook runs it. |
 | `goal.intake` | `repo`, `goal_id` | `{issue_number, issue_url, default_branch}`. Creates the labels `forecrew:goal` and `forecrew:task` if missing and opens the goal's issue, labeled `forecrew:goal`, unless the goal has one. |
 | `goal.size` | `goal_id`, `triage` | `{councils, if_product, if_technical}`. A goal without a size takes it from `triage`, the `triage` job's output: the councils the sizing rule gives (config.md, sizing) are stored as `goals.size`. A goal that has a size keeps it and `triage` is not read: a human's override (create_goal with `councils`) is such a size, so that goal skips the triage job. `if_product` and `if_technical` are `[goal_id]` when the goal gets that council, else `[]`, for a `foreach` that skips the council steps. Refuses a triage with an unknown grade, no area or no reason. |
 | `goal.spec` | `goal_id`, `job_id`, `spec` | `{spec_id, revision, summary}`. Stores the product owner's output as the next spec revision (once per job), adds the spec as a dependent of the assumptions the job stated, renders it under the goal's text in the goal issue, moves the goal to `spec_review`. `summary` is the text of the `spec_approval` gate. |
@@ -247,8 +247,17 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `council.settle` | `council_id` | `{status}`. The `finally` step: a running council fails, or is canceled when the run is, and `council.decided` is published. A decided council stays. |
 | `profile.feedback` | `human`, `errors`, `discovery` | The feedback text of an analyst job: the reviewer's feedback, the validator's errors and the `discovery` text, each when not empty. |
 | `onboarding.proposal` | `profile`, `summary`, `assumptions` | `{title, body}`: the profile PR text. |
-| `onboarding.settle` | none | Puts a project still onboarding back to registered. |
-| `onboarding.complete` | `repo`, `sha`, `ref` | Reads `.forecrew/profile.yaml` at the merge commit `sha`, or at `ref` when `sha` is empty (GitHub merged the PR), validates and stores it, and moves the project to onboarded. |
+| `onboarding.settle` | optional `profile_done` | A project still onboarding goes back to registered, unless its profile was stored (`profile_done`, or the run's step `complete` succeeded): it is then onboarded, without a baseline. Any other status is left alone. |
+| `onboarding.complete` | `repo`, `sha`, `ref`, optional `hold` | Reads `.forecrew/profile.yaml` at the merge commit `sha`, or at `ref` when `sha` is empty (GitHub merged the PR), validates and stores it, and moves the project to onboarded; with `hold` it stays onboarding until `onboarding.start_tests` or `onboarding.finish`. |
+| `onboarding.start_tests` | `repo`, `project` | `{started, run_id}`. Starts the `onboarding-tests` playbook as a run of its own (the call's key is its ID, so a repeated call finds it). Without entries for `test-architect` and `environment-engineer` under `roles` in forecrew.yaml there is no test part: it moves the project to onboarded and `started` is false. |
+| `onboarding.finish` | none | Moves the project from onboarding to onboarded; one that is onboarded stays. |
+| `onboarding.tests_feedback` | `human`, `errors` | The feedback text of a test architect or environment engineer job: the reviewer's feedback and the validator's errors, each when not empty. |
+| `onboarding.tests_check` | `errors`, `architect`, `engineer` | `{valid, errors}`. `errors` is the output of `matrix.plan`, `architect` and `engineer` are the jobs' `escalation`s; `valid` when none says anything. The loop that runs it escalates when its tries run out. |
+| `onboarding.tests_head` | `repo`, `head_sha` | `{ref, if_pushed}`. `head_sha` is the environment engineer job's: when the two jobs changed the repo `ref` is that commit and `if_pushed` is `[head_sha]`; when not, `ref` is the head of the default branch and `if_pushed` is `[]`, so a `foreach` over it skips the PR. |
+| `onboarding.tests_proposal` | `plan`, `environments` | `{title, body}`: the tests PR text from the two jobs' outputs (strategy, axes, matrix changes, environments, assumptions, open questions). |
+| `onboarding.baseline_ref` | `repo`, `merged` | `{sha}`: `merged` (the merge commit of the tests PR) or, when empty, the head of the default branch. |
+| `tests.smoke_plan` | `repo`, `ref`, `environments` | `{requests, if_actions}`. `environments` is the environment engineer's list. For every environment it lists as `added` or `changed`, one command job request (items for the `from` of a `kind: command` job step) that builds it and runs a command that does nothing: the worker records the environment's `versions` commands. The request is that of the first matrix cell that uses the environment, so it lands where the real runs do. `if_actions` is `[repo]` when an environment of the matrix runs on GitHub Actions (the workflow must be installed), else `[]`. A matrix that does not load gives no requests: `matrix.plan` reports why. |
+| `baseline.file_issues` | `report_id` | `{issues: [{number, url, title, created}]}`. Files the failures of a baseline report as issues labeled `forecrew:baseline` (created if missing): one per suite and environment that failed or errored (the failing tests, at most 20, the cells, the commit and the report), and one for all flaky tests. Test and environment names show as inline code. A hidden marker in the body makes it idempotent: an open issue with the marker is found and left alone, so a repeated call, and a later baseline that fails the same way, file nothing twice; a closed one is filed again. |
 | `knowledge.seed` | none | `{indexed, sections, curate, text, error}`. Indexes the project's repo knowledge (the mapped paths of its policy, or the default mapping) and outputs the seed sections (`architecture`, `conventions`, `testing`, `runbooks`, `glossary`) that no location covers. `curate` has one item when there are such sections and none otherwise, so a `foreach` over it skips the curation; `text` tells the curator what to fill and what already has a home. A repo that cannot be read, or an installation without a knowledge base, gives `error` and an empty `curate`: onboarding does not depend on it. |
 | `knowledge.propose` | `job_id`, `provider` | `{proposals, number, branch, head_sha, reviewers, review_text}`. Sends the job's queued `standalone` proposals to the provider: for the repo, commits them through the GitHub API on `agent/kb-<job>` and opens one PR. Checks each against the policy again: what its proposer may no longer propose is dropped (rejected, audited). `reviewers` are the owner roles that review; `review_text` is the job's `feedback`. A provider without a review flow sends nothing. Idempotent: what was sent stays sent. |
 | `knowledge.assess` | `job_id`, `provider`, `reviews` (the foreach of review jobs) | `{if_gate}`. Opens the `knowledge_proposal` gate, with the call's key as ID, for a protected or human-owned section, a provider without a review flow, or a verdict other than `approve`; the proposals get its `gate_id` in the gate's transaction. `if_gate` holds the gate, or nothing when no human decides. |
@@ -405,7 +414,7 @@ reason its `escalate_when` lists). The test plan section holds
 `.forecrew/matrix.yaml`, `.forecrew/test-strategy.md` and every environment
 file the matrix's rules name, read from GitHub at the job branch when the
 matrix is there and at the base otherwise; files not written yet are marked
-missing. The test roles are not used by a playbook yet.
+missing. The `onboarding-tests` playbook runs `test-architect` and `environment-engineer`; the goal playbook will use `test-engineer`.
 
 The council roles (`facilitator`, `devils-advocate`, `market-researcher`,
 `security-reviewer`, `ux`) and the council packs that seat them, with other
@@ -440,7 +449,8 @@ by itself. Rejecting that gate is an explicit human stop: the project goes
 back to registered, and the merged profile file stays on the default branch. Changes
 requested start a new round with the feedback, at most three before a
 `needs_you` gate. A rejection, a closed PR or any failure ends the run, and
-its `finally` step puts the project back to registered.
+its `finally` step puts the project back to registered (onboarded, when the
+profile was stored already).
 
 After `onboarding.complete` the playbook seeds the knowledge base
 ([knowledge.md](knowledge.md)): `knowledge.seed`, then, only when some seed
@@ -453,6 +463,63 @@ writes nothing leaves no commit: `job.if_pushed` then skips the PR and the gate
 and the run succeeds. The curator role needs
 an entry under `roles` in forecrew.yaml; without one the job fails and a
 `needs_you` gate opens.
+
+### Tests: strategy, matrix, environments and baseline
+
+`onboarding.complete` stores the profile but keeps the project `onboarding`
+(`hold`). The next step, `onboarding.start_tests`, starts the
+`onboarding-tests` playbook (`packs/playbooks/onboarding-tests.yaml`, inputs
+`repo` and `project`) as a run of its own, so the same playbook serves a
+refresh. Without entries for `test-architect` and `environment-engineer`
+under `roles` in forecrew.yaml there is no tests part: the project is onboarded
+right there, as before. The profile part goes on to seed the knowledge base
+meanwhile.
+
+1. **Plan.** A `test-architect` job and then an `environment-engineer` job
+   write `.forecrew/matrix.yaml`, `.forecrew/test-strategy.md` and the
+   environment files on one branch, `agent/onboarding-tests`. `matrix.plan`
+   (scope `all`) validates the matrix and the environment files it names; its
+   errors, or an escalation of either role, go back to both roles once as
+   feedback (like `profile.validate`), and when the two tries run out a
+   `needs_you` gate opens; approving it gives one more round. Nothing to
+   commit (the repo has its test plan) means no PR: the baseline runs on the
+   default branch.
+2. **Smoke.** `actions.install_workflow` adds `.github/workflows/forecrew-matrix.yml`
+   to the same branch when any environment of the matrix uses `actions`. Then
+   `tests.smoke_plan` gives one command job per added or changed environment:
+   it builds the environment and runs its `versions` commands. A smoke job that
+   fails opens a `needs_you` gate (the engine cannot loop a failed job back as
+   feedback); approving it runs the job again.
+3. **Approval.** One PR holds both outputs. After its checks, a
+   `test_plan_approval` gate opens on it: approving merges it (merging it on
+   GitHub approves, closing it rejects, as for the profile), changes requested
+   start another round with the feedback (at most three before a `needs_you`
+   gate).
+4. **Baseline.** `matrix.plan` with scope `all` on the merge commit, a
+   parallel foreach of command jobs (at most 8 at once), then
+   `verification.build` with `baseline: true`: no criteria and no base check,
+   no PR comment and no check run. A required cell that failed runs once more
+   (`verification.rerun_cells`), so a test that passes the second time is
+   flaky, and the report is built again. The report is stored on the project
+   by commit (a report belongs to a change, so under the tests PR or, with no
+   PR, the project's latest merged one).
+5. **Known failures.** `baseline.file_issues` files one issue per failing suite
+   and environment and one for the flaky tests, labeled `forecrew:baseline`,
+   each once. Failures do not block anything.
+6. **Done.** `onboarding.finish` moves the project to onboarded, after the
+   baseline ran.
+
+A failure in this part (a rejected `needs_you` gate, a rejected or closed PR)
+ends the run, and its `finally` step puts the project to onboarded, not back to
+registered: its profile is stored, so it is onboarded without a baseline, and
+the `needs_you` gate that came with the failure said why. The same rule holds
+for the onboarding run: a failure after `onboarding.complete` (the knowledge
+seed) leaves the project onboarded.
+
+`onboard_project` with `refresh: true` ([mcp.md](mcp.md)) starts
+`onboarding-tests` on a project that is onboarded, to propose a new test plan
+if one is needed and run a new baseline; the project stays onboarded
+throughout. A refresh already running for the project is refused.
 
 ## Councils
 

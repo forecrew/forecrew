@@ -63,7 +63,7 @@ structs in `internal/domain` and `internal/mcp`.
 
 | Method and path | Tool | Request | Response |
 |-----------------|------|---------|----------|
-| `POST /api/v1/projects` | `onboard_project` | `{"repo": "owner/name", "name": "optional", "default_branch": "optional, default main"}` | `202` `{"project": {...}, "run_id": "uuid"}` |
+| `POST /api/v1/projects` | `onboard_project` | `{"repo": "owner/name", "name": "optional", "default_branch": "optional, default main", "refresh": "optional, true runs only the test part again, for an onboarded project"}` | `202` `{"project": {...}, "run_id": "uuid"}` |
 | `GET /api/v1/projects` | `list_projects` | | `200` projects |
 | `GET /api/v1/projects/{project}` | `get_project` | `{project}` is the name or `owner/name` | `200` project with status and approved `profile` |
 | `POST /api/v1/goals` | `create_goal` | `{"project", "title", "body", "platforms": ["web"], "councils": ["product"]}`; `councils` is optional, `[]` means none (no triage) | `201` goal (draft) |
