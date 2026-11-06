@@ -8,6 +8,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/queue"
+	"github.com/forecrew/forecrew/internal/store"
 )
 
 // ReapInterval is how often RunReaper looks for expired leases.
@@ -39,6 +40,12 @@ func (s *Service) Reap(ctx context.Context) ([]domain.Job, error) {
 			out = append(out, j)
 			if !j.Status.Terminal() {
 				continue
+			}
+			// RequeueExpired changed the job outside a transaction of ours: tell
+			// the registrars in one, so its proposals do not stay queued.
+			if err := s.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error { return s.failedJob(ctx, tx, j) }); err != nil {
+				s.logger.ErrorContext(ctx, "settle a failed job", append(logAttrs(j), "error", err)...)
+				errs = append(errs, err)
 			}
 			if err := s.completed(ctx, j); err != nil {
 				s.logger.ErrorContext(ctx, "publish job completed", append(logAttrs(j), "error", err)...)

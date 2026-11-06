@@ -521,6 +521,19 @@ func TestFailureRegistrarHearsOfEveryEnd(t *testing.T) {
 		t.Fatalf("failed = %+v", reg.failed)
 	}
 
+	// A job whose lease expired on its last attempt is failed by the reaper.
+	expired := schemaJob(t, f)
+	for attempt := 1; attempt <= domain.DefaultMaxAttempts; attempt++ {
+		f.clock.Advance(time.Hour)
+		f.lease(t)
+		f.clock.Advance(domain.LeaseDuration + time.Hour)
+		_, err = f.svc.Reap(ctx)
+		must(t, err)
+	}
+	if last := reg.failed[len(reg.failed)-1]; last.ID != expired.ID || last.Status != domain.JobFailed {
+		t.Fatalf("the reaper's failure was not reported: %+v", reg.failed)
+	}
+
 	reg.err = errors.New("settle down")
 	doomed := schemaJob(t, f)
 	f.lease(t)
