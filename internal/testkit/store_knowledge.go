@@ -50,6 +50,7 @@ func (r knowledgeRepo) Upsert(_ context.Context, e *domain.KnowledgeEntry) error
 			delete(d.embeddings, cur.ID)
 		}
 		e.ID, e.CreatedAt, e.UpdatedAt, e.SyncedAt = cur.ID, cur.CreatedAt, now, now
+		e.Hits, e.PromotedAt = cur.Hits, cur.PromotedAt // not the writer's to set
 		*cur = *e
 		return nil
 	})
@@ -142,11 +143,36 @@ func (r knowledgeRepo) MarkReverify(_ context.Context, accountID uuid.UUID, ids 
 	})
 }
 
+func (r knowledgeRepo) MarkPromoted(_ context.Context, accountID uuid.UUID, ids []uuid.UUID) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		for i := range d.knowledge.rows {
+			if e := &d.knowledge.rows[i]; e.AccountID == accountID && e.Provider == domain.ProviderInternal && slices.Contains(ids, e.ID) {
+				if e.PromotedAt.IsZero() {
+					e.PromotedAt = now
+				}
+				e.ExpiresAt, e.UpdatedAt = time.Time{}, now
+			}
+		}
+		return nil
+	})
+}
+
+func (r knowledgeRepo) CountHits(_ context.Context, accountID uuid.UUID, ids []uuid.UUID) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		for i := range d.knowledge.rows {
+			if e := &d.knowledge.rows[i]; e.AccountID == accountID && slices.Contains(ids, e.ID) {
+				e.Hits++
+			}
+		}
+		return nil
+	})
+}
+
 func (r knowledgeRepo) DeleteExpired(_ context.Context, accountID uuid.UUID, t time.Time) (int, error) {
 	n := 0
 	err := r.s.do(func(d *storeData, _ time.Time) error {
 		d.knowledge.rows = slices.DeleteFunc(d.knowledge.rows, func(x domain.KnowledgeEntry) bool {
-			gone := x.AccountID == accountID && x.Provider == domain.ProviderInternal && !x.ExpiresAt.IsZero() && x.ExpiresAt.Before(t)
+			gone := x.AccountID == accountID && x.Provider == domain.ProviderInternal && x.PromotedAt.IsZero() && !x.ExpiresAt.IsZero() && x.ExpiresAt.Before(t)
 			if gone {
 				n++
 				delete(d.embeddings, x.ID)
@@ -163,7 +189,7 @@ func (r knowledgeRepo) ExpireGoalNotes(_ context.Context, accountID uuid.UUID, g
 	err := r.s.do(func(d *storeData, _ time.Time) error {
 		for i := range d.knowledge.rows {
 			e := &d.knowledge.rows[i]
-			if e.AccountID != accountID || e.GoalID == uuid.Nil() || !e.ExpiresAt.IsZero() {
+			if e.AccountID != accountID || e.GoalID == uuid.Nil() || !e.ExpiresAt.IsZero() || !e.PromotedAt.IsZero() {
 				continue
 			}
 			g, err := d.goals.get(accountID, e.GoalID)

@@ -123,6 +123,12 @@ seven days after its goal is done or canceled: a daily sweep stamps the expiry
 (from the goal's last change) and deletes the notes past it. Humans delete a
 note with `delete_note`.
 
+A note a retro or the curator cites in a proposal (`note:<id>` in its reason)
+is promoted: it gets `promoted_at` and keeps no expiry, so the evidence stays
+while the proposal is in review. Every search that returns an entry adds one
+to its `hits`, except searches by the curator; a project note that is old and
+has no hits is what the curator proposes to promote or deletes.
+
 ## Search
 
 Words search the title (weight A) and body (weight B) with Postgres full-text

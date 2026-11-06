@@ -83,14 +83,20 @@ type KnowledgeEntry struct {
 	Generated      bool       `json:"generated"`
 	NeedsReverify  bool       `json:"needs_reverify"`
 	ReverifyReason string     `json:"reverify_reason,omitempty"` // commit and paths that changed
+	// Hits counts the searches that returned the entry; a project note
+	// nobody found is a candidate for the curator to drop.
+	Hits int `json:"hits"`
 	// Scope, GoalID, ExpiresAt and Tags are set on notes only.
 	Scope     NoteScope `json:"scope,omitempty"`
 	GoalID    uuid.UUID `json:"goal_id,omitzero"`
 	ExpiresAt time.Time `json:"expires_at,omitzero"`
 	Tags      []string  `json:"tags,omitempty"`
-	SyncedAt  time.Time `json:"synced_at"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	// PromotedAt is when a retro or the curator proposed the note for a
+	// curated section: a promoted note never expires.
+	PromotedAt time.Time `json:"promoted_at,omitzero"`
+	SyncedAt   time.Time `json:"synced_at"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // Kind returns whether e is a curated entry, a note or a generated entry.
@@ -128,8 +134,8 @@ func (e KnowledgeEntry) Validate() error {
 		if (e.Scope == NoteScopeGoal) != (e.GoalID != uuid.Nil()) {
 			p.addf("a goal note needs its goal, a project note none")
 		}
-	case e.Scope != "" || e.GoalID != uuid.Nil() || !e.ExpiresAt.IsZero() || len(e.Tags) > 0:
-		p.addf("scope, goal_id, expires_at and tags are for notes only")
+	case e.Scope != "" || e.GoalID != uuid.Nil() || !e.ExpiresAt.IsZero() || len(e.Tags) > 0 || !e.PromotedAt.IsZero():
+		p.addf("scope, goal_id, expires_at, tags and promoted_at are for notes only")
 	}
 	return p.errOf(ErrInvalidRecord, "knowledge entry")
 }

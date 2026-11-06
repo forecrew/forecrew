@@ -213,3 +213,24 @@ func TestNoteOfAFinishedJobIsRefused(t *testing.T) {
 		t.Fatalf("err = %v, want a lost lease", err)
 	}
 }
+
+// Every search that returns an entry counts as a read of it, except the
+// curator's, which is what tells it what nobody found.
+func TestSearchCountsHits(t *testing.T) {
+	e := newNotesEnv(t)
+	ctx := t.Context()
+	n, err := e.notes.Write(ctx, e.job(t, "developer", e.g1), knowledge.NoteInput{Scope: domain.NoteScopeProject, Title: "Spool trick", Body: "The spool is flushed at exit."})
+	must(t, err)
+	for _, q := range []knowledge.Query{
+		{Text: "spool", Role: "developer"}, {Text: "spool", AllGoals: true}, {Text: "spool", Role: knowledge.CuratorRole}, {Text: "nothing like it", Role: "developer"},
+	} {
+		q.Project = e.project
+		_, err := e.search.Run(ctx, q)
+		must(t, err)
+	}
+	got, err := e.st.Knowledge().Get(ctx, e.project.AccountID, n.ID)
+	must(t, err)
+	if got.Hits != 2 {
+		t.Errorf("hits = %d, want 2: the curator's search and the search that found nothing do not count", got.Hits)
+	}
+}
