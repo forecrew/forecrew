@@ -54,6 +54,7 @@ func ToolAccess() map[string]Access {
 		ToolJobStatus:          {Permission: domain.PermJobRead},
 		ToolJobLogs:            {Permission: domain.PermJobRead},
 		ToolListWorkers:        {Permission: domain.PermWorkerRead},
+		ToolListImages:         {Permission: domain.PermWorkerRead},
 		ToolListPendingGates:   {Permission: domain.PermGateRead},
 		ToolApprove:            {Gate: true},
 		ToolRequestChanges:     {Gate: true},

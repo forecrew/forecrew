@@ -288,6 +288,8 @@ object up and checks the permission on the object's project.
 | `list_shapes` | `GET /api/v1/shapes` | `worker.read` |
 | `list_providers` | `GET /api/v1/providers` | `worker.read` |
 | `fleet_overview` | `GET /api/v1/fleet` | `worker.read`; jobs show only with `job.read` on their project |
+| `list_images` | `GET /api/v1/images` | `worker.read` |
+| | `POST /api/v1/images`, `DELETE /api/v1/images/{image}` | `worker.manage`, from a person only (a user, never a service account, an ownerless token or a machine); an instance-wide image also needs an instance admin. REST and CLI only, no MCP tool: an agent never registers an image others trust |
 | `list_pending_gates` | `GET /api/v1/gates` | `gate.read`; each gate says whether the caller may resolve it |
 | `approve` | `POST /api/v1/gates/{gate}/approve` | the gate's |
 | `request_changes` | `POST /api/v1/gates/{gate}/request-changes` | the gate's |

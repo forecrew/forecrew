@@ -81,6 +81,7 @@ func TestToolServiceDefaults(t *testing.T) {
 			return err
 		},
 		func() error { _, err := s.ListKnowledge(ctx, by, mcp.ListKnowledgeInput{}); return err },
+		func() error { _, err := s.ListImages(ctx, by, mcp.ListImagesInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

@@ -126,6 +126,9 @@ structs in `internal/domain` and `internal/mcp`.
 | `GET /api/v1/shapes` | `list_shapes` | | `200` shapes offered to the organization with `provider` and `ownership` |
 | `GET /api/v1/providers` | `list_providers` | | `200` providers with `online` and `ownership` |
 | `GET /api/v1/fleet` | `fleet_overview` | | `200` the overview as in [mcp.md](mcp.md): `headline`, `working`, `waiting`, `spend`, `routing`, `locations`, `queue`, `running` |
+| `GET /api/v1/images?name=&os=&arch=&format=&limit=` | `list_images` | all optional; `limit` defaults to 100, at most 500 | `200` images (an array) of the organization and the instance, newest build first within a name, each with `scope` |
+| `POST /api/v1/images` | | a signed image manifest ([images.md](images.md)) and optional `"instance": true`: `{"name", "version", "os", "arch", "format", "uri", "digest", "signature", "built_at", "contents"}` | `201` the image. `403` unless the caller is a person with `worker.manage` (an instance admin for `instance`); `400` for an invalid or unsigned manifest; `409` when the name, version, arch and format exist. The server checks the form; the fleet agent checks the signature |
+| `DELETE /api/v1/images/{image}` | | `{image}` is an image UUID | `200` the image removed. `404` when unknown or another organization's; `409` while a live machine uses it |
 | `GET /api/v1/gates?project=` | `list_pending_gates` | `project` optional | `200` pending gates with `ref`, `kind`, `project`, `goal_ref`, `task_ref`, `summary`, `url` (GitHub issue or PR), `can_resolve` (whether the caller may resolve it) and `created_at` |
 | `POST /api/v1/gates/{gate}/approve` | `approve` | `{"feedback": "optional", "save_as_lesson": false}` (body optional; `save_as_lesson` needs `feedback`) | `200` the gate, now `approved` |
 | `POST /api/v1/gates/{gate}/request-changes` | `request_changes` | `{"feedback": "required", "save_as_lesson": false}` | `200` the gate, now `changes_requested` |

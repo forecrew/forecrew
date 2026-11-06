@@ -185,6 +185,7 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolJobStatus, map[string]any{"job": "JOB-1"}, mcp.JobRefInput{Job: "JOB-1"}},
 		{mcp.ToolJobLogs, map[string]any{"job": "JOB-1", "after_seq": 5, "limit": 10}, mcp.JobLogsInput{Job: "JOB-1", AfterSeq: 5, Limit: 10}},
 		{mcp.ToolListWorkers, nil, nil},
+		{mcp.ToolListImages, map[string]any{"name": "linux", "os": "linux", "arch": "amd64", "format": "rootfs", "limit": 5}, mcp.ListImagesInput{Name: "linux", OS: "linux", Arch: "amd64", Format: "rootfs", Limit: 5}},
 		{mcp.ToolListPendingGates, map[string]any{"project": "app"}, mcp.ProjectFilterInput{Project: "app"}},
 		{mcp.ToolApprove, map[string]any{"gate": "GATE-1", "feedback": "ok"}, mcp.GateDecisionInput{Gate: "GATE-1", Feedback: "ok"}},
 		{mcp.ToolRequestChanges, map[string]any{"gate": "GATE-1", "feedback": "more tests"}, mcp.GateDecisionInput{Gate: "GATE-1", Feedback: "more tests"}},

@@ -145,3 +145,11 @@ func NewManifest(b Build) (Manifest, error) {
 	}
 	return m, nil
 }
+
+// AddInput is the body of POST /api/v1/images: a signed manifest, and where
+// the image belongs. Instance puts it in the instance-wide set, for
+// instance admins; otherwise it is the caller's organization's.
+type AddInput struct {
+	Manifest
+	Instance bool `json:"instance,omitempty"`
+}

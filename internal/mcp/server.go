@@ -69,6 +69,13 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 			l.Events = NonNil(l.Events)
 			return result(l, "%d events, next_seq %d.", len(l.Events), l.NextSeq), err
 		})
+	register(r, ToolListImages, "List the machine images the organization can use, its own and the instance's, newest first by name: OS, architecture, format, version, digest and what each holds. Only a person registers an image.",
+		fieldDocs{"name": "Only this image name.", "os": "Only linux, windows or macos.", "arch": "Only amd64 or arm64.",
+			"format": "Only rootfs, qcow2, vhdx, ami or tart.", "limit": "Maximum images; default 100, at most 500."},
+		func(ctx context.Context, by domain.Actor, in ListImagesInput) (toolResult, error) {
+			imgs, err := svc.ListImages(ctx, by, in)
+			return list("images", imgs, "%d images.", len(imgs)), err
+		})
 	register(r, ToolListWorkers, "List the account's workers with labels, last seen time, whether each is online and the jobs it runs.",
 		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
 			w, err := svc.ListWorkers(ctx, by)
