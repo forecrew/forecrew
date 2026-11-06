@@ -223,18 +223,17 @@ func TestMatrixPlanOnlyRunnable(t *testing.T) {
 		return w.ID
 	}
 
-	// Nobody is online: every job is out, and the text names the labels.
+	// Nobody is online: no job runs. Only the required one is reported: the
+	// smoke suite and the windows cell are optional, so nothing waits for them.
 	m := plan()
 	if got := keys(t, m["jobs"]); len(got) != 0 {
 		t.Fatalf("jobs = %v", got)
 	}
-	if got := keys(t, m["unrunnable"]); !slices.Equal(got, []string{"os=linux/unit", "os=linux/smoke", "os=windows/unit"}) {
+	if got := keys(t, m["unrunnable"]); !slices.Equal(got, []string{"os=linux/unit"}) {
 		t.Errorf("unrunnable = %v", got)
 	}
-	for _, want := range []string{"- no online worker in pool build has the labels lin, linux: os=linux/unit, os=linux/smoke", "- no online worker in pool build has the labels win, windows: os=windows/unit"} {
-		if !strings.Contains(m["missing"].(string), want) {
-			t.Errorf("missing = %q, want %q", m["missing"], want)
-		}
+	if got := m["missing"].(string); !strings.Contains(got, "\n- no online worker in pool build has the labels lin, linux: os=linux/unit\n") || !strings.HasPrefix(got, "<untrusted-data ") {
+		t.Errorf("missing = %q", got)
 	}
 
 	// A worker of another pool, or lacking a label, does not help.
@@ -249,7 +248,7 @@ func TestMatrixPlanOnlyRunnable(t *testing.T) {
 	if got := keys(t, m["jobs"]); !slices.Equal(got, []string{"os=linux/unit", "os=linux/smoke"}) {
 		t.Errorf("jobs = %v", got)
 	}
-	if got := keys(t, m["unrunnable"]); !slices.Equal(got, []string{"os=windows/unit"}) || !strings.Contains(m["missing"].(string), "win, windows") || strings.Contains(m["missing"].(string), "linux") {
+	if got := keys(t, m["unrunnable"]); len(got) != 0 || m["missing"] != "" {
 		t.Errorf("unrunnable = %v, missing %q", got, m["missing"])
 	}
 
@@ -257,6 +256,10 @@ func TestMatrixPlanOnlyRunnable(t *testing.T) {
 	v.clock.Advance(domain.OnlineWindow + time.Second)
 	if got := keys(t, plan()["jobs"]); len(got) != 0 {
 		t.Errorf("jobs = %v", got)
+	}
+	// Nothing about the optional cells reaches the text.
+	if text := plan()["missing"].(string); strings.Contains(text, "smoke") || strings.Contains(text, "windows") {
+		t.Errorf("missing = %q", text)
 	}
 
 	// Without the option nothing is left out.

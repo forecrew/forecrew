@@ -468,3 +468,56 @@ func TestTestsBaseCheckRequestWorkersFail(t *testing.T) {
 	})
 	wantErr(t, err, "list workers")
 }
+
+// A request that no required cell asks for is optional: with no worker it is
+// left out of the requests and the missing text, so nothing waits for it.
+func TestTestsBaseCheckRequestOptionalCellsWithoutAWorker(t *testing.T) {
+	v := newEnv(t)
+	v.setMatrix(t, "abc") // required: linux only; smoke is optional, and so is windows
+	call := func() map[string]any {
+		out, err := v.call(t, "tests.base_check_request", map[string]any{
+			"repo": "acme/app", "base": "main", "head": "abc", "only_runnable": true,
+			"tests": newTests([3]string{"unit", "pkg::TestA", "a_test.go"}, [3]string{"smoke", "s::Flow", "s_test.go"}),
+		})
+		must(t, err)
+		return toMap(t, out)
+	}
+	names := func(list any) []string {
+		var out []string
+		for _, r := range list.([]any) {
+			m := r.(map[string]any)
+			out = append(out, m["suite"].(string)+"@"+m["environment"].(map[string]any)["name"].(string))
+		}
+		return out
+	}
+
+	// No worker: only the required request is missing; the optional ones are gone.
+	m := call()
+	if got := names(m["requests"]); !slices.Equal(got, []string{"unit@lin"}) || len(m["runnable"].([]any)) != 0 {
+		t.Errorf("no worker = %v", m)
+	}
+	if text := m["missing"].(string); !strings.Contains(text, "base check of unit in lin") || strings.Contains(text, "smoke") || strings.Contains(text, "win") {
+		t.Errorf("missing = %q", text)
+	}
+
+	// An optional request that a worker can run is kept.
+	w := domain.Worker{AccountID: v.account, Name: "box", TokenHash: []byte("box")}
+	must(t, v.st.Workers().Create(t.Context(), &w))
+	must(t, v.st.Workers().Seen(t.Context(), v.account, w.ID, []string{"lin", "linux"}, "1"))
+	m = call()
+	if got := names(m["requests"]); !slices.Equal(got, []string{"unit@lin", "smoke@lin"}) || !slices.Equal(names(m["runnable"]), got) || m["missing"] != "" {
+		t.Errorf("a linux worker = %v", m)
+	}
+
+	// The unit test was checked where it was asked to: nothing is unchecked.
+	linux := v.baseRunIn(t, "unit", "lin", domain.TestRunFailed, 1, res("pkg", "TestA", domain.TestFailed))
+	smoke := v.baseRunIn(t, "smoke", "lin", domain.TestRunFailed, 1, res("s", "Flow", domain.TestFailed))
+	out, err := v.call(t, "tests.base_check_result", map[string]any{
+		"runs": []any{linux.String(), smoke.String()}, "requests": m["requests"],
+		"tests": newTests([3]string{"unit", "pkg::TestA", "a_test.go"}, [3]string{"smoke", "s::Flow", "s_test.go"}),
+	})
+	must(t, err)
+	if r := toMap(t, out); r["ok"] != true || len(r["new_tests"].([]any)) != 2 {
+		t.Errorf("result = %v", r)
+	}
+}

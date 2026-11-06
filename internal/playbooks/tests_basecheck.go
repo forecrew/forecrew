@@ -35,7 +35,8 @@ type baseCheckOutput struct {
 // base with the test files from head laid over it. With with.only_runnable,
 // runnable leaves out the requests no online worker can lease (a queued job
 // nobody can run would hold the run forever), and missing names them;
-// tests.base_check_result then sees fewer runs than requests.
+// tests.base_check_result then sees fewer runs than requests. A request that
+// no required cell asks for and no worker can run is left out of requests too.
 func (a *actions) testsBaseCheckRequest(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		Repo  string    `json:"repo"`
@@ -88,7 +89,11 @@ func (a *actions) testsBaseCheckRequest(ctx context.Context, call workflow.Actio
 	}
 	out.Runnable = out.Requests
 	if with.OnlyRunnable {
-		if err := a.dropUnrunnableRequests(ctx, call.Run.AccountID, &out); err != nil {
+		required, err := matrix.Expand(m, envs, matrix.Scope{Set: matrix.ScopeRequired})
+		if err != nil {
+			return nil, err
+		}
+		if err := a.dropUnrunnableRequests(ctx, call.Run.AccountID, &out, required); err != nil {
 			return nil, err
 		}
 	}
@@ -118,25 +123,39 @@ func baseRequests(cells []matrix.Cell, repo, base string, overlay *domain.Overla
 }
 
 // dropUnrunnableRequests keeps in out.Runnable the requests an online worker
-// can lease and describes the others in out.Missing.
-func (a *actions) dropUnrunnableRequests(ctx context.Context, accountID uuid.UUID, out *baseCheckOutput) error {
+// can lease and describes the others in out.Missing. A request for a suite
+// and environment that no required cell runs is optional: without a worker
+// it is dropped from Requests too and not reported, since nothing in the
+// verification waits for it.
+func (a *actions) dropUnrunnableRequests(ctx context.Context, accountID uuid.UUID, out *baseCheckOutput, required []matrix.Cell) error {
 	check, err := a.newWorkerCheck(ctx, accountID)
 	if err != nil {
 		return err
 	}
-	out.Runnable = []workflow.JobRequest{}
+	type slot struct{ suite, env string }
+	need := map[slot]bool{}
+	for _, c := range required {
+		for _, j := range c.Jobs() {
+			need[slot{j.Suite, j.Environment.Name}] = true
+		}
+	}
+	all := out.Requests
+	out.Requests, out.Runnable = []workflow.JobRequest{}, []workflow.JobRequest{}
 	var missing []unrunnableJob
-	for _, r := range out.Requests {
+	for _, r := range all {
 		var env domain.Environment
 		if r.Environment != nil {
 			env = *r.Environment
 		}
 		pool, labels, ok := check.canRun(env, r.Needs)
-		if ok {
+		switch {
+		case ok:
+			out.Requests = append(out.Requests, r)
 			out.Runnable = append(out.Runnable, r)
-			continue
+		case need[slot{r.Suite, env.Name}]:
+			out.Requests = append(out.Requests, r)
+			missing = append(missing, unrunnableJob{Key: "base check of " + r.Suite + " in " + env.Name, Pool: pool, Needs: labels})
 		}
-		missing = append(missing, unrunnableJob{Key: "base check of " + r.Suite + " in " + env.Name, Pool: pool, Needs: labels})
 	}
 	out.Missing = missingText(missing)
 	return nil
