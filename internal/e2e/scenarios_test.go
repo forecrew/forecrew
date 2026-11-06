@@ -14,6 +14,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/runtime"
@@ -341,7 +342,7 @@ func TestJobsGoToWorkersWithTheLabels(t *testing.T) {
 	eventually(t, "the job status to name the missing worker", func() bool {
 		var info mcp.JobInfo
 		w.api(http.MethodGet, "/jobs/"+job.Ref(), nil, &info)
-		return info.Status == domain.JobQueued && info.Reason == "no online worker in pool control with labels gpu, runtime:claude-code"
+		return info.Status == domain.JobQueued && info.ReasonCode == string(fleet.ReasonNoShape) && info.Reason == "Nothing here runs a machine with gpu and runtime:claude-code"
 	})
 
 	gpu := w.startWorkerIn(domain.PoolControl, "gpu", append([]string{"gpu"}, claudeLabels...)...)

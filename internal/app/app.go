@@ -32,6 +32,7 @@ import (
 	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/evidence"
+	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/jobmcp"
@@ -90,6 +91,11 @@ type Deps struct {
 	// Embedder adds semantic similarity to knowledge search; it defaults
 	// to OpenAI when EnvEmbeddingsKey is set, and nil without either.
 	Embedder knowledge.Embedder
+	// FleetEvery is how often the fleet reconciles
+	// (fleet.ReconcileInterval).
+	FleetEvery time.Duration
+	// FleetDirect serves direct-mode capacity providers; nil serves none.
+	FleetDirect func(domain.CapacityProvider) fleet.Provider
 }
 
 // EnvEmbeddingsKey is the OpenAI API key of the knowledge embeddings
@@ -101,6 +107,7 @@ type App struct {
 	d       Deps
 	handler http.Handler
 	jobs    *jobs.Service
+	fleet   *fleet.Controller
 	catalog *roles.Catalog
 	creator *jobCreator
 	tools   *tools.Service
@@ -171,6 +178,9 @@ func New(d Deps) (*App, error) {
 	if d.ReapEvery <= 0 {
 		d.ReapEvery = jobs.ReapInterval
 	}
+	if d.FleetEvery <= 0 {
+		d.FleetEvery = fleet.ReconcileInterval
+	}
 	if d.RetainEvery <= 0 {
 		d.RetainEvery = evidence.SweepInterval
 	}
@@ -200,7 +210,8 @@ func New(d Deps) (*App, error) {
 
 	bus := workflow.NewBus(st.Signals())
 	regs := registers.New(st, bus, d.Now)
-	jobSvc := jobs.New(st, bus, cfg.Pools, log, d.Now).WithRegistrar(regs)
+	machines := fleet.New(fleet.Config{Store: st, Logger: log, Now: d.Now, Direct: d.FleetDirect, ServerURL: cfg.Server.PublicBaseURL, Currency: cfg.Fleet.Currency})
+	jobSvc := jobs.New(st, bus, cfg.Pools, log, d.Now).WithRegistrar(regs).WithWaiting(machines)
 	gateSvc := gates.New(st, bus, d.Now).WithRecorder(regs)
 	emb := d.Embedder
 	if emb == nil && os.Getenv(EnvEmbeddingsKey) != "" {
@@ -233,7 +244,7 @@ func New(d Deps) (*App, error) {
 	authSvc := auth.New(auth.Config{Store: st, Auth: cfg.Auth, BaseURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now, GitHubURL: d.GitHubURL, GitHubAPIURL: d.GitHubAPIURL})
 	toolSvc := tools.New(tools.Config{
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes, Proposals: kbProposals,
-		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, Logger: log, PublicURL: cfg.Server.PublicBaseURL, TokenTTL: cfg.Auth.TokenDefaultTTL, Now: d.Now,
+		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, Fleet: machines, Logger: log, PublicURL: cfg.Server.PublicBaseURL, TokenTTL: cfg.Auth.TokenDefaultTTL, Now: d.Now,
 		GitHubUserID: authSvc.GitHubUserID,
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
@@ -261,7 +272,7 @@ func New(d Deps) (*App, error) {
 	}
 	a := &App{
 		auth:  authSvc,
-		syncs: syncs, provider: provider, d: d, jobs: jobSvc, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
+		syncs: syncs, provider: provider, d: d, jobs: jobSvc, fleet: machines, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
 		webhooks: webhook.NewHandler([]byte(cfg.GitHub.WebhookSecret), hooks),
 		poller:   webhook.NewPoller(hooks),
 	}
@@ -393,6 +404,7 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	})
 	wg.Go(func() { a.jobs.RunReaper(runCtx, a.d.ReapEvery) })
+	wg.Go(func() { a.fleet.Run(runCtx, a.d.FleetEvery, a.jobs.Wait) })
 	wg.Go(func() { a.webhooks.Run(runCtx) })
 	wg.Go(func() { a.poller.Run(runCtx) })
 	if a.provider != nil {
