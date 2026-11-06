@@ -94,6 +94,10 @@ type Config struct {
 	Actions Actions `yaml:"actions"`
 	// Testing lists the projects whose goals run the testing system.
 	Testing Testing `yaml:"testing"`
+	// Knowledge holds the settings of the knowledge base's upkeep.
+	Knowledge Knowledge `yaml:"knowledge"`
+	// Schedules start playbooks on a cron schedule.
+	Schedules []Schedule `yaml:"schedules"`
 }
 
 // Actions configures the provider that runs the command jobs of pool
@@ -245,6 +249,7 @@ func (c *Config) applyDefaults() {
 	c.applyPoolDefaults()
 	c.applySizing()
 	c.applyAuthDefaults()
+	c.applyKnowledgeDefaults()
 }
 
 // problems collects validation messages.
@@ -280,6 +285,7 @@ func (c *Config) Validate() error {
 		p.addf("max_test_results_size must be positive")
 	}
 	c.validateAuth(&p)
+	c.validateSchedules(&p)
 	if c.Actions.MaxInFlight < 0 {
 		p.addf("actions.max_in_flight must be positive")
 	}

@@ -43,6 +43,7 @@ import (
 	"github.com/forecrew/forecrew/internal/playbooks"
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
+	"github.com/forecrew/forecrew/internal/scheduler"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/store/postgres"
 	"github.com/forecrew/forecrew/internal/tools"
@@ -124,6 +125,8 @@ type App struct {
 	poller    *webhook.Poller
 	// notes sweeps expired agent notes daily.
 	notes *knowledge.Notes
+	// schedules starts the playbooks of forecrew.yaml's schedules.
+	schedules *scheduler.Scheduler
 	// syncs reindexes projects' knowledge off the webhook goroutine.
 	syncs   *knowledge.Scheduler
 	certs   *certManager
@@ -132,10 +135,10 @@ type App struct {
 	httpAddr string
 }
 
-// Open connects to Postgres, migrates the schema and builds the App from
-// cfg. Call Close when done.
 var _ jobs.FailureRegistrar = (*proposals.Service)(nil)
 
+// Open connects to Postgres, migrates the schema and builds the App from
+// cfg. Call Close when done.
 func Open(ctx context.Context, cfg *config.Config, logger *slog.Logger, version string) (*App, error) {
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -157,6 +160,30 @@ func Open(ctx context.Context, cfg *config.Config, logger *slog.Logger, version 
 	}
 	a.closers = append(a.closers, pool.Close)
 	return a, nil
+}
+
+// warnDeprecated logs the settings of cfg that are on their way out.
+func warnDeprecated(cfg *config.Config, log *slog.Logger) {
+	if len(cfg.GitHub.Allowlist) > 0 {
+		log.Warn("github.allowlist is deprecated: link GitHub identities and add people to the organization instead")
+	}
+}
+
+// newSchedules builds the scheduler of forecrew.yaml's schedules. Startup
+// refuses a schedule of a playbook that does not exist rather than letting it
+// fail every minute.
+func newSchedules(cfg *config.Config, books map[string]*workflow.Playbook, st store.Store, engine *workflow.Engine, log *slog.Logger, now func() time.Time) (*scheduler.Scheduler, error) {
+	for _, sc := range cfg.Schedules {
+		if _, ok := books[sc.Playbook]; !ok {
+			return nil, fmt.Errorf("forecrew.yaml schedules: %s: there is no such playbook", sc)
+		}
+	}
+	s, err := scheduler.New(cfg.Schedules, st, engine)
+	if err != nil {
+		return nil, err
+	}
+	s.Log, s.Now = log, now
+	return s, nil
 }
 
 // Close releases what Open acquired.
@@ -270,12 +297,14 @@ func New(d Deps) (*App, error) {
 		})
 		hooks.RunChanged = provider.Notify
 	}
-	if len(cfg.GitHub.Allowlist) > 0 {
-		log.Warn("github.allowlist is deprecated: link GitHub identities and add people to the organization instead")
+	schedules, err := newSchedules(cfg, books, st, engine, log, d.Now)
+	if err != nil {
+		return nil, err
 	}
+	warnDeprecated(cfg, log)
 	a := &App{
-		auth:  authSvc,
-		syncs: syncs, provider: provider, d: d, jobs: jobSvc, fleet: machines, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
+		auth:      authSvc,
+		schedules: schedules, syncs: syncs, provider: provider, d: d, jobs: jobSvc, fleet: machines, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
 		webhooks: webhook.NewHandler([]byte(cfg.GitHub.WebhookSecret), hooks),
 		poller:   webhook.NewPoller(hooks),
 	}
@@ -416,6 +445,7 @@ func (a *App) Run(ctx context.Context) error {
 	wg.Go(func() { a.notes.RunSweep(runCtx, knowledge.SweepEvery) })
 	wg.Go(func() { a.syncs.Run(runCtx) })
 	wg.Go(func() { a.auth.RunSweep(runCtx, auth.SweepEvery) })
+	wg.Go(func() { a.schedules.Run(runCtx) })
 	if a.retention != nil {
 		wg.Go(func() { a.retention.Run(runCtx, a.d.RetainEvery) })
 	}

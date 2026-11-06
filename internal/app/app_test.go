@@ -318,3 +318,15 @@ func TestApproveSavesALesson(t *testing.T) {
 		t.Errorf("pr = %+v", pr)
 	}
 }
+
+// A schedule names a playbook that exists: startup refuses a typo rather than
+// letting the schedule fail every minute.
+func TestNewRefusesAScheduleOfAnUnknownPlaybook(t *testing.T) {
+	f := newFixture(t)
+	cfg := testConfig()
+	cfg.Schedules = []config.Schedule{{Playbook: "curate-the-kb", Project: "acme/app", Cron: "@daily"}}
+	_, err := New(Deps{Config: cfg, Store: f.st, GitHub: f.tracker})
+	if err == nil || !strings.Contains(err.Error(), "no such playbook") {
+		t.Errorf("New: %v", err)
+	}
+}
