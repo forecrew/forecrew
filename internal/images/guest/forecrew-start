@@ -1,0 +1,90 @@
+#!/bin/sh
+# Starts forecrew-worker on a Forecrew machine from the settings its provider
+# delivered, then runs it in the foreground. The settings are KEY=value lines
+# in /run/forecrew/bootstrap.env (a RAM disk: the token never reaches a disk):
+#
+#   FORECREW_SERVER_URL         forecrewd's URL (required)
+#   FORECREW_BOOTSTRAP_TOKEN    the one-time fcb_ token of this machine, or
+#   FORECREW_WORKER_TOKEN       the fcw_ token of a worker that is not ephemeral
+#   FORECREW_WORKER_NAME        optional
+#   FORECREW_WORKER_LABELS      optional, comma separated; added to /etc/forecrew/labels
+#   FORECREW_WORKER_MAX_JOBS    optional
+#
+# The file is read as data, never run as shell, and deleted once read.
+set -eu
+
+env_file=${FORECREW_BOOTSTRAP_ENV:-/run/forecrew/bootstrap.env}
+run_dir=$(dirname "$env_file")
+config=$run_dir/worker.yaml
+umask 077
+
+die() {
+	echo "forecrew-start: $*" >&2
+	exit 1
+}
+
+[ -f "$env_file" ] || die "$env_file is missing: the provider did not deliver the bootstrap settings"
+
+server="" btoken="" wtoken="" name="" labels="" max_jobs=""
+while IFS= read -r line || [ -n "$line" ]; do
+	case $line in
+	'' | '#'*) continue ;;
+	esac
+	key=${line%%=*}
+	value=${line#*=}
+	[ "$key" != "$line" ] || die "bad line in $env_file"
+	# Letters, digits and . _ / : @ + , - only: the values reach a YAML file.
+	case $value in
+	*[!A-Za-z0-9._/:@+,-]*) die "$key has characters that are not allowed" ;;
+	esac
+	case $key in
+	FORECREW_SERVER_URL) server=$value ;;
+	FORECREW_BOOTSTRAP_TOKEN) btoken=$value ;;
+	FORECREW_WORKER_TOKEN) wtoken=$value ;;
+	FORECREW_WORKER_NAME) name=$value ;;
+	FORECREW_WORKER_LABELS) labels=$value ;;
+	FORECREW_WORKER_MAX_JOBS) max_jobs=$value ;;
+	*) die "unknown setting $key" ;;
+	esac
+done <"$env_file"
+rm -f "$env_file"
+
+[ -n "$server" ] || die "FORECREW_SERVER_URL is not set"
+if [ -n "$btoken" ] && [ -n "$wtoken" ]; then
+	die "set a bootstrap token or a worker token, not both"
+fi
+[ -n "$btoken$wtoken" ] || die "no token was delivered"
+
+labels_file=${FORECREW_LABELS_FILE:-/etc/forecrew/labels}
+if [ -f "$labels_file" ]; then
+	while IFS= read -r l || [ -n "$l" ]; do
+		case $l in
+		'' | '#'*) ;;
+		*) labels=${labels:+$labels,}$l ;;
+		esac
+	done <"$labels_file"
+fi
+
+{
+	echo "server_url: $server"
+	[ -z "$name" ] || echo "name: $name"
+	echo "work_dir: ${FORECREW_WORK_DIR:-/var/lib/forecrew-worker/work}"
+	echo "max_jobs: ${max_jobs:-1}"
+	if [ -n "$labels" ]; then
+		echo "labels:"
+		old_ifs=$IFS
+		IFS=,
+		for l in $labels; do
+			[ -z "$l" ] || echo "  - $l"
+		done
+		IFS=$old_ifs
+	fi
+} >"$config"
+mkdir -p "${FORECREW_WORK_DIR:-/var/lib/forecrew-worker/work}"
+
+# Only what the worker needs: nothing else of this process reaches it.
+set -- PATH="${PATH:-/usr/local/bin:/usr/bin:/bin}" HOME="${HOME:-/root}"
+[ -z "$btoken" ] || set -- "$@" FORECREW_BOOTSTRAP_TOKEN="$btoken"
+[ -z "$wtoken" ] || set -- "$@" FORECREW_WORKER_TOKEN="$wtoken"
+unset btoken wtoken
+exec env -i "$@" "${FORECREW_WORKER:-/opt/forecrew/forecrew-worker}" run --config "$config"
