@@ -25,6 +25,7 @@ import (
 	"github.com/forecrew/forecrew/internal/actionsprovider"
 	"github.com/forecrew/forecrew/internal/analyzer"
 	"github.com/forecrew/forecrew/internal/api"
+	"github.com/forecrew/forecrew/internal/auth"
 	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/contextpack"
@@ -84,6 +85,8 @@ type Deps struct {
 	// RetainEvery is how often expired artifacts are swept
 	// (evidence.SweepInterval).
 	RetainEvery time.Duration
+	// GitHubURL and GitHubAPIURL replace github.com for sign-in; tests only.
+	GitHubURL, GitHubAPIURL string
 	// Embedder adds semantic similarity to knowledge search; it defaults
 	// to OpenAI when EnvEmbeddingsKey is set, and nil without either.
 	Embedder knowledge.Embedder
@@ -101,6 +104,7 @@ type App struct {
 	catalog *roles.Catalog
 	creator *jobCreator
 	tools   *tools.Service
+	auth    *auth.Service
 	engine  *workflow.Engine
 	// retention deletes expired artifacts and orphan objects; nil without
 	// evidence storage.
@@ -226,9 +230,11 @@ func New(d Deps) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("start workflow engine: %w", err)
 	}
+	authSvc := auth.New(auth.Config{Store: st, Auth: cfg.Auth, BaseURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now, GitHubURL: d.GitHubURL, GitHubAPIURL: d.GitHubAPIURL})
 	toolSvc := tools.New(tools.Config{
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes, Proposals: kbProposals,
-		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, Logger: log,
+		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, Logger: log, PublicURL: cfg.Server.PublicBaseURL, TokenTTL: cfg.Auth.TokenDefaultTTL, Now: d.Now,
+		GitHubUserID: authSvc.GitHubUserID,
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
 	access := authz.New(st, log).WithProtection(kbProposals)
@@ -250,7 +256,11 @@ func New(d Deps) (*App, error) {
 		})
 		hooks.RunChanged = provider.Notify
 	}
+	if len(cfg.GitHub.Allowlist) > 0 {
+		log.Warn("github.allowlist is deprecated: link GitHub identities and add people to the organization instead")
+	}
 	a := &App{
+		auth:  authSvc,
 		syncs: syncs, provider: provider, d: d, jobs: jobSvc, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
 		webhooks: webhook.NewHandler([]byte(cfg.GitHub.WebhookSecret), hooks),
 		poller:   webhook.NewPoller(hooks),
@@ -262,8 +272,11 @@ func New(d Deps) (*App, error) {
 		a.certs = newCertManager(cfg.Server.TLSDomain, cfg.Server.CertCacheDir)
 	}
 	a.handler = a.routes(workers.Handler(), jobGateway.Handler(),
-		mcp.NewHandler(toolSvc, st.MCPTokens(), access, d.Version, log),
-		api.New(api.Config{Tools: toolSvc, Artifacts: toolSvc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Authz: access, Directory: st.Directory(), Logger: log}).Handler())
+		mcp.NewHandler(toolSvc, st, access, d.Version, log),
+		api.New(api.Config{
+			Tools: toolSvc, Artifacts: toolSvc, Store: st, Authz: access, Auth: a.auth, Logger: log, PublicURL: cfg.Server.PublicBaseURL,
+			TokenLogin: cfg.Auth.TokenLogin, SessionMaxAge: cfg.Auth.SessionAbsolute, Now: d.Now,
+		}).Handler())
 	return a, nil
 }
 
@@ -351,6 +364,7 @@ func (a *App) routes(workers, jobMCP, mcpHandler, apiHandler http.Handler) http.
 		fmt.Fprintln(w, "ok")
 	})
 	mux.Handle("/worker/v1/", workers)
+	mux.Handle("/auth/", a.auth.Handler())
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
@@ -365,6 +379,9 @@ func (a *App) routes(workers, jobMCP, mcpHandler, apiHandler http.Handler) http.
 // returns an error when a server or the workflow engine fails; everything
 // stops with it.
 func (a *App) Run(ctx context.Context) error {
+	if err := a.auth.Start(ctx); err != nil {
+		return fmt.Errorf("start sign-in: %w", err)
+	}
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	var wg sync.WaitGroup
@@ -383,6 +400,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 	wg.Go(func() { a.notes.RunSweep(runCtx, knowledge.SweepEvery) })
 	wg.Go(func() { a.syncs.Run(runCtx) })
+	wg.Go(func() { a.auth.RunSweep(runCtx, auth.SweepEvery) })
 	if a.retention != nil {
 		wg.Go(func() { a.retention.Run(runCtx, a.d.RetainEvery) })
 	}

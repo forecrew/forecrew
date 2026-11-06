@@ -591,6 +591,12 @@ type RevokeTokenInput struct {
 
 // RevokeTokenOutput is the output of revoke_token.
 type RevokeTokenOutput struct {
+	// OwnerKind and OwnerID say whose token it is; empty on a token from
+	// before personal tokens that has no owner yet.
+	OwnerKind domain.SubjectKind `json:"owner_kind,omitempty"`
+	OwnerID   uuid.UUID          `json:"owner_id,omitzero"`
+	Scopes    []domain.Scope     `json:"scopes,omitempty"`
+	ExpiresAt time.Time          `json:"expires_at,omitzero"`
 	Token TokenInfo `json:"token"`
 	// Self is set when the caller revoked the token it is using: from now on
 	// its requests and web sessions fail with 401.

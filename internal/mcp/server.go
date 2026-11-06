@@ -19,13 +19,13 @@ import (
 // NewHandler returns the MCP server over streamable HTTP, protected by bearer
 // token authentication. Mount it at /mcp. Each tool checks ToolAccess and
 // calls the matching ToolService method as the token's actor.
-func NewHandler(svc ToolService, tokens store.MCPTokenRepo, engine *authz.Engine, version string, logger *slog.Logger) http.Handler {
+func NewHandler(svc ToolService, st store.Store, engine *authz.Engine, version string, logger *slog.Logger) http.Handler {
 	srv := sdk.NewServer(&sdk.Implementation{Name: "forecrew", Version: version}, nil)
 	registerTools(srv, svc, engine, logger)
 	// Stateless: every request carries its own token, so there is no session
 	// to hijack and nothing to lose on restart; all tools are request/response.
 	h := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return srv }, &sdk.StreamableHTTPOptions{Stateless: true})
-	return Authenticate(tokens, logger)(h)
+	return Authenticate(st, nil, logger)(h)
 }
 
 func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logger *slog.Logger) {

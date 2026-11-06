@@ -588,6 +588,12 @@ func fixtureCases() []fixtureCase {
 		}},
 		{"token-revoke", "POST", "/api/v1/tokens/" + fid(91).String() + "/revoke", "", 200, "bearer", nil},
 		{"token-revoke-self", "POST", "/api/v1/tokens/" + fid(90).String() + "/revoke", "", 200, "bearer", nil},
+		{"auth-discover", "POST", "/api/v1/auth/discover", `{}`, 200, "", func(e *env) {
+			c := domain.Connection{ID: fid(90), Kind: domain.ConnectionGitHub, Name: "github", ClientID: "Iv1.abc", ClientSecretRef: "env:GITHUB_SECRET", Enabled: true}
+			if err := e.store.Connections().UpsertInstance(context.Background(), &c); err != nil {
+				panic(err)
+			}
+		}},
 		{"error-unauthorized", "GET", "/api/v1/me", "", 401, "", nil},
 		{"error-not-found", "GET", "/api/v1/goals/GOAL-99", "", 404, "bearer", func(e *env) {
 			e.svc.GetGoalFunc = func(context.Context, domain.Actor, mcp.GoalRefInput) (mcp.GoalDetail, error) {

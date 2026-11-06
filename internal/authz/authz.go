@@ -140,7 +140,19 @@ type caller struct {
 	scopes  []domain.Scope
 	// ownerless is a token without an owner, limited by its scopes only.
 	ownerless bool
-	bindings  []store.BoundRole
+	// breakGlass is an instance admin recovering access: every permission,
+	// on the organization of the session.
+	breakGlass bool
+	bindings   []store.BoundRole
+}
+
+type breakGlassKey struct{}
+
+// WithBreakGlass marks the request as an instance admin's outside their
+// memberships (docs/contracts/identity.md, Recovery). It counts for a session
+// only: a token has its scopes and bindings, whoever owns it.
+func WithBreakGlass(ctx context.Context) context.Context {
+	return context.WithValue(ctx, breakGlassKey{}, true)
 }
 
 type cacheKey struct{}
@@ -188,6 +200,7 @@ func (e *Engine) load(ctx context.Context, by domain.Actor) (*caller, error) {
 		return &caller{principal: EntityUID{string(by.Kind), by.Name}}, nil
 	}
 	v := &caller{principal: EntityUID{TypeUser, id.String()}}
+	v.breakGlass = by.Kind == domain.ActorUser && by.Credential.Kind == domain.CredentialSession && ctx.Value(breakGlassKey{}) != nil
 	kind := domain.SubjectUser
 	if by.Kind == domain.ActorServiceAccount {
 		v.principal.Type, kind = TypeServiceAccount, domain.SubjectServiceAccount
@@ -252,7 +265,7 @@ func (e *Engine) allows(v *caller, by domain.Actor, p domain.Permission, res Res
 	if v.bounded && !domain.ScopesAllow(v.scopes, p) {
 		return false
 	}
-	if v.ownerless {
+	if v.ownerless || v.breakGlass {
 		return true
 	}
 	return e.eval.IsAuthorized(Request{Principal: v.principal, Action: Action(p), Resource: res.UID()}, v.bindings)

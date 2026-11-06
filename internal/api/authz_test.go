@@ -146,7 +146,7 @@ func TestMeOfAMissingUser(t *testing.T) {
 	must(t, st.Accounts().Create(t.Context(), &acc))
 	must(t, st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: acc.ID, Name: "t", TokenHash: mcp.HashToken("fcm_t"),
 		OwnerKind: domain.SubjectUser, OwnerID: domain.NewID(), Scopes: []domain.Scope{domain.ScopeRead}}))
-	srv := api.New(api.Config{Tools: &testkit.ToolService{}, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Authz: authz.New(st, nil), Directory: st.Directory(), Logger: slog.New(slog.DiscardHandler)})
+	srv := api.New(api.Config{Tools: &testkit.ToolService{}, Store: st, Authz: authz.New(st, nil), Logger: slog.New(slog.DiscardHandler)})
 	req := httptest.NewRequestWithContext(t.Context(), "GET", "/api/v1/me", nil)
 	req.Header.Set("Authorization", "Bearer fcm_t")
 	rec := httptest.NewRecorder()

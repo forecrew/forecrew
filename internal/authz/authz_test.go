@@ -695,3 +695,30 @@ func TestEffectiveOf(t *testing.T) {
 		t.Errorf("read token = %+v", got)
 	}
 }
+
+// Break-glass is every permission on the organization of a session, only when
+// it is set, and never for a token.
+func TestBreakGlass(t *testing.T) {
+	f := newFixture(t)
+	id := f.st.AddMember(f.account, domain.User{Name: "root"}, "").ID
+	session := domain.UserActor(f.account, id, domain.Credential{Kind: domain.CredentialSession, ID: domain.NewID()})
+	e := authz.New(f.st, nil)
+	ctx := t.Context()
+	if ok, err := e.Can(ctx, session, domain.PermOrgManage, authz.Organization(f.account)); err != nil || ok {
+		t.Fatalf("without the mark = %v, %v", ok, err)
+	}
+	glass := authz.WithBreakGlass(ctx)
+	if ok, err := e.Can(glass, session, domain.PermOrgManage, authz.Organization(f.account)); err != nil || !ok {
+		t.Fatalf("with the mark = %v, %v", ok, err)
+	}
+	if ok, _ := e.Can(glass, session, domain.PermOrgManage, authz.Organization(domain.NewID())); ok {
+		t.Error("another organization")
+	}
+	// The same person's admin token stays limited by their bindings.
+	tok := domain.MCPToken{AccountID: f.account, Name: "admin", TokenHash: make([]byte, 32), OwnerKind: domain.SubjectUser, OwnerID: id, Scopes: []domain.Scope{domain.ScopeAdmin}}
+	must(t, f.st.MCPTokens().Create(ctx, &tok))
+	token := domain.UserActor(f.account, id, domain.Credential{Kind: domain.CredentialToken, ID: tok.ID})
+	if ok, err := e.Can(glass, token, domain.PermOrgManage, authz.Organization(f.account)); err != nil || ok {
+		t.Errorf("a token under the mark = %v, %v", ok, err)
+	}
+}

@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/authz"
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/evidence"
@@ -98,6 +100,16 @@ type Config struct {
 	// Proposals serves propose_knowledge; nil answers unavailable.
 	Proposals *proposals.Service
 	Logger    *slog.Logger // defaults to discarding
+	// GitHubUserID turns a GitHub login into its stable ID, wrapping
+	// auth.ErrNoGitHubUser for an unknown login; invitations by login answer
+	// unavailable without it.
+	GitHubUserID func(ctx context.Context, login string) (int64, error)
+	// PublicURL starts the links of invitations.
+	PublicURL string
+	// TokenTTL is auth.token_default_ttl; it defaults to
+	// config.DefaultTokenTTL.
+	TokenTTL time.Duration
+	Now      func() time.Time // defaults to the real time
 }
 
 // Service is the mcp.ToolService.
@@ -112,6 +124,12 @@ var _ mcp.ToolService = (*Service)(nil)
 func New(cfg Config) *Service {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
+	}
+	if cfg.TokenTTL == 0 {
+		cfg.TokenTTL = config.DefaultTokenTTL
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
 	}
 	engine := authz.New(cfg.Store, cfg.Logger)
 	if cfg.Proposals != nil {

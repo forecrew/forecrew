@@ -11,13 +11,14 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/forecrew/forecrew/internal/api"
+	"github.com/forecrew/forecrew/internal/auth"
 	"github.com/forecrew/forecrew/internal/authz"
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/testkit"
@@ -48,11 +49,13 @@ func newEnvFor(t *testing.T, now func() time.Time, account domain.Account) *env 
 	st := testkit.NewStore(now)
 	e := &env{svc: &testkit.ToolService{}, store: st, logs: &bytes.Buffer{}, account: account}
 	must(t, st.Accounts().Create(t.Context(), &e.account))
-	must(t, st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: e.account.ID, Name: "laptop", TokenHash: mcp.HashToken(token)}))
+	laptop := domain.MCPToken{AccountID: e.account.ID, Name: "laptop", TokenHash: mcp.HashToken(token)}
+	must(t, st.MCPTokens().Create(t.Context(), &laptop))
 	must(t, st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: e.account.ID, Name: "old", TokenHash: mcp.HashToken("fcm_old"), RevokedAt: testkit.NewClock(t0).Now()}))
-	e.actor = domain.Actor{AccountID: e.account.ID, Kind: domain.ActorMCP, Name: "laptop"}
+	e.actor = domain.Actor{AccountID: e.account.ID, Kind: domain.ActorMCP, Name: "laptop", Credential: domain.Credential{Kind: domain.CredentialToken, ID: laptop.ID}}
 	srv := api.New(api.Config{
-		Tools: e.svc, Artifacts: e.svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Authz: authz.New(st, nil), Directory: st.Directory(), Logger: slog.New(slog.NewJSONHandler(e.logs, nil)),
+		Tools: e.svc, Artifacts: e.svc, Store: st, Authz: authz.New(st, nil), Logger: slog.New(slog.NewJSONHandler(e.logs, nil)), TokenLogin: true,
+		Auth: auth.New(auth.Config{Store: st, Auth: config.Auth{TokenLogin: true}}),
 	})
 	e.server = httptest.NewTLSServer(srv.Handler())
 	t.Cleanup(e.server.Close)
@@ -334,7 +337,7 @@ func TestMeWithMissingAccount(t *testing.T) {
 	must(t, e.store.Accounts().Create(t.Context(), &other))
 	st := testkit.NewStore(nil) // tokens know an account that this store lacks
 	must(t, st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: domain.NewID(), Name: "t", TokenHash: mcp.HashToken("fcm_t")}))
-	srv := httptest.NewServer(api.New(api.Config{Tools: e.svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Authz: authz.New(st, nil), Directory: st.Directory(), Logger: slog.New(slog.DiscardHandler)}).Handler())
+	srv := httptest.NewServer(api.New(api.Config{Tools: e.svc, Store: st, Authz: authz.New(st, nil), Logger: slog.New(slog.DiscardHandler), TokenLogin: true}).Handler())
 	defer srv.Close()
 	req, err := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/api/v1/me", nil)
 	must(t, err)
@@ -365,7 +368,7 @@ func TestLoginSetsCookie(t *testing.T) {
 		t.Fatalf("login = %d %s", r.status, r.body)
 	}
 	c := sessionCookieOf(t, r)
-	if c == nil || c.Value != token || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode || c.Path != "/api/" || c.MaxAge <= 0 {
+	if c == nil || c.Value != token || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode || c.Path != "/" || c.MaxAge <= 0 {
 		t.Fatalf("cookie = %+v", c)
 	}
 	var s api.Session
@@ -392,17 +395,12 @@ func TestCookieRequestsWork(t *testing.T) {
 	if len(calls) != 1 || calls[0].Actor != e.actor {
 		t.Errorf("calls = %+v", calls)
 	}
-	// The cookie is not sent to other paths such as /mcp.
-	u, _ := url.Parse(e.server.URL + "/mcp")
-	if len(e.client.Jar.Cookies(u)) != 0 {
-		t.Error("session cookie would be sent to /mcp")
-	}
 }
 
 func TestLogoutClearsCookie(t *testing.T) {
 	e := newEnv(t)
 	e.do(t, "POST", "/api/v1/session", `{"token":"`+token+`"}`, "")
-	r := e.do(t, "DELETE", "/api/v1/session", "", "")
+	r := e.do(t, "DELETE", "/api/v1/session", "{}", "")
 	c := sessionCookieOf(t, r)
 	if r.status != 204 || c == nil || c.Value != "" || c.MaxAge >= 0 {
 		t.Fatalf("logout = %d, cookie %+v", r.status, c)

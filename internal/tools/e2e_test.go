@@ -34,9 +34,9 @@ func newE2E(t *testing.T) *e2e {
 	must(t, f.st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: f.account.ID, Name: "e2e", TokenHash: mcp.HashToken(e2eToken)}))
 	f.by.Name = "e2e"
 	logger := slog.New(slog.DiscardHandler)
-	mcpSrv := httptest.NewServer(mcp.NewHandler(f.svc, f.st.MCPTokens(), authz.New(f.st, nil), "test", logger))
+	mcpSrv := httptest.NewServer(mcp.NewHandler(f.svc, f.st, authz.New(f.st, nil), "test", logger))
 	t.Cleanup(mcpSrv.Close)
-	apiSrv := httptest.NewServer(api.New(api.Config{Tools: f.svc, Tokens: f.st.MCPTokens(), Accounts: f.st.Accounts(), Authz: authz.New(f.st, nil), Directory: f.st.Directory(), Logger: logger}).Handler())
+	apiSrv := httptest.NewServer(api.New(api.Config{Tools: f.svc, Store: f.st, Authz: authz.New(f.st, nil), Logger: logger, TokenLogin: true}).Handler())
 	t.Cleanup(apiSrv.Close)
 	return &e2e{fixture: f, mcpURL: mcpSrv.URL, apiURL: apiSrv.URL}
 }

@@ -13,6 +13,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew"
+	"github.com/forecrew/forecrew/internal/auth"
 	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/gates"
@@ -75,6 +76,15 @@ func newFixture(t *testing.T, opts ...func(*tools.Config)) *fixture {
 	cfg := tools.Config{
 		Store: st, Gates: f.gates, Jobs: f.jobs, Creator: f.creator, Playbooks: f.playbooks, GitHub: f.tracker, Evidence: f.ev, Logger: logger, Councils: seats,
 		Registers: f.regs,
+		GitHubUserID: func(_ context.Context, login string) (int64, error) {
+			switch login {
+			case "ghost":
+				return 0, auth.ErrNoGitHubUser
+			case "down":
+				return 0, errors.New("github is down")
+			}
+			return 583231, nil
+		},
 		Roles: testkit.Roles{
 			"reviewer":       {Name: "reviewer"},
 			"developer":      {Name: "developer", WritePaths: []string{"src/**"}},

@@ -18,7 +18,7 @@ import (
 func TestRouteAccessCoversEveryRoute(t *testing.T) {
 	st := testkit.NewStore(time.Now)
 	svc := &testkit.ToolService{}
-	srv := api.New(api.Config{Tools: svc, Artifacts: svc, Tokens: st.MCPTokens(), Accounts: st.Accounts(), Authz: authz.New(st, nil), Directory: st.Directory(), Logger: slog.New(slog.DiscardHandler)})
+	srv := api.New(api.Config{Tools: svc, Artifacts: svc, Store: st, Authz: authz.New(st, nil), Logger: slog.New(slog.DiscardHandler)})
 	srv.Handler()
 	routes := srv.Routes()
 	access := api.RouteAccess()
