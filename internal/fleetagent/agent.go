@@ -27,6 +27,9 @@ const (
 	// answers at once for a machine the agent does not have, so polling
 	// right away would spin.
 	noRoomWait = 5 * time.Second
+	// AbuseEvery is how often a provider that watches its machines for abuse
+	// (fleet.AbuseChecker) looks.
+	AbuseEvery = 30 * time.Second
 )
 
 // Config holds what an Agent needs.
@@ -42,6 +45,7 @@ type Config struct {
 	ReconcileEvery         time.Duration
 	BackoffMin, BackoffMax time.Duration
 	NoRoomWait             time.Duration
+	AbuseEvery             time.Duration
 }
 
 // machine is one machine the agent has or is starting.
@@ -102,6 +106,9 @@ func New(cfg Config) *Agent {
 	if cfg.NoRoomWait == 0 {
 		cfg.NoRoomWait = noRoomWait
 	}
+	if cfg.AbuseEvery == 0 {
+		cfg.AbuseEvery = AbuseEvery
+	}
 	return &Agent{cfg: cfg, machines: map[uuid.UUID]*machine{}, pending: map[uuid.UUID]StateReport{}}
 }
 
@@ -149,9 +156,14 @@ func (a *Agent) session(ctx context.Context, connected func()) error {
 		return err
 	}
 	last := a.cfg.Now()
+	var checked time.Time
 	for {
 		if err := a.flush(ctx); err != nil {
 			return err
+		}
+		if a.cfg.Now().Sub(checked) >= a.cfg.AbuseEvery {
+			a.checkAbuse(ctx)
+			checked = a.cfg.Now()
 		}
 		// A slow Create must not stop the polls: with one running the
 		// reconcile waits for a later round.
@@ -455,4 +467,25 @@ func (a *Agent) flush(ctx context.Context) error {
 		a.mu.Unlock()
 	}
 	return nil
+}
+
+// checkAbuse asks a provider that watches its machines which it stopped for
+// abuse, and reports each as failed with its kind: forecrewd cancels its job
+// and tells the operator. The machine leaves the desired list and is destroyed
+// as any other.
+func (a *Agent) checkAbuse(ctx context.Context) {
+	w, ok := a.cfg.Provider.(fleet.AbuseChecker)
+	if !ok {
+		return
+	}
+	found, err := w.CheckAbuse(ctx)
+	if err != nil {
+		a.cfg.Logger.WarnContext(ctx, "check machines for abuse", "error", clean(err))
+	}
+	for _, r := range found {
+		a.cfg.Logger.WarnContext(ctx, "machine stopped for abuse", "machine_id", r.MachineID, "kind", r.Kind)
+		if r.MachineID != uuid.Nil() {
+			a.report(ctx, r.MachineID, StateReport{State: domain.MachineFailed, Error: fleet.CleanError(r.Detail), Abuse: r.Kind})
+		}
+	}
 }
