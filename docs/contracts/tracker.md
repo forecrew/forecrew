@@ -110,6 +110,23 @@ always reach a server.
 `Changes` with an empty cursor returns no events and a cursor of now: a new
 connection does not read the backlog.
 
+`Transition` wraps `ErrBlocked` when the tracker will not take the state: no
+transition of the ticket's workflow reaches it, or one needs fields Forecrew
+does not have. The core forces nothing: it says so in a comment on the ticket,
+sets `tracker_routes.warning` on the ticket's route, and does not retry. The
+next state that goes through clears the warning.
+
+An optional `Preparer` (`Prepare(ctx)`, `Derived()`) reads what the tracker
+says of itself when a connection is set up, such as Jira's `serverInfo`, and
+returns the config to store; the keys of `Derived` are filled in by it and
+never set by a person. An optional `Checker` (`Check(ctx) []Check`) is the
+connection test: each thing that can fail (address, certificate, login,
+project access, transitions) is a result of its own. `tracker.Test` runs it,
+or `Verify` as one check for an adapter without it.
+
+A `Request` carries the query of the URL it came to, for a tracker that cannot
+sign its deliveries and is given a secret URL instead.
+
 An optional `Linker` (`LinkedUser(ctx, accountID, user)`) finds a Forecrew user
 through an identity the organization already has, as the GitHub adapter does
 with linked GitHub accounts. `tracker_identities` comes first.

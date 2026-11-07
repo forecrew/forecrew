@@ -208,3 +208,24 @@ func TestTicketsAreBounded(t *testing.T) {
 		t.Errorf("link = %+v", l)
 	}
 }
+
+// checking reports each check of a connection test.
+type checking struct {
+	*trackertest.Fake
+	checks []tracker.Check
+}
+
+func (c checking) Check(context.Context) []tracker.Check { return c.checks }
+
+func TestConnectionTest(t *testing.T) {
+	f := trackertest.NewFake("s")
+	if got := tracker.Test(t.Context(), f); len(got) != 1 || !got[0].OK || tracker.Failed(got) != nil {
+		t.Errorf("Test of Verify = %+v", got)
+	}
+	c := checking{f, []tracker.Check{{Name: "address", OK: true}, {Name: "login", Detail: "401"}}}
+	got := tracker.Test(t.Context(), c)
+	err := tracker.Failed(got)
+	if len(got) != 2 || !errors.Is(err, tracker.ErrInvalid) || !strings.Contains(err.Error(), "login: 401") || strings.Contains(err.Error(), "address") {
+		t.Errorf("Test = %+v, %v", got, err)
+	}
+}

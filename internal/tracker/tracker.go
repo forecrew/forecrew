@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync"
@@ -31,6 +32,10 @@ var (
 	ErrInvalid = errors.New("tracker: invalid connection")
 	// ErrNotWaiting means a ticket is not in the Inbox any more.
 	ErrNotWaiting = errors.New("tracker: ticket is not waiting")
+	// ErrBlocked means the tracker will not take a state: no transition
+	// reaches it, or one needs fields Forecrew does not have. The core says
+	// so on the ticket and the route, and does not try again.
+	ErrBlocked = errors.New("tracker: transition blocked")
 )
 
 // Ref names a ticket.
@@ -121,7 +126,10 @@ type State struct {
 // Request is a webhook delivery.
 type Request struct {
 	Header http.Header
-	Body   []byte
+	// Query is the query of the URL it came to, for a tracker that cannot
+	// sign its deliveries and is given a secret URL instead.
+	Query url.Values
+	Body  []byte
 }
 
 // Event says a ticket changed. It is a hint: the core reads the ticket with
@@ -160,6 +168,54 @@ type Adapter interface {
 // tracker user through an identity the organization already has.
 type Linker interface {
 	LinkedUser(ctx context.Context, accountID uuid.UUID, u User) (uuid.UUID, bool, error)
+}
+
+// Preparer is an optional part of an Adapter: it reads what the tracker says
+// of itself when a connection is set up, such as its version, and returns the
+// config to store, with the keys of Derived filled in.
+type Preparer interface {
+	Prepare(ctx context.Context) (map[string]any, error)
+	// Derived lists the config keys Prepare fills in: a person never sets
+	// them.
+	Derived() []string
+}
+
+// Check is one result of a connection test.
+type Check struct {
+	Name   string `json:"name"` // for example address, certificate, login
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// Checker is an optional part of an Adapter: a connection test that reports
+// each thing that can fail on its own.
+type Checker interface {
+	Check(ctx context.Context) []Check
+}
+
+// Test runs the connection test of ad: its checks, or Verify as one.
+func Test(ctx context.Context, ad Adapter) []Check {
+	if c, ok := ad.(Checker); ok {
+		return c.Check(ctx)
+	}
+	if err := ad.Verify(ctx); err != nil {
+		return []Check{{Name: "connection", Detail: err.Error()}}
+	}
+	return []Check{{Name: "connection", OK: true}}
+}
+
+// Failed returns an error for the checks that failed, nil when all passed.
+func Failed(checks []Check) error {
+	var errs []error
+	for _, c := range checks {
+		if !c.OK {
+			errs = append(errs, fmt.Errorf("%s: %s", c.Name, c.Detail))
+		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: %w", ErrInvalid, errors.Join(errs...))
 }
 
 // Factory builds the adapter of a connection.

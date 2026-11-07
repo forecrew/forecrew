@@ -3,6 +3,7 @@ package tracker_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -288,6 +289,7 @@ func scenarios() map[string]func(*testing.T, *world) {
 		"a stale transition is dropped": staleTransitionIsDropped,
 		"a reply answers once":          aReplyAnswersOnce,
 		"so is one with no successor":   staleTransitionWithoutASuccessor,
+		"a blocked transition warns":    blockedTransitionWarns,
 	}
 }
 
@@ -916,6 +918,34 @@ func statusGoesBack(t *testing.T, w *world) {
 		t.Errorf("ticket = %+v", got)
 	}
 	w.noLink(t, "X-1")
+}
+
+func blockedTransitionWarns(t *testing.T, w *world) {
+	ctx := t.Context()
+	r := w.route(t, w.app.ID, domain.TrackerMatch{}, map[domain.TicketState]string{domain.TicketInProgress: "doing", domain.TicketDone: "closed"})
+	w.fake.Refuse = fmt.Errorf("no transition reaches doing: %w", tracker.ErrBlocked)
+	w.put(t, labeled("B-1", w.ann))
+	l := w.link(t, "B-1")
+	w.sync(t)
+	w.sync(t) // the comment about it goes out
+	got := w.fake.Ticket("B-1")
+	if got.State == "doing" || !strings.Contains(comments(got), "did not move this ticket to doing") || strings.Count(comments(got), "did not move") != 1 {
+		t.Fatalf("ticket = %+v", got)
+	}
+	route, err := w.st.TrackerRoutes().Get(ctx, w.account, r.ID)
+	must(t, err)
+	if !strings.Contains(route.Warning, "no transition reaches doing") {
+		t.Errorf("warning = %q", route.Warning)
+	}
+	if due, _ := w.st.TrackerOutbox().Due(ctx, w.account, w.clock().Add(2*time.Hour), 10); len(due) != 0 {
+		t.Errorf("a blocked transition is retried: %+v", due)
+	}
+	w.fake.Refuse = nil
+	w.setGoal(t, l, domain.GoalDone)
+	w.sync(t)
+	if route, _ = w.st.TrackerRoutes().Get(ctx, w.account, r.ID); route.Warning != "" || w.fake.Ticket("B-1").State != "closed" {
+		t.Errorf("warning = %q, ticket = %+v", route.Warning, w.fake.Ticket("B-1"))
+	}
 }
 
 func outboxRetries(t *testing.T, w *world) {
