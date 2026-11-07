@@ -527,3 +527,39 @@ func (l *listHiding) List(ctx context.Context) ([]fleet.Instance, error) {
 	all, err := l.FakeProvider.List(ctx)
 	return slices.DeleteFunc(all, func(i fleet.Instance) bool { return i.ExternalID == l.hide }), err
 }
+
+// abusive is the fake provider with abuse checks that find one machine.
+type abusive struct {
+	*testkit.FakeProvider
+	mu    sync.Mutex
+	found []fleet.AbuseReport
+	err   error
+}
+
+func (a *abusive) CheckAbuse(context.Context) ([]fleet.AbuseReport, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := a.found
+	a.found = nil
+	return out, a.err
+}
+
+// A machine the provider stopped for abuse is reported so, fails, and goes.
+func TestAbuseIsReported(t *testing.T) {
+	w := newWorld(t)
+	p := &abusive{FakeProvider: w.fake, err: errors.New("one machine could not be read")}
+	w.start(w.config(p, func(c *fleetagent.Config) { c.AbuseEvery = time.Millisecond }))
+	m := w.request()
+	w.waitState(m.ID, domain.MachineBooting)
+	p.mu.Lock()
+	p.found = []fleet.AbuseReport{{MachineID: m.ID, ExternalID: "x", Kind: domain.AbuseMining, Detail: "stratum"}, {Kind: domain.AbuseCPU}}
+	p.mu.Unlock()
+	eventually(t, "the notice", func() bool {
+		n, _ := w.st.FleetNotices().List(t.Context(), false, 0)
+		return len(n) == 1 && n[0].MachineID == m.ID && n[0].Kind == domain.AbuseMining
+	})
+	w.waitState(m.ID, domain.MachineDestroyed)
+	if !strings.Contains(w.logs.String(), "one machine could not be read") {
+		t.Error("the failed check is not logged")
+	}
+}
