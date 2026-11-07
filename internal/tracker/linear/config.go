@@ -17,7 +17,7 @@ const (
 	// it is in the Authorization header.
 	AuthAPIKey = "api_key"
 	// AuthOAuthToken is an OAuth access token, sent as a Bearer token.
-	AuthOAuthToken = "oauth_token"
+	AuthOAuthToken = "oauth_token" //nolint:gosec // the name of a way to sign in, not a credential
 )
 
 // Config is tracker_connections.config of kind linear. It holds references to

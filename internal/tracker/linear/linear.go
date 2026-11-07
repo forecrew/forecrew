@@ -282,70 +282,16 @@ func (a *Adapter) checkTeams(ctx context.Context) error {
 // dated; one older than a minute is a replay. Of the payload it keeps the
 // issue it is about, and who did it, to drop the connection's own writes.
 func (a *Adapter) ParseEvent(r tracker.Request) ([]tracker.Event, error) {
-	if a.cfg.WebhookSecretRef == "" {
-		return nil, fmt.Errorf("%w: the connection takes no webhooks", tracker.ErrBadSignature)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	secret, err := a.secret(ctx, a.cfg.WebhookSecretRef)
+	p, err := a.verified(ctx, r)
 	if err != nil {
 		return nil, err
-	}
-	got, err := hex.DecodeString(r.Header.Get("Linear-Signature"))
-	if err != nil || len(got) == 0 {
-		return nil, fmt.Errorf("%w: no Linear-Signature", tracker.ErrBadSignature)
-	}
-	mac := hmac.New(sha256.New, []byte(strings.TrimSpace(secret)))
-	mac.Write(r.Body)
-	if !hmac.Equal(got, mac.Sum(nil)) {
-		return nil, fmt.Errorf("%w: the signature does not match", tracker.ErrBadSignature)
-	}
-	var p struct {
-		Action           string `json:"action"`
-		Type             string `json:"type"`
-		WebhookTimestamp int64  `json:"webhookTimestamp"`
-		Actor            *struct {
-			ID string `json:"id"`
-		} `json:"actor"`
-		Data struct {
-			ID         string `json:"id"`
-			Identifier string `json:"identifier"`
-			Number     int    `json:"number"`
-			IssueID    string `json:"issueId"`
-			Team       *struct {
-				Key string `json:"key"`
-			} `json:"team"`
-			Issue *struct {
-				ID         string `json:"id"`
-				Identifier string `json:"identifier"`
-			} `json:"issue"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(r.Body, &p); err != nil {
-		return nil, fmt.Errorf("read the delivery: %w", err)
-	}
-	age := a.d.Now().Sub(time.UnixMilli(p.WebhookTimestamp))
-	if p.WebhookTimestamp == 0 || age > webhookWindow || age < -webhookWindow {
-		return nil, fmt.Errorf("%w: the delivery is not from the last minute", tracker.ErrBadSignature)
 	}
 	if p.Action == "remove" {
 		return nil, nil
 	}
-	key, id := "", ""
-	switch p.Type {
-	case "Issue":
-		key, id = p.Data.Identifier, p.Data.ID
-		if key == "" && p.Data.Team != nil && p.Data.Number > 0 {
-			key = p.Data.Team.Key + "-" + strconv.Itoa(p.Data.Number)
-		}
-	case "Comment":
-		id = p.Data.IssueID
-		if p.Data.Issue != nil {
-			key, id = p.Data.Issue.Identifier, p.Data.Issue.ID
-		}
-	default:
-		return nil, nil
-	}
+	key, id := p.issue()
 	if key == "" && id != "" { // the payload names the issue by its ID only
 		if key, err = a.identifier(ctx, id); err != nil {
 			return nil, err
@@ -364,6 +310,77 @@ func (a *Adapter) ParseEvent(r tracker.Request) ([]tracker.Event, error) {
 		self = p.Actor.ID != "" && p.Actor.ID == v.(viewer).ID
 	}
 	return []tracker.Event{{ID: delivery, Key: key, Self: self}}, nil
+}
+
+// payload is what of a webhook delivery the adapter reads.
+type payload struct {
+	Action           string `json:"action"`
+	Type             string `json:"type"`
+	WebhookTimestamp int64  `json:"webhookTimestamp"`
+	Actor            *struct {
+		ID string `json:"id"`
+	} `json:"actor"`
+	Data struct {
+		ID         string `json:"id"`
+		Identifier string `json:"identifier"`
+		Number     int    `json:"number"`
+		IssueID    string `json:"issueId"`
+		Team       *struct {
+			Key string `json:"key"`
+		} `json:"team"`
+		Issue *struct {
+			ID         string `json:"id"`
+			Identifier string `json:"identifier"`
+		} `json:"issue"`
+	} `json:"data"`
+}
+
+// issue is the key and the ID of the issue a delivery is about, whichever it
+// gives; neither for a type of event the adapter does not use.
+func (p payload) issue() (key, id string) {
+	d := p.Data
+	switch p.Type {
+	case "Issue":
+		if key = d.Identifier; key == "" && d.Team != nil && d.Number > 0 {
+			key = d.Team.Key + "-" + strconv.Itoa(d.Number)
+		}
+		return key, d.ID
+	case "Comment":
+		if d.Issue != nil {
+			return d.Issue.Identifier, d.Issue.ID
+		}
+		return "", d.IssueID
+	}
+	return "", ""
+}
+
+// verified checks the signature and the date of a delivery, then reads it.
+func (a *Adapter) verified(ctx context.Context, r tracker.Request) (payload, error) {
+	if a.cfg.WebhookSecretRef == "" {
+		return payload{}, fmt.Errorf("%w: the connection takes no webhooks", tracker.ErrBadSignature)
+	}
+	secret, err := a.secret(ctx, a.cfg.WebhookSecretRef)
+	if err != nil {
+		return payload{}, err
+	}
+	got, err := hex.DecodeString(r.Header.Get("Linear-Signature"))
+	if err != nil || len(got) == 0 {
+		return payload{}, fmt.Errorf("%w: no Linear-Signature", tracker.ErrBadSignature)
+	}
+	mac := hmac.New(sha256.New, []byte(strings.TrimSpace(secret)))
+	mac.Write(r.Body)
+	if !hmac.Equal(got, mac.Sum(nil)) {
+		return payload{}, fmt.Errorf("%w: the signature does not match", tracker.ErrBadSignature)
+	}
+	var p payload
+	if err := json.Unmarshal(r.Body, &p); err != nil {
+		return payload{}, fmt.Errorf("read the delivery: %w", err)
+	}
+	age := a.d.Now().Sub(time.UnixMilli(p.WebhookTimestamp))
+	if p.WebhookTimestamp == 0 || age > webhookWindow || age < -webhookWindow {
+		return payload{}, fmt.Errorf("%w: the delivery is not from the last minute", tracker.ErrBadSignature)
+	}
+	return p, nil
 }
 
 // identifier turns an issue's ID into its key.
@@ -559,12 +576,17 @@ func (a *Adapter) Get(ctx context.Context, key string) (tracker.Ticket, error) {
 	if i == nil || i.Identifier != key || !slices.Contains(a.cfg.Teams, i.Team.Key) { // moved to another team
 		return tracker.Ticket{}, a.notFound(key)
 	}
+	return a.ticket(i)
+}
+
+// ticket turns an issue into the neutral ticket.
+func (a *Adapter) ticket(i *issue) (tracker.Ticket, error) {
 	updated, err := when(i.UpdatedAt)
 	if err != nil {
 		return tracker.Ticket{}, err
 	}
 	t := tracker.Ticket{
-		Ref: tracker.Ref{Connection: a.conn.ID, Key: key}, Project: i.Team.Key, Title: i.Title, Body: i.Description,
+		Ref: tracker.Ref{Connection: a.conn.ID, Key: i.Identifier}, Project: i.Team.Key, Title: i.Title, Body: i.Description,
 		State: i.State.Name, Closed: closedType(i.State.Type), URL: i.URL, Updated: updated,
 		Assignee: i.Assignee.neutral(), Reporter: i.Creator.neutral(),
 	}
@@ -577,32 +599,51 @@ func (a *Adapter) Get(ctx context.Context, key string) (tracker.Ticket, error) {
 	if i.Parent != nil {
 		t.Parent = i.Parent.Identifier
 	}
+	if t.Comments, err = i.comments(); err != nil {
+		return tracker.Ticket{}, err
+	}
+	if t.Handovers, err = i.handovers(); err != nil {
+		return tracker.Ticket{}, err
+	}
+	return t, nil
+}
+
+// comments are the issue's comments, oldest first: Linear sends the newest first.
+func (i *issue) comments() ([]tracker.Comment, error) {
+	var out []tracker.Comment
 	for _, c := range i.Comments.Nodes {
 		at, err := when(c.CreatedAt)
 		if err != nil {
-			return tracker.Ticket{}, err
+			return nil, err
 		}
-		t.Comments = append(t.Comments, tracker.Comment{ID: c.ID, Author: c.User.neutral(), Body: c.Body, At: at})
+		out = append(out, tracker.Comment{ID: c.ID, Author: c.User.neutral(), Body: c.Body, At: at})
 	}
-	sort.SliceStable(t.Comments, func(x, y int) bool { return t.Comments[x].At.Before(t.Comments[y].At) })
+	sort.SliceStable(out, func(x, y int) bool { return out[x].At.Before(out[y].At) })
+	return out, nil
+}
+
+// handovers read who assigned, labeled or moved the issue from its history,
+// oldest first.
+func (i *issue) handovers() ([]tracker.Handover, error) {
+	var out []tracker.Handover
 	for _, h := range i.History.Nodes {
 		at, err := when(h.CreatedAt)
 		if err != nil {
-			return tracker.Ticket{}, err
+			return nil, err
 		}
 		by := h.Actor.neutral()
 		if h.ToAssigneeID != "" {
-			t.Handovers = append(t.Handovers, tracker.Handover{Trigger: tracker.TriggerAssignee, Value: h.ToAssigneeID, By: by, At: at})
+			out = append(out, tracker.Handover{Trigger: tracker.TriggerAssignee, Value: h.ToAssigneeID, By: by, At: at})
 		}
 		for _, l := range h.AddedLabels {
-			t.Handovers = append(t.Handovers, tracker.Handover{Trigger: tracker.TriggerLabel, Value: l.Name, By: by, At: at})
+			out = append(out, tracker.Handover{Trigger: tracker.TriggerLabel, Value: l.Name, By: by, At: at})
 		}
 		if h.ToState != nil {
-			t.Handovers = append(t.Handovers, tracker.Handover{Trigger: tracker.TriggerState, Value: h.ToState.Name, By: by, At: at})
+			out = append(out, tracker.Handover{Trigger: tracker.TriggerState, Value: h.ToState.Name, By: by, At: at})
 		}
 	}
-	sort.SliceStable(t.Handovers, func(x, y int) bool { return t.Handovers[x].At.Before(t.Handovers[y].At) })
-	return t, nil
+	sort.SliceStable(out, func(x, y int) bool { return out[x].At.Before(out[y].At) })
+	return out, nil
 }
 
 // issueID reads the ID of an issue, which mutations take.
