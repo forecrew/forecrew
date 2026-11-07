@@ -221,7 +221,7 @@ structs in `internal/domain` and `internal/mcp`.
 | `GET /api/v1/tracker-routes?connection=` | `list_tracker_routes` | optional | `200` routes in order, with `connection` and `project`, and `warning` when the tracker did not take the last state Forecrew wrote (the tracker's words; editing the route clears it) |
 | `POST /api/v1/tracker-routes` | `create_tracker_route` | `{"connection", "project", "position", "match": {"project", "types", "labels", "components"}, "goal_kind", "playbook", "states"}` | `201` route; `409` when the connection has a route at that `position` already |
 | `DELETE /api/v1/tracker-routes/{route}` | `delete_tracker_route` | | `200` the route |
-| `GET /api/v1/tracker-people/unmapped?connection=` | `list_unmapped_tracker_people` | optional | `200` `{"people": [{"connection", "external_id", "external_name", "tickets", "suggestions": [{"user", "name", "reason"}]}], "problems": []}`: who handed tickets over and maps to no user, with members of the same name |
+| `GET /api/v1/tracker-people/unmapped?connection=` | `list_unmapped_tracker_people` | optional | `200` `{"people": [{"connection", "external_id", "external_name", "tickets", "suggestions": [{"user", "name", "reason"}]}], "problems": []}`: who handed tickets over and maps to no user, with members of the same name; remembered for five minutes per connection |
 | `GET /api/v1/tracker-identities?connection=` | `list_tracker_identities` | optional | `200` identities |
 | `POST /api/v1/tracker-identities` | `map_tracker_identity` | `{"connection", "external_id", "external_name", "user"}` | `201` identity; `403` when the user holds more than you; `409` when mapped already |
 | `DELETE /api/v1/tracker-identities/{identity}` | `unmap_tracker_identity` | | `200` the identity |

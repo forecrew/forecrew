@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/contextpack"
@@ -500,6 +502,9 @@ func (s *Service) MapTrackerIdentity(ctx context.Context, by domain.Actor, in mc
 		}
 		return s.audit(ctx, tx, by, uuid.Nil(), "tracker.identity_mapped", "tracker_identity", i.ID, map[string]any{"connection": c.Name, "external_id": i.ExternalID, "user": user})
 	})
+	if err == nil {
+		s.people.forget(c.ID)
+	}
 	return i, conflict(err, in.ExternalID+" is mapped already")
 }
 
@@ -522,6 +527,9 @@ func (s *Service) UnmapTrackerIdentity(ctx context.Context, by domain.Actor, in 
 		}
 		return s.audit(ctx, tx, by, uuid.Nil(), "tracker.identity_unmapped", "tracker_identity", i.ID, map[string]any{"external_id": i.ExternalID})
 	})
+	if err == nil {
+		s.people.forget(i.ConnectionID)
+	}
 	return i, notFound(err, "identity "+in.Identity)
 }
 
@@ -663,7 +671,7 @@ func (s *Service) ListUnmappedTrackerPeople(ctx context.Context, by domain.Actor
 	if err != nil {
 		return mcp.UnmappedTrackerPeople{}, err
 	}
-	found, readErr := core.Unmapped(ctx, by.AccountID, only)
+	found, readErr := s.unmappedPeople(ctx, core, by.AccountID, only)
 	members, err := s.members(ctx, by, uuid.Nil())
 	if err != nil {
 		return mcp.UnmappedTrackerPeople{}, err
@@ -766,6 +774,7 @@ func (s *Service) AcceptTicket(ctx context.Context, by domain.Actor, in mcp.Acce
 	if err != nil {
 		return mcp.TicketInfo{}, trackerError(err)
 	}
+	s.people.forget(l.ConnectionID)
 	if err := s.audit(ctx, s.cfg.Store, by, project, "ticket.accepted", "ticket", got.ID, map[string]any{"key": got.Key}); err != nil {
 		return mcp.TicketInfo{}, err
 	}
@@ -797,5 +806,83 @@ func (s *Service) DismissTicket(ctx context.Context, by domain.Actor, in mcp.Dis
 	if err != nil {
 		return mcp.TicketInfo{}, trackerError(err)
 	}
+	s.people.forget(l.ConnectionID)
 	return s.ticketInfo(ctx, got)
+}
+
+// peopleTTL is how long who a connection's waiting tickets are from is
+// remembered: finding out reads each ticket from the tracker, and the screen,
+// MCP and the CLI must not spend the budget of its token.
+const peopleTTL = 5 * time.Minute
+
+type peopleEntry struct {
+	people []tracker.Unmapped
+	at     time.Time
+}
+
+// peopleCache holds the people of each connection, shared by every copy of
+// the service.
+type peopleCache struct {
+	mu      sync.Mutex
+	entries map[uuid.UUID]peopleEntry
+}
+
+func (c *peopleCache) get(id uuid.UUID, now time.Time) ([]tracker.Unmapped, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok := c.entries[id]
+	return e.people, ok && now.Sub(e.at) < peopleTTL
+}
+
+func (c *peopleCache) put(id uuid.UUID, people []tracker.Unmapped, now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.entries == nil {
+		c.entries = map[uuid.UUID]peopleEntry{}
+	}
+	c.entries[id] = peopleEntry{people: people, at: now}
+}
+
+// forget drops a connection's people; the zero ID drops all of them.
+func (c *peopleCache) forget(id uuid.UUID) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if id == uuid.Nil() {
+		clear(c.entries)
+		return
+	}
+	delete(c.entries, id)
+}
+
+// unmappedPeople finds who waiting tickets are from, connection by connection,
+// from the cache while it is fresh. A connection that could not be read is not
+// remembered, and is told in the error.
+func (s *Service) unmappedPeople(ctx context.Context, core *tracker.Service, accountID, only uuid.UUID) ([]tracker.Unmapped, error) {
+	ids := []uuid.UUID{only}
+	if only == uuid.Nil() {
+		conns, err := s.cfg.Store.TrackerConnections().List(ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+		ids = ids[:0]
+		for _, c := range conns {
+			ids = append(ids, c.ID)
+		}
+	}
+	var out []tracker.Unmapped
+	var errs []error
+	for _, id := range ids {
+		if people, ok := s.people.get(id, s.cfg.Now()); ok {
+			out = append(out, people...)
+			continue
+		}
+		people, err := core.Unmapped(ctx, accountID, id)
+		out = append(out, people...)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		s.people.put(id, people, s.cfg.Now())
+	}
+	return out, errors.Join(errs...)
 }
