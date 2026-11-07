@@ -2,6 +2,7 @@ package playbooks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -127,7 +128,9 @@ func plural(n int, word string) string {
 // settleGoal is the action goal.settle, which the goal playbook runs when it
 // ends failed or canceled. It puts the goal in a consistent state: a goal
 // that is not done is canceled, its tasks that are not merged are closed,
-// and the issues of both are closed with a comment on the goal's. A task
+// and the issues of both are closed with a comment on the goal's, unless the
+// goal's issue is a person's ticket, which the route's canceled mapping
+// decides on. A task
 // whose pull request is merged, on GitHub too, is moved to merged instead:
 // merged pull requests are never undone. A goal that is done is left alone,
 // and a repeated call completes what a failed one left open.
@@ -170,11 +173,31 @@ func (a *actions) settleGoal(ctx context.Context, call workflow.ActionCall) (any
 			return nil, err
 		}
 	}
+	ticket, err := a.issueIsTicket(ctx, g)
+	if err != nil {
+		return nil, err
+	}
+	if ticket { // a person's issue: the route's canceled mapping decides
+		return map[string]string{"status": string(domain.GoalCanceled)}, nil
+	}
 	reason := "Forecrew stopped working on this goal: the run failed or was canceled. Pull requests that were merged stay merged."
 	if err := a.closeIssue(ctx, p.Repo, g.IssueNumber, fmt.Sprintf("<!-- forecrew:settle:%s -->", g.ID), reason); err != nil {
 		return nil, err
 	}
 	return map[string]string{"status": string(domain.GoalCanceled)}, nil
+}
+
+// issueIsTicket reports whether the goal's issue is the ticket it came from,
+// live or just ended.
+func (a *actions) issueIsTicket(ctx context.Context, g domain.Goal) (bool, error) {
+	l, err := a.Store.TicketLinks().GetByGoal(ctx, g.AccountID, g.ID)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("find the ticket of %s: %w", g.Ref(), err)
+	}
+	return g.IssueNumber != 0 && l.IssueNumber == g.IssueNumber, nil
 }
 
 // settleTasks moves the tasks that are not merged to merged when their pull
