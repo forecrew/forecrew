@@ -157,7 +157,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		// registered address: only an app the person connected before gets
 		// its error back, the others get a page here.
 		if !known {
-			s.page(w, r, http.StatusBadRequest, "This app sent a bad request", "Forecrew did not send you back to it. What it asked for: "+e.text+".")
+			s.page(w, r, http.StatusBadRequest, "This app sent a bad request", "Forecrew did not send you back to it, because you have not connected it before. Connect it again from the app; if this keeps happening, the app does not work with Forecrew.")
 			return
 		}
 		s.backWithError(w, r, q, e)

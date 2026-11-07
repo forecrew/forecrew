@@ -586,7 +586,7 @@ func TestErrorsOfANewApp(t *testing.T) {
 			q.Set("redirect_uri", "https://evil.example/cb")
 			change(q)
 			res, page := e.get(t, q, cookie)
-			if res.StatusCode != http.StatusBadRequest || res.Header.Get("Location") != "" || !strings.Contains(page, "did not send you back") {
+			if res.StatusCode != http.StatusBadRequest || res.Header.Get("Location") != "" || !strings.Contains(page, "did not send you back") || strings.Contains(page, "everything") {
 				t.Fatalf("answer = %d %s", res.StatusCode, res.Header.Get("Location"))
 			}
 		})
