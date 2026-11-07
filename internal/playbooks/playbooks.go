@@ -112,6 +112,7 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["goal.council_constraints"] = d.goalCouncilConstraints
 	registry["goal.adr"] = d.goalADR
 	registry["goal.adr_ready"] = d.adrReadyAction
+	registry["goal.adr_round"] = d.adrRoundAction
 	registry["bug.spec"] = d.bugSpecAction
 	registry["bug.plan"] = d.bugPlanAction
 	registry["bug.reproduced"] = d.bugReproduced

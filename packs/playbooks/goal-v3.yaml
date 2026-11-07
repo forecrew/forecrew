@@ -148,51 +148,87 @@ steps:
         on_failure: escalate
 
   # The ADR the architect wrote, if any: a PR a human approves and merges.
-  - id: adr_found
-    type: action
-    action: goal.adr_ready
-    with: {goal_id: '${inputs.goal_id}'}
+  # Changes requested at the gate send the architect back to it with the
+  # feedback, at most three rounds (a needs_you gate for the next ones).
+  - id: adr_review
+    type: loop
+    max_iterations: 3
+    until: steps.adr_end.output.done
     on_failure: escalate
-  - id: adr_delivery
-    type: foreach
-    items: '${steps.adr_found.output.if_adr}'
     steps:
-      - id: adr_pr
+      - id: adr_prev
         type: action
-        action: github.open_or_update_pr
+        action: goal.adr_round
         with:
-          repo: '${inputs.repo}'
-          title: '${steps.adr_found.output.title}'
-          body: '${steps.adr_found.output.body}'
-          head: '${item}'
-          base: '${steps.intake.output.default_branch}'
-        on_failure: escalate
-      - id: adr_checks
-        type: wait
-        timeout: 1h
-        on_failure: escalate
-        with: {signal: checks.completed, repo: '${inputs.repo}', sha: '${steps.adr_found.output.sha}'}
-      - id: adr_gate
-        type: gate
-        with:
-          kind: merge_approval
-          title: 'Merge the ADR of the goal'
-          summary: "The architect recorded the technical council's decision as an architecture decision record on ${item}. Approve to merge it; reject to stop the run, which leaves the pull request open."
-          subject_repo: '${inputs.repo}'
-          subject_number: '${steps.adr_pr.output.number}'
-      - id: adr_verdict
-        type: action
-        action: goal.if_approved
-        with: {decision: '${steps.adr_gate.output.decision}', number: '${steps.adr_pr.output.number}'}
-      - id: adr_merge_if
+          decision: '${steps.adr_delivery.output.0.adr_gate.output.decision}'
+          feedback: '${steps.adr_delivery.output.0.adr_gate.output.feedback}'
+      - id: adr_rework
         type: foreach
-        items: '${steps.adr_verdict.output.if_approved}'
+        items: '${steps.adr_prev.output.if_rework}'
         steps:
-          - id: adr_merge
-            type: action
-            action: github.merge_pr
-            with: {repo: '${inputs.repo}', number: '${item}', sha: '${steps.adr_found.output.sha}'}
+          - id: adr_redo
+            type: job
+            with:
+              role: architect
+              repo: '${inputs.repo}'
+              goal_id: '${inputs.goal_id}'
+              spec_id: '${steps.render.output.spec_id}'
+              feedback: '${item}'
+              pool: '${steps.adr.output.pool}'
+              branch: '${steps.adr.output.branch}'
+              write_paths: '${steps.adr.output.write_paths}'
+              prompt: If you are allowed to write files, the technical council decided the design, and you record it as an architecture decision record in docs/adr/ (the next free number, a title in the file name), with the context, the decision, the options not taken and the consequences. Write nothing else, and do not write it when you may not write files.
             on_failure: escalate
+      - id: adr_found
+        type: action
+        action: goal.adr_ready
+        with: {goal_id: '${inputs.goal_id}'}
+        on_failure: escalate
+      - id: adr_delivery
+        type: foreach
+        items: '${steps.adr_found.output.if_adr}'
+        steps:
+          - id: adr_pr
+            type: action
+            action: github.open_or_update_pr
+            with:
+              repo: '${inputs.repo}'
+              title: '${steps.adr_found.output.title}'
+              body: '${steps.adr_found.output.body}'
+              head: '${item}'
+              base: '${steps.intake.output.default_branch}'
+            on_failure: escalate
+          - id: adr_checks
+            type: wait
+            timeout: 1h
+            on_failure: escalate
+            with: {signal: checks.completed, repo: '${inputs.repo}', sha: '${steps.adr_found.output.sha}'}
+          - id: adr_gate
+            type: gate
+            with:
+              kind: merge_approval
+              title: 'Merge the ADR of the goal'
+              summary: "The architect recorded the technical council's decision as an architecture decision record on ${item}. Approve to merge it; request changes to have the architect rewrite it with your feedback (up to three times); reject to stop the run, which leaves the pull request open."
+              subject_repo: '${inputs.repo}'
+              subject_number: '${steps.adr_pr.output.number}'
+          - id: adr_verdict
+            type: action
+            action: goal.if_approved
+            with: {decision: '${steps.adr_gate.output.decision}', number: '${steps.adr_pr.output.number}'}
+          - id: adr_merge_if
+            type: foreach
+            items: '${steps.adr_verdict.output.if_approved}'
+            steps:
+              - id: adr_merge
+                type: action
+                action: github.merge_pr
+                with: {repo: '${inputs.repo}', number: '${item}', sha: '${steps.adr_found.output.sha}'}
+                on_failure: escalate
+      # Done without an ADR, or once the human approved it.
+      - id: adr_end
+        type: action
+        action: goal.adr_round
+        with: {decision: '${steps.adr_delivery.output.0.adr_gate.output.decision}'}
 
   # The tasks one after the other. Inside a foreach over a list, ${item} is
   # that list's element, so the steps of the inner foreaches read the task
