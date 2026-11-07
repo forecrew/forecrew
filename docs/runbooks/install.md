@@ -140,6 +140,19 @@ of the project's organization who linked their GitHub account by signing in
 with it, with the permission of the gate. `github.allowlist` is deprecated: it only
 counts in an organization where nobody holds a role yet.
 
+To hand tickets over from a GitHub Projects board (tracker kind
+`github_project`, see [../contracts/tracker.md](../contracts/tracker.md)), the
+App also needs the **Projects** organization permission, read and write (write
+moves the cards), and the **Projects v2 item** event. GitHub sends that event
+for boards of an organization only, and only to an App with the Projects
+permission; for a board it does not reach, forecrewd finds the moves when it
+polls (every two minutes). Boards owned by a user are not supported: an App
+cannot read them. Whoever accepts the new permission for the organization
+installs the update; until then the connection is refused when it is created.
+Then connect the board: `forecrew tracker connect board --kind github_project
+--owner <org> --project <number> --state <column>`, and add a route for each
+repo whose cards should start work.
+
 To show the verification of a pull request as the check run
 `forecrew/verification`, the App also needs the **Checks** write permission.
 Without it the verification is still posted as a PR comment, and forecrewd logs

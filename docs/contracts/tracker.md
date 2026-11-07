@@ -248,3 +248,67 @@ its body links the ticket. A canceled goal does not close an issue that is its
 ticket: the route's `canceled` mapping does, if it has one. `@forecrew approve` and `changes` do nothing on an
 issue that is a ticket, and keep working everywhere else, `github.allowlist`
 included.
+
+## GitHub Projects
+
+Kind `github_project`, package `internal/tracker/githubproject`, over the
+existing App and GitHub's GraphQL API. One connection is one board of an
+organization; moving a card to the column of the `state` trigger hands it over,
+and Forecrew moves the card as the goal advances. Config:
+
+```yaml
+owner: acme            # the organization that owns the board
+project: 7             # the board's number
+field: Status          # the single-select field that holds the columns (default Status)
+closed: [Done]         # columns that count as finished (default Done)
+bot_login: forecrew[bot]   # the App's user: its events are dropped
+```
+
+Only `state` is a trigger: `Verify` refuses `assignee` and `label`. The columns are the options of the field, and
+`States` returns them, those of `closed` marked closed. A route's `states` name
+columns; Forecrew's own move into the handover column is no handover, since an
+App is not a person, but map `in_progress`, `in_review` and `done` to other
+columns anyway, so a card in the handover column means a person is waiting.
+
+- **Permissions and events.** The App needs the organization permission
+  Projects (read and write), issues read and write as before, and the event
+  `projects_v2_item`. GitHub sends that event for boards of an organization
+  only, and only to an App with the Projects permission: no repo webhook and no
+  user-owned board gets it, and an App cannot read a user's board at all. The
+  issue events of `/webhooks/github` do not say which card they are about, so an
+  edit of an issue's text or a comment on it reaches the core by polling.
+  `Changes` reads the board and keeps the cards changed since its cursor (the
+  newest of the card's, its column's and its issue's update), so it gives what
+  the events give, and more. The scan asks only for each card's kind and times;
+  `Get` reads the rest. It reads at most 5,000 cards (`github.MaxScanPages`): a
+  larger board fails its poll with an error saying to rely on webhooks. The
+  App's token for the board is narrowed to Projects (write) and Issues (read).
+- **Keys.** A ticket's key is the card's node ID, stable for the life of the
+  card, drafts included. `Verify` refuses a board whose owner owns no repo of one
+  of the organization's projects, a board the App cannot read, and a trigger
+  that is not a column.
+- **Issues.** A card that is an issue has `Issue` set, so the core gives its
+  link the issue's number: the card and the same issue as a ticket of a `github`
+  connection cannot both have a goal. The ticket's project is the issue's repo,
+  so a board of several repos is routed by `match.project`. An issue of a repo
+  that is not a repo of one of the organization's projects is no ticket: `Get`
+  says not found before it reads its comments or timeline, so the connection
+  never reads outside the organization's projects, and one such card cannot
+  fail a poll. A draft has no repo
+  and no timeline: `match.project` cannot match it, and who moved it is not known,
+  so it waits in the Inbox. Pull requests are not tickets.
+- **Who moved it.** For an issue, the timeline event
+  `ProjectV2ItemStatusChangedEvent` of the move into the handover column names the
+  person, who must map to a Forecrew user as with any tracker. The event counts
+  only if it is on this board, into this column, and no more than a minute
+  before the time GitHub gives the card's column: a card that was removed and
+  added again, or put in the column with no event, is not credited to an earlier
+  move. A move by a board workflow, a move with no event, a bot and a stranger have no known person: the
+  ticket waits in the Inbox with `unknown_person`.
+- **Finished.** A card is closed when its issue is, when it is archived, or when
+  it is in a `closed` column. A card that is deleted is no event.
+- **Writes.** A comment goes on the card's issue; a draft takes none, and the
+  write is dropped. A transition to a column that was renamed or deleted fails
+  with an error naming the board's columns and moves nothing; the write is retried
+  until the route's `states` are fixed, and the connection cannot be deleted until
+  it is sent.
