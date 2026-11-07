@@ -19,8 +19,8 @@ func TestGateDecision(t *testing.T) {
 	for _, kind := range domain.GateKinds() {
 		for tool, decision := range want {
 			got, err := GateDecision(tool, kind, in)
-			if kind == domain.GateNeedsYou && tool == ToolRequestChanges {
-				if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "not allowed on needs_you gates") {
+			if !kind.AllowsDecision(domain.GateChangesRequested) && tool == ToolRequestChanges {
+				if !errors.Is(err, ErrInvalidInput) || !strings.Contains(err.Error(), "not allowed on "+string(kind)+" gates") {
 					t.Errorf("%s on %s: err = %v, want ErrInvalidInput", tool, kind, err)
 				}
 				continue

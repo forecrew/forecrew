@@ -136,6 +136,15 @@ func (r runRepo) Update(_ context.Context, run *domain.WorkflowRun) error {
 	})
 }
 
+func (r runRepo) RequestCancel(_ context.Context, accountID, id uuid.UUID, reason string) error {
+	return update(r.s, runsT, accountID, id, func(cur *domain.WorkflowRun, now time.Time) error {
+		if cur.Status == domain.RunRunning || cur.Status == domain.RunWaiting {
+			cur.CancelReason, cur.UpdatedAt = reason, now
+		}
+		return nil
+	})
+}
+
 // StepRuns implements store.Store.
 func (s *Store) StepRuns() store.StepRunRepo { return stepRepo{s} }
 

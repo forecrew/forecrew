@@ -63,6 +63,12 @@ type Store interface {
 	WorkflowRuns() WorkflowRunRepo
 	StepRuns() StepRunRepo
 	WebhookDeliveries() WebhookDeliveryRepo
+	TrackerConnections() TrackerConnectionRepo
+	TrackerRoutes() TrackerRouteRepo
+	TrackerIdentities() TrackerIdentityRepo
+	TrackerCursors() TrackerCursorRepo
+	TicketLinks() TicketLinkRepo
+	TrackerOutbox() TrackerOutboxRepo
 	MCPTokens() PersonalTokenRepo
 	Audit() AuditRepo
 	Artifacts() ArtifactRepo
@@ -372,6 +378,9 @@ type WorkflowRunRepo interface {
 	ListActive(ctx context.Context, accountID uuid.UUID) ([]domain.WorkflowRun, error)
 	// Update writes Status, State, Error and FinishedAt.
 	Update(ctx context.Context, r *domain.WorkflowRun) error
+	// RequestCancel stores the reason a run should be canceled for, which
+	// the engine acts on. A run that has ended is left as it is.
+	RequestCancel(ctx context.Context, accountID, id uuid.UUID, reason string) error
 }
 
 // StepRunRepo stores step runs.
@@ -1241,6 +1250,100 @@ type UsageRepo interface {
 	// SumByProvider sums a provider's records of every organization, for
 	// its monthly budget.
 	SumByProvider(ctx context.Context, providerID uuid.UUID, from, to time.Time) (UsageTotal, error)
+}
+
+// TrackerConnectionRepo stores tracker connections. (account, name) is
+// unique.
+type TrackerConnectionRepo interface {
+	Create(ctx context.Context, c *domain.TrackerConnection) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.TrackerConnection, error)
+	GetByName(ctx context.Context, accountID uuid.UUID, name string) (domain.TrackerConnection, error)
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.TrackerConnection, error)
+	// Find returns a connection in any account, for a webhook: its URL names
+	// the connection, and its signature is checked next.
+	Find(ctx context.Context, id uuid.UUID) (domain.TrackerConnection, error)
+	// ListByKind returns the connections of a kind in every account, for a
+	// webhook all of them share.
+	ListByKind(ctx context.Context, kind string) ([]domain.TrackerConnection, error)
+}
+
+// TrackerRouteRepo stores routes.
+type TrackerRouteRepo interface {
+	Create(ctx context.Context, r *domain.TrackerRoute) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.TrackerRoute, error)
+	// List returns the routes of a connection in the order they are tried,
+	// or of every connection for the zero ID.
+	List(ctx context.Context, accountID, connectionID uuid.UUID) ([]domain.TrackerRoute, error)
+	Delete(ctx context.Context, accountID, id uuid.UUID) error
+}
+
+// TrackerIdentityRepo stores who is who on a tracker. (connection, external
+// ID) is unique.
+type TrackerIdentityRepo interface {
+	Create(ctx context.Context, i *domain.TrackerIdentity) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.TrackerIdentity, error)
+	// Find returns the mapping of an external user.
+	Find(ctx context.Context, accountID, connectionID uuid.UUID, externalID string) (domain.TrackerIdentity, error)
+	// List returns the mappings of a connection, or of every connection for
+	// the zero ID.
+	List(ctx context.Context, accountID, connectionID uuid.UUID) ([]domain.TrackerIdentity, error)
+	Delete(ctx context.Context, accountID, id uuid.UUID) error
+}
+
+// TrackerCursorRepo stores where polling a connection got to.
+type TrackerCursorRepo interface {
+	// Get returns the cursor, "" when the connection was never polled.
+	Get(ctx context.Context, accountID, connectionID uuid.UUID) (string, error)
+	Set(ctx context.Context, accountID, connectionID uuid.UUID, cursor string) error
+}
+
+// TicketLinkFilter selects ticket links.
+type TicketLinkFilter struct {
+	ConnectionID uuid.UUID
+	ProjectID    uuid.UUID
+	Status       domain.TicketLinkStatus
+	Live         bool // waiting, queued and active only
+	Limit        int
+}
+
+// TicketLinkRepo stores ticket links. A ticket has at most one live link and
+// a goal at most one link: Create and Update answer ErrConflict otherwise.
+type TicketLinkRepo interface {
+	Create(ctx context.Context, l *domain.TicketLink) error
+	Get(ctx context.Context, accountID, id uuid.UUID) (domain.TicketLink, error)
+	// GetLive returns the live link of a ticket.
+	GetLive(ctx context.Context, accountID, connectionID uuid.UUID, key string) (domain.TicketLink, error)
+	// LastEnded returns the newest link of a ticket that is over.
+	LastEnded(ctx context.Context, accountID, connectionID uuid.UUID, key string) (domain.TicketLink, error)
+	// GetByGoal returns the link of a goal, ended or not.
+	GetByGoal(ctx context.Context, accountID, goalID uuid.UUID) (domain.TicketLink, error)
+	// GetByIssue returns the live link of the ticket that is the issue
+	// number of a goal of the project.
+	GetByIssue(ctx context.Context, accountID, projectID uuid.UUID, number int) (domain.TicketLink, error)
+	List(ctx context.Context, accountID uuid.UUID, f TicketLinkFilter) ([]domain.TicketLink, error)
+	// CountActive returns how many of the project's tickets have a goal at
+	// work.
+	CountActive(ctx context.Context, accountID, projectID uuid.UUID) (int, error)
+	// Update writes every field but the ticket and the creation time.
+	Update(ctx context.Context, l *domain.TicketLink) error
+}
+
+// TrackerOutboxRepo stores the writes waiting to reach trackers.
+type TrackerOutboxRepo interface {
+	// Enqueue stores w unless its (LinkID, DedupeKey) exists, and reports
+	// whether it did.
+	Enqueue(ctx context.Context, w *domain.TrackerWrite) (bool, error)
+	// Due returns the unsent writes whose next attempt has come, oldest
+	// first.
+	Due(ctx context.Context, accountID uuid.UUID, now time.Time, limit int) ([]domain.TrackerWrite, error)
+	// MarkSent records that a write reached the tracker. externalID is the
+	// tracker's ID of a comment.
+	MarkSent(ctx context.Context, accountID, id uuid.UUID, externalID string, at time.Time) error
+	// MarkFailed records a failed attempt and when to try again.
+	MarkFailed(ctx context.Context, accountID, id uuid.UUID, reason string, next time.Time) error
+	// Sent reports whether a comment with this tracker ID came from the
+	// link's outbox.
+	Sent(ctx context.Context, accountID, linkID uuid.UUID, externalID string) (bool, error)
 }
 
 // ConfigPlanFilter selects change plans, newest first; zero fields match

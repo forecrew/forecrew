@@ -28,9 +28,10 @@ const (
 	PermWorkerRead           Permission = "worker.read"   // workers, machines, providers, shapes, images and fleet usage
 	PermWorkerManage         Permission = "worker.manage" // workers, capacity providers, shapes, the fleet policy and images, except budget fields; shown as Manage machines
 	PermPoolManage           Permission = "pool.manage"
-	PermConfigRead           Permission = "config.read"    // configuration resources, within what the caller may read of each
-	PermConfigApply          Permission = "config.apply"   // change plans; applying also needs what each resource needs
-	PermProjectCreate        Permission = "project.create" // onboard a repo
+	PermConfigRead           Permission = "config.read"     // configuration resources, within what the caller may read of each
+	PermConfigApply          Permission = "config.apply"    // change plans; applying also needs what each resource needs
+	PermProjectCreate        Permission = "project.create"  // onboard a repo
+	PermTrackersManage       Permission = "trackers.manage" // tracker connections, routes and identities
 
 	PermProjectRead       Permission = "project.read"   // the project, its profile, councils, registers, knowledge and proposals
 	PermProjectManage     Permission = "project.manage" // project settings and project role bindings
@@ -44,6 +45,7 @@ const (
 	PermAssumptionResolve Permission = "assumption.resolve"
 	PermKnowledgePropose  Permission = "knowledge.propose"
 	PermProposalDecide    Permission = "proposal.decide" // accept, reject or snooze an improvement proposal
+	PermTrackersRead      Permission = "trackers.read"   // tracker connections, routes, identities and tickets waiting
 
 	// Resolving a gate (approve, request_changes, reject) needs the
 	// permission of its kind (GatePermission).
@@ -110,6 +112,7 @@ var permissionTable = map[Permission]permissionInfo{
 	PermConfigRead:           {ScopeRead, false},
 	PermConfigApply:          {ScopeWrite, false},
 	PermProjectCreate:        {ScopeWrite, false},
+	PermTrackersManage:       {ScopeAdmin, false},
 
 	PermProjectRead:       {ScopeRead, true},
 	PermProjectManage:     {ScopeAdmin, true},
@@ -123,6 +126,7 @@ var permissionTable = map[Permission]permissionInfo{
 	PermAssumptionResolve: {ScopeWrite, true},
 	PermKnowledgePropose:  {ScopeWrite, true},
 	PermProposalDecide:    {ScopeWrite, true},
+	PermTrackersRead:      {ScopeRead, true},
 
 	PermGateApproveProfile:            {ScopeWrite, true},
 	PermGateApproveSpec:               {ScopeWrite, true},
@@ -187,6 +191,8 @@ func GatePermission(kind GateKind, protected bool) Permission {
 		return PermGateApproveImprovement
 	case GateNeedsYou:
 		return PermGateApproveNeedsYou
+	case GateTicketIntake:
+		return PermGoalCreate // accepting starts a goal in the gate's project
 	}
 	return ""
 }
@@ -274,7 +280,7 @@ const (
 // Permission sets the built-in project roles grow from: a viewer reads,
 // a contributor works, a maintainer also resolves every gate.
 var (
-	projectReads = []Permission{PermProjectRead, PermGoalRead, PermJobRead, PermGateRead}
+	projectReads = []Permission{PermProjectRead, PermGoalRead, PermJobRead, PermGateRead, PermTrackersRead}
 	contributor  = append(slices.Clone(projectReads), PermGoalCreate, PermJobDispatch, PermJobCancel,
 		PermCouncilStart, PermKnowledgePropose,
 		PermGateApproveSpec, PermGateApproveCouncil, PermGateApproveAssumption, PermGateApproveKnowledge, PermGateApproveNeedsYou)

@@ -42,6 +42,14 @@ engine](#the-engine).
   hold one of them, whatever its file type and case, is protected, and a
   learn gate without proposals is protected only by its files. A section
   owned by `codeowners` that holds one leaves the merge to its reviewers.
+- **Tickets:** resolving a `ticket_intake` gate needs `goal.create` on its
+  project, because accepting a ticket creates a goal there; it is the one kind
+  without a `gate.approve` permission of its own. Tracker comments never
+  resolve a gate, and neither do `@forecrew approve` and `changes` on a GitHub
+  issue that is a ticket. The one thing a tracker comment answers is an
+  `ask_human` question, with `@forecrew reply`, as the mapped user and with
+  `gate.approve.needs_you`. forecrewd rejects the `ticket_intake` gate of a
+  ticket that was closed or accepted another way, as `forecrewd`.
 - **Access requests:** an agent asks with `request_access`, which opens an
   `access_request` gate; only a person with `gate.approve.access_request`
   answers it, and what it grants still merges as a pull request.
@@ -83,6 +91,10 @@ repository does not.
   those of every team with source `scim` and of every member with source
   `scim`, because the token adds members to those teams and suspends those
   members. A SCIM token acts on nothing else (identity.md, SCIM).
+- **Mapping a tracker identity:** `trackers.manage`. The roles concerned are
+  all those the mapped user holds, because whoever is that person on the
+  tracker starts goals and answers questions as the user. Removing a mapping
+  needs `trackers.manage` only.
 - **Creating a token:** a token is limited to its owner's permissions, and
   creating one for a service account (`token.manage`) concerns the roles of
   that service account. Its scopes stay within the highest class of the
@@ -137,6 +149,7 @@ feature: see identity.md, Tokens.
 | `config.read` | read | organization | configuration resources and change plans, within what the caller may read of each area, and the assistant |
 | `config.apply` | write | organization | make change plans and ask for their approval; applying one also needs what each of its resources needs ([config-resources.md](config-resources.md#permissions)) |
 | `project.create` | write | organization | onboard a repo as a project |
+| `trackers.manage` | admin | organization | tracker connections, routes and identities, within [No escalation](#no-escalation) |
 | `project.read` | read | project | a project, its profile, councils, assumptions, decisions, knowledge and improvement proposals |
 | `project.manage` | admin | project | project settings and project role bindings |
 | `goal.create` | write | project | create goals and report bugs |
@@ -149,6 +162,7 @@ feature: see identity.md, Tokens.
 | `assumption.resolve` | write | project | resolve an assumption |
 | `knowledge.propose` | write | project | propose a knowledge change |
 | `proposal.decide` | write | project | accept, reject or snooze an improvement proposal |
+| `trackers.read` | read | project | tracker connections, routes and identities (on the organization), and the tickets waiting in the Inbox |
 | `gate.approve.profile` | write | project | resolve `profile_approval` gates |
 | `gate.approve.spec` | write | project | resolve `spec_approval` gates |
 | `gate.approve.test_plan` | write | project | resolve `test_plan_approval` gates |
@@ -230,6 +244,8 @@ protected knowledge, access requests or improvement proposals) and
 | `service_account.manage` | x | x |  |  |  |  |  |  |  |
 | `team.manage` | x | x |  |  |  |  |  |  |  |
 | `token.manage` | x | x |  |  |  |  |  |  |  |
+| `trackers.manage` | x | x |  |  |  |  |  |  |  |
+| `trackers.read` | x | x |  | x | x | x | x | x | x |
 | `worker.manage` | x | x |  |  |  |  |  |  |  |
 | `worker.read` | x | x |  | x | x |  |  |  |  |
 
@@ -303,6 +319,17 @@ object up and checks the permission on the object's project.
 | `approve` | `POST /api/v1/gates/{gate}/approve` | the gate's |
 | `request_changes` | `POST /api/v1/gates/{gate}/request-changes` | the gate's |
 | `reject` | `POST /api/v1/gates/{gate}/reject` | the gate's |
+| `list_tracker_connections` | `GET /api/v1/tracker-connections` | `trackers.read` on the organization |
+| `create_tracker_connection` | `POST /api/v1/tracker-connections` | `trackers.manage` |
+| `list_tracker_routes` | `GET /api/v1/tracker-routes` | `trackers.read` on the organization |
+| `create_tracker_route` | `POST /api/v1/tracker-routes` | `trackers.manage` |
+| `delete_tracker_route` | `DELETE /api/v1/tracker-routes/{route}` | `trackers.manage` |
+| `list_tracker_identities` | `GET /api/v1/tracker-identities` | `trackers.read` on the organization |
+| `map_tracker_identity` | `POST /api/v1/tracker-identities` | `trackers.manage`, No escalation |
+| `unmap_tracker_identity` | `DELETE /api/v1/tracker-identities/{identity}` | `trackers.manage` |
+| `list_tickets_waiting` | `GET /api/v1/tickets/waiting` | `trackers.read`: on the ticket's project, or on the organization for a ticket without one |
+| `accept_ticket` | `POST /api/v1/tickets/{ticket}/accept` | `goal.create` on the project, and only a person: the goal starts as them |
+| `dismiss_ticket` | `POST /api/v1/tickets/{ticket}/dismiss` | `goal.create` on the ticket's project, or on the organization for a ticket without one; with a gate, the gate's |
 | `list_tokens` | `GET /api/v1/tokens` | own; `token.manage` for everyone's |
 | `revoke_token` | `POST /api/v1/tokens/{token}/revoke` | own, with class write unless it is the token in use; `token.manage` for another's, which is `404` without it, as for a token that does not exist |
 | `list_roles` | `GET /api/v1/roles` | `org.read` |
@@ -352,6 +379,11 @@ needs `gate.read`, `bug` (on an issue) needs `goal.create`. Without a linked use
 refused with a reply. An organization where nobody holds a role yet is not
 enforced: there `github.allowlist` still decides, as it did before
 organizations, and an unknown author is ignored without a reply.
+
+**Tracker webhooks** (`POST /webhooks/tracker/{connection}`, and the `issues`
+events of `/webhooks/github`) need no permission: the adapter checks the
+signature, and an event only says which ticket to read. Who may start work is
+decided from what `Get` returns ([tracker.md](tracker.md)).
 
 **The CLI** reaches the server through `/api/v1`, so a remote command needs
 what its route needs. The server-side commands (`forecrew migrate`,

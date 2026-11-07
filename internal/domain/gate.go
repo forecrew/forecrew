@@ -25,12 +25,13 @@ const (
 	GateKnowledgeProposal   GateKind = "knowledge_proposal"   // a change to a protected or read-only knowledge section
 	GateAccessRequest       GateKind = "access_request"       // an agent asks for knowledge access; approve = a policy PR
 	GateImprovementProposal GateKind = "improvement_proposal" // an improvement proposal: approve = accept
+	GateTicketIntake        GateKind = "ticket_intake"        // a ticket someone must accept, or an edit to read: approve = accept or noted
 )
 
 // GateKinds returns every gate kind.
 func GateKinds() []GateKind {
 	return []GateKind{GateProfileApproval, GateSpecApproval, GateMergeApproval, GateTestPlanApproval, GateNeedsYou,
-		GateAssumptionReview, GateCouncilDecision, GateKnowledgeProposal, GateAccessRequest, GateImprovementProposal}
+		GateAssumptionReview, GateCouncilDecision, GateKnowledgeProposal, GateAccessRequest, GateImprovementProposal, GateTicketIntake}
 }
 
 // GateOrigin says what opened a gate.
@@ -95,13 +96,13 @@ func (s GateStatus) Terminal() bool {
 }
 
 // AllowsDecision reports whether decision is valid for the gate kind:
-// needs_you gates accept only approved and rejected.
+// needs_you and ticket_intake gates accept only approved and rejected.
 func (k GateKind) AllowsDecision(decision GateStatus) bool {
 	switch decision {
 	case GateApproved, GateRejected:
 		return true
 	case GateChangesRequested:
-		return k != GateNeedsYou
+		return k != GateNeedsYou && k != GateTicketIntake
 	}
 	return false
 }
