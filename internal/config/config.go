@@ -67,7 +67,11 @@ const (
 // adapters are the runtime adapters a runtime may use.
 var adapters = []string{AdapterClaudeCode, AdapterCodex, AdapterOpencode}
 
-func (t Tier) valid() bool { return t == TierFast || t == TierStrong || t == TierBest }
+// Valid reports whether t is a model tier.
+func (t Tier) Valid() bool { return t == TierFast || t == TierStrong || t == TierBest }
+
+// ValidAdapter reports whether a is a runtime adapter.
+func ValidAdapter(a string) bool { return slices.Contains(adapters, a) }
 
 // Config is forecrewd's configuration.
 type Config struct {
@@ -82,6 +86,8 @@ type Config struct {
 	SecretKeyPrevious string             `yaml:"-"`
 	GitHub            GitHub             `yaml:"github"`
 	Runtimes          map[string]Runtime `yaml:"runtimes"`
+	// Models says what the server file is to organizations.
+	Models Models `yaml:"models"`
 	// ModelTiers maps tier -> vendor -> model name.
 	ModelTiers map[Tier]map[string]string `yaml:"model_tiers"`
 	Roles      map[string]Role            `yaml:"roles"`
@@ -119,6 +125,19 @@ type Trackers struct {
 	// MaxActiveGoals is how many goals from tickets a project works on at
 	// once; the other tickets queue. Zero means tracker.DefaultMaxActiveGoals.
 	MaxActiveGoals int `yaml:"max_active_goals"`
+}
+
+// Models holds the server's rules on model connections.
+type Models struct {
+	// ServerKeysForOrganizations lets a job with no organization connection
+	// use the runtimes of this file, with their keys. Nil means true; a
+	// hosted server sets false.
+	ServerKeysForOrganizations *bool `yaml:"server_keys_for_organizations"`
+}
+
+// ServerKeys reports whether organizations may use the runtimes of this file.
+func (c *Config) ServerKeys() bool {
+	return c.Models.ServerKeysForOrganizations == nil || *c.Models.ServerKeysForOrganizations
 }
 
 // Actions configures the provider that runs the command jobs of pool
@@ -344,15 +363,18 @@ func (c *Config) validateGitHub(p *problems) {
 
 var runtimeName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
+// ValidRuntimeName reports whether name fits a runtime or a model connection.
+func ValidRuntimeName(name string) bool { return runtimeName.MatchString(name) }
+
 func (c *Config) validateRuntimes(p *problems) {
-	if len(c.Runtimes) == 0 {
+	if len(c.Runtimes) == 0 && c.ServerKeys() {
 		p.addf("runtimes: at least one runtime is required")
 	}
 	for _, name := range sortedKeys(c.Runtimes) {
 		validateRuntime(name, c.Runtimes[name], p)
 	}
 	for _, tier := range sortedKeys(c.ModelTiers) {
-		if !tier.valid() {
+		if !tier.Valid() {
 			p.addf("model_tiers.%s: tier must be fast, strong or best", tier)
 		}
 		c.validateOpencodeModels(tier, p)
@@ -367,7 +389,7 @@ func validateRuntime(name string, rt Runtime, p *problems) {
 		p.addf("runtimes.%s.adapter must be one of %s, got %q", name, strings.Join(adapters, ", "), rt.Adapter)
 	}
 	if rt.BaseURL != "" {
-		if err := checkBaseURL(rt.BaseURL); err != nil {
+		if err := CheckBaseURL(rt.BaseURL); err != nil {
 			p.addf("runtimes.%s.base_url: %v", name, err)
 		}
 	}
@@ -396,12 +418,12 @@ func (c *Config) validateOpencodeModels(tier Tier, p *problems) {
 	}
 }
 
-// checkBaseURL checks a custom endpoint: repo code and API keys go there, so
+// CheckBaseURL checks a custom endpoint: repo code and API keys go there, so
 // it must be https, or http only to this machine or a private network. An IP
 // address or localhost is needed for that: a name could resolve anywhere.
 // Credentials in the URL would end up in logs, and braces would be expanded
 // by opencode's inline configuration.
-func checkBaseURL(raw string) error {
+func CheckBaseURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return errors.New("not a valid URL")
@@ -437,7 +459,7 @@ func (c *Config) validateRoles(p *problems) {
 			p.addf("roles.%s.runtime %q is not a configured runtime", name, r.Runtime)
 			continue
 		}
-		if !r.Tier.valid() {
+		if !r.Tier.Valid() {
 			p.addf("roles.%s.tier must be fast, strong or best, got %q", name, r.Tier)
 			continue
 		}
