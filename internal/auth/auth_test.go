@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -1259,7 +1261,7 @@ func TestConnectionTestSignIn(t *testing.T) {
 // After signing in the person goes back to the page they came from, if it is
 // a page of this site.
 func TestSignInReturnsToThePage(t *testing.T) {
-	for redirect, want := range map[string]string{"/inbox?project=app": "/inbox", "//evil.example/x": "/", "https://evil.example/": "/", "/\\evil.example": "/", "": "/"} {
+	for redirect, want := range map[string]string{"/inbox?project=app": "/inbox", "//evil.example/x": "/", "https://evil.example/": "/", "/\\evil.example": "/", "/\t/evil.example": "/", "/\n/evil.example": "/", "/a\\b": "/", "/a\x00b": "/", "": "/"} {
 		f := newFixture(t)
 		f.member("ana@acme.example")
 		f.claims("sub-1", "ana@acme.example", true)
@@ -1268,6 +1270,43 @@ func TestSignInReturnsToThePage(t *testing.T) {
 		_ = resp.Body.Close()
 		if resp.Request.URL.Path != want || resp.Request.URL.Host != strings.TrimPrefix(f.web.URL, "https://") {
 			t.Errorf("redirect %q ended at %s, want %s on this site", redirect, resp.Request.URL, want)
+		}
+	}
+}
+
+// The cookie of a flow is not signed: whatever it says is checked again when
+// the sign-in ends.
+func TestForgedReturnInTheFlowCookie(t *testing.T) {
+	for _, forged := range []string{"//evil.example/x", "/\t/evil.example", "https://evil.example/"} {
+		f := newFixture(t)
+		f.member("ana@acme.example")
+		f.claims("sub-1", "ana@acme.example", true)
+		f.browser.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		resp, err := f.browser.Get(f.web.URL + "/auth/" + f.inst.ID.String() + "/login")
+		must(t, err)
+		_ = resp.Body.Close()
+		next := resp.Header.Get("Location")
+		u, _ := url.Parse(f.web.URL + "/auth/x")
+		for _, c := range f.browser.Jar.Cookies(u) {
+			if c.Name != "forecrew_login" {
+				continue
+			}
+			raw, err := base64.RawURLEncoding.DecodeString(c.Value)
+			must(t, err)
+			var flow map[string]any
+			must(t, json.Unmarshal(raw, &flow))
+			flow["r"] = forged
+			raw, err = json.Marshal(flow)
+			must(t, err)
+			c.Value, c.Path, c.Secure = base64.RawURLEncoding.EncodeToString(raw), "/auth/", true
+			f.browser.Jar.SetCookies(u, []*http.Cookie{c})
+		}
+		f.browser.CheckRedirect = nil
+		resp, err = f.browser.Get(next)
+		must(t, err)
+		_ = resp.Body.Close()
+		if resp.Request.URL.Host != strings.TrimPrefix(f.web.URL, "https://") || resp.Request.URL.Path != "/" {
+			t.Errorf("forged %q ended at %s", forged, resp.Request.URL)
 		}
 	}
 }
