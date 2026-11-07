@@ -52,39 +52,76 @@ type allowed struct {
 	Server []netip.Addr
 	Port   int
 	DNS    netip.Addr
-	// Nets are the location's network_allow.
+	// Nets are the location's network_allow. They open networks beyond the
+	// host, never the host itself or other machines.
 	Nets []netip.Prefix
+	// Subnet holds every machine and the host's ends of their taps.
+	Subnet netip.Prefix
+	// Local are the networks the host is connected to, blocked as the
+	// private ones are.
+	Local []netip.Prefix
 }
 
 // rules are the machine's nftables table. A table each makes removing a machine
 // one command, and changing its allowlist one atomic file. The allow rules look
 // at the original address: forecrewd in a container on this host is reached by a
 // DNAT that happens before the forward chain sees the packet.
+//
+// The host takes from a machine only forecrewd's port and DNS; network_allow is
+// for the forward chain alone. Other machines stay closed whatever it says.
 func rules(n network, a allowed) string {
-	var allow strings.Builder
+	var only strings.Builder // what the machine reaches anyway
 	for _, s := range a.Server {
-		fmt.Fprintf(&allow, "\t\tiifname %q ct original ip daddr %s ct original proto-dst %d accept\n", n.Tap, s, a.Port)
+		fmt.Fprintf(&only, "\t\tiifname %q ct original ip daddr %s ct original proto-dst %d accept\n", n.Tap, s, a.Port)
 	}
-	fmt.Fprintf(&allow, "\t\tiifname %q ct original ip daddr %s ct original proto-dst 53 accept\n", n.Tap, a.DNS)
-	for _, p := range a.Nets {
-		fmt.Fprintf(&allow, "\t\tiifname %q ct original ip daddr %s accept\n", n.Tap, p)
-	}
+	fmt.Fprintf(&only, "\t\tiifname %q ct original ip daddr %s ct original proto-dst 53 accept\n", n.Tap, a.DNS)
 	spoof := fmt.Sprintf("\t\tiifname %q ip saddr != %s drop\n\t\tiifname %q meta nfproto != ipv4 drop\n", n.Tap, n.Guest, n.Tap)
+	closed := slices.Clone(blocked)
+	for _, p := range a.Local {
+		closed = append(closed, p.Masked().String())
+	}
 	var b strings.Builder
 	// Adding the table first makes deleting it work the first time too.
 	fmt.Fprintf(&b, "table inet %s {}\ndelete table inet %s\ntable inet %s {\n", n.Table, n.Table, n.Table)
 	b.WriteString("\tchain input {\n\t\ttype filter hook input priority filter - 10; policy accept;\n")
-	b.WriteString(spoof + allow.String())
+	b.WriteString(spoof + only.String())
 	fmt.Fprintf(&b, "\t\tiifname %q drop\n\t}\n", n.Tap)
 	b.WriteString("\tchain forward {\n\t\ttype filter hook forward priority filter - 10; policy accept;\n")
-	b.WriteString(spoof + allow.String())
-	fmt.Fprintf(&b, "\t\tiifname %q ip daddr { %s } drop\n", n.Tap, strings.Join(blocked, ", "))
+	b.WriteString(spoof + only.String())
+	fmt.Fprintf(&b, "\t\tiifname %q ip daddr %s drop\n", n.Tap, a.Subnet.Masked())
+	for _, p := range a.Nets {
+		fmt.Fprintf(&b, "\t\tiifname %q ct original ip daddr %s accept\n", n.Tap, p)
+	}
+	fmt.Fprintf(&b, "\t\tiifname %q ip daddr { %s } drop\n", n.Tap, strings.Join(closed, ", "))
 	fmt.Fprintf(&b, "\t\tiifname %q accept\n", n.Tap)
 	fmt.Fprintf(&b, "\t\toifname %q ct state established,related accept\n", n.Tap)
 	fmt.Fprintf(&b, "\t\toifname %q drop\n\t}\n", n.Tap)
 	b.WriteString("\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n")
 	fmt.Fprintf(&b, "\t\tip saddr %s oifname != %q masquerade\n\t}\n}\n", n.Guest, n.Tap)
 	return b.String()
+}
+
+// localNets are the IPv4 networks of this host's interfaces, but its machines'.
+func localNets(subnet netip.Prefix) []netip.Prefix {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	var out []netip.Prefix
+	for _, a := range addrs {
+		n, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		p, err := netip.ParsePrefix(n.String())
+		if err != nil || !p.Addr().Is4() || p.Addr().IsLoopback() || subnet.Contains(p.Addr()) {
+			continue
+		}
+		if p = p.Masked(); !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // resolve turns entries of network_allow, hosts or CIDRs, into networks, for a
@@ -135,7 +172,7 @@ func (p *Provider) applyRules(ctx context.Context, r *record, n network) error {
 	if err != nil {
 		return err
 	}
-	a := allowed{Port: r.Port, DNS: p.dns, Nets: nets}
+	a := allowed{Port: r.Port, DNS: p.dns, Nets: nets, Subnet: p.subnet, Local: p.localNets(p.subnet)}
 	for _, s := range r.Server {
 		addr, err := netip.ParseAddr(s)
 		if err != nil {
@@ -170,8 +207,8 @@ func (p *Provider) removeNetwork(ctx context.Context, n network) error {
 	if err := p.run(ctx, fmt.Sprintf("table inet %s {}\ndelete table inet %s\n", n.Table, n.Table), "nft", "-f", "-"); err != nil {
 		return err
 	}
-	if _, err := net.InterfaceByName(n.Tap); err != nil {
-		return nil //nolint:nilerr // no such device is what we want
+	if !p.hasDevice(n.Tap) {
+		return nil
 	}
 	return p.run(ctx, "", "ip", "link", "del", n.Tap)
 }

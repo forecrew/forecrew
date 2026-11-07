@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -89,6 +90,12 @@ func newEnv(t *testing.T, edit func(*Config)) *testEnv {
 	}
 	e.p.chown = func(string, int, int) error { return nil }
 	e.p.memoryMB = func() (int, error) { return 8192, nil }
+	e.p.localNets = func(netip.Prefix) []netip.Prefix { return []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")} }
+	e.p.hasDevice = func(name string) bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return slices.ContainsFunc(e.cmds, func(c string) bool { return strings.HasPrefix(c, "ip tuntap add "+name+" ") })
+	}
 	fc := e.p.vmms[vmmFirecracker].(firecracker)
 	e.p.vmms[vmmFirecracker] = fakeVMM{firecracker: fc}
 
@@ -153,8 +160,15 @@ func TestCreateListDestroy(t *testing.T) {
 	}
 	r, _ := e.p.load(id)
 
+	before := len(e.cmds)
 	if err := e.p.Destroy(t.Context(), id); err != nil {
 		t.Fatal(err)
+	}
+	e.mu.Lock()
+	after := strings.Join(e.cmds[before:], "\n")
+	e.mu.Unlock()
+	if after != "nft -f - table inet forecrew_vm0 {}\ndelete table inet forecrew_vm0\nip link del fcvm0" {
+		t.Errorf("destroy ran:\n%s", after)
 	}
 	if running(r) {
 		t.Error("the VMM still runs")
@@ -164,9 +178,6 @@ func TestCreateListDestroy(t *testing.T) {
 	}
 	if list, _ := e.p.List(t.Context()); len(list) != 0 {
 		t.Errorf("list after destroy = %+v", list)
-	}
-	if !strings.Contains(e.commands(), "delete table inet forecrew_vm0") {
-		t.Error("the rules were not removed")
 	}
 	if err := e.p.Destroy(t.Context(), id); err != nil {
 		t.Errorf("destroying again: %v", err)
@@ -679,7 +690,7 @@ func checkMachine(t *testing.T, e *testEnv, dir string) {
 		t.Error("the token is in vm.json")
 	}
 	cmds := e.commands()
-	for _, want := range []string{"table inet forecrew_vm0", "ct original ip daddr 192.0.2.10 ct original proto-dst 8080 accept", "ct original ip daddr 192.168.1.0/24 accept",
+	for _, want := range []string{"table inet forecrew_vm0", "ct original ip daddr 192.0.2.10 ct original proto-dst 8080 accept", "ct original ip daddr 192.168.1.0/24 accept", "198.51.100.0/24",
 		"ip tuntap add fcvm0 mode tap user 900000 group 900000", "ip addr add 172.30.0.1/30 dev fcvm0", "ip link set fcvm0 up"} {
 		if !strings.Contains(cmds, want) {
 			t.Errorf("no %q in\n%s", want, cmds)

@@ -82,6 +82,10 @@ type Provider struct {
 	chown func(path string, uid, gid int) error
 	// memoryMB is the host's memory.
 	memoryMB func() (int, error)
+	// localNets are the networks the host is on; hasDevice says whether a
+	// network device exists.
+	localNets func(subnet netip.Prefix) []netip.Prefix
+	hasDevice func(name string) bool
 
 	// mu guards slots and the records of machines being changed.
 	mu       sync.Mutex
@@ -111,8 +115,9 @@ func New(cfg Config, log *slog.Logger) (*Provider, error) {
 			vmmCloudHypervisor: cloudHypervisor{bin: lookPath(cfg.CloudHypervisor), base: base},
 		},
 		http: &http.Client{Timeout: fetchTimeout}, resolver: net.DefaultResolver,
-		run: runCommand, chown: os.Chown, memoryMB: fleetagent.MemoryMB,
-		timers: map[string]*time.Timer{}, verified: map[string]bool{},
+		run: runCommand, chown: os.Chown, memoryMB: fleetagent.MemoryMB, localNets: localNets,
+		hasDevice: func(name string) bool { _, err := net.InterfaceByName(name); return err == nil },
+		timers:    map[string]*time.Timer{}, verified: map[string]bool{},
 	}
 	if err := p.armTimers(); err != nil {
 		return nil, err

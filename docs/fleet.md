@@ -166,9 +166,11 @@ finish what a crash interrupted:
 - **A network.** A tap device of its own (`fcvm<slot>`) with a /30, no bridge,
   and an nftables table of its own (`inet forecrew_vm<slot>`): the machine reaches
   the internet through NAT, its resolver (`dns`) and forecrewd's address and port,
-  and nothing else: not the host, the LAN, other machines or metadata
-  addresses. A location's `network_allow` (hosts or CIDRs) opens more, for a
-  home or on-premise network. Machines have IPv4 only.
+  and nothing else: not the host, the LAN or any network the host is connected
+  to, other machines or metadata addresses. A location's `network_allow` (hosts
+  or CIDRs) opens networks beyond the host, for a home or on-premise network;
+  it never opens the host itself (which takes only forecrewd's port and DNS
+  from a machine) or other machines. Machines have IPv4 only.
 - **A wall-time kill.** At its deadline the agent kills the VMM, whether or not
   forecrewd can be reached; forecrewd then destroys the rest.
 - **Docker inside.** An image with `dockerd` gets it started in the guest's own
