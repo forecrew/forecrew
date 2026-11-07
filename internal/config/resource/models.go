@@ -557,7 +557,7 @@ func (w *modelWorld) overlayConnection(c domain.ConfigChange) error {
 	if err != nil {
 		return err
 	}
-	w.state.Connections[c.Name] = domain.ModelConnection{Name: c.Name, Vendor: s.Vendor, Adapter: s.Adapter, BaseURL: s.BaseURL, KeyEnv: s.KeyEnv, SecretRef: s.SecretRef,
+	w.state.Connections[c.Name] = domain.ModelConnection{ID: w.state.Connections[c.Name].ID, Name: c.Name, Vendor: s.Vendor, Adapter: s.Adapter, BaseURL: s.BaseURL, KeyEnv: s.KeyEnv, SecretRef: s.SecretRef,
 		Enabled: s.Enabled, Models: s.Models}
 	return nil
 }

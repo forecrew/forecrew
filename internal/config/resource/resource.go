@@ -129,6 +129,9 @@ type Env struct {
 	// Roles says whether a role runs in a toolbox and whether it exists; nil
 	// checks nothing.
 	Roles func(role string) (toolbox, known bool)
+	// RoleWrites says whether a role writes code, which a model must pass
+	// every ability of its test to serve; nil counts every role as writing.
+	RoleWrites func(role string) bool
 	// repo collects the files of a repo plan while applying.
 	files   []FileChange
 	project *domain.Project

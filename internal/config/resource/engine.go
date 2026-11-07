@@ -51,6 +51,9 @@ type Config struct {
 	// Roles says whether a role runs in a toolbox and whether it exists; nil
 	// checks nothing.
 	Roles func(role string) (toolbox, known bool)
+	// RoleWrites says whether a role writes code; nil counts every role as
+	// writing.
+	RoleWrites func(role string) bool
 	// Repo reads repos and opens pull requests; nil leaves repo files out.
 	Repo Repo
 	// Secrets is the secret store; nil refuses secure fields.
@@ -83,7 +86,7 @@ func NewEngine(cfg Config) *Engine {
 }
 
 func (g *Engine) env(st store.Store, by domain.Actor) *Env {
-	e := &Env{Store: st, Actor: by, Authz: authz.New(st, g.cfg.Logger), Server: g.cfg.Server, Getenv: g.cfg.Getenv, Repo: g.cfg.Repo, CheckSchedule: g.cfg.CheckSchedule, Roles: g.cfg.Roles}
+	e := &Env{Store: st, Actor: by, Authz: authz.New(st, g.cfg.Logger), Server: g.cfg.Server, Getenv: g.cfg.Getenv, Repo: g.cfg.Repo, CheckSchedule: g.cfg.CheckSchedule, Roles: g.cfg.Roles, RoleWrites: g.cfg.RoleWrites}
 	if g.cfg.Access != nil {
 		e.Access = g.cfg.Access(st)
 	}
@@ -282,12 +285,9 @@ func (g *Engine) Plan(ctx context.Context, by domain.Actor, req PlanRequest) (do
 	if d.repo && d.other {
 		d.problems = append(d.problems, "repo files open a pull request and apply apart from other settings: make two plans")
 	}
-	problems, affects, err := reviewModels(ctx, e, p.Changes)
-	if err != nil {
+	if err := d.reviewModels(ctx, e); err != nil {
 		return domain.ConfigPlan{}, err
 	}
-	d.problems = append(d.problems, problems...)
-	d.affects = appendText(d.affects, affects)
 	if len(d.problems) > 0 {
 		return domain.ConfigPlan{}, fmt.Errorf("%s: %w", strings.Join(d.problems, "; "), mcp.ErrInvalidInput)
 	}
@@ -367,6 +367,24 @@ func (g *Engine) add(ctx context.Context, e *Env, cur current, d *draft, w Wante
 	}
 	p.Applies = next
 	return nil
+}
+
+// reviewModels adds what the model changes of the plan say together: their
+// problems, who they affect, and the models they put roles on that did not
+// pass their test.
+func (d *draft) reviewModels(ctx context.Context, e *Env) error {
+	problems, affects, err := reviewModels(ctx, e, d.plan.Changes)
+	if err != nil {
+		return err
+	}
+	d.problems = append(d.problems, problems...)
+	d.affects = appendText(d.affects, affects)
+	if len(d.problems) > 0 {
+		return nil
+	}
+	untested, err := guardModels(ctx, e, d.plan.Changes)
+	d.plan.LowersProtection = append(d.plan.LowersProtection, untested...)
+	return err
 }
 
 func appendText(list []string, s string) []string {

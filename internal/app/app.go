@@ -392,7 +392,7 @@ func New(d Deps) (*App, error) {
 	toolSvc := tools.New(tools.Config{
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes, Proposals: kbProposals,
 		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, GoalV3Projects: cfg.GoalV3.Projects, Fleet: machines, Logger: log, PublicURL: cfg.Server.PublicBaseURL, TokenTTL: cfg.Auth.TokenDefaultTTL, Now: d.Now,
-		GitHubUserID: authSvc.GitHubUserID, Enterprise: features.Tools, Server: d.File, Getenv: d.Getenv, Repo: d.GitHub, Secrets: vault, Trackers: tickets, RoleToolbox: catalog.Toolbox,
+		GitHubUserID: authSvc.GitHubUserID, Enterprise: features.Tools, Server: d.File, Getenv: d.Getenv, Repo: d.GitHub, Secrets: vault, Trackers: tickets, RoleToolbox: catalog.Toolbox, RoleWrites: catalog.Writes,
 		CheckSchedule: func(sc config.Schedule) error { return checkSchedule(books, sc) },
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
