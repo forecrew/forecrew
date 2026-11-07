@@ -1,7 +1,6 @@
 package microvm
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/forecrew/forecrew/internal/domain"
-	"github.com/forecrew/forecrew/internal/images"
 )
 
 // Check statuses (domain.ProviderCheck).
@@ -36,7 +34,7 @@ func found(names ...string) error {
 }
 
 // checks are what doctor shows and capabilities report.
-func (p *Provider) checks(ctx context.Context) []domain.ProviderCheck {
+func (p *Provider) checks() []domain.ProviderCheck {
 	out := []domain.ProviderCheck{
 		check("kvm access", openKVM(), statusFail, "/dev/kvm opens"),
 		check("root", isRoot(), statusFail, "runs as root, as the jailer and the network need"),
@@ -45,8 +43,6 @@ func (p *Provider) checks(ctx context.Context) []domain.ProviderCheck {
 		check("ip forwarding", ipForward(), statusFail, "net.ipv4.ip_forward is on"),
 		check("image keys", p.keysError(), statusFail, "trusted image keys found"),
 		check("reflinks", p.reflinks(), statusWarn, "disks are cloned instantly"),
-		// A machine boots a file made elsewhere, so a host without it still works.
-		check("mke2fs", images.CheckMke2fs(ctx, ""), statusWarn, "1.47.1 or newer with libarchive: this host can convert images"),
 	}
 	if len(p.cfg.GPUs) > 0 {
 		out = append(out, check("cloud-hypervisor", found(p.cfg.CloudHypervisor), statusFail, "found, for GPUs"))

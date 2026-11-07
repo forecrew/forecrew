@@ -157,10 +157,13 @@ finish what a crash interrupted:
 - **Disks.** The root disk is the machine's own copy of the image, a reflink
   where the file system has them (btrfs, XFS: instant; elsewhere a full copy,
   which `doctor` warns about), sized to the shape's `disk_gb`, which is its quota:
-  the guest grows its file system to it. The config disk holds the server's URL
+  the guest grows its file system to it. Disks are sparse, so a machine is only
+  started while the state directory's free space holds its disk and what the
+  other machines may still write of theirs. The config disk holds the server's URL
   and addresses, the CA bundle and the bootstrap token; the guest wipes it once
   read. `<state_dir>/cache.ext4`, when it exists, is attached to every machine
-  read-only at `/var/cache/forecrew` (make one with `mke2fs -d <dir>`).
+  read-only at `/var/cache/forecrew` (make one with `mke2fs -d <dir>`); the agent
+  makes the file read-only for everyone, as all machines share it.
 - **CPU and memory** are the shape's, as vCPUs and guest memory. A host takes
   machines while their memory fits its own less 1 GB, up to `max_machines`.
 - **A network.** A tap device of its own (`fcvm<slot>`) with a /30, no bridge,
@@ -171,8 +174,9 @@ finish what a crash interrupted:
   or CIDRs) opens networks beyond the host, for a home or on-premise network;
   it never opens the host itself (which takes only forecrewd's port and DNS
   from a machine) or other machines. Machines have IPv4 only.
-- **A wall-time kill.** At its deadline the agent kills the VMM, whether or not
-  forecrewd can be reached; forecrewd then destroys the rest.
+- **A wall-time kill.** At its deadline the agent kills the VMM and everything in
+  its session, whether or not forecrewd can be reached; forecrewd then destroys
+  the rest.
 - **Docker inside.** An image with `dockerd` gets it started in the guest's own
   kernel before the worker, so environments with Docker work without touching
   the host. The guest kernel needs overlayfs, bridges, veth and netfilter.
@@ -184,14 +188,18 @@ it finds them all and forecrewd says which to destroy.
 **Images.** A machine boots a `rootfs` image and its kernel, fetched over http(s)
 into `<state_dir>/images` by digest. Before first use the agent checks the
 signature against `trusted_keys_file` and the digests of both files
-(`images.VerifyFile`), and refuses the machine otherwise. For an image stored
+(`images.VerifyFile`), and refuses the machine otherwise. A cached file that is
+not the one signed is removed and fetched once more. For an image stored
 elsewhere (`s3`, `oci`, ...) put the file in that directory under its digest's
 hex; it is checked the same way. Images unused for `image_cache_days` are
 removed.
 
-**Start time.** No snapshots yet: each machine boots its kernel. The guest's init
-is a static program that needs no shell; a machine reaches forecrewd about as
-fast as its kernel boots (see the report of T61 for measurements).
+**Start time.** No snapshots yet: each machine boots its kernel, and its init is
+a static program that needs no shell. Measured so far under QEMU with KVM, with
+a general-purpose distribution kernel that loads its network driver as a
+module, not under Firecracker: 2.6 s from starting QEMU to the worker's
+bootstrap call on an idle host, 8 s on a loaded one. The Firecracker time, with
+its minimal kernel, is still to measure (`make test-microvm` logs it).
 
 ### microvm.yaml
 
