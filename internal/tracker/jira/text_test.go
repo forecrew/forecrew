@@ -109,3 +109,18 @@ func TestMarkdownToWiki(t *testing.T) {
 		t.Errorf("markdownToWiki = %q, want %q", got, want)
 	}
 }
+
+// Code that holds the marker closing it stays code: what follows the marker
+// never becomes a mention or a macro.
+func TestWikiCodeCannotCloseEarly(t *testing.T) {
+	md := "```\nbefore\n{code}\n[~admin] {html}<script>x</script>{html}\n{NOFORMAT}\n```"
+	wiki := markdownToWiki(md)
+	doc := fromWiki(wiki)
+	if len(doc.Content) != 1 || doc.Content[0].Type != tCode {
+		t.Fatalf("%q parses as %d blocks", wiki, len(doc.Content))
+	}
+	text := plain(doc.Content[0])
+	if !strings.Contains(text, "[~admin] {html}<script>") || !strings.Contains(text, "{ code}") || !strings.Contains(text, "{ NOFORMAT}") {
+		t.Errorf("code = %q", text)
+	}
+}

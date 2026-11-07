@@ -19,6 +19,9 @@ var (
 	wikiBlock   = regexp.MustCompile(`^\{(code|noformat|quote|panel)(?::([^}]*))?\}(.*)$`)
 	wikiMacro   = regexp.MustCompile(`\{[a-zA-Z]+(?::[^}]*)?\}`)
 	wikiTable   = regexp.MustCompile(`^\|`)
+	// wikiCodeMarker is a marker that would end a code block early, and let
+	// what follows it be read as markup; in code it gets a space.
+	wikiCodeMarker = regexp.MustCompile(`(?i)\{(code|noformat)`)
 )
 
 // wikiToMarkdown converts wiki markup to Markdown.
@@ -336,7 +339,7 @@ func wikiBlockOut(n *node, prefix string) string {
 		if lang := n.attr("language"); lang != "" {
 			open = "{code:" + lang + "}"
 		}
-		return open + "\n" + plain(n) + "\n{code}"
+		return open + "\n" + wikiCodeMarker.ReplaceAllString(plain(n), "{ $1") + "\n{code}"
 	case tQuote:
 		return "{quote}\n" + wikiBlocks(n.Content) + "\n{quote}"
 	case tRule:
