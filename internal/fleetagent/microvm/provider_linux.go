@@ -288,6 +288,14 @@ func (p *Provider) Create(ctx context.Context, req fleet.CreateRequest) (fleet.I
 	if err != nil {
 		return fleet.Instance{}, err
 	}
+	// A hosted machine runs a paying organization's code on the instance's
+	// own network: only an allowlist keeps it to what that organization may
+	// reach.
+	if req.Shape.Ownership() == domain.OwnershipHosted {
+		if err := p.hostedEgress(); err != nil {
+			return fleet.Instance{}, fmt.Errorf("refusing a hosted machine: %w", err)
+		}
+	}
 	if err := p.prepareDirs(); err != nil {
 		return fleet.Instance{}, err
 	}

@@ -51,6 +51,10 @@ type Config struct {
 	// (network_allow only, never a private network), for an instance's
 	// hosted location.
 	Egress string `yaml:"egress"`
+	// Hosted says this location runs an instance's hosted machines, for
+	// paying organizations: doctor then insists on egress allowlist and
+	// the abuse checks.
+	Hosted bool `yaml:"hosted"`
 	// OrgCacheGB sizes each organization's cache disk, per pool; 0 gives
 	// machines none.
 	OrgCacheGB int `yaml:"org_cache_gb"`
