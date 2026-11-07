@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -15,17 +16,21 @@ import (
 	"github.com/forecrew/forecrew/internal/testkit"
 )
 
-func fakeGrants(t *testing.T, e *env) map[string]func(uuid.UUID) {
+// grantHooks seed an OAuth grant through the store's OAuth repository, in
+// any store, and say whether it was revoked.
+func grantHooks(t *testing.T, e *env) map[string]func(uuid.UUID) {
 	t.Helper()
-	fake, ok := e.st.(*testkit.Store)
-	if !ok {
-		t.Fatal("not the fake store")
-	}
+	ctx := t.Context()
+	client := domain.OAuthClient{ClientID: "app", Name: "App", RedirectURIs: []string{"https://app.example/cb"}}
+	must(t, e.st.OAuth().CreateClient(ctx, &client))
 	var id uuid.UUID
 	return e.accessHooks(func(user uuid.UUID) {
-		id = fake.AddOAuthGrant(domain.OAuthGrant{AccountID: e.org.ID, UserID: user, Kind: domain.OAuthAccess}).ID
+		g := domain.OAuthGrant{Kind: domain.OAuthAccess, TokenHash: mcp.HashToken(user.String()), FamilyID: domain.NewID(), ClientID: client.ID, UserID: user,
+			AccountID: e.org.ID, Scopes: []domain.Scope{domain.ScopeRead}, Resource: "https://forecrew.example/mcp", ExpiresAt: e.clock.Now().Add(time.Hour)}
+		must(t, e.st.OAuth().CreateGrant(ctx, &g))
+		id = g.ID
 	}, func() bool {
-		g, err := fake.OAuthGrant(e.org.ID, id)
+		g, err := e.st.OAuth().GetGrant(ctx, id)
 		must(t, err)
 		return !g.RevokedAt.IsZero()
 	})
@@ -36,7 +41,7 @@ func TestRecordedSequences(t *testing.T) {
 		t.Run(file, func(t *testing.T) {
 			e := newEnv(t)
 			e.verified("acme.example")
-			e.scim().replay(file, fakeGrants(t, e))
+			e.scim().replay(file, grantHooks(t, e))
 			if !e.audited("scim.user_created") || !e.audited("scim.user_deactivated") || !e.audited("scim.group_created") {
 				t.Error("the changes are not audited")
 			}
