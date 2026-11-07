@@ -113,19 +113,23 @@ converter and the templates alike.
   on purpose: a root disk converted from a repo's Dockerfile holds the repo's
   `/bin/sh`, `git`, CA bundle, `/etc/hosts` and proxy settings, so **nothing of
   the image runs, and nothing the image says is used, until the machine's
-  bootstrap token is spent**. The init mounts the pseudo file systems and
-  `cgroup2`, loads the kernel modules the command line names
+  bootstrap token is spent**. The init first turns off the kernel's module
+  autoloader, which would run the image's `/sbin/modprobe` as root, until the
+  exchange is done. It mounts the pseudo file systems and `cgroup2`, loads the kernel modules the command line names
   (`forecrew.modules=`, never a list of the image's), brings up the network over
   netlink (`forecrew.ip=`, `forecrew.gw=`, `forecrew.dns=`), grows the root file
   system to its disk (`forecrew.root=`), mounts the read-only cache disk
   (`forecrew.cache=`, at `/var/cache/forecrew`), and reads the **config disk**
   (`forecrew.config=`, default `/dev/vdb`). That disk holds the settings and the
   token, the server's addresses as the host resolved them and, for https, the CA
-  bundle of the host; the init **wipes it** once read. It then trades the token
+  bundle of the host and the host's time; the init **wipes it** once read. It
+  sets the clock to at least that time (Firecracker has no real-time clock, and
+  the certificate check needs one), then trades the token
   for a worker token itself, dialling only those addresses, with no proxy and
   only that CA. Only then does it start the image's `dockerd`, if there is one,
   and the worker, with the worker token, the image's environment and labels
-  read as data, and `worker.yaml` in `/run`. When the worker ends the machine
+  read as data (without proxy settings, `SSL_CERT_*` or `GODEBUG`, which would
+  steer the worker's calls), and `worker.yaml` in `/run`. When the worker ends the machine
   ends (`forecrew.halt=reboot` for Firecracker, `poweroff` for Cloud
   Hypervisor). A refused token ends it before anything of the image runs.
   What runs after the exchange runs as root in the guest with the worker, as
