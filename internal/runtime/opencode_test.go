@@ -750,3 +750,15 @@ func TestOpencodeEndpointKeyOfTheWorker(t *testing.T) {
 		t.Errorf("key in events: %s", b)
 	}
 }
+
+// TestOrganizationEndpointRefusesTheWorkersKey: without the job's key the run
+// stops; the worker's variable of the same name does not stand in.
+func TestOrganizationEndpointRefusesTheWorkersKey(t *testing.T) {
+	spec := opencodeSpec()
+	spec.Env = nil
+	spec.Endpoint = &domain.Endpoint{BaseURL: "https://models.example.com/v1", KeyEnv: "ACME_KEY", Organization: true}
+	_, _, err := collect(t, newFakeOpencode("ACME_KEY=worker-own-key-value"), spec)
+	if !errors.Is(err, ErrRunFailed) || !strings.Contains(err.Error(), "does not go to an organization's endpoint") {
+		t.Fatalf("err = %v", err)
+	}
+}

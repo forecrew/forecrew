@@ -96,13 +96,27 @@ func (s RunSpec) binary(cfg Config, def string) string {
 // worker's plus Env on the host, only Env in a container.
 func (s RunSpec) baseEnv(cfg Config) []string {
 	if s.Container == nil {
-		return startEnv(cfg.Env, s.Env)
+		base := startEnv(cfg.Env, nil)
+		if s.Endpoint != nil && s.Endpoint.Organization {
+			base = withoutWorkerKeys(base)
+		}
+		return startEnv(base, s.Env)
 	}
 	env := make([]string, 0, len(s.Env))
 	for _, k := range slices.Sorted(maps.Keys(s.Env)) {
 		env = append(env, k+"="+s.Env[k])
 	}
 	return env
+}
+
+// withoutWorkerKeys removes the worker's own model keys from env. The endpoint
+// of an organization's connection is whatever its admin typed, so what the
+// worker holds must not reach it, whichever variable an agent CLI falls back on.
+func withoutWorkerKeys(env []string) []string {
+	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		return strings.HasSuffix(name, "_API_KEY") || strings.HasSuffix(name, "_AUTH_TOKEN")
+	})
 }
 
 // EvidenceDirEnv is the environment variable holding the scratch directory.
