@@ -686,11 +686,11 @@ steps:
         type: action
         action: goal.learn_settle
         with: {goal_id: '${inputs.goal_id}'}
-      # What the goal taught may be worth a proposal.
+      # What the goal taught may be worth a proposal; not after a rejected learn.
       - id: learn_advise
         type: action
         action: advise.start
-        with: {goal_id: '${inputs.goal_id}'}
+        with: {goal_id: '${inputs.goal_id}', gate: '${steps.learn_learn.output.gate}'}
 
   # A skipped learn step closes its PR and rejects its proposals.
   - id: learning_skipped

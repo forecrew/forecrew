@@ -99,17 +99,34 @@ func (a *actions) adviseFile(ctx context.Context, call workflow.ActionCall) (any
 }
 
 // adviseStart is the action advise.start, the last step of the learn
-// playbook: it starts the advise playbook for the goal, unless a run of it
-// is going on. Advice is never worth failing a retro: an error is logged.
+// steps: it starts the advise playbook for the goal, unless a run of it is
+// going on. with.gate is the learn gate (empty when the learn step opened
+// none): a learn step a human rejected starts no advisor. Advice is never
+// worth failing a retro: an error is logged.
 func (a *actions) adviseStart(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		GoalID uuid.UUID `json:"goal_id"`
+		Gate   string    `json:"gate"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
 	}
+	no := map[string]bool{"started": false}
 	if a.Advisor == nil {
-		return map[string]bool{"started": false}, nil
+		return no, nil
+	}
+	if with.Gate != "" {
+		id, err := uuid.Parse(with.Gate)
+		if err != nil {
+			return nil, fmt.Errorf("gate %q: %w", with.Gate, err)
+		}
+		g, err := a.Store.Gates().Get(ctx, call.Run.AccountID, id)
+		if err != nil {
+			return nil, fmt.Errorf("get the learn gate: %w", err)
+		}
+		if g.Status != domain.GateApproved {
+			return no, nil
+		}
 	}
 	started, err := a.Advisor.StartAfterGoal(ctx, call.Run, with.GoalID)
 	if err != nil {

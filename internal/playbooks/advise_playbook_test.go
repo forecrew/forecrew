@@ -17,6 +17,7 @@ import (
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -334,4 +335,40 @@ func TestGoalEndSettlesItsProposal(t *testing.T) {
 	if text := toMap(t, out)["text"].(string); !strings.Contains(text, "Improvements measured lately") || !strings.Contains(text, "4.0 before, 1.0 after") {
 		t.Fatalf("retro:\n%s", text)
 	}
+}
+
+// The learn steps start the advisor after an approved learn, or one with
+// nothing to approve, and not after a learn a human rejected.
+func TestAdviseStartFollowsTheLearnGate(t *testing.T) {
+	a := newAdviseEnv(t)
+	runs := &testkit.Playbooks{}
+	a.runs = runs
+	gate := func(status domain.GateStatus) string {
+		g, err := a.gates.Open(t.Context(), gates.OpenRequest{AccountID: a.account, ProjectID: a.project.ID, Kind: domain.GateKnowledgeProposal, Title: "Learnings", SubjectRepo: "acme/app"})
+		must(t, err)
+		if status != domain.GatePending {
+			_, err = a.gates.Resolve(t.Context(), domain.Actor{AccountID: a.account, Kind: domain.ActorUser, Name: "ana"}, g.ID, status, "no")
+			must(t, err)
+		}
+		return g.ID.String()
+	}
+	for name, c := range map[string]struct {
+		gate string
+		want bool
+	}{
+		"rejected": {gate(domain.GateRejected), false},
+		"approved": {gate(domain.GateApproved), true},
+		"no gate":  {"", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			before := len(runs.Starts())
+			out, err := a.call(t, "advise.start", map[string]any{"goal_id": domain.NewID().String(), "gate": c.gate})
+			must(t, err)
+			if started := toMap(t, out)["started"] == true; started != c.want || (len(runs.Starts()) > before) != c.want {
+				t.Fatalf("started %v, want %v", started, c.want)
+			}
+		})
+	}
+	_, err := a.call(t, "advise.start", map[string]any{"goal_id": domain.NewID().String(), "gate": "nope"})
+	wantErr(t, err, "gate")
 }
