@@ -172,8 +172,9 @@ size and price. It ships with each release and is never fetched.
   on the fixture `packs/fixtures/model-test`, never a project's repo, on that
   connection and model: read a file, edit one, run a command, call the job
   MCP tool `report_progress` and answer JSON matching a schema, in at most 15
-  turns and 5 minutes. The estimated tokens and cost come first, and running
-  it is a second step. The stored result lists each ability, tokens, duration
+  turns and 5 minutes. The estimate comes first, labelled typical and worst
+  case (15 turns × a full context window × the price), and running it is a
+  second step. The stored result lists each ability, tokens, duration
   and the agent's version, and a level: `read` roles need reading, MCP and
   JSON; roles that write code need every ability. A key check that finds
   another agent version runs the tests of the connection again.

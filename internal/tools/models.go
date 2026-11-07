@@ -92,7 +92,8 @@ func (s *Service) ModelsTest(ctx context.Context, by domain.Actor, in mcp.Models
 	}
 	e := c.EstimateTest(conn, in.Model)
 	out := mcp.ModelsTestOutput{Connection: conn.Name, Model: in.Model, MaxTurns: models.TestMaxTurns, TimeoutSeconds: int(models.TestTimeout.Seconds()),
-		Estimate: mcp.ModelsEstimate{InputTokens: e.InputTokens, OutputTokens: e.OutputTokens, CostUSD: e.CostUSD, Basis: e.Basis}}
+		Estimate: mcp.ModelsEstimate{InputTokens: e.InputTokens, OutputTokens: e.OutputTokens, CostUSD: e.CostUSD, Basis: e.Basis,
+			WorstInputTokens: e.WorstInputTokens, WorstCostUSD: e.WorstCostUSD, WorstBasis: e.WorstBasis}}
 	if !in.Run {
 		return out, nil
 	}

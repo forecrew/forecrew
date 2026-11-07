@@ -445,14 +445,19 @@ func TestANewAgentVersionTestsAgain(t *testing.T) {
 func TestEstimateOfATest(t *testing.T) {
 	c := newChecks(t)
 	cloud := conn("cloud", config.AdapterClaudeCode, "anthropic")
-	if e := c.checker.EstimateTest(cloud, "claude-sonnet-4-5"); e.CostUSD == nil || *e.CostUSD < 0.2 || *e.CostUSD > 0.3 {
+	e := c.checker.EstimateTest(cloud, "claude-sonnet-4-5")
+	if e.CostUSD == nil || *e.CostUSD < 0.2 || *e.CostUSD > 0.3 || !strings.HasPrefix(e.Basis, "typical") {
 		t.Fatalf("catalog = %+v", e)
+	}
+	// 15 turns × 200000 tokens at $3, and 15 × 4000 output tokens at $15.
+	if e.WorstInputTokens != 3000000 || e.WorstCostUSD == nil || *e.WorstCostUSD != 9.9 || !strings.HasPrefix(e.WorstBasis, "worst case") {
+		t.Fatalf("worst = %+v", e)
 	}
 	if e := c.checker.EstimateTest(cloud, "mine"); e.CostUSD != nil || !strings.Contains(e.Basis, "price") {
 		t.Fatalf("unknown = %+v", e)
 	}
 	cloud.Models = map[string]domain.ModelInfo{"mine": {Price: &domain.ModelPrice{Input: 1, Output: 1}}}
-	if e := c.checker.EstimateTest(cloud, "mine"); e.CostUSD == nil || *e.CostUSD != 0.064 {
+	if e := c.checker.EstimateTest(cloud, "mine"); e.CostUSD == nil || *e.CostUSD != 0.064 || e.WorstCostUSD != nil || !strings.Contains(e.WorstBasis, "context size") {
 		t.Fatalf("entered = %+v", e)
 	}
 	local := cloud

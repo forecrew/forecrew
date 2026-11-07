@@ -46,13 +46,18 @@ type ModelCheckView struct {
 	Untrusted string `json:"untrusted,omitempty"`
 }
 
-// ModelsEstimate is what a suitability test is expected to take.
+// ModelsEstimate is what a suitability test is expected to take: a typical
+// figure, and the worst case of every turn with a full context window.
 type ModelsEstimate struct {
 	InputTokens  int64 `json:"input_tokens"`
 	OutputTokens int64 `json:"output_tokens"`
 	// CostUSD is absent when the price of the model is unknown.
-	CostUSD *float64 `json:"cost_usd,omitempty"`
-	Basis   string   `json:"basis"`
+	CostUSD          *float64 `json:"cost_usd,omitempty"`
+	Basis            string   `json:"basis"`
+	WorstInputTokens int64    `json:"worst_input_tokens,omitempty"`
+	// WorstCostUSD is absent when the price or the context size is unknown.
+	WorstCostUSD *float64 `json:"worst_cost_usd,omitempty"`
+	WorstBasis   string   `json:"worst_basis"`
 }
 
 // ModelsTestOutput is the answer of models_test: the plan of the test, and
