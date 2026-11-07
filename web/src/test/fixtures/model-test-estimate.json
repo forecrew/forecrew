@@ -1,0 +1,16 @@
+{
+  "connection": "claude",
+  "model": "claude-opus-4-5",
+  "max_turns": 15,
+  "timeout_seconds": 300,
+  "estimate": {
+    "input_tokens": 30000,
+    "output_tokens": 3000,
+    "cost_usd": 0.18,
+    "basis": "catalog price of claude-opus-4-5",
+    "worst_input_tokens": 3000000,
+    "worst_cost_usd": 15,
+    "worst_basis": "15 turns with the full 200000-token context"
+  }
+}
+

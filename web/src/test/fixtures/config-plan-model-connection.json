@@ -1,0 +1,50 @@
+{
+  "id": "018f0000-0000-7000-8000-000000000810",
+  "account_id": "018f0000-0000-7000-8000-000000000001",
+  "status": "pending",
+  "source": "form",
+  "title": "Add AI provider DeepSeek API",
+  "applies": "now",
+  "changes": [
+    {
+      "op": "create",
+      "kind": "model_connection",
+      "name": "deepseek",
+      "new": {
+        "adapter": "opencode",
+        "base_url": "https://api.deepseek.com/v1",
+        "enabled": true,
+        "key_env": "DEEPSEEK_API_KEY",
+        "secret_ref": "store:models/deepseek",
+        "vendor": "deepseek"
+      },
+      "fields": [],
+      "line": "+ AI connection deepseek (deepseek)"
+    }
+  ],
+  "steps": [
+    {
+      "kind": "secret_required",
+      "resource": "model_connection/deepseek",
+      "title": "API key of deepseek",
+      "secret": "models/deepseek",
+      "filled": false
+    }
+  ],
+  "needs": [
+    "models.manage"
+  ],
+  "affects": "Jobs leased from now on see the change; workers need nothing.",
+  "cost": "",
+  "undo": "Can be reverted from Change history.",
+  "reversible": true,
+  "lowers_protection": [],
+  "base_digest": "",
+  "created_by": "user:018f0000-0000-7000-8000-000000000300",
+  "expires_at": "2026-03-02T12:00:00Z",
+  "created_at": "2026-03-01T12:00:00Z",
+  "updated_at": "2026-03-01T12:00:00Z",
+  "can_confirm": true,
+  "stale": false
+}
+

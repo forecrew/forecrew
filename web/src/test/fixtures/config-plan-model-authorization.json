@@ -1,0 +1,38 @@
+{
+  "id": "018f0000-0000-7000-8000-000000000812",
+  "account_id": "018f0000-0000-7000-8000-000000000001",
+  "status": "pending",
+  "source": "form",
+  "title": "Let deepseek receive the code of app",
+  "applies": "now",
+  "changes": [
+    {
+      "op": "create",
+      "kind": "model_authorization",
+      "name": "deepseek@app",
+      "new": {},
+      "fields": [],
+      "line": "+ Private code for deepseek@app"
+    }
+  ],
+  "steps": [],
+  "needs": [
+    "models.assign"
+  ],
+  "affects": "The code of acme/app goes to DeepSeek API (in CN) through connection deepseek.",
+  "cost": "",
+  "undo": "Can be reverted from Change history.",
+  "reversible": true,
+  "lowers_protection": [
+    "Sends the private code of project app through connection deepseek"
+  ],
+  "confirm_word": "acme",
+  "base_digest": "",
+  "created_by": "user:018f0000-0000-7000-8000-000000000300",
+  "expires_at": "2026-03-02T12:00:00Z",
+  "created_at": "2026-03-01T12:00:00Z",
+  "updated_at": "2026-03-01T12:00:00Z",
+  "can_confirm": true,
+  "stale": false
+}
+

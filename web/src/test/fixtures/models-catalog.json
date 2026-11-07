@@ -1,0 +1,155 @@
+{
+  "makers": [
+    {
+      "name": "anthropic",
+      "title": "Anthropic",
+      "prefixes": [
+        "claude"
+      ]
+    },
+    {
+      "name": "deepseek",
+      "title": "DeepSeek",
+      "prefixes": [
+        "deepseek"
+      ]
+    },
+    {
+      "name": "meta",
+      "title": "Meta",
+      "prefixes": [
+        "llama"
+      ]
+    }
+  ],
+  "providers": [
+    {
+      "name": "anthropic",
+      "title": "Anthropic API",
+      "adapter": "claude-code",
+      "base_url": "https://api.anthropic.com",
+      "key_env": "ANTHROPIC_API_KEY",
+      "homepage": "https://docs.anthropic.com",
+      "country": "US"
+    },
+    {
+      "name": "deepseek",
+      "title": "DeepSeek API",
+      "adapter": "opencode",
+      "base_url": "https://api.deepseek.com/v1",
+      "key_env": "DEEPSEEK_API_KEY",
+      "homepage": "https://api-docs.deepseek.com",
+      "country": "CN"
+    },
+    {
+      "name": "ollama",
+      "title": "Ollama",
+      "adapter": "opencode",
+      "base_url": "http://localhost:11434/v1",
+      "key_env": "OLLAMA_API_KEY",
+      "homepage": "https://ollama.com",
+      "country": "local",
+      "router": true
+    }
+  ],
+  "models": [
+    {
+      "id": "claude-opus-4-5",
+      "maker": "anthropic",
+      "tier": "best",
+      "context": 200000,
+      "price": {
+        "input": 5,
+        "output": 25
+      }
+    },
+    {
+      "id": "claude-sonnet-4-5",
+      "maker": "anthropic",
+      "tier": "strong",
+      "context": 200000,
+      "price": {
+        "input": 3,
+        "output": 15
+      }
+    },
+    {
+      "id": "deepseek-chat",
+      "maker": "deepseek",
+      "tier": "strong",
+      "context": 128000,
+      "price": {
+        "input": 0.28,
+        "output": 0.42
+      }
+    },
+    {
+      "id": "deepseek-reasoner",
+      "maker": "deepseek",
+      "tier": "best",
+      "context": 128000,
+      "price": {
+        "input": 0.28,
+        "output": 0.42
+      }
+    },
+    {
+      "id": "llama3-3",
+      "maker": "meta",
+      "tier": "fast",
+      "context": 131072,
+      "price": {
+        "input": 0.1,
+        "output": 0.3
+      }
+    }
+  ],
+  "presets": [
+    "balanced",
+    "low_cost",
+    "local_only"
+  ],
+  "roles": [
+    {
+      "name": "developer",
+      "tier": "strong",
+      "writes": true
+    },
+    {
+      "name": "test-engineer",
+      "tier": "strong",
+      "writes": true
+    },
+    {
+      "name": "reviewer",
+      "tier": "strong",
+      "writes": false
+    },
+    {
+      "name": "security-reviewer",
+      "tier": "strong",
+      "writes": false
+    },
+    {
+      "name": "architect",
+      "tier": "best",
+      "writes": false
+    },
+    {
+      "name": "product-owner",
+      "tier": "best",
+      "writes": false
+    },
+    {
+      "name": "triage",
+      "tier": "fast",
+      "writes": false
+    },
+    {
+      "name": "facilitator",
+      "tier": "fast",
+      "writes": false
+    }
+  ]
+}
+
