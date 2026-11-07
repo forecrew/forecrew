@@ -264,10 +264,14 @@ What the code does with them:
 
 - **Never more than two.** `capabilities.max_machines` is at most 2 and
   `tart.yaml` refuses a larger `max_machines`, so the controller never asks for a
-  third. The provider also counts every VM running on the Mac, Forecrew's or not
-  (`tart list`), because Apple's limit is on the Mac: a VM of your own leaves room
-  for one machine. Other virtualizers (UTM, Parallels) cannot be seen; do not run
-  them on a Mac that has a location.
+  third. Apple's limit is on the Mac, and `tart list` shows only the agent's own Tart
+  home, so the provider counts the VMs of the whole Mac: the processes
+  Virtualization.framework runs, one per VM (`com.apple.Virtualization.VirtualMachine`,
+  from `ps`), whoever started them, Tart in another home or another tool. A VM of your
+  own leaves room for one machine, and the location reports `max_machines` lower
+  (never 0, which means no limit) with a warning check, `other VMs`. A machine
+  Create refuses for that reason is `no capacity`, not a failure, and so is a
+  `tart run` that dies of `VirtualMachineLimitExceeded`, for VMs the count missed.
 - **Your own Mac, your own jobs.** That is what the licence covers: a location
   belongs to an organization and runs that organization's jobs only. macOS images
   are never instance-wide (images.md), so Forecrew never offers hosted macOS
@@ -300,13 +304,26 @@ written before anything, so that Destroy can finish what a crash interrupted:
   starts `forecrew-start` when the file appears, never reads half of it. The
   worker's first act is to read and delete the file and to exchange the token
   ([images.md](images.md)); the disk is deleted with the VM.
-- **A network.** With Softnet (the default), a machine reaches globally routable
-  IPv4 addresses and nothing private: not the host, not the LAN. The agent adds
-  forecrewd's address, which it resolves on the host (a loopback address is
-  refused), and the location's `network_allow`, as `--net-softnet-allow`, which
-  opens those addresses on all ports (Softnet has no ports). A running VM's network
-  cannot change, so `Update` with another `network_allow` fails. `softnet: false`
-  gives Tart's NAT, where the machine reaches the LAN and the host; `doctor` warns.
+- **A network.** With Softnet (the default) a machine reaches globally routable
+  IPv4 addresses and the gateway of the VMs' network, which is the Mac itself, and
+  nothing else private: not the LAN. The gateway is blocked
+  (`--net-softnet-block=<softnet_gateway>/32`, default `192.168.64.1`), so the
+  Mac's own services, its SSH and file sharing, are out of reach. Softnet's
+  default would allow the gateway, and a block beats an allow. Because the
+  gateway is also where a guest finds its DNS (the DHCP lease names it), the
+  delivery script gives every enabled network service of the guest the resolvers of
+  `dns` (default `1.1.1.1` and `9.9.9.9`); a resolver of a private address is added
+  to the allowed addresses. Before any setting is delivered the agent asks `tart ip`
+  for the machine's address and finds the Mac's own address on that network; if it
+  is not `softnet_gateway`, or cannot be found, the machine is refused with the
+  address to configure, so a Mac whose VM network is not `192.168.64.0/24` is never
+  left open. The agent adds forecrewd's address (resolved on the host; a loopback
+  address, or the gateway itself, is refused) and the location's `network_allow`
+  as `--net-softnet-allow`, which opens those addresses on all ports, Softnet
+  having no ports. A running VM's network cannot change, so `Update` with another
+  `network_allow` fails. `softnet: false` is Tart's NAT, where a machine reaches
+  the LAN and the Mac: `doctor` fails it unless `allow_no_softnet: true` is set on
+  the Mac, and then only warns.
 - **A wall-time kill.** At the deadline the agent runs `tart stop`, whether or not
   forecrewd can be reached, and again after a restart; forecrewd then destroys the
   rest.
@@ -318,12 +335,24 @@ destroyed the same way. Nothing else on the Mac is touched.
 
 **Images.** A shape's image has format `tart`, `uri` `oci://registry/name[:tag]`
 and `digest`, the digest of the build's OCI manifest. Before first use the agent
-checks the signature against `trusted_keys_file`; it pulls `registry/name@<digest>`,
-never a tag, so the registry hands over exactly what was signed. Pulled images
-unused for `image_cache_days` are pruned (`tart prune --entries caches`). A shape's
-`provider_config` `base_vm` names a VM already on the Mac instead, only when
-`allow_local_base: true` is set in `tart.yaml` on the Mac itself: such a VM is not
-signed, so only the person at the Mac can allow it.
+checks the signature against `trusted_keys_file`. The signature covers the digest
+and not the URI, so the URI's host must be in `registry_hosts` of `tart.yaml`
+(required when there are credentials), and credentials go only to that host. It
+pulls `registry/name@<digest>`, never a tag. **Tart does not check that what it
+pulled is what the digest names, so the agent does**: the `manifest.json` Tart
+cached (`TART_HOME/cache/OCIs/<registry>/<repository>/<digest>/`, the registry's
+bytes) must hash to the signed digest; `config.json` and `nvram.bin` must match
+their layers' digests; and `disk.img`, which Tart stores uncompressed, must match
+the layers' uncompressed content digests chunk by chunk and be covered by them
+exactly. A layer that cannot be checked, such as another media type or a stacked
+disk, refuses the image, and so does a pull that left no manifest. The disk is hashed
+once per image, not per machine, and again if its files change or the cache is
+pruned. Pulled images unused for `image_cache_days` are pruned
+(`tart prune --entries caches`). A shape's `provider_config` `base_vm` names a VM
+in the agent's own Tart home (`<state_dir>/tart-home`, which `tart list` shows the
+agent's user and no other: a VM of your own account's `~/.tart` is not there)
+instead, only when `allow_local_base: true` is set in `tart.yaml` on the Mac
+itself: such a VM is not signed, so only the person at the Mac can allow it.
 
 **Xcode.** An image lists the Xcode of its base VM as a label, `xcode:16` (major
 version; `provision-macos.sh` adds it when `xcodebuild` works). Put the label in
@@ -335,8 +364,9 @@ has no Xcode label.
 `tart.yaml` by reference (`registry_username: env:NAME`,
 `registry_password: env:NAME`) and read from the agent's environment, the
 `secrets.env` the installer reads. They reach `tart pull` and `tart clone`, and
-only those, as `TART_REGISTRY_USERNAME` and `TART_REGISTRY_PASSWORD`, in an
-environment built for the command: the rest of the agent's environment, with its
+only those, as `TART_REGISTRY_USERNAME`, `TART_REGISTRY_PASSWORD` and
+`TART_REGISTRY_HOSTNAME` (the image's host, which must be in `registry_hosts`), in
+an environment built for the command: the rest of the agent's environment, with its
 provider token, never reaches Tart. The password is scrubbed from every error.
 There is no SSH: the agent reaches a guest with the guest agent (`tart exec`), so
 there are no SSH keys to keep.
@@ -350,7 +380,8 @@ a machine's error.
 capabilities): Apple silicon; Tart at least `min_tart_version`; free disk of
 `min_free_gb`; trusted image keys; sleep off (`pmset`, a warning: run
 `sudo pmset -a sleep 0`); the registry credentials the references name; Softnet on
-PATH.
+PATH and on (a fail when off, unless `allow_no_softnet`); and, in the capabilities,
+the VMs of the Mac that are not Forecrew's.
 
 ### tart.yaml
 
@@ -366,9 +397,12 @@ has a default and a missing file means all defaults. It holds no secrets.
 | `min_tart_version` | `2.27.3` | The oldest Tart accepted. Chosen, not derived: 2.27.3 removed a 1-second limit on calls to the guest agent |
 | `min_free_gb` | 100 | Free disk the host must keep |
 | `boot_wait_seconds` | 300 | How long Create waits for a guest agent |
-| `softnet` | `true` | Run machines behind Softnet |
+| `softnet` | `true` | Run machines behind Softnet. Off is a `doctor` fail unless `allow_no_softnet` |
+| `allow_no_softnet` | `false` | Let this Mac run without Softnet: machines then reach the LAN and the Mac, and `doctor` warns |
+| `softnet_gateway` | `192.168.64.1` | The Mac's address on the VMs' network, blocked for machines; checked against `tart ip` at each start |
+| `dns` | `1.1.1.1`, `9.9.9.9` | Resolvers set in each guest, one to three IPv4 addresses, because the gateway is blocked |
 | `registry_username`, `registry_password` | none | `env:NAME` references; both or neither |
-| `registry_host` | any | Limits the credentials to one registry |
+| `registry_hosts` | none | Registries an image may come from, `host[:port]` in lower case; an image of another host is refused. Required with credentials, and worth setting always |
 | `allow_local_base` | `false` | Let a shape clone a local VM (`base_vm`) |
 | `image_cache_days` | `14` | How long a pulled image unused stays |
 
