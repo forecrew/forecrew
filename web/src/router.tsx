@@ -23,6 +23,7 @@ import { LoginPage } from "@/routes/login"
 import { QualityPage } from "@/routes/quality"
 import { ProjectPage } from "@/routes/project"
 import { OnboardPage, ProjectsPage } from "@/routes/projects"
+import { SetupPage } from "@/routes/setup"
 import { TracePage } from "@/routes/trace"
 import { GeneralPage } from "@/routes/settings/general"
 import { HistoryPage } from "@/routes/settings/history"
@@ -134,6 +135,7 @@ const routeTree = root.addChildren([
     // Workers became Machines.
     createRoute({ getParentRoute: () => app, path: "/workers", validateSearch: search, beforeLoad: () => { throw redirect({ to: "/machines" }) } }),
     child("/trace/$ref", TracePage),
+    createRoute({ getParentRoute: () => app, path: "/setup", validateSearch: search, component: SetupPage }),
     // Tokens moved into the account page.
     createRoute({ getParentRoute: () => app, path: "/tokens", validateSearch: search, beforeLoad: () => { throw redirect({ to: "/account" }) } }),
     child("/account", AccountPage),
