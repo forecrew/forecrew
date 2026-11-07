@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -118,21 +119,46 @@ func (s RunSpec) organization() bool {
 	return s.OrganizationModel || (s.Endpoint != nil && s.Endpoint.Organization)
 }
 
-// withoutWorkerKeys removes from env every credential the worker holds, and
-// what points an agent CLI at another endpoint. A job on an organization's
-// connection runs with that organization's key only: a key, token or secret
-// of the worker must not reach a provider the organization chose, whichever
-// variable an agent CLI falls back on (CLAUDE_CODE_OAUTH_TOKEN,
-// ANTHROPIC_AUTH_TOKEN, OPENAI_API_KEY...), and a base URL of the worker must
-// not take the organization's key elsewhere.
+// workerKeep lists the worker's variables a run on an organization's model
+// connection keeps: what a CLI and the agent's shell need to start and find
+// their tools. Everything else of the worker is dropped, because a variable
+// of the worker's must not send the organization's key or code elsewhere
+// (OPENAI_BASE_URL, OLLAMA_HOST, CLAUDE_CODE_USE_BEDROCK, ANTHROPIC_VERTEX_*,
+// *_ENDPOINT...) nor give the agent a credential of the worker's.
+var workerKeep = map[string]bool{
+	"PATH": true, "HOME": true, "USER": true, "LOGNAME": true, "SHELL": true, "LANG": true, "LANGUAGE": true,
+	"TZ": true, "TMPDIR": true, "TERM": true, "PWD": true,
+	// Windows
+	"SYSTEMROOT": true, "WINDIR": true, "COMSPEC": true, "PATHEXT": true, "TEMP": true, "TMP": true,
+	"USERPROFILE": true, "APPDATA": true, "LOCALAPPDATA": true, "PROGRAMDATA": true, "PROGRAMFILES": true,
+	"PROGRAMFILES(X86)": true, "SYSTEMDRIVE": true, "HOMEDRIVE": true, "HOMEPATH": true, "USERNAME": true,
+}
+
+// workerKeepPrefixes are kept like workerKeep: locale, certificates and the
+// XDG directories (opencode sets its own over them).
+var workerKeepPrefixes = []string{"LC_", "SSL_CERT_", "XDG_"}
+
+// proxyNames are kept only without credentials in their URL.
+var proxyNames = map[string]bool{"HTTP_PROXY": true, "HTTPS_PROXY": true, "ALL_PROXY": true, "NO_PROXY": true}
+
+// keptForOrganization reports whether the worker's variable kv stays in a run
+// on an organization's model connection.
+func keptForOrganization(kv string) bool {
+	name, value, _ := strings.Cut(kv, "=")
+	n := strings.ToUpper(name)
+	switch {
+	case workerKeep[n]:
+		return true
+	case proxyNames[n]:
+		u, err := url.Parse(value)
+		return n == "NO_PROXY" || (err == nil && u.User == nil && !strings.Contains(value, "@"))
+	}
+	return slices.ContainsFunc(workerKeepPrefixes, func(p string) bool { return strings.HasPrefix(n, p) })
+}
+
+// withoutWorkerKeys keeps of env only what keptForOrganization allows.
 func withoutWorkerKeys(env []string) []string {
-	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
-		name, _, _ := strings.Cut(kv, "=")
-		name = strings.ToUpper(name)
-		return slices.ContainsFunc([]string{"_KEY", "_TOKEN", "_SECRET", "_BASE_URL", "_PASSWORD", "_CREDENTIALS"}, func(suffix string) bool {
-			return strings.HasSuffix(name, suffix)
-		})
-	})
+	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return !keptForOrganization(kv) })
 }
 
 // EvidenceDirEnv is the environment variable holding the scratch directory.
