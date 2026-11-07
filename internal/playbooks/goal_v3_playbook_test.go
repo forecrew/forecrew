@@ -11,6 +11,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew"
+	"github.com/forecrew/forecrew/internal/advisor"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/knowledge"
@@ -36,6 +37,16 @@ type v3Run struct {
 	*v2Run
 	mu    *sync.Mutex
 	calls *[]councilCall
+	// advised records the advise runs the learn step starts.
+	advised *testkit.Playbooks
+}
+
+// advisorStarted reports whether the learn step started the advisor for
+// the project.
+func (r *v3Run) advisorStarted() bool {
+	return slices.ContainsFunc(r.advised.Starts(), func(s testkit.PlaybookStart) bool {
+		return s.Playbook == advisor.PlaybookAdvise && s.Request.ProjectID == r.project.ID
+	})
 }
 
 // councilCalls returns the councils the playbook asked for, in order.
@@ -54,6 +65,8 @@ func startGoalV3(t *testing.T, size *domain.GoalSize, registered ...bool) *v3Run
 	must(t, err)
 	v.proposals = &proposals.Service{Store: v.st, GitHub: v.tracker, Gates: v.gates, Roles: testRoles(),
 		Policy: func(context.Context, domain.Project) (knowledge.Policy, error) { return policy, nil }}
+	advised := &testkit.Playbooks{}
+	v.advisor = advisor.New(advisor.Config{Store: v.st, Gates: v.gates, Runs: advised, Now: v.clock.Now})
 	v.register()
 	var regs *registers.Service
 	if len(registered) > 0 && registered[0] {
@@ -83,7 +96,7 @@ func startGoalV3(t *testing.T, size *domain.GoalSize, registered ...bool) *v3Run
 	}
 	run.workerOnline(t, "linux-box", "docker", "linux")
 	run.workerOnline(t, "windows-box", "windows")
-	return &v3Run{v2Run: run, mu: &mu, calls: &calls}
+	return &v3Run{v2Run: run, mu: &mu, calls: &calls, advised: advised}
 }
 
 func fakeCouncilRun(v *env, mu *sync.Mutex, calls *[]councilCall) workflow.Action {
@@ -224,6 +237,11 @@ func TestGoalV3SmallGoalSkipsBothCouncils(t *testing.T) {
 	r.waitRun(t, domain.RunSucceeded)
 	if !r.prNow(t, pr.Number).Merged || r.goalNow(t).Status != domain.GoalDone || r.goalIssue(t).State != "closed" {
 		t.Errorf("learn pr merged = %v, goal %s", r.prNow(t, pr.Number).Merged, r.goalNow(t).Status)
+	}
+	// The approved learn step ends by starting the advisor.
+	r.waitStep(t, "learning/1/learn_advise", domain.StepSucceeded)
+	if !r.advisorStarted() {
+		t.Errorf("no advise run after the learn step: %+v", r.advised.Starts())
 	}
 }
 
@@ -385,6 +403,11 @@ func TestGoalV3FailedLearnCanBeSkipped(t *testing.T) {
 	if _, err := r.tracker.FindPR(t.Context(), "acme/app", proposals.LearnBranch(r.goal)); err == nil {
 		t.Error("a learn PR for a skipped step")
 	}
+	// A skipped learn step starts no advisor.
+	r.noStep(t, "learning/1/learn_advise")
+	if r.advisorStarted() {
+		t.Errorf("an advise run after a skipped learn step: %+v", r.advised.Starts())
+	}
 }
 
 // A learn step that fails after its PR was opened (the head moved before the
@@ -420,6 +443,27 @@ func TestGoalV3SkipAfterTheLearnPROpened(t *testing.T) {
 	must(t, err)
 	if got.Status != domain.KnowledgeRejected || r.prNow(t, pr.Number).State != "closed" || r.goalNow(t).Status != domain.GoalDone {
 		t.Errorf("proposal %s, pr %+v, goal %s", got.Status, r.prNow(t, pr.Number), r.goalNow(t).Status)
+	}
+}
+
+// A learn step whose gate a human rejects closes its PR, the goal closes, and
+// no advisor starts on what the human turned down.
+func TestGoalV3RejectedLearnStartsNoAdvisor(t *testing.T) {
+	r := startGoalV3(t, &domain.GoalSize{Councils: []domain.CouncilKind{}, Reason: "Chosen by the person who created the goal."})
+	r.approveSpec(t)
+	r.design(t, planTask("Charge cards", []string{"AC-1", "AC-2"}, []string{"go"}))
+	r.delivered(t)
+	// A decision of the goal gives the learn step a file to write, so a gate.
+	d := domain.Decision{AccountID: r.account, ProjectID: r.project.ID, GoalID: r.goal.ID, Question: "Which queue?", Choice: "postgres", DecidedBy: "user:ana", Reasons: "r"}
+	must(t, r.st.Decisions().Create(t.Context(), &d))
+	hist := r.waitStep(t, "learning/1/learn_retro", domain.StepWaiting)
+	r.finishJob(t, hist.JobID, []byte(`{"summary":"s","proposals":[],"assumptions":[]}`), "", 0.2)
+	r.pendingGate(t, domain.GateKnowledgeProposal)
+	r.decide(t, domain.GateKnowledgeProposal, mcp.ToolReject, "not these")
+	r.waitRun(t, domain.RunSucceeded)
+	s := r.waitStep(t, "learning/1/learn_advise", domain.StepSucceeded)
+	if !strings.Contains(string(s.Output), `"started":false`) || r.advisorStarted() || r.goalNow(t).Status != domain.GoalDone {
+		t.Errorf("advise %s, starts %+v, goal %s", s.Output, r.advised.Starts(), r.goalNow(t).Status)
 	}
 }
 

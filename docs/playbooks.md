@@ -952,6 +952,9 @@ It is `goal-v2` with these steps added:
    the goal: a `needs_you` gate shows it, approving skips the learn step
    (`goal.learn_settle` with `skipped` closes its PR and rejects its proposals)
    and the goal closes; rejecting stops the run like any other.
+   The last step of the loop, as in `learn`, is `advise.start`: an approved
+   learn step, or one with nothing to approve, starts the `advise` playbook; a
+   skipped one never reaches it, and a rejected learn gate starts nothing.
 
 A goal whose run ends failed or canceled runs `goal.settle`, which also rejects
 the goal's knowledge proposals that waited for a learn step that will not run.
