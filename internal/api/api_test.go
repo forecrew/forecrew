@@ -138,6 +138,7 @@ func TestEndpoints(t *testing.T) {
 			mcp.CreateTrackerConnectionInput{Name: "gh", Kind: "github", Config: map[string]any{"repos": []any{"acme/app"}}, Triggers: domain.TrackerTriggers{Label: "forecrew"}}},
 		{"DELETE", "/api/v1/tracker-connections/gh", "", 200, mcp.ToolDeleteTrackerConnection, mcp.TrackerConnectionRefInput{Connection: "gh"}},
 		{"POST", "/api/v1/tracker-connections/gh/discard-writes", "", 200, mcp.ToolDiscardTrackerWrites, mcp.TrackerConnectionRefInput{Connection: "gh"}},
+		{"POST", "/api/v1/tracker-connections/gh/test", "", 200, mcp.ToolTestTrackerConnection, mcp.TrackerConnectionRefInput{Connection: "gh"}},
 		{"GET", "/api/v1/tracker-routes?connection=gh", "", 200, mcp.ToolListTrackerRoutes, mcp.TrackerConnectionFilterInput{Connection: "gh"}},
 		{"POST", "/api/v1/tracker-routes", `{"connection":"gh","project":"app","match":{"labels":["x"]},"states":{"done":"closed"}}`, 201, mcp.ToolCreateTrackerRoute,
 			mcp.CreateTrackerRouteInput{Connection: "gh", Project: "app", Match: domain.TrackerMatch{Labels: []string{"x"}}, States: map[domain.TicketState]string{domain.TicketDone: "closed"}}},

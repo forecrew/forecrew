@@ -17,7 +17,7 @@ func registerTrackers(r registrar, svc ToolService, project string) {
 			return list("connections", c, "%d tracker connections.", len(c)), err
 		})
 	register(r, ToolCreateTrackerConnection, "Connect a tracker. Its adapter checks the connection first; triggers say how a person hands a ticket over: assignee, label or state.",
-		fieldDocs{"name": "Name of the connection.", "kind": "Adapter: github (issues) or github_project (a board's columns).", "config": "The adapter's settings; never a secret. For github: repos and bot_login. For github_project: owner (an organization), project (the board's number), optional field, closed and bot_login.",
+		fieldDocs{"name": "Name of the connection.", "kind": "Adapter: github (issues), github_project (a board's columns) or jira.", "config": "The adapter's settings; never a secret. For github: repos and bot_login. For jira: base_url, projects, auth, email, token_ref, ca_bundle, webhook_secret_ref, webhook_signing. For github_project: owner (an organization), project (the board's number), optional field, closed and bot_login.",
 			"triggers": "The handovers it listens for; at least one of assignee, label and state."},
 		func(ctx context.Context, by domain.Actor, in CreateTrackerConnectionInput) (toolResult, error) {
 			c, err := svc.CreateTrackerConnection(ctx, by, in)
@@ -34,6 +34,17 @@ func registerTrackers(r registrar, svc ToolService, project string) {
 			in.WrapUntrusted = true
 			d, err := svc.DiscardTrackerWrites(ctx, by, in)
 			return result(d, "%d writes to %s discarded.", len(d.Writes), d.Connection), err
+		}, "connection")
+	register(r, ToolTestTrackerConnection, "Test a tracker connection: its address, certificate, login, project access and transitions, each reported on its own. Details can quote the tracker.",
+		fieldDocs{"connection": connection}, func(ctx context.Context, by domain.Actor, in TrackerConnectionRefInput) (toolResult, error) {
+			t, err := svc.TestTrackerConnection(ctx, by, in)
+			failed := 0
+			for _, c := range t.Checks {
+				if !c.OK {
+					failed++
+				}
+			}
+			return result(t, "Connection %s: %d of %d checks failed.", t.Connection, failed, len(t.Checks)), err
 		}, "connection")
 	register(r, ToolListTrackerRoutes, "List the routes that send tickets to projects, in the order they are tried.",
 		filter, func(ctx context.Context, by domain.Actor, in TrackerConnectionFilterInput) (toolResult, error) {
