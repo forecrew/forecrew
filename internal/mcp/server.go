@@ -332,7 +332,6 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 	registerAccessTools(r, svc)
 }
 
-// registerAccessTools adds the tools that manage who may do what.
 func registerProviderTools(r registrar, svc ToolService) {
 	org := "Organization slug; left out, the server's organization when it has only one, otherwise instance-wide, for instance admins."
 	register(r, ToolCreateProvider, "Add a capacity provider (location) served by a fleet agent, for scripts and air-gapped sites. The answer holds its token, shown this once; a join code shows no token to anyone.",
@@ -368,6 +367,7 @@ func registerProviderTools(r registrar, svc ToolService) {
 		}, "join", "name")
 }
 
+// registerAccessTools adds the tools that manage who may do what.
 func registerAccessTools(r registrar, svc ToolService) {
 	team := "Team slug or UUID."
 	user := "User UUID."
