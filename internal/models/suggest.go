@@ -27,12 +27,16 @@ type RoleNeed struct {
 	Name   string
 	Tier   config.Tier
 	Writes bool
+	// Toolbox marks a role that runs in a toolbox container, where opencode
+	// does not run yet.
+	Toolbox bool
 }
 
 // Candidate is a model that passed its test on a connection that passed its
 // key check.
 type Candidate struct {
 	Connection string      `json:"connection"`
+	Adapter    string      `json:"adapter"`
 	Vendor     string      `json:"vendor"`
 	Model      string      `json:"model"`
 	Maker      string      `json:"maker"`
@@ -97,7 +101,7 @@ func Candidates(cat *Catalog, conns []domain.ModelConnection, checks []domain.Mo
 		if maker == "" && info.Maker != "" && info.Maker != c.Vendor {
 			notes = append(notes, fmt.Sprintf("The maker entered for %s on %s is not used to keep the reviewer apart: its vendor %s counts, as in plans.", t.Model, c.Name, c.Vendor))
 		}
-		out = append(out, Candidate{Connection: c.Name, Vendor: c.Vendor, Model: t.Model, Maker: cmp.Or(maker, c.Vendor),
+		out = append(out, Candidate{Connection: c.Name, Adapter: c.Adapter, Vendor: c.Vendor, Model: t.Model, Maker: cmp.Or(maker, c.Vendor),
 			Tier: tier, Level: t.Test.Level, Local: local, Price: price})
 	}
 	slices.SortFunc(out, func(a, b Candidate) int {
@@ -179,11 +183,12 @@ func (s *Suggestion) pick(candidates []Candidate, n RoleNeed, preset, developer 
 }
 
 // eligible are the candidates that serve role n and fit the tiers filled so
-// far: a tier holds one model per vendor.
+// far: a tier holds one model per vendor, and a role with a toolbox is not put
+// on opencode, as plans refuse.
 func (s Suggestion) eligible(candidates []Candidate, n RoleNeed) []Candidate {
 	return slices.DeleteFunc(slices.Clone(candidates), func(c Candidate) bool {
 		slot := s.Tiers[string(c.Tier)][c.Vendor]
-		return !domain.Serves(c.Level, n.Writes) || (slot != "" && slot != c.Model)
+		return !domain.Serves(c.Level, n.Writes) || (slot != "" && slot != c.Model) || (n.Toolbox && c.Adapter == config.AdapterOpencode)
 	})
 }
 

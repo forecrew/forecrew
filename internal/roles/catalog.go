@@ -65,7 +65,7 @@ func (c *Catalog) ModelNeeds() []models.RoleNeed {
 	out := make([]models.RoleNeed, 0, len(c.defs))
 	for _, name := range c.Names() {
 		d := c.defs[name]
-		out = append(out, models.RoleNeed{Name: name, Tier: d.Tier, Writes: len(d.WritePaths) > 0})
+		out = append(out, models.RoleNeed{Name: name, Tier: d.Tier, Writes: len(d.WritePaths) > 0, Toolbox: d.Toolbox != nil})
 	}
 	return out
 }

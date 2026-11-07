@@ -166,3 +166,20 @@ func TestAStaleKeyCheckKeepsAConnectionOut(t *testing.T) {
 		t.Fatalf("stale = %+v", got)
 	}
 }
+
+// TestSuggestionKeepsToolboxRolesOffOpencode: a role that runs in a toolbox
+// gets a model of claude-code or codex, which plans also require.
+func TestSuggestionKeepsToolboxRolesOffOpencode(t *testing.T) {
+	c := fixed(t)
+	s, err := models.Suggest(c, []models.RoleNeed{{Name: "security-reviewer", Tier: config.TierStrong, Toolbox: true}}, models.PresetLowCost, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := roles(s)["security-reviewer"]; got != "anthropic/claude-sonnet-4-5" {
+		t.Errorf("security-reviewer = %q, want a claude-code model", got)
+	}
+	only := slices.DeleteFunc(slices.Clone(c), func(x models.Candidate) bool { return x.Adapter != config.AdapterOpencode })
+	if s, _ := models.Suggest(only, []models.RoleNeed{{Name: "security-reviewer", Tier: config.TierStrong, Toolbox: true}}, models.PresetLowCost, false); len(s.Roles) != 0 || len(s.Notes) != 1 {
+		t.Errorf("with opencode only: %+v", s)
+	}
+}
