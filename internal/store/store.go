@@ -1038,6 +1038,11 @@ type ConnectionRepo interface {
 	// Update writes Name, Issuer, ClientID, ClientSecretRef, JIT,
 	// GroupClaim and Enabled.
 	Update(ctx context.Context, c *domain.Connection) error
+	// Lock takes the row of connection id for the rest of the transaction
+	// (SELECT ... FOR UPDATE; ErrNotFound if there is none), so what changes
+	// a connection and what records or clears its test run one after the
+	// other.
+	Lock(ctx context.Context, id uuid.UUID) error
 	AddGroupMapping(ctx context.Context, m *domain.GroupMapping) error
 	RemoveGroupMapping(ctx context.Context, accountID, id uuid.UUID) error
 	// GroupMappings returns the mappings of a connection in every

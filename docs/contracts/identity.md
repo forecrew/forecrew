@@ -139,6 +139,16 @@ where anyone with an account can sign in.
   organization's values and none of forecrewd's own. Names starting `staged/`
   are reserved and refused. See
   [config-resources.md](config-resources.md), Secrets.
+- **A test sign-in vouches for the connection's kind, issuer, client ID and
+  secret reference; changing any of them, through any path including config
+  plans, takes the test away, and the connection can be enabled only with a
+  test that matches its current values.** A test is audited as
+  `connection.tested` with a fingerprint of those four; a change audits
+  `connection.test_cleared`, so changing back does not bring the old test
+  back. What changes a connection and what records or clears its test hold
+  the row lock of the connection. The group claim, JIT and `enabled` are not
+  vouched for. Enabling a connection that is enabled is a no-op. Implemented
+  by `internal/signintest`.
 - **Instance-level connections** come from `auth.connections` in
   forecrew.yaml and are usable by every organization (for example the GitHub
   App and a company-wide Google). forecrewd upserts them at startup by name

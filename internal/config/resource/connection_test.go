@@ -1,6 +1,7 @@
 package resource_test
 
 import (
+	"strings"
 	"testing"
 	"uuid"
 
@@ -29,9 +30,12 @@ func TestConnectionTrustNeedsMappedTeamsAndOldDefaults(t *testing.T) {
 	}
 	admin := w.person(domain.RoleAdmin)
 	// The new issuer has a test sign-in, so only trust and roles are in question.
-	moved := conn
-	moved.Issuer = "https://b.example.com"
-	check(t, signintest.Record(ctx, w.st, w.owner, moved))
+	// (It is tested at the new issuer, then put back to the old one.)
+	conn.Issuer = "https://b.example.com"
+	check(t, w.st.Connections().Update(ctx, &conn))
+	check(t, signintest.Record(ctx, w.st, w.owner, conn))
+	conn.Issuer = "https://a.example.com"
+	check(t, w.st.Connections().Update(ctx, &conn))
 	apply := func(by domain.Actor, s map[string]any) error {
 		t.Helper()
 		p := w.plan(by, wanted(t, "connection", "okta", s))
@@ -124,6 +128,34 @@ func TestPlanEnablesConnectionOnlyAfterTest(t *testing.T) {
 	if valid() {
 		t.Fatal("test survived a new client ID")
 	}
+}
+
+// A plan made while the test was valid is refused when it is applied after the
+// test went: two other plans moved the connection to another issuer and back,
+// so the plan is not stale (the resource is as it was) and only the check at
+// apply time stops it.
+func TestApplyRechecksTest(t *testing.T) {
+	ctx := t.Context()
+	w := newWorld(t)
+	a, b := "https://a.example.com", "https://b.example.com"
+	w.apply(w.owner, w.plan(w.owner, wanted(t, "connection", "okta", oidc(a, "c1", false))))
+	w.connectionTested("okta")
+	p1 := w.plan(w.owner, wanted(t, "connection", "okta", oidc(a, "c1", true)))
+	w.apply(w.owner, w.plan(w.owner, wanted(t, "connection", "okta", oidc(b, "c1", false))))
+	w.apply(w.owner, w.plan(w.owner, wanted(t, "connection", "okta", oidc(a, "c1", false))))
+	_, err := w.engine.Apply(ctx, w.owner, resource.Confirmation{Plan: p1.ID, Word: p1.ConfirmWord})
+	wantErr(t, err, mcp.ErrConflict)
+	if !strings.Contains(err.Error(), "no test sign-in") {
+		t.Fatalf("refused for another reason: %v", err)
+	}
+	rows, err := w.st.Connections().List(ctx, w.account.ID)
+	check(t, err)
+	if rows[0].Enabled {
+		t.Fatal("refused plan turned the connection on")
+	}
+	// Tested again, the same plan is let through.
+	w.connectionTested("okta")
+	w.apply(w.owner, p1)
 }
 
 // A connection that is on and whose test is not asked about again (it came

@@ -705,17 +705,18 @@ func connectionValidate(ctx context.Context, e *Env, old *Resource, want Resourc
 
 // connectionTested is the rule of the other ways to turn a connection on
 // (identity.md, Connections): a connection is enabled only after a test
-// sign-in worked for its current issuer and client ID. A plan may create one
-// turned off, change one turned off, and turn one off; one that is on and
-// does not change what the test vouches for stays on. Changing what it
-// vouches for, on a connection that stays on, is refused: the plan must also
-// turn it off, so the new provider is tested before anyone signs in there.
+// sign-in worked for its current kind, issuer, client ID and secret
+// reference, which is what a test vouches for. A plan may create one turned
+// off, change one turned off, and turn one off; one that is on and does not
+// change those four stays on. Changing any of them, on a connection that
+// stays on, is refused: the plan must also turn it off, so the new provider
+// is tested before anyone signs in there.
 func connectionTested(ctx context.Context, e *Env, old *Resource, want Resource) error {
 	w, err := decode[connectionSpec](want.Spec)
 	if err != nil || !w.Enabled {
 		return err
 	}
-	refusal := fmt.Errorf("connection %s has no test sign-in that worked for its issuer and client ID: save it turned off, open its test_url and sign in once, then turn it on: %w", want.Name, mcp.ErrConflict)
+	refusal := fmt.Errorf("connection %s has no test sign-in that worked for its current kind, issuer, client ID and secret reference: save it turned off, open its test_url and sign in once, then turn it on: %w", want.Name, mcp.ErrConflict)
 	if old == nil {
 		return refusal // a new connection has not been tested
 	}
@@ -769,15 +770,25 @@ func connectionApply(ctx context.Context, e *Env, old, want *Resource) error {
 	if err != nil {
 		return err
 	}
-	// The test may have gone since the plan was made.
-	if err := connectionTested(ctx, e, old, *want); err != nil {
-		return err
-	}
 	if old == nil {
+		if err := connectionTested(ctx, e, old, *want); err != nil {
+			return err
+		}
 		return e.Store.Connections().Create(ctx, &c)
 	}
 	stored, err := connectionStored(ctx, e, old.Name)
 	if err != nil {
+		return err
+	}
+	// With the row locked no test is recorded or cleared meanwhile; the test
+	// may have gone since the plan was made, so it is asked again.
+	if err := e.Store.Connections().Lock(ctx, stored.ID); err != nil {
+		return err
+	}
+	if stored, err = connectionStored(ctx, e, old.Name); err != nil { // as it is under the lock
+		return err
+	}
+	if err := connectionTested(ctx, e, old, *want); err != nil {
 		return err
 	}
 	if signintest.Fingerprint(stored) != signintest.Fingerprint(c) {

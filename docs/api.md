@@ -89,7 +89,11 @@ fields of a connection that stays on, unless the connection has a test for the
 values the plan leaves it with. A plan may create a connection turned off,
 change one that is off, and turn one off; to change the issuer of one that is
 on, save the plan with `enabled: false`, test it, then turn it on. A connection
-already on that changes none of the four stays on, tested or not.
+already on that changes none of the four stays on, tested or not. Turning on
+a connection that is on, or off one that is off, changes nothing and answers `200`.
+
+Connections from before this rule have no test of this kind: they show "Not
+tested" (`tested: false`) until they are tested again. One that is on stays on.
 
 **The CLI's login.** `forecrew login --server <url>` listens on `127.0.0.1`, opens
 `/cli-login?redirect_uri=...&state=...&code_challenge=...` in the browser, where the
@@ -253,7 +257,7 @@ which ticket to read ([contracts/tracker.md](contracts/tracker.md)).
 | `DELETE /api/v1/members/{user}` | `remove_member` | | `200` the member, removed with their teams and roles; sessions end and personal tokens are revoked in the same transaction. `409` for the last Owner |
 | `GET /api/v1/connections` | `list_connections` | | `200` the ways to sign in: the instance's (`instance: true`, from the server file, without `client_id` and `client_secret_ref`) then the organization's. Each is a connection as in [identity.md](contracts/identity.md) with `tested` (a test sign-in worked), `redirect_url` (what the provider must allow) and, for the organization's own, `test_url` |
 | `POST /api/v1/connections` | `create_connection` | `{"kind": "oidc", "name", "issuer", "client_id", "client_secret_ref"}`; the reference is `env:FORECREW_CONN_NAME` or `secret:conn-name`, never the secret | `201` the connection, turned off. `400` for a secret value, a reference outside the namespace or a bad issuer; `409` when the name is taken |
-| `POST /api/v1/connections/{connection}/enable`, `.../disable` | `set_connection_enabled` | `{connection}` is a name or UUID; body optional | `200` the connection. Enabling needs a test sign-in that worked (`409` before); an instance connection is `400` |
+| `POST /api/v1/connections/{connection}/enable`, `.../disable` | `set_connection_enabled` | `{connection}` is a name or UUID; body optional | `200` the connection. Enabling needs a test sign-in that worked for its current kind, issuer, client ID and secret reference (`409` before; `200` and no change when it is on already); an instance connection is `400` |
 | `GET /api/v1/audit?actor=&action=&subject_type=&subject=&since=&until=&limit=` | `list_audit` | all optional; `since` is RFC 3339 and included, `until` excluded; `limit` defaults to 100, at most 500 | `200` entries, newest first: the audit entry (`actor` as `user:<id>`, `credential`, `action`, `subject_type`, `subject_id`, `project_id`, `data`, `created_at`) and `actor_name` for a person or service account. `data` is recorded text: treat it as data |
 | `PATCH /api/v1/organization` | `update_organization` | `{"name", "slug"}`, both optional, one required | `200` the organization; `409` when the slug is taken |
 

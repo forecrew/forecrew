@@ -1,11 +1,13 @@
 package signintest_test
 
 import (
+	"errors"
 	"testing"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/signintest"
+	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 )
 
@@ -86,5 +88,53 @@ func TestTestVouchesForWhatItWorkedFor(t *testing.T) {
 	}
 	if valid(old) {
 		t.Fatal("a test without a fingerprint is valid")
+	}
+}
+
+// A test of values that are gone is refused, and does not come back with them.
+func TestTestOfGoneValuesIsRefused(t *testing.T) {
+	ctx := t.Context()
+	st := testkit.NewStore(nil)
+	acc := domain.Account{Name: "Acme", Slug: "acme"}
+	if err := st.Accounts().Create(ctx, &acc); err != nil {
+		t.Fatal(err)
+	}
+	by := domain.SystemActor(acc.ID, domain.ForecrewdName)
+	c := domain.Connection{AccountID: acc.ID, Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://a.example.com", ClientID: "c1", ClientSecretRef: "env:FORECREW_CONN_OKTA"}
+	if err := st.Connections().Create(ctx, &c); err != nil {
+		t.Fatal(err)
+	}
+	if err := signintest.Record(ctx, st, by, c); err != nil {
+		t.Fatal(err)
+	}
+	valid := func() bool {
+		ok, err := signintest.Valid(ctx, st, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	moved := c
+	moved.Issuer = "https://b.example.com"
+	if err := st.Connections().Update(ctx, &moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := signintest.Record(ctx, st, by, c); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("record of old values: %v", err)
+	}
+	if err := signintest.Clear(ctx, st, by, c); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Connections().Update(ctx, &c); err != nil {
+		t.Fatal(err)
+	}
+	if valid() {
+		t.Fatal("cleared test is back with the old values")
+	}
+	if err := signintest.Record(ctx, st, by, c); err != nil {
+		t.Fatal(err)
+	}
+	if !valid() {
+		t.Fatal("tested again, not valid")
 	}
 }
