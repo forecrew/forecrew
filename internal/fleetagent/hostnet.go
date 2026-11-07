@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/forecrew/forecrew/internal/images"
 
@@ -53,20 +54,35 @@ func ResolveAllow(ctx context.Context, r *net.Resolver, entries []string) ([]net
 	return out, nil
 }
 
+// Limits of ResolveAvailable: lookups at once, and how long one may take.
+// lookup is Lookup4; tests count the lookups through it.
+var (
+	resolveAtOnce  = 8
+	resolveTimeout = 5 * time.Second
+	lookup         = Lookup4
+)
+
 // ResolveAvailable is ResolveAllow for a long list a location does not own,
 // such as an organization's egress: names are looked up at once, and one that
 // does not resolve opens nothing. It is returned in missed, and the rest still
-// apply, so a registry that is down does not stop every machine.
+// apply, so a registry that is down does not stop every machine. At most
+// resolveAtOnce names are looked up at once, each for resolveTimeout, so a
+// long list neither floods the resolver nor holds a machine up for long.
 func ResolveAvailable(ctx context.Context, r *net.Resolver, entries []string) (nets []netip.Prefix, missed []string) {
 	found := make([][]netip.Addr, len(entries))
 	failed := make([]bool, len(entries))
 	var wg sync.WaitGroup
+	slots := make(chan struct{}, resolveAtOnce)
 	for i, e := range entries {
 		if _, err := netip.ParsePrefix(e); err == nil {
 			continue
 		}
+		slots <- struct{}{}
 		wg.Go(func() {
-			addrs, err := Lookup4(ctx, r, e)
+			defer func() { <-slots }()
+			lctx, cancel := context.WithTimeout(ctx, resolveTimeout)
+			defer cancel()
+			addrs, err := lookup(lctx, r, e)
 			found[i], failed[i] = addrs, err != nil
 		})
 	}
