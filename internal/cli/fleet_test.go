@@ -165,3 +165,33 @@ func TestUsageCommand(t *testing.T) {
 		t.Fatalf("code %d, input %+v: %q", code, got, out)
 	}
 }
+
+func TestNoticesCommand(t *testing.T) {
+	e := newRemoteEnv(t)
+	var got mcp.ListFleetNoticesInput
+	id := uuid.New()
+	e.svc.ListFleetNoticesFunc = func(_ context.Context, _ domain.Actor, in mcp.ListFleetNoticesInput) ([]mcp.FleetNoticeInfo, error) {
+		got = in
+		return []mcp.FleetNoticeInfo{{ID: id, Kind: domain.AbuseMining, Detail: "stratum\x1b[2J", Organization: "acme", Provider: "cloud"},
+			{ID: uuid.New(), Kind: domain.AbuseCPU, ResolvedAt: time.Now(), Provider: "cloud"}}, nil
+	}
+	e.svc.ResolveFleetNoticeFunc = func(_ context.Context, _ domain.Actor, in mcp.FleetNoticeRefInput) (mcp.FleetNoticeInfo, error) {
+		return mcp.FleetNoticeInfo{ID: uuid.MustParse(in.Notice)}, nil
+	}
+	out, errOut, code := e.run(t, "notices", "--all")
+	if code != 0 || errOut != "" || !got.All {
+		t.Fatalf("code %d, input %+v: %s", code, got, errOut)
+	}
+	for _, want := range []string{id.String(), "mining", "acme", "cloud", "stratum"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q not in %q", want, out)
+		}
+	}
+	if strings.Contains(out, "\x1b") {
+		t.Error("an escape reached the terminal")
+	}
+	out, _, code = e.run(t, "notices", "resolve", id.String())
+	if code != 0 || !strings.Contains(out, "resolved") {
+		t.Fatalf("resolve: %d %q", code, out)
+	}
+}

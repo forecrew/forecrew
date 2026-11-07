@@ -171,6 +171,8 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/providers", serve(s, http.StatusOK, listProvidersInput, list(t.ListProviders)))
 	route("GET /api/v1/fleet", serve(s, http.StatusOK, noInput, noArg(t.FleetOverview)))
 	route("GET /api/v1/usage", serve(s, http.StatusOK, fleetUsageInput, t.FleetUsage))
+	route("GET /api/v1/fleet/notices", serve(s, http.StatusOK, fleetNoticesInput, list(t.ListFleetNotices)))
+	route("POST /api/v1/fleet/notices/{notice}/resolve", serve(s, http.StatusOK, fleetNoticeInput, t.ResolveFleetNotice))
 	route("POST /api/v1/providers", serve(s, http.StatusCreated, bodyOf[mcp.CreateProviderInput], t.CreateProvider))
 	route("POST /api/v1/providers/{provider}/revoke", serve(s, http.StatusOK, providerInput, t.RevokeProvider))
 	route("POST /api/v1/join-codes", serve(s, http.StatusCreated, bodyOf[mcp.CreateJoinCodeInput], t.CreateJoinCode))
@@ -345,6 +347,9 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/providers": tool[mcp.ToolListProviders],
 		"GET /api/v1/fleet":     tool[mcp.ToolFleetOverview],
 		"GET /api/v1/usage":     tool[mcp.ToolFleetUsage],
+
+		"GET /api/v1/fleet/notices":                   tool[mcp.ToolListFleetNotices],
+		"POST /api/v1/fleet/notices/{notice}/resolve": tool[mcp.ToolResolveFleetNotice],
 
 		"GET /api/v1/images":                       tool[mcp.ToolListImages],
 		"POST /api/v1/images":                      {Permission: domain.PermWorkerManage},
@@ -799,6 +804,16 @@ func dismissTicketInput(r *http.Request) (mcp.DismissTicketInput, error) {
 func fleetUsageInput(r *http.Request) (mcp.FleetUsageInput, error) {
 	q := r.URL.Query()
 	return mcp.FleetUsageInput{Month: q.Get("month"), Records: q.Get("records") == "true"}, nil
+}
+
+func fleetNoticesInput(r *http.Request) (mcp.ListFleetNoticesInput, error) {
+	q := r.URL.Query()
+	limit, err := intParam(q.Get("limit"), "limit")
+	return mcp.ListFleetNoticesInput{All: q.Get("all") == "true", Limit: int(limit)}, err
+}
+
+func fleetNoticeInput(r *http.Request) (mcp.FleetNoticeRefInput, error) {
+	return mcp.FleetNoticeRefInput{Notice: r.PathValue("notice")}, nil
 }
 
 func listMachinesInput(r *http.Request) (mcp.ListMachinesInput, error) {

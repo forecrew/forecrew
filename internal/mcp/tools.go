@@ -119,6 +119,8 @@ const (
 	ToolListProviders          = "list_providers"
 	ToolFleetOverview          = "fleet_overview"
 	ToolFleetUsage             = "fleet_usage"
+	ToolListFleetNotices       = "list_fleet_notices"
+	ToolResolveFleetNotice     = "resolve_fleet_notice"
 	ToolListKnowledgeProposals = "list_knowledge_proposals"
 	ToolListKnowledge          = "list_knowledge"
 	ToolGetTrace               = "get_trace"
@@ -181,7 +183,7 @@ func Tools() []string {
 		ToolListTeamMembers, ToolAddTeamMember, ToolRemoveTeamMember,
 		ToolListRoleBindings, ToolCreateRoleBinding, ToolDeleteRoleBinding,
 		ToolListServiceAccounts, ToolCreateServiceAccount, ToolUpdateServiceAccount, ToolSetServiceAccount,
-		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview, ToolFleetUsage,
+		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview, ToolFleetUsage, ToolListFleetNotices, ToolResolveFleetNotice,
 		ToolListTrackerConnections, ToolCreateTrackerConnection, ToolDeleteTrackerConnection, ToolDiscardTrackerWrites, ToolTestTrackerConnection, ToolListTrackerRoutes, ToolCreateTrackerRoute, ToolDeleteTrackerRoute,
 		ToolListTrackerIdentities, ToolMapTrackerIdentity, ToolUnmapTrackerIdentity, ToolListUnmappedTrackerPeople, ToolListTicketsWaiting, ToolAcceptTicket, ToolDismissTicket,
 		ToolGetTrace, ToolListKnowledgeProposals, ToolListKnowledge,
@@ -294,6 +296,11 @@ type ToolService interface {
 	FleetOverview(ctx context.Context, by domain.Actor) (fleet.Overview, error)
 	// FleetUsage reports what the organization's machines cost in a month.
 	FleetUsage(ctx context.Context, by domain.Actor, in FleetUsageInput) (fleet.UsageReport, error)
+	// ListFleetNotices lists what the instance's operator must look at, for
+	// an instance admin.
+	ListFleetNotices(ctx context.Context, by domain.Actor, in ListFleetNoticesInput) ([]FleetNoticeInfo, error)
+	// ResolveFleetNotice closes a notice, for an instance admin.
+	ResolveFleetNotice(ctx context.Context, by domain.Actor, in FleetNoticeRefInput) (FleetNoticeInfo, error)
 	ListImages(ctx context.Context, by domain.Actor, in ListImagesInput) ([]ImageInfo, error)
 	// CreateProvider adds an agent provider and returns its token, which is
 	// not stored.
@@ -922,6 +929,31 @@ type JobLogsOutput struct {
 type FleetUsageInput struct {
 	Month   string `json:"month,omitempty"`   // YYYY-MM in UTC; by default the current month
 	Records bool   `json:"records,omitempty"` // include every usage record
+}
+
+// ListFleetNoticesInput is the input of list_fleet_notices.
+type ListFleetNoticesInput struct {
+	All   bool `json:"all,omitempty"`   // resolved ones too
+	Limit int  `json:"limit,omitempty"` // default 100, at most 500
+	// WrapUntrusted is as in ListProvidersInput.
+	WrapUntrusted bool `json:"-"`
+}
+
+// FleetNoticeRefInput names a notice.
+type FleetNoticeRefInput struct {
+	Notice string `json:"notice"` // its ID
+	// WrapUntrusted is as in ListProvidersInput.
+	WrapUntrusted bool `json:"-"`
+}
+
+// FleetNoticeInfo is a notice with the names people know.
+type FleetNoticeInfo struct {
+	domain.FleetNotice
+	Organization string `json:"organization,omitempty"` // slug of the machine's organization
+	Provider     string `json:"provider"`               // name of the location
+	// Untrusted holds, with WrapUntrusted, its detail, marked as data, in
+	// place of Detail: the location's agent wrote it.
+	Untrusted string `json:"untrusted,omitempty"`
 }
 
 // ListMachinesInput is the input of list_machines.

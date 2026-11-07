@@ -334,6 +334,8 @@ object up and checks the permission on the object's project.
 | `list_providers` | `GET /api/v1/providers` | `worker.read` |
 | `fleet_overview` | `GET /api/v1/fleet` | `worker.read`; jobs show only with `job.read` on their project |
 | `fleet_usage` | `GET /api/v1/usage` | `worker.read`; the caller's organization only |
+| `list_fleet_notices` | `GET /api/v1/fleet/notices` | `worker.read` and an instance admin: notices are the instance's, of every organization |
+| `resolve_fleet_notice` | `POST /api/v1/fleet/notices/{notice}/resolve` | `worker.manage` and an instance admin |
 | `list_images` | `GET /api/v1/images` | `worker.read` |
 | | `POST /api/v1/images`, `DELETE /api/v1/images/{image}` | `worker.manage`, from a person only (a user, never a service account, an ownerless token or a machine); an instance-wide image also needs an instance admin. REST and CLI only, no MCP tool: an agent never registers an image others trust |
 | `create_provider` | `POST /api/v1/providers` | `worker.manage`; only the caller's organization, and instance-wide only for an instance admin; never through an OAuth grant |
