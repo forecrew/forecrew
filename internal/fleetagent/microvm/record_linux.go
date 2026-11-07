@@ -21,6 +21,7 @@ type record struct {
 	VMM      string            `json:"vmm"`
 	Slot     int               `json:"slot"`
 	PID      int               `json:"pid,omitempty"`
+	CPU      int               `json:"cpu,omitempty"`
 	MemoryMB int               `json:"memory_mb"`
 	DiskGB   int               `json:"disk_gb"`
 	GPUs     []string          `json:"gpus,omitempty"`
