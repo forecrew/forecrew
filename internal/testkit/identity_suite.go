@@ -23,6 +23,8 @@ func IdentityStoreSuite(t *testing.T, st store.Store, account uuid.UUID) {
 	s.memberships()
 	s.identities()
 	s.invitations()
+	s.setupLinks()
+	s.firstOwnerOpen()
 	s.connections()
 	s.domains()
 	s.sessions()
@@ -435,6 +437,94 @@ func (s *identitySuite) invitations() {
 	if len(all) != 2 || all[0].ID != login.ID {
 		s.t.Fatalf("list = %+v", all)
 	}
+}
+
+func (s *identitySuite) setupLinks() {
+	ctx := s.t.Context()
+	r := s.st.SetupLinks()
+	u := s.user("setup-one@example.com", false)
+	link := store.SetupLink{AccountID: s.account, TokenHash: s.hash(), ExpiresAt: time.Now().Add(time.Hour), CreatedBy: "user:operator"}
+	s.must(r.Create(ctx, &link))
+	got, err := r.GetByTokenHash(ctx, link.TokenHash)
+	s.must(err)
+	if got.ID != link.ID || got.AccountID != s.account || !got.Pending(time.Now()) {
+		s.t.Fatalf("by hash = %+v", got)
+	}
+	_, err = r.GetByTokenHash(ctx, s.hash())
+	s.wantErr(err, store.ErrNotFound)
+
+	// Two sign-ins race for one link: exactly one wins.
+	other := s.user("setup-two@example.com", false)
+	results := make(chan error, 2)
+	for _, id := range []uuid.UUID{u.ID, other.ID} {
+		go func() {
+			_, err := r.Use(ctx, s.account, link.ID, id)
+			results <- err
+		}()
+	}
+	var won, lost int
+	for range 2 {
+		switch err := <-results; {
+		case err == nil:
+			won++
+		case errors.Is(err, store.ErrConflict):
+			lost++
+		default:
+			s.t.Fatalf("use: %v", err)
+		}
+	}
+	if won != 1 || lost != 1 {
+		s.t.Fatalf("won %d, lost %d", won, lost)
+	}
+	got, err = r.GetByTokenHash(ctx, link.TokenHash)
+	s.must(err)
+	if got.UsedAt.IsZero() || (got.UsedBy != u.ID && got.UsedBy != other.ID) || got.Pending(time.Now()) {
+		s.t.Fatalf("used = %+v", got)
+	}
+
+	old := store.SetupLink{AccountID: s.account, TokenHash: s.hash(), ExpiresAt: time.Now().Add(-time.Minute), CreatedBy: "user:operator"}
+	s.must(r.Create(ctx, &old))
+	_, err = r.Use(ctx, s.account, old.ID, u.ID)
+	s.wantErr(err, store.ErrConflict)
+	_, err = r.Use(ctx, s.account, domain.NewID(), u.ID)
+	s.wantErr(err, store.ErrNotFound)
+}
+
+// firstOwnerOpen checks what a setup link may still do: an organization is
+// open until it has an active member or a binding of the Owner role.
+func (s *identitySuite) firstOwnerOpen() {
+	ctx := s.t.Context()
+	links := s.st.SetupLinks()
+	org := func(name string) uuid.UUID {
+		a := domain.Account{Name: name}
+		s.must(s.st.Accounts().Create(ctx, &a))
+		return a.ID
+	}
+	open := func(id uuid.UUID, want bool) {
+		s.t.Helper()
+		if got, err := links.FirstOwnerOpen(ctx, id); err != nil || got != want {
+			s.t.Fatalf("FirstOwnerOpen = %v, %v; want %v", got, err, want)
+		}
+	}
+
+	a := org("First owner a")
+	s.must(s.st.Accounts().Lock(ctx, a))
+	s.wantErr(s.st.Accounts().Lock(ctx, domain.NewID()), store.ErrNotFound)
+	open(a, true)
+	u := s.user("first-owner-a@example.com", false)
+	invited := domain.Membership{AccountID: a, UserID: u.ID, Status: domain.MembershipInvited, Source: domain.SourceInvitation}
+	s.must(s.st.Memberships().Create(ctx, &invited))
+	open(a, true) // an invitation is not a member yet
+	s.must(s.st.Memberships().SetStatus(ctx, a, u.ID, domain.MembershipActive))
+	open(a, false)
+
+	b := org("First owner b")
+	owner, err := s.st.Roles().GetByName(ctx, b, domain.RoleScopeOrganization, domain.RoleOwner)
+	s.must(err)
+	bound := s.user("first-owner-b@example.com", false)
+	s.must(s.st.Memberships().Create(ctx, &domain.Membership{AccountID: b, UserID: bound.ID, Status: domain.MembershipSuspended, Source: domain.SourceManual}))
+	s.must(s.st.RoleBindings().Create(ctx, &domain.RoleBinding{AccountID: b, SubjectKind: domain.SubjectUser, SubjectID: bound.ID, RoleID: owner.ID}))
+	open(b, false) // an Owner binding closes it, even for a member who is not active
 }
 
 func (s *identitySuite) connections() {
