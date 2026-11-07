@@ -91,6 +91,7 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 			return list("workers", w, "%d workers, %d online.", len(w), online), err
 		})
 	registerTrackers(r, svc, project)
+	registerModels(r, svc)
 	register(r, ToolListMachines, "List the organization's machines with their state, shape, provider and job: those that exist, or those of one state.",
 		fieldDocs{"state": "One state: requested, booting, ready, busy, draining, destroyed or failed.", "limit": "Maximum machines to return; default 100, maximum 500."},
 		func(ctx context.Context, by domain.Actor, in ListMachinesInput) (toolResult, error) {

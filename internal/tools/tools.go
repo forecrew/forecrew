@@ -28,6 +28,7 @@ import (
 	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/models"
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/secrets"
@@ -153,6 +154,10 @@ type Config struct {
 	// RoleWrites says whether a role writes code, for plans that assign a
 	// model its test did not pass; nil counts every role as writing.
 	RoleWrites func(role string) bool
+	// RoleNeeds lists the roles a suggestion of models fills; nil fills none.
+	RoleNeeds func() []models.RoleNeed
+	// Models runs key checks and suitability tests; nil answers unavailable.
+	Models *models.Checker
 }
 
 // Service is the mcp.ToolService.

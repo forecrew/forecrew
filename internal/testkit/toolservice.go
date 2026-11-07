@@ -96,6 +96,10 @@ type ToolService struct {
 	ListTicketsWaitingFunc        func(context.Context, domain.Actor, mcp.ListTicketsWaitingInput) ([]mcp.TicketInfo, error)
 	AcceptTicketFunc              func(context.Context, domain.Actor, mcp.AcceptTicketInput) (mcp.TicketInfo, error)
 	DismissTicketFunc             func(context.Context, domain.Actor, mcp.DismissTicketInput) (mcp.TicketInfo, error)
+	ModelsCheckFunc               func(context.Context, domain.Actor, mcp.ModelConnectionRefInput) (mcp.ModelCheckView, error)
+	ModelsTestFunc                func(context.Context, domain.Actor, mcp.ModelsTestInput) (mcp.ModelsTestOutput, error)
+	ModelsResultsFunc             func(context.Context, domain.Actor, mcp.ModelsResultsInput) ([]mcp.ModelCheckView, error)
+	ModelsSuggestFunc             func(context.Context, domain.Actor, mcp.ModelsSuggestInput) (mcp.ModelsSuggestion, error)
 
 	ListAssumptionsFunc   func(context.Context, domain.Actor, mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error)
 	ResolveAssumptionFunc func(context.Context, domain.Actor, mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error)
@@ -563,6 +567,26 @@ func (s *ToolService) DeleteTrackerConnection(ctx context.Context, by domain.Act
 // TestTrackerConnection implements mcp.ToolService.
 func (s *ToolService) TestTrackerConnection(ctx context.Context, by domain.Actor, in mcp.TrackerConnectionRefInput) (mcp.TrackerConnectionTest, error) {
 	return invoke(ctx, s, mcp.ToolTestTrackerConnection, by, in, s.TestTrackerConnectionFunc)
+}
+
+// ModelsCheck implements mcp.ToolService.
+func (s *ToolService) ModelsCheck(ctx context.Context, by domain.Actor, in mcp.ModelConnectionRefInput) (mcp.ModelCheckView, error) {
+	return invoke(ctx, s, mcp.ToolModelsCheck, by, in, s.ModelsCheckFunc)
+}
+
+// ModelsTest implements mcp.ToolService.
+func (s *ToolService) ModelsTest(ctx context.Context, by domain.Actor, in mcp.ModelsTestInput) (mcp.ModelsTestOutput, error) {
+	return invoke(ctx, s, mcp.ToolModelsTest, by, in, s.ModelsTestFunc)
+}
+
+// ModelsResults implements mcp.ToolService.
+func (s *ToolService) ModelsResults(ctx context.Context, by domain.Actor, in mcp.ModelsResultsInput) ([]mcp.ModelCheckView, error) {
+	return invoke(ctx, s, mcp.ToolModelsResults, by, in, s.ModelsResultsFunc)
+}
+
+// ModelsSuggest implements mcp.ToolService.
+func (s *ToolService) ModelsSuggest(ctx context.Context, by domain.Actor, in mcp.ModelsSuggestInput) (mcp.ModelsSuggestion, error) {
+	return invoke(ctx, s, mcp.ToolModelsSuggest, by, in, s.ModelsSuggestFunc)
 }
 
 // ListTrackerRoutes implements mcp.ToolService.

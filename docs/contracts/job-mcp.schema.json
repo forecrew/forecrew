@@ -869,6 +869,50 @@
           "minimum": 0
         }
       }
+    },
+    "models_suggest_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preset": {
+          "type": "string",
+          "enum": [
+            "balanced",
+            "low_cost",
+            "local_only"
+          ],
+          "description": "balanced (default): the tier each role is written for, then the price; low_cost: the cheapest model that passed; local_only: models on the person's own network."
+        }
+      }
+    },
+    "models_suggest_output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan",
+        "roles",
+        "notes"
+      ],
+      "properties": {
+        "plan": {
+          "type": "string",
+          "description": "The ID of the plan the person confirms; empty when nothing changes."
+        },
+        "roles": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Role to connection and tier, as connection/tier."
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "What could not be filled, and why."
+        }
+      }
     }
   }
 }

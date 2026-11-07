@@ -67,7 +67,11 @@ func (s *Service) ConfigApply(ctx context.Context, by domain.Actor, in mcp.Confi
 	if err != nil {
 		return mcp.ConfigApplied{}, err
 	}
-	return s.config.Apply(ctx, by, cfgres.Confirmation{Plan: id, Browser: in.Browser, Word: in.Word})
+	out, err := s.config.Apply(ctx, by, cfgres.Confirmation{Plan: id, Browser: in.Browser, Word: in.Word})
+	if err == nil {
+		s.checkSaved(ctx, by, out.Plan)
+	}
+	return out, err
 }
 
 // ConfigRequestApproval implements mcp.ToolService.

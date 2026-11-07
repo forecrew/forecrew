@@ -203,7 +203,7 @@ func (r *remote) commands() []*cobra.Command {
 		listCommand(r, "providers", "List the locations machines come from", "/providers", printProviders),
 		fleetCommand(r),
 		providerCommand(r),
-		trackerCommand(r), ticketsCommand(r),
+		trackerCommand(r), ticketsCommand(r), modelsCommand(r),
 		listCommand(r, "projects", "List projects", "/projects", printProjects),
 		onboardCommand(r),
 		reportBugCommand(r),

@@ -1,7 +1,7 @@
 role: assistant
 model: strong
 prompt: roles/assistant.md
-tools: [config.read, config.plan, ask_human, assumption.record, kb.search]
+tools: [config.read, config.plan, models.suggest, ask_human, assumption.record, kb.search]
 write_paths: []
 produces: [config_plan]
 output_schema: schemas/assistant.json

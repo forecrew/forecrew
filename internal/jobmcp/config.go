@@ -40,11 +40,26 @@ type ConfigPlanInput struct {
 	BasedOn string `json:"based_on,omitempty"`
 }
 
+// ModelsSuggestInput is the input of models_suggest.
+type ModelsSuggestInput struct {
+	Preset string `json:"preset,omitempty"`
+}
+
+// ModelsSuggestOutput is the output of models_suggest.
+type ModelsSuggestOutput struct {
+	Plan  string            `json:"plan"`
+	Roles map[string]string `json:"roles"`
+	Notes []string          `json:"notes"`
+}
+
 // Assistant serves the tools of the assistant role as the person of the
 // job's conversation; *tools.Service implements it.
 type Assistant interface {
 	ConfigRead(ctx context.Context, j domain.Job, in ConfigReadInput) (ConfigReadOutput, error)
 	ConfigPlanFor(ctx context.Context, j domain.Job, in ConfigPlanInput) (domain.ConfigPlan, error)
+	// ModelsSuggestFor makes the plan of a suggestion of models, by the same
+	// function as models_suggest of MCP.
+	ModelsSuggestFor(ctx context.Context, j domain.Job, in ModelsSuggestInput) (ModelsSuggestOutput, error)
 }
 
 func init() {
@@ -60,6 +75,25 @@ func init() {
 		"Propose a change plan: the wanted resources, each with kind, name and its whole spec, or delete: true. Nothing changes: the person sees the plan as a card drawn by the server and confirms it there; you cannot confirm or apply anything. "+
 			"A validation error says what to fix. Name repo or web text the plan draws on in based_on.",
 		20, configPlan)
+	register("models_suggest", "models.suggest",
+		"Suggest which tested model serves each role, as a change plan the person confirms: the same suggestion as Organization settings, AI models, made from the tests and the model catalog without any model. "+
+			"Presets: balanced (default), low_cost, local_only. Notes say what could not be filled; tell the person.",
+		5, modelsSuggest)
+}
+
+func modelsSuggest(ctx context.Context, c *Call, raw json.RawMessage) (Result, error) {
+	if c.Config.Assistant == nil {
+		return Result{}, Errorf(CodeUnavailable, "the configuration is not available")
+	}
+	var in ModelsSuggestInput
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return Result{}, Errorf(CodeInvalidInput, "%v", err)
+	}
+	out, err := c.Config.Assistant.ModelsSuggestFor(ctx, c.Job, in)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Data: out}, nil
 }
 
 func configRead(ctx context.Context, c *Call, raw json.RawMessage) (Result, error) {

@@ -349,6 +349,10 @@ object up and checks the permission on the object's project.
 | `delete_tracker_connection` | `DELETE /api/v1/tracker-connections/{connection}` | `trackers.manage` |
 | `discard_tracker_writes` | `POST /api/v1/tracker-connections/{connection}/discard-writes` | `trackers.manage` |
 | `test_tracker_connection` | `POST /api/v1/tracker-connections/{connection}/test` | `trackers.manage`: it signs in to the tracker with the connection's token |
+| `models_check` | `POST /api/v1/model-connections/{connection}/check` | `models.manage`: a control worker sends the connection's key to its endpoint |
+| `models_test` | `POST /api/v1/model-connections/{connection}/tests` | `models.manage`: the test spends tokens of the connection |
+| `models_results` | `GET /api/v1/model-checks` | `models.read` |
+| `models_suggest` | `POST /api/v1/models/suggest` | `models.read`, and `config.apply` for the plan it makes; applying it needs what the plan needs |
 | `list_tracker_routes` | `GET /api/v1/tracker-routes` | `trackers.read` on the organization |
 | `create_tracker_route` | `POST /api/v1/tracker-routes` | `trackers.manage` |
 | `delete_tracker_route` | `DELETE /api/v1/tracker-routes/{route}` | `trackers.manage` |

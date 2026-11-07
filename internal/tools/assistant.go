@@ -352,6 +352,30 @@ func (s *Service) ConfigPlanFor(ctx context.Context, j domain.Job, in jobmcp.Con
 	return p, toolError(err)
 }
 
+// ModelsSuggestFor implements jobmcp.Assistant: the suggestion of
+// models_suggest, as a plan of the conversation by its person.
+func (s *Service) ModelsSuggestFor(ctx context.Context, j domain.Job, in jobmcp.ModelsSuggestInput) (jobmcp.ModelsSuggestOutput, error) {
+	by, c, err := s.turnOwner(ctx, j)
+	if err != nil {
+		return jobmcp.ModelsSuggestOutput{}, err
+	}
+	if err := s.allowOrg(ctx, by, domain.PermModelsRead); err != nil {
+		return jobmcp.ModelsSuggestOutput{}, toolError(err)
+	}
+	sg, err := s.suggest(ctx, by, in.Preset, cfgres.PlanRequest{Source: domain.ConfigFromAssistant, ConversationID: c.ID, JobID: j.ID})
+	if err != nil {
+		return jobmcp.ModelsSuggestOutput{}, toolError(err)
+	}
+	out := jobmcp.ModelsSuggestOutput{Roles: map[string]string{}, Notes: sg.Notes}
+	for role, r := range sg.Roles {
+		out.Roles[role] = r.Connection + "/" + r.Tier
+	}
+	if sg.Plan != nil {
+		out.Plan = sg.Plan.ID.String()
+	}
+	return out, nil
+}
+
 // unverifiedTools are the job tools whose results hold text nobody verified,
 // with what the plan's line calls it.
 var unverifiedTools = map[string]string{"kb_search": "the project's knowledge", "config_read": "the configuration"}

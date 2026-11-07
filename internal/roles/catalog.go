@@ -59,6 +59,17 @@ func (c *Catalog) Writes(name string) bool {
 	return !ok || len(d.WritePaths) > 0
 }
 
+// ModelNeeds lists what a suggestion of models fills for each role: the tier
+// its pack is written for, and whether it writes code.
+func (c *Catalog) ModelNeeds() []models.RoleNeed {
+	out := make([]models.RoleNeed, 0, len(c.defs))
+	for _, name := range c.Names() {
+		d := c.defs[name]
+		out = append(out, models.RoleNeed{Name: name, Tier: d.Tier, Writes: len(d.WritePaths) > 0})
+	}
+	return out
+}
+
 // New loads the role files from fsys (see Load) and checks them against cfg:
 // every role cfg configures must exist, and separation of duties must hold
 // (config.Config.SameVendorReview): the reviewer uses a model of another
