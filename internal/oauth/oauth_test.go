@@ -72,7 +72,7 @@ func (d *documents) RoundTrip(r *http.Request) (*http.Response, error) {
 // env is forecrewd's OAuth and MCP endpoints with a member of two
 // organizations who has a session.
 type env struct {
-	st     *testkit.Store
+	st     store.Store
 	tools  *testkit.ToolService
 	server *oauth.Server
 	base   string
@@ -85,13 +85,26 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
+	return newEnvOn(t, testkit.NewStore(nil))
+}
+
+// addMember stores an active member of the organization.
+func addMember(t *testing.T, st store.Store, account uuid.UUID, name string) domain.User {
+	t.Helper()
+	u := domain.User{Name: name, Email: name + "@example.com"}
+	must(t, st.Users().Create(t.Context(), &u))
+	must(t, st.Memberships().Create(t.Context(), &domain.Membership{AccountID: account, UserID: u.ID, Status: domain.MembershipActive, Source: domain.SourceManual}))
+	return u
+}
+
+func newEnvOn(t *testing.T, st store.Store) *env {
+	t.Helper()
 	ctx := t.Context()
-	st := testkit.NewStore(nil)
 	e := &env{st: st, tools: &testkit.ToolService{}, docs: &documents{docs: map[string]string{}}, now: time.Now()}
 	e.a, e.b = domain.Account{Name: "Acme", Slug: "acme"}, domain.Account{Name: "Bravo", Slug: "bravo"}
 	must(t, st.Accounts().Create(ctx, &e.a))
 	must(t, st.Accounts().Create(ctx, &e.b))
-	e.user = st.AddMember(e.a.ID, domain.User{Name: "Ana"}, "")
+	e.user = addMember(t, st, e.a.ID, "ana")
 	m := domain.Membership{AccountID: e.b.ID, UserID: e.user.ID, Status: domain.MembershipActive, Source: domain.SourceManual}
 	must(t, st.Memberships().Create(ctx, &m))
 	testkit.Bind(t, st, e.a.ID, domain.SubjectUser, e.user.ID, domain.RoleScopeOrganization, domain.RoleAdmin, uuid.Nil())
@@ -332,12 +345,12 @@ func (e *env) checkIssued(t *testing.T, access, refresh string) {
 	t.Helper()
 	g, err := e.st.OAuth().GetGrantByTokenHash(t.Context(), mcp.HashToken(access))
 	must(t, err)
-	if g.AccountID != e.b.ID || g.UserID != e.user.ID || g.Resource != e.base+"/mcp" || g.ExpiresAt.Sub(e.now) != time.Hour {
+	if g.AccountID != e.b.ID || g.UserID != e.user.ID || g.Resource != e.base+"/mcp" || g.ExpiresAt.Sub(e.now).Round(time.Second) != time.Hour {
 		t.Fatalf("grant = %+v", g)
 	}
 	r, err := e.st.OAuth().GetGrantByTokenHash(t.Context(), mcp.HashToken(refresh))
 	must(t, err)
-	if r.ExpiresAt.Sub(e.now) != 30*24*time.Hour || r.FamilyID != g.FamilyID {
+	if r.ExpiresAt.Sub(e.now).Round(time.Second) != 30*24*time.Hour || r.FamilyID != g.FamilyID {
 		t.Fatalf("refresh = %+v", r)
 	}
 }
@@ -383,8 +396,10 @@ func (e *env) discover(t *testing.T) {
 // TestFullFlow is a client that knows only the URL: discovery from a 401,
 // registration, consent with an organization choice, the code exchange, an MCP
 // call, a refresh, and a reused refresh token ending the family.
-func TestFullFlow(t *testing.T) {
-	e := newEnv(t)
+func TestFullFlow(t *testing.T) { fullFlow(t, newEnv(t)) }
+
+func fullFlow(t *testing.T, e *env) {
+	t.Helper()
 	e.discover(t)
 	client := e.register(t, callback)
 	q := e.params(client)
@@ -643,7 +658,7 @@ func TestAuthorizeNeedsASignIn(t *testing.T) {
 	if res.StatusCode != http.StatusForbidden || !strings.Contains(page, "cannot authorize") {
 		t.Errorf("a token cookie consents: %d", res.StatusCode)
 	}
-	loner := e.st.AddMember(e.a.ID, domain.User{Name: "Lee"}, "")
+	loner := addMember(t, e.st, e.a.ID, "lee")
 	must(t, e.st.Memberships().SetStatus(t.Context(), e.a.ID, loner.ID, domain.MembershipSuspended))
 	e.session(t, "fcs_loner", loner.ID)
 	if res, _ := e.get(t, q, "fcs_loner"); res.StatusCode != http.StatusForbidden {
