@@ -312,7 +312,7 @@ object up and checks the permission on the object's project.
 | `resolve_assumption` | `POST /api/v1/assumptions/{assumption}/resolve` | `assumption.resolve` |
 | `list_decisions` | `GET /api/v1/decisions` | `project.read` |
 | `list_proposals` | `GET /api/v1/proposals` | `project.read` |
-| `decide_proposal` | `POST /api/v1/proposals/{proposal}/decide` | `proposal.decide`; `accept` and `reject` resolve the proposal's gate, so they also need `gate.approve.improvement`, and a person |
+| `decide_proposal` | `POST /api/v1/proposals/{proposal}/decide` | `proposal.decide`, and a person for every decision: `accept` and `reject` resolve the proposal's gate, so they also need `gate.approve.improvement`; `snooze` hides the gate and `done` closes the proposal as carried out, which a service account, an agent or a worker never does |
 | `get_trace` | `GET /api/v1/trace` | `project.read` on the project of the record and of its goal; a goal, spec, task or change ref, and the goal, spec, task, change and merge nodes, need `goal.read`; verification nodes need `job.read`. Without `goal.read` a council, decision or assumption ref gives only the councils, decisions and assumptions of its goal. Records of another project than the goal's are left out |
 | `search_knowledge` | `GET /api/v1/knowledge` | `project.read`; a caller that is no person sees only the sections open to every role |
 | `delete_note` | `DELETE /api/v1/knowledge/notes/{note}` | `knowledge.propose`, the closest write permission: deleting an agent note curates knowledge, and the catalog has no narrower one |
