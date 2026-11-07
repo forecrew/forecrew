@@ -2,6 +2,7 @@ package playbooks_test
 
 import (
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -220,21 +221,28 @@ func TestBugfixCannotReproduce(t *testing.T) {
 	}
 }
 
-// The delivery of the bugfix playbook is the one of goal-v2, written out
-// again because the engine cannot include steps from another file.
+// The delivery of the bugfix playbook is the one of goal-v2 and goal-v3,
+// written out again because the engine cannot include steps from another
+// file. It runs from its first comment to the next top-level step.
 func TestBugfixDeliveryIsGoalV2s(t *testing.T) {
 	delivery := func(file string) string {
 		b, err := os.ReadFile("../../packs/playbooks/" + file)
 		must(t, err)
 		s := string(b)
-		i, j := strings.Index(s, "      # One delivery per merge decision"), strings.Index(s, "  # The summary on the goal issue")
-		if i < 0 || j < i {
+		i := strings.Index(s, "      # One delivery per merge decision")
+		if i < 0 {
 			t.Fatalf("%s: no delivery loop", file)
 		}
-		return s[i:j]
+		end := regexp.MustCompile(`\n  (#|- id:)`).FindStringIndex(s[i:])
+		if end == nil {
+			t.Fatalf("%s: the delivery loop does not end", file)
+		}
+		return s[i : i+end[0]]
 	}
-	if delivery("bugfix.yaml") != delivery("goal-v2.yaml") {
-		t.Error("the delivery loop of bugfix.yaml differs from goal-v2.yaml: change both")
+	for _, other := range []string{"bugfix.yaml", "goal-v3.yaml"} {
+		if delivery(other) != delivery("goal-v2.yaml") {
+			t.Errorf("the delivery loop of %s differs from goal-v2.yaml: change them all", other)
+		}
 	}
 }
 
