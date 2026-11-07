@@ -36,8 +36,14 @@ export const SETTINGS = [
   { to: "/settings", label: "General", permission: "org.read", exact: true },
   { to: "/settings/people", label: "People", permission: "org.read" },
   { to: "/settings/sign-in", label: "Sign-in", permission: "connection.manage" },
-  { to: "/settings/history", label: "Change history", permission: "audit.read" },
+  { to: "/settings/policies", label: "Policies", permission: "worker.read", or: "billing.manage" },
+  { to: "/settings/history", label: "Change history", permission: "audit.read", or: "config.apply" },
 ] as const
+
+/** Whether the caller may see a section of Settings: its permission, or the one that reads part of it (Billing reads budgets). */
+export function sectionAllowed(me: Session | undefined, s: { permission: Permission; or?: Permission }): boolean {
+  return allowed(me, s.permission) || (s.or ? allowed(me, s.or) : false)
+}
 
 type ButtonProps = React.ComponentProps<typeof Button>
 

@@ -80,6 +80,8 @@ interface Props {
   onChange?: (plan: ConfigPlan) => void
   /** Opens the form the page uses, filled in; the card offers Edit when this is set. */
   onEdit?: () => void
+  /** What the button that drops the plan says; Reject in the Inbox. */
+  cancelLabel?: string
   /** Replaces a stale plan with a new one made from the same changes. */
   onRebuilt?: (plan: ConfigPlan) => void
 }
@@ -89,7 +91,7 @@ interface Props {
  * whether it can be undone, and the buttons that confirm it. A sentence never confirms a plan:
  * a button is tied to this stored plan.
  */
-export function PlanCard({ plan: given, onChange, onEdit, onRebuilt }: Props) {
+export function PlanCard({ plan: given, onChange, onEdit, onRebuilt, cancelLabel = "Cancel" }: Props) {
   const qc = useQueryClient()
   const [override, setOverride] = useState<{ base: string; plan: ConfigPlan }>()
   const [showOnce, setShowOnce] = useState<ShowOnceValue[]>([])
@@ -271,7 +273,7 @@ export function PlanCard({ plan: given, onChange, onEdit, onRebuilt }: Props) {
             ) : null}
             {plan.changes.length > 0 ? <YamlDialog title={plan.title} yaml={planYaml(plan)} /> : null}
             <Button variant="ghost" disabled={busy} onClick={() => void run(async () => set(await api.cancelPlan(plan.id)))}>
-              Cancel
+              {cancelLabel}
             </Button>
           </div>
         ) : null}
