@@ -16,6 +16,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/fleetapi"
+	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 )
 
@@ -414,5 +415,35 @@ func TestJoinAddressLimit(t *testing.T) {
 	e.addr = "192.0.2.2:1"
 	if st, _ := e.call("/fleet/v1/join", "", joinBody(code, claim(1))); st != 200 {
 		t.Fatalf("another address: %d", st)
+	}
+}
+
+// Each unknown instance costs a lookup and an audit row, so the lists are
+// bounded, and a list at the bound still passes.
+func TestListsAreBounded(t *testing.T) {
+	e := newEnv(t)
+	_, token := e.provider("home")
+	instances := make([]fleet.Instance, 1001)
+	for i := range instances {
+		instances[i] = fleet.Instance{ExternalID: fmt.Sprint("vm-", i)}
+	}
+	if code, out := e.call("/fleet/v1/reconcile", token, map[string]any{"instances": instances}); code != 400 || errCode(out) != "bad_request" {
+		t.Errorf("reconcile: %d %v", code, out)
+	}
+	if audit, err := e.st.Audit().List(t.Context(), e.account.ID, store.AuditFilter{}); err != nil || len(audit) != 0 {
+		t.Errorf("refused, yet it wrote %d audit rows: %v", len(audit), err)
+	}
+	if code, out := e.call("/fleet/v1/reconcile", token, map[string]any{"instances": instances[:1000]}); code != 200 || len(out["destroy"].([]any)) != 1000 {
+		t.Errorf("reconcile at the bound: %d", code)
+	}
+	have := make([]uuid.UUID, 1001)
+	for i := range have {
+		have[i] = uuid.New()
+	}
+	if code, out := e.call("/fleet/v1/poll", token, map[string]any{"have": have}); code != 400 || errCode(out) != "bad_request" {
+		t.Errorf("poll: %d %v", code, out)
+	}
+	if code, _ := e.call("/fleet/v1/poll", token, map[string]any{"have": have[:1000]}); code != 200 {
+		t.Errorf("poll at the bound: %d", code)
 	}
 }
