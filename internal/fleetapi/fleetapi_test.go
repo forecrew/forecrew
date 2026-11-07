@@ -281,6 +281,32 @@ func TestState(t *testing.T) {
 	}
 }
 
+// An agent that stopped a machine for abuse says so: the machine fails and a
+// notice opens, once however often the report comes.
+func TestStateAbuse(t *testing.T) {
+	e := newEnv(t)
+	p, token := e.provider("home")
+	m := e.machine(p)
+	path := "/fleet/v1/machines/" + m.ID.String() + "/state"
+	if code, _ := e.call(path, token, map[string]any{"state": "destroyed", "abuse": "mining"}); code != 400 {
+		t.Errorf("abuse with destroyed: %d", code)
+	}
+	if code, _ := e.call(path, token, map[string]any{"state": "failed", "abuse": "spam"}); code != 400 {
+		t.Errorf("unknown abuse: %d", code)
+	}
+	for range 2 {
+		if code, out := e.call(path, token, map[string]any{"state": "failed", "abuse": "mining", "error": "stratum ports"}); code != 200 {
+			t.Fatalf("abuse: %d %v", code, out)
+		}
+	}
+	got, err := e.st.Machines().Get(t.Context(), m.ID)
+	must(t, err)
+	notices, _ := e.st.FleetNotices().List(t.Context(), false, 0)
+	if got.State != domain.MachineFailed || len(notices) != 1 || notices[0].Kind != domain.AbuseMining || notices[0].Detail != "stratum ports" {
+		t.Fatalf("machine %s, notices %+v", got.State, notices)
+	}
+}
+
 func TestReconcile(t *testing.T) {
 	e := newEnv(t)
 	p, token := e.provider("home")

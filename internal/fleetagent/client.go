@@ -174,6 +174,9 @@ type StateReport struct {
 	State      domain.MachineState `json:"state"`
 	ExternalID string              `json:"external_id,omitempty"`
 	Error      string              `json:"error,omitempty"`
+	// Abuse is domain.AbuseCPU or domain.AbuseMining on a machine the
+	// provider stopped for it; State is failed then.
+	Abuse string `json:"abuse,omitempty"`
 }
 
 // State reports what happened to a machine.

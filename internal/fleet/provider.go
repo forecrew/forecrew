@@ -126,3 +126,20 @@ func RequirePaidPlan(ctx context.Context, st store.Store, hosted bool, p domain.
 	}
 	return nil
 }
+
+// AbuseReport says a provider stopped a machine for abuse.
+type AbuseReport struct {
+	MachineID  uuid.UUID
+	ExternalID string
+	// Kind is domain.AbuseCPU or domain.AbuseMining.
+	Kind   string
+	Detail string
+}
+
+// AbuseChecker is a Provider that watches its machines for abuse: CPU and
+// network patterns of mining (docs/contracts/fleet.md, Abuse). CheckAbuse
+// stops each machine it finds at once and says which; the fleet agent calls it
+// often and reports them.
+type AbuseChecker interface {
+	CheckAbuse(ctx context.Context) ([]AbuseReport, error)
+}
