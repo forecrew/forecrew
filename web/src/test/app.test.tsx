@@ -128,7 +128,7 @@ describe("login and session", () => {
     )
     const { user, router } = await renderApp("/")
     await screen.findByRole("heading", { name: "Home" })
-    await user.click(await screen.findByRole("button", { name: "Account menu" }))
+    await user.click(await screen.findByRole("button", { name: /account menu/ }))
     await user.click(await screen.findByRole("menuitem", { name: "Sign out" }))
     await waitFor(() => expect(router.state.location.pathname).toBe("/login"))
     expect(called).toBe(true)

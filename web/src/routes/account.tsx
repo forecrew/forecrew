@@ -226,7 +226,7 @@ export function AccountPage() {
                       </TableCell>
                       <TableCell>
                         {s.current ? null : (
-                          <Button variant="outline" aria-label={`End the session of ${s.user_agent || "an unknown browser"}`} onClick={() => end.mutate(s.id)} disabled={end.isPending}>
+                          <Button variant="outline" aria-label={`End session, ${s.user_agent || "an unknown browser"}`} onClick={() => end.mutate(s.id)} disabled={end.isPending}>
                             End session
                           </Button>
                         )}
