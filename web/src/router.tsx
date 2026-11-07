@@ -20,6 +20,7 @@ import { JobPage } from "@/routes/job"
 import { JobsPage } from "@/routes/jobs"
 import { KnowledgePage } from "@/routes/knowledge"
 import { LoginPage } from "@/routes/login"
+import { SetupLinkPage } from "@/routes/setup-link"
 import { QualityPage } from "@/routes/quality"
 import { ProjectPage } from "@/routes/project"
 import { OnboardPage, ProjectsPage } from "@/routes/projects"
@@ -87,6 +88,9 @@ const login = createRoute({
   component: LoginPage,
 })
 
+// The one-time setup link of a new server: no session yet, and the token stays in the address's #.
+const setupLink = createRoute({ getParentRoute: () => root, path: "/setup-link", component: SetupLinkPage })
+
 // Everything else needs a session: without one the user goes to the login page.
 const app = createRoute({
   getParentRoute: () => root,
@@ -110,6 +114,7 @@ const settings = createRoute({ getParentRoute: () => app, path: "/settings", val
 
 const routeTree = root.addChildren([
   login,
+  setupLink,
   app.addChildren([
     child("/", HomePage),
     createRoute({ getParentRoute: () => app, path: "/inbox", validateSearch: search, component: InboxPage }),

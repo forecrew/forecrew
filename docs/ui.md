@@ -206,6 +206,12 @@ left out, not faked:
     comes before the first goal. Home has a Machines tile, a Fleet card of
     locations and a Finish setting up list; the Inbox shows plans under the chip
     Setup; a waiting job says why, with the fix.
+  - **Setup link** (`/setup-link#<token>`, no session): the one-time link
+    `forecrew setup-link` prints on a new server instead of the first
+    `forecrew user add`. The token stays after the `#`, so no log or referrer
+    holds it; the page clears it from the address, has the server check it, and
+    offers the sign-in, which makes the first Owner. A used or expired link
+    says so.
 - **Job.** A back link, the title with the state badge and a line with goal,
   worker and model, the log beside the details, the cost and the tokens; Cancel
   stays at the top right. A command job shows its test counts and has no

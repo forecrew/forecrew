@@ -74,7 +74,31 @@ export const artifactUrl = (id: string) => `/api/v1/artifacts/${seg(id)}`
 // Project names may be owner/name: the server takes the rest of the path.
 const projectPath = (name: string) => name.split("/").map(seg).join("/")
 
+/**
+ * Checks a setup link's token and gets the cookie that carries it through the
+ * sign-in. The answer's error is a plain sentence, the same for every token
+ * that does not work.
+ */
+async function redeemSetupLink(token: string): Promise<{ organization: string }> {
+  let res: Response
+  try {
+    res = await fetch("/auth/setup", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ token }) })
+  } catch {
+    throw new ApiError(0, "network", "Cannot reach the server")
+  }
+  if (res.ok) return (await res.json()) as { organization: string }
+  let message = "This setup link has expired or was already used."
+  try {
+    const e = (await res.json()) as { error?: string }
+    if (typeof e.error === "string") message = e.error
+  } catch {
+    // keep the generic sentence
+  }
+  throw new ApiError(res.status, "setup_link", message)
+}
+
 export const api = {
+  redeemSetupLink,
   login: (token: string) => request<Session>("POST", "/api/v1/session", { token }, { login: true }),
   discover: (input: { org?: string; invite?: string; email?: string }) => request<Discovery>("POST", "/api/v1/auth/discover", input, { login: true }),
   logout: () => request<void>("DELETE", "/api/v1/session", undefined, { login: true }),
