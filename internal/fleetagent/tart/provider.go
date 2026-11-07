@@ -67,6 +67,8 @@ type Provider struct {
 	// vmProcesses counts the virtual machines running on the whole Mac, whoever
 	// started them.
 	vmProcesses func(ctx context.Context) (int, error)
+	// hostNets are the host's own addresses, with their networks.
+	hostNets func() []netip.Prefix
 
 	// mu guards the records of machines being changed and the timers.
 	mu       sync.Mutex
@@ -85,7 +87,7 @@ func New(cfg Config, log *slog.Logger) (*Provider, error) {
 	}
 	p := &Provider{
 		cfg: cfg, log: log, resolver: net.DefaultResolver, poll: pollEvery, goos: runtime.GOOS, goarch: runtime.GOARCH,
-		memoryMB: fleetagent.MemoryMB, freeGB: fleetagent.DiskFreeGB, getenv: os.Getenv, pmset: pmset, vmProcesses: countVMProcesses,
+		memoryMB: fleetagent.MemoryMB, freeGB: fleetagent.DiskFreeGB, getenv: os.Getenv, pmset: pmset, vmProcesses: countVMProcesses, hostNets: localNets,
 		lookPath: func(name string) bool { _, err := exec.LookPath(name); return err == nil },
 		timers:   map[string]*time.Timer{},
 	}
@@ -243,6 +245,19 @@ func (p *Provider) allowList(ctx context.Context, req fleet.CreateRequest) ([]st
 		}
 		nets = append(nets, netip.PrefixFrom(a, 32))
 	}
+	if p.cfg.Softnet {
+		gw := netip.MustParseAddr(p.cfg.SoftnetGateway)
+		if slices.Contains(found, gw) {
+			return nil, fmt.Errorf("the server's address %s is the Mac's own address on the machines' network, which is blocked: set public_base_url to an address machines can reach", gw)
+		}
+		// A resolver on the LAN is not a public address, and Softnet refuses it
+		// unless it is allowed.
+		for _, d := range p.cfg.DNS {
+			if a := netip.MustParseAddr(d); !a.IsGlobalUnicast() || a.IsPrivate() {
+				nets = append(nets, netip.PrefixFrom(a, 32))
+			}
+		}
+	}
 	var out []string
 	for _, n := range nets {
 		if s := n.String(); !slices.Contains(out, s) {
@@ -362,6 +377,11 @@ func (p *Provider) start(ctx context.Context, r *record, req fleet.CreateRequest
 	if err := p.waitGuest(ctx, r.ID, exited); err != nil {
 		return err
 	}
+	if p.cfg.Softnet {
+		if err := p.checkGateway(ctx, name); err != nil {
+			return err
+		}
+	}
 	return p.deliver(ctx, name, settings)
 }
 
@@ -370,7 +390,9 @@ func (p *Provider) start(ctx context.Context, r *record, req fleet.CreateRequest
 func (p *Provider) runFlags(allow []string) []string {
 	flags := []string{"--no-graphics", "--no-audio", "--no-clipboard"}
 	if p.cfg.Softnet {
-		flags = append(flags, "--net-softnet")
+		// Softnet lets a machine reach the Mac on the VM network's gateway unless it
+		// is blocked, and what is blocked beats what is allowed.
+		flags = append(flags, "--net-softnet", "--net-softnet-block="+p.cfg.SoftnetGateway+"/32")
 		if len(allow) > 0 {
 			flags = append(flags, "--net-softnet-allow="+hostList(allow))
 		}

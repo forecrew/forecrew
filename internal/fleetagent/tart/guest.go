@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"regexp"
 	"strings"
 	"time"
@@ -19,10 +21,17 @@ const guestDir = "/var/run/forecrew"
 // deliverScript is what runs in the guest, as root. The settings arrive on
 // standard input, never in an argument; they are written aside and renamed, so
 // that launchd, which starts the worker when the file appears, never sees half
-// of it. $1 is the folder.
+// of it. $1 is the folder; the rest are resolvers, set for every network
+// service first, because the machine's own, the Mac's gateway, is blocked.
 const deliverScript = `set -eu
 umask 077
 d=$1
+shift
+if [ $# -gt 0 ] && command -v networksetup >/dev/null 2>&1; then
+	networksetup -listallnetworkservices | sed '1d; s/^\*//' | while IFS= read -r svc; do
+		networksetup -setdnsservers "$svc" "$@" >/dev/null 2>&1 || true
+	done
+fi
 mkdir -p "$d"
 chmod 700 "$d"
 tmp=$d/.bootstrap.env.tmp
@@ -46,7 +55,11 @@ func bootstrapEnv(b *fleet.Bootstrap) (string, error) {
 
 // deliver puts the settings in the running guest, through its guest agent.
 func (p *Provider) deliver(ctx context.Context, name, settings string) error {
-	err := p.cli.exec(ctx, settings, name, "sudo", "-n", "/bin/sh", "-c", deliverScript, "sh", guestDir)
+	args := []string{"sudo", "-n", "/bin/sh", "-c", deliverScript, "sh", guestDir}
+	if p.cfg.Softnet {
+		args = append(args, p.cfg.DNS...)
+	}
+	err := p.cli.exec(ctx, settings, name, args...)
 	if err != nil {
 		return fmt.Errorf("deliver the bootstrap settings: %w", err)
 	}
@@ -86,3 +99,58 @@ func (p *Provider) waitGuest(ctx context.Context, id string, exited <-chan error
 
 // hostList joins values for a flag.
 func hostList(items []string) string { return strings.Join(items, ",") }
+
+// checkGateway makes sure the address the machine cannot reach is the Mac's
+// address on the machine's network: the address the host answers on. Softnet lets
+// a machine reach the gateway unless it is blocked, and the block is by the
+// configured address, so a Mac whose VMs use another subnet would leave itself
+// open. It runs before the settings go in.
+func (p *Provider) checkGateway(ctx context.Context, name string) error {
+	limit := time.NewTimer(time.Duration(p.cfg.BootWaitSeconds) * time.Second)
+	defer limit.Stop()
+	var ip string
+	for {
+		out, err := p.cli.output(ctx, "ip", name)
+		if ip = strings.TrimSpace(out); err == nil && ip != "" {
+			break
+		}
+		select {
+		case <-limit.C:
+			return fmt.Errorf("the machine has no address: %v", err)
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(p.poll):
+		}
+	}
+	guest, err := netip.ParseAddr(ip)
+	if err != nil {
+		return fmt.Errorf("tart ip said %s", snippet([]byte(ip), ""))
+	}
+	for _, n := range p.hostNets() {
+		if n.Contains(guest) {
+			if got := n.Addr().String(); got != p.cfg.SoftnetGateway {
+				return fmt.Errorf("the Mac's address on the machines' network is %s, not %s: set softnet_gateway: %s in tart.yaml", got, p.cfg.SoftnetGateway, got)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("the Mac has no address on the machine's network %s, so its gateway cannot be checked", guest)
+}
+
+// localNets are the IPv4 addresses of this host's interfaces, with their
+// networks.
+func localNets() []netip.Prefix {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	var out []netip.Prefix
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok {
+			if p, err := netip.ParsePrefix(n.String()); err == nil && p.Addr().Is4() {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}

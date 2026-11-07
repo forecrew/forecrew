@@ -1,6 +1,7 @@
 package tart
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,17 +42,36 @@ func TestOCIRef(t *testing.T) {
 }
 
 // TestDeliverScript runs the script the guest runs, against a folder of the
-// test's own, as the guest's shell would.
+// test's own, as the guest's shell would, with a mv and a networksetup that say
+// what they were asked.
 func TestDeliverScript(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "run", "forecrew")
+	root := t.TempDir()
+	dir := filepath.Join(root, "run", "forecrew")
+	bin := filepath.Join(root, "bin")
+	_ = os.MkdirAll(bin, 0o700)
+	log := filepath.Join(root, "calls")
+	mustWrite := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(body), 0o700); err != nil { // #nosec G306 -- a test
+			t.Fatal(err)
+		}
+	}
+	mustWrite("mv", "#!/bin/sh\necho \"mv $*\" >>"+log+"\nexec /bin/mv \"$@\"\n")
+	mustWrite("networksetup", "#!/bin/sh\necho \"networksetup $*\" >>"+log+"\nif [ \"$1\" = -listallnetworkservices ]; then printf 'An asterisk (*) denotes that a network service is disabled.\\nWi-Fi\\n*Thunderbolt Bridge\\n'; fi\n")
 	settings, err := bootstrapEnv(&fleet.Bootstrap{ServerURL: testServer, Token: testToken})
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("/bin/sh", "-c", deliverScript, "sh", dir) // #nosec G204 -- a test
-	cmd.Stdin = strings.NewReader(settings)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("%v: %s", err, out)
+	run := func(target string, args ...string) error {
+		cmd := exec.Command("/bin/sh", append([]string{"-c", deliverScript, "sh", target}, args...)...) // #nosec G204 -- a test
+		cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin"}
+		cmd.Stdin = strings.NewReader(settings)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("%w: %s", err, out)
+		}
+		return nil
+	}
+	if err := run(dir, "1.1.1.1", "9.9.9.9"); err != nil {
+		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "bootstrap.env")) // #nosec G304 -- a test
 	if err != nil || string(raw) != settings {
@@ -65,9 +85,27 @@ func TestDeliverScript(t *testing.T) {
 	if left, _ := filepath.Glob(filepath.Join(dir, ".*")); len(left) != 0 {
 		t.Errorf("left %v", left)
 	}
+	calls, _ := os.ReadFile(log) // #nosec G304 -- a test
+	// The file appears by a rename, never by a copy that launchd could see half
+	// done, and the enabled services get the resolvers.
+	if !strings.Contains(string(calls), "mv "+filepath.Join(dir, ".bootstrap.env.tmp")+" "+filepath.Join(dir, "bootstrap.env")) {
+		t.Errorf("the file was not put in place with mv:\n%s", calls)
+	}
+	for _, want := range []string{"networksetup -setdnsservers Wi-Fi 1.1.1.1 9.9.9.9", "networksetup -setdnsservers Thunderbolt Bridge 1.1.1.1 9.9.9.9"} {
+		if !strings.Contains(string(calls), want) {
+			t.Errorf("no %q in\n%s", want, calls)
+		}
+	}
+	// Without resolvers the network is left alone.
+	_ = os.Remove(log)
+	if err := run(dir); err != nil {
+		t.Fatal(err)
+	}
+	if calls, _ := os.ReadFile(log); strings.Contains(string(calls), "networksetup") { // #nosec G304 -- a test
+		t.Errorf("networksetup ran: %s", calls)
+	}
 	// A failure leaves no half file for launchd to start from.
-	cmd = exec.Command("/bin/sh", "-c", deliverScript, "sh", filepath.Join(dir, "bootstrap.env", "x")) // #nosec G204 -- a test
-	if err := cmd.Run(); err == nil {
+	if err := run(filepath.Join(dir, "bootstrap.env", "x")); err == nil {
 		t.Error("a folder that cannot be made was accepted")
 	}
 }
@@ -139,7 +177,7 @@ func TestSnippetIsInertAndBounded(t *testing.T) {
 
 func TestConfig(t *testing.T) {
 	dir := t.TempDir()
-	if c, err := LoadConfig(filepath.Join(dir, "none.yaml")); err != nil || c.MaxMachines != 0 || c.limit() != 2 || !c.Softnet {
+	if c, err := LoadConfig(filepath.Join(dir, "none.yaml")); err != nil || c.MaxMachines != 0 || c.limit() != 2 || !c.Softnet || c.SoftnetGateway != "192.168.64.1" || len(c.DNS) != 2 || c.AllowNoSoftnet {
 		t.Errorf("defaults = %+v, %v", c, err)
 	}
 	write := func(s string) string {
@@ -154,7 +192,7 @@ func TestConfig(t *testing.T) {
 	for _, bad := range []string{
 		"max_machines: 3\n", "max_machines: -1\n", "state_dir: rel\n", "min_tart_version: latest\n", "boot_wait_seconds: 1\n",
 		"registry_username: ci\nregistry_password: env:P\n", "registry_username: env:U\nregistry_password: hunter2\n",
-		"registry_username: env:U\n", "registry_host: 'bad host'\n", "mystery: 1\n", ":\n",
+		"registry_username: env:U\n", "registry_host: 'bad host'\n", "softnet_gateway: nope\n", "softnet_gateway: '::1'\n", "dns: []\n", "dns: [example.com]\n", "dns: [1.1.1.1, 1.1.1.2, 1.1.1.3, 1.1.1.4]\n", "mystery: 1\n", ":\n",
 	} {
 		if _, err := LoadConfig(write(bad)); err == nil {
 			t.Errorf("accepted %q", bad)
