@@ -1281,32 +1281,87 @@ func TestForgedReturnInTheFlowCookie(t *testing.T) {
 		f := newFixture(t)
 		f.member("ana@acme.example")
 		f.claims("sub-1", "ana@acme.example", true)
-		f.browser.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-		resp, err := f.browser.Get(f.web.URL + "/auth/" + f.inst.ID.String() + "/login")
-		must(t, err)
-		_ = resp.Body.Close()
-		next := resp.Header.Get("Location")
-		u, _ := url.Parse(f.web.URL + "/auth/x")
-		for _, c := range f.browser.Jar.Cookies(u) {
-			if c.Name != "forecrew_login" {
-				continue
-			}
-			raw, err := base64.RawURLEncoding.DecodeString(c.Value)
-			must(t, err)
-			var flow map[string]any
-			must(t, json.Unmarshal(raw, &flow))
-			flow["r"] = forged
-			raw, err = json.Marshal(flow)
-			must(t, err)
-			c.Value, c.Path, c.Secure = base64.RawURLEncoding.EncodeToString(raw), "/auth/", true
-			f.browser.Jar.SetCookies(u, []*http.Cookie{c})
-		}
-		f.browser.CheckRedirect = nil
-		resp, err = f.browser.Get(next)
+		next := f.startFlow("/auth/"+f.inst.ID.String()+"/login", func(flow map[string]any) { flow["r"] = forged })
+		resp, err := f.browser.Get(next)
 		must(t, err)
 		_ = resp.Body.Close()
 		if resp.Request.URL.Host != strings.TrimPrefix(f.web.URL, "https://") || resp.Request.URL.Path != "/" {
 			t.Errorf("forged %q ended at %s", forged, resp.Request.URL)
 		}
+	}
+}
+
+// startFlow begins a sign-in without following it to the provider: it returns
+// the address of the provider, and edit may change the flow cookie first.
+func (f *fixture) startFlow(path string, edit func(flow map[string]any)) string {
+	f.t.Helper()
+	f.browser.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	defer func() { f.browser.CheckRedirect = nil }()
+	resp, err := f.browser.Get(f.web.URL + path)
+	must(f.t, err)
+	_ = resp.Body.Close()
+	u, _ := url.Parse(f.web.URL + "/auth/x")
+	for _, c := range f.browser.Jar.Cookies(u) {
+		if c.Name != "forecrew_login" || edit == nil {
+			continue
+		}
+		raw, err := base64.RawURLEncoding.DecodeString(c.Value)
+		must(f.t, err)
+		var flow map[string]any
+		must(f.t, json.Unmarshal(raw, &flow))
+		edit(flow)
+		raw, err = json.Marshal(flow)
+		must(f.t, err)
+		c.Value, c.Path, c.Secure = base64.RawURLEncoding.EncodeToString(raw), "/auth/", true
+		f.browser.Jar.SetCookies(u, []*http.Cookie{c})
+	}
+	return resp.Header.Get("Location")
+}
+
+// Who tests a connection is what the server remembers: a cookie that says it
+// is a test, or names a tester, makes nothing a test.
+func TestForgedTestFlow(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	plain := f.member("pia@acme.example")
+	conn := domain.Connection{AccountID: f.org.ID, Kind: domain.ConnectionOIDC, Name: "okta", Issuer: f.oidc.URL, ClientID: clientID, ClientSecretRef: "env:" + secretEnv, Enabled: true}
+	must(t, f.st.Connections().Create(ctx, &conn))
+	f.claims("sub-forged", "pia@acme.example", true)
+	next := f.startFlow("/auth/"+conn.ID.String()+"/login", func(flow map[string]any) { flow["t"] = "1" })
+	resp, err := f.browser.Get(next)
+	must(t, err)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("a forged test = %d", resp.StatusCode)
+	}
+	entries, _ := f.st.Audit().List(ctx, f.org.ID, store.AuditFilter{Action: "connection.tested"})
+	if len(entries) != 0 || f.sessionToken() != "" {
+		t.Errorf("audit %+v, session %q", entries, f.sessionToken())
+	}
+	_ = plain
+}
+
+// A tester who lost connection.manage while the test was on the provider's
+// page cannot finish it.
+func TestTesterLosesTheRightMidTest(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	admin := f.member("ana@acme.example")
+	b := testkit.Bind(t, f.st, f.org.ID, domain.SubjectUser, admin.ID, domain.RoleScopeOrganization, domain.RoleAdmin, uuid.Nil())
+	conn := domain.Connection{AccountID: f.org.ID, Kind: domain.ConnectionOIDC, Name: "okta", Issuer: f.oidc.URL, ClientID: clientID, ClientSecretRef: "env:" + secretEnv}
+	must(t, f.st.Connections().Create(ctx, &conn))
+	f.claims("sub-admin", "ana@acme.example", true)
+	f.signIn(f.inst, "")
+	f.claims("sub-test", "someone@okta.example", true)
+	next := f.startFlow("/auth/"+conn.ID.String()+"/login?test=1", nil)
+	must(t, f.st.RoleBindings().Delete(ctx, f.org.ID, b.ID))
+	resp, err := f.browser.Get(next)
+	must(t, err)
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("the test of someone who lost the right = %d", resp.StatusCode)
+	}
+	if entries, _ := f.st.Audit().List(ctx, f.org.ID, store.AuditFilter{Action: "connection.tested"}); len(entries) != 0 {
+		t.Errorf("audit = %+v", entries)
 	}
 }
