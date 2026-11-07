@@ -455,7 +455,7 @@ Resources:
         HttpPutResponseHopLimit: 1
       BlockDeviceMappings:
         - DeviceName: !If [IsMac, /dev/sda1, /dev/xvda]
-          Ebs: {VolumeSize: 40, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true}
+          Ebs: {VolumeSize: !If [IsMac, 250, 40], VolumeType: gp3, Encrypted: true, DeleteOnTermination: true}
       UserData:
         Fn::Base64: !Sub
           - |

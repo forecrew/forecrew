@@ -243,13 +243,29 @@ virtualization or are metal before you choose; it changes.
 ## EC2 Mac
 
 `Mode=mac` allocates a **dedicated host** (`AWS::EC2::Host`) and runs the agent on
-a Mac instance on it, with the Tart provider: jobs run in macOS VMs on that host,
-at most two at once (Apple's licence). A dedicated Mac host is billed for at least
-24 hours from its allocation, whether or not it runs a job, and cannot be
-released before that: deleting the stack within the first day fails until the 24
-hours pass. Say so in the shape's note, and use a macOS AMI that has Tart and the
-Forecrew macOS image (`AgentAmiId`). This mode needs the Tart provider of the fleet
-agent build.
+a Mac instance on it, with the Tart provider (kind `tart`, in the darwin build of the
+agent): jobs run as clones of a signed Tart image, at most two at once, which is
+Apple's limit. Read [fleet.md](../fleet.md#macos-locations-tart) first: it has the
+licence rules (a rented Mac is the organization's own location and runs its own jobs
+only; Apple's section 3 asks for a lease of at least 24 hours, which a dedicated host
+is), the network (Softnet: public addresses only, never the LAN or the Mac) and
+`tart.yaml`.
+
+A dedicated Mac host is billed for at least 24 hours from its allocation, whether or
+not it runs a job, and cannot be released before that: deleting the stack within the
+first day fails until the 24 hours pass. Say so in the shape's note.
+
+What the kit does not do: install Tart or Softnet, or fetch a macOS image. Use a macOS
+AMI for an Apple silicon type (`mac2.metal` or newer, not an Intel type) that has both
+on the agent's PATH (`AgentAmiId`; there is no default for this mode), then register a
+signed `tart` image (`oci://` URI, [images.md](../images.md)) and, if it is in a private
+registry, set `registry_hosts` and the registry credentials in `tart.yaml` as
+references. The kit writes `image-keys.pub` from `ImageSigningKey`, which is where
+`tart.yaml` looks, and gives the instance a 250 GB root volume, because the provider
+wants 100 GB free (`min_free_gb`). `forecrew-fleet-agent doctor --kind tart` on the
+instance says what is missing. The instance's own security group lets out HTTPS to
+public addresses only, so the registry must be one of those, and the jobs inherit
+that limit.
 
 ## Cost control
 

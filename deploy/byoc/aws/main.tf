@@ -195,7 +195,7 @@ resource "aws_instance" "agent" {
   }
 
   root_block_device {
-    volume_size           = 40
+    volume_size           = local.is_mac ? 250 : 40
     volume_type           = "gp3"
     encrypted             = true
     delete_on_termination = true
