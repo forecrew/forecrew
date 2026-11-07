@@ -11,7 +11,8 @@ implements `tracker.Adapter` and passes `internal/tracker/trackertest`. A test
 keeps the core from importing an adapter.
 
 Deleting a connection takes its routes, identities, cursor and outbox with it,
-and is refused while it has a live ticket. Ended links stay, with no connection:
+and is refused while it has a live ticket or a write that is not sent yet:
+an ended link's unsent comment would be lost with the outbox. Ended links stay, with no connection:
 they are how a context pack knows a goal's text came from a ticket.
 
 ## Tickets
