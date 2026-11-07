@@ -321,6 +321,7 @@ object up and checks the permission on the object's project.
 | `reject` | `POST /api/v1/gates/{gate}/reject` | the gate's |
 | `list_tracker_connections` | `GET /api/v1/tracker-connections` | `trackers.read` on the organization |
 | `create_tracker_connection` | `POST /api/v1/tracker-connections` | `trackers.manage` |
+| `delete_tracker_connection` | `DELETE /api/v1/tracker-connections/{connection}` | `trackers.manage` |
 | `list_tracker_routes` | `GET /api/v1/tracker-routes` | `trackers.read` on the organization |
 | `create_tracker_route` | `POST /api/v1/tracker-routes` | `trackers.manage` |
 | `delete_tracker_route` | `DELETE /api/v1/tracker-routes/{route}` | `trackers.manage` |

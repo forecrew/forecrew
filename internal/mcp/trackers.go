@@ -23,6 +23,11 @@ func registerTrackers(r registrar, svc ToolService, project string) {
 			c, err := svc.CreateTrackerConnection(ctx, by, in)
 			return result(c, "Connection %s created.", c.Name), err
 		}, "name", "kind", "triggers")
+	register(r, ToolDeleteTrackerConnection, "Delete a tracker connection with its routes and identities. Refused while a ticket waits, queues or has a goal at work; goals that are over keep their ticket's key.",
+		fieldDocs{"connection": connection}, func(ctx context.Context, by domain.Actor, in TrackerConnectionRefInput) (toolResult, error) {
+			c, err := svc.DeleteTrackerConnection(ctx, by, in)
+			return result(c, "Connection %s deleted.", c.Name), err
+		}, "connection")
 	register(r, ToolListTrackerRoutes, "List the routes that send tickets to projects, in the order they are tried.",
 		filter, func(ctx context.Context, by domain.Actor, in TrackerConnectionFilterInput) (toolResult, error) {
 			routes, err := svc.ListTrackerRoutes(ctx, by, in)

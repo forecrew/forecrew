@@ -24,6 +24,37 @@ func TrackerStoreSuite(t *testing.T, st store.Store, account, project, user uuid
 	trackerCursors(ctx, t, st, conn)
 	link := ticketLinks(ctx, t, st, conn, project, route)
 	trackerOutbox(ctx, t, st, link)
+	deleteConnection(ctx, t, st, conn, link)
+}
+
+// deleteConnection checks that a connection goes with what hangs on it, and
+// that its ended links stay.
+func deleteConnection(ctx context.Context, t *testing.T, st store.Store, conn domain.TrackerConnection, live domain.TicketLink) {
+	t.Helper()
+	acc, repo := conn.AccountID, st.TrackerConnections()
+	if err := repo.Delete(ctx, acc, conn.ID); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("Delete with a live ticket: %v", err)
+	}
+	live.Status = domain.LinkDismissed
+	mustT(t, st.TicketLinks().Update(ctx, &live))
+	mustT(t, st.TrackerCursors().Set(ctx, acc, conn.ID, "c3"))
+	mustT(t, repo.Delete(ctx, acc, conn.ID))
+	if err := repo.Delete(ctx, acc, conn.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("second Delete: %v", err)
+	}
+	if got, err := st.TrackerRoutes().List(ctx, acc, conn.ID); err != nil || len(got) != 0 {
+		t.Errorf("routes = %+v, %v", got, err)
+	}
+	if got, err := st.TrackerCursors().Get(ctx, acc, conn.ID); err != nil || got != "" {
+		t.Errorf("cursor = %q, %v", got, err)
+	}
+	got, err := st.TicketLinks().Get(ctx, acc, live.ID)
+	if err != nil || got.ConnectionID != uuid.Nil() || got.Key != live.Key {
+		t.Errorf("ended link = %+v, %v", got, err)
+	}
+	if err := repo.Delete(ctx, uuid.NewV7(), conn.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Delete from another account: %v", err)
+	}
 }
 
 func trackerConnections(ctx context.Context, t *testing.T, st store.Store, conn domain.TrackerConnection) {

@@ -106,6 +106,37 @@ func (r trackerConnRepo) ListByKind(_ context.Context, kind string) ([]domain.Tr
 	return listRows(r.s, trackerConnsT, 0, func(c domain.TrackerConnection) bool { return c.Kind == kind })
 }
 
+func (r trackerConnRepo) Delete(_ context.Context, accountID, id uuid.UUID) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		t := &d.trackers
+		if _, err := t.connections.get(accountID, id); err != nil {
+			return err
+		}
+		if t.links.exists(func(l domain.TicketLink) bool { return l.ConnectionID == id && l.Status.Live() }) {
+			return store.ErrConflict
+		}
+		t.connections.rows = slices.DeleteFunc(t.connections.rows, func(c domain.TrackerConnection) bool { return c.ID == id })
+		t.identities.rows = slices.DeleteFunc(t.identities.rows, func(i domain.TrackerIdentity) bool { return i.ConnectionID == id })
+		t.outbox.rows = slices.DeleteFunc(t.outbox.rows, func(w domain.TrackerWrite) bool { return w.ConnectionID == id })
+		routes := map[uuid.UUID]bool{}
+		t.routes.rows = slices.DeleteFunc(t.routes.rows, func(r domain.TrackerRoute) bool {
+			routes[r.ID] = r.ConnectionID == id
+			return r.ConnectionID == id
+		})
+		delete(t.cursors, id)
+		for i := range t.links.rows {
+			l := &t.links.rows[i]
+			if l.ConnectionID == id {
+				l.ConnectionID = uuid.Nil()
+			}
+			if routes[l.RouteID] {
+				l.RouteID = uuid.Nil()
+			}
+		}
+		return nil
+	})
+}
+
 // TrackerRoutes implements store.Store.
 func (s *Store) TrackerRoutes() store.TrackerRouteRepo { return routeRepo{s} }
 

@@ -108,6 +108,22 @@ func (r trackerConnectionRepo) ListByKind(ctx context.Context, kind string) ([]d
 	return many(ctx, r.db, scanTrackerConnection, `SELECT `+trackerConnectionCols+` FROM tracker_connections WHERE kind = $1 ORDER BY created_at, id`, kind)
 }
 
+func (r trackerConnectionRepo) Delete(ctx context.Context, accountID, id uuid.UUID) error {
+	return inTx(ctx, r.db, func(tx dbtx) error {
+		// The row lock waits for a link being made and keeps new ones out.
+		var live bool
+		err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ticket_links WHERE connection_id = c.id AND status IN ('waiting', 'queued', 'active'))
+			FROM tracker_connections c WHERE c.account_id = $1 AND c.id = $2 FOR UPDATE`, accountID, id).Scan(&live)
+		if err != nil {
+			return mapErr(err)
+		}
+		if live {
+			return fmt.Errorf("tracker connection %s has live tickets: %w", id, store.ErrConflict)
+		}
+		return exactlyOne(tx.Exec(ctx, `DELETE FROM tracker_connections WHERE account_id = $1 AND id = $2`, accountID, id))
+	})
+}
+
 // ---- routes
 
 type trackerRouteRepo struct{ db dbtx }
@@ -228,7 +244,7 @@ func (r trackerCursorRepo) Set(ctx context.Context, accountID, connectionID uuid
 
 type ticketLinkRepo struct{ db dbtx }
 
-var ticketLinkCols = `id, account_id, connection_id, key, title, url, status, ` + ctext("reason") + `, ` + cuuid("project_id") + `, ` + cuuid("route_id") + `, ` +
+var ticketLinkCols = `id, account_id, ` + cuuid("connection_id") + `, key, title, url, status, ` + ctext("reason") + `, ` + cuuid("project_id") + `, ` + cuuid("route_id") + `, ` +
 	cuuid("goal_id") + `, handed_by, ` + cuuid("user_id") + `, ` + cuuid("gate_id") + `, ` + cuuid("change_gate_id") + `, ` + ctext("state") +
 	`, content_hash, comment_cursor, ` + cint("issue_number") + `, created_at, updated_at`
 

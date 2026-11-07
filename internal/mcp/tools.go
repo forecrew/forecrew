@@ -123,6 +123,7 @@ const (
 
 	ToolListTrackerConnections  = "list_tracker_connections"
 	ToolCreateTrackerConnection = "create_tracker_connection"
+	ToolDeleteTrackerConnection = "delete_tracker_connection"
 	ToolListTrackerRoutes       = "list_tracker_routes"
 	ToolCreateTrackerRoute      = "create_tracker_route"
 	ToolDeleteTrackerRoute      = "delete_tracker_route"
@@ -168,7 +169,7 @@ func Tools() []string {
 		ToolListRoleBindings, ToolCreateRoleBinding, ToolDeleteRoleBinding,
 		ToolListServiceAccounts, ToolCreateServiceAccount, ToolUpdateServiceAccount, ToolSetServiceAccount,
 		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview,
-		ToolListTrackerConnections, ToolCreateTrackerConnection, ToolListTrackerRoutes, ToolCreateTrackerRoute, ToolDeleteTrackerRoute,
+		ToolListTrackerConnections, ToolCreateTrackerConnection, ToolDeleteTrackerConnection, ToolListTrackerRoutes, ToolCreateTrackerRoute, ToolDeleteTrackerRoute,
 		ToolListTrackerIdentities, ToolMapTrackerIdentity, ToolUnmapTrackerIdentity, ToolListTicketsWaiting, ToolAcceptTicket, ToolDismissTicket,
 		ToolGetTrace, ToolListKnowledgeProposals, ToolListKnowledge,
 		ToolListImages,
@@ -221,6 +222,9 @@ type ToolService interface {
 	// CreateTrackerConnection connects a tracker, once its adapter says the
 	// connection can work.
 	CreateTrackerConnection(ctx context.Context, by domain.Actor, in CreateTrackerConnectionInput) (domain.TrackerConnection, error)
+	// DeleteTrackerConnection removes a connection without live tickets, with
+	// its routes and identities.
+	DeleteTrackerConnection(ctx context.Context, by domain.Actor, in TrackerConnectionRefInput) (domain.TrackerConnection, error)
 	// ListTrackerRoutes lists routes in the order they are tried.
 	ListTrackerRoutes(ctx context.Context, by domain.Actor, in TrackerConnectionFilterInput) ([]TrackerRouteInfo, error)
 	CreateTrackerRoute(ctx context.Context, by domain.Actor, in CreateTrackerRouteInput) (TrackerRouteInfo, error)
@@ -1153,6 +1157,11 @@ type CreateTrackerConnectionInput struct {
 	Kind     string                 `json:"kind"`             // the adapter, for example github
 	Config   map[string]any         `json:"config,omitempty"` // the adapter's settings, never a secret
 	Triggers domain.TrackerTriggers `json:"triggers"`
+}
+
+// TrackerConnectionRefInput names a connection.
+type TrackerConnectionRefInput struct {
+	Connection string `json:"connection"` // name or UUID
 }
 
 // TrackerConnectionFilterInput narrows a list to one connection.

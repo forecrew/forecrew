@@ -30,7 +30,7 @@ CREATE TABLE tracker_routes (
   states        jsonb NOT NULL DEFAULT '{}',   -- logical state -> the tracker's state
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id),
+  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id) ON DELETE CASCADE,
   FOREIGN KEY (account_id, project_id) REFERENCES projects (account_id, id)
 );
 CREATE INDEX tracker_routes_connection ON tracker_routes (account_id, connection_id, position);
@@ -44,7 +44,7 @@ CREATE TABLE tracker_identities (
   user_id       uuid NOT NULL REFERENCES users(id),
   created_by    text NOT NULL,                             -- domain.Actor.String()
   created_at    timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id),
+  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id) ON DELETE CASCADE,
   UNIQUE (connection_id, external_id)
 );
 
@@ -53,13 +53,13 @@ CREATE TABLE tracker_cursors (
   account_id    uuid NOT NULL REFERENCES accounts(id),
   cursor        text NOT NULL,
   updated_at    timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id)
+  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id) ON DELETE CASCADE
 );
 
 CREATE TABLE ticket_links (
   id             uuid PRIMARY KEY DEFAULT uuidv7(),
   account_id     uuid NOT NULL REFERENCES accounts(id),
-  connection_id  uuid NOT NULL,
+  connection_id  uuid,                          -- NULL: its connection was deleted; the link stays, ended
   key            text NOT NULL CHECK (key <> ''),
   title          text NOT NULL DEFAULT '',      -- ticket text: untrusted
   url            text NOT NULL DEFAULT '',
@@ -78,10 +78,11 @@ CREATE TABLE ticket_links (
   issue_number   integer,                       -- the ticket is this goal issue
   created_at     timestamptz NOT NULL DEFAULT now(),
   updated_at     timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id),
+  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id) ON DELETE SET NULL (connection_id),
   FOREIGN KEY (account_id, project_id) REFERENCES projects (account_id, id),
   CHECK (status <> 'active' OR goal_id IS NOT NULL),
-  CHECK (status <> 'queued' OR project_id IS NOT NULL)
+  CHECK (status <> 'queued' OR project_id IS NOT NULL),
+  CHECK (connection_id IS NOT NULL OR status NOT IN ('waiting','queued','active'))
 );
 -- One live link per ticket: one goal at work, and a redelivery finds it.
 CREATE UNIQUE INDEX ticket_links_live ON ticket_links (connection_id, key) WHERE status IN ('waiting','queued','active');
@@ -103,7 +104,7 @@ CREATE TABLE tracker_outbox (
   external_id     text NOT NULL DEFAULT '',
   last_error      text NOT NULL DEFAULT '',
   created_at      timestamptz NOT NULL DEFAULT now(),
-  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id),
+  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id) ON DELETE CASCADE,
   UNIQUE (link_id, dedupe_key)
 );
 CREATE INDEX tracker_outbox_due ON tracker_outbox (account_id, next_attempt_at) WHERE sent_at IS NULL;
