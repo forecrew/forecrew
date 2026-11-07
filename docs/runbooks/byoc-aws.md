@@ -62,7 +62,7 @@ they make the same things.
 read -rs JOIN && aws cloudformation deploy --stack-name forecrew --template-file cloudformation.yaml \
   --capabilities CAPABILITY_IAM --parameter-overrides \
   ServerUrl=https://forecrew.example.com JoinCode="$JOIN" ImageSigningKey="$(cat image.pub)" \
-  VpcId=vpc-... AgentSubnetId=subnet-... MachineSubnet1=subnet-... InstallRef=v0.2.0
+  FleetName=forecrew-prod-eu1 VpcId=vpc-... AgentSubnetId=subnet-... MachineSubnet1=subnet-... InstallRef=v0.2.0
 ```
 
 **OpenTofu or Terraform**:
@@ -71,16 +71,17 @@ read -rs JOIN && aws cloudformation deploy --stack-name forecrew --template-file
 read -rs TF_VAR_join_code && export TF_VAR_join_code
 tofu init && tofu apply \
   -var server_url=https://forecrew.example.com -var "image_signing_key=$(cat image.pub)" \
-  -var vpc_id=vpc-... -var agent_subnet_id=subnet-... -var 'machine_subnet_ids=["subnet-..."]'
+  -var install_ref=v0.2.0 -var vpc_id=vpc-... -var agent_subnet_id=subnet-... -var 'machine_subnet_ids=["subnet-..."]'
 ```
 
-Pin `InstallRef` (`install_ref`) to a release tag you have read: the instance runs
-that revision's `deploy/fleet-agent/install.sh` as root at first boot.
+`InstallRef` (`install_ref`) is required and must be a release tag, never a branch:
+the instance runs that revision's `deploy/fleet-agent/install.sh` as root at first
+boot, so read it first.
 
 | Input | Default | Meaning |
 |-------|---------|---------|
 | `Mode` | `ec2` | `ec2`, `microvm` or `mac` (below) |
-| `FleetName` | `forecrew` | The `forecrew:fleet` tag value. The role allows exactly this, so two kits in one account never touch each other's machines |
+| `FleetName` | none (OpenTofu: `forecrew-` and a hash of account, region and VPC) | The `forecrew:fleet` tag value. The role allows exactly this, **and the agent terminates every instance of the account and region that carries it**, whoever started it. It must be unique per account and region: never reuse a name another kit, a script or a person tags with. Two kits with different names never touch each other's machines |
 | `InstanceTypes` | four `c7i` sizes | What machines may use; `*` works. The role refuses any other type |
 | `AssignPublicIp` | `false` | `true` for a public subnet |
 | `MaxMachines` | `10` | The most machines at once, whatever Forecrew asks for |
@@ -111,11 +112,22 @@ if it belongs to **this account** and carries the tag
 `forecrew:image-digest` with exactly the digest the image is signed with. An AMI
 anyone else owns, public ones included, is refused.
 
+That makes the tag a trust decision: **anyone in your account who may tag AMIs
+(`ec2:CreateTags`) vouches for images**. They can put the tag on an AMI of their own
+making, and the agent will boot it as the signed image. The copy step below does
+not check that the AMI's content matches the digest: it only tags what it was
+given, so give it the digest from a manifest you verified and the AMI ID you
+built. Keep tagging of AMIs to the people who build images.
+
 To bring an image built elsewhere, give `CopyAmiId`, `CopyAmiRegion` and
 `CopyAmiDigest`: the stack copies the AMI into the account (`CopyImage`), tags
 the copy and its snapshots, and outputs its ID. Wait until its state is
 `available`, then register the image with the URI `ami:<region>/<that id>`
-(`forecrew image add`, [images.md](../images.md)). Without the copy, tag your own
+(`forecrew image add`, [images.md](../images.md)). The copy's role can create tags only while copying, and can deregister only what
+the kit itself tagged; it is not removed after the copy, because deleting it
+would delete the copied AMI with the stack (the custom resource owns it). If you do
+not want the role to stay, make the copy once with OpenTofu's `aws_ami_copy` or
+`aws ec2 copy-image` instead, and leave `CopyAmiId` empty. Without the copy, tag your own
 AMI yourself: `aws ec2 create-tags --resources ami-... --tags
 Key=forecrew:image-digest,Value=sha256:...`. The copy is deleted with the stack.
 
@@ -149,9 +161,9 @@ carries a tag condition:
 
 | It can | Only |
 |--------|------|
-| `ec2:RunInstances` | with the fleet tag on the instance, volume and network interface; an instance type of your list; in your listed subnets and the kit's security group; IMDSv2 required with one hop; **no instance profile** (machines have no AWS credentials); an encrypted volume; an image and snapshot of this account |
+| `ec2:RunInstances` | with the fleet tag on the instance, volume and network interface; an instance type of your list; default tenancy (no dedicated hosts); in your listed subnets and the kit's security group; IMDSv2 required with one hop; **no instance profile** (machines have no AWS credentials); an encrypted gp3 volume of at most 1000 GB; an image and snapshot of this account |
 | `ec2:CreateTags` | at launch with the fleet tag; afterwards on instances that already have it, never the `forecrew:fleet`, `forecrew:machine` or `forecrew:price` keys (an explicit deny covers the fleet tag) |
-| `ec2:DeleteTags` | the same |
+| `ec2:DeleteTags` | the same, and a request that names its tag keys: EC2 treats a request with none as "delete every tag", which the role refuses |
 | `ec2:TerminateInstances` | instances with the fleet tag, in this account and region |
 | `Describe*` (instances, instance types, images, subnets, security groups) | in this region. EC2 does not offer resource-level control of these: the agent can **read** the account's instances, and it asks only for its own tag |
 
@@ -164,24 +176,46 @@ refusals against a model of IAM's rules
 
 ## What machines can reach
 
-By default a machine reaches the public internet and nothing else: no inbound
-rule at all, DNS (the VPC resolver) and time (Amazon Time Sync) on their link-local
-addresses, and outbound to every public IPv4 address. The security group lists
-the public ranges because a group cannot say "everything but": 10/8, 172.16/12,
-192.168/16, 100.64/10, 127/8, 169.254/16, 0/8 and 224/3 are left out, so machines
-cannot reach your VPC, your peered networks or on-premise ranges through it. **The
-instance metadata service is not filtered by a security group.** Machines are
-launched with IMDSv2 required, one hop (a container cannot reach it) and without
-a role, so it holds only the user data: a bootstrap token that is spent in the
-first seconds.
+The security group is the only network control the kit sets, and it is weaker than
+"the internet and nothing else". Read what it does and does not do:
 
-Notes:
-
-- `network_allow` of the location does not apply to AWS: a machine is not given a
-  group of its own. A location with `network_allow` set refuses to create machines
-  and says so. Change what machines reach by changing the security group.
-- If your VPC uses public addresses in its own CIDR, they are reachable too.
-- IPv6 is not opened.
+- No inbound rule at all. Outbound is every public IPv4 address, whatever the
+  protocol, with 10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, 169.254/16, 0/8 and
+  224/3 left out (a group cannot say "everything but", so the rules list the
+  public ranges). A machine cannot open a connection to your VPC, peered or
+  on-premise ranges by their private addresses.
+- **Security groups do not filter Amazon DNS, Amazon Time Sync or the instance
+  metadata service.** The DNS and time rules in the group are only a list of what
+  the machines are meant to use. In fact a machine can ask the VPC resolver
+  anything: it resolves the names of **private hosted zones and any on-premise
+  names your Route 53 Resolver forwards**, which tells a job what exists in your
+  network, and DNS is a channel to send data out. If that matters, add Route 53
+  Resolver DNS Firewall to the machines' VPC, or give them a VPC of their own with
+  no private zones or forwarding.
+- Metadata: machines are launched with IMDSv2 required, one hop (a container on
+  the machine cannot reach it) and without a role, so it holds only the user data,
+  a bootstrap token that is spent in the first seconds.
+- **Anything that is reachable at a public address is reachable.** That includes S3
+  and DynamoDB through a gateway endpoint in the machines' route table, interface
+  endpoints and the like, and any service that trusts your VPC, your endpoint IDs
+  or your NAT gateway's address (an allow-list on a database, an S3 bucket policy
+  on `aws:SourceVpce` or `aws:SourceIp`, a SaaS that knows your egress IP). A job
+  runs untrusted code: such a service treats it as your network.
+- Recommended: give machines **dedicated subnets** with their own route tables, with
+  **no gateway or interface endpoints** (they reach AWS APIs over the internet, with
+  no credentials, which is nothing), a NAT gateway or public addresses only, and
+  network ACLs that deny private ranges as a second layer. Nothing in a machine's
+  subnet should be an exception in somebody's allow-list.
+- If your VPC uses public addresses in its own CIDR, they are reachable too. IPv6
+  is not opened.
+- `network_allow` of the location does not apply to AWS: a machine has no group of
+  its own. A location with `network_allow` set refuses to create machines and says
+  so. Change what machines reach by changing the security group.
+- In `microvm` and `mac` modes the jobs run on the agent's own instance, and what
+  they reach is what **that instance's** group allows: the kit's agent group lets
+  out HTTPS (443) to any address, DNS and time, and nothing else, so jobs can reach
+  only HTTPS services (everything the same caveats apply to). Those jobs also share
+  the host with the agent and its role; the microVM or the Tart VM is the boundary.
 - Endpoints and NAT gateways have their own prices.
 
 ## The bootstrap token and user data
