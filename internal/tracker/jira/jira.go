@@ -29,6 +29,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/secrets"
 	"github.com/forecrew/forecrew/internal/tracker"
+	"github.com/forecrew/forecrew/internal/tracker/trackerhttp"
 )
 
 // Kind is the kind of the connections of this adapter.
@@ -76,31 +77,13 @@ type Deps struct {
 }
 
 func (d Deps) withDefaults() Deps {
+	o := d.options("").WithDefaults()
+	d.Proxy, d.Lookup, d.Timeout = o.Proxy, o.Lookup, o.Timeout
 	if d.Now == nil {
 		d.Now = func() time.Time { return time.Now().UTC() }
 	}
-	if d.Proxy == nil {
-		d.Proxy = http.ProxyFromEnvironment
-	}
-	if d.Lookup == nil {
-		d.Lookup = func(ctx context.Context, host string) ([]netip.Addr, error) {
-			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-		}
-	}
 	if d.Sleep == nil {
-		d.Sleep = func(ctx context.Context, wait time.Duration) error {
-			t := time.NewTimer(wait)
-			defer t.Stop()
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-t.C:
-				return nil
-			}
-		}
-	}
-	if d.Timeout == 0 {
-		d.Timeout = defaultTimeout
+		d.Sleep = trackerhttp.Sleep
 	}
 	if d.Gateway == "" {
 		d.Gateway = "https://api.atlassian.com"
