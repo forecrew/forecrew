@@ -75,26 +75,11 @@ func (s *Service) CreateTrackerConnection(ctx context.Context, by domain.Actor, 
 	if err := s.allowOrg(ctx, by, domain.PermTrackersManage); err != nil {
 		return domain.TrackerConnection{}, err
 	}
-	core, err := s.trackers()
+	c, ad, err := s.trackerConnectionRow(by, in)
 	if err != nil {
 		return domain.TrackerConnection{}, err
 	}
-	c := domain.TrackerConnection{AccountID: by.AccountID, Name: strings.TrimSpace(in.Name), Kind: in.Kind, Config: in.Config, Triggers: in.Triggers}
-	if err := c.Validate(); err != nil {
-		return domain.TrackerConnection{}, fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
-	}
-	for k := range c.Config {
-		if domain.SecretLikeName(k) {
-			return domain.TrackerConnection{}, fmt.Errorf("config key %q looks like a secret, and the config is not a place for one: %w", k, mcp.ErrInvalidInput)
-		}
-	}
-	ad, err := core.Registry().Build(c)
-	if err != nil {
-		return domain.TrackerConnection{}, trackerError(err)
-	}
-	if err := tracker.CheckTriggers(c, ad.Capabilities()); err != nil {
-		return domain.TrackerConnection{}, trackerError(err)
-	}
+	core, _ := s.trackers() // trackerConnectionRow checked it
 	if ad, err = prepare(ctx, core, &c, ad); err != nil {
 		return domain.TrackerConnection{}, trackerError(err)
 	}
@@ -108,6 +93,69 @@ func (s *Service) CreateTrackerConnection(ctx context.Context, by domain.Actor, 
 		return s.audit(ctx, tx, by, uuid.Nil(), "tracker.connected", "tracker_connection", c.ID, map[string]any{"name": c.Name, "kind": c.Kind})
 	})
 	return c, conflict(err, "a tracker connection called "+c.Name+" exists")
+}
+
+// trackerConnectionRow checks a wanted connection, short of asking the
+// tracker: its name, kind and triggers, and a config its adapter takes and
+// that holds no secret.
+func (s *Service) trackerConnectionRow(by domain.Actor, in mcp.CreateTrackerConnectionInput) (domain.TrackerConnection, tracker.Adapter, error) {
+	core, err := s.trackers()
+	if err != nil {
+		return domain.TrackerConnection{}, nil, err
+	}
+	c := domain.TrackerConnection{AccountID: by.AccountID, Name: strings.TrimSpace(in.Name), Kind: in.Kind, Config: in.Config, Triggers: in.Triggers}
+	if err := c.Validate(); err != nil {
+		return domain.TrackerConnection{}, nil, fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
+	}
+	for k := range c.Config {
+		if domain.SecretLikeName(k) {
+			return domain.TrackerConnection{}, nil, fmt.Errorf("config key %q looks like a secret, and the config is not a place for one: %w", k, mcp.ErrInvalidInput)
+		}
+	}
+	ad, err := core.Registry().Build(c)
+	if err != nil {
+		return domain.TrackerConnection{}, nil, trackerError(err)
+	}
+	if err := tracker.CheckTriggers(c, ad.Capabilities()); err != nil {
+		return domain.TrackerConnection{}, nil, trackerError(err)
+	}
+	return c, ad, nil
+}
+
+// TrackerConnectionRow implements resource.Access: the row of a wanted
+// connection, checked as create_tracker_connection checks it short of asking
+// the tracker, which a plan does not do. The keys its adapter derives are
+// left out of Config and listed.
+func (s *Service) TrackerConnectionRow(ctx context.Context, by domain.Actor, in mcp.CreateTrackerConnectionInput) (domain.TrackerConnection, []string, error) {
+	if err := s.allowOrg(ctx, by, domain.PermTrackersManage); err != nil {
+		return domain.TrackerConnection{}, nil, err
+	}
+	c, ad, err := s.trackerConnectionRow(by, in)
+	if err != nil {
+		return domain.TrackerConnection{}, nil, err
+	}
+	return c, derivedKeys(ad), nil
+}
+
+// TrackerDerived implements resource.Access: the config keys the adapter of
+// a stored connection fills in itself.
+func (s *Service) TrackerDerived(c domain.TrackerConnection) []string {
+	core, err := s.trackers()
+	if err != nil {
+		return nil
+	}
+	ad, err := core.Registry().Build(c)
+	if err != nil {
+		return nil
+	}
+	return derivedKeys(ad)
+}
+
+func derivedKeys(ad tracker.Adapter) []string {
+	if p, ok := ad.(tracker.Preparer); ok {
+		return p.Derived()
+	}
+	return nil
 }
 
 // prepare stores what a tracker says of itself in the connection's config,
@@ -254,9 +302,6 @@ func checkStates(ctx context.Context, ad tracker.Adapter, states map[domain.Tick
 	if len(states) == 0 {
 		return nil
 	}
-	if !ad.Capabilities().Transitions {
-		return fmt.Errorf("%s tickets take no state from Forecrew: %w", ad.Kind(), mcp.ErrInvalidInput)
-	}
 	known, err := ad.States(ctx)
 	if err != nil {
 		return fmt.Errorf("read the states of the tracker: %w", err)
@@ -278,6 +323,25 @@ func (s *Service) CreateTrackerRoute(ctx context.Context, by domain.Actor, in mc
 	if err := s.allowOrg(ctx, by, domain.PermTrackersManage); err != nil {
 		return mcp.TrackerRouteInfo{}, err
 	}
+	info, err := s.trackerRouteRow(ctx, by, in, true)
+	if err != nil {
+		return mcp.TrackerRouteInfo{}, err
+	}
+	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		if err := tx.TrackerRoutes().Create(ctx, &info.TrackerRoute); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, by, info.ProjectID, "tracker.route_created", "tracker_route", info.ID, map[string]any{"connection": info.Connection})
+	})
+	if err != nil {
+		return mcp.TrackerRouteInfo{}, conflict(err, fmt.Sprintf("route %d of %s exists", in.Position, info.Connection))
+	}
+	return info, nil
+}
+
+// trackerRouteRow checks a wanted route. ask checks its states against the
+// tracker's.
+func (s *Service) trackerRouteRow(ctx context.Context, by domain.Actor, in mcp.CreateTrackerRouteInput, ask bool) (mcp.TrackerRouteInfo, error) {
 	core, err := s.trackers()
 	if err != nil {
 		return mcp.TrackerRouteInfo{}, err
@@ -310,19 +374,26 @@ func (s *Service) CreateTrackerRoute(ctx context.Context, by domain.Actor, in mc
 	if err != nil {
 		return mcp.TrackerRouteInfo{}, trackerError(err)
 	}
-	if err := checkStates(ctx, ad, in.States); err != nil {
-		return mcp.TrackerRouteInfo{}, err
+	if len(in.States) > 0 && !ad.Capabilities().Transitions {
+		return mcp.TrackerRouteInfo{}, fmt.Errorf("%s tickets take no state from Forecrew: %w", ad.Kind(), mcp.ErrInvalidInput)
 	}
-	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
-		if err := tx.TrackerRoutes().Create(ctx, &r); err != nil {
-			return err
+	if ask {
+		if err := checkStates(ctx, ad, in.States); err != nil {
+			return mcp.TrackerRouteInfo{}, err
 		}
-		return s.audit(ctx, tx, by, p.ID, "tracker.route_created", "tracker_route", r.ID, map[string]any{"connection": c.Name})
-	})
-	if err != nil {
-		return mcp.TrackerRouteInfo{}, err
 	}
 	return mcp.TrackerRouteInfo{TrackerRoute: r, Connection: c.Name, Project: p.Name}, nil
+}
+
+// TrackerRouteRow implements resource.Access: the row of a wanted route,
+// checked as create_tracker_route checks it. ask checks its states against
+// the tracker, which a plan does only for a connection that exists already.
+func (s *Service) TrackerRouteRow(ctx context.Context, by domain.Actor, in mcp.CreateTrackerRouteInput, ask bool) (domain.TrackerRoute, error) {
+	if err := s.allowOrg(ctx, by, domain.PermTrackersManage); err != nil {
+		return domain.TrackerRoute{}, err
+	}
+	info, err := s.trackerRouteRow(ctx, by, in, ask)
+	return info.TrackerRoute, err
 }
 
 // DeleteTrackerRoute implements mcp.ToolService.
