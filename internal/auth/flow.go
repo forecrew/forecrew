@@ -20,6 +20,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/signintest"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
@@ -334,7 +335,7 @@ func (s *Service) testResult(w http.ResponseWriter, r *http.Request, conn domain
 		s.refuse(w, r, refusal(reasonTestDenied), err)
 		return
 	}
-	if err := audit(r.Context(), s.cfg.Store, by, "connection.tested", "connection", conn.ID, nil); err != nil {
+	if err := signintest.Record(r.Context(), s.cfg.Store, by, conn); err != nil {
 		s.refuse(w, r, nil, err)
 		return
 	}

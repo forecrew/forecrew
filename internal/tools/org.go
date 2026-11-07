@@ -12,6 +12,7 @@ import (
 	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/signintest"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
@@ -355,20 +356,6 @@ func (s *Service) connectionInfo(c domain.Connection, tested map[uuid.UUID]bool)
 	return info
 }
 
-// testedConnections returns the connections of the organization with a
-// test sign-in that worked.
-func (s *Service) testedConnections(ctx context.Context, accountID uuid.UUID) (map[uuid.UUID]bool, error) {
-	entries, err := s.cfg.Store.Audit().List(ctx, accountID, store.AuditFilter{Action: "connection.tested"})
-	if err != nil {
-		return nil, err
-	}
-	tested := map[uuid.UUID]bool{}
-	for _, e := range entries {
-		tested[e.SubjectID] = true
-	}
-	return tested, nil
-}
-
 // ListConnections implements mcp.ToolService.
 func (s *Service) ListConnections(ctx context.Context, by domain.Actor) ([]mcp.ConnectionInfo, error) {
 	if err := s.allowOrg(ctx, by, domain.PermConnectionManage); err != nil {
@@ -382,7 +369,7 @@ func (s *Service) ListConnections(ctx context.Context, by domain.Actor) ([]mcp.C
 	if err != nil {
 		return nil, err
 	}
-	tested, err := s.testedConnections(ctx, by.AccountID)
+	tested, err := signintest.Tested(ctx, s.cfg.Store, by.AccountID, own)
 	if err != nil {
 		return nil, err
 	}
@@ -440,7 +427,7 @@ func (s *Service) SetConnectionEnabled(ctx context.Context, by domain.Actor, in 
 		return mcp.ConnectionInfo{}, fmt.Errorf("connection %s: %w", in.Connection, mcp.ErrNotFound)
 	}
 	c := own[i]
-	tested, err := s.testedConnections(ctx, by.AccountID)
+	tested, err := signintest.Tested(ctx, s.cfg.Store, by.AccountID, []domain.Connection{c})
 	if err != nil {
 		return mcp.ConnectionInfo{}, err
 	}

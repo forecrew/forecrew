@@ -25,6 +25,7 @@ import (
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/signintest"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 )
@@ -1254,6 +1255,14 @@ func TestConnectionTestSignIn(t *testing.T) {
 	entries, err := f.st.Audit().List(ctx, f.org.ID, store.AuditFilter{Action: "connection.tested"})
 	if err != nil || len(entries) != 1 || entries[0].SubjectID != conn.ID || entries[0].Actor != "user:"+admin.ID.String() {
 		t.Fatalf("audit = %+v, %v", entries, err)
+	}
+	if ok, err := signintest.Valid(ctx, f.st, conn); err != nil || !ok {
+		t.Fatalf("the test does not vouch for the connection: %v, %v", ok, err)
+	}
+	moved := conn
+	moved.Issuer += "/other"
+	if ok, _ := signintest.Valid(ctx, f.st, moved); ok {
+		t.Fatal("the test vouches for another issuer")
 	}
 
 	// A member without connection.manage, and a connection of the instance, are refused.

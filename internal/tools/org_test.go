@@ -11,6 +11,7 @@ import (
 	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/signintest"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/tools"
 )
@@ -291,7 +292,7 @@ func TestConnectionTools(t *testing.T) {
 	// Turning it on needs a test sign-in that worked.
 	_, err = f.svc.SetConnectionEnabled(ctx, admin, mcp.SetConnectionInput{Connection: "okta", Enabled: true})
 	wantErr(t, err, mcp.ErrConflict)
-	must(t, f.st.Audit().Append(ctx, &domain.AuditEntry{AccountID: f.account.ID, Actor: admin.String(), Action: "connection.tested", SubjectType: "connection", SubjectID: c.ID}))
+	must(t, signintest.Record(ctx, f.st, admin, c.Connection))
 	on, err := f.svc.SetConnectionEnabled(ctx, admin, mcp.SetConnectionInput{Connection: c.ID.String(), Enabled: true})
 	must(t, err)
 	if !on.Enabled || !on.Tested {
@@ -303,6 +304,13 @@ func TestConnectionTools(t *testing.T) {
 		t.Fatalf("disabled = %+v", off)
 	}
 
+	// A test vouches for the issuer and client ID it worked for.
+	moved := c.Connection
+	moved.Issuer = "https://other.okta.com"
+	must(t, f.st.Connections().Update(ctx, &moved))
+	_, err = f.svc.SetConnectionEnabled(ctx, admin, mcp.SetConnectionInput{Connection: "okta", Enabled: true})
+	wantErr(t, err, mcp.ErrConflict)
+	must(t, f.st.Connections().Update(ctx, &c.Connection)) // back to what was tested
 	list, err := f.svc.ListConnections(ctx, admin)
 	must(t, err)
 	if len(list) != 2 || !list[0].Instance || list[0].ClientID != "" || list[0].ClientSecretRef != "" || list[0].TestURL != "" || list[1].Name != "okta" || !list[1].Tested {
