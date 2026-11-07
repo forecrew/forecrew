@@ -31,6 +31,12 @@ const anthropicVersion = "2023-06-01"
 // provider says is untrusted text, so anything else is dropped.
 var modelName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$`)
 
+// ValidModelName reports whether name is a model's name as a connection
+// lists it and people may enter it.
+func ValidModelName(name string) bool {
+	return len(name) <= maxModelName && modelName.MatchString(name)
+}
+
 // ProbeRequest is one key check.
 type ProbeRequest struct {
 	URL    string

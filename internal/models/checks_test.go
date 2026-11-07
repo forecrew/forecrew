@@ -482,3 +482,34 @@ func TestListOfWithoutACatalog(t *testing.T) {
 		}
 	}
 }
+
+func TestOneTestAtATimeAndPlainModelNames(t *testing.T) {
+	c := newChecks(t)
+	ctx := t.Context()
+	c.add(t, conn("cloud", config.AdapterClaudeCode, "anthropic"))
+	row, err := c.checker.Test(ctx, c.by, "cloud", "claude-sonnet-4-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.checker.Test(ctx, c.by, "cloud", "claude-sonnet-4-5"); !errors.Is(err, models.ErrTestRunning) {
+		t.Fatalf("second test = %v", err)
+	}
+	// Another model runs alongside.
+	other, err := c.checker.Test(ctx, c.by, "cloud", "claude-haiku-4-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.jobs.Cancel(ctx, c.by, c.account, other.JobID); err != nil {
+		t.Fatal(err)
+	}
+	j, _ := c.st.Jobs().Get(ctx, c.account, row.JobID)
+	c.finish(t, row.JobID, domain.JobSucceeded, answer(j.Spec.Suitability.Nonce), nil)
+	if _, err := c.checker.Test(ctx, c.by, "cloud", "claude-sonnet-4-5"); err != nil {
+		t.Fatalf("after the first ended = %v", err)
+	}
+	for _, bad := range []string{"", "a b", "$(rm -rf)", "x\ny", strings.Repeat("m", 201)} {
+		if _, err := c.checker.Test(ctx, c.by, "cloud", bad); !errors.Is(err, models.ErrInvalidModel) {
+			t.Errorf("%q = %v", bad, err)
+		}
+	}
+}

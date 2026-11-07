@@ -407,6 +407,11 @@ func (r modelCheckRepo) Put(ctx context.Context, c *domain.ModelCheck) error {
 		c.ID, c.AccountID, c.ConnectionID, c.Connection, c.Model, c.JobID, c.Status, raw, c.Stale, c.CreatedBy).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt))
 }
 
+func (r modelCheckRepo) Lock(ctx context.Context, accountID, connectionID uuid.UUID, model string) error {
+	_, err := r.db.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, "model_checks/"+accountID.String()+"/"+connectionID.String()+"/"+model)
+	return mapErr(err)
+}
+
 func (r modelCheckRepo) GetByJob(ctx context.Context, accountID, jobID uuid.UUID) (domain.ModelCheck, error) {
 	return one(ctx, r.db, scanModelCheck, `SELECT `+modelCheckCols+` FROM model_checks WHERE account_id = $1 AND job_id = $2`, accountID, jobID)
 }
