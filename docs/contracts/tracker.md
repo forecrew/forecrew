@@ -309,6 +309,7 @@ columns anyway, so a card in the handover column means a person is waiting.
   it is in a `closed` column. A card that is deleted is no event.
 - **Writes.** A comment goes on the card's issue; a draft takes none, and the
   write is dropped. A transition to a column that was renamed or deleted fails
-  with an error naming the board's columns and moves nothing; the write is retried
-  until the route's `states` are fixed, and the connection cannot be deleted until
-  it is sent.
+  with an error naming the board's columns and moves nothing. The write is
+  retried with the usual backoff until the column exists again: a newer state of
+  the same link replaces it, but one of an ended link stays, and the connection
+  cannot be deleted while it does. Fix the route's `states` before the goal ends.
