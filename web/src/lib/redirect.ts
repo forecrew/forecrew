@@ -1,3 +1,8 @@
+/** An OAuth authorization request of this server: a page the web UI does not serve, so going there leaves the app. */
+export function isAuthorization(target: string | undefined): target is string {
+  return target !== undefined && target.startsWith("/oauth/authorize?")
+}
+
 /** The page to return to after login: a path on this site, else the home page. */
 export function safeRedirect(target: string | undefined): string {
   // Browsers drop tabs and newlines from addresses and read a backslash as a

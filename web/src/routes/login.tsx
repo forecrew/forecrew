@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useSearch } from "@tanstack/react-router"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ApiError, api } from "@/api/client"
 import { keys } from "@/api/queries"
 import type { Discovery } from "@/api/types"
@@ -8,7 +8,7 @@ import { Field } from "@/components/Field"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { safeRedirect } from "@/lib/redirect"
+import { isAuthorization, leave, safeRedirect } from "@/lib/redirect"
 
 /** The login address with the page to come back to; the server only goes to a path of this site. */
 export function withReturn(loginUrl: string, redirect: string | undefined): string {
@@ -48,6 +48,14 @@ export function LoginPage() {
     setTyped(email.trim())
   }
 
+  // The session cookie is not sent on a navigation that started on another
+  // site, which is how an app sends people to the consent screen, so the
+  // server sent them here. Already signed in, go back from this site.
+  useEffect(() => {
+    if (!isAuthorization(redirect)) return
+    api.me().then(() => leave.to(redirect), () => {})
+  }, [redirect])
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!token.trim()) {
@@ -60,7 +68,8 @@ export function LoginPage() {
       const session = await api.login(token.trim())
       setToken("") // the token is never kept in the page once the cookie is set
       qc.setQueryData(keys.me, session)
-      await navigate({ href: safeRedirect(redirect) })
+      if (isAuthorization(redirect)) leave.to(redirect)
+      else await navigate({ href: safeRedirect(redirect) })
     } catch (err) {
       setError(err instanceof ApiError && err.status === 401 ? "That token was not accepted. Check it, or create a new one." : (err as Error).message)
     } finally {
