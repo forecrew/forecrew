@@ -11,6 +11,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/signintest"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
@@ -691,7 +692,7 @@ func connectionRead(ctx context.Context, e *Env) ([]Resource, error) {
 	return out, nil
 }
 
-func connectionValidate(ctx context.Context, e *Env, _ *Resource, want Resource) error {
+func connectionValidate(ctx context.Context, e *Env, old *Resource, want Resource) error {
 	c, err := connectionRow(ctx, e, want)
 	if err != nil {
 		return err
@@ -699,7 +700,63 @@ func connectionValidate(ctx context.Context, e *Env, _ *Resource, want Resource)
 	if err := c.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
 	}
+	return connectionTested(ctx, e, old, want)
+}
+
+// connectionTested is the rule of the other ways to turn a connection on
+// (identity.md, Connections): a connection is enabled only after a test
+// sign-in worked for its current issuer and client ID. A plan may create one
+// turned off, change one turned off, and turn one off; one that is on and
+// does not change what the test vouches for stays on. Changing what it
+// vouches for, on a connection that stays on, is refused: the plan must also
+// turn it off, so the new provider is tested before anyone signs in there.
+func connectionTested(ctx context.Context, e *Env, old *Resource, want Resource) error {
+	w, err := decode[connectionSpec](want.Spec)
+	if err != nil || !w.Enabled {
+		return err
+	}
+	refusal := fmt.Errorf("connection %s has no test sign-in that worked for its issuer and client ID: save it turned off, open its test_url and sign in once, then turn it on: %w", want.Name, mcp.ErrConflict)
+	if old == nil {
+		return refusal // a new connection has not been tested
+	}
+	row, err := connectionStored(ctx, e, old.Name)
+	if err != nil {
+		return err
+	}
+	o, err := decode[connectionSpec](old.Spec)
+	if err != nil {
+		return err
+	}
+	if o.Enabled && signintest.Fingerprint(vouched(row, o)) == signintest.Fingerprint(vouched(row, w)) {
+		return nil
+	}
+	ok, err := signintest.Valid(ctx, e.Store, vouched(row, w))
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return refusal
+	}
 	return nil
+}
+
+// vouched is c with what a test sign-in vouches for taken from s.
+func vouched(c domain.Connection, s connectionSpec) domain.Connection {
+	c.Kind, c.Issuer, c.ClientID, c.ClientSecretRef = s.ConnectionKind, s.Issuer, s.ClientID, s.ClientSecretRef
+	return c
+}
+
+// connectionStored is the organization's connection called name.
+func connectionStored(ctx context.Context, e *Env, name string) (domain.Connection, error) {
+	rows, err := e.Store.Connections().List(ctx, e.Actor.AccountID)
+	if err != nil {
+		return domain.Connection{}, err
+	}
+	i := slices.IndexFunc(rows, func(x domain.Connection) bool { return x.Name == name })
+	if i < 0 {
+		return domain.Connection{}, invalid("connection %s does not exist", name)
+	}
+	return rows[i], nil
 }
 
 func connectionSecrets(want Resource) []SecretField {
@@ -712,18 +769,23 @@ func connectionApply(ctx context.Context, e *Env, old, want *Resource) error {
 	if err != nil {
 		return err
 	}
+	// The test may have gone since the plan was made.
+	if err := connectionTested(ctx, e, old, *want); err != nil {
+		return err
+	}
 	if old == nil {
 		return e.Store.Connections().Create(ctx, &c)
 	}
-	rows, err := e.Store.Connections().List(ctx, e.Actor.AccountID)
+	stored, err := connectionStored(ctx, e, old.Name)
 	if err != nil {
 		return err
 	}
-	i := slices.IndexFunc(rows, func(x domain.Connection) bool { return x.Name == old.Name })
-	if i < 0 {
-		return invalid("connection %s does not exist", old.Name)
+	if signintest.Fingerprint(stored) != signintest.Fingerprint(c) {
+		if err := signintest.Clear(ctx, e.Store, e.Actor, stored); err != nil {
+			return err
+		}
 	}
-	c.ID = rows[i].ID
+	c.ID = stored.ID
 	return e.Store.Connections().Update(ctx, &c)
 }
 

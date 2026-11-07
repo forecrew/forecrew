@@ -76,8 +76,20 @@ public URL or the host of the request, else `403` `bad_origin`.
 an administrator (a session with `connection.manage` in the connection's
 organization) signs in through a connection of the organization that is still
 turned off. Nobody is signed in: the page shows the name and email the provider
-answered, and the test is audited as `connection.tested`, which is what allows
-turning the connection on.
+answered, and the test is audited as `connection.tested`, with a fingerprint of
+the kind, issuer, client ID and client secret reference it worked for. That is
+what allows turning the connection on, by `set_connection_enabled` or by a
+config plan. Changing any of those four takes the test away (a config plan
+that does so audits `connection.test_cleared`), so the connection must be
+tested again; the group claim, JIT and `enabled` do not.
+
+A config plan follows the same rule: it is refused with `409` when it creates a
+connection with `enabled: true`, turns one on, or changes one of those four
+fields of a connection that stays on, unless the connection has a test for the
+values the plan leaves it with. A plan may create a connection turned off,
+change one that is off, and turn one off; to change the issuer of one that is
+on, save the plan with `enabled: false`, test it, then turn it on. A connection
+already on that changes none of the four stays on, tested or not.
 
 **The CLI's login.** `forecrew login --server <url>` listens on `127.0.0.1`, opens
 `/cli-login?redirect_uri=...&state=...&code_challenge=...` in the browser, where the
