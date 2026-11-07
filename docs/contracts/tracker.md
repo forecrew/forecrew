@@ -180,7 +180,9 @@ The **Inbox** of tickets is `list_tickets_waiting`. A ticket with a project also
 has a `ticket_intake` gate, so it shows with the other gates; a ticket without
 one cannot, because a gate belongs to a project, and whoever accepts it names
 the project. `accept_ticket` and approving the gate do the same, and so do
-`dismiss_ticket` and rejecting it. A waiting ticket that a permitted person
+`dismiss_ticket` and rejecting it. `list_unmapped_tracker_people` finds who handed
+over the tickets that wait for `unknown_person`, so a person can map them; it reads
+those tickets from their trackers, and suggests members of the same name. A waiting ticket that a permitted person
 hands over again starts at once.
 
 ## Routes

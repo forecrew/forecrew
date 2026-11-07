@@ -106,8 +106,10 @@ the state is left alone.
 ## People
 
 A person is their Linear user ID, so a rename or a changed email stays the same
-person. Map people in Settings, Integrations, or with `forecrew tracker map
-<connection> <user ID> <user>`.
+person. Map people in Settings, Integrations, where **People** lists who handed
+tickets over and is mapped to nobody, with the members of the same name as
+suggestions to confirm, or with `forecrew tracker unmapped` and `forecrew tracker
+map <connection> <user ID> <user>`.
 
 ## Events: polling and webhooks
 
