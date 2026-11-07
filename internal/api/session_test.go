@@ -3,9 +3,11 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 )
 
@@ -307,5 +310,77 @@ func TestDiscoverIsRateLimited(t *testing.T) {
 	now = now.Add(time.Minute)
 	if w := call("192.0.2.1:1000"); w.Code != http.StatusOK {
 		t.Fatalf("after the window = %d", w.Code)
+	}
+}
+
+// Under SSO enforcement a token proves no connection: token login is refused
+// and a cookie from an earlier one dies, while the token stays a bearer token.
+func TestTokenLoginUnderEnforcement(t *testing.T) {
+	ctx := t.Context()
+	st := testkit.NewStore(time.Now)
+	org := domain.Account{Name: "Acme"}
+	must(t, st.Accounts().Create(ctx, &org))
+	u := domain.User{Name: "Ana", Email: "ana@acme.example", EmailVerified: true}
+	must(t, st.Users().Create(ctx, &u))
+	must(t, st.Memberships().Create(ctx, &domain.Membership{AccountID: org.ID, UserID: u.ID, Status: domain.MembershipActive, Source: domain.SourceManual}))
+	must(t, st.MCPTokens().Create(ctx, &domain.MCPToken{AccountID: org.ID, Name: "t", TokenHash: mcp.HashToken("fcm_ana"), OwnerKind: domain.SubjectUser, OwnerID: u.ID, Scopes: []domain.Scope{domain.ScopeRead}}))
+	server := httptest.NewServer(api.New(api.Config{Tools: &testkit.ToolService{}, Store: st, Authz: authz.New(st, nil), Logger: slog.New(slog.DiscardHandler), TokenLogin: true}).Handler())
+	t.Cleanup(server.Close)
+	call := func(method, path, body, cookie, bearer string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequestWithContext(ctx, method, server.URL+path, strings.NewReader(body))
+		must(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		if cookie != "" {
+			req.AddCookie(&http.Cookie{Name: api.CookieName, Value: cookie})
+		}
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		must(t, err)
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		must(t, err)
+		return resp.StatusCode, string(b)
+	}
+	login := func() (int, string) { return call(http.MethodPost, "/api/v1/session", `{"token":"fcm_ana"}`, "", "") }
+	if status, body := login(); status != http.StatusOK {
+		t.Fatalf("before enforcement = %d %s", status, body)
+	}
+	if status, _ := call(http.MethodGet, "/api/v1/me", "", "fcm_ana", ""); status != http.StatusOK {
+		t.Fatalf("cookie before enforcement = %d", status)
+	}
+
+	d := domain.VerifiedDomain{AccountID: org.ID, Domain: "acme.example", VerificationToken: "t"}
+	must(t, st.VerifiedDomains().Create(ctx, &d))
+	must(t, st.VerifiedDomains().SetVerified(ctx, org.ID, d.ID, true))
+	conn := domain.Connection{AccountID: org.ID, Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://idp.example", ClientID: "c", ClientSecretRef: "env:FORECREW_CONN_X", Enabled: true}
+	must(t, st.Connections().Create(ctx, &conn))
+	must(t, st.VerifiedDomains().SetEnforcement(ctx, org.ID, d.ID, true, conn.ID))
+
+	if status, body := login(); status != http.StatusForbidden || !strings.Contains(body, "sso_required") {
+		t.Fatalf("login = %d %s", status, body)
+	}
+	if status, _ := call(http.MethodGet, "/api/v1/me", "", "fcm_ana", ""); status != http.StatusUnauthorized {
+		t.Fatalf("old cookie = %d", status)
+	}
+	if status, _ := call(http.MethodGet, "/api/v1/me", "", "", "fcm_ana"); status != http.StatusOK {
+		t.Fatalf("bearer = %d", status)
+	}
+
+	// An instance admin is exempt, and the login is audited.
+	u.InstanceAdmin = true
+	must(t, st.Users().Update(ctx, &u))
+	if status, body := login(); status != http.StatusOK {
+		t.Fatalf("instance admin = %d %s", status, body)
+	}
+	if status, _ := call(http.MethodGet, "/api/v1/me", "", "fcm_ana", ""); status != http.StatusOK {
+		t.Fatalf("instance admin cookie = %d", status)
+	}
+	entries, err := st.Audit().List(ctx, org.ID, store.AuditFilter{})
+	must(t, err)
+	if !slices.ContainsFunc(entries, func(e domain.AuditEntry) bool { return e.Action == "sso.exempted" }) {
+		t.Errorf("audit = %+v", entries)
 	}
 }

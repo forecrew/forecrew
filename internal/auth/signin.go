@@ -476,6 +476,33 @@ func enterThrough(ctx context.Context, tx store.Store, u domain.User, account, c
 	return audit(ctx, tx, domain.UserActor(account, u.ID, domain.Credential{}), "sso.exempted", "user", u.ID, data)
 }
 
+// CheckTokenLogin refuses, with ErrSSORequired, a login with a personal token
+// for a user whose organization requires a connection: a token proves no
+// connection, so legacy token login would go around it. A token keeps working
+// as a bearer token, up to the organization's cap. An instance admin is exempt;
+// with record, that entry is audited.
+func CheckTokenLogin(ctx context.Context, st store.Store, by domain.Actor, record bool) error {
+	id, ok := by.SubjectID()
+	if !ok || by.Kind != domain.ActorUser {
+		return nil
+	}
+	enforced, err := store.EnforcedConnections(ctx, st, by.AccountID, id)
+	if err != nil || len(enforced) == 0 {
+		return err
+	}
+	u, err := st.Users().Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !u.InstanceAdmin {
+		return ErrSSORequired
+	}
+	if !record {
+		return nil
+	}
+	return audit(ctx, st, by, "sso.exempted", "user", id, []byte(`{"through":"token_login"}`))
+}
+
 // ssoAllows says whether connection opens the organization for u, and whether
 // that is only because u is exempt from what the organization enforces.
 func ssoAllows(ctx context.Context, st store.Store, u domain.User, account, connection uuid.UUID) (ok, exempt bool, err error) {
