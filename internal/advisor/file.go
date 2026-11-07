@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -147,42 +146,19 @@ func (s *Service) build(p domain.Project, id uuid.UUID, d Draft, sig Signal, sig
 	if !slices.Contains(cited, sig.Key) {
 		cited = append(cited, sig.Key)
 	}
+	var used []Signal
 	for _, key := range cited {
 		c, ok := find(signals, key)
 		if !ok {
 			return x, "it cites " + contextpack.OneLine(key) + ", which is not a listed signal"
 		}
 		x.Evidence = bounded(append(x.Evidence, c.Evidence...))
-		if why := s.missingTool(c, d); why != "" {
-			return x, why
-		}
+		used = append(used, c)
 	}
 	if d.Measure != "" && d.Measure == sig.Detector {
 		x.Measure = &domain.ProposalMeasure{Detector: sig.Detector, Value: sig.Weight}
 	}
-	return x, s.apply(&x, d)
-}
-
-// missingTool refuses a draft answering a tooling signal with a tool outside
-// the catalog: it must name a catalog tool, and its action must not use the
-// missing tool unless that is in the catalog.
-func (s *Service) missingTool(c Signal, d Draft) string {
-	if c.Detector != DetectorTooling {
-		return ""
-	}
-	if len(d.Tools) == 0 {
-		return "it answers a missing tool with no tool of the catalog"
-	}
-	if !s.Catalog.Has(c.Subject) && mentions(actionText(d.Action), c.Subject) {
-		return "its action uses " + c.Subject + ", which is not in the catalog"
-	}
-	return ""
-}
-
-// mentions reports whether text has word as a whole word, ignoring case.
-func mentions(text, word string) bool {
-	re, err := regexp.Compile(`(?i)(^|[^\w.+-])` + regexp.QuoteMeta(word) + `($|[^\w+-])`)
-	return err == nil && re.MatchString(text)
+	return x, s.apply(&x, d, checkFor(used, signals))
 }
 
 // actionText is everything an action says.
@@ -203,14 +179,12 @@ func actionText(a domain.ProposalAction) string {
 }
 
 // apply writes the fields a draft decides into x and says what is wrong with
-// them, "" when nothing is.
-func (s *Service) apply(x *domain.Proposal, d Draft) string {
+// them, "" when nothing is; c is what its tools are checked against.
+func (s *Service) apply(x *domain.Proposal, d Draft, c toolCheck) string {
 	x.Scope, x.Category, x.Title, x.Rationale, x.Benefit = d.Scope, d.Category, contextpack.OneLine(d.Title), d.Rationale, d.Benefit
 	x.Effort, x.Risk, x.Action = d.Effort, d.Risk, d.Action
-	for _, t := range d.Tools {
-		if !s.Catalog.Has(t) {
-			return contextpack.OneLine(t) + " is not in the catalog"
-		}
+	if why := s.tools(d, c); why != "" {
+		return why
 	}
 	if utf8.RuneCountInString(x.Title) > maxTitle || len(x.Rationale) > maxText || len(x.Benefit) > maxText || len(actionText(d.Action)) > maxConfigFiles*maxConfigFile+2*maxText {
 		return "it is too long"
