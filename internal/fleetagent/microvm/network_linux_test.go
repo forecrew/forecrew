@@ -114,7 +114,7 @@ func TestIsolation(t *testing.T) {
 	closed := map[string]bool{
 		"internet": false, "lan": true, "forecrewd": false, "host-lan-other-port": true, "host-public-other-port": true,
 		"own-tap": true, "other-tap": true, "other-machine": true, "host-ipv6": true,
-		"internet-other": false, "metadata": true, "metadata-ipv6": true, "mining-port": false, "mining-counted": false,
+		"internet-other": false, "metadata": true, "metadata-ipv6": true, "mining-port": false, "mining-counted": false, "spoofed-source": true,
 	}
 
 	with := func(changes map[string]bool) map[string]bool {
