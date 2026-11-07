@@ -59,6 +59,7 @@ import (
 	"github.com/forecrew/forecrew/internal/tracker/githubissues"
 	"github.com/forecrew/forecrew/internal/tracker/githubproject"
 	"github.com/forecrew/forecrew/internal/tracker/jira"
+	"github.com/forecrew/forecrew/internal/tracker/linear"
 	"github.com/forecrew/forecrew/internal/webhook"
 	"github.com/forecrew/forecrew/internal/webui"
 	"github.com/forecrew/forecrew/internal/workerapi"
@@ -371,6 +372,7 @@ func New(d Deps) (*App, error) {
 		PublicURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now,
 	})
 	trackers.Register(jira.Kind, jira.Factory(jira.Deps{Secrets: vault, PrivateAddresses: cfg.Trackers.PrivateAddresses, Now: d.Now}))
+	trackers.Register(linear.Kind, linear.Factory(linear.Deps{Secrets: vault, PrivateAddresses: cfg.Trackers.PrivateAddresses, Now: d.Now}))
 	features := enterprise.Load(enterprise.Deps{Store: st, Authz: access, Gates: gateSvc, PublicURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now})
 	authSvc := auth.New(auth.Config{Policy: features.SignIn, Store: st, Auth: cfg.Auth, BaseURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now, GitHubURL: d.GitHubURL, GitHubAPIURL: d.GitHubAPIURL, Secrets: vault})
 	toolSvc := tools.New(tools.Config{
