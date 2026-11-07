@@ -135,7 +135,8 @@ func newEnv(t *testing.T, edit func(*Config)) *env {
 	e.img.Signature = images.Sign(key, e.img)
 	e.addAMI(testAMI, testAccount, e.img.Digest)
 	e.shape = domain.Shape{
-		Name: "aws-small", OS: domain.OSLinux, Arch: domain.ArchAMD64, CPU: 2, MemoryMB: 4096, DiskGB: 30, PricePerMinute: 0.01,
+		AccountID: domain.NewID(), // an organization's own cloud
+		Name:      "aws-small", OS: domain.OSLinux, Arch: domain.ArchAMD64, CPU: 2, MemoryMB: 4096, DiskGB: 30, PricePerMinute: 0.01,
 		ProviderConfig: map[string]any{"instance_type": "c7i.large", "subnet": testSubnet},
 	}
 	return e
