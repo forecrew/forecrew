@@ -155,8 +155,8 @@ func (a *actions) productBriefNote(ctx context.Context, g domain.Goal) (string, 
 	}
 	for _, c := range cs {
 		if c.Kind == domain.CouncilProduct && c.Brief != nil {
-			return fmt.Sprintf("\n\nThe spec follows the brief of %s, the product council (get_council %s has it; it recommended: %s).",
-				c.Ref(), c.Ref(), testreport.Clip(contextpack.OneLine(c.Brief.Recommendation), 200)), nil
+			return fmt.Sprintf("\n\nThe spec follows the brief of %s, the product council (get_council %s has it). It recommended:\n\n%s",
+				c.Ref(), c.Ref(), contextpack.WrapUntrusted("recommendation of "+c.Ref(), testreport.Clip(contextpack.OneLine(c.Brief.Recommendation), 200))), nil
 		}
 	}
 	return "", nil
