@@ -2,7 +2,6 @@ package councils
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -12,6 +11,8 @@ import (
 	"net/url"
 	"syscall"
 	"time"
+
+	"github.com/forecrew/forecrew/internal/netguard"
 )
 
 // Limits of a fetch of a cited URL.
@@ -23,40 +24,10 @@ const (
 
 // ErrRefused means forecrewd will not fetch a URL: it is or redirects to a
 // private address, or it is not a plain http(s) URL.
-var ErrRefused = errors.New("refused")
-
-// blocked are the ranges that are not public beyond what netip.Addr's
-// predicates cover.
-var blocked = []netip.Prefix{
-	netip.MustParsePrefix("0.0.0.0/8"),       // this network
-	netip.MustParsePrefix("100.64.0.0/10"),   // carrier-grade NAT
-	netip.MustParsePrefix("192.0.0.0/24"),    // IETF protocol assignments
-	netip.MustParsePrefix("192.0.2.0/24"),    // documentation
-	netip.MustParsePrefix("198.18.0.0/15"),   // benchmarking
-	netip.MustParsePrefix("198.51.100.0/24"), // documentation
-	netip.MustParsePrefix("203.0.113.0/24"),  // documentation
-	netip.MustParsePrefix("240.0.0.0/4"),     // reserved, broadcast
-	netip.MustParsePrefix("64:ff9b::/96"),    // NAT64
-	netip.MustParsePrefix("64:ff9b:1::/48"),  // local NAT64
-	netip.MustParsePrefix("100::/64"),        // discard
-	netip.MustParsePrefix("2001:db8::/32"),   // documentation
-	netip.MustParsePrefix("2002::/16"),       // 6to4
-}
+var ErrRefused = netguard.ErrRefused
 
 // Public reports whether a is an address on the public internet.
-func Public(a netip.Addr) bool {
-	a = a.Unmap()
-	if !a.IsValid() || a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() ||
-		a.IsInterfaceLocalMulticast() || a.IsMulticast() || a.IsUnspecified() {
-		return false
-	}
-	for _, p := range blocked {
-		if p.Contains(a) {
-			return false
-		}
-	}
-	return true
-}
+func Public(a netip.Addr) bool { return netguard.Public(a) }
 
 // Fetcher fetches the URLs members cite. Every host must resolve to public
 // addresses only, at the start and at each redirect, and the connection is
@@ -81,15 +52,8 @@ type Page struct {
 // GuardDial refuses a connection to an address that is not public: the
 // Control of a net.Dialer, so a name that changes its address after it was
 // checked reaches nothing private.
-func GuardDial(_, address string, _ syscall.RawConn) error {
-	ap, err := netip.ParseAddrPort(address)
-	if err != nil {
-		return fmt.Errorf("%w: address %s: %w", ErrRefused, address, err)
-	}
-	if !Public(ap.Addr()) {
-		return fmt.Errorf("%w: %s is not a public address", ErrRefused, ap.Addr())
-	}
-	return nil
+func GuardDial(network, address string, c syscall.RawConn) error {
+	return netguard.GuardDial(network, address, c)
 }
 
 func (f *Fetcher) transport() http.RoundTripper {
@@ -100,14 +64,8 @@ func (f *Fetcher) transport() http.RoundTripper {
 }
 
 // PublicTransport returns a transport that only connects to public
-// addresses. No proxy: a proxy would make the connection, and the guard would
-// see the proxy's address and not the target's.
-func PublicTransport() http.RoundTripper {
-	return &http.Transport{
-		DialContext:       (&net.Dialer{Control: GuardDial}).DialContext,
-		DisableKeepAlives: true,
-	}
-}
+// addresses.
+func PublicTransport() http.RoundTripper { return netguard.PublicTransport() }
 
 func (f *Fetcher) lookup(ctx context.Context, host string) ([]netip.Addr, error) {
 	if f.Lookup != nil {
@@ -129,21 +87,7 @@ func (f *Fetcher) allow(ctx context.Context, u *url.URL) error {
 // name that lookup resolves, is public. A host that does not resolve is
 // another error.
 func AllowHost(ctx context.Context, lookup func(ctx context.Context, host string) ([]netip.Addr, error), host string) error {
-	addrs := []netip.Addr{}
-	if a, err := netip.ParseAddr(host); err == nil {
-		addrs = append(addrs, a)
-	} else if addrs, err = lookup(ctx, host); err != nil {
-		return fmt.Errorf("resolve %s: %w", host, err)
-	}
-	if len(addrs) == 0 {
-		return fmt.Errorf("resolve %s: no address", host)
-	}
-	for _, a := range addrs {
-		if !Public(a) {
-			return fmt.Errorf("%w: %s is %s, not a public address", ErrRefused, host, a.Unmap())
-		}
-	}
-	return nil
+	return netguard.AllowHost(ctx, lookup, host)
 }
 
 // Fetch gets rawURL within the limits. It fails with ErrRefused without
