@@ -278,7 +278,7 @@ func TestOSLabels(t *testing.T) {
 		}
 	}
 	s := Shape{OS: OSMacOS, Arch: ArchARM64, Labels: []string{"Xcode:16"}}
-	if got := s.OfferedLabels(); !slices.Equal(got, []string{"arm64", "darwin", "macos", OrganizationModelLabel, "xcode:16"}) {
+	if got := s.OfferedLabels(); !slices.Equal(got, []string{"arm64", "darwin", "macos", ModelCheckLabel, OrganizationModelLabel, "xcode:16"}) {
 		t.Fatalf("offered = %v", got)
 	}
 }

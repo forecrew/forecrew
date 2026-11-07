@@ -38,9 +38,11 @@ func configModels(t *testing.T, st store.Store, accountID, projectID, jobID uuid
 	c := domain.ModelConnection{AccountID: accountID, Name: "zai", Vendor: "zai", Adapter: "opencode", KeyEnv: "ZAI_KEY", SecretRef: "store:models/zai", Enabled: true, UpdatedBy: "user:ana"}
 	must(st.ModelConnections().Put(ctx, &c))
 	c.ID, c.Enabled, c.SecretRef = uuid.Nil(), false, "store:models/zai-2"
+	c.Models = map[string]domain.ModelInfo{"glm-5": {Maker: "zai", Tier: "strong", Price: &domain.ModelPrice{Input: 1, Output: 2}}}
 	must(st.ModelConnections().Put(ctx, &c))
 	rows, err := st.ModelConnections().List(ctx, accountID)
-	if err != nil || len(rows) != 1 || rows[0].Enabled || rows[0].SecretRef != "store:models/zai-2" || rows[0].KeyEnv != "ZAI_KEY" {
+	if err != nil || len(rows) != 1 || rows[0].Enabled || rows[0].SecretRef != "store:models/zai-2" || rows[0].KeyEnv != "ZAI_KEY" ||
+		rows[0].Models["glm-5"].Price.Output != 2 || rows[0].Models["glm-5"].Maker != "zai" {
 		t.Fatalf("connections = %+v, %v", rows, err)
 	}
 	configAuthorizations(t, st, accountID, projectID, rows[0])

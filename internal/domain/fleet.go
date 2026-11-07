@@ -160,7 +160,7 @@ func (s Shape) OfferedLabels() []string {
 	out := append(slices.Clone(s.Labels), OSLabels(string(s.OS))...)
 	// Machines run the worker of their image, which keeps its keys away
 	// from organizations' connections.
-	return NormalizeLabels(append(out, string(s.Arch), OrganizationModelLabel))
+	return NormalizeLabels(append(out, string(s.Arch), OrganizationModelLabel, ModelCheckLabel))
 }
 
 // Validate checks the shape on its own, reporting every problem at once and

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"uuid"
@@ -31,6 +32,9 @@ type modelConnectionSpec struct {
 	KeyEnv    string `json:"key_env,omitempty"`
 	SecretRef string `json:"secret_ref,omitempty"`
 	Enabled   bool   `json:"enabled"`
+	// Models are the maker, tier and price of models the model catalog does
+	// not know, by model.
+	Models map[string]domain.ModelInfo `json:"models,omitempty"`
 }
 
 func modelConnectionArea() Area {
@@ -65,7 +69,7 @@ func modelConnectionArea() Area {
 }
 
 func specOfConnection(c domain.ModelConnection) modelConnectionSpec {
-	return modelConnectionSpec{c.Vendor, c.Adapter, c.BaseURL, c.KeyEnv, c.SecretRef, c.Enabled}
+	return modelConnectionSpec{c.Vendor, c.Adapter, c.BaseURL, c.KeyEnv, c.SecretRef, c.Enabled, c.Models}
 }
 
 // modelConnectionRead lists the organization's connections and, as "Managed by
@@ -135,7 +139,39 @@ func modelConnectionValidate(_ context.Context, _ *Env, old *Resource, want Reso
 	if !domain.ValidModelSecretRef(s.SecretRef) {
 		return invalid("secret_ref must be %s%s<name>", domain.SecretRefStore, domain.ModelSecretPrefix)
 	}
+	if err := checkModelInfo(s.Models); err != nil {
+		return err
+	}
 	return checkNoSecret(string(want.Spec))
+}
+
+// Limits of what people enter of models.
+const maxModelInfo = 200
+
+var (
+	modelNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$`)
+	makerRE     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
+)
+
+// checkModelInfo checks the models entered on a connection.
+func checkModelInfo(models map[string]domain.ModelInfo) error {
+	if len(models) > maxModelInfo {
+		return invalid("models: at most %d", maxModelInfo)
+	}
+	for _, name := range slices.Sorted(maps.Keys(models)) {
+		m := models[name]
+		switch {
+		case !modelNameRE.MatchString(name):
+			return invalid("models: %q is not a model name", name)
+		case m.Maker != "" && !makerRE.MatchString(m.Maker):
+			return invalid("models.%s.maker must be lowercase letters, digits and -", name)
+		case m.Tier != "" && !config.Tier(m.Tier).Valid():
+			return invalid("models.%s.tier must be fast, strong or best", name)
+		case m.Price != nil && (m.Price.Input < 0 || m.Price.Output < 0):
+			return invalid("models.%s.price must not be negative", name)
+		}
+	}
+	return nil
 }
 
 func modelConnectionApply(ctx context.Context, e *Env, old, want *Resource) error {
@@ -150,7 +186,7 @@ func modelConnectionApply(ctx context.Context, e *Env, old, want *Resource) erro
 		return err
 	}
 	c := domain.ModelConnection{AccountID: e.Actor.AccountID, Name: want.Name, Vendor: s.Vendor, Adapter: s.Adapter, BaseURL: s.BaseURL, KeyEnv: s.KeyEnv,
-		SecretRef: s.SecretRef, Enabled: s.Enabled, UpdatedBy: e.Actor.String()}
+		SecretRef: s.SecretRef, Enabled: s.Enabled, Models: s.Models, UpdatedBy: e.Actor.String()}
 	if err := e.Store.ModelConnections().Put(ctx, &c); err != nil {
 		return err
 	}
@@ -521,7 +557,8 @@ func (w *modelWorld) overlayConnection(c domain.ConfigChange) error {
 	if err != nil {
 		return err
 	}
-	w.state.Connections[c.Name] = domain.ModelConnection{Name: c.Name, Vendor: s.Vendor, Adapter: s.Adapter, BaseURL: s.BaseURL, KeyEnv: s.KeyEnv, SecretRef: s.SecretRef, Enabled: s.Enabled}
+	w.state.Connections[c.Name] = domain.ModelConnection{Name: c.Name, Vendor: s.Vendor, Adapter: s.Adapter, BaseURL: s.BaseURL, KeyEnv: s.KeyEnv, SecretRef: s.SecretRef,
+		Enabled: s.Enabled, Models: s.Models}
 	return nil
 }
 

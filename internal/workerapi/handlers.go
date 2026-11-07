@@ -154,10 +154,13 @@ func (s *Server) lease(ctx context.Context, w domain.Worker, labels []string) (d
 // agent keys of its own, so those jobs wait for another.
 func serverLabels(req pollRequest) []string {
 	labels := slices.DeleteFunc(domain.NormalizeLabels(req.Labels), func(l string) bool {
-		return l == domain.RuntimeLabel(domain.RuntimeNone) || l == domain.OrganizationModelLabel
+		return l == domain.RuntimeLabel(domain.RuntimeNone) || l == domain.OrganizationModelLabel || l == domain.ModelCheckLabel
 	})
 	if slices.Contains(req.Capabilities, domain.OrganizationModelCapability) {
 		labels = domain.NormalizeLabels(append(labels, domain.OrganizationModelLabel))
+	}
+	if slices.Contains(req.Capabilities, domain.ModelCheckCapability) {
+		labels = domain.NormalizeLabels(append(labels, domain.ModelCheckLabel))
 	}
 	return labels
 }
@@ -210,7 +213,12 @@ func (s *Server) withSecrets(ctx context.Context, w domain.Worker, j domain.Job)
 	if !ok {
 		return spec, fmt.Errorf("pool %s is not configured", j.Pool)
 	}
-	if access, ok := repoAccess(spec, pool.Credentials.RepoToken); ok {
+	if spec.Kind == domain.JobKindModelCheck {
+		return s.checkSecrets(ctx, w, j, pool)
+	}
+	// A suitability test runs on the fixture of the packs: it gets no token
+	// of the repo its job belongs to.
+	if access, ok := repoAccess(spec, pool.Credentials.RepoToken); ok && spec.Suitability == nil {
 		tok, err := s.cfg.Tokens.InstallationToken(ctx, spec.Repo, access)
 		if err != nil {
 			return spec, fmt.Errorf("repo token for %s: %w", spec.Repo, err)
@@ -246,6 +254,28 @@ func (s *Server) withSecrets(ctx context.Context, w domain.Worker, j domain.Job)
 		}
 		spec.JobMCP = &domain.JobMCP{URL: s.cfg.JobMCPURL, Token: token}
 	}
+	return spec, nil
+}
+
+// checkSecrets is the spec of a model_check job: the address of its
+// connection's model list and the key, nothing else. A worker that would hand
+// the key to anything of its own gets none.
+func (s *Server) checkSecrets(ctx context.Context, w domain.Worker, j domain.Job, pool config.Pool) (domain.JobSpec, error) {
+	spec := j.Spec
+	spec.JobID, spec.AccountID = j.ID, j.AccountID
+	if !slices.Contains(w.Labels, domain.OrganizationModelLabel) {
+		return spec, fmt.Errorf("%w: worker %s would hand the key to its own: update it", errNoConnection, w.Name)
+	}
+	m, env, waiting, err := s.cfg.CheckGrant(ctx, j)
+	switch {
+	case err != nil:
+		return spec, fmt.Errorf("model check: %w", err)
+	case waiting != "":
+		return spec, fmt.Errorf("%w: %s", errNoConnection, waiting)
+	case !pool.Credentials.AllowsRuntime(m.Connection):
+		return spec, fmt.Errorf("%w: the %s pool may not receive the key of connection %s", errNoConnection, j.Pool, m.Connection)
+	}
+	spec.ModelCheck, spec.Env = &m, env
 	return spec, nil
 }
 

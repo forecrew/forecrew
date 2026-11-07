@@ -121,6 +121,12 @@ func (s *Service) notify() {
 // ErrInvalid and config.ErrNotAllowed. The spec gets the job's ID, account,
 // kind, role and runtime and is stored without secrets.
 func (s *Service) Create(ctx context.Context, by domain.Actor, j domain.Job) (domain.Job, error) {
+	return s.CreateIn(ctx, s.st, by, j)
+}
+
+// CreateIn is Create in the transaction of st, for a caller that creates a
+// job with other changes, such as a registrar.
+func (s *Service) CreateIn(ctx context.Context, st store.Store, by domain.Actor, j domain.Job) (domain.Job, error) {
 	if j.Kind == "" {
 		j.Kind = j.Spec.Kind
 	}
@@ -141,7 +147,7 @@ func (s *Service) Create(ctx context.Context, by domain.Actor, j domain.Job) (do
 	j.Spec.JobID, j.Spec.AccountID, j.Spec.Role, j.Spec.Runtime = j.ID, j.AccountID, j.Role, j.Runtime
 	j.Spec = j.Spec.Redacted()
 	j.Needs = domain.NormalizeLabels(j.Needs)
-	err := s.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+	err := st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := queue.New(tx.Jobs()).Enqueue(ctx, &j); err != nil {
 			return err
 		}

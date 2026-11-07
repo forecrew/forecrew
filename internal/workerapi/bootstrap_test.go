@@ -91,7 +91,7 @@ func TestBootstrap(t *testing.T) {
 	if !strings.HasPrefix(worker, "fcw_") || out["max_jobs"] != float64(2) || !strings.HasPrefix(out["name"].(string), "machine-") {
 		t.Fatalf("answer = %v", out)
 	}
-	if labels := out["labels"].([]any); len(labels) != 4 {
+	if labels := out["labels"].([]any); len(labels) != 5 {
 		t.Fatalf("labels = %v", labels)
 	}
 	w, err := e.st.Workers().GetByTokenHash(t.Context(), mcp.HashToken(worker))

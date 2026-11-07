@@ -58,6 +58,10 @@ type Config struct {
 	// connection, key, endpoint and model, all from one decision; see
 	// models.Service.Grant. Nil grants nothing.
 	Grant func(ctx context.Context, j domain.Job) (models.Grant, error)
+	// CheckGrant fills in a model_check job from its connection as it is
+	// now: the address its key goes to, and the key; see
+	// models.Service.CheckGrant. Nil leaves every check waiting.
+	CheckGrant func(ctx context.Context, j domain.Job) (spec domain.ModelCheckSpec, env map[string]string, waiting string, err error)
 	// Settle gives the queued jobs of an organization the runtime of their
 	// connection before a poll leases, or domain.RuntimeNone while they have
 	// none; see models.Service.Settle. Nil settles nothing.
@@ -111,6 +115,11 @@ func New(cfg Config) *Server {
 	}
 	if cfg.Settle == nil {
 		cfg.Settle = func(context.Context, uuid.UUID) error { return nil }
+	}
+	if cfg.CheckGrant == nil {
+		cfg.CheckGrant = func(context.Context, domain.Job) (domain.ModelCheckSpec, map[string]string, string, error) {
+			return domain.ModelCheckSpec{}, nil, "this server runs no model checks", nil
+		}
 	}
 	if cfg.Pools == nil {
 		cfg.Pools = config.DefaultPools()

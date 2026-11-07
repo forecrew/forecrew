@@ -48,7 +48,7 @@ func newModelsEnv(t *testing.T, hosted bool) *modelsEnv {
 			t.Fatal(err)
 		}
 		m.vault, m.svc = vault, models.New(c.Store, cfg, vault, nil)
-		c.Grant, c.Settle, c.Pools = m.svc.Grant, m.svc.Settle, cfg.Pools
+		c.Grant, c.CheckGrant, c.Settle, c.Pools = m.svc.Grant, m.svc.CheckGrant, m.svc.Settle, cfg.Pools
 	})
 	m.jobs.WithWaiting(m.svc)
 	return m
@@ -364,5 +364,64 @@ func TestAPublicRepoIsNotBlocked(t *testing.T) {
 	answer = nil
 	if got := m.lease(t, token).Job; got.JobID != j.ID {
 		t.Fatalf("lease = %+v", got)
+	}
+}
+
+// pollChecks polls as a control worker that runs model checks, or not.
+func (m *modelsEnv) pollChecks(t *testing.T, token string, checks bool) (int, pollResponse) {
+	t.Helper()
+	caps := []string{domain.OrganizationModelCapability}
+	if checks {
+		caps = append(caps, domain.ModelCheckCapability)
+	}
+	status, body := m.call(t, token, "/worker/v1/poll", map[string]any{"labels": []string{"runtime:claude-code", domain.ModelCheckLabel}, "free_slots": 1, "capabilities": caps})
+	var out pollResponse
+	if status == http.StatusOK {
+		decodeBody(t, body, &out)
+	}
+	return status, out
+}
+
+// TestAKeyCheckGetsTheKeyAndItsAddressOnly: a model_check job is leased by a
+// control worker that runs checks, with the connection's list address and
+// key, and no repo token or job MCP token.
+func TestAKeyCheckGetsTheKeyAndItsAddressOnly(t *testing.T) {
+	m := newModelsEnv(t, false)
+	ctx := t.Context()
+	c := m.connectTo(t, m.account, "main", "key-org", "https://gateway.example.com")
+	checker := models.NewChecker(m.st, m.jobs, nil)
+	row, err := checker.Check(ctx, domain.Actor{AccountID: m.account, Kind: domain.ActorUser, Name: "ana"}, c.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, old := m.addPoolWorker(t, "old", domain.PoolControl)
+	if status, _ := m.pollChecks(t, old, false); status != http.StatusNoContent {
+		t.Fatalf("a worker without the capability: %d", status)
+	}
+	_, token := m.addPoolWorker(t, "ctl", domain.PoolControl)
+	status, lease := m.pollChecks(t, token, true)
+	got := lease.Job
+	if status != http.StatusOK || got.JobID != row.JobID || got.ModelCheck == nil || got.ModelCheck.URL != "https://gateway.example.com/v1/models" ||
+		got.Env["ANTHROPIC_API_KEY"] != "key-org" || len(got.Env) != 1 || got.RepoToken != "" || got.JobMCP != nil {
+		t.Fatalf("lease = %d %+v", status, got)
+	}
+}
+
+// TestASuitabilityTestGetsNoRepoToken: a test runs on the fixture with its
+// connection's key, and gets no token of its job's repo.
+func TestASuitabilityTestGetsNoRepoToken(t *testing.T) {
+	m := newModelsEnv(t, false)
+	ctx := t.Context()
+	c := m.connectTo(t, m.account, "main", "key-org", "")
+	checker := models.NewChecker(m.st, m.jobs, nil)
+	row, err := checker.Test(ctx, domain.Actor{AccountID: m.account, Kind: domain.ActorUser, Name: "ana"}, c.Name, "claude-sonnet-4-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token := m.addPoolWorker(t, "ctl", domain.PoolControl)
+	status, lease := m.pollChecks(t, token, true)
+	got := lease.Job
+	if status != http.StatusOK || got.JobID != row.JobID || got.Suitability == nil || got.RepoToken != "" || got.Env["ANTHROPIC_API_KEY"] != "key-org" || got.JobMCP == nil {
+		t.Fatalf("lease = %d %+v", status, got)
 	}
 }

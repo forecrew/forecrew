@@ -37,6 +37,11 @@ type Worker struct {
 	// RegistryAuth lets Docker pulls and builds use the registry logins of
 	// the worker's user. Off by default: image names come from repos.
 	RegistryAuth bool `yaml:"registry_auth"`
+	// LocalModelEndpoints lets the key check of a model connection reach
+	// localhost and private addresses, where a self-hosted model (Ollama,
+	// LM Studio) runs. Off, it reaches public addresses only; link-local
+	// addresses, where cloud metadata lives, never.
+	LocalModelEndpoints bool `yaml:"local_model_endpoints"`
 	// Token comes from FORECREW_WORKER_TOKEN.
 	Token string `yaml:"-"`
 	// BootstrapToken comes from FORECREW_BOOTSTRAP_TOKEN. The worker trades

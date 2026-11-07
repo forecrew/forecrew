@@ -119,7 +119,7 @@ CREATE TABLE jobs (
   project_id       uuid NOT NULL REFERENCES projects(id),
   number           bigint NOT NULL,
   status           text NOT NULL CHECK (status IN ('queued','running','succeeded','failed','canceled')),
-  kind             text NOT NULL DEFAULT 'agent' CHECK (kind IN ('agent','command')),
+  kind             text NOT NULL DEFAULT 'agent' CHECK (kind IN ('agent','command','model_check')),
   pool             text NOT NULL DEFAULT 'build',  -- worker pool; only its workers lease the job
   role             text NOT NULL,          -- may be '' for command jobs
   runtime          text NOT NULL,          -- adapter: claude-code | codex | opencode; '' for command jobs
@@ -1463,6 +1463,10 @@ also gives `models.authorize` to the built-in Owner and Admin roles
 (permissions.md).
 
 ```sql
+-- What people entered of models the catalog does not know:
+-- model -> {maker, tier, price: {input, output}} (domain.ModelInfo).
+ALTER TABLE model_connections ADD COLUMN models jsonb NOT NULL DEFAULT '{}';
+
 -- project_id NULL: every project of the organization.
 CREATE TABLE model_authorizations (
   id            uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -1497,7 +1501,7 @@ CREATE TABLE model_checks (
 CREATE INDEX model_checks_job ON model_checks (account_id, job_id);
 ```
 
-A job's `spec.kind` may be `model_check` (job-spec.md).
+`jobs.kind` may be `model_check` (job-spec.md); the migration widens its check.
 
 ### Configuration (migration 00010)
 
