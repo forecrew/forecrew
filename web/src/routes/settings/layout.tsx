@@ -1,12 +1,13 @@
 import { Link, Outlet } from "@tanstack/react-router"
 import { useMe } from "@/api/queries"
+import { AskButton } from "@/components/assistant/AskButton"
 import { PageHeader } from "@/components/PageHeader"
-import { SETTINGS, allowed } from "@/lib/permissions"
+import { SETTINGS, allowed, sectionAllowed } from "@/lib/permissions"
 
 /** Settings: the sections the caller may read, on the left, and the section. */
 export function SettingsLayout() {
   const me = useMe().data
-  const sections = SETTINGS.filter((s) => allowed(me, s.permission))
+  const sections = SETTINGS.filter((s) => sectionAllowed(me, s))
   if (sections.length === 0) {
     return (
       <>
@@ -37,10 +38,10 @@ export function SettingsLayout() {
 }
 
 /** The page of a section: the caller needs its permission, else it is as if the page were not there. */
-export function Section({ permission, title, meta, children, actions }: { permission: string; title: string; meta?: string; children: React.ReactNode; actions?: React.ReactNode }) {
+export function Section({ permission, or, title, meta, children, actions }: { permission: string; or?: string; title: string; meta?: string; children: React.ReactNode; actions?: React.ReactNode }) {
   const me = useMe().data
   if (!me) return null
-  if (!allowed(me, permission)) {
+  if (!allowed(me, permission) && !(or && allowed(me, or))) {
     return (
       <>
         <PageHeader title={title} />
@@ -54,6 +55,7 @@ export function Section({ permission, title, meta, children, actions }: { permis
     <>
       <PageHeader title={title} meta={meta}>
         {actions}
+        <AskButton />
       </PageHeader>
       {children}
     </>

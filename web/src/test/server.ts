@@ -208,7 +208,7 @@ export const handlers = [
     HttpResponse.json(new URL(request.url).searchParams.get("kind") === "fleet_policy" ? configResourcesFleetPolicy : configResourcesProvider),
   ),
   http.get("/api/v1/config/export", () => HttpResponse.json(configExport)),
-  http.get("/api/v1/config/plans", ({ request }) => HttpResponse.json(new URL(request.url).searchParams.get("inbox") ? configPlansInbox : configPlans)),
+  http.get("/api/v1/config/plans", ({ request }) => HttpResponse.json(new URL(request.url).searchParams.get("inbox") ? configPlansEmpty : configPlans)),
   http.get("/api/v1/config/plans/:plan", () => HttpResponse.json(configPlan)),
   http.post("/api/v1/config/plans/:plan/request-approval", () => HttpResponse.json(configPlanApproval)),
   http.post("/api/v1/config/plans/:plan/revert", () => HttpResponse.json(configPlanRevert, { status: 201 })),

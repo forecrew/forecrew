@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
-import { SETTINGS, allowed } from "@/lib/permissions"
+import { SETTINGS, sectionAllowed } from "@/lib/permissions"
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 
 const NAV = [
@@ -153,7 +153,7 @@ function AccountBlock({ onNavigate }: { onNavigate?: () => void }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const me = useMe().data
-  const settings = SETTINGS.find((s) => allowed(me, s.permission))
+  const settings = SETTINGS.find((s) => sectionAllowed(me, s))
   const name = me?.user?.name ?? me?.token
 
   const signOut = async (everywhere: boolean) => {
