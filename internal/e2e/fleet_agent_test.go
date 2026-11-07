@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/fleet"
@@ -51,6 +52,9 @@ func (w *world) newSite() *agentSite {
 	}))
 	w.t.Cleanup(srv.Close)
 	s.url = srv.URL
+	// The shapes' image, registered as a person would, for the resolver to find.
+	img := testkit.TestImage(uuid.Nil(), "forecrew-linux", "1", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	must(w.t, w.st.Images().Create(w.t.Context(), &img))
 	return s
 }
 
