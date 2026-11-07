@@ -141,13 +141,17 @@ directly when the token is already in the secret store; they test it first.
 - forecrewd's **proxy** settings (`HTTPS_PROXY`, `NO_PROXY`) apply to Jira
   calls.
 - **Private addresses.** By default a connection whose URL resolves to a
-  private, loopback or link-local address, or redirects to one, is refused,
-  checked at every request and redirect and again when the connection is
-  made: on a hosted server, a connection cannot be used to reach Forecrew's
-  own network. A **self-hosted** forecrewd in the same network as its Jira
-  sets `trackers.private_addresses: true` in `forecrew.yaml`. Through a
-  proxy, the proxy makes the connection: it should refuse internal addresses
-  itself.
+  private, loopback or link-local address is refused, checked before every
+  request and again when the connection is made: on a hosted server, a
+  connection cannot be used to reach Forecrew's own network. A **self-hosted**
+  forecrewd in the same network as its Jira sets
+  `trackers.private_addresses: true` in `forecrew.yaml`.
+- **Through a proxy, only the check before the request applies.** The proxy
+  resolves the name and makes the connection, so forecrewd cannot check the
+  address it reaches. Egress control is then the proxy's job: a server admin
+  who sets a proxy must make it refuse internal addresses.
+- **Redirects** are followed only on the same scheme, host and port, so the
+  token never goes in clear or to another server.
 - Jira does **not** need to reach Forecrew: polling alone works. A Jira with
   no outside access at all and a hosted Forecrew need a relay, which is not
   built yet.
@@ -173,7 +177,7 @@ A route's `states` map logical states to **status names** of the project,
 which `States` reads from the projects' statuses; a status in the `done`
 category counts as closed. Companies change their workflows, so for each move
 the adapter reads the transitions the ticket offers and takes the one that
-reaches the status. It forces nothing: when no transition reaches the status,
+reaches the status, preferring one that needs no field. It forces nothing: when no transition reaches the status,
 when the transition needs a field Forecrew does not fill (a screen with a
 required field and no default), or when a validator refuses it, Forecrew
 comments on the ticket, sets the route's `warning` (shown by `forecrew tracker
@@ -194,10 +198,12 @@ not built yet: Cloud hides most emails.
 **Polling** is the default and needs nothing in Jira. Every two minutes
 forecrewd searches with JQL, `project in (...) AND updated >= "<time>"`,
 from the last change it saw minus five minutes: JQL compares minutes, in the
-**time zone of the token's user**, which the adapter reads and uses. A rate
+**time zone of the token's user**, which the adapter reads and uses; a zone
+it does not know stops polling with an error rather than a guess. A rate
 limit (`429`) or an unavailable server with `Retry-After` is waited out when
 it asks for a minute or less, and otherwise left to the next poll or to the
-outbox's retry.
+outbox's retry. A write (a comment or a transition) is never tried again
+within a call, so it cannot happen twice; the outbox retries it.
 
 **Webhooks** make it faster where someone sets them up; every ticket is read
 again anyway, so a webhook is only a hint. Store a random secret
