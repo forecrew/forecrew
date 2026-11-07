@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"uuid"
 
@@ -33,6 +34,7 @@ type cacheOpen struct {
 func newCacheEnv(t *testing.T) *cacheEnv {
 	t.Helper()
 	c := &cacheEnv{testEnv: newEnv(t, func(c *Config) { c.OrgCacheGB = 1; c.MaxMachines = 4 }), mapped: map[string]bool{}}
+	c.p.freeBytes = func(string) (int64, error) { return 1 << 40, nil } // not the test host's disk
 	record := c.p.run
 	c.p.run = func(ctx context.Context, stdin, name string, args ...string) error {
 		switch {
@@ -230,10 +232,73 @@ func TestCacheKey(t *testing.T) {
 	if st, err := os.Stat(filepath.Join(c.p.cfg.StateDir, cacheKeyFile)); err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("key file: %v %v", st, err)
 	}
-	_ = os.WriteFile(filepath.Join(c.p.cfg.StateDir, cacheKeyFile), []byte("short"), 0o600)
-	if _, err := c.p.cacheKey("a/build"); err == nil {
-		t.Fatal("a short key was used")
+	// A damaged key is an error with what to do, never a new key.
+	path := filepath.Join(c.p.cfg.StateDir, cacheKeyFile)
+	_ = os.WriteFile(path, []byte("short"), 0o600)
+	if _, err := c.p.cacheKey("a/build"); err == nil || !strings.Contains(err.Error(), "not 32") {
+		t.Fatalf("a short key: %v", err)
 	}
+	if raw, _ := os.ReadFile(path); string(raw) != "short" {
+		t.Fatal("the damaged key was replaced")
+	}
+	// A missing key while caches exist is an error too.
+	_ = os.Remove(path)
+	_ = os.MkdirAll(filepath.Join(c.p.cachesDir(), "org"), 0o700)
+	_ = os.WriteFile(filepath.Join(c.p.cachesDir(), "org", "build.img"), nil, 0o600)
+	if _, err := c.p.cacheKey("a/build"); err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("a lost key: %v", err)
+	}
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("a new key was made over existing caches")
+	}
+}
+
+// Machines starting at once on a new host all get the one key made.
+func TestCacheKeyFirstUseAtOnce(t *testing.T) {
+	c := newCacheEnv(t)
+	c.p.cfg.CacheKeyFile = filepath.Join(t.TempDir(), "keys", "cache.key")
+	if err := os.MkdirAll(filepath.Dir(c.p.cfg.CacheKeyFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	keys := make([][]byte, 16)
+	errs := make([]error, 16)
+	var wg sync.WaitGroup
+	for i := range keys {
+		wg.Go(func() { keys[i], errs[i] = c.p.cacheKey("a/build") })
+	}
+	wg.Wait()
+	for i := range keys {
+		if errs[i] != nil || !bytes.Equal(keys[i], keys[0]) {
+			t.Fatalf("key %d: %v", i, errs[i])
+		}
+	}
+	raw, err := os.ReadFile(c.p.cfg.CacheKeyFile)
+	if err != nil || len(raw) != 32 {
+		t.Fatalf("key file: %d bytes, %v", len(raw), err)
+	}
+	// A second agent racing on the same file finds it made and takes it.
+	other := newCacheEnv(t)
+	other.p.cfg.CacheKeyFile = c.p.cfg.CacheKeyFile
+	k, err := other.p.cacheKey("a/build")
+	if err != nil || !bytes.Equal(k, keys[0]) {
+		t.Fatalf("second agent: %v", err)
+	}
+	entries, _ := os.ReadDir(filepath.Dir(c.p.cfg.CacheKeyFile))
+	if len(entries) != 1 {
+		t.Fatalf("left behind: %v", entries)
+	}
+	if _, err := LoadConfig(writeConfig(t, "cache_key_file: rel/key\n")); err == nil {
+		t.Fatal("a relative cache_key_file was accepted")
+	}
+}
+
+func writeConfig(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "microvm.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestMknodOf(t *testing.T) {
