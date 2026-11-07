@@ -94,6 +94,7 @@ type Store interface {
 	VerifiedDomains() VerifiedDomainRepo
 	Sessions() SessionRepo
 	OAuth() OAuthRepo
+	SCIMTokens() SCIMTokenRepo
 	CapacityProviders() CapacityProviderRepo
 	Shapes() ShapeRepo
 	Machines() MachineRepo
@@ -1143,6 +1144,7 @@ type SCIMTokenRepo interface {
 	Create(ctx context.Context, t *domain.SCIMToken) error
 	// GetByTokenHash is unscoped; revoked tokens are returned too.
 	GetByTokenHash(ctx context.Context, hash []byte) (domain.SCIMToken, error)
+	// List returns the organization's tokens, revoked ones too, oldest first.
 	List(ctx context.Context, accountID uuid.UUID) ([]domain.SCIMToken, error)
 	Touch(ctx context.Context, accountID, id uuid.UUID) error
 	Revoke(ctx context.Context, accountID, id uuid.UUID) error

@@ -27,6 +27,7 @@ func IdentityStoreSuite(t *testing.T, st store.Store, account uuid.UUID) {
 	s.firstOwnerOpen()
 	s.connections()
 	s.domains()
+	s.scimTokens()
 	s.sessions()
 	s.tokens()
 	s.oauth()
@@ -597,6 +598,34 @@ func (s *identitySuite) domains() {
 	}
 	s.must(r.Delete(ctx, s.account, d.ID))
 	s.wantErr(r.Delete(ctx, s.account, d.ID), store.ErrNotFound)
+}
+
+func (s *identitySuite) scimTokens() {
+	ctx := s.t.Context()
+	r := s.st.SCIMTokens()
+	first := domain.SCIMToken{AccountID: s.account, Name: "okta", TokenHash: s.hash(), CreatedBy: "user:someone"}
+	s.must(r.Create(ctx, &first))
+	if first.ID == uuid.Nil() || first.CreatedAt.IsZero() {
+		s.t.Fatalf("created = %+v", first)
+	}
+	again := domain.SCIMToken{AccountID: s.account, Name: "okta", TokenHash: s.hash(), CreatedBy: "user:someone"}
+	s.wantErr(r.Create(ctx, &again), store.ErrConflict)
+	s.must(r.Touch(ctx, s.account, first.ID))
+	s.must(r.Revoke(ctx, s.account, first.ID))
+	got, err := r.GetByTokenHash(ctx, first.TokenHash)
+	s.must(err)
+	if got.ID != first.ID || got.LastUsedAt.IsZero() || got.RevokedAt.IsZero() {
+		s.t.Fatalf("stored = %+v", got)
+	}
+	all, err := r.List(ctx, s.account)
+	s.must(err)
+	if len(all) != 1 || all[0].ID != first.ID {
+		s.t.Fatalf("list = %+v", all)
+	}
+	s.wantErr(r.Revoke(ctx, domain.NewID(), first.ID), store.ErrNotFound)
+	s.wantErr(r.Touch(ctx, domain.NewID(), first.ID), store.ErrNotFound)
+	_, err = r.GetByTokenHash(ctx, s.hash())
+	s.wantErr(err, store.ErrNotFound)
 }
 
 func (s *identitySuite) sessions() {
