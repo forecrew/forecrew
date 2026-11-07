@@ -207,6 +207,7 @@ func (r teamRepo) Delete(_ context.Context, accountID, id uuid.UUID) error {
 		}
 		d.access.teams.rows = slices.DeleteFunc(slices.Clone(d.access.teams.rows), func(t domain.Team) bool { return t.ID == id })
 		d.access.teamMembers = slices.DeleteFunc(slices.Clone(d.access.teamMembers), func(m domain.TeamMember) bool { return m.TeamID == id })
+		d.identity.mappings.rows = slices.DeleteFunc(slices.Clone(d.identity.mappings.rows), func(m domain.GroupMapping) bool { return m.TeamID == id })
 		d.access.bindings.rows = slices.DeleteFunc(slices.Clone(d.access.bindings.rows), func(b domain.RoleBinding) bool {
 			return b.SubjectKind == domain.SubjectTeam && b.SubjectID == id
 		})

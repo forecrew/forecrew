@@ -1,0 +1,199 @@
+[
+ {
+  "schemas": [
+   "urn:ietf:params:scim:schemas:core:2.0:Schema"
+  ],
+  "id": "urn:ietf:params:scim:schemas:core:2.0:User",
+  "name": "User",
+  "description": "A member of the organization",
+  "attributes": [
+   {
+    "name": "userName",
+    "type": "string",
+    "multiValued": false,
+    "description": "The email address, in a verified domain of the organization",
+    "required": true,
+    "caseExact": false,
+    "mutability": "readWrite",
+    "returned": "default",
+    "uniqueness": "server"
+   },
+   {
+    "name": "name",
+    "type": "complex",
+    "multiValued": false,
+    "description": "name",
+    "required": false,
+    "caseExact": false,
+    "mutability": "readWrite",
+    "returned": "default",
+    "uniqueness": "none",
+    "subAttributes": [
+     {
+      "name": "formatted",
+      "type": "string",
+      "multiValued": false,
+      "description": "formatted",
+      "required": false,
+      "caseExact": false,
+      "mutability": "readWrite",
+      "returned": "default",
+      "uniqueness": "none"
+     },
+     {
+      "name": "givenName",
+      "type": "string",
+      "multiValued": false,
+      "description": "givenName",
+      "required": false,
+      "caseExact": false,
+      "mutability": "readWrite",
+      "returned": "default",
+      "uniqueness": "none"
+     },
+     {
+      "name": "familyName",
+      "type": "string",
+      "multiValued": false,
+      "description": "familyName",
+      "required": false,
+      "caseExact": false,
+      "mutability": "readWrite",
+      "returned": "default",
+      "uniqueness": "none"
+     }
+    ]
+   },
+   {
+    "name": "displayName",
+    "type": "string",
+    "multiValued": false,
+    "description": "displayName",
+    "required": false,
+    "caseExact": false,
+    "mutability": "readWrite",
+    "returned": "default",
+    "uniqueness": "none"
+   },
+   {
+    "name": "active",
+    "type": "boolean",
+    "multiValued": false,
+    "description": "active",
+    "required": false,
+    "caseExact": false,
+    "mutability": "readWrite",
+    "returned": "default",
+    "uniqueness": "none"
+   },
+   {
+    "name": "emails",
+    "type": "complex",
+    "multiValued": true,
+    "description": "emails",
+    "required": false,
+    "caseExact": false,
+    "mutability": "readOnly",
+    "returned": "default",
+    "uniqueness": "none",
+    "subAttributes": [
+     {
+      "name": "value",
+      "type": "string",
+      "multiValued": false,
+      "description": "value",
+      "required": false,
+      "caseExact": false,
+      "mutability": "readWrite",
+      "returned": "default",
+      "uniqueness": "none"
+     },
+     {
+      "name": "type",
+      "type": "string",
+      "multiValued": false,
+      "description": "type",
+      "required": false,
+      "caseExact": false,
+      "mutability": "readWrite",
+      "returned": "default",
+      "uniqueness": "none"
+     },
+     {
+      "name": "primary",
+      "type": "boolean",
+      "multiValued": false,
+      "description": "primary",
+      "required": false,
+      "caseExact": false,
+      "mutability": "readWrite",
+      "returned": "default",
+      "uniqueness": "none"
+     }
+    ]
+   }
+  ],
+  "meta": {
+   "resourceType": "Schema"
+  }
+ },
+ {
+  "schemas": [
+   "urn:ietf:params:scim:schemas:core:2.0:Schema"
+  ],
+  "id": "urn:ietf:params:scim:schemas:core:2.0:Group",
+  "name": "Group",
+  "description": "A team of the organization",
+  "attributes": [
+   {
+    "name": "displayName",
+    "type": "string",
+    "multiValued": false,
+    "description": "displayName",
+    "required": true,
+    "caseExact": false,
+    "mutability": "readWrite",
+    "returned": "default",
+    "uniqueness": "server"
+   },
+   {
+    "name": "members",
+    "type": "complex",
+    "multiValued": true,
+    "description": "members",
+    "required": false,
+    "caseExact": false,
+    "mutability": "readWrite",
+    "returned": "default",
+    "uniqueness": "none",
+    "subAttributes": [
+     {
+      "name": "value",
+      "type": "string",
+      "multiValued": false,
+      "description": "value",
+      "required": false,
+      "caseExact": true,
+      "mutability": "readWrite",
+      "returned": "default",
+      "uniqueness": "none"
+     },
+     {
+      "name": "display",
+      "type": "string",
+      "multiValued": false,
+      "description": "display",
+      "required": false,
+      "caseExact": false,
+      "mutability": "readOnly",
+      "returned": "default",
+      "uniqueness": "none"
+     }
+    ]
+   }
+  ],
+  "meta": {
+   "resourceType": "Schema"
+  }
+ }
+]

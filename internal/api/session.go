@@ -142,6 +142,8 @@ type Session struct {
 	Account domain.Account `json:"account,omitzero"`
 	// Organizations are the ones a session can switch to.
 	Organizations []auth.Organization `json:"organizations,omitempty"`
+	// Enterprise is true in the enterprise build: the UI offers its screens.
+	Enterprise bool `json:"enterprise,omitempty"`
 	authz.Effective
 }
 
@@ -293,7 +295,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	by := caller.Actor
-	out := Session{Token: caller.TokenName}
+	out := Session{Token: caller.TokenName, Enterprise: s.cfg.Enterprise}
 	if by.AccountID != uuid.Nil() {
 		acc, err := s.cfg.Store.Accounts().Get(r.Context(), by.AccountID)
 		if err != nil {

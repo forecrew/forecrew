@@ -1,0 +1,4 @@
+[
+  {"schemas": ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"], "id": "User", "name": "User", "endpoint": "/Users", "description": "A member of the organization", "schema": "urn:ietf:params:scim:schemas:core:2.0:User", "meta": {"resourceType": "ResourceType"}},
+  {"schemas": ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"], "id": "Group", "name": "Group", "endpoint": "/Groups", "description": "A team of the organization", "schema": "urn:ietf:params:scim:schemas:core:2.0:Group", "meta": {"resourceType": "ResourceType"}}
+]
