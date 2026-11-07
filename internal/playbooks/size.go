@@ -10,7 +10,9 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/config"
+	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/testreport"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -113,6 +115,59 @@ func (a *actions) goalSize(ctx context.Context, call workflow.ActionCall) (any, 
 	}
 	if slices.Contains(out.Councils, domain.CouncilTechnical) {
 		out.IfTechnical = []uuid.UUID{g.ID}
+	}
+	return out, nil
+}
+
+// untriaged is the output of goal.untriaged: IfTriage is [goal_id] for a goal
+// without a size, for a foreach that runs the triage job only then.
+type untriaged struct {
+	IfTriage []uuid.UUID `json:"if_triage"`
+}
+
+// goalUntriaged is the action goal.untriaged. A goal that has a size, because
+// a human chose its councils when creating it, needs no triage job.
+func (a *actions) goalUntriaged(ctx context.Context, call workflow.ActionCall) (any, error) {
+	var with struct {
+		GoalID uuid.UUID `json:"goal_id"`
+	}
+	if err := workflow.DecodeWith(call.With, &with); err != nil {
+		return nil, err
+	}
+	g, err := a.loadGoal(ctx, call.Run, with.GoalID)
+	if err != nil {
+		return nil, err
+	}
+	if g.Size != nil {
+		return untriaged{IfTriage: []uuid.UUID{}}, nil
+	}
+	return untriaged{IfTriage: []uuid.UUID{g.ID}}, nil
+}
+
+// councilConstraints is the output of goal.council_constraints.
+type councilConstraints struct {
+	Constraints []string `json:"constraints"`
+}
+
+// goalCouncilConstraints is the action goal.council_constraints: the
+// constraints a council of the goal starts with. They come from the goal's
+// own fields, not from its text: the platforms it targets, and its title as
+// one line (members read the goal itself, marked as the data it is, in their
+// pack). Without platforms there is no constraint besides the title.
+func (a *actions) goalCouncilConstraints(ctx context.Context, call workflow.ActionCall) (any, error) {
+	var with struct {
+		GoalID uuid.UUID `json:"goal_id"`
+	}
+	if err := workflow.DecodeWith(call.With, &with); err != nil {
+		return nil, err
+	}
+	g, err := a.loadGoal(ctx, call.Run, with.GoalID)
+	if err != nil {
+		return nil, err
+	}
+	out := councilConstraints{Constraints: []string{fmt.Sprintf("The goal is %s, titled %q.", g.Ref(), testreport.Clip(contextpack.OneLine(g.Title), 200))}}
+	if len(g.Platforms) > 0 {
+		out.Constraints = append(out.Constraints, "The change must work on: "+strings.Join(g.Platforms, ", ")+".")
 	}
 	return out, nil
 }

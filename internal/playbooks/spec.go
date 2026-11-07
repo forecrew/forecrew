@@ -138,7 +138,11 @@ func (a *actions) goalSpec(ctx context.Context, call workflow.ActionCall) (any, 
 	default:
 		return nil, fmt.Errorf("%s is %s, not in spec review", g.Ref(), g.Status)
 	}
-	return specOutput{SpecID: spec.ID, Revision: spec.Revision, Summary: doc.gateSummary(issue.URL)}, nil
+	note, err := a.productBriefNote(ctx, g)
+	if err != nil {
+		return nil, err
+	}
+	return specOutput{SpecID: spec.ID, Revision: spec.Revision, Summary: doc.gateSummary(issue.URL) + note}, nil
 }
 
 // publishSpec puts the spec in the goal's issue. An issue that is a person's

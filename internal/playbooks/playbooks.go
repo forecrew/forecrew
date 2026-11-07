@@ -108,6 +108,10 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["baseline.file_issues"] = d.baselineIssues
 	registry["goal.intake"] = d.goalIntake
 	registry["goal.size"] = d.goalSize
+	registry["goal.untriaged"] = d.goalUntriaged
+	registry["goal.council_constraints"] = d.goalCouncilConstraints
+	registry["goal.adr"] = d.goalADR
+	registry["goal.adr_ready"] = d.adrReadyAction
 	registry["bug.spec"] = d.bugSpecAction
 	registry["bug.plan"] = d.bugPlanAction
 	registry["bug.reproduced"] = d.bugReproduced
