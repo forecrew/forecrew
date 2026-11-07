@@ -291,12 +291,17 @@ func (ch userChange) resolved() string {
 	return strings.TrimSpace(given + " " + family)
 }
 
-// endAccess suspends a member, marked as SCIM's doing so that SCIM may let
-// them back in, and, in the same transaction, ends their
-// sessions in the organization and revokes their tokens and OAuth grants.
-func endAccess(ctx context.Context, tx store.Store, accountID, userID uuid.UUID) error {
-	if err := tx.Memberships().SuspendBySCIM(ctx, accountID, userID); err != nil {
-		return err
+// endAccess suspends an active member, marked as SCIM's doing so that SCIM
+// may let them back in, and, in the same transaction, ends their sessions in
+// the organization and revokes their tokens and OAuth grants. A member who is
+// not active, an Owner's suspension in particular, keeps their status and
+// stays unmarked: SCIM must never be able to undo what it did not do.
+func endAccess(ctx context.Context, tx store.Store, m domain.Membership) error {
+	accountID, userID := m.AccountID, m.UserID
+	if m.Status == domain.MembershipActive {
+		if err := tx.Memberships().SuspendBySCIM(ctx, accountID, userID); err != nil {
+			return err
+		}
 	}
 	if err := tx.Sessions().RevokeByUser(ctx, userID, accountID); err != nil {
 		return err
@@ -333,7 +338,7 @@ func saveUser(ctx context.Context, tx store.Store, c scimCall, u *domain.User, m
 	wasActive := m.Status == domain.MembershipActive
 	switch {
 	case wasActive && !ch.active:
-		if err := endAccess(ctx, tx, c.account, u.ID); err != nil {
+		if err := endAccess(ctx, tx, *m); err != nil {
 			return err
 		}
 		m.Status = domain.MembershipSuspended
@@ -474,7 +479,7 @@ func (s *Service) deleteUser(w http.ResponseWriter, r *http.Request, c scimCall)
 		if err != nil {
 			return err
 		}
-		if err := endAccess(ctx, tx, c.account, u.ID); err != nil {
+		if err := endAccess(ctx, tx, m); err != nil {
 			return err
 		}
 		if err := tx.Memberships().SetExternalID(ctx, c.account, u.ID, ""); err != nil {
