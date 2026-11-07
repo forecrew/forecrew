@@ -33,7 +33,7 @@ jobs:
         with:
           version: ${{ env.PACKER_VERSION }}
       - name: shellcheck
-        run: shellcheck -s sh deploy/images/*.sh deploy/images/*/*.sh internal/images/guest/forecrew-init internal/images/guest/forecrew-start
+        run: shellcheck -s sh deploy/images/*.sh deploy/images/*/*.sh internal/images/guest/forecrew-start
       - run: make images-validate
 
   # The Linux VM image: Packer boots the pinned Debian cloud image under KVM and

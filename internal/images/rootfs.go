@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path"
@@ -17,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Bounds of a conversion: the tar of an image is the input of a
@@ -29,7 +31,7 @@ const (
 	rootfsHeadroomMB = 256
 	// convertVersion changes the cache key of every rootfs when the way
 	// they are made changes.
-	convertVersion = "1"
+	convertVersion = "2"
 )
 
 // Docker exports the contents of a Docker image; *DockerCLI does.
@@ -84,8 +86,6 @@ type Result struct {
 	// Key identifies the content; Cached says that Path already existed.
 	Key    string
 	Cached bool
-	// Warnings are what the image lacks that only some uses need.
-	Warnings []string
 }
 
 // Convert returns the root filesystem of req.Ref, building it unless the
@@ -103,7 +103,7 @@ func (c *Converter) Convert(ctx context.Context, req Request) (Result, error) {
 	}
 	key := rootfsKey(id, req)
 	out := filepath.Join(c.CacheDir, cacheName(req.Ref)+"-"+key[:32]+".ext4")
-	if _, err := os.Stat(out); err == nil {
+	if hit(out) {
 		return Result{Path: out, Key: key, Cached: true}, nil
 	}
 	rc, err := c.Docker.Export(ctx, id)
@@ -111,11 +111,10 @@ func (c *Converter) Convert(ctx context.Context, req Request) (Result, error) {
 		return Result{}, err
 	}
 	defer func() { _ = rc.Close() }()
-	warnings, err := c.build(ctx, rc, req, out)
-	if err != nil {
+	if err := c.build(ctx, rc, req, out); err != nil {
 		return Result{}, fmt.Errorf("convert %s: %w", req.Ref, err)
 	}
-	return Result{Path: out, Key: key, Warnings: warnings}, nil
+	return Result{Path: out, Key: key}, nil
 }
 
 // ConvertTar is Convert for a tar that a build already made (the export of a
@@ -128,14 +127,52 @@ func (c *Converter) ConvertTar(ctx context.Context, tarball io.Reader, name, id 
 	req.Files = files
 	key := rootfsKey(id, req)
 	out := filepath.Join(c.CacheDir, cacheName(name)+"-"+key[:32]+".ext4")
-	if _, err := os.Stat(out); err == nil {
+	if hit(out) {
 		return Result{Path: out, Key: key, Cached: true}, nil
 	}
-	warnings, err := c.build(ctx, tarball, req, out)
-	if err != nil {
+	if err := c.build(ctx, tarball, req, out); err != nil {
 		return Result{}, fmt.Errorf("convert %s: %w", name, err)
 	}
-	return Result{Path: out, Key: key, Warnings: warnings}, nil
+	return Result{Path: out, Key: key}, nil
+}
+
+// hit reports that the cache has path, and marks it used: PruneCache goes by
+// the time of last use.
+func hit(path string) bool {
+	now := time.Now()
+	return os.Chtimes(path, now, now) == nil
+}
+
+// PruneCache removes what a converter's or a fleet agent's cache has not used
+// for maxAge, and what an interrupted conversion or fetch left. It returns what
+// it removed, or with dryRun what it would. A machine has its own copy of its
+// disk, so nothing that runs depends on these files.
+func PruneCache(dir string, maxAge time.Duration, dryRun bool) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read the cache: %w", err)
+	}
+	var removed []string
+	var failed []error
+	limit := time.Now().Add(-maxAge)
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil || !info.ModTime().Before(limit) {
+			continue // gone meanwhile, or in use
+		}
+		path := filepath.Join(dir, e.Name())
+		if !dryRun {
+			if err := os.RemoveAll(path); err != nil {
+				failed = append(failed, err)
+				continue
+			}
+		}
+		removed = append(removed, path)
+	}
+	return removed, errors.Join(failed...)
 }
 
 // rootfsKey covers everything that changes the file.
@@ -163,36 +200,35 @@ func cacheName(ref string) string {
 
 // build writes the file system to out through a temporary file, so a failed
 // or interrupted conversion leaves nothing the cache would take for a result.
-func (c *Converter) build(ctx context.Context, src io.Reader, req Request, out string) ([]string, error) {
+func (c *Converter) build(ctx context.Context, src io.Reader, req Request, out string) error {
 	if err := os.MkdirAll(c.CacheDir, 0o755); err != nil { // #nosec G301 -- a cache others on the host may read
-		return nil, err
+		return err
 	}
 	work, err := os.MkdirTemp(c.CacheDir, ".convert-*")
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer func() { _ = os.RemoveAll(work) }()
 
 	prepared := filepath.Join(work, "root.tar")
 	stats, err := prepareTar(src, req.Files, prepared)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	warnings, err := stats.missing(req.NoAgentCLIs, req.Env)
-	if err != nil {
-		return nil, err
+	if err := stats.missing(req.NoAgentCLIs, req.Env); err != nil {
+		return err
 	}
 	size := req.SizeMB
 	if need := sizeFor(stats); size == 0 {
 		size = need
 	} else if size < need-rootfsHeadroomMB {
-		return nil, fmt.Errorf("--size %d MB is smaller than the %d MB the content needs", size, need-rootfsHeadroomMB)
+		return fmt.Errorf("--size %d MB is smaller than the %d MB the content needs", size, need-rootfsHeadroomMB)
 	}
 	img := filepath.Join(work, "root.ext4")
 	if err := c.mkfs(ctx, prepared, img, size, stats); err != nil {
-		return nil, err
+		return err
 	}
-	return warnings, os.Rename(img, out)
+	return os.Rename(img, out)
 }
 
 // File system block and inode sizes, and what the journal and the other
@@ -258,6 +294,19 @@ type tarCopier struct {
 	st       tarStats
 }
 
+// skip says whether an entry gives way to the files added. What the kernel
+// starts must be the file added here: a base image's /opt/forecrew, or an /opt
+// that leads elsewhere, could put its own there.
+func (c *tarCopier) skip(h *tar.Header, name string) (bool, error) {
+	switch {
+	case name == path.Dir(GuestDir) && h.Typeflag != tar.TypeDir:
+		return false, fmt.Errorf("image tar entry %q must be a directory: %s is Forecrew's", h.Name, GuestDir)
+	case name == GuestDir || strings.HasPrefix(name, GuestDir+"/"):
+		return true, nil
+	}
+	return c.replaced[name] && h.Typeflag != tar.TypeDir, nil
+}
+
 // copy writes the entries of r that belong in the file system.
 func (c *tarCopier) copy(r *tar.Reader) error {
 	for {
@@ -272,7 +321,10 @@ func (c *tarCopier) copy(r *tar.Reader) error {
 		if name == ".." || strings.HasPrefix(name, "../") {
 			return fmt.Errorf("image tar entry %q leaves the root", h.Name)
 		}
-		if c.replaced[name] && h.Typeflag != tar.TypeDir {
+		if skip, err := c.skip(h, name); skip || err != nil {
+			if err != nil {
+				return err
+			}
 			continue
 		}
 		if c.st.entries++; c.st.entries > maxTarEntries {
@@ -430,6 +482,16 @@ func checkMke2fs(ctx context.Context, bin string) ([3]int, error) {
 	return v, probeTar(ctx, bin)
 }
 
+// CheckMke2fs fails unless bin (mke2fs when empty) can build a root filesystem:
+// version 1.47.1 or newer, with libarchive. What the fleet agent's doctor asks.
+func CheckMke2fs(ctx context.Context, bin string) error {
+	if bin == "" {
+		bin = "mke2fs"
+	}
+	_, err := checkMke2fs(ctx, bin)
+	return err
+}
+
 // probeTar makes a file system from a one-file tar, to find out that mke2fs
 // can read a tar at all.
 func probeTar(ctx context.Context, bin string) error {
@@ -461,12 +523,11 @@ func probeTar(ctx context.Context, bin string) error {
 }
 
 // requirement is a thing an image must have: a command found in a directory
-// of the image's PATH, or one of fixed paths. An optional one only warns.
+// of the image's PATH, or one of fixed paths.
 type requirement struct {
-	what     string
-	command  string
-	paths    []string
-	optional bool
+	what    string
+	command string
+	paths   []string
 }
 
 // commandDirs are searched for commands whatever the image's PATH says.
@@ -476,16 +537,13 @@ func command(name, why string) requirement {
 	return requirement{what: name + " (" + why + ")", command: name}
 }
 
-// requirements are what an image needs to run the worker and its init; the
-// agent CLIs too unless the image is for command jobs only. ip is optional:
-// without it the init cannot configure the network from forecrew.ip=, and the
-// kernel's own ip= must do it.
+// requirements are what an image needs to run the worker; the agent CLIs too
+// unless the image is for command jobs only.
 func requirements(noAgentCLIs bool) []requirement {
 	reqs := []requirement{
-		command("sh", "the init and the start script are shell scripts"),
+		command("sh", "the worker and jobs run commands with it"),
 		command("git", "the worker clones with it"),
 		{what: "CA certificates (the worker and git speak HTTPS)", paths: []string{"etc/ssl/certs/ca-certificates.crt", "etc/pki/tls/certs/ca-bundle.crt", "etc/ssl/ca-bundle.pem", "etc/ssl/cert.pem"}},
-		{what: "ip (iproute2: the init configures the network from forecrew.ip=; without it the kernel's ip= must)", command: "ip", optional: true},
 	}
 	if !noAgentCLIs {
 		for _, cli := range []string{"claude", "codex", "opencode"} {
@@ -533,29 +591,24 @@ func pathDirs(env []string) []string {
 	return dirs
 }
 
-// missing returns what the image lacks, so one conversion shows the whole
-// list: an error for what it cannot work without, and warnings for what only
-// some uses need. Commands are looked for in the directories of the image's
+// missing says what the image lacks, so one conversion shows the whole list.
+// Commands are looked for in the directories of the image's
 // PATH as well as the usual ones: an image keeps its CLIs where its Dockerfile
 // put them.
-func (st tarStats) missing(noAgentCLIs bool, env []string) (warnings []string, err error) {
+func (st tarStats) missing(noAgentCLIs bool, env []string) error {
 	dirs := pathDirs(env)
 	var lacks []string
 	for _, r := range requirements(noAgentCLIs) {
 		ok := slices.ContainsFunc(r.paths, func(p string) bool { return st.found[p] }) ||
 			(r.command != "" && slices.ContainsFunc(dirs, func(d string) bool { return st.found[d+"/"+r.command] }))
-		switch {
-		case ok:
-		case r.optional:
-			warnings = append(warnings, "the image lacks "+r.what)
-		default:
+		if !ok {
 			lacks = append(lacks, r.what)
 		}
 	}
 	if len(lacks) == 0 {
-		return warnings, nil
+		return nil
 	}
-	return warnings, fmt.Errorf("the image lacks %s: install them in the image (docs/images.md, What an image needs)", strings.Join(lacks, "; "))
+	return fmt.Errorf("the image lacks %s: install them in the image (docs/images.md, What an image needs)", strings.Join(lacks, "; "))
 }
 
 // withEnv adds /etc/forecrew/env, the image's environment as NAME=value

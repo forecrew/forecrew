@@ -11,17 +11,41 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/forecrew/forecrew/internal/guestinit"
 )
+
+// bootToken is the machine's one-time token in the test; it must reach the
+// server and nothing else.
+const bootToken = "fcb_boot-test-secret"
+
+// hostile stands in for a repo that built the root disk: it replaces /bin/sh
+// and git, which run on the machine, and prints everything it can find of the
+// token to the console.
+const hostile = `#!/bin/busybox ash
+echo HOSTILE-RAN >/dev/console
+for f in /dev/vdb /proc/1/environ /proc/cmdline /run/forecrew/* /run/forecrew-config/*; do
+	/bin/busybox cat "$f" >/dev/console 2>&1
+done
+for p in /proc/[0-9]*; do
+	/bin/busybox cat "$p/environ" 2>/dev/null | /bin/busybox tr '\0' '\n' | /bin/busybox grep -v WORKER_TOKEN >/dev/console
+done
+/bin/busybox df -k / >/dev/console
+echo git version 2.50.0
+`
 
 // TestRootfsBootsAndTheWorkerReachesTheServer converts a Docker image into a
 // root filesystem, boots it under QEMU with KVM (what Firecracker does for a
 // microVM: a kernel, a root disk and a config disk), and checks that the
-// worker started by the image's init calls a fake server.
+// machine trades its token, that the worker it starts reaches a fake server, and
+// that the image's own code finds nothing of the token, though it is the
+// image's /bin/sh, git and proxy settings.
 //
 // Needs /dev/kvm, qemu-system-x86_64, Docker with alpine:latest, mke2fs
 // 1.47.1 or newer, and a kernel with virtio block and ext4 built in:
@@ -45,22 +69,18 @@ func TestRootfsBootsAndTheWorkerReachesTheServer(t *testing.T) {
 		worker = buildWorker(t)
 	}
 
-	// A worker needs git; the image under test has none, and the test is not
-	// about git, so a stub says it is there.
 	files, err := Guest(worker, []string{"docker"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	files = append(files, File{Path: "usr/local/bin/git", Mode: 0o755, Data: []byte("#!/bin/sh\necho git version 2.50.0\n")})
+	files = append(files,
+		File{Path: "usr/local/bin/git", Mode: 0o755, Data: []byte(hostile)},
+		File{Path: "bin/sh", Mode: 0o755, Data: []byte(hostile)},
+		File{Path: GuestEnv, Mode: 0o644, Data: []byte("HTTP_PROXY=http://10.0.2.2:1\nFORECREW_WORKER_TOKEN=stolen\n")})
+	var loaded []string
 	for _, m := range modules {
 		files = append(files, File{Path: "lib/modules/forecrew/" + m.name, Mode: 0o644, Data: m.data})
-	}
-	if len(modules) > 0 {
-		var list strings.Builder
-		for _, m := range modules {
-			list.WriteString("/lib/modules/forecrew/" + m.name + "\n")
-		}
-		files = append(files, File{Path: "etc/forecrew/modules", Mode: 0o644, Data: []byte(list.String())})
+		loaded = append(loaded, "/lib/modules/forecrew/"+m.name)
 	}
 	c := &Converter{CacheDir: t.TempDir(), Docker: DockerCLI{}}
 	var root Result
@@ -78,15 +98,26 @@ func TestRootfsBootsAndTheWorkerReachesTheServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The provider sizes the disk file; the guest grows the file system.
+	if err := os.Truncate(root.Path, 2<<30); err != nil {
+		t.Fatal(err)
+	}
 
-	// The fake server; the guest reaches the host at 10.0.2.2 on QEMU's user network.
+	// The fake server; the guest reaches the host at 10.0.2.2 on QEMU's user
+	// network. It grants the token, then turns the worker away.
 	var mu sync.Mutex
 	var seen []string
+	var bootstrapped time.Time
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
+		defer mu.Unlock()
 		seen = append(seen, r.Method+" "+r.URL.Path+" auth="+r.Header.Get("Authorization"))
-		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/worker/v1/bootstrap" {
+			bootstrapped = time.Now()
+			_, _ = w.Write([]byte(`{"worker_token":"fcw_boot-test","name":"m1","labels":["linux"],"max_jobs":1}`))
+			return
+		}
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"error":{"code":"unauthorized","message":"test"}}`))
 	}))
@@ -98,29 +129,30 @@ func TestRootfsBootsAndTheWorkerReachesTheServer(t *testing.T) {
 	defer srv.Close()
 	port := srv.Listener.Addr().(*net.TCPAddr).Port
 
-	// The config disk, as a provider makes it: bootstrap settings on a small ext4.
-	cfgDir := filepath.Join(t.TempDir(), "cfg")
-	if err := os.Mkdir(cfgDir, 0o755); err != nil { // #nosec G301 -- a test directory
+	// The config disk, as a provider makes it.
+	disk, err := guestinit.Encode(guestinit.Settings{ServerURL: "http://forecrew.test:" + strconv.Itoa(port), Token: bootToken, ServerAddrs: []string{"10.0.2.2"}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	env := "FORECREW_SERVER_URL=http://10.0.2.2:" + strconv.Itoa(port) + "\nFORECREW_WORKER_TOKEN=fcw_boot-test\n"
-	if err := os.WriteFile(filepath.Join(cfgDir, "bootstrap.env"), []byte(env), 0o600); err != nil {
+	cfgImg := filepath.Join(t.TempDir(), "config.img")
+	if err := os.WriteFile(cfgImg, disk, 0o600); err != nil {
 		t.Fatal(err)
-	}
-	cfgImg := filepath.Join(t.TempDir(), "config.ext4")
-	if out, err := exec.Command("mke2fs", "-q", "-t", "ext4", "-F", "-d", cfgDir, cfgImg, "4M").CombinedOutput(); err != nil { // #nosec G204 -- test input
-		t.Fatalf("config disk: %v\n%s", err, out)
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
-	var console bytes.Buffer
+	var console syncBuffer
+	boot := "console=ttyS0 root=/dev/vda rw panic=-1 reboot=t forecrew.ip=10.0.2.15/24 forecrew.gw=10.0.2.2 forecrew.dns=10.0.2.3 forecrew.halt=reboot"
+	if len(loaded) > 0 {
+		boot += " forecrew.modules=" + strings.Join(loaded, ",")
+	}
 	cmd := exec.CommandContext(ctx, qemu, "-enable-kvm", "-cpu", "host", "-m", "512", "-smp", "1", "-nographic", "-no-reboot", "-snapshot", // #nosec G204 -- test input
 		"-kernel", kernel,
-		"-append", "console=ttyS0 root=/dev/vda rw init="+"/"+GuestInit+" panic=-1 reboot=t forecrew.ip=10.0.2.15/24 forecrew.gw=10.0.2.2 forecrew.dns=10.0.2.3",
-		"-drive", "file="+root.Path+",if=virtio,format=raw", "-drive", "file="+cfgImg+",if=virtio,format=raw,readonly=on",
+		"-append", boot+" "+GuestInitArgs,
+		"-drive", "file="+root.Path+",if=virtio,format=raw", "-drive", "file="+cfgImg+",if=virtio,format=raw",
 		"-netdev", "user,id=n0", "-device", "virtio-net-pci,netdev=n0")
 	cmd.Stdout, cmd.Stderr = &console, &console
+	started := time.Now()
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -135,24 +167,57 @@ func TestRootfsBootsAndTheWorkerReachesTheServer(t *testing.T) {
 	}()
 
 	// Wait for the machine to end: the server turns the worker away, so the
-	// worker ends and the init powers the machine off.
+	// worker ends and the init ends the machine.
 	select {
 	case <-exited:
 	case <-time.After(3 * time.Minute):
-		t.Fatal("the machine did not power off after the worker ended")
+		t.Fatal("the machine did not end after the worker ended")
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(seen) == 0 {
-		t.Fatal("the worker did not reach the server")
+	if len(seen) < 2 {
+		t.Fatalf("requests = %q", seen)
 	}
-	first := seen[0]
-	if !strings.Contains(first, "/worker/v1/") || !strings.Contains(first, "Bearer fcw_boot-test") {
+	t.Logf("from start to the bootstrap call: %s", bootstrapped.Sub(started).Round(time.Millisecond))
+	if first := seen[0]; !strings.Contains(first, "/worker/v1/bootstrap") || !strings.Contains(first, "Bearer "+bootToken) {
 		t.Errorf("first request = %q", first)
 	}
-	if strings.Contains(console.String(), "fcw_boot-test") {
-		t.Error("the token reached the console")
+	if second := seen[1]; !strings.Contains(second, "Bearer fcw_boot-test") {
+		t.Errorf("second request = %q", second)
 	}
+	out := console.String()
+	if !strings.Contains(out, "HOSTILE-RAN") {
+		t.Error("the image's code did not run, so this proves nothing")
+	}
+	if strings.Contains(out, bootToken) {
+		t.Error("the image's code found the bootstrap token")
+	}
+	if strings.Contains(out, "fcw_boot-test") {
+		t.Error("the worker token reached the console")
+	}
+	if m := regexp.MustCompile(`(?m)^/dev/\S+\s+(\d+)`).FindStringSubmatch(out); m == nil {
+		t.Error("no df output")
+	} else if kb, _ := strconv.Atoi(m[1]); kb < 1<<20 {
+		t.Errorf("the root file system is %d KB: it did not grow to its disk", kb)
+	}
+}
+
+// syncBuffer is a buffer a running process writes to while a test reads it.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 type kernelModule struct {
