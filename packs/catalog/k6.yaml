@@ -1,0 +1,8 @@
+name: k6
+kind: cli
+purpose: Load tests services from scripts.
+homepage: https://github.com/grafana/k6
+install: grafana/k6:2.3.0
+license: AGPL-3.0-only
+roles: [test-engineer]
+categories: [testing, observability]

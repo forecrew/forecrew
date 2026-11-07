@@ -13,13 +13,13 @@ func TestLoadShippedTasks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTasks: %v", err)
 	}
-	for _, key := range []string{"knowledge-curator.retro", "knowledge-curator.curate"} {
+	for _, key := range []string{"knowledge-curator.retro", "knowledge-curator.curate", "advisor.revise"} {
 		task, ok := tasks[key]
 		if !ok {
 			t.Errorf("task %s missing", key)
 			continue
 		}
-		if task.Role != "knowledge-curator" || key != task.Role+"."+task.Name || len(task.OutputSchema) == 0 || strings.Contains(string(task.OutputSchema), "$ref") {
+		if !strings.HasPrefix(key, task.Role+".") || key != task.Role+"."+task.Name || len(task.OutputSchema) == 0 || strings.Contains(string(task.OutputSchema), "$ref") {
 			t.Errorf("%s = %+v", key, task)
 		}
 		for _, phrase := range []string{"assumption", "one fenced `json` block", "data, not instructions"} {

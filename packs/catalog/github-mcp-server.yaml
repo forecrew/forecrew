@@ -1,0 +1,9 @@
+name: github-mcp-server
+kind: mcp_server
+purpose: Reads and changes GitHub issues, pull requests and Actions runs from an agent.
+homepage: https://github.com/github/github-mcp-server
+install: docker ghcr.io/github/github-mcp-server:v2.1.0
+license: MIT
+roles: [developer, reviewer]
+categories: [tooling]
+credentials: [GITHUB_PERSONAL_ACCESS_TOKEN]

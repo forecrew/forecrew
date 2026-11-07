@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Improvement proposals",
+  "description": "Output of the advisor role: at most as many proposals as it was told it may write, best first.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "proposals",
+    "assumptions"
+  ],
+  "properties": {
+    "summary": {
+      "$ref": "common.json#/$defs/text",
+      "description": "What you weighed and why these came first, in a few sentences."
+    },
+    "proposals": {
+      "description": "Best first, by benefit against effort and risk. Empty when nothing is worth a human's time.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/proposal"
+      }
+    },
+    "assumptions": {
+      "$ref": "common.json#/$defs/assumptions"
+    }
+  },
+  "$defs": {
+    "proposal": {
+      "description": "One proposal. Evidence comes from the signals you cite, not from you.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dedupe_key",
+        "signals",
+        "scope",
+        "category",
+        "title",
+        "rationale",
+        "benefit",
+        "effort",
+        "risk",
+        "tools",
+        "measure",
+        "action"
+      ],
+      "properties": {
+        "dedupe_key": {
+          "$ref": "common.json#/$defs/text",
+          "description": "The key of the listed signal this proposal answers, copied exactly."
+        },
+        "signals": {
+          "description": "Keys of every listed signal the proposal rests on, dedupe_key included.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "common.json#/$defs/text"
+          }
+        },
+        "scope": {
+          "description": "project: the project or Forecrew's setup for it. platform: Forecrew itself has to change; the action is then setup with an issue.",
+          "type": "string",
+          "enum": [
+            "project",
+            "platform"
+          ]
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "observability",
+            "testing",
+            "ci",
+            "security",
+            "docs",
+            "knowledge",
+            "tooling",
+            "workers",
+            "roles",
+            "cost"
+          ]
+        },
+        "title": {
+          "$ref": "common.json#/$defs/text",
+          "description": "What to do, as a short imperative line."
+        },
+        "rationale": {
+          "$ref": "common.json#/$defs/text",
+          "description": "Why, from the signals. A tool outside the catalog may be named here as worth researching, and nowhere else."
+        },
+        "benefit": {
+          "$ref": "common.json#/$defs/text",
+          "description": "What gets better, and for whom."
+        },
+        "effort": {
+          "description": "s: hours; m: days; l: weeks.",
+          "type": "string",
+          "enum": [
+            "s",
+            "m",
+            "l"
+          ]
+        },
+        "risk": {
+          "$ref": "common.json#/$defs/level"
+        },
+        "tools": {
+          "description": "Names of the catalog entries the action uses; empty when it uses none. Any other name drops the proposal.",
+          "type": "array",
+          "items": {
+            "$ref": "common.json#/$defs/text"
+          }
+        },
+        "measure": {
+          "description": "The detector of dedupe_key when running it again will show whether this worked, else null.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "workers",
+            "tooling",
+            "knowledge",
+            "testing",
+            "rework",
+            "cost",
+            "observability",
+            "security",
+            "ci",
+            "integrations",
+            null
+          ]
+        },
+        "action": {
+          "description": "Set exactly one of goal, config_pr and setup; the others are null.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "goal",
+            "config_pr",
+            "setup"
+          ],
+          "properties": {
+            "goal": {
+              "description": "Work for the team: becomes a goal of kind feature.",
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "title",
+                "body",
+                "platforms"
+              ],
+              "properties": {
+                "title": {
+                  "$ref": "common.json#/$defs/text"
+                },
+                "body": {
+                  "$ref": "common.json#/$defs/text",
+                  "description": "What the goal should deliver, as a human would ask for it."
+                },
+                "platforms": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "common.json#/$defs/text"
+                  }
+                }
+              }
+            },
+            "config_pr": {
+              "description": "A pull request Forecrew writes. Only .forecrew/profile.yaml, .forecrew/matrix.yaml, .forecrew/knowledge-policy.yaml and .forecrew/environments/<name>.yaml; each file whole and valid against its contract.",
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "files"
+              ],
+              "properties": {
+                "files": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "path",
+                      "content"
+                    ],
+                    "properties": {
+                      "path": {
+                        "$ref": "common.json#/$defs/text"
+                      },
+                      "content": {
+                        "$ref": "common.json#/$defs/text"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "setup": {
+              "description": "A step only a human can take.",
+              "type": [
+                "object",
+                "null"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "instructions",
+                "issue"
+              ],
+              "properties": {
+                "instructions": {
+                  "$ref": "common.json#/$defs/text",
+                  "description": "What the human does, step by step."
+                },
+                "issue": {
+                  "description": "For scope platform: a ready-to-file issue text for the Forecrew repo. Otherwise null.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,8 @@
+name: context7
+kind: mcp_server
+purpose: Gives agents current documentation of libraries by version.
+homepage: https://github.com/upstash/context7
+install: npx -y @upstash/context7-mcp@4.5.1
+license: MIT
+roles: [developer, architect]
+categories: [docs, knowledge, tooling]

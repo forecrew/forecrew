@@ -1,0 +1,8 @@
+name: hadolint
+kind: cli
+purpose: Lints Dockerfiles.
+homepage: https://github.com/hadolint/hadolint
+install: ghcr.io/hadolint/hadolint:v2.15.1
+license: GPL-3.0-only
+roles: [developer, reviewer]
+categories: [ci]

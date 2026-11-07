@@ -1,0 +1,8 @@
+name: trivy
+kind: cli
+purpose: Scans dependencies, container images and configuration for known vulnerabilities.
+homepage: https://github.com/aquasecurity/trivy
+install: ghcr.io/aquasecurity/trivy:0.76.2
+license: Apache-2.0
+roles: [security-reviewer]
+categories: [security, ci]

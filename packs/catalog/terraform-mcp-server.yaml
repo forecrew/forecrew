@@ -1,0 +1,8 @@
+name: terraform-mcp-server
+kind: mcp_server
+purpose: Looks up Terraform providers, modules and registry documentation.
+homepage: https://github.com/hashicorp/terraform-mcp-server
+install: docker hashicorp/terraform-mcp-server:1.4.1
+license: MPL-2.0
+roles: [developer, environment-engineer]
+categories: [tooling]

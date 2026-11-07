@@ -61,6 +61,7 @@ roles:
   triage:               {runtime: claude, tier: fast}
   assistant:            {runtime: claude, tier: strong}
   knowledge-curator:    {runtime: claude, tier: strong}
+  advisor:              {runtime: claude, tier: best}
 
 policy:
   allow_same_vendor_review: false

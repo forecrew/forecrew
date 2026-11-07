@@ -40,6 +40,7 @@ func TestLoadPacks(t *testing.T) {
 		"security-reviewer": {config.TierStrong, true, domain.PoolBuild},
 		"ux":                {config.TierStrong, true, domain.PoolControl},
 		"triage":            {config.TierFast, true, domain.PoolControl},
+		"advisor":           {config.TierBest, true, domain.PoolControl},
 		// Writes the fallback knowledge/** folder, so it needs a worker
 		// with a write token.
 		"knowledge-curator": {config.TierStrong, false, domain.PoolBuild},
