@@ -1,0 +1,14 @@
+{
+  "self": "https://acme.atlassian.net/rest/api/3/user?accountId=712020:9a1e3c55-4a1b-4f1e-9d5a-1c2b3d4e5f60",
+  "accountId": "712020:9a1e3c55-4a1b-4f1e-9d5a-1c2b3d4e5f60",
+  "accountType": "atlassian",
+  "emailAddress": "forecrew@acme.example",
+  "avatarUrls": {"48x48": "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/default.png"},
+  "displayName": "Forecrew",
+  "active": true,
+  "timeZone": "Europe/Rome",
+  "locale": "en_US",
+  "groups": {"size": 2, "items": []},
+  "applicationRoles": {"size": 1, "items": []},
+  "expand": "groups,applicationRoles"
+}

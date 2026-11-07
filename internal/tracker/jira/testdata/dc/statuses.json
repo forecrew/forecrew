@@ -1,0 +1,13 @@
+[
+  {"self": "https://jira.acme.local/jira/rest/api/2/issuetype/10002", "id": "10002", "name": "Task", "subtask": false,
+   "statuses": [
+     {"self": "https://jira.acme.local/jira/rest/api/2/status/1", "description": "", "iconUrl": "", "name": "Open", "id": "1",
+      "statusCategory": {"self": "https://jira.acme.local/jira/rest/api/2/statuscategory/2", "id": 2, "key": "new", "colorName": "default", "name": "To Do"}},
+     {"self": "https://jira.acme.local/jira/rest/api/2/status/3", "description": "", "iconUrl": "", "name": "In Progress", "id": "3",
+      "statusCategory": {"self": "https://jira.acme.local/jira/rest/api/2/statuscategory/4", "id": 4, "key": "indeterminate", "colorName": "inprogress", "name": "In Progress"}},
+     {"self": "https://jira.acme.local/jira/rest/api/2/status/10100", "description": "", "iconUrl": "", "name": "Code Review", "id": "10100",
+      "statusCategory": {"self": "https://jira.acme.local/jira/rest/api/2/statuscategory/4", "id": 4, "key": "indeterminate", "colorName": "inprogress", "name": "In Progress"}},
+     {"self": "https://jira.acme.local/jira/rest/api/2/status/10101", "description": "", "iconUrl": "", "name": "Closed", "id": "10101",
+      "statusCategory": {"self": "https://jira.acme.local/jira/rest/api/2/statuscategory/3", "id": 3, "key": "done", "colorName": "success", "name": "Done"}}
+   ]}
+]

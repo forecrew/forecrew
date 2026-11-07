@@ -57,6 +57,7 @@ import (
 	"github.com/forecrew/forecrew/internal/tracker"
 	"github.com/forecrew/forecrew/internal/tracker/githubissues"
 	"github.com/forecrew/forecrew/internal/tracker/githubproject"
+	"github.com/forecrew/forecrew/internal/tracker/jira"
 	"github.com/forecrew/forecrew/internal/webhook"
 	"github.com/forecrew/forecrew/internal/webui"
 	"github.com/forecrew/forecrew/internal/workerapi"
@@ -366,6 +367,7 @@ func New(d Deps) (*App, error) {
 		},
 		PublicURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now,
 	})
+	trackers.Register(jira.Kind, jira.Factory(jira.Deps{Secrets: vault, PrivateAddresses: cfg.Trackers.PrivateAddresses, Now: d.Now}))
 	authSvc := auth.New(auth.Config{Store: st, Auth: cfg.Auth, BaseURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now, GitHubURL: d.GitHubURL, GitHubAPIURL: d.GitHubAPIURL, Secrets: vault})
 	toolSvc := tools.New(tools.Config{
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes, Proposals: kbProposals,
