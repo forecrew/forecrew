@@ -10,6 +10,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -150,6 +151,14 @@ func (a *actions) settleGoal(ctx context.Context, call workflow.ActionCall) (any
 	}
 	if err := a.cancelCouncils(ctx, g); err != nil {
 		return nil, err
+	}
+	// What agents proposed for the knowledge base during the goal is not
+	// kept: the learn step that would have sent it will not run.
+	if a.Proposals != nil {
+		b := proposals.LearnBatch{AccountID: g.AccountID, ProjectID: g.ProjectID, GoalID: g.ID}
+		if err := a.Proposals.LearnSettle(ctx, b, true); err != nil {
+			return nil, fmt.Errorf("reject the proposals of %s: %w", g.Ref(), err)
+		}
 	}
 	p, err := a.Store.Projects().Get(ctx, g.AccountID, g.ProjectID)
 	if err != nil {
