@@ -171,7 +171,7 @@ custom endpoint receives the repo code in the prompts and the runtime's key.
 | `server.cert_cache_dir` | path | no | `/var/lib/forecrew/certs` when `tls_domain` is set | Where certificates are cached. Must be persistent. |
 | `github.app_id` | integer | yes | | GitHub App ID. |
 | `github.allowlist` | list of strings | no | empty | GitHub logins allowed to command `@forecrew` in issues and PRs of an organization where nobody holds a role yet. Compared case-insensitively. Empty means nobody. Deprecated: from an organization's first role binding on it is ignored there, and a command needs a linked GitHub identity with the permission ([permissions.md](permissions.md#what-every-entry-point-needs)). |
-| `runtimes` | map name → runtime | yes, ≥1 | | Agent runtimes. Names match `^[a-z0-9][a-z0-9-]*$` and are referenced by `roles`. |
+| `runtimes` | map name → runtime | yes, ≥1 unless `models.server_keys_for_organizations` is false | | Agent runtimes. Names match `^[a-z0-9][a-z0-9-]*$` and are referenced by `roles`. |
 | `runtimes.<name>.adapter` | `claude-code` \| `codex` \| `opencode` | yes | | Runtime adapter. Workers advertise `runtime:<adapter>` and jobs require it. |
 | `runtimes.<name>.vendor` | string | yes | | Model vendor; selects the model in `model_tiers`. |
 | `runtimes.<name>.credential_env` | list of strings | no | empty | Names of env vars forecrewd reads at startup and passes to the worker in the job spec `env`. Each must be set. Empty means the key must be in the worker's own environment (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`, the provider's variable for opencode). A login on the worker machine is not used by any runtime: every run gets an isolated config dir (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, opencode's XDG directories). A Codex job with no `CODEX_API_KEY` from either place fails with an error naming it. |
@@ -308,6 +308,17 @@ On top of `labels` the worker adds, when polling:
 | `FORECREW_BOOTSTRAP_TOKEN` | on a machine, in place of the worker token | One-time token of a machine (fleet.md). The worker trades it at start for its token, name, labels and `max_jobs`. |
 
 forecrew-worker takes the config path from `run --config` (default `worker.yaml`).
+
+### Models
+
+| Key | Type | Default | Meaning |
+|-----|------|---------|---------|
+| `models.server_keys_for_organizations` | bool | `true` | Organizations may use `runtimes` of this file, with their keys, for roles they did not assign to a connection of their own. A hosted server sets `false`: a job with no connection of its organization waits, the file's runtimes are not shown to organizations, and `runtimes` may be empty. |
+
+Organizations connect their own providers through the configuration
+resources `model_connection` and `model_assignment`
+([config-resources.md](config-resources.md#model-connections)). `runtimes`,
+`model_tiers` and `roles` stay the default of a self-hosted server.
 
 ## Stored settings
 

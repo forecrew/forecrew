@@ -292,12 +292,16 @@ line: `forecrew fleet`, `forecrew machines [--state]`, `forecrew shapes` and
 | `budget` | This month's limit of CHF 200 is used up | A monthly budget or minutes quota of the organization, shape or location |
 | `policy` | Cloud could run this, but your policy keeps jobs on your machines | Routing or `allowed_shapes` rule out the only shape that fits |
 | `trust_zone` | No machine in the Reasoning zone is online | Nothing of its pool exists or is online |
+| `no_connection` | Role developer has no model connection: connect a provider and assign it to the role in Organization settings, AI models | No usable model connection serves its role: none assigned, turned off, without a key or a model, or its pool may not receive the key ([config-resources.md](contracts/config-resources.md#model-connections)) |
 
 ### Configuration
 
 Any MCP client can read the configuration and propose changes with your
 permissions. Nothing an MCP client proposes changes anything until you confirm
 the plan in the web UI: see [config-resources.md](contracts/config-resources.md).
+The kinds `model_connection` and `model_assignment` connect an organization's
+model providers and choose which model serves each role; a key is only ever
+entered in the secure field of the plan, never through MCP.
 
 **What a token can do over REST.** This holds for plans made through MCP, by the
 assistant or by an ownerless token, and for every plan that lowers protection:

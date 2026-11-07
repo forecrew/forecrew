@@ -21,6 +21,8 @@ a resource nor listed as a bootstrap setting.
 | `runtime` | runtime | `config_settings` over `runtimes` | `org.manage` |
 | `pool` | pool | `config_settings` over `pools` | `pool.manage` |
 | `auth` | `auth` | `config_settings` over `auth` | `org.manage` |
+| `model_connection` | connection | `model_connections` | `models.manage` |
+| `model_assignment` | `organization`, or `project:<project>` | `model_assignments` | `models.manage`; `models.assign` on the project for `project:` |
 | `connection` | connection | `connections` | `connection.manage`, No escalation |
 | `domain` | email domain | `verified_domains` | `connection.manage` |
 | `member` | user ID, or an email for an invitation | `memberships`, `invitations` | `member.manage`, No escalation |
@@ -34,7 +36,7 @@ a resource nor listed as a bootstrap setting.
 | `knowledge_policy` | project | `.forecrew/knowledge-policy.yaml` | `project.manage` on the project |
 | `repo_file` | `<project>:.forecrew/<path>` | the file | `project.manage` on the project |
 
-Each area has a read permission: `org.read`, `worker.read` or
+Each area has a read permission: `org.read`, `worker.read`, `models.read` or
 `connection.manage`; `billing.manage` also reads `provider`, `shape` and
 `fleet_policy`, whole, to change their budget fields. What a caller cannot read is left out of `config_get`
 and `config_export`, the assistant included, and a plan touching it is
@@ -59,6 +61,68 @@ one step.
 **Resources without a delete.** Deleting a connection or a shape, or reverting
 its creation, sets `enabled: false`. Deleting a provider revokes it. A server
 setting's delete drops the stored value and the file's counts again.
+
+## Model connections
+
+Plan decisions 33 and 34. An organization connects its providers once, and
+every job of the organization gets its own organization's key and model. The
+code is `internal/models`; nothing else decides a job's connection.
+
+- **`model_connection`** is a runtime owned by an organization:
+  `{vendor, adapter, base_url, key_env, secret_ref, enabled}`. `adapter` is
+  `claude-code`, `codex` or `opencode`; `base_url` follows the rules of
+  `runtimes.<name>.base_url` (config.md). The key goes in the variable of the
+  adapter (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`); `opencode` names its own in
+  `key_env`, uppercase and ending in `_KEY`, not `FORECREW_*`. `secret_ref` is
+  `store:models/<name>`: the namespace `models/` of the secret store is for
+  model keys only, and no other resource may name it, so whoever manages a
+  connection cannot send a sign-in secret to their endpoint, nor the other
+  way round. `enabled` defaults to true. Deleting a connection deletes the
+  row; its key stays in the store for a revert. A key is changed by naming a
+  new secret, as everywhere.
+- **`model_assignment`** says which model serves what: `tiers` (tier →
+  vendor → model), `roles` (role → `{connection, tier}`) and, on
+  `organization` only, `project_overrides` (the policy
+  `models.project_overrides`, default true). `project:<project>` holds a
+  project's overrides. They live in the database and never in `.forecrew/**`:
+  the model decides cost and where code goes, so a pull request or an agent
+  must not change it.
+- **Resolution**, for a role in a project: the project's override (unless the
+  policy is off), then the organization's assignment, then `roles` of
+  forecrew.yaml. Tiers are looked up the same way, per vendor. An override or
+  assignment that cannot be used never falls through to the next level: the
+  job waits. A council seat on another agent takes the first enabled
+  connection of that agent, or the server's runtime; a role that a project
+  override keeps on one connection keeps its seats there.
+- **The server file.** `runtimes`, `model_tiers` and `roles` stay the bootstrap
+  default of a self-hosted server and read with origin `file` ("Managed by
+  server file"); an assignment may name a runtime of the file. With
+  `models.server_keys_for_organizations: false` (hosted) the file is not
+  shown, cannot be named, and a job with no connection of its organization
+  does not start.
+- **At lease** forecrewd reads the key from the store, in the job's
+  organization, and sends key, endpoint and model from one decision. Nothing
+  of it is stored with the job; a rotated key applies from the next lease with
+  no change on workers. The pool rule (`credentials.runtimes`) applies to
+  connection names; an organization's connection whose pool withholds its key
+  waits rather than run with a key of the worker. The endpoint of an
+  organization's connection carries `organization: true` (job-spec.md):
+  workers send it nothing of their own.
+- **Waiting.** A queued job with no usable connection gets runtime `none`, so
+  no worker leases it and no machine starts for it, and `job_status` gives the
+  reason `no_connection` with a sentence naming the role and what to do. When
+  a connection is there, the job moves to its runtime and model. forecrewd
+  settles queued jobs before each lease and each fleet pass.
+- **Plans** check the model changes together: every assigned role must end up
+  on a connection that exists, is on and has a model for its tier, a role
+  with a toolbox is not put on `opencode`, and the reviewer stays off the
+  developer's vendor unless `policy.allow_same_vendor_review`. So disabling or
+  deleting a connection a role uses is refused unless the same plan reassigns
+  the role, and the plan's `affects` lists the roles and projects on it. The
+  check runs again in the transaction that applies the plan.
+- **Audit:** `model_connection.created`, `.rotated`, `.disabled`, `.enabled`,
+  `.changed`, `.deleted` and `model_assignment.changed`, `.deleted`, with
+  references, never a value. Export shows references.
 
 ## Plans
 
@@ -116,7 +180,8 @@ connection, turning off sign-in enforcement, opening network access, adding Fore
 Cloud as a fallback, moving a machine type to another trust zone, giving a pool
 a repo write token, adding an instance admin, allowing token sign-in, removing
 the token cap, changing a runtime's `base_url` or `credential_env`, changing an
-instance connection. A revert with one of those effects counts too, because it is a
+instance connection, creating a model connection, changing its `base_url`,
+`adapter`, `key_env` or `secret_ref`, or turning it on again. A revert with one of those effects counts too, because it is a
 plan like any other.
 
 ### Permissions

@@ -284,7 +284,11 @@ text. Which nodes a caller gets depends on `goal.read` and `job.read`
 ### Configuration
 
 The MCP tools `config_*` and `assistant_*` over REST
-([config-resources.md](contracts/config-resources.md)):
+([config-resources.md](contracts/config-resources.md)). Model connections and
+their assignment are the kinds `model_connection` and `model_assignment`: a
+plan with a new key has a secure field, filled with `PUT
+/api/v1/config/plans/{plan}/secrets/{secret}` or `forecrew config secret`
+([Model connections](contracts/config-resources.md#model-connections)):
 
 | Route | Tool | Body or query |
 |-------|------|---------------|
