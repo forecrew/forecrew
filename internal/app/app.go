@@ -43,6 +43,7 @@ import (
 	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/oauth"
 	"github.com/forecrew/forecrew/internal/playbooks"
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/roles"
@@ -128,6 +129,7 @@ type App struct {
 	// vault is the secret store; nil without a key.
 	vault  *secrets.Encrypted
 	auth   *auth.Service
+	oauth  *oauth.Server
 	engine *workflow.Engine
 	// retention deletes expired artifacts and orphan objects; nil without
 	// evidence storage.
@@ -390,6 +392,7 @@ func New(d Deps) (*App, error) {
 		a.certs = newCertManager(cfg.Server.TLSDomain, cfg.Server.CertCacheDir)
 	}
 	agents := fleetapi.New(fleetapi.Config{Store: st, Fleet: machines, Logger: log, Now: d.Now})
+	a.oauth = oauth.New(oauth.Config{Store: st, Auth: authSvc, BaseURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now})
 	a.handler = a.routes(workers.Handler(), agents.Handler(), jobGateway.Handler(),
 		mcp.NewHandler(toolSvc, st, access, d.Version, mcp.NewResource(cfg.Server.PublicBaseURL), log),
 		api.New(api.Config{
@@ -485,6 +488,10 @@ func (a *App) routes(workers, agents, jobMCP, mcpHandler, apiHandler http.Handle
 	mux.Handle("/worker/v1/", workers)
 	mux.Handle("/fleet/v1/", agents)
 	mux.Handle("/auth/", a.auth.Handler())
+	authorization := a.oauth.Handler()
+	for _, path := range oauth.Paths() {
+		mux.Handle(path, authorization)
+	}
 	mux.Handle("/api/v1/", apiHandler)
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
@@ -525,6 +532,7 @@ func (a *App) Run(ctx context.Context) error {
 	wg.Go(func() { a.notes.RunSweep(runCtx, knowledge.SweepEvery) })
 	wg.Go(func() { a.syncs.Run(runCtx) })
 	wg.Go(func() { a.auth.RunSweep(runCtx, auth.SweepEvery) })
+	wg.Go(func() { a.oauth.RunSweep(runCtx, oauth.SweepEvery) })
 	wg.Go(func() { a.schedules.Run(runCtx) })
 	wg.Go(func() { a.tools.RunConfigSweep(runCtx) })
 	if a.retention != nil {

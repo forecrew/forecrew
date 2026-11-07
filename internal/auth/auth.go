@@ -35,6 +35,8 @@ const (
 	PrefixToken      = "fcm_"
 	PrefixSession    = "fcs_"
 	PrefixInvitation = "fci_"
+	PrefixCode       = "fco_"
+	PrefixRefresh    = "fcr_"
 )
 
 // CookieName is the cookie of a browser session.

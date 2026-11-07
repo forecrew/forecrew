@@ -40,6 +40,11 @@ type flow struct {
 	Test string `json:"t,omitempty"`
 }
 
+// AuthorizePath is the OAuth authorization endpoint (internal/oauth). A
+// sign-in on the way to it comes back there through Return, like to any
+// other page of this site.
+const AuthorizePath = "/oauth/authorize"
+
 // Handler serves /auth/<connection>/login and /auth/<connection>/callback.
 func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -128,7 +133,7 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, flowCookie(base64.RawURLEncoding.EncodeToString(raw), int(loginTTL.Seconds())))
-	noStore(w)
+	NoStore(w)
 	http.Redirect(w, r, p.authURL(f.State, f.Nonce, f.Verifier), http.StatusFound) // #nosec G710 -- the connection's own endpoint
 }
 
@@ -188,13 +193,13 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		s.testResult(w, r, conn, tester, claims)
 		return
 	}
-	token, err := s.signIn(r.Context(), conn, claims, f, r.UserAgent(), remoteIP(r))
+	token, err := s.signIn(r.Context(), conn, claims, f, r.UserAgent(), RemoteIP(r))
 	if err != nil {
 		s.refuse(w, r, nil, err)
 		return
 	}
 	http.SetCookie(w, s.SessionCookie(token))
-	noStore(w)
+	NoStore(w)
 	// The cookie is not signed: check the path again.
 	http.Redirect(w, r, cmp.Or(sitePath(f.Return), "/"), http.StatusFound)
 }
@@ -226,7 +231,8 @@ func Cookie(token string, maxAge int) *http.Cookie {
 	return &http.Cookie{Name: CookieName, Value: token, Path: "/", MaxAge: maxAge, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}
 }
 
-func remoteIP(r *http.Request) string {
+// RemoteIP is the address of the peer of r; empty when it is not an IP.
+func RemoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil || net.ParseIP(host) == nil {
 		return ""
@@ -234,7 +240,9 @@ func remoteIP(r *http.Request) string {
 	return host
 }
 
-func noStore(w http.ResponseWriter) {
+// NoStore keeps a page that carries codes or tokens out of caches and
+// referrers.
+func NoStore(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer") // the URLs carry codes and invitation tokens
 }
@@ -298,7 +306,7 @@ func (s *Service) refuse(w http.ResponseWriter, r *http.Request, why *refused, c
 	}
 	log.WarnContext(r.Context(), "sign-in refused")
 	page := reasons[why.reason]
-	noStore(w)
+	NoStore(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(page.status)
 	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>%[1]s</title></head>
@@ -320,7 +328,7 @@ func (s *Service) testResult(w http.ResponseWriter, r *http.Request, conn domain
 		s.refuse(w, r, nil, err)
 		return
 	}
-	noStore(w)
+	NoStore(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sign-in works</title></head>
 <body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem"><h1>Sign-in works</h1>
