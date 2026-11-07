@@ -291,6 +291,7 @@ object up and checks the permission on the object's project.
 | | `GET /api/v1/me`, `PUT /api/v1/session/organization`, `DELETE /api/v1/sessions`, `GET /api/v1/sessions`, `DELETE /api/v1/sessions/{session}`, `GET /api/v1/identities`, `POST /api/v1/cli/authorize` | signed in; `DELETE /sessions` and the last four work on the calling person's own records and need a browser session (`403` for a token of any scope), and `cli/authorize` needs one too |
 | | `POST /api/v1/cli/token` | public: a code from `cli/authorize` and its PKCE verifier |
 | | `POST /api/v1/auth/discover` | public |
+| | `POST /auth/setup` | public: the token of a setup link is the credential, and every token that does not work gets the same `404` |
 | `onboard_project` | `POST /api/v1/projects` | `project.create` |
 | `list_projects` | `GET /api/v1/projects` | `project.read` |
 | `get_project` | `GET /api/v1/projects/{project...}` | `project.read` |
@@ -421,7 +422,7 @@ decided from what `Get` returns ([tracker.md](tracker.md)).
 **The CLI** reaches the server through `/api/v1`, so a remote command needs
 what its route needs. The server-side commands (`forecrew migrate`,
 `config`, `token create|list|revoke`, `worker add|move|revoke` and T52's
-break-glass `user`, `org` and `session` commands) work on the database
+break-glass `user`, `org` and `session` commands, and `setup-link`) work on the database
 directly with the operator's server access and no permission; they are
 audited as `user:<operator>`.
 

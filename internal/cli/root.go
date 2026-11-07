@@ -28,7 +28,7 @@ func NewRootCommand(version string, env Env) *cobra.Command {
 	cfg.Short = "Work with forecrew.yaml and the configuration resources"
 	cfg.AddCommand(r.configCommands()...)
 	root.AddCommand(newMigrateCommand(env), cfg, newTokenCommand(env), newWorkerAdminCommand(env),
-		newUserCommand(env), newOrgCommand(env, r), newSessionCommand(env))
+		newUserCommand(env), newOrgCommand(env, r), newSessionCommand(env), newSetupLinkCommand(env))
 	root.AddCommand(r.commands()...)
 	root.AddCommand(r.assistantCommand())
 	return root

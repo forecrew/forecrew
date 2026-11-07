@@ -259,6 +259,7 @@ SHA-256 only (conventions.md, IDs and refs):
 | `fcm_` | personal and service account tokens (and legacy MCP tokens) |
 | `fcs_` | session cookie |
 | `fci_` | invitation link |
+| `fcu_` | setup link of a server's first Owner (Recovery) |
 | `fco_` | OAuth authorization code, `fca_` access token, `fcr_` refresh token |
 | `fcscim_` | SCIM token |
 
@@ -269,8 +270,29 @@ login, which can be renamed and then taken by someone else) are people who
 may open any organization's settings to recover access when its identity
 provider is down; their `instance_admin` flag follows config at sign-in. A
 server-side break-glass CLI (T52: `forecrew user add`, `forecrew org create`,
-`forecrew user disable`, `forecrew session revoke`) works on the database
-directly. Every such use is audited.
+`forecrew user disable`, `forecrew session revoke`; T67: `forecrew setup-link`)
+works on the database directly. Every such use is audited.
+
+**Setup link.** `forecrew setup-link [--org default] [--ttl 1h]` prints a link
+that makes the first Owner of an organization, in place of the first
+`forecrew user add`. It works once, lasts at most 24 hours (1 hour by default)
+and is stored as its SHA-256 only (`setup_links`). The token is in the URL
+fragment (`/setup-link#fcu_...`), so no server log or Referer sees it; the setup
+page posts it to `POST /auth/setup`, which answers the organization's name
+and keeps the token in the short-lived `fc_setup` cookie until the sign-in.
+Whoever then signs in through an instance connection becomes the first Owner of
+that organization (the email is verified only when the provider proves it), and
+the link is spent in the same transaction; an organization's own connection never
+opens another organization's link. A link only ever makes the first Owner: the
+CLI refuses to create one for an organization that has an Owner or an active
+member, and the sign-in locks the organization's row and checks again, so a
+second link, an invitation or `forecrew user add` that got there first leaves the
+link refused (`setup_link_invalid`) and nothing changed, and a member who signs
+in with a link's cookie is not promoted. Joining an organization takes the same
+lock, one join at a time. The token is never logged, and the audit
+log holds the link's ID (`setup_link.created`, `setup_link.used`), not the
+token. `POST /auth/setup` takes only `application/json` (`415` otherwise), so a
+form of another site cannot plant the cookie. Later Owners come in by invitation.
 
 ## Open core and enterprise
 

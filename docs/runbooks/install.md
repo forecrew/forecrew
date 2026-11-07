@@ -205,20 +205,27 @@ until they all use the store.
 
 ### First owner and sign-in
 
-Add the first owner on the server, by email or GitHub login. The organization
-created at install has the slug `default`:
+Make the first owner with a one-time setup link. The organization created at
+install has the slug `default`:
 
 ```sh
-docker compose exec forecrewd forecrew user add ana@example.com --org default --role owner
+docker compose exec forecrewd forecrew setup-link --org default --config /etc/forecrew/forecrew.yaml
 ```
 
-**Warning:** an email given to `forecrew user add` is treated as verified, on
-your word. The first person to sign in with that address, through any instance
-connection that calls it verified, becomes this user with this role. Check the
-address before you run the command, and do not add one you do not control.
+It prints a link such as `https://forecrew.example.com/setup-link#fcu_...`. Open it in
+a browser and sign in with the account that should own the server: that person
+becomes the Owner of `default`. The link works once and stops working after an
+hour (`--ttl` sets up to 24 hours); if it expires or someone else uses it
+first, run the command again. A link only makes the first owner: once the
+organization has an owner or an active member the command refuses, and a link
+made earlier stops working. Add more people by invitation. Anyone who holds the link can become the owner, so
+open it yourself and do not paste it into a chat. Its secret is in the part after
+`#`, which browsers do not send to the server, so no log of forecrewd or of a
+proxy in front of it holds it; the server keeps only its hash, and the audit log
+records that a link was made and used, not the link.
 
-A GitHub login is turned into its stable user ID through GitHub's API, and needs
-the GitHub connection stored (start forecrewd once first).
+The page needs a sign-in connection (GitHub, Google, Microsoft or OIDC, above).
+To add an owner by email or GitHub login instead, see Recovery.
 
 Open `https://forecrew.example.com/`, and sign in. From there people join through
 invitations (`forecrew invitations create bea@example.com --role member`, or the
@@ -234,10 +241,18 @@ These work on the database with shell access to the server, are audited as
 `user:<operator>`, and need no sign-in:
 
 ```sh
-forecrew org create "Acme Labs"                       # then forecrew user add ... --org acme-labs
+forecrew org create "Acme Labs"                       # then forecrew setup-link --org acme-labs
+forecrew user add ana@example.com --org default --role owner
 forecrew user disable ana@example.com                 # sessions and tokens stop at once
 forecrew session revoke --user ana@example.com
 ```
+
+**Warning:** an email given to `forecrew user add` is treated as verified, on
+your word. The first person to sign in with that address, through any instance
+connection that calls it verified, becomes this user with this role. Check the
+address before you run the command, and do not add one you do not control. A
+GitHub login is turned into its stable user ID through GitHub's API, and needs
+the GitHub connection stored (start forecrewd once first).
 
 People in `auth.instance_admins` (verified emails or `github:<user ID>`) may sign
 in through an instance connection without a membership and switch to any

@@ -394,7 +394,7 @@ func TestSetupLinkTTLRange(t *testing.T) {
 			t.Errorf("ttl %s was accepted", ttl)
 		}
 	}
-	if got := auth.SetupURL("https://forecrew.example.com/", "fcu_x"); got != "https://forecrew.example.com/setup#fcu_x" {
+	if got := auth.SetupURL("https://forecrew.example.com/", "fcu_x"); got != "https://forecrew.example.com/setup-link#fcu_x" {
 		t.Errorf("url = %s", got)
 	}
 }

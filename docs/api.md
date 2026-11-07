@@ -40,8 +40,10 @@ OAuth access tokens (`fca_...`, docs/mcp.md) are for `/mcp` and get `401` here.
   setup link `forecrew setup-link` printed (in the part of the link after `#`),
   and answers `{"organization": "<name>"}` with the `HttpOnly` cookie `fc_setup`
   (15 minutes, path `/auth/`) that the next sign-in spends to make its person an
-  Owner of that organization. A token that is wrong, expired or used gets the same
-  `404` with `{"error": "..."}`. It does not use the link up: only the sign-in does.
+  first Owner of that organization. A token that is wrong, expired or used, or a
+  link of an organization that has an Owner or members already, gets the same
+  `404` with `{"error": "..."}` (and drops the cookie). It does not use the link up:
+  only the sign-in does. A body that is not `application/json` gets `415`.
 - A sign-in resolves to a user by identity, then by verified email (only
   through an instance connection or an organization's connection for a domain
   it verified), then by the invitation of the link. Anyone else is refused.
