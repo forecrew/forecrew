@@ -461,10 +461,14 @@ the thousandth and cost to the millionth, as the columns keep them. An
 unassigned machine has no record. `UsageRepo.Create` refuses a second record
 for a machine, so metering can be retried.
 
-The record is written in the transaction that moves the machine to
-`destroyed`, so a machine never ends without one and never gets two; the
-`machine.destroyed` audit entry carries its `minutes` and `cost`. Once an hour
-the controller also meters any destroyed machine left without a record
+The record is written in the transaction that ends the machine: the one that
+moves it to `failed` or, if it never failed, to `destroyed`. A failed machine is
+billed to its failure (`fleet.MeterEnd`), also when nothing ever reports it gone,
+as when its location is revoked, and its later destruction writes nothing more.
+So a machine never ends without a record and never gets two; the
+`machine.failed` or `machine.destroyed` audit entry carries its `minutes` and
+`cost`. Once an hour the controller also meters any ended machine (failed or
+destroyed) left without a record
 (`UsageRepo.Unmetered`), with a `machine.metered` audit entry, so a record that
 was missed is late, never lost and never silent. Budgets and quotas count the
 month the same way (`MeterStart`). `fleet_usage` (`GET /api/v1/usage`, `forecrew

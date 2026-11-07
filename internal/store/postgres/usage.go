@@ -74,9 +74,9 @@ func (r usageRepo) SumByProvider(ctx context.Context, providerID uuid.UUID, from
 }
 
 func (r usageRepo) Unmetered(ctx context.Context, since time.Time, limit int) ([]domain.Machine, error) {
-	w := &where{conds: []string{"state = 'destroyed'", "account_id IS NOT NULL", "NOT EXISTS (SELECT 1 FROM usage_records u WHERE u.machine_id = machines.id)"}}
+	w := &where{conds: []string{"state IN ('destroyed','failed')", "account_id IS NOT NULL", "NOT EXISTS (SELECT 1 FROM usage_records u WHERE u.machine_id = machines.id)"}}
 	if !since.IsZero() {
-		w.and("destroyed_at >= ?", since.UTC())
+		w.and("COALESCE(destroyed_at, updated_at) >= ?", since.UTC())
 	}
-	return many(ctx, r.db, scanMachine, `SELECT `+machineCols+` FROM machines`+w.sql("destroyed_at, id", limit), w.args...)
+	return many(ctx, r.db, scanMachine, `SELECT `+machineCols+` FROM machines`+w.sql("COALESCE(destroyed_at, updated_at), id", limit), w.args...)
 }
