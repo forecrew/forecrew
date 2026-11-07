@@ -21,9 +21,9 @@ func TestLoadConfig(t *testing.T) {
 	if c, err = LoadConfig(path); err != nil || c.StateDir != "/srv/vm" || c.Subnet != "10.200.0.0/20" || len(c.GPUs) != 1 || c.UIDBase != 900000 {
 		t.Errorf("config = %+v, %v", c, err)
 	}
-	_ = os.WriteFile(path, []byte("state_dir: rel\nsubnet: 10.0.0.0/30\ndns: x\nuid_base: 5\nimage_cache_days: 0\n"), 0o600)
+	_ = os.WriteFile(path, []byte("state_dir: rel\nsubnet: 10.0.0.0/30\ndns: x\nuid_base: 5\nimage_cache_days: 0\negress: all\n"), 0o600)
 	_, err = LoadConfig(path)
-	for _, want := range []string{"state_dir", "subnet", "dns", "uid_base", "image_cache_days"} {
+	for _, want := range []string{"state_dir", "subnet", "dns", "uid_base", "image_cache_days", "egress"} {
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("no %q in %v", want, err)
 		}
