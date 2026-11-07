@@ -156,11 +156,11 @@ func (b *toolboxRun) configure() error {
 		b.secrets[runtime.JobMCPTokenEnv] = true
 	}
 	// The endpoint of an organization's connection gets only what spec.Env holds.
-	if e := r.spec.Endpoint; e == nil || !e.Organization {
+	if !r.organizationModel() {
 		if k := runtime.KeyEnv(r.spec.Runtime); k != "" {
 			b.secrets[k] = true // the worker's own key, when the spec has none
 		}
-		if e != nil && e.KeyEnv != "" {
+		if e := r.spec.Endpoint; e != nil && e.KeyEnv != "" {
 			b.secrets[e.KeyEnv] = true // the key of a custom endpoint
 		}
 	}

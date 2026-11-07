@@ -278,9 +278,9 @@ type JobRepo interface {
 	// QueuedClasses returns the distinct classes of the account's queued
 	// agent jobs: what internal/models decides on.
 	QueuedClasses(ctx context.Context, accountID uuid.UUID) ([]JobClass, error)
-	// Retarget gives every queued agent job of class c the runtime and the
-	// model, in its row and in its spec.
-	Retarget(ctx context.Context, accountID uuid.UUID, c JobClass, runtime, model string) error
+	// Retarget gives every queued agent job of class c the runtime, model
+	// and organization marker of to, in its row and in its spec.
+	Retarget(ctx context.Context, accountID uuid.UUID, c, to JobClass) error
 	// ExtendLease moves the lease expiry to now+leaseFor. It returns
 	// ErrLeaseLost unless the job is running under workerID; the returned job
 	// is current either way when it exists (Status canceled means stop).
@@ -326,6 +326,8 @@ type JobClass struct {
 	Runtime   string
 	Pinned    string // JobSpec.PinnedRuntime
 	Model     string // JobSpec.Model
+	// Organization is JobSpec.OrganizationModel.
+	Organization bool
 }
 
 // JobEventRepo stores job logs.

@@ -90,7 +90,7 @@ func (r jobRepo) LeaseNext(_ context.Context, accountID, workerID uuid.UUID, lab
 }
 
 func classOf(j domain.Job) store.JobClass {
-	return store.JobClass{ProjectID: j.ProjectID, Pool: j.Pool, Role: j.Role, Runtime: j.Runtime, Pinned: j.Spec.PinnedRuntime, Model: j.Spec.Model}
+	return store.JobClass{ProjectID: j.ProjectID, Pool: j.Pool, Role: j.Role, Runtime: j.Runtime, Pinned: j.Spec.PinnedRuntime, Model: j.Spec.Model, Organization: j.Spec.OrganizationModel}
 }
 
 func queuedAgent(accountID uuid.UUID, j domain.Job) bool {
@@ -109,11 +109,11 @@ func (r jobRepo) QueuedClasses(_ context.Context, accountID uuid.UUID) ([]store.
 	})
 }
 
-func (r jobRepo) Retarget(_ context.Context, accountID uuid.UUID, c store.JobClass, runtime, model string) error {
+func (r jobRepo) Retarget(_ context.Context, accountID uuid.UUID, c, to store.JobClass) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
 		for i := range d.jobs.rows {
 			if j := &d.jobs.rows[i]; queuedAgent(accountID, *j) && classOf(*j) == c {
-				j.Runtime, j.Spec.Runtime, j.Spec.Model, j.UpdatedAt = runtime, runtime, model, now
+				j.Runtime, j.Spec.Runtime, j.Spec.Model, j.Spec.OrganizationModel, j.UpdatedAt = to.Runtime, to.Runtime, to.Model, to.Organization, now
 			}
 		}
 		return nil

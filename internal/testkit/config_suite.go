@@ -3,6 +3,7 @@ package testkit
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 	"uuid"
@@ -69,8 +70,15 @@ func configModels(t *testing.T, st store.Store, accountID, projectID uuid.UUID) 
 	classes, err := st.Jobs().QueuedClasses(ctx, accountID)
 	must(err)
 	for _, cl := range classes {
-		must(st.Jobs().Retarget(ctx, accountID, cl, domain.RuntimeNone, "m"))
-		must(st.Jobs().Retarget(ctx, accountID, store.JobClass{ProjectID: cl.ProjectID, Pool: cl.Pool, Role: cl.Role, Runtime: domain.RuntimeNone, Pinned: cl.Pinned, Model: "m"}, cl.Runtime, cl.Model))
+		moved := cl
+		moved.Runtime, moved.Model, moved.Organization = domain.RuntimeNone, "m", !cl.Organization
+		must(st.Jobs().Retarget(ctx, accountID, cl, moved))
+		now, err := st.Jobs().QueuedClasses(ctx, accountID)
+		must(err)
+		if !slices.Contains(now, moved) || slices.Contains(now, cl) {
+			t.Fatalf("classes = %+v, want %+v", now, moved)
+		}
+		must(st.Jobs().Retarget(ctx, accountID, moved, cl))
 	}
 	again, err := st.Jobs().QueuedClasses(ctx, accountID)
 	must(err)

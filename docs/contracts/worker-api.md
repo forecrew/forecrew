@@ -104,7 +104,8 @@ Request:
 {
   "labels": ["go", "node", "linux", "runtime:claude-code"],
   "free_slots": 1,
-  "version": "v0.1.0"
+  "version": "v0.1.0",
+  "capabilities": ["organization_models"]
 }
 ```
 
@@ -113,6 +114,7 @@ Request:
 | `labels` | string[] | Every label of the worker, including the os and runtime labels it adds. Normalized (trimmed, lowercased, deduplicated) by the server. |
 | `free_slots` | int ≥ 0 | `max_jobs` minus running jobs. |
 | `version` | string | forecrew-worker version. |
+| `capabilities` | string[] | What the worker can do beyond its labels; absent from an older worker. `organization_models`: it gives an agent on an organization's model connection nothing of its own (job-spec.md, `organization_model`). forecrewd then adds the label `models:organization`, which jobs on such a connection require; a worker never sets that label itself, and the server drops it from `labels`. |
 
 Behavior:
 
@@ -120,7 +122,8 @@ Behavior:
   no free slot stays online through its heartbeats and does not need to poll.
 - Otherwise forecrewd leases at most one job: the oldest queued job of the
   account **in the worker's pool** whose `needs` (plus `runtime:<runtime>`
-  for agent jobs) are all among `labels` (case-insensitive),
+  for agent jobs, and `models:organization` for one on an organization's model
+  connection) are all among `labels` (case-insensitive),
   `Jobs.LeaseNext`. If none is available it waits up to
   30 s for one and then answers `204`. The worker polls again right away; its
   HTTP client timeout must be at least 45 s.
