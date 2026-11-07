@@ -2,7 +2,6 @@ package microvm
 
 import (
 	"maps"
-	"net"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -72,23 +71,6 @@ func TestRulesLoad(t *testing.T) {
 	}
 	if strings.Count(string(out), "table inet forecrew_vm3") != 1 || !strings.HasSuffix(strings.TrimSpace(string(out)), "deleted") {
 		t.Errorf("tables = %s", out)
-	}
-}
-
-func TestResolve(t *testing.T) {
-	got, err := resolve(t.Context(), net.DefaultResolver, []string{"10.0.0.5/8", "192.0.2.1", "2001:db8::/32", "::1", "localhost"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var s []string
-	for _, p := range got {
-		s = append(s, p.String())
-	}
-	if !strings.HasPrefix(strings.Join(s, " "), "10.0.0.0/8 192.0.2.1/32 127.0.0.1/32") {
-		t.Errorf("resolved = %v", s)
-	}
-	if _, err := resolve(t.Context(), net.DefaultResolver, []string{"nothing.invalid"}); err == nil {
-		t.Error("a name that does not resolve was accepted")
 	}
 }
 

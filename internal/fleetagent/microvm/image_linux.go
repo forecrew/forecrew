@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/fleetagent"
 	"github.com/forecrew/forecrew/internal/images"
 )
 
@@ -106,18 +107,7 @@ func (p *Provider) verifyFiles(ctx context.Context, img domain.Image, root, kern
 }
 
 func (p *Provider) trustedKeys() ([]ed25519Key, error) {
-	raw, err := os.ReadFile(p.cfg.TrustedKeysFile)
-	if err != nil {
-		return nil, fmt.Errorf("trusted image keys: %w", err)
-	}
-	keys, err := images.ParsePublicKeys(string(raw))
-	if err != nil {
-		return nil, fmt.Errorf("trusted image keys: %w", err)
-	}
-	if len(keys) == 0 {
-		return nil, fmt.Errorf("trusted image keys: %s lists none", p.cfg.TrustedKeysFile)
-	}
-	return keys, nil
+	return fleetagent.LoadTrustedKeys(p.cfg.TrustedKeysFile)
 }
 
 // fetch makes path the file of digest unless it is there. Only http and https
