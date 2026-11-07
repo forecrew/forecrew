@@ -10,24 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
-)
 
-func TestPublic(t *testing.T) {
-	for addr, want := range map[string]bool{
-		"93.184.216.34": true, "2606:4700::1111": true,
-		"127.0.0.1": false, "10.1.2.3": false, "172.16.0.1": false, "192.168.1.1": false, "169.254.169.254": false,
-		"0.0.0.0": false, "100.64.0.1": false, "198.18.0.1": false, "224.0.0.1": false, "255.255.255.255": false,
-		"::1": false, "::": false, "fe80::1": false, "fc00::1": false, "ff02::1": false,
-		"::ffff:127.0.0.1": false, "::ffff:10.0.0.1": false, "64:ff9b::a00:1": false, "2002:a00:1::": false,
-	} {
-		if got := Public(netip.MustParseAddr(addr)); got != want {
-			t.Errorf("Public(%s) = %v, want %v", addr, got, want)
-		}
-	}
-	if Public(netip.Addr{}) {
-		t.Error("the zero address is public")
-	}
-}
+	"github.com/forecrew/forecrew/internal/netguard"
+)
 
 // fakeWeb answers from a map of URL to response, with no network.
 type fakeWeb map[string]*http.Response
@@ -105,11 +90,11 @@ func TestFetch(t *testing.T) {
 			p, err := f.Fetch(t.Context(), tt.url)
 			switch {
 			case tt.refused:
-				if !errors.Is(err, ErrRefused) {
-					t.Fatalf("err = %v, want ErrRefused", err)
+				if !errors.Is(err, netguard.ErrRefused) {
+					t.Fatalf("err = %v, want netguard.ErrRefused", err)
 				}
 			case tt.fails != "":
-				if err == nil || errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), tt.fails) {
+				if err == nil || errors.Is(err, netguard.ErrRefused) || !strings.Contains(err.Error(), tt.fails) {
 					t.Fatalf("err = %v, want %q", err, tt.fails)
 				}
 			case err != nil || string(p.Body) != tt.body || p.ContentType != tt.kind:
@@ -132,7 +117,7 @@ func TestFetchGuardsTheConnection(t *testing.T) {
 	host := strings.TrimPrefix(srv.URL, "http://")
 	_, port, _ := strings.Cut(host, ":")
 	_, err := f.Fetch(t.Context(), "http://localhost:"+port+"/")
-	if !errors.Is(err, ErrRefused) || hit {
+	if !errors.Is(err, netguard.ErrRefused) || hit {
 		t.Fatalf("err = %v, hit = %v", err, hit)
 	}
 }
@@ -150,40 +135,3 @@ func TestFetchTimeout(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
-
-func TestGuardDial(t *testing.T) {
-	for addr, ok := range map[string]bool{"10.0.0.1:443": false, "169.254.169.254:80": false, "[::1]:443": false, "93.184.215.14:443": true, "nonsense": false} {
-		err := GuardDial("tcp", addr, nil)
-		if (err == nil) != ok || (!ok && !errors.Is(err, ErrRefused)) {
-			t.Errorf("%s: %v", addr, err)
-		}
-	}
-}
-
-func TestAllowHost(t *testing.T) {
-	lookup := func(_ context.Context, host string) ([]netip.Addr, error) {
-		switch host {
-		case "public.test":
-			return []netip.Addr{netip.MustParseAddr("93.184.215.14")}, nil
-		case "mixed.test":
-			return []netip.Addr{netip.MustParseAddr("93.184.215.14"), netip.MustParseAddr("10.0.0.5")}, nil
-		case "empty.test":
-			return nil, nil
-		}
-		return nil, errors.New("no such host")
-	}
-	ctx := t.Context()
-	if err := AllowHost(ctx, lookup, "public.test"); err != nil {
-		t.Errorf("public: %v", err)
-	}
-	for _, host := range []string{"mixed.test", "127.0.0.1", "::1"} {
-		if err := AllowHost(ctx, lookup, host); !errors.Is(err, ErrRefused) {
-			t.Errorf("%s: %v", host, err)
-		}
-	}
-	for _, host := range []string{"empty.test", "missing.test"} {
-		if err := AllowHost(ctx, lookup, host); err == nil || errors.Is(err, ErrRefused) {
-			t.Errorf("%s: %v", host, err)
-		}
-	}
-}

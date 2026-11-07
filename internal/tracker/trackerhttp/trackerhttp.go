@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/forecrew/forecrew/internal/councils"
+	"github.com/forecrew/forecrew/internal/netguard"
 	"github.com/forecrew/forecrew/internal/tracker"
 )
 
@@ -32,8 +32,9 @@ const maxWait = 24 * time.Hour
 const DefaultTimeout = 30 * time.Second
 
 // ErrRefused means the address is private or loopback on a server that does
-// not allow those, or a redirect leaves the server; it is the councils guard's.
-var ErrRefused = councils.ErrRefused
+// not allow those, link-local or metadata anywhere, or a redirect leaves the
+// server; it is netguard's.
+var ErrRefused = netguard.ErrRefused
 
 // Options say how a client reaches its server.
 type Options struct {
@@ -96,8 +97,10 @@ type Guarded struct {
 
 // RoundTrip implements http.RoundTripper.
 func (g Guarded) RoundTrip(req *http.Request) (*http.Response, error) {
+	// With private addresses allowed, the dialer still refuses link-local
+	// ones (netguard.Dial).
 	if !g.Options.PrivateAddresses {
-		if err := councils.AllowHost(req.Context(), g.Options.Lookup, req.URL.Hostname()); err != nil {
+		if err := netguard.AllowHost(req.Context(), g.Options.Lookup, req.URL.Hostname()); err != nil {
 			if errors.Is(err, ErrRefused) {
 				return nil, fmt.Errorf("%w; this server does not reach private addresses (trackers.private_addresses)", err)
 			}
@@ -125,10 +128,9 @@ func NewClient(o Options) (*http.Client, error) {
 		return nil, fmt.Errorf("ca_bundle holds no PEM certificate: %w", tracker.ErrInvalid)
 	}
 	tlsConf := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	if !o.PrivateAddresses {
-		dialer.Control = councils.GuardDial
-	}
+	// Link-local addresses, where cloud metadata lives, stay out of reach
+	// even where private ones are allowed.
+	dialer := &net.Dialer{Timeout: 10 * time.Second, Control: netguard.Dial(o.PrivateAddresses)}
 	dial := dialer.DialContext
 	if o.Dial != nil {
 		dial = o.Dial

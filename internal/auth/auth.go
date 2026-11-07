@@ -24,8 +24,8 @@ import (
 
 	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/config"
-	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/netguard"
 	"github.com/forecrew/forecrew/internal/secrets"
 	"github.com/forecrew/forecrew/internal/store"
 )
@@ -134,7 +134,7 @@ func New(cfg Config) *Service {
 		cfg.HTTP = &http.Client{Timeout: providerTimeout}
 	}
 	if cfg.OrgHTTP == nil {
-		cfg.OrgHTTP = &http.Client{Timeout: providerTimeout, Transport: councils.PublicTransport()}
+		cfg.OrgHTTP = &http.Client{Timeout: providerTimeout, Transport: netguard.PublicTransport()}
 	}
 	if cfg.GitHubURL == "" {
 		cfg.GitHubURL = "https://github.com"

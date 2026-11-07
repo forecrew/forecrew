@@ -138,3 +138,29 @@ func TestSleep(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+// TestPrivateAddressesStillRefuseMetadata: allowing private addresses never
+// opens link-local ones, where cloud metadata lives.
+func TestPrivateAddressesStillRefuseMetadata(t *testing.T) {
+	c, err := NewClient(Options{PrivateAddresses: true}.WithDefaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Get("http://169.254.169.254/latest/meta-data/") //nolint:noctx // refused before any request
+	if !errors.Is(err, ErrRefused) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// TestPrivateAddressesStillRefuseAlibabaMetadata: the metadata address that
+// is not link-local is refused too.
+func TestPrivateAddressesStillRefuseAlibabaMetadata(t *testing.T) {
+	c, err := NewClient(Options{PrivateAddresses: true}.WithDefaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Get("http://100.100.100.200/latest/meta-data/") //nolint:noctx // refused before any request
+	if !errors.Is(err, ErrRefused) {
+		t.Fatalf("err = %v", err)
+	}
+}
