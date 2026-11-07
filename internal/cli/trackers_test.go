@@ -14,7 +14,8 @@ import (
 func TestTrackerCommands(t *testing.T) {
 	e := newRemoteEnv(t)
 	conn := domain.TrackerConnection{Name: "gh", Kind: "github", Triggers: domain.TrackerTriggers{Label: "forecrew"}}
-	route := mcp.TrackerRouteInfo{Position: 1, Match: domain.TrackerMatch{Labels: []string{"x"}}, Connection: "gh", Project: "app"}
+	route := mcp.TrackerRouteInfo{Position: 1, Match: domain.TrackerMatch{Labels: []string{"x"}}, Connection: "gh", Project: "app",
+		Warning: "no transition \x1b[2Jreaches Done"}
 	person := domain.TrackerIdentity{ExternalID: "11", ExternalName: "ann"}
 	e.svc.ListTrackerConnectionsFunc = func(context.Context, domain.Actor, any) ([]domain.TrackerConnection, error) {
 		return []domain.TrackerConnection{conn}, nil
@@ -60,10 +61,10 @@ func TestTrackerCommands(t *testing.T) {
 	}
 	e.check(t, []string{"tracker", "test", "gh"}, "trusted", mcp.ToolTestTrackerConnection, mcp.TrackerConnectionRefInput{Connection: "gh"})
 	e.svc.TestTrackerConnectionFunc = func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (mcp.TrackerConnectionTest, error) {
-		return mcp.TrackerConnectionTest{Connection: "gh", Checks: []mcp.TrackerCheck{{Name: "login", Detail: "401"}}}, nil
+		return mcp.TrackerConnectionTest{Connection: "gh", Checks: []mcp.TrackerCheck{{Name: "login", Detail: "401 \x1b[31mred\x1b]0;title\x07"}}}, nil
 	}
-	if out, errOut, code := e.run(t, "tracker", "test", "gh"); code == 0 || !strings.Contains(out, "FAILED") || !strings.Contains(errOut, "failed its test") {
-		t.Errorf("a failed test: %d %s %s", code, out, errOut)
+	if out, errOut, code := e.run(t, "tracker", "test", "gh"); code == 0 || !strings.Contains(out, "FAILED") || !strings.Contains(errOut, "failed its test") || strings.ContainsAny(out, "\x1b\x07") {
+		t.Errorf("a failed test: %d %q %s", code, out, errOut)
 	}
 	e.check(t, []string{"tracker", "disconnect", "gh"}, "connection deleted", mcp.ToolDeleteTrackerConnection, mcp.TrackerConnectionRefInput{Connection: "gh"})
 	e.svc.DiscardTrackerWritesFunc = func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (mcp.DiscardedWrites, error) {
@@ -71,6 +72,9 @@ func TestTrackerCommands(t *testing.T) {
 	}
 	e.check(t, []string{"tracker", "discard-writes", "gh"}, "1 writes discarded", mcp.ToolDiscardTrackerWrites, mcp.TrackerConnectionRefInput{Connection: "gh"})
 	e.check(t, []string{"tracker", "routes", "--connection", "gh"}, "app", mcp.ToolListTrackerRoutes, mcp.TrackerConnectionFilterInput{Connection: "gh"})
+	if out, _, _ := e.run(t, "tracker", "routes"); !strings.Contains(out, "reaches Done") || strings.Contains(out, "\x1b") {
+		t.Errorf("routes = %q", out)
+	}
 	e.check(t, []string{"tracker", "route-add", "gh", "app", "--match-label", "x", "--state-map", "done=closed", "--goal-kind", "bug"}, "app", mcp.ToolCreateTrackerRoute,
 		mcp.CreateTrackerRouteInput{Connection: "gh", Project: "app", Match: domain.TrackerMatch{Labels: []string{"x"}}, GoalKind: domain.GoalBug, States: map[domain.TicketState]string{domain.TicketDone: "closed"}})
 	e.check(t, []string{"tracker", "route-rm", "r1"}, "route deleted", mcp.ToolDeleteTrackerRoute, mcp.TrackerRouteRefInput{Route: "r1"})

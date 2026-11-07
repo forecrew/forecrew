@@ -1252,7 +1252,8 @@ type CreateTrackerConnectionInput struct {
 type TrackerConnectionRefInput struct {
 	Connection string `json:"connection"` // name or UUID
 	// WrapUntrusted marks text that came from a tracker as untrusted data
-	// in the result of discard_tracker_writes; MCP sets it.
+	// in the results of discard_tracker_writes and test_tracker_connection;
+	// MCP sets it.
 	WrapUntrusted bool `json:"-"`
 }
 
@@ -1288,6 +1289,9 @@ type TrackerConnectionTest struct {
 // TrackerConnectionFilterInput narrows a list to one connection.
 type TrackerConnectionFilterInput struct {
 	Connection string `json:"connection,omitempty"` // name or UUID
+	// WrapUntrusted marks the tracker's words in route warnings, as in
+	// SearchKnowledgeInput.
+	WrapUntrusted bool `json:"-"`
 }
 
 // CreateTrackerRouteInput is the input of create_tracker_route.
