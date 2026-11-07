@@ -243,15 +243,13 @@ func (r modelConnectionRepo) List(_ context.Context, accountID uuid.UUID) ([]dom
 
 func (r modelConnectionRepo) Put(_ context.Context, c *domain.ModelConnection) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
-		row, err := d.modelConns.find(func(x domain.ModelConnection) bool { return x.AccountID == c.AccountID && x.Name == c.Name })
-		if err != nil {
-			c.ID = newID(c.ID)
-			c.CreatedAt, c.UpdatedAt = now, now
-			d.modelConns.insert(*c)
-			return nil
+		c.ID, c.CreatedAt, c.UpdatedAt = newID(c.ID), now, now
+		rows := d.modelConns.rows
+		if i := slices.IndexFunc(rows, func(x domain.ModelConnection) bool { return x.AccountID == c.AccountID && x.Name == c.Name }); i >= 0 {
+			c.ID, c.CreatedAt = rows[i].ID, rows[i].CreatedAt
+			d.modelConns.rows = slices.Delete(rows, i, i+1)
 		}
-		c.ID, c.CreatedAt, c.UpdatedAt = row.ID, row.CreatedAt, now
-		*row = *c
+		d.modelConns.insert(*c)
 		return nil
 	})
 }

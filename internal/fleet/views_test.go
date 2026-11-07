@@ -168,7 +168,7 @@ func TestMachineName(t *testing.T) {
 // heldModels holds every job of role "held" for want of a connection.
 type heldModels struct{ settled int }
 
-func (h *heldModels) Settle(ctx context.Context, accountID uuid.UUID) error {
+func (h *heldModels) Settle(context.Context, uuid.UUID) error {
 	h.settled++
 	return nil
 }

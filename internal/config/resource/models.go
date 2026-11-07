@@ -358,6 +358,14 @@ func modelAssignmentValidate(ctx context.Context, e *Env, _ *Resource, want Reso
 			return invalid("the organization does not let projects override their models (models.project_overrides)")
 		}
 	}
+	if err := checkAssignment(s); err != nil {
+		return err
+	}
+	return checkNoSecret(string(want.Spec))
+}
+
+// checkAssignment checks the tiers and roles of an assignment.
+func checkAssignment(s modelAssignmentSpec) error {
 	for tier, vendors := range s.Tiers {
 		if !config.Tier(tier).Valid() {
 			return invalid("tier %q must be fast, strong or best", tier)
@@ -376,7 +384,7 @@ func modelAssignmentValidate(ctx context.Context, e *Env, _ *Resource, want Reso
 			return invalid("roles.%s: connection is required", role)
 		}
 	}
-	return checkNoSecret(string(want.Spec))
+	return nil
 }
 
 func modelAssignmentApply(ctx context.Context, e *Env, old, want *Resource) error {
@@ -451,39 +459,55 @@ func modelWorldOf(ctx context.Context, e *Env) (*modelWorld, error) {
 // overlay puts the changes of a plan on w.
 func (w *modelWorld) overlay(ctx context.Context, e *Env, changes []domain.ConfigChange) error {
 	for _, c := range changes {
-		_, want := resources(c)
+		var err error
 		switch c.Kind {
 		case KindModelConnection:
-			if want == nil {
-				delete(w.state.Connections, c.Name)
-				continue
-			}
-			s, err := decode[modelConnectionSpec](want.Spec)
-			if err != nil {
-				return err
-			}
-			w.state.Connections[c.Name] = domain.ModelConnection{Name: c.Name, Vendor: s.Vendor, Adapter: s.Adapter, BaseURL: s.BaseURL, KeyEnv: s.KeyEnv, SecretRef: s.SecretRef, Enabled: s.Enabled}
+			err = w.overlayConnection(c)
 		case KindModelAssignment:
-			id, err := assignmentScope(ctx, e, c.Name)
-			if err != nil {
-				return err
-			}
-			var a domain.ModelAssignment
-			if want != nil {
-				s, err := decode[modelAssignmentSpec](want.Spec)
-				if err != nil {
-					return err
-				}
-				a = assignmentOf(s)
-			}
-			if id == uuid.Nil() {
-				w.state.Org = a
-			} else if want == nil {
-				delete(w.state.Projects, id)
-			} else {
-				w.state.Projects[id] = a
-			}
+			err = w.overlayAssignment(ctx, e, c)
 		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *modelWorld) overlayConnection(c domain.ConfigChange) error {
+	_, want := resources(c)
+	if want == nil {
+		delete(w.state.Connections, c.Name)
+		return nil
+	}
+	s, err := decode[modelConnectionSpec](want.Spec)
+	if err != nil {
+		return err
+	}
+	w.state.Connections[c.Name] = domain.ModelConnection{Name: c.Name, Vendor: s.Vendor, Adapter: s.Adapter, BaseURL: s.BaseURL, KeyEnv: s.KeyEnv, SecretRef: s.SecretRef, Enabled: s.Enabled}
+	return nil
+}
+
+func (w *modelWorld) overlayAssignment(ctx context.Context, e *Env, c domain.ConfigChange) error {
+	_, want := resources(c)
+	id, err := assignmentScope(ctx, e, c.Name)
+	if err != nil {
+		return err
+	}
+	var a domain.ModelAssignment
+	if want != nil {
+		s, err := decode[modelAssignmentSpec](want.Spec)
+		if err != nil {
+			return err
+		}
+		a = assignmentOf(s)
+	}
+	switch {
+	case id == uuid.Nil():
+		w.state.Org = a
+	case want == nil:
+		delete(w.state.Projects, id)
+	default:
+		w.state.Projects[id] = a
 	}
 	return nil
 }
