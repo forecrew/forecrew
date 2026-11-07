@@ -26,12 +26,13 @@ work_dir: /srv/forecrew
 max_jobs: 2
 image_prune_days: 3
 registry_auth: true
+auto_install_agents: false
 `
 	w, err := ParseWorker([]byte(y), workerEnv("fcw_token"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w.Name != "build-1" || w.WorkDir != "/srv/forecrew" || w.MaxJobs != 2 || w.ImagePruneDays != 3 || !w.RegistryAuth || w.Token != "fcw_token" || len(w.Labels) != 2 {
+	if w.Name != "build-1" || w.WorkDir != "/srv/forecrew" || w.MaxJobs != 2 || w.ImagePruneDays != 3 || !w.RegistryAuth || w.Token != "fcw_token" || len(w.Labels) != 2 || w.InstallsAgents() {
 		t.Fatalf("worker = %+v", w)
 	}
 }
@@ -42,7 +43,7 @@ func TestParseWorkerDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	host, _ := os.Hostname()
-	if w.MaxJobs != DefaultMaxJobs || w.ImagePruneDays != DefaultImagePruneDays || w.RegistryAuth || w.Name != host || !strings.HasSuffix(w.WorkDir, "forecrew-worker") {
+	if w.MaxJobs != DefaultMaxJobs || w.ImagePruneDays != DefaultImagePruneDays || w.RegistryAuth || !w.InstallsAgents() || w.Name != host || !strings.HasSuffix(w.WorkDir, "forecrew-worker") {
 		t.Fatalf("worker = %+v", w)
 	}
 }

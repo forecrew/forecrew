@@ -93,23 +93,50 @@ type Lease struct {
 // Poll asks for a job. It returns nil, nil when none is available (204). It
 // does not retry: the caller's poll loop backs off.
 func (c *Client) Poll(ctx context.Context, labels []string, freeSlots int, version string) (*Lease, error) {
+	lease, _, err := c.PollFor(ctx, PollRequest{Labels: labels, FreeSlots: freeSlots, Version: version})
+	return lease, err
+}
+
+// PollRequest is what a poll says of the worker.
+type PollRequest struct {
+	Labels    []string
+	FreeSlots int
+	Version   string
+	// Agents are the agent CLIs the worker has, and why an install failed.
+	Agents []domain.WorkerAgent
+	// Install says the worker installs a missing agent when asked.
+	Install bool
+}
+
+// InstallHeader is the header of a 204 poll answer that asks the worker to
+// install an agent: its value is an adapter name and nothing else.
+const InstallHeader = "Forecrew-Install-Agent"
+
+// PollFor asks for a job like Poll, and also answers the agent forecrewd
+// asks the worker to install ("" for none) when no job came.
+func (c *Client) PollFor(ctx context.Context, p PollRequest) (*Lease, string, error) {
+	capabilities := []string{domain.OrganizationModelCapability, domain.ModelCheckCapability}
+	if p.Install {
+		capabilities = append(capabilities, domain.AgentInstallCapability)
+	}
 	req := struct {
-		Labels       []string `json:"labels"`
-		FreeSlots    int      `json:"free_slots"`
-		Version      string   `json:"version"`
-		Capabilities []string `json:"capabilities"`
-	}{labels, freeSlots, version, []string{domain.OrganizationModelCapability, domain.ModelCheckCapability}}
+		Labels       []string             `json:"labels"`
+		FreeSlots    int                  `json:"free_slots"`
+		Version      string               `json:"version"`
+		Capabilities []string             `json:"capabilities"`
+		Agents       []domain.WorkerAgent `json:"agents,omitempty"`
+	}{p.Labels, p.FreeSlots, p.Version, capabilities, p.Agents}
 	var lease Lease
 	sent := time.Now()
-	status, err := c.once(ctx, "/worker/v1/poll", req, &lease)
+	status, header, err := c.send(ctx, "/worker/v1/poll", req, &lease)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if status == http.StatusNoContent {
-		return nil, nil
+		return nil, header.Get(InstallHeader), nil
 	}
 	lease.SentAt = sent
-	return &lease, nil
+	return &lease, "", nil
 }
 
 // bootstrapRetry is how long Bootstrap waits when told to wait, the
@@ -311,34 +338,40 @@ func sleep(ctx context.Context, d time.Duration) error { return retry.Sleep(ctx,
 // once posts in as JSON to path and decodes a 200 answer into out (when
 // non-nil). It returns the status code of a successful call.
 func (c *Client) once(ctx context.Context, path string, in, out any) (int, error) {
+	status, _, err := c.send(ctx, path, in, out)
+	return status, err
+}
+
+// send is once with the headers of the answer.
+func (c *Client) send(ctx context.Context, path string, in, out any) (int, http.Header, error) {
 	body, err := json.Marshal(in)
 	if err != nil {
-		return 0, fmt.Errorf("encode request: %w", err)
+		return 0, nil, fmt.Errorf("encode request: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, bytes.NewReader(body))
 	if err != nil {
-		return 0, fmt.Errorf("build request: %w", err)
+		return 0, nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("post %s: %w", path, redactURLError(err))
+		return 0, nil, fmt.Errorf("post %s: %w", path, redactURLError(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return 0, fmt.Errorf("read %s answer: %w", path, err)
+		return 0, nil, fmt.Errorf("read %s answer: %w", path, err)
 	}
 	if resp.StatusCode/100 != 2 {
-		return 0, answerError(resp.StatusCode, data)
+		return 0, nil, answerError(resp.StatusCode, data)
 	}
 	if resp.StatusCode == http.StatusOK && out != nil {
 		if err := json.Unmarshal(data, out); err != nil {
-			return 0, fmt.Errorf("decode %s answer: %w", path, err)
+			return 0, nil, fmt.Errorf("decode %s answer: %w", path, err)
 		}
 	}
-	return resp.StatusCode, nil
+	return resp.StatusCode, resp.Header, nil
 }
 
 // redactURLError drops the request from a *url.Error, keeping the cause.

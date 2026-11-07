@@ -25,6 +25,7 @@ const usage = `usage: forecrew-worker <command> [flags]
 commands:
   run      poll forecrewd for jobs and run them (--config worker.yaml)
   check    print the detected labels and verify git, the runtime CLIs and the server (--config worker.yaml)
+  status   list the agent CLIs and where each comes from: image, installed or system (--config worker.yaml)
   version  print the version
   guest-init  be PID 1 of a microVM (the kernel starts it; docs/images.md)
 `
@@ -52,7 +53,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, environ [
 		return 0
 	case "guest-init":
 		return guestInit(stderr, version)
-	case "run", "check":
+	case "run", "check", "status":
 		return runWithConfig(ctx, cmd, rest, stdout, stderr, environ, version)
 	case "help", "-h", "--help", "-help":
 		fmt.Fprint(stdout, usage)
@@ -80,6 +81,10 @@ func runWithConfig(ctx context.Context, cmd string, args []string, stdout, stder
 	if err != nil {
 		logger.Error("load config", "error", err)
 		return 1
+	}
+	if cmd == "status" {
+		worker.Status(cfg, environ, stdout)
+		return 0
 	}
 	if cmd == "check" {
 		if err := worker.Check(ctx, cfg, environ, version, stdout); err != nil {

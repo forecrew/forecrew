@@ -30,6 +30,54 @@ type Worker struct {
 	LastSeenAt time.Time `json:"last_seen_at,omitzero"`
 	RevokedAt  time.Time `json:"revoked_at,omitzero"`
 	CreatedAt  time.Time `json:"created_at"`
+	// Agents are the agent CLIs the worker reported at its last poll, with
+	// where each came from and why an install failed; nil from a worker that
+	// reports none.
+	Agents []WorkerAgent `json:"agents,omitempty"`
+}
+
+// AgentInstallCapability is what a worker that installs a missing agent CLI
+// when asked says when it polls (worker-api.md, poll). forecrewd then gives
+// it AgentInstallLabel, and asks only such workers.
+const AgentInstallCapability = "agent_install"
+
+// AgentInstallLabel marks a worker that installs agent CLIs when asked; a
+// worker never sets it itself.
+const AgentInstallLabel = "agents:install"
+
+// Where an agent CLI of a worker came from.
+const (
+	AgentSourceImage     = "image"     // the image of a fleet machine
+	AgentSourceInstalled = "installed" // installed by the worker from its release's manifest
+	AgentSourceSystem    = "system"    // found on the machine's PATH
+)
+
+// Why a worker could not install an agent CLI. The worker reports only the
+// code; the sentence people read is forecrewd's.
+const (
+	AgentInstallUnsupported = "unsupported" // the manifest has no standalone binary for the machine's system
+	AgentInstallDownload    = "download"    // the download failed
+	AgentInstallChecksum    = "checksum"    // the download did not match its SHA-256 and was deleted
+	AgentInstallArchive     = "archive"     // the archive did not hold the binary
+	AgentInstallWrite       = "write"       // the worker could not write its own directory
+)
+
+// WorkerAgent is one agent CLI as a worker reports it: Source is empty while
+// it is missing, and Error holds the code of a failed install.
+type WorkerAgent struct {
+	Adapter string `json:"adapter"`
+	Source  string `json:"source,omitempty"`
+	Version string `json:"version,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// Agent returns what the worker reported of adapter.
+func (w Worker) Agent(adapter string) (WorkerAgent, bool) {
+	i := slices.IndexFunc(w.Agents, func(a WorkerAgent) bool { return a.Adapter == adapter })
+	if i < 0 {
+		return WorkerAgent{}, false
+	}
+	return w.Agents[i], true
 }
 
 // Online reports whether the worker was seen within OnlineWindow of now.

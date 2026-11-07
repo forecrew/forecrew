@@ -64,7 +64,7 @@ func TestAgentNeverSeesTheTokens(t *testing.T) {
 	// The operator's environment holds the worker token and hostile GIT_*
 	// settings; neither may reach the agent.
 	environ := append(hermeticEnv(), "FORECREW_WORKER_TOKEN="+testWorkerTok, "GIT_DIR=/nonexistent", "GIT_TRACE=1", "GIT_COMMON_DIR=/nonexistent")
-	w := newFromConfig(t.Context(), cfg, environ, "v-test", e.cfg.Logger)
+	w := newFromConfig(t.Context(), cfg, environ, "v-test", e.cfg.Logger, false)
 	w.cfg.CloneURL, w.cfg.HeartbeatInterval, w.cfg.FlushInterval = e.cfg.CloneURL, e.cfg.HeartbeatInterval, e.cfg.FlushInterval
 	e.w = w
 	if !slices.Contains(w.cfg.Labels, "runtime:claude-code") {

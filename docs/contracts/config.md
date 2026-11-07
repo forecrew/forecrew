@@ -303,13 +303,15 @@ max_jobs: 2
 | `max_jobs` | integer ≥ 1 | no | `1` | Jobs run at once. |
 | `registry_auth` | bool | no | `false` | Let the worker's Docker pulls and builds use the registry logins of the worker's user. By default they run with an empty Docker config, because image names come from repos and must not be able to use the operator's private registries. |
 | `local_model_endpoints` | bool | no | `false` | Let the key check of a model connection (a `model_check` job) reach `localhost` and private addresses, where a self-hosted model such as Ollama or LM Studio runs. Off, the check reaches public addresses only; on, it reaches what `trackers.private_addresses` reaches, never link-local or cloud metadata addresses. Agents themselves are not limited by it. |
+| `auto_install_agents` | bool | no | `true` | Install an agent CLI the worker lacks when forecrewd asks for it, from the manifest of the worker's own release, into `<work_dir>/agents` (docs/worker.md, Agent install). `false` turns it off. A machine of the fleet never installs: it uses what its image contains. |
 | `image_prune_days` | integer ≥ 1 | no | `14` | Days after which a worker with the `docker` label removes the environment images (`forecrew-env:*`) no job used. |
 
 On top of `labels` the worker adds, when polling:
 
 - its OS label: `linux`, `darwin` or `windows` (Go's `GOOS`; macOS also gets `macos`);
 - `runtime:<adapter>` for each runtime CLI it finds (`runtime:claude-code`,
-  `runtime:codex`, `runtime:opencode`);
+  `runtime:codex`, `runtime:opencode`), in `<work_dir>/agents/bin` first and
+  then on `PATH`;
 - `docker` when the Docker engine answers `docker version`.
 
 | Variable | Required | Meaning |
