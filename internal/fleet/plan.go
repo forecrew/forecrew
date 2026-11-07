@@ -16,6 +16,7 @@ type organization struct {
 	policy  domain.FleetPolicy
 	shapes  []domain.Shape  // its own and the instance-wide ones
 	queued  []domain.Job    // oldest first
+	held    []domain.Job    // queued, waiting for a model connection
 	running []domain.Job    // of every worker
 	workers []domain.Worker // static and ephemeral
 }

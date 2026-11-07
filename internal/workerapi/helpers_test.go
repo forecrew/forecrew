@@ -2,6 +2,7 @@ package workerapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/models"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 )
@@ -64,8 +66,8 @@ func newEnv(t *testing.T, opts ...option) *env {
 	svc := jobs.New(b.st, bus, nil, logger, b.clock.Now)
 	cfg := Config{
 		Store: b.st, Jobs: svc, Tokens: tracker, Logger: logger,
-		Env: func(domain.Job) (string, map[string]string) {
-			return "claude", map[string]string{"ANTHROPIC_API_KEY": apiSecret}
+		Grant: func(context.Context, domain.Job) (models.Grant, error) {
+			return models.Grant{Connection: "claude", Env: map[string]string{"ANTHROPIC_API_KEY": apiSecret}}, nil
 		},
 		PollWait:    200 * time.Millisecond,
 		PollRecheck: time.Hour, // wake-ups must come from job creation

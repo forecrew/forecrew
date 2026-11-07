@@ -9,6 +9,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/models"
 )
 
 // poolConfig has a claude and a codex runtime with credentials, a control
@@ -30,7 +31,7 @@ func poolConfig() *config.Config {
 }
 
 func withPools(cfg *config.Config) option {
-	return func(c *Config) { c.Env, c.Pools = RuntimeEnv(cfg), cfg.Pools }
+	return func(c *Config) { c.Grant, c.Pools = models.New(c.Store, cfg, nil, nil).Grant, cfg.Pools }
 }
 
 // queue stores a job directly, without the creation policy, as a job that
@@ -126,7 +127,7 @@ func TestEndpointGoesWithTheLease(t *testing.T) {
 	cfg := poolConfig()
 	cfg.Runtimes["local"] = config.Runtime{Adapter: config.AdapterOpencode, BaseURL: "https://models.example.com/v1",
 		CredentialEnv: []string{"LOCAL_KEY"}, Credentials: map[string]string{"LOCAL_KEY": "sk-local"}}
-	e := newEnv(t, withPools(cfg), func(c *Config) { c.Endpoint = RuntimeEndpoint(cfg) })
+	e := newEnv(t, withPools(cfg))
 	_, token := e.addPoolWorker(t, "w", domain.PoolControl)
 	j := e.queue(t, domain.Job{Pool: domain.PoolControl, Role: "reviewer", Runtime: config.AdapterOpencode})
 	status, lease := e.poll(t, token, "runtime:opencode")

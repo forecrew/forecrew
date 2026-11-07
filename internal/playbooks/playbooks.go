@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/councils"
@@ -56,7 +57,10 @@ type Deps struct {
 	Now       func() time.Time // defaults to the real UTC time
 
 	// The rest is for the council actions.
-	Config   *config.Config
+	Config *config.Config
+	// Models answers for each organization and project which model a role
+	// runs with on an agent; nil answers from Config.
+	Models   CouncilModels
 	Councils *councils.Set
 	Gates    gates.Service
 	// Runs starts the council playbook; it is the engine, which is built
@@ -67,6 +71,24 @@ type Deps struct {
 	// Fetcher fetches those URLs; it defaults to the zero councils.Fetcher.
 	Fetcher *councils.Fetcher
 	Logger  *slog.Logger // defaults to discarding
+}
+
+// CouncilModels is what council.start asks of internal/models.
+type CouncilModels interface {
+	ModelOn(ctx context.Context, accountID, projectID uuid.UUID, role, adapter string) (string, error)
+	Usual(ctx context.Context, accountID, projectID uuid.UUID, role string) (string, error)
+}
+
+// fileModels answers CouncilModels from forecrew.yaml alone.
+type fileModels struct{ cfg *config.Config }
+
+func (f fileModels) ModelOn(_ context.Context, _, _ uuid.UUID, role, adapter string) (string, error) {
+	return f.cfg.ModelOn(role, adapter)
+}
+
+func (f fileModels) Usual(_ context.Context, _, _ uuid.UUID, role string) (string, error) {
+	adapter, _, err := f.cfg.Model(role)
+	return adapter, err
 }
 
 // Register adds every action of the package to registry, by name.

@@ -115,6 +115,18 @@ func (c *Controller) Overview(ctx context.Context, accountID uuid.UUID, visible 
 			out.Queue = append(out.Queue, WaitingJob{Ref: j.Ref(), Role: j.Role, Code: r.Code, Sentence: r.Sentence})
 		}
 	}
+	for _, j := range o.held {
+		if !visible(j.ProjectID) || c.cfg.Models == nil {
+			continue
+		}
+		code, sentence, ok, err := c.cfg.Models.WaitReason(ctx, j)
+		if err != nil {
+			return Overview{}, err
+		}
+		if ok {
+			out.Queue = append(out.Queue, WaitingJob{Ref: j.Ref(), Role: j.Role, Code: ReasonCode(code), Sentence: sentence})
+		}
+	}
 	out.Waiting = len(out.Queue)
 	u := s.usage()
 	if amount := u.orgCost[o.id]; amount > 0 {
