@@ -140,9 +140,11 @@ On a real Mac, in this order, and stop at the first failure:
 3. From forecrewd: add the shape, queue a job that needs it, and watch `forecrew machines`: one machine
    reaches `ready`, runs the job, and the VM is gone (`sudo -u ... tart list`).
 4. Queue three jobs at once: only two machines run; the third waits.
-5. From inside a machine (`tart exec` as the agent's user into a running one), `curl` an address on the LAN, the Mac's LAN
-   address, and the **gateway of the VMs' network** (`192.168.64.1`, or the `softnet_gateway` you set; `ssh` or `curl` to it
-   on any port the Mac serves): every one must fail; a public address works, and so does a name (DNS goes to `dns`, not the gateway).
+5. From inside a machine (`tart exec` as the agent's user into a running one), try to reach the Mac:
+   `curl` and `ssh` to its LAN address, to the **gateway of the machine's network** (`netstat -rn` in the guest) and to
+   the Mac's **public address**, the one your router forwards (`curl ifconfig.me` on the Mac, then that address from
+   the guest); also any address in `100.64.0.0/10` the Mac has (Tailscale), on every port the Mac serves. Every one
+   must fail. A public address of another host works, and so does a name (DNS goes to `dns`, not to the Mac).
 6. Kill the agent mid-job (`launchctl kickstart -k system/com.forecrew.fleet-agent`): the machine keeps
    running, and the restarted agent lists it.
 7. Revoke the location while a machine runs, destroy the leftover by hand
@@ -157,9 +159,13 @@ holding the registry's bytes (so it hashes to the digest), `config.json`, `nvram
 order, covering `disk.img` exactly (else every pull is refused: look at the error, it says
 which check); the process name of a running VM in `ps -axo comm=` is
 `com.apple.Virtualization.VirtualMachine`, one per VM (the count of the Mac's VMs, and so
-Apple's limit, depends on it); the Mac's address on the VMs' network is `192.168.64.1`
-and `tart ip` answers an address in it; `--net-softnet-block=<gateway>/32` blocks the
-gateway although Softnet allows it by default; a guest whose DNS is set with
+Apple's limit, depends on it); `tart ip --resolver agent` answers the machine's address, and the Mac has an address on that
+network (the check refuses every machine otherwise); `--net-softnet-block=@host,<address>/32,...`
+is accepted by the Softnet release you run, `@host` meaning the Mac's address on the machine's
+own network, and blocks the Mac although Softnet allows its gateway and its public addresses;
+`softnet --version` prints a version number, and 0.25.0 is new enough (the minimum is a
+choice); Tart's own message when the limit of VMs is reached contains "exceeds the system limit";
+a guest whose DNS is set with
 `networksetup -setdnsservers` resolves through it, and the base VM's network services
 are the ones `networksetup -listallnetworkservices` lists; `tart list --format json`
 has the fields the provider reads (`Name`, `Running`, `Disk`); `tart exec` passes
