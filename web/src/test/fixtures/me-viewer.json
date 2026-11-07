@@ -33,6 +33,7 @@
     "gate.read",
     "goal.read",
     "job.read",
+    "models.read",
     "org.read",
     "project.read",
     "trackers.read",
