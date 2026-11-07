@@ -11,7 +11,7 @@ runs there and only dials out to forecrewd. It needs:
 | `microvm` | Linux with KVM | root, `/dev/kvm`, `firecracker` and `jailer` (or `cloud-hypervisor`), `ip`, `nft`, IP forwarding, trusted image keys ([fleet.md](../fleet.md#home-server-setup)) |
 | `proxmox` | Linux next to Proxmox | an API token in a local file; the installer asks for it |
 | `hyperv` | Windows | Hyper-V and `powershell.exe` |
-| `tart` | Apple silicon | `tart` |
+| `tart` | Apple silicon | `tart` and `softnet` on PATH, a Mac that never sleeps, trusted image keys ([fleet.md](../fleet.md#macos-locations-tart)) |
 | `aws` | an EC2 instance in your account | its instance role |
 
 ## Add with a join code
@@ -76,6 +76,84 @@ forecrew provider add home-server --kind microvm
 read -rs FORECREW_PROVIDER_TOKEN && export FORECREW_PROVIDER_TOKEN   # paste it, Enter
 sudo --preserve-env=FORECREW_PROVIDER_TOKEN,GITHUB_TOKEN sh install.sh --server https://forecrew.example.com
 ```
+
+## Add a Mac (Tart)
+
+For a Mac mini at home or a rented Mac. Read the limits first
+([fleet.md](../fleet.md#macos-locations-tart)): **two VMs per Mac, at most**, so a
+Mac offers two machines at once; a **rented Mac is paid for 24 hours at least**
+(AWS requires 24 hours before a Mac Dedicated Host is released; Apple's licence
+requires 24 consecutive hours for any lease of a Mac); and Forecrew runs your
+organization's own jobs on it, never anyone else's by the minute.
+
+1. On the Mac, as an administrator: no sleep (`sudo pmset -a sleep 0`), enough
+   disk (the base image is tens of GB, and each job's clone grows from it; the
+   default floor is 100 GB free), and Tart and Softnet installed from sources you
+   trust, with Softnet allowed to run (setuid or passwordless sudo).
+2. Build the image on a Mac ([images.md](../images.md#windows-and-macos-builds):
+   `deploy/images/macos`, a base VM you pinned by digest), push it to a registry you
+   control, write its manifest with `--format tart`, sign it with your key off the
+   Mac and register it (`forecrew image add`). Put your public key in
+   `/etc/forecrew-fleet-agent/image-keys.pub` on the Mac.
+3. A private registry: add `registry_username: env:NAME` and
+   `registry_password: env:NAME` to `/etc/forecrew-fleet-agent/tart.yaml` and put
+   `NAME=value` lines in the agent's `secrets.env` (`/etc/forecrew-fleet-agent`, mode
+   0600, which the launchd job reads). Credentials stay on the Mac.
+4. Join as above (`forecrew provider join`, then the install script on the Mac;
+   it detects `tart`). On a rented Mac the same steps run on the rented host:
+   connect to it, install, and release the host only after `forecrew machines`
+   shows none there and the 24 hours have passed.
+5. `forecrew-fleet-agent doctor --kind tart` must show no `fail`. Confirm the
+   report as above, then add a shape:
+
+   ```yaml
+   kind: shape
+   name: mac-xcode16
+   provider: home-mac
+   os: macos
+   arch: arm64
+   cpu: 4
+   memory_mb: 8192
+   disk_gb: 80
+   image: macos
+   labels: [xcode:16]       # what the image's contents.labels list
+   max: 2                   # never more than the Mac's two
+   max_jobs: 1
+   note: "Mac mini, two at once, boots in about a minute"
+   ```
+
+   A job that needs it says `needs: [xcode:16]`.
+
+### Live test of a Mac
+
+Not run yet: the provider was written and tested on Linux against a fake `tart`
+(`internal/fleetagent/tart/testdata/tart`) that follows Tart's documented commands.
+On a real Mac, in this order, and stop at the first failure:
+
+1. `forecrew-fleet-agent doctor --kind tart`: all `ok`.
+2. By hand, as the agent's user (`sudo -u _forecrew-fleet-agent env HOME=/var/lib/forecrew-fleet-agent TART_HOME=/var/lib/forecrew-fleet-agent/tart/tart-home ...`):
+   `tart pull <registry>/<name>@sha256:<digest>`; `tart clone` of it to `probe`;
+   `tart run --no-graphics --net-softnet probe` in another shell; `tart exec probe /usr/bin/true`;
+   `printf 'x=1\n' | tart exec -i probe sudo -n /bin/sh -c 'cat >/tmp/t' sh`; `tart stop probe`; `tart delete probe`.
+3. From forecrewd: add the shape, queue a job that needs it, and watch `forecrew machines`: one machine
+   reaches `ready`, runs the job, and the VM is gone (`sudo -u ... tart list`).
+4. Queue three jobs at once: only two machines run; the third waits.
+5. From inside a machine, `curl` an address on the LAN and the Mac itself: both must fail; a public address works.
+6. Kill the agent mid-job (`launchctl kickstart -k system/com.forecrew.fleet-agent`): the machine keeps
+   running, and the restarted agent lists it.
+7. Revoke the location while a machine runs, destroy the leftover by hand
+   (`tart delete`), and check no `forecrew-*` VM remains.
+
+What none of this has proven yet, and the first run on a Mac must settle:
+`tart pull` and `tart clone` accept `registry/name@sha256:...`; `tart list --format json`
+has the fields the provider reads (`Name`, `Running`, `Disk`); `tart exec` passes
+flags such as `-n` and `-c` to the guest command without a `--`; the admin user of the
+guest has passwordless `sudo` and the guest agent runs in the image; `tart stop` on a
+VM and `tart delete` afterwards behave as the fake's; Softnet blocks the LAN and the host
+and `--net-softnet-allow` takes a comma-separated list; `tart set --disk-size` grows
+the guest's volume (or the image does it at boot); the macOS 26 requirement of
+Softnet; the boot time to the guest agent; the 2.27.3 minimum version; and that
+`pmset -g` prints `sleep 0` as the check expects.
 
 ## Check it
 

@@ -157,8 +157,7 @@ Where the file goes, and what that means for the token:
 | Windows | `C:\ProgramData\Forecrew\run\bootstrap.env` | **the machine's own disk**, ACL for SYSTEM and administrators only | into the running machine after it is assigned: Hyper-V PowerShell Direct. WinRM is turned off in the image, so it is not a route. A Proxmox clone needs the QEMU guest agent or a config disk the guest copies the file from, which T62 must provide |
 
 RAM holds the token on Linux only, and on a systemd image delivered by cloud-init not even there. On macOS and Windows it is a file on the
-guest's disk until `forecrew-start` reads and deletes it, so T62 (Windows) and
-T63 (macOS) must deliver it into the running machine, never bake it into the
+guest's disk until `forecrew-start` reads and deletes it, so a provider must deliver it into the running machine (the Tart provider does, with `tart exec -i`, the token on standard input), never bake it into the
 image, a shared folder or a host path, and must destroy the disk with the
 machine (fleet.md: it is never written to the host's disk outside the guest's
 own image). On systemd images `forecrew-worker.service` starts when the file
@@ -229,16 +228,24 @@ its own cache of fetched images by the same rule (docs/fleet.md).
   (`base_vm=registry/name@sha256:...`, which you resolve and review). The base
   VM's login (`admin`/`admin` in the public Cirrus images) is replaced by a random
   password nobody keeps and remote login is turned off at the end of the build, so
-  the provider reaches the machine with `tart exec`, not ssh.
+  the provider reaches the machine with `tart exec`, not ssh. When the base VM has
+  Xcode, the build adds its major version as a label (`xcode:16`): list it in the
+  manifest's `--label` and in the shape, and jobs route with `needs: [xcode:16]`.
 
 ## Licensing
 
 Forecrew does not distribute Windows or macOS. The Windows result is an unsigned
 manifest that you check, sign with your own key and register under your
 organization, and only fleet agents configured with your key will use it. The
-macOS licence allows macOS VMs on Apple hardware only. The
-terms of both, and the 24-hour minimum of cloud Macs, are to be rechecked before
-selling machines (decision 29 of the plan).
+macOS licence allows macOS VMs on Apple hardware only: two per Mac, for software
+development and testing, and not as a service to others except as a lease of at
+least 24 consecutive hours for continuous integration (Apple's licence for macOS
+Tahoe 26, sections 2B(iii) and 3). A rented cloud Mac is held for 24 hours at least
+(AWS's minimum for a Mac Dedicated Host). Both were rechecked against their
+primary texts on 2026-11-07 and are stated, with their sources and what follows
+for Forecrew, in [fleet.md](fleet.md#macos-locations-tart); Tart's own terms (the
+FSL-1.1-ALv2 of its repository, and an older page on `tart.run`) are there too.
+Re-read them before selling machines.
 
 ## The resolver
 

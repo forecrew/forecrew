@@ -36,8 +36,8 @@ Local credentials are not in this file. Each provider finds its own by the
 machine's own means: files readable by the agent's user, or an instance role.
 Nothing of them is ever sent to forecrewd: capabilities hold facts.
 
-This build has the `microvm` provider (below); the other kinds come with T62
-to T64. For a kind it does not have, `run` says so and `doctor` lists it as
+This build has the `microvm` provider and, on a Mac, the `tart` provider (both
+below); the other kinds come with T62 and T64. For a kind it does not have, `run` says so and `doctor` lists it as
 missing.
 
 ## Connecting
@@ -241,3 +241,151 @@ secrets.
    with `forecrew-fleet-agent doctor --kind microvm`.
 7. Add a shape on the location with a signed `rootfs` image, and `docker` in its
    labels if the image has Docker.
+
+## macOS locations (Tart)
+
+An Apple silicon Mac runs each machine as a clone of a signed Tart image, deleted
+after its jobs. The fleet agent runs on the Mac as an ordinary service user
+(`_forecrew-fleet-agent`), not as root, and the provider is in the darwin build
+only. Guests are macOS arm64.
+
+**Licences, and what follows from them.** Checked on 2026-11-07 against the
+primary texts; read them again before you sell machines or upgrade macOS.
+
+| What | The rule | Source |
+|------|----------|--------|
+| Two VMs per Mac | "up to two (2) additional copies or instances" of macOS "within virtual operating system environments on each Apple-branded computer you own or control", for software development, testing during software development, macOS Server or personal non-commercial use (section 2B(iii)) | Apple's licence for macOS Tahoe 26, `apple.com/legal/sla/docs/macOSTahoe.pdf`. The licence of macOS 27 was not found and is not checked |
+| No service bureau | 2B(iii) "does not permit" using the virtual copies for "service bureau, time-sharing, terminal sharing, relay service or other similar types of services", except as section 3 permits | same |
+| Renting a Mac | Section 3 allows leasing for "Permitted Developer Services" (continuous integration and the building and testing of software), each lease for at least 24 consecutive hours, the lessee having "sole and exclusive use and control" of the software and the hardware during the lease; the lessor must tell Apple first (`developer.apple.com/contact/macos-license`); the lessor or the lessee, not both, may run the two VMs (section 3D) | same |
+| 24 hours on a cloud Mac | "Mac instances are available only as bare metal instances on Dedicated Hosts, with a minimum allocation period of 24 hours before you can release the Dedicated Host", one Mac instance per host | AWS, "Amazon EC2 Mac instances", docs.aws.amazon.com |
+| Tart | The Tart repository's `LICENSE` is FSL-1.1-ALv2 (copyright 2022-2026 OpenAI): any purpose except a "Competing Use", a commercial product or service that substitutes for Tart or offers substantially similar functionality; each version becomes Apache 2.0 two years after its release. The licensing page on `tart.run` still describes the older Fair Source terms (free up to 100 CPU cores). The two disagree | `github.com/cirruslabs/tart` (now `openai/tart`), `tart.run/licensing` |
+
+What the code does with them:
+
+- **Never more than two.** `capabilities.max_machines` is at most 2 and
+  `tart.yaml` refuses a larger `max_machines`, so the controller never asks for a
+  third. The provider also counts every VM running on the Mac, Forecrew's or not
+  (`tart list`), because Apple's limit is on the Mac: a VM of your own leaves room
+  for one machine. Other virtualizers (UTM, Parallels) cannot be seen; do not run
+  them on a Mac that has a location.
+- **Your own Mac, your own jobs.** That is what the licence covers: a location
+  belongs to an organization and runs that organization's jobs only. macOS images
+  are never instance-wide (images.md), so Forecrew never offers hosted macOS
+  machines of its own to others by the minute: that would be a service the
+  licence does not allow outside section 3.
+- **A rented Mac** is the organization's own location while it rents the host: you
+  pay the whole 24 hours (set the shape's `note` to say so), and the Mac is for
+  your jobs alone. A cloud Mac another team uses is a lease under section 3 that
+  the team makes with you (a 7-day join code, `--cloud`, so they run the agent and
+  hold the credentials); telling Apple is the lessor's duty.
+- **Tart's terms** are for the owner to settle: running Tart for your own CI is an
+  internal use. Whether selling machine time to others is a Competing Use is a
+  legal question this repository does not answer.
+
+**What a machine is made of**, in a record (`<state_dir>/machines/<id>.json`)
+written before anything, so that Destroy can finish what a crash interrupted:
+
+- **A VM** named `forecrew-<machine id>`, a clone (`tart clone`, copy-on-write on
+  APFS) of the shape's image: a clean disk per job, never reused. `tart set` gives
+  it the shape's CPU and memory, and its disk when the shape's is larger; the VM
+  runs headless (`tart run --no-graphics --no-audio --no-clipboard`) in its own
+  session, so it outlives the agent, and nothing of the host is shared: no
+  `--dir`, no clipboard.
+- **The settings of the worker** (`FORECREW_SERVER_URL`, the one-time bootstrap
+  token) go in through the guest agent: `tart exec -i` runs a fixed script as root
+  in the guest and the settings are its standard input, so the token is never an
+  argument (the process list of the host would show it), never in a shared folder
+  and never on the host's disk. It is written to `/var/run/forecrew/bootstrap.env`
+  (mode 0700 root folder, on the machine's own disk) by a rename, so launchd, which
+  starts `forecrew-start` when the file appears, never reads half of it. The
+  worker's first act is to read and delete the file and to exchange the token
+  ([images.md](images.md)); the disk is deleted with the VM.
+- **A network.** With Softnet (the default), a machine reaches globally routable
+  IPv4 addresses and nothing private: not the host, not the LAN. The agent adds
+  forecrewd's address, which it resolves on the host (a loopback address is
+  refused), and the location's `network_allow`, as `--net-softnet-allow`, which
+  opens those addresses on all ports (Softnet has no ports). A running VM's network
+  cannot change, so `Update` with another `network_allow` fails. `softnet: false`
+  gives Tart's NAT, where the machine reaches the LAN and the host; `doctor` warns.
+- **A wall-time kill.** At the deadline the agent runs `tart stop`, whether or not
+  forecrewd can be reached, and again after a restart; forecrewd then destroys the
+  rest.
+
+Destroy stops the VM, deletes it (`tart delete`) and removes the record. `List`
+returns the records and every VM named `forecrew-<uuid>` that has none, which
+forecrewd finds to be orphans; a record whose VM was never made is listed and
+destroyed the same way. Nothing else on the Mac is touched.
+
+**Images.** A shape's image has format `tart`, `uri` `oci://registry/name[:tag]`
+and `digest`, the digest of the build's OCI manifest. Before first use the agent
+checks the signature against `trusted_keys_file`; it pulls `registry/name@<digest>`,
+never a tag, so the registry hands over exactly what was signed. Pulled images
+unused for `image_cache_days` are pruned (`tart prune --entries caches`). A shape's
+`provider_config` `base_vm` names a VM already on the Mac instead, only when
+`allow_local_base: true` is set in `tart.yaml` on the Mac itself: such a VM is not
+signed, so only the person at the Mac can allow it.
+
+**Xcode.** An image lists the Xcode of its base VM as a label, `xcode:16` (major
+version; `provision-macos.sh` adds it when `xcodebuild` works). Put the label in
+the shape's `labels` and write `needs: [xcode:16]` in the job; the worker gets it
+with `macos`, `darwin` and `arm64`. A base VM with only the command line tools
+has no Xcode label.
+
+**Credentials stay on the Mac.** A private registry's credentials are named in
+`tart.yaml` by reference (`registry_username: env:NAME`,
+`registry_password: env:NAME`) and read from the agent's environment, the
+`secrets.env` the installer reads. They reach `tart pull` and `tart clone`, and
+only those, as `TART_REGISTRY_USERNAME` and `TART_REGISTRY_PASSWORD`, in an
+environment built for the command: the rest of the agent's environment, with its
+provider token, never reaches Tart. The password is scrubbed from every error.
+There is no SSH: the agent reaches a guest with the guest agent (`tart exec`), so
+there are no SSH keys to keep.
+
+**Untrusted text.** What a guest says (the output of `tart exec`) and what Tart
+prints reach forecrewd only as a quoted, one-line snippet of at most 300 bytes,
+scrubbed of secret shapes (`fleet.CleanError`), so it is inert data in a check or
+a machine's error.
+
+**Checks** (`forecrew-fleet-agent doctor --kind tart`, and the location's
+capabilities): Apple silicon; Tart at least `min_tart_version`; free disk of
+`min_free_gb`; trusted image keys; sleep off (`pmset`, a warning: run
+`sudo pmset -a sleep 0`); the registry credentials the references name; Softnet on
+PATH.
+
+### tart.yaml
+
+`/etc/forecrew-fleet-agent/tart.yaml` (`FORECREW_TART_CONFIG` moves it); every key
+has a default and a missing file means all defaults. It holds no secrets.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `state_dir` | `/var/lib/forecrew-fleet-agent/tart` | Records, and Tart's own storage (`TART_HOME` is `<state_dir>/tart-home`) |
+| `trusted_keys_file` | `/etc/forecrew-fleet-agent/image-keys.pub` | Public keys images must be signed with |
+| `tart` | `tart` | The command |
+| `max_machines` | 2 | Machines at once, 1 or 2: Apple's limit |
+| `min_tart_version` | `2.27.3` | The oldest Tart accepted. Chosen, not derived: 2.27.3 removed a 1-second limit on calls to the guest agent |
+| `min_free_gb` | 100 | Free disk the host must keep |
+| `boot_wait_seconds` | 300 | How long Create waits for a guest agent |
+| `softnet` | `true` | Run machines behind Softnet |
+| `registry_username`, `registry_password` | none | `env:NAME` references; both or neither |
+| `registry_host` | any | Limits the credentials to one registry |
+| `allow_local_base` | `false` | Let a shape clone a local VM (`base_vm`) |
+| `image_cache_days` | `14` | How long a pulled image unused stays |
+
+### What a Mac needs
+
+1. An Apple silicon Mac with macOS 26 or newer (Softnet needs it), signed in to
+   nothing, set never to sleep (`sudo pmset -a sleep 0`).
+2. `tart` and `softnet` on PATH (Tart: `brew install cirruslabs/cli/tart`;
+   Softnet from its releases, with the setuid bit or passwordless sudo, see its
+   README). Install them yourself, from a source you trust; the agent never
+   downloads either.
+3. Trusted image keys in `/etc/forecrew-fleet-agent/image-keys.pub`.
+4. `public_base_url` of forecrewd reachable from the Mac's machines, not
+   `localhost`.
+5. The agent with a join code ([runbooks/add-provider.md](runbooks/add-provider.md)).
+6. A shape with `os: macos`, `arch: arm64`, `max_jobs: 1`, a `tart` image and the
+   `xcode:NN` label the image has.
+
+Tested against a fake `tart` only; see [runbooks/add-provider.md](runbooks/add-provider.md)
+for the live checks, and what is not yet verified on a real Mac.
