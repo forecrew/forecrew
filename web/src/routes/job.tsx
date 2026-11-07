@@ -211,7 +211,7 @@ export function JobPage() {
             {cancelable(j.status) ? <CancelJob jobRef={j.ref} projectId={j.project_id} /> : null}
           </PageHeader>
           {j.status === "queued" && j.reason_code ? (
-            <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card p-3 text-sm">
+            <div role="status" aria-label="Why it waits" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card p-3 text-sm">
               <p>
                 <span className="font-medium">Waiting.</span> {j.reason}.
               </p>

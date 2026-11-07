@@ -392,7 +392,7 @@ describe("job page artifacts and tests", () => {
 test("a job page of a waiting job says why in one sentence, with the fix", async () => {
   server.use(http.get("/api/v1/jobs/:ref", () => HttpResponse.json(fx.jobWaiting)))
   await renderApp("/jobs/JOB-42")
-  const banner = await screen.findByRole("status")
+  const banner = await screen.findByRole("status", { name: "Why it waits" })
   expect(banner).toHaveTextContent("Waiting. Only Mac Mini can run this, and it is offline.")
   expect(within(banner).getByRole("button", { name: "How to bring it back" })).toBeInTheDocument()
 })
