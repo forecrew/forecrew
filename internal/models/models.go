@@ -437,7 +437,7 @@ func (s *Service) ModelOn(ctx context.Context, accountID, projectID uuid.UUID, r
 	switch {
 	case err != nil:
 		return "", err
-	case d.Waiting != "":
+	case d.Waiting != "" && !d.Unset:
 		return "", fmt.Errorf("%s: %w", d.Waiting, ErrNoModel)
 	case d.Model == "" || d.Adapter != adapter:
 		return "", fmt.Errorf("role %q: no runtime of adapter %q has a %s model: %w", role, adapter, d.Tier, ErrNoModel)
