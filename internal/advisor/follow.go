@@ -114,7 +114,7 @@ func (s *Service) Reopen(ctx context.Context, key string, accountID, id uuid.UUI
 	revised, note := p, "The advisor left no revision; this is the proposal as it stood."
 	if d != nil {
 		note = "Revised after your feedback."
-		if why := s.apply(&revised, *d); why != "" {
+		if why := s.apply(&revised, *d, checkOfKey(p.DedupeKey)); why != "" {
 			revised, note = p, "The revision was refused ("+contextpack.OneLine(why)+"); this is the proposal as it stood."
 		}
 	}
