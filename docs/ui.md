@@ -32,7 +32,7 @@ The screens follow `2 - UI design/Configuration and fleet UI.md`.
 - **Settings** (`/settings`, a section only for the permission that reads
   it): General (name and slug, `org.manage` changes them), People (tabs
   Members, Teams, Roles, Service accounts; `org.read`), Sign-in
-  (`connection.manage`) and Change history (the audit log, `audit.read`, with
+  (`connection.manage`), Integrations (`trackers.read`) and Change history (the audit log, `audit.read`, with
   filters by person, action, what it was done to and dates; what was recorded
   is shown as text).
   - Members: role, direct access and teams ("direct", "through team Mobile"),
@@ -54,6 +54,33 @@ The screens follow `2 - UI design/Configuration and fleet UI.md`.
     secure field (a password input that goes through a change plan to the secret
     store, `store:conn-<name>`, and is never shown again), starts turned off, shows the redirect address to allow at the
     provider, and can be turned on only after Test sign-in worked.
+  - Integrations (`/settings/integrations`, `trackers.read`): the trackers
+    Forecrew reads tickets from. Each connection is a card: its address and how
+    a ticket is handed over, a **Test connection** button that shows the check
+    results one by one (address, certificate, login, projects, transitions,
+    routes) with what to do about a failed one, **Tickets go to** (rules as
+    sentences, "Tickets from ENG labeled forecrew go to app", with the
+    adapter's warning on the row and **Add a rule**), **People** (who handed
+    tickets over and is matched to nobody, with members of the same name to
+    confirm: `list_unmapped_tracker_people`) and **Waiting** (tickets in the
+    Inbox with why, and tickets queued under `trackers.max_active_goals`, each
+    with accept or dismiss). Everything that changes configuration is a plan:
+    **Connect a tracker** (Jira or Linear; GitHub issues and boards are
+    connected from the command line or by asking the assistant) makes a plan
+    whose `token_ref` is a `store:` reference, and the plan card draws the
+    secure field for the token; a certificate failure offers a field for the
+    company's certificate (`ca_bundle`); a rule's status mapping is suggested
+    from the tracker's statuses (`states` of the connection test) and sits under
+    More options. A private-looking address says that a hosted server cannot
+    reach it. Controls without `trackers.manage` (or `goal.create` for a
+    ticket's accept and dismiss) are disabled and name the permission. A tool
+    the repos mention that is Jira or Linear and has no connection is listed
+    as "Found in your repos, not connected" and, on a project's Knowledge
+    Integrations tab, links here. Ticket titles, names, keys and the tracker's
+    own words are plain text, and a ticket's address is a link only when it is
+    http or https. The Inbox shows a `ticket_intake` card with the ticket, its
+    link and why it waits, and Accept ticket or Dismiss ticket; a goal from a
+    ticket shows the ticket, its tracker and the state written to it.
 - **Your account** (`/account`; `/tokens` leads here): linked sign-ins,
   personal tokens (create with name, scope and expiry, shown once with Copy;
   scopes and expiry shown when the server sends them; revoke) and browser
