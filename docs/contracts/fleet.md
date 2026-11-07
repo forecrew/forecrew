@@ -345,6 +345,27 @@ routing chosen on the first-run screen (T65, T66).
 Months are calendar months in UTC. Minutes and budgets count usage records of
 the month plus the machines still running.
 
+### Fairness
+
+Organizations share the instance-wide machines. Each pass places queued jobs
+one at a time: an organization's oldest first, and between organizations the
+next job is of the one with the fewest hosted machines for its plan's weight
+(`paid` 3, `free` 1), then of a paid one, then the oldest job. Two busy
+organizations split a hosted shape's `max` between them, a paid one three to one
+against a free one, and neither takes it all by queueing first. Own machines
+are the organization's alone and do not count.
+
+An organization on the `free` plan is also held to `fleet.free_plan`
+(config.md): hosted machines at once and hosted minutes a month, both off by
+default. A job that waits for one says so in `job_status`, as any quota does:
+`machine_limit` "The free plan runs 2 hosted machines at once", `budget` "The
+free plan's 600 minutes of hosted machines this month are used up".
+
+A hosted machine takes one job, whatever the shape's `max_jobs` says
+(`fleet.JobsPerMachine`): the worker gets `max_jobs` 1, and a lease past it is
+refused in the lease's transaction. Each job of a paying organization gets a
+fresh machine.
+
 ## Network
 
 By default a machine reaches the internet and nothing else: not the host, the

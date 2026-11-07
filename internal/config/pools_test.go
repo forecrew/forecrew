@@ -60,12 +60,19 @@ func TestParseFleet(t *testing.T) {
 		t.Fatalf("fleet = %+v, %v", c.Fleet, err)
 	}
 	c, err = Parse([]byte(validYAML), env(nil))
-	if err != nil || c.Fleet.Currency != DefaultFleetCurrency || c.Fleet.Hosted {
+	if err != nil || c.Fleet.Currency != DefaultFleetCurrency || c.Fleet.Hosted || c.Fleet.FreePlan != (FreePlan{}) {
 		t.Fatalf("default = %+v, %v", c.Fleet, err)
 	}
 	c, err = Parse([]byte(validYAML+"fleet:\n  hosted: true\n"), env(nil))
-	if err != nil || !c.Fleet.Hosted {
+	if err != nil || !c.Fleet.Hosted || c.Fleet.FreePlan != (FreePlan{}) {
 		t.Fatalf("hosted = %+v, %v", c.Fleet, err)
+	}
+	c, err = Parse([]byte(validYAML+"fleet:\n  free_plan:\n    concurrent_machines: 2\n    monthly_minutes: 600\n"), env(nil))
+	if err != nil || c.Fleet.FreePlan != (FreePlan{ConcurrentMachines: 2, MonthlyMinutes: 600}) {
+		t.Fatalf("free plan = %+v, %v", c.Fleet, err)
+	}
+	if _, err := Parse([]byte(validYAML+"fleet:\n  free_plan:\n    monthly_minutes: -1\n"), env(nil)); err == nil {
+		t.Fatal("a negative limit was accepted")
 	}
 }
 

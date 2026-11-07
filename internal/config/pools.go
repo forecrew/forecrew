@@ -62,6 +62,18 @@ type Fleet struct {
 	// location (kind aws) to an organization needs its fleet policy's paid
 	// plan, a stub until billing exists.
 	Hosted bool `yaml:"hosted"`
+	// FreePlan limits organizations on the free plan on instance-wide
+	// machines; zero fields mean no limit.
+	FreePlan FreePlan `yaml:"free_plan"`
+}
+
+// FreePlan is what an organization on the free plan may use of the hosted
+// fleet (docs/contracts/fleet.md, Fairness).
+type FreePlan struct {
+	// ConcurrentMachines is the most hosted machines it has at once.
+	ConcurrentMachines int `yaml:"concurrent_machines"`
+	// MonthlyMinutes is the most hosted machine minutes of a month.
+	MonthlyMinutes int `yaml:"monthly_minutes"`
 }
 
 var currencyRE = regexp.MustCompile(`^[A-Z]{3}$`)
@@ -69,6 +81,9 @@ var currencyRE = regexp.MustCompile(`^[A-Z]{3}$`)
 func (c *Config) validateFleet(p *problems) {
 	if !currencyRE.MatchString(c.Fleet.Currency) {
 		p.addf("fleet.currency must be an ISO 4217 code such as USD, got %q", c.Fleet.Currency)
+	}
+	if f := c.Fleet.FreePlan; f.ConcurrentMachines < 0 || f.MonthlyMinutes < 0 {
+		p.addf("fleet.free_plan limits must not be negative")
 	}
 }
 
