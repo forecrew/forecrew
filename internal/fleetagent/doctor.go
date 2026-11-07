@@ -36,7 +36,7 @@ func requirements(h host, kind domain.ProviderKind) []domain.ProviderCheck {
 		return []domain.ProviderCheck{
 			need(h.goos == "linux", "os", "runs on Linux"),
 			need(h.exists("/dev/kvm"), "kvm", "needs /dev/kvm, usable by the agent's user"),
-			need(h.lookPath("firecracker") || h.lookPath("cloud-hypervisor"), "vmm", "needs firecracker or cloud-hypervisor on PATH"),
+			need((h.lookPath("firecracker") && h.lookPath("jailer")) || h.lookPath("cloud-hypervisor"), "vmm", "needs firecracker and jailer, or cloud-hypervisor, on PATH"),
 		}
 	case domain.ProviderProxmox:
 		return []domain.ProviderCheck{need(h.goos == "linux", "os", "runs on Linux")}
