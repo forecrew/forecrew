@@ -98,7 +98,9 @@ code is `internal/models`; nothing else decides a job's connection.
   new secret, as everywhere. `models` holds, by model, what people enter of a
   model the model catalog does not know: `maker`, `tier` and `price`
   (`input`, `output`, in US dollars per million tokens); changing it lowers
-  no protection.
+  no protection. A maker entered by hand is shown, never trusted: keeping the
+  reviewer off the developer's maker uses the catalog's maker, or else the
+  vendor, in plans and suggestions alike.
 - **`model_assignment`** says which model serves what: `tiers` (tier →
   vendor → model), `roles` (role → `{connection, tier}`) and, on
   `organization` only, `project_overrides` (the policy
@@ -172,7 +174,9 @@ size and price. It ships with each release and is never fetched.
   on the fixture `packs/fixtures/model-test`, never a project's repo, on that
   connection and model: read a file, edit one, run a command, call the job
   MCP tool `report_progress` and answer JSON matching a schema, in at most 15
-  turns and 5 minutes. The estimate comes first, labelled typical and worst
+  turns and 5 minutes. One test of a model on a connection runs at a time,
+  and the model's name must be one a connection lists (letters, digits and
+  `. _ : / @ + -`). The estimate comes first, labelled typical and worst
   case (15 turns × a full context window × the price), and running it is a
   second step. The stored result lists each ability, tokens, duration
   and the agent's version, and a level: `read` roles need reading, MCP and
@@ -188,7 +192,7 @@ size and price. It ships with each release and is never fetched.
 `models_suggest` fills tiers and roles, deterministically and with no model
 involved, from the connections whose key check passed and their models whose
 test passed, with the catalog's makers, tiers and prices (or what people
-entered). Presets: `balanced` (the default: the tier each role is written for,
+entered; a maker entered by hand is ignored, with a note). Presets: `balanced` (the default: the tier each role is written for,
 then the price), `low_cost` (the cheapest model that passed the role's level)
 and `local_only` (only connections on your own network, as `balanced`). The
 reviewer never gets a model of the developer's maker when another maker
