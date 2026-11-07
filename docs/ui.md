@@ -7,7 +7,7 @@ review code; the UI links to it.
 
 Screens: Home (what needs me, is everything healthy), Inbox (decide gates,
 filtered by project; a goal page decides its own pending gates with the same
-cards), Goals, Councils, Decisions, Projects, Jobs, Quality, Workers, Settings and Your account (dig into detail; a queued or
+cards), Goals, Councils, Decisions, Projects, Jobs, Quality, Machines, Settings and Your account (dig into detail; a queued or
 running job can be canceled from the job page and from the job tables),
 Assumptions, Knowledge and the trace ("why does this exist?"), and a
 command menu (Ctrl+K or Cmd+K) to jump anywhere or start a goal, a council or
@@ -89,7 +89,7 @@ left out, not faked:
   own). On a phone the sidebar becomes a bottom bar (Home, Inbox, Jobs, Menu).
 - **Home.** Command bar (opens the command menu) with a New goal button, the
   date and how many decisions wait, three tiles (decisions waiting, agents
-  working, workers online), Needs you with Review or Decide (they open the
+  working, machines working and waiting), Needs you with Review or Decide (they open the
   Inbox on that decision), Active goals with a stage bar, and Live activity
   and Fleet in a right column.
 - **Inbox.** A list with filter chips and the keyboard hint on the left, the
@@ -165,6 +165,39 @@ left out, not faked:
   the approved profile with their status. A search hit shows its excerpt; the
   listing has whole entries. The "save as lesson" box on gate feedback waits for
   the lessons flag of T39.
+- **Configuration and fleet** (design: `2 - UI design/Configuration and fleet UI.md`).
+  Every change is a plan, and every flow also works with forms alone.
+  - **Change plan card** (`PlanCard`). Drawn only from server data: what
+    changes (signs `+ ~ −`), who it affects, cost, undo, expiry and the
+    permission it needs, and where it applies (`Applies now`, or `Opens a PR`).
+    Confirm applies it; a person without the permission gets Ask for approval; a
+    stale plan gets Rebuild plan; a plan that lowers protection shows the reasons
+    and asks for the word typed (and is not confirmed from a phone). Secrets go
+    in a secure field (`SecureField`: a password input, then only "Saved"), and
+    what the server generates is a Show once card. A sentence in the chat never
+    confirms a plan.
+  - **Assistant panel** (Ctrl+K, then the Ask the assistant row, or an Ask
+    button). Docked as a third column of 26rem from the md width, a sheet on a
+    phone. Answers are markdown text; plans and secure fields are cards drawn
+    from `plans` of the conversation. It polls every 2 s while a turn works,
+    checks text for key shapes before sending, and says so when no reasoning
+    machine is online.
+  - **Machines** (was Workers; `/workers` redirects): the overview (tiles,
+    locations, waiting jobs with one Fix button or Ask an admin, running
+    machines), Machine types (a row opens a sheet; More options holds ready in
+    advance, machines at once, keep spare for and the trust zone), a location
+    page (checks, limits, Pause, Remove, YAML) and Add machines (a join code,
+    the line to run, live checks, then a Confirm and a plan of machine types and
+    a test job; a Windows host gets the image step and registration of the signed
+    image). Agent-reported text is shown as plain text. Budgets need Manage
+    budgets: an Admin sees them read-only.
+  - **Settings, Policies** (where jobs run, limits, network, trust zones) and
+    **Change history** (settings changes with Revert, which makes a new plan, and
+    All activity, the audit log; Export and Import YAML).
+  - **Setup** (`/setup`): where jobs run comes before the repository, which
+    comes before the first goal. Home has a Machines tile, a Fleet card of
+    locations and a Finish setting up list; the Inbox shows plans under the chip
+    Setup; a waiting job says why, with the fix.
 - **Job.** A back link, the title with the state badge and a line with goal,
   worker and model, the log beside the details, the cost and the tokens; Cancel
   stays at the top right. A command job shows its test counts and has no

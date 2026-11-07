@@ -27,7 +27,7 @@ function ChangeLine({ c }: { c: ConfigChange }) {
         {c.line.replace(/^[+~−-]\s*/, "")}
       </p>
       {c.fields.length > 0 && c.op === "update" ? (
-        <ul className="ml-4 space-y-0.5 font-mono text-xs text-muted-foreground">
+        <ul className="ml-4 space-y-0.5 font-mono text-xs">
           {c.fields.map((f) => (
             <li key={f.path} className="break-words">
               {f.path}: {f.old || "none"} → {f.new || "none"}

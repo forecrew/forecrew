@@ -224,3 +224,29 @@ test("a viewer reads the members but cannot invite", async ({ page }) => {
   await expect(page.getByText("member.manage")).toBeVisible()
   await expect(page.getByRole("link", { name: "Sign-in" })).toHaveCount(0)
 })
+
+test("Gate F: ask the assistant for a server, confirm its plan, see the machine and its job", async ({ page }) => {
+  const calls = await mockApi(page)
+  await page.goto("/machines")
+  await expect(page.getByText("No machines yet. Agents need somewhere to work.")).toBeVisible()
+
+  await page.getByRole("button", { name: "Ask", exact: true }).click()
+  const panel = page.getByRole("region", { name: "Assistant" })
+  await panel.getByLabel("Say what you want").fill("Add my Linux server")
+  await panel.getByRole("button", { name: "Send" }).click()
+
+  // the plan is a card the server drew; typing yes would confirm nothing
+  const plan = panel.getByRole("region", { name: /Change plan: Add machine types to Home server/ })
+  await expect(plan).toContainText("Machine type linux-small")
+  await expect(plan).toContainText("Free. It is your machine.")
+  await plan.getByRole("button", { name: "Confirm" }).click()
+  await expect(plan.getByText("Applied")).toBeVisible()
+  expect(calls.log.some((c) => c.call.startsWith("POST /config/plans/") && c.call.endsWith("/apply"))).toBe(true)
+
+  // the machine is shown on the page beside the panel, and its job runs
+  await expect(page.getByRole("link", { name: "Home Server" })).toBeVisible()
+  const running = page.getByRole("region", { name: "Running jobs table" })
+  await expect(running).toContainText("linux-small-8f2")
+  await running.getByRole("link", { name: /JOB-41/ }).click()
+  await expect(page.getByRole("heading", { name: "JOB-41 · developer" })).toBeVisible()
+})
