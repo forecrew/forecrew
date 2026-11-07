@@ -35,6 +35,7 @@
     "job.read",
     "org.read",
     "project.read",
+    "trackers.read",
     "worker.read"
   ],
   "projects": {}

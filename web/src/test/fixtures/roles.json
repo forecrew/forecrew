@@ -42,6 +42,8 @@
       "service_account.manage",
       "team.manage",
       "token.manage",
+      "trackers.manage",
+      "trackers.read",
       "worker.manage",
       "worker.read"
     ],
@@ -91,6 +93,8 @@
       "service_account.manage",
       "team.manage",
       "token.manage",
+      "trackers.manage",
+      "trackers.read",
       "worker.manage",
       "worker.read"
     ],
@@ -130,6 +134,7 @@
       "knowledge.propose",
       "org.read",
       "project.read",
+      "trackers.read",
       "worker.read"
     ],
     "built_in": true,
@@ -149,6 +154,7 @@
       "job.read",
       "org.read",
       "project.read",
+      "trackers.read",
       "worker.read"
     ],
     "built_in": true,
@@ -184,7 +190,8 @@
       "knowledge.propose",
       "project.manage",
       "project.read",
-      "proposal.decide"
+      "proposal.decide",
+      "trackers.read"
     ],
     "built_in": true,
     "custom": false,
@@ -218,7 +225,8 @@
       "job.read",
       "knowledge.propose",
       "project.read",
-      "proposal.decide"
+      "proposal.decide",
+      "trackers.read"
     ],
     "built_in": true,
     "custom": false,
@@ -244,7 +252,8 @@
       "job.dispatch",
       "job.read",
       "knowledge.propose",
-      "project.read"
+      "project.read",
+      "trackers.read"
     ],
     "built_in": true,
     "custom": false,
@@ -260,7 +269,8 @@
       "gate.read",
       "goal.read",
       "job.read",
-      "project.read"
+      "project.read",
+      "trackers.read"
     ],
     "built_in": true,
     "custom": false,

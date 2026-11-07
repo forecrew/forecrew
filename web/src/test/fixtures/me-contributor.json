@@ -45,7 +45,8 @@
       "job.dispatch",
       "job.read",
       "knowledge.propose",
-      "project.read"
+      "project.read",
+      "trackers.read"
     ]
   }
 }
