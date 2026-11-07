@@ -17,5 +17,9 @@ CREATE TABLE fleet_notices (
 );
 CREATE INDEX fleet_notices_open ON fleet_notices (created_at) WHERE resolved_at IS NULL;
 
+-- When a machine failed, which is where its billing ends (fleet.md, Usage).
+ALTER TABLE machines ADD COLUMN failed_at timestamptz;
+
 -- +goose Down
+ALTER TABLE machines DROP COLUMN failed_at;
 DROP TABLE fleet_notices;

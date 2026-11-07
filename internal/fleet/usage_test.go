@@ -233,22 +233,34 @@ func TestRevokedLocationMachineIsBilledToItsFailure(t *testing.T) {
 	}
 }
 
-// A failed machine left without a record, as rows from before metering are,
-// is billed by the catch-up up to its failure.
+// A failed machine left without a record is billed by the catch-up up to its
+// failure: a change of the row after it, or its destruction, moves nothing.
 func TestBackfillMetersFailedMachines(t *testing.T) {
-	e := newEnv(t)
-	agent, _ := e.agentProvider(e.account) // nothing destroys its machines from here
-	shape := e.shape(agent, "small", func(s *domain.Shape) { s.PricePerMinute = 1 })
-	m := domain.Machine{AccountID: e.account, ProviderID: agent.ID, ShapeID: shape.ID}
-	must(t, e.st.Machines().Create(e.ctx, &m))
-	must(t, e.st.Machines().UpdateState(e.ctx, m.ID, domain.MachineRequested, domain.MachineBooting, ""))
-	e.clock.Advance(4 * time.Minute)
-	must(t, e.st.Machines().UpdateState(e.ctx, m.ID, domain.MachineBooting, domain.MachineFailed, "lost"))
-	e.clock.Advance(time.Hour)
-	e.reconcile()
-	got, err := e.st.Usage().List(e.ctx, e.account, store.UsageFilter{})
-	must(t, err)
-	if len(got) != 1 || got[0].Minutes != 4 {
-		t.Fatalf("records = %+v", got)
+	for name, direct := range map[string]bool{"never reported gone": false, "destroyed later": true} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			prov := e.prov // its machines are destroyed from here
+			if !direct {
+				prov, _ = e.agentProvider(e.account) // nothing destroys its machines from here
+			}
+			shape := e.shape(prov, "small-1", func(s *domain.Shape) { s.PricePerMinute = 1 })
+			m := domain.Machine{AccountID: e.account, ProviderID: prov.ID, ShapeID: shape.ID}
+			must(t, e.st.Machines().Create(e.ctx, &m))
+			must(t, e.st.Machines().UpdateState(e.ctx, m.ID, domain.MachineRequested, domain.MachineBooting, ""))
+			e.clock.Advance(4 * time.Minute)
+			must(t, e.st.Machines().UpdateState(e.ctx, m.ID, domain.MachineBooting, domain.MachineFailed, "lost"))
+			e.clock.Advance(30 * time.Minute)
+			must(t, e.st.Machines().SetExternalID(e.ctx, m.ID, "vm-late")) // touched after failing
+			e.clock.Advance(time.Hour)
+			e.reconcile()
+			got, err := e.st.Usage().List(e.ctx, e.account, store.UsageFilter{})
+			must(t, err)
+			if len(got) != 1 || got[0].Minutes != 4 {
+				t.Fatalf("records = %+v", got)
+			}
+			if f := e.machine(m.ID).FailedAt; !got[0].EndedAt.Equal(f) {
+				t.Fatalf("ended %s, failed %s", got[0].EndedAt, f)
+			}
+		})
 	}
 }

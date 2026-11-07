@@ -1370,8 +1370,8 @@ type UsageRepo interface {
 	// its monthly budget.
 	SumByProvider(ctx context.Context, providerID uuid.UUID, from, to time.Time) (UsageTotal, error)
 	// Unmetered returns ended machines (failed or destroyed) of an
-	// organization with no record, ended at or after since (destroyed_at, or
-	// updated_at of a failed one), oldest first: what metering missed.
+	// organization with no record, ended at or after since (failed_at, else
+	// destroyed_at, else updated_at), oldest first: what metering missed.
 	Unmetered(ctx context.Context, since time.Time, limit int) ([]domain.Machine, error)
 }
 

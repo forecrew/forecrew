@@ -449,6 +449,7 @@ func (s *fleetSuite) usage(prov domain.CapacityProvider, shape domain.Shape) {
 	failed := domain.Machine{AccountID: s.account, ProviderID: prov.ID, ShapeID: shape.ID}
 	s.must(s.st.Machines().Create(ctx, &failed))
 	s.must(s.st.Machines().UpdateState(ctx, failed.ID, domain.MachineRequested, domain.MachineFailed, "gone"))
+	s.failedAtStays(failed.ID)
 	var since time.Time // the fake's clock is the test's
 	s.unmetered(since, m.ID, failed.ID)
 	start := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
@@ -566,5 +567,21 @@ func (s *fleetSuite) unmetered(since time.Time, ids ...uuid.UUID) {
 		if !slices.ContainsFunc(missed, func(x domain.Machine) bool { return x.ID == want }) {
 			s.t.Fatalf("unmetered = %+v, want machine %s", missed, want)
 		}
+	}
+}
+
+// failedAtStays checks that a failed machine has failed_at, and keeps it when
+// it is destroyed.
+func (s *fleetSuite) failedAtStays(id uuid.UUID) {
+	s.t.Helper()
+	ctx := s.t.Context()
+	got, err := s.st.Machines().Get(ctx, id)
+	s.must(err)
+	if got.FailedAt.IsZero() {
+		s.t.Fatalf("failed_at not set: %+v", got)
+	}
+	s.must(s.st.Machines().UpdateState(ctx, id, domain.MachineFailed, domain.MachineDestroyed, ""))
+	if again, _ := s.st.Machines().Get(ctx, id); !again.FailedAt.Equal(got.FailedAt) || again.DestroyedAt.IsZero() {
+		s.t.Fatalf("failed_at moved: %+v", again)
 	}
 }

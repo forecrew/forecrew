@@ -1,6 +1,6 @@
 # Data model
 
-Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access, 00007 the fleet, 00008 invitation GitHub ID, 00009 knowledge note hits and promotion, 00013 tracker route warnings and positions, 00016 fleet notices). Each table maps to a
+Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access, 00007 the fleet, 00008 invitation GitHub ID, 00009 knowledge note hits and promotion, 00013 tracker route warnings and positions, 00016 fleet notices and machines.failed_at). Each table maps to a
 type in `internal/domain` and a repository in `store.Store`; JSON names in
 `domain` equal the column names. The DDL below is the contract; T02 may add
 indexes but not change columns, types or constraints without a contract
@@ -1181,6 +1181,7 @@ CREATE TABLE machines (
   ready_at     timestamptz,
   deadline_at  timestamptz,
   destroyed_at timestamptz,
+  failed_at    timestamptz,                     -- migration 00016: when it failed, once; where its billing ends
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz NOT NULL DEFAULT now(),
   UNIQUE (provider_id, external_id),
