@@ -231,6 +231,12 @@ func TestBlockedTransitions(t *testing.T) {
 	if err := ad.Transition(ctx, key, "Closed"); !errors.Is(err, tracker.ErrBlocked) || !strings.Contains(err.Error(), "needs Resolution") {
 		t.Errorf("a required field: %v", err)
 	}
+	// Of two transitions to the status, the one that needs nothing is taken.
+	w.f.free["Closed"] = true
+	if err := ad.Transition(ctx, key, "Closed"); err != nil || w.f.issues[key].Status != "Closed" || w.f.moves[len(w.f.moves)-1] != "42" {
+		t.Errorf("a free transition: %v, %s, %v", err, w.f.issues[key].Status, w.f.moves)
+	}
+	w.f.issues[key].Status = "Open"
 	w.f.refuse = true
 	if err := ad.Transition(ctx, key, "In Progress"); !errors.Is(err, tracker.ErrBlocked) || !strings.Contains(err.Error(), "Story points is required") {
 		t.Errorf("a validator: %v", err)
