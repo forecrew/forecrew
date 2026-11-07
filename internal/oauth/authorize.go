@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"html/template"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -63,9 +64,7 @@ func (s *Server) back(w http.ResponseWriter, r *http.Request, q authRequest, val
 		return
 	}
 	query := u.Query()
-	for k, v := range values {
-		query[k] = v
-	}
+	maps.Copy(query, values)
 	query.Set("iss", s.issuer)
 	if q.State != "" {
 		query.Set("state", q.State)

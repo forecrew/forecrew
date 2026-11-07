@@ -52,7 +52,7 @@ const (
 const (
 	metadataPath     = "/.well-known/oauth-authorization-server"
 	resourceRootPath = "/.well-known/oauth-protected-resource"
-	tokenPath        = "/oauth/token"
+	tokenPath        = "/oauth/token" // #nosec G101 -- a path, not a credential
 	registerPath     = "/oauth/register"
 	maxFormBytes     = 16 << 10
 	fetchTimeout     = 5 * time.Second

@@ -195,6 +195,22 @@ func Authenticate(st store.Store, now func() time.Time, logger *slog.Logger) fun
 	return AuthenticateResource(st, now, logger, Resource{})
 }
 
+// bearerCaller returns the caller of a bearer token, and records the use of a
+// personal one.
+func bearerCaller(ctx context.Context, st store.Store, token string, res Resource, now time.Time, logger *slog.Logger) (Caller, error) {
+	if res.URL != "" && strings.HasPrefix(token, PrefixAccessToken) {
+		return grantCaller(ctx, st, token, res, now)
+	}
+	c, t, err := tokenCaller(ctx, st, token, now)
+	if err != nil {
+		return c, err
+	}
+	if err := st.MCPTokens().Touch(ctx, t.AccountID, t.ID); err != nil {
+		logger.WarnContext(ctx, "touch token", "account_id", t.AccountID, "error", err)
+	}
+	return c, nil
+}
+
 // AuthenticateResource is Authenticate for res: it also takes OAuth access
 // tokens for it, and a 401 says how to get one. It serves /mcp.
 func AuthenticateResource(st store.Store, now func() time.Time, logger *slog.Logger, res Resource) func(http.Handler) http.Handler {
@@ -209,18 +225,7 @@ func AuthenticateResource(st store.Store, now func() time.Time, logger *slog.Log
 				writeAuthError(w, http.StatusUnauthorized, res.challenge(false), "unauthorized", "missing bearer token")
 				return
 			}
-			var c Caller
-			var err error
-			if res.URL != "" && strings.HasPrefix(token, PrefixAccessToken) {
-				c, err = grantCaller(r.Context(), st, token, res, now())
-			} else {
-				var t domain.MCPToken
-				if c, t, err = tokenCaller(r.Context(), st, token, now()); err == nil {
-					if err := st.MCPTokens().Touch(r.Context(), t.AccountID, t.ID); err != nil {
-						logger.WarnContext(r.Context(), "touch token", "account_id", t.AccountID, "error", err)
-					}
-				}
-			}
+			c, err := bearerCaller(r.Context(), st, token, res, now(), logger)
 			switch {
 			case errors.Is(err, errNoAccess):
 				writeAuthError(w, http.StatusUnauthorized, res.challenge(true), "unauthorized", errNoAccess.Error())

@@ -273,7 +273,7 @@ func TestConnectedAppsCommand(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "Claude") || !strings.Contains(out, "read,write") || !strings.Contains(out, "2026-03-01T12:00:00Z") {
 		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
 	}
-	e.svc.RevokeConnectedAppFunc = func(_ context.Context, _ domain.Actor, in mcp.ConnectedAppInput) (mcp.ConnectedApp, error) {
+	e.svc.RevokeConnectedAppFunc = func(context.Context, domain.Actor, mcp.ConnectedAppInput) (mcp.ConnectedApp, error) {
 		return mcp.ConnectedApp{ID: id, Name: "Claude"}, nil
 	}
 	out, errOut, code = e.run(t, "connected-apps", "revoke", id.String())

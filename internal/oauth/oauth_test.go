@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -311,11 +312,50 @@ func (e *env) status(t *testing.T, token string) (int, string) {
 	return res.StatusCode, res.Header.Get("WWW-Authenticate")
 }
 
-// TestFullFlow is a client that knows only the URL: discovery from a 401,
-// registration, consent with an organization choice, the code exchange, an MCP
-// call, a refresh, and a reused refresh token ending the family.
-func TestFullFlow(t *testing.T) {
-	e := newEnv(t)
+// consentScreen checks what the screen says and that it cannot be framed.
+func (e *env) consentScreen(t *testing.T, q url.Values) string {
+	t.Helper()
+	res, page := e.get(t, q, cookie)
+	for _, want := range []string{"Scripted", "app.example", "Acme", "Bravo", "<select", "You have not connected this app before", "Read projects", "resolve gates"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the consent screen lacks %q", want)
+		}
+	}
+	if res.Header.Get("X-Frame-Options") != "DENY" || !strings.Contains(res.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'") {
+		t.Errorf("consent can be framed: %v", res.Header)
+	}
+	return page
+}
+
+// checkIssued checks the rows of a first access and refresh token, in Bravo.
+func (e *env) checkIssued(t *testing.T, access, refresh string) {
+	t.Helper()
+	g, err := e.st.OAuth().GetGrantByTokenHash(t.Context(), mcp.HashToken(access))
+	must(t, err)
+	if g.AccountID != e.b.ID || g.UserID != e.user.ID || g.Resource != e.base+"/mcp" || g.ExpiresAt.Sub(e.now) != time.Hour {
+		t.Fatalf("grant = %+v", g)
+	}
+	r, err := e.st.OAuth().GetGrantByTokenHash(t.Context(), mcp.HashToken(refresh))
+	must(t, err)
+	if r.ExpiresAt.Sub(e.now) != 30*24*time.Hour || r.FamilyID != g.FamilyID {
+		t.Fatalf("refresh = %+v", r)
+	}
+}
+
+func (e *env) wantAudit(t *testing.T, account uuid.UUID, want ...string) {
+	t.Helper()
+	entries, err := e.st.Audit().List(t.Context(), account, store.AuditFilter{})
+	must(t, err)
+	for _, action := range want {
+		if !slices.ContainsFunc(entries, func(x domain.AuditEntry) bool { return x.Action == action }) {
+			t.Errorf("audit lacks %s: %+v", action, entries)
+		}
+	}
+}
+
+// discover follows the metadata from a 401, as a client does.
+func (e *env) discover(t *testing.T) {
+	t.Helper()
 	status, challengeHeader := e.status(t, "")
 	if status != http.StatusUnauthorized {
 		t.Fatalf("status = %d", status)
@@ -338,17 +378,17 @@ func TestFullFlow(t *testing.T) {
 		t.Fatalf("server metadata = %+v", asm)
 	}
 
+}
+
+// TestFullFlow is a client that knows only the URL: discovery from a 401,
+// registration, consent with an organization choice, the code exchange, an MCP
+// call, a refresh, and a reused refresh token ending the family.
+func TestFullFlow(t *testing.T) {
+	e := newEnv(t)
+	e.discover(t)
 	client := e.register(t, callback)
 	q := e.params(client)
-	res, page := e.get(t, q, cookie)
-	for _, want := range []string{"Scripted", "app.example", "Acme", "Bravo", "<select", "You have not connected this app before", "Read projects", "resolve gates"} {
-		if !strings.Contains(page, want) {
-			t.Errorf("the consent screen lacks %q", want)
-		}
-	}
-	if res.Header.Get("X-Frame-Options") != "DENY" || !strings.Contains(res.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'") {
-		t.Errorf("consent can be framed: %v", res.Header)
-	}
+	page := e.consentScreen(t, q)
 	back := e.post(t, page, func(f url.Values) { f.Set("organization", e.b.Slug) })
 	u, err := back.Location()
 	must(t, err)
@@ -363,16 +403,7 @@ func TestFullFlow(t *testing.T) {
 	if !strings.HasPrefix(access, "fca_") || !strings.HasPrefix(refresh, "fcr_") || !strings.HasPrefix(u.Query().Get("code"), "fco_") {
 		t.Fatalf("prefixes: %v", out)
 	}
-	g, err := e.st.OAuth().GetGrantByTokenHash(t.Context(), mcp.HashToken(access))
-	must(t, err)
-	if g.AccountID != e.b.ID || g.UserID != e.user.ID || g.Resource != e.base+"/mcp" || g.ExpiresAt.Sub(e.now) != time.Hour {
-		t.Fatalf("grant = %+v", g)
-	}
-	r, err := e.st.OAuth().GetGrantByTokenHash(t.Context(), mcp.HashToken(refresh))
-	must(t, err)
-	if r.ExpiresAt.Sub(e.now) != 30*24*time.Hour || r.FamilyID != g.FamilyID {
-		t.Fatalf("refresh = %+v", r)
-	}
+	e.checkIssued(t, access, refresh)
 
 	// The member of Bravo holds no role there, so the grant reaches the tool
 	// layer only to be refused by ToolAccess.
@@ -400,15 +431,7 @@ func TestFullFlow(t *testing.T) {
 	}
 	status, out = e.refresh(t, client, newRefresh)
 	wantError(t, status, out, http.StatusBadRequest, "invalid_grant")
-	entries, err := e.st.Audit().List(t.Context(), e.b.ID, store.AuditFilter{})
-	must(t, err)
-	actions := []string{}
-	for _, x := range entries {
-		actions = append(actions, x.Action)
-	}
-	if !strings.Contains(strings.Join(actions, " "), "oauth.authorized") || !strings.Contains(strings.Join(actions, " "), "oauth.reuse_detected") {
-		t.Errorf("audit = %v", actions)
-	}
+	e.wantAudit(t, e.b.ID, "oauth.authorized", "oauth.reuse_detected")
 }
 
 func TestPKCE(t *testing.T) {
@@ -863,7 +886,7 @@ func (e *env) conformance(t *testing.T, cfg *sdkauth.AuthorizationCodeHandlerCon
 	t.Helper()
 	cfg.RedirectURL = callback
 	cfg.Client = &http.Client{}
-	cfg.AuthorizationCodeFetcher = func(ctx context.Context, args *sdkauth.AuthorizationArgs) (*sdkauth.AuthorizationResult, error) {
+	cfg.AuthorizationCodeFetcher = func(_ context.Context, args *sdkauth.AuthorizationArgs) (*sdkauth.AuthorizationResult, error) {
 		u, err := url.Parse(args.URL)
 		if err != nil {
 			return nil, err
