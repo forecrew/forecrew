@@ -102,6 +102,9 @@ func usageT(d *storeData) *table[domain.UsageRecord] { return &d.usage }
 
 // ended is when a machine ended, as Unmetered orders them.
 func ended(m domain.Machine) time.Time {
+	if !m.FailedAt.IsZero() {
+		return m.FailedAt
+	}
 	if m.DestroyedAt.IsZero() {
 		return m.UpdatedAt
 	}

@@ -175,7 +175,7 @@ requested → destroyed            booting, ready → draining
 | `busy` | It leased a job. It stays busy until `jobs_taken` reaches the shape's `max_jobs` and its last job ends, or until it sits idle for `idle_seconds`. | forecrewd, at lease |
 | `draining` | It takes no more jobs and is being destroyed. | forecrewd |
 | `destroyed` | Gone; `destroyed_at` is set. | provider report |
-| `failed` | It broke; `error` says why. It may still exist at the provider, and goes to `destroyed` once it is gone. | either |
+| `failed` | It broke; `error` says why, and `failed_at` when. It may still exist at the provider, and goes to `destroyed` once it is gone. | either |
 
 `domain.MachineState.Transition` is the table. `busy` never goes back to
 `ready`: a machine does not return to the warm pool after a job. `Counts` says
@@ -469,7 +469,8 @@ for a machine, so metering can be retried.
 
 The record is written in the transaction that ends the machine: the one that
 moves it to `failed` or, if it never failed, to `destroyed`. A failed machine is
-billed to its failure (`fleet.MeterEnd`), also when nothing ever reports it gone,
+billed to its failure, `machines.failed_at`, set once when it fails (`fleet.MeterEnd`;
+a row that failed before the column existed falls back to `updated_at`), also when nothing ever reports it gone,
 as when its location is revoked, and its later destruction writes nothing more.
 So a machine never ends without a record and never gets two; the
 `machine.failed` or `machine.destroyed` audit entry carries its `minutes` and

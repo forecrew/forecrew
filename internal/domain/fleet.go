@@ -596,8 +596,11 @@ type Machine struct {
 	// it has no job.
 	DeadlineAt  time.Time `json:"deadline_at,omitzero"`
 	DestroyedAt time.Time `json:"destroyed_at,omitzero"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	// FailedAt is when it failed, once; zero if it never did, and on rows
+	// that failed before it was kept.
+	FailedAt  time.Time `json:"failed_at,omitzero"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // CanTakeJob reports whether the machine may lease another job of shape s.

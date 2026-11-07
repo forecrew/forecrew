@@ -54,12 +54,16 @@ func roundTo(v float64, places int) float64 {
 }
 
 // MeterEnd is when machine m stopped costing its organization: when it failed
-// or, if it never did, was destroyed. A machine still up has not ended.
+// (FailedAt) or, if it never did, was destroyed. A machine still up has not
+// ended. A row that failed before FailedAt was kept falls back to UpdatedAt,
+// its last change.
 func MeterEnd(m domain.Machine) (time.Time, bool) {
-	switch m.State {
-	case domain.MachineFailed:
-		return m.UpdatedAt, true // the failure is the row's last change
-	case domain.MachineDestroyed:
+	switch {
+	case !m.FailedAt.IsZero():
+		return m.FailedAt, true
+	case m.State == domain.MachineFailed:
+		return m.UpdatedAt, true
+	case m.State == domain.MachineDestroyed:
 		return m.DestroyedAt, true
 	}
 	return time.Time{}, false

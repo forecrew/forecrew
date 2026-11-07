@@ -284,6 +284,10 @@ func (r machineRepo) UpdateState(_ context.Context, id uuid.UUID, from, to domai
 			}
 		case domain.MachineDestroyed:
 			m.DestroyedAt = now
+		case domain.MachineFailed:
+			if m.FailedAt.IsZero() {
+				m.FailedAt = now
+			}
 		}
 		return nil
 	})

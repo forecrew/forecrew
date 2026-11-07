@@ -271,12 +271,12 @@ type machineRepo struct{ db dbtx }
 
 var machineCols = `id, ` + cuuid("account_id") + `, provider_id, shape_id, ` + ctext("external_id") + `, state, ` + cuuid("worker_id") + `, ` + cuuid("job_id") +
 	`, jobs_taken, error, ` + ctime("assigned_at") + `, ` + ctime("booting_at") + `, ` + ctime("ready_at") + `, ` + ctime("deadline_at") + `, ` + ctime("destroyed_at") +
-	`, created_at, updated_at`
+	`, ` + ctime("failed_at") + `, created_at, updated_at`
 
 func scanMachine(row pgx.Row) (m domain.Machine, err error) {
 	err = row.Scan(&m.ID, &m.AccountID, &m.ProviderID, &m.ShapeID, &m.ExternalID, &m.State, &m.WorkerID, &m.JobID, &m.JobsTaken, &m.Error,
-		&m.AssignedAt, &m.BootingAt, &m.ReadyAt, &m.DeadlineAt, &m.DestroyedAt, &m.CreatedAt, &m.UpdatedAt)
-	utc(&m.AssignedAt, &m.BootingAt, &m.ReadyAt, &m.DeadlineAt, &m.DestroyedAt, &m.CreatedAt, &m.UpdatedAt)
+		&m.AssignedAt, &m.BootingAt, &m.ReadyAt, &m.DeadlineAt, &m.DestroyedAt, &m.FailedAt, &m.CreatedAt, &m.UpdatedAt)
+	utc(&m.AssignedAt, &m.BootingAt, &m.ReadyAt, &m.DeadlineAt, &m.DestroyedAt, &m.FailedAt, &m.CreatedAt, &m.UpdatedAt)
 	return m, err
 }
 
@@ -329,7 +329,8 @@ func (r machineRepo) UpdateState(ctx context.Context, id uuid.UUID, from, to dom
 			error = CASE WHEN $4 <> '' THEN $4 ELSE error END,
 			booting_at = CASE WHEN $3 = 'booting' THEN now() ELSE booting_at END,
 			ready_at = CASE WHEN $3 = 'ready' THEN COALESCE(ready_at, now()) ELSE ready_at END,
-			destroyed_at = CASE WHEN $3 = 'destroyed' THEN now() ELSE destroyed_at END
+			destroyed_at = CASE WHEN $3 = 'destroyed' THEN now() ELSE destroyed_at END,
+			failed_at = CASE WHEN $3 = 'failed' THEN COALESCE(failed_at, now()) ELSE failed_at END
 		WHERE id = $1 AND state = $2`, id, string(from), string(to), errMsg)
 	if err != nil {
 		return mapErr(err)
