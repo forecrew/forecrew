@@ -3,6 +3,7 @@ package tracker_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -258,6 +259,7 @@ func scenarios() map[string]func(*testing.T, *world) {
 		"approving the gate starts":     approvingTheGateStarts,
 		"rejecting the gate dismisses":  rejectingTheGateDismisses,
 		"no route and two routes":       noRouteAndTwoRoutes,
+		"unmapped people are listed":    unmappedPeopleAreListed,
 		"a permitted handover starts":   permittedHandoverLeavesTheInbox,
 		"closed in the Inbox leaves":    closedInTheInbox,
 		"duplicate delivery":            duplicateDelivery,
@@ -1298,4 +1300,45 @@ func names() []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// Who is waiting to be mapped: the person who handed a ticket over and maps to
+// no user, once, with their tickets; a person mapped since is left out.
+func unmappedPeopleAreListed(t *testing.T, w *world) {
+	w.route(t, w.app.ID, domain.TrackerMatch{}, nil)
+	marta := tracker.User{ID: "77", Name: "Marta Rossi"}
+	w.put(t, labeled("C-1", marta))
+	w.put(t, labeled("C-2", marta))
+	w.put(t, labeled("C-3", w.ann)) // mapped: starts
+	w.put(t, labeled("C-4", tracker.User{}))
+	w.put(t, labeled("C-5", tracker.User{ID: "bot", Name: "bot", Bot: true}))
+	got, err := w.svc.Unmapped(t.Context(), w.account, uuid.Nil())
+	must(t, err)
+	if len(got) != 1 || got[0].User != marta || got[0].Connection.ID != w.conn.ID || len(got[0].Tickets) != 2 {
+		t.Fatalf("Unmapped = %+v", got)
+	}
+	if got, err := w.svc.Unmapped(t.Context(), w.account, w.conn.ID); err != nil || len(got) != 1 {
+		t.Errorf("one connection: %+v, %v", got, err)
+	}
+	if got, err := w.svc.Unmapped(t.Context(), w.account, uuid.NewV7()); err != nil || len(got) != 0 {
+		t.Errorf("another connection: %+v, %v", got, err)
+	}
+	if w.svc.MaxActiveGoals() != 2 {
+		t.Errorf("limit = %d", w.svc.MaxActiveGoals())
+	}
+	w.mapUser(t, marta, w.annID)
+	if got, err := w.svc.Unmapped(t.Context(), w.account, uuid.Nil()); err != nil || len(got) != 0 {
+		t.Errorf("after mapping: %+v, %v", got, err)
+	}
+	// A connection whose kind is not registered is told, and the rest still answers.
+	w.mapUser(t, tracker.User{ID: "78", Name: "Luca"}, w.annID)
+	other := domain.TrackerConnection{AccountID: w.account, Name: "gone", Kind: "gone", Triggers: domain.TrackerTriggers{Label: "x"}}
+	must(t, w.st.TrackerConnections().Create(t.Context(), &other))
+	must(t, w.st.TicketLinks().Create(t.Context(), &domain.TicketLink{AccountID: w.account, ConnectionID: other.ID, Key: "G-1", Status: domain.LinkWaiting, Reason: domain.WaitUnknownPerson}))
+	w.fake.Edit("C-4", func(tk *tracker.Ticket) { tk.Handovers[0].By = tracker.User{ID: "79", Name: "Sam"} })
+	w.hint(t, "C-4")
+	got, err = w.svc.Unmapped(t.Context(), w.account, uuid.Nil())
+	if err == nil || !errors.Is(err, tracker.ErrUnknownKind) || len(got) != 1 || got[0].User.ID != "79" {
+		t.Errorf("got %+v, err %v", got, err)
+	}
 }
