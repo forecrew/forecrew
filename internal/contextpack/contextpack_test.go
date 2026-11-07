@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/contextpack"
@@ -350,5 +351,40 @@ func TestBuildGoalFromTicketIsUntrusted(t *testing.T) {
 	}
 	if !strings.Contains(p, "# Goal "+f.goal.Ref()+"\n") {
 		t.Errorf("heading:\n%s", p)
+	}
+}
+
+// The technical council of a goal designs for its latest spec; no other
+// council sees one.
+func TestBuildCouncilSpec(t *testing.T) {
+	f := newFixture(t, "user:ana")
+	ctx := t.Context()
+	goal := domain.Goal{AccountID: f.project.AccountID, ProjectID: f.project.ID, Title: "Pay", Body: "By card.", CreatedBy: "user:ana"}
+	must(t, f.st.Goals().Create(ctx, &goal))
+	for i, body := range []string{"OLD SPEC BODY", "LATEST SPEC BODY"} {
+		must(t, f.st.Specs().Create(ctx, &domain.Spec{AccountID: f.project.AccountID, ProjectID: f.project.ID, GoalID: goal.ID, Revision: i + 1, Body: body}))
+	}
+	prompt := func(kind domain.CouncilKind, goalID uuid.UUID) string {
+		c := domain.Council{AccountID: f.project.AccountID, ProjectID: f.project.ID, GoalID: goalID, Kind: kind, Question: "How?"}
+		must(t, f.st.Councils().Create(ctx, &c))
+		req := workflow.JobRequest{AccountID: c.AccountID, ProjectID: c.ProjectID, GoalID: goalID, Council: &workflow.CouncilTurn{CouncilID: c.ID}}
+		pack, err := contextpack.New(f.st, nil, nil, 0).Build(ctx, req, roles.Role{Name: "architect", Instructions: "Design."})
+		must(t, err)
+		return pack.Prompt
+	}
+	if p := prompt(domain.CouncilTechnical, goal.ID); !strings.Contains(p, "LATEST SPEC BODY") || strings.Contains(p, "OLD SPEC BODY") || !strings.Contains(p, "revision 2") {
+		t.Errorf("technical council prompt:\n%s", p)
+	}
+	if p := prompt(domain.CouncilProduct, goal.ID); strings.Contains(p, "SPEC BODY") {
+		t.Errorf("product council prompt shows a spec:\n%s", p)
+	}
+	if p := prompt(domain.CouncilTechnical, uuid.Nil()); strings.Contains(p, "SPEC BODY") {
+		t.Errorf("a council without a goal shows a spec:\n%s", p)
+	}
+	// A goal without a spec yet.
+	bare := domain.Goal{AccountID: f.project.AccountID, ProjectID: f.project.ID, Title: "Bare", Body: "x", CreatedBy: "user:ana"}
+	must(t, f.st.Goals().Create(ctx, &bare))
+	if p := prompt(domain.CouncilTechnical, bare.ID); strings.Contains(p, "# Spec") {
+		t.Errorf("a goal without a spec shows one:\n%s", p)
 	}
 }
