@@ -145,6 +145,22 @@ import goalsEmpty from "./fixtures/goals-empty.json"
 import jobFailed from "./fixtures/job-failed.json"
 import jobQueued from "./fixtures/job-queued.json"
 import jobsEmpty from "./fixtures/jobs-empty.json"
+import configPlanTracker from "./fixtures/config-plan-tracker.json"
+import configPlanTrackerApply from "./fixtures/config-plan-tracker-apply.json"
+import configPlanTrackerSecret from "./fixtures/config-plan-tracker-secret.json"
+import ticketAccept from "./fixtures/ticket-accept.json"
+import ticketDismiss from "./fixtures/ticket-dismiss.json"
+import ticketsWaiting from "./fixtures/tickets-waiting.json"
+import trackerConnections from "./fixtures/tracker-connections.json"
+import trackerIdentities from "./fixtures/tracker-identities.json"
+import trackerIdentityMap from "./fixtures/tracker-identity-map.json"
+import trackerRoutes from "./fixtures/tracker-routes.json"
+import trackerTest from "./fixtures/tracker-test.json"
+import trackerTestFailed from "./fixtures/tracker-test-failed.json"
+import trackerConnectionsEmpty from "./fixtures/tracker-connections-empty.json"
+import trackerUnmappedProblem from "./fixtures/tracker-unmapped-problem.json"
+import ticketsWaitingEmpty from "./fixtures/tickets-waiting-empty.json"
+import trackerUnmapped from "./fixtures/tracker-unmapped.json"
 import projectsEmpty from "./fixtures/projects-empty.json"
 import workersEmpty from "./fixtures/workers-empty.json"
 
@@ -265,6 +281,15 @@ export const handlers = [
   http.get("/api/v1/knowledge", () => HttpResponse.json(knowledgeSearch)),
   http.delete("/api/v1/knowledge/notes/:id", () => HttpResponse.json(knowledgeNoteDelete)),
   http.get("/api/v1/decisions", ({ request }) => HttpResponse.json(new URL(request.url).searchParams.get("project") === "app" ? decisions : [])),
+  http.get("/api/v1/tracker-connections", () => HttpResponse.json(trackerConnections)),
+  http.post("/api/v1/tracker-connections/:name/test", () => HttpResponse.json(trackerTest)),
+  http.get("/api/v1/tracker-routes", () => HttpResponse.json(trackerRoutes)),
+  http.get("/api/v1/tracker-identities", () => HttpResponse.json(trackerIdentities)),
+  http.post("/api/v1/tracker-identities", () => HttpResponse.json(trackerIdentityMap, { status: 201 })),
+  http.get("/api/v1/tracker-people/unmapped", () => HttpResponse.json(trackerUnmapped)),
+  http.get("/api/v1/tickets/waiting", () => HttpResponse.json(ticketsWaiting)),
+  http.post("/api/v1/tickets/:ticket/accept", () => HttpResponse.json(ticketAccept)),
+  http.post("/api/v1/tickets/:ticket/dismiss", () => HttpResponse.json(ticketDismiss)),
   http.get("/api/v1/gates", () => HttpResponse.json(gates)),
   http.post("/api/v1/gates/:ref/approve", () => HttpResponse.json(gateApprove)),
   http.post("/api/v1/gates/:ref/request-changes", () => HttpResponse.json(gateRequestChanges)),
@@ -286,6 +311,8 @@ export const fx = {
   audit, auditEmpty, configPlanApply, configPlanCancel, configPlanConnection, configPlanSecret, connectionCreate, connectionEnable, connectionEnableUntested, connections, identities, invitationCreate, invitationRevoke, invitations,
   meAdmin, meContributor, meOwnerEnterprise, meViewer, roleCreate, roleDeleteInUse, roleUpdate, rolesCustom, memberLastOwner, memberSuspend, members, organization, roleBindingCreate, roleBindingDelete, roleBindings, roles,
   serviceAccountCreate, serviceAccounts, sessions, teamCreate, teamMembers, teamsEmpty, teams, tokenCreate, tokensScopes,
+  configPlanTracker, configPlanTrackerApply, configPlanTrackerSecret, ticketAccept, ticketDismiss, ticketsWaiting, ticketsWaitingEmpty, trackerConnections, trackerConnectionsEmpty,
+  trackerIdentities, trackerIdentityMap, trackerRoutes, trackerTest, trackerTestFailed, trackerUnmapped, trackerUnmappedProblem,
 }
 
 /** The recorded error answers. */

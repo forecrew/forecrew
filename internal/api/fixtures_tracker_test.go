@@ -15,8 +15,8 @@ func trackerPlan(filled bool, status domain.ConfigPlanStatus) mcp.ConfigPlanView
 	return mcp.ConfigPlanView{ConfigPlan: domain.ConfigPlan{
 		ID: fid(390), AccountID: fid(1), Status: status, Source: domain.ConfigFromForm, Title: "Connect tracker linear", Applies: "now",
 		Changes: []domain.ConfigChange{{Op: domain.ConfigCreate, Kind: "tracker_connection", Name: "linear",
-			New:  json.RawMessage(`{"kind":"linear","config":{"teams":["ENG"],"token_ref":"store:linear-token"},"triggers":{"label":"forecrew"}}`),
-			Line: "+ Tracker connection linear (linear)"}},
+			New:    json.RawMessage(`{"kind":"linear","config":{"teams":["ENG"],"token_ref":"store:linear-token"},"triggers":{"label":"forecrew"}}`),
+			Fields: []domain.ConfigFieldChange{}, Line: "+ Tracker connection linear (linear)"}},
 		Needs:   []domain.Permission{domain.PermTrackersManage},
 		Affects: "Tickets handed over on the tracker become goals; status goes back to them.",
 		Steps: []domain.ConfigStep{
