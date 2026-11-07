@@ -42,7 +42,7 @@ var ErrSetupTTL = errors.New("the setup link lifetime must be between a minute a
 // SetupURL is the link of a setup token. The token is in the fragment so it
 // never reaches an access log.
 func SetupURL(baseURL, token string) string {
-	return strings.TrimRight(baseURL, "/") + "/setup#" + token
+	return strings.TrimRight(baseURL, "/") + "/setup-link#" + token
 }
 
 // CreateSetupLink stores a link that makes an Owner of the organization and
