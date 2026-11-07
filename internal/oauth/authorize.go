@@ -140,8 +140,22 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	if !s.validated(w, r, c, q, err) {
 		return
 	}
+	userID, _ := caller.Actor.SubjectID()
+	known, err := s.cfg.Store.OAuth().UserAuthorized(r.Context(), c.ID, userID)
+	if err != nil {
+		s.cfg.Logger.ErrorContext(r.Context(), "read oauth grants", "error", err)
+		s.page(w, r, http.StatusInternalServerError, "Something went wrong", "Try again in a moment.")
+		return
+	}
 	scopes, e := s.check(q)
 	if e != nil {
+		// Without a click, a bad request would send the browser to any
+		// registered address: only an app the person connected before gets
+		// its error back, the others get a page here.
+		if !known {
+			s.page(w, r, http.StatusBadRequest, "This app sent a bad request", "Forecrew did not send you back to it. What it asked for: "+e.text+".")
+			return
+		}
 		s.backWithError(w, r, q, e)
 		return
 	}
@@ -153,13 +167,6 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(orgs) == 0 {
 		s.page(w, r, http.StatusForbidden, "You do not have access yet", "This account is not an active member of an organization here, so there is nothing to connect the app to.")
-		return
-	}
-	userID, _ := caller.Actor.SubjectID()
-	known, err := s.cfg.Store.OAuth().UserAuthorized(r.Context(), c.ID, userID)
-	if err != nil {
-		s.cfg.Logger.ErrorContext(r.Context(), "read oauth grants", "error", err)
-		s.page(w, r, http.StatusInternalServerError, "Something went wrong", "Try again in a moment.")
 		return
 	}
 	s.render(w, r, http.StatusOK, consentPage, consentView{

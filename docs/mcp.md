@@ -123,6 +123,10 @@ Rules a client may meet:
 - Registration, the token endpoint and the reading of metadata documents are
   rate limited by address (`429`). Clients nobody used for 30 days and that
   hold no grant are deleted; a dynamic client then registers again.
+- A bad authorization request (no PKCE, an unknown scope, another
+  `resource`) goes back to the app as an OAuth error only if you connected
+  that app before; otherwise Forecrew shows the error itself and sends the
+  browser nowhere.
 - The consent screen says when you have not connected an app before. An
   app's name is what it says about itself; the host it returns to is the fact.
 

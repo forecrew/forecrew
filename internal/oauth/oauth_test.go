@@ -452,6 +452,7 @@ func fullFlow(t *testing.T, e *env) {
 func TestPKCE(t *testing.T) {
 	e := newEnv(t)
 	client := e.register(t, callback)
+	e.code(t, e.params(client), e.a.Slug) // errors go back to an app connected before
 	for name, change := range map[string]func(url.Values){
 		"missing challenge": func(q url.Values) { q.Del("code_challenge") },
 		"plain":             func(q url.Values) { q.Set("code_challenge_method", "plain") },
@@ -544,6 +545,7 @@ func TestAuthorizeRefuses(t *testing.T) {
 		t.Errorf("loopback with another path: %d", res.StatusCode)
 	}
 
+	e.code(t, e.params(client), e.a.Slug) // errors go back to an app connected before
 	for name, tt := range map[string]struct {
 		change func(url.Values)
 		code   string
@@ -560,6 +562,28 @@ func TestAuthorizeRefuses(t *testing.T) {
 			must(t, err)
 			if u.Query().Get("error") != tt.code {
 				t.Fatalf("redirect = %s", u)
+			}
+		})
+	}
+}
+
+// TestErrorsOfANewApp is a bad request from an app the person never
+// connected: no click sends the browser to it, the error is a page here.
+func TestErrorsOfANewApp(t *testing.T) {
+	e := newEnv(t)
+	client := e.register(t, "https://evil.example/cb")
+	for name, change := range map[string]func(url.Values){
+		"implicit flow": func(q url.Values) { q.Set("response_type", "token") },
+		"no PKCE":       func(q url.Values) { q.Del("code_challenge") },
+		"bad scope":     func(q url.Values) { q.Set("scope", "everything") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			q := e.params(client)
+			q.Set("redirect_uri", "https://evil.example/cb")
+			change(q)
+			res, page := e.get(t, q, cookie)
+			if res.StatusCode != http.StatusBadRequest || res.Header.Get("Location") != "" || !strings.Contains(page, "did not send you back") {
+				t.Fatalf("answer = %d %s", res.StatusCode, res.Header.Get("Location"))
 			}
 		})
 	}
