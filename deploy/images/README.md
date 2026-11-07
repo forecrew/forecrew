@@ -32,4 +32,4 @@ forecrew image sign ... --key image.key && forecrew image add ...   # a person c
 ```
 
 macOS, on the Mac: `cd deploy/images/macos && packer init . && packer build -var version=2026.11.1 -var worker_binary=./forecrew-worker -var base_vm=ghcr.io/cirruslabs/<base>@sha256:<hex> .`
-then push the Tart VM to your registry and write a manifest with `--format tart --digest sha256:<hex of the build's manifest>`.
+then push the Tart VM to your registry and write a manifest with `--format tart --uri oci://<registry>/<name>:<tag> --digest sha256:<hex of the build's manifest> --label xcode:<major>` (the label only when the base VM has Xcode). The fleet agent pulls it by that digest, never by the tag.

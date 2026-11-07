@@ -179,28 +179,7 @@ func TestCreateListDestroy(t *testing.T) {
 	if strings.Contains(args, "--dir") {
 		t.Errorf("a host directory is shared: %q", args)
 	}
-	// The settings went in through standard input, and nowhere else.
-	if got := e.file(t, "guest-"+name+".stdin"); got != "FORECREW_SERVER_URL="+testServer+"\nFORECREW_BOOTSTRAP_TOKEN="+testToken+"\n" {
-		t.Errorf("guest got %q", got)
-	}
-	exec := e.file(t, "vms", name, "exec")
-	if !strings.Contains(exec, "sudo -n /bin/sh -c") || !strings.HasSuffix(strings.TrimSpace(exec), "sh "+guestDir) {
-		t.Errorf("exec = %q", exec)
-	}
-	calls := e.file(t, "calls.log")
-	if strings.Contains(calls+exec, testToken) {
-		t.Errorf("the token is in an argument:\n%s", calls)
-	}
-	// Credentials reach the commands that pull, as environment, not arguments.
-	if !strings.Contains(calls, "pull "+ref+" | registry-password=set") || !strings.Contains(calls, "clone "+ref+" "+name+" | registry-password=set") {
-		t.Errorf("registry credentials did not reach pull and clone:\n%s", calls)
-	}
-	if strings.Contains(calls, "hunter2") || strings.Contains(calls, "list --source local --format json | registry-password=set") {
-		t.Errorf("credentials leaked:\n%s", calls)
-	}
-	if !strings.Contains(calls, "agent-secret=unset") || strings.Contains(calls, "fcp_agents-own-secret") {
-		t.Errorf("the agent's environment reached tart:\n%s", calls)
-	}
+	e.checkGuestAndCredentials(t, name, ref)
 
 	list, err := e.p.List(t.Context())
 	if err != nil || len(list) != 1 || list[0].ExternalID != id || !list[0].Running || list[0].Tags[fleet.TagMachine] != "m" {
@@ -224,6 +203,34 @@ func TestCreateListDestroy(t *testing.T) {
 	if err := e.p.Destroy(t.Context(), "not-an-id"); err != nil {
 		t.Errorf("destroying a stranger: %v", err)
 	}
+}
+
+// checkGuestAndCredentials checks where the settings and the credentials went.
+func (e *testEnv) checkGuestAndCredentials(t *testing.T, name, ref string) {
+	t.Helper()
+	// The settings went in through standard input, and nowhere else.
+	if got := e.file(t, "guest-"+name+".stdin"); got != "FORECREW_SERVER_URL="+testServer+"\nFORECREW_BOOTSTRAP_TOKEN="+testToken+"\n" {
+		t.Errorf("guest got %q", got)
+	}
+	exec := e.file(t, "vms", name, "exec")
+	if !strings.Contains(exec, "sudo -n /bin/sh -c") || !strings.HasSuffix(strings.TrimSpace(exec), "sh "+guestDir) {
+		t.Errorf("exec = %q", exec)
+	}
+	calls := e.file(t, "calls.log")
+	if strings.Contains(calls+exec, testToken) {
+		t.Errorf("the token is in an argument:\n%s", calls)
+	}
+	// Credentials reach the commands that pull, as environment, not arguments.
+	if !strings.Contains(calls, "pull "+ref+" | registry-password=set") || !strings.Contains(calls, "clone "+ref+" "+name+" | registry-password=set") {
+		t.Errorf("registry credentials did not reach pull and clone:\n%s", calls)
+	}
+	if strings.Contains(calls, "hunter2") || strings.Contains(calls, "list --source local --format json | registry-password=set") {
+		t.Errorf("credentials leaked:\n%s", calls)
+	}
+	if !strings.Contains(calls, "agent-secret=unset") || strings.Contains(calls, "fcp_agents-own-secret") {
+		t.Errorf("the agent's environment reached tart:\n%s", calls)
+	}
+
 }
 
 func TestCreateAgainReplaces(t *testing.T) {
@@ -330,15 +337,7 @@ func TestCreateFailuresLeaveNothing(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			e := newEnv(t, func(c *Config) { c.RegistryUsername, c.RegistryPassword = "env:REG_USER", "env:REG_PASS" })
 			e.p.cfg.BootWaitSeconds = 1
-			if err := os.MkdirAll(e.home, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if c.file == "fail-exec-deliver" {
-				// Fails every exec but the guest agent's probe.
-				e.p.cli.bin = e.shim(t)
-			} else if err := os.WriteFile(filepath.Join(e.home, c.file), []byte(c.content), 0o600); err != nil {
-				t.Fatal(err)
-			}
+			e.inject(t, c.file, c.content)
 			_, err := e.p.Create(t.Context(), e.request())
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("error = %v, want %q", err, c.want)
@@ -353,6 +352,21 @@ func TestCreateFailuresLeaveNothing(t *testing.T) {
 				t.Errorf("a record stayed: %v", recs)
 			}
 		})
+	}
+}
+
+// inject makes the fake fail as a file says; the delivery failure is a shim.
+func (e *testEnv) inject(t *testing.T, file, content string) {
+	t.Helper()
+	if err := os.MkdirAll(e.home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if file == "fail-exec-deliver" {
+		e.p.cli.bin = e.shim(t) // fails every exec but the guest agent's probe
+		return
+	}
+	if err := os.WriteFile(filepath.Join(e.home, file), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
