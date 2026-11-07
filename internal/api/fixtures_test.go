@@ -671,7 +671,9 @@ func failWith(err error) func(*env) {
 	}
 }
 
-func fixtureCases() []fixtureCase { return append(baseFixtureCases(), orgFixtureCases()...) }
+func fixtureCases() []fixtureCase {
+	return slices.Concat(baseFixtureCases(), orgFixtureCases(), fleetFixtureCases())
+}
 
 func baseFixtureCases() []fixtureCase {
 	return []fixtureCase{

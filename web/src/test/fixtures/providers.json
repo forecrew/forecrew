@@ -1,0 +1,113 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000700",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "name": "home-server",
+    "kind": "microvm",
+    "mode": "agent",
+    "status": "active",
+    "last_seen_at": "2026-03-01T11:59:00Z",
+    "capabilities": {
+      "os": [
+        "linux"
+      ],
+      "arch": [
+        "amd64"
+      ],
+      "max_cpu": 16,
+      "max_memory_mb": 65536,
+      "max_disk_gb": 412,
+      "max_machines": 3,
+      "checks": [
+        {
+          "name": "kvm",
+          "status": "ok",
+          "detail": "Available"
+        },
+        {
+          "name": "disk",
+          "status": "ok",
+          "detail": "412 GB free"
+        },
+        {
+          "name": "software",
+          "status": "ok",
+          "detail": "Up to date"
+        }
+      ],
+      "host": "home-nas \u003cb\u003e1\u003c/b\u003e",
+      "agent_version": "0.9.2"
+    },
+    "limits": {
+      "max_machines": 3
+    },
+    "network_allow": [],
+    "tags": {},
+    "created_at": "2026-02-08T16:00:00Z",
+    "updated_at": "2026-02-08T16:00:00Z",
+    "online": true,
+    "ownership": "own"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000701",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "name": "mac-mini",
+    "kind": "tart",
+    "mode": "agent",
+    "status": "active",
+    "last_seen_at": "2026-03-01T08:00:00Z",
+    "capabilities": {
+      "os": [
+        "macos"
+      ],
+      "arch": [
+        "arm64"
+      ],
+      "max_machines": 2,
+      "host": "mini"
+    },
+    "limits": {
+      "max_machines": 2
+    },
+    "network_allow": [],
+    "tags": {},
+    "created_at": "2026-02-15T14:40:00Z",
+    "updated_at": "2026-02-15T14:40:00Z",
+    "online": false,
+    "ownership": "own"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000702",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "name": "aws-frankfurt",
+    "kind": "aws",
+    "mode": "agent",
+    "status": "active",
+    "last_seen_at": "2026-03-01T11:59:00Z",
+    "capabilities": {
+      "os": [
+        "linux"
+      ],
+      "arch": [
+        "amd64"
+      ],
+      "cloud_account": "123456789012",
+      "region": "eu-central-1"
+    },
+    "limits": {
+      "max_machines": 20,
+      "monthly_budget": 200
+    },
+    "network_allow": [
+      "registry.acme.test"
+    ],
+    "tags": {
+      "team": "platform"
+    },
+    "created_at": "2026-02-22T13:20:00Z",
+    "updated_at": "2026-02-22T13:20:00Z",
+    "online": true,
+    "ownership": "own"
+  }
+]
+

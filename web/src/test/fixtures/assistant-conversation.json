@@ -1,0 +1,74 @@
+{
+  "id": "018f0000-0000-7000-8000-000000000740",
+  "account_id": "018f0000-0000-7000-8000-000000000001",
+  "project_id": "018f0000-0000-7000-8000-000000000010",
+  "owner": "user:018f0000-0000-7000-8000-000000000300",
+  "title": "Add my Linux server",
+  "created_at": "2026-03-01T11:57:00Z",
+  "updated_at": "2026-03-01T11:59:00Z",
+  "messages": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000741",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "conversation_id": "018f0000-0000-7000-8000-000000000740",
+      "author": "user",
+      "body": "Add my Linux server",
+      "created_at": "2026-03-01T11:57:00Z"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000742",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "conversation_id": "018f0000-0000-7000-8000-000000000740",
+      "author": "assistant",
+      "body": "I suggest **two sizes** and at most 3 machines at once.\n\n\u003cscript\u003ealert(1)\u003c/script\u003e",
+      "job_id": "018f0000-0000-7000-8000-000000000150",
+      "created_at": "2026-03-01T11:59:00Z"
+    }
+  ],
+  "plans": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000734",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "status": "pending",
+      "source": "assistant",
+      "title": "Add Okta sign-in",
+      "request": "Add my Linux server",
+      "applies": "now",
+      "changes": [],
+      "steps": [
+        {
+          "kind": "secret_required",
+          "resource": "connection/okta",
+          "title": "Okta client secret",
+          "secret": "conn-okta",
+          "filled": false
+        },
+        {
+          "kind": "connect",
+          "resource": "provider/mac",
+          "title": "Connect mac",
+          "detail": "Run the line shown on the machine.",
+          "filled": false
+        }
+      ],
+      "needs": [
+        "worker.manage"
+      ],
+      "affects": "New jobs in all projects can run here. Running jobs are not touched.",
+      "cost": "Free. It is your machine.",
+      "undo": "Can be reverted from Change history.",
+      "reversible": true,
+      "lowers_protection": [],
+      "base_digest": "d1",
+      "created_by": "user:018f0000-0000-7000-8000-000000000300",
+      "conversation_id": "018f0000-0000-7000-8000-000000000740",
+      "expires_at": "2026-03-02T12:00:00Z",
+      "created_at": "2026-03-01T12:00:00Z",
+      "updated_at": "2026-03-01T12:00:00Z",
+      "can_confirm": true,
+      "stale": false
+    }
+  ],
+  "thinking": false
+}
+
