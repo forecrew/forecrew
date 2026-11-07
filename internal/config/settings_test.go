@@ -36,7 +36,7 @@ func TestWithSettings(t *testing.T) {
 	if got.Runtimes["other"].Adapter != AdapterClaudeCode {
 		t.Errorf("runtime = %+v", got.Runtimes["other"])
 	}
-	if len(got.Schedules) != 2 || got.Schedules[0].Cron != "@daily" || got.Schedules[1].Project != "acme/app" {
+	if len(got.Schedules) != 3 || got.Schedules[0].Cron != "@daily" || got.Schedules[1].Playbook != "advise" || got.Schedules[2].Project != "acme/app" {
 		t.Errorf("schedules = %+v", got.Schedules)
 	}
 	if c.Schedules[0].Cron == "@daily" {

@@ -11,6 +11,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/advisor"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
@@ -54,7 +55,10 @@ type Deps struct {
 	// Proposals runs the knowledge.* actions of proposals; they fail without
 	// it.
 	Proposals *proposals.Service
-	Now       func() time.Time // defaults to the real UTC time
+	// Advisor runs the advise.* and proposal.* actions, which fail without
+	// it; the goal and learn actions that tell it things then do nothing.
+	Advisor *advisor.Service
+	Now     func() time.Time // defaults to the real UTC time
 
 	// The rest is for the council actions.
 	Config *config.Config
@@ -171,6 +175,15 @@ func Register(registry workflow.Actions, deps Deps) {
 	registry["knowledge.decide"] = d.knowledgeDecide
 	registry["knowledge.settle"] = d.knowledgeSettle
 	registry["knowledge.access_pr"] = d.knowledgeAccessPR
+	registry["advise.prepare"] = d.advisePrepare
+	registry["advise.file"] = d.adviseFile
+	registry["advise.start"] = d.adviseStart
+	registry["proposal.round"] = d.proposalRound
+	registry["proposal.assess"] = d.proposalAssess
+	registry["proposal.reopen"] = d.proposalReopen
+	registry["proposal.carry"] = d.proposalCarry
+	registry["proposal.pr_ended"] = d.proposalPREnded
+	registry["proposal.abandon"] = d.proposalAbandon
 	registry["job.if_pushed"] = d.ifPushed
 	registry["council.run"] = d.councilRun
 	registry["council.start"] = d.councilStart

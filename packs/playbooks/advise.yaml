@@ -1,0 +1,24 @@
+description: Propose what a project, or Forecrew's setup for it, should gain. Weekly by default (the default schedule of forecrew.yaml starts it for every onboarded project) and after a goal's learn step. Deterministic detectors look at what Forecrew already knows; open proposals get the new evidence, proposals whose snooze ended come back, and proposals done 14 days ago are measured. An advisor job turns the signals nothing answers yet into at most advisor.max_per_week proposals, each with a gate and a proposal run.
+inputs: [repo]
+steps:
+  # The signals, and one item in if_advise when the advisor has work and room.
+  - id: prepare
+    type: action
+    action: advise.prepare
+    on_failure: escalate
+  - id: advise
+    type: foreach
+    items: '${steps.prepare.output.if_advise}'
+    steps:
+      - id: advisor
+        type: job
+        with:
+          role: advisor
+          repo: '${inputs.repo}'
+          feedback: '${steps.prepare.output.text}'
+        on_failure: escalate
+  - id: file
+    type: action
+    action: advise.file
+    with: {jobs: '${steps.advise.output}', signals: '${steps.prepare.output.signals}'}
+    on_failure: escalate
