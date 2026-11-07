@@ -67,6 +67,16 @@ test("something that looks like a key is not sent, and says why", async () => {
   expect(calls).toBe(0)
 })
 
+test("a Linear key typed into the assistant is not sent either: the token goes in the secure field", async () => {
+  let calls = 0
+  server.use(http.post("/api/v1/assistant/messages", () => (calls++, HttpResponse.json(fx.assistantSend, { status: 202 }))))
+  const { user, panel } = await open()
+  await user.type(within(panel).getByLabelText("Say what you want"), "Connect Linear with lin_api_abcdefghijklmnopqrstuvwx")
+  expect(within(panel).getByText(/looks like a key/)).toBeInTheDocument()
+  await user.keyboard("{Enter}")
+  expect(calls).toBe(0)
+})
+
 test("while it works it says so, polls, and can be stopped", async () => {
   let gets = 0
   const cancelled: string[] = []
