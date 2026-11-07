@@ -255,7 +255,8 @@ CREATE TABLE gates (
   project_id     uuid NOT NULL REFERENCES projects(id),
   number         bigint NOT NULL,
   kind           text NOT NULL CHECK (kind IN ('profile_approval','spec_approval','merge_approval','test_plan_approval','needs_you',
-                                               'assumption_review','council_decision','knowledge_proposal','access_request','improvement_proposal')),
+                                               'assumption_review','council_decision','knowledge_proposal','access_request','improvement_proposal',
+                                               'ticket_intake')),
   origin         text NOT NULL DEFAULT 'playbook' CHECK (origin IN ('playbook','ask_human')),  -- domain.GateOrigin
   status         text NOT NULL CHECK (status IN ('pending','approved','changes_requested','rejected')),
   title          text NOT NULL,
@@ -305,6 +306,7 @@ CREATE TABLE workflow_runs (
   inputs      jsonb NOT NULL DEFAULT '{}',
   state       jsonb NOT NULL DEFAULT '{}',
   error       text,
+  cancel_reason text NOT NULL DEFAULT '',   -- set: the engine cancels the run (Engine.CancelRun)
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
   finished_at timestamptz
@@ -1279,6 +1281,119 @@ CREATE TABLE usage_records (
 CREATE INDEX usage_records_account ON usage_records (account_id, ended_at);
 ```
 
+### Trackers
+
+Migration 00011, [tracker.md](tracker.md). `ticket_links` is the whole life
+of a ticket with Forecrew, from the Inbox to the end of its goal; `title` is
+ticket text and untrusted. `key` is the ticket's key on its tracker.
+
+```sql
+CREATE TABLE tracker_connections (
+  id         uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id uuid NOT NULL REFERENCES accounts(id),
+  name       text NOT NULL CHECK (name ~ '^[a-z0-9][a-z0-9._-]{0,63}$'),
+  kind       text NOT NULL CHECK (kind ~ '^[a-z][a-z0-9_]{0,63}$'),  -- an open list: a new tracker is one package
+  config     jsonb NOT NULL DEFAULT '{}',   -- the adapter's settings, never a secret
+  triggers   jsonb NOT NULL DEFAULT '{}',   -- domain.TrackerTriggers
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, name),
+  UNIQUE (account_id, id)
+);
+CREATE INDEX tracker_connections_kind ON tracker_connections (kind);
+
+CREATE TABLE tracker_routes (
+  id            uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id    uuid NOT NULL REFERENCES accounts(id),
+  connection_id uuid NOT NULL,
+  position      integer NOT NULL CHECK (position > 0),
+  match         jsonb NOT NULL DEFAULT '{}',   -- domain.TrackerMatch
+  project_id    uuid NOT NULL,
+  goal_kind     text CHECK (goal_kind IN ('feature','bug')),   -- NULL goes by the ticket's type
+  playbook      text,                                          -- NULL is the project's goal playbook
+  states        jsonb NOT NULL DEFAULT '{}',   -- logical state -> the tracker's state
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id),
+  FOREIGN KEY (account_id, project_id) REFERENCES projects (account_id, id)
+);
+CREATE INDEX tracker_routes_connection ON tracker_routes (account_id, connection_id, position);
+
+CREATE TABLE tracker_identities (
+  id            uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id    uuid NOT NULL REFERENCES accounts(id),
+  connection_id uuid NOT NULL,
+  external_id   text NOT NULL CHECK (external_id <> ''),   -- the tracker's stable user ID
+  external_name text NOT NULL DEFAULT '',
+  user_id       uuid NOT NULL REFERENCES users(id),
+  created_by    text NOT NULL,                             -- domain.Actor.String()
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id),
+  UNIQUE (connection_id, external_id)
+);
+
+CREATE TABLE tracker_cursors (
+  connection_id uuid PRIMARY KEY,
+  account_id    uuid NOT NULL REFERENCES accounts(id),
+  cursor        text NOT NULL,
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id)
+);
+
+CREATE TABLE ticket_links (
+  id             uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id     uuid NOT NULL REFERENCES accounts(id),
+  connection_id  uuid NOT NULL,
+  key            text NOT NULL CHECK (key <> ''),
+  title          text NOT NULL DEFAULT '',      -- ticket text: untrusted
+  url            text NOT NULL DEFAULT '',
+  status         text NOT NULL CHECK (status IN ('waiting','queued','active','done','canceled','dismissed')),
+  reason         text CHECK (reason IN ('no_route','many_projects','unknown_person','not_permitted')),
+  project_id     uuid,                          -- NULL: no route gave one project
+  route_id       uuid REFERENCES tracker_routes(id) ON DELETE SET NULL,
+  goal_id        uuid UNIQUE REFERENCES goals(id),
+  handed_by      text NOT NULL DEFAULT '',
+  user_id        uuid REFERENCES users(id),     -- the goal starts as this user
+  gate_id        uuid REFERENCES gates(id),
+  change_gate_id uuid REFERENCES gates(id),
+  state          text CHECK (state IN ('queued','in_progress','in_review','done','canceled')),
+  content_hash   text NOT NULL DEFAULT '',
+  comment_cursor text NOT NULL DEFAULT '',
+  issue_number   integer,                       -- the ticket is this goal issue
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id),
+  FOREIGN KEY (account_id, project_id) REFERENCES projects (account_id, id),
+  CHECK (status <> 'active' OR goal_id IS NOT NULL),
+  CHECK (status <> 'queued' OR project_id IS NOT NULL)
+);
+-- One live link per ticket: one goal at work, and a redelivery finds it.
+CREATE UNIQUE INDEX ticket_links_live ON ticket_links (connection_id, key) WHERE status IN ('waiting','queued','active');
+CREATE INDEX ticket_links_ticket ON ticket_links (account_id, connection_id, key);
+CREATE INDEX ticket_links_project ON ticket_links (account_id, project_id, status);
+
+CREATE TABLE tracker_outbox (
+  id              uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id      uuid NOT NULL REFERENCES accounts(id),
+  connection_id   uuid NOT NULL,
+  link_id         uuid NOT NULL REFERENCES ticket_links(id),
+  key             text NOT NULL,
+  dedupe_key      text NOT NULL CHECK (dedupe_key <> ''),
+  kind            text NOT NULL CHECK (kind IN ('comment','transition')),
+  value           text NOT NULL,
+  attempts        integer NOT NULL DEFAULT 0,
+  next_attempt_at timestamptz NOT NULL DEFAULT now(),
+  sent_at         timestamptz,
+  external_id     text NOT NULL DEFAULT '',
+  last_error      text NOT NULL DEFAULT '',
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id),
+  UNIQUE (link_id, dedupe_key)
+);
+CREATE INDEX tracker_outbox_due ON tracker_outbox (account_id, next_attempt_at) WHERE sent_at IS NULL;
+CREATE INDEX tracker_outbox_sent ON tracker_outbox (link_id, external_id) WHERE external_id <> '';
+```
+
 ### Configuration (migration 00010)
 
 See [config-resources.md](config-resources.md).
@@ -1469,4 +1584,10 @@ cap). `RequeueExpired` does not delay the job.
 | FleetPolicy, FleetQuotas | fleet_policy | `store.FleetPolicyRepo` (T58) |
 | Image, ImageContents | images | `store.ImageRepo` (T60) |
 | UsageRecord | usage_records | `store.UsageRepo` (T65) |
+| TrackerConnection, TrackerTriggers | tracker_connections | `store.TrackerConnectionRepo` (added to `Store` by T72) |
+| TrackerRoute, TrackerMatch | tracker_routes | `store.TrackerRouteRepo` (T72) |
+| TrackerIdentity | tracker_identities | `store.TrackerIdentityRepo` (T72) |
+| (polling cursors) | tracker_cursors | `store.TrackerCursorRepo` (T72) |
+| TicketLink | ticket_links | `store.TicketLinkRepo` (T72) |
+| TrackerWrite | tracker_outbox | `store.TrackerOutboxRepo` (T72) |
 | (human ref numbers) | ref_counters | used by `Create` |

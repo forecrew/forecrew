@@ -13,7 +13,8 @@ import (
 //   - gate is required;
 //   - request_changes needs feedback;
 //   - request_changes is not allowed on needs_you gates, which are approved
-//     (retry) or rejected (stop);
+//     (retry) or rejected (stop), or on ticket_intake gates, which are approved
+//     (accept) or rejected (dismiss);
 //   - save_as_lesson is for approve and request_changes, and needs feedback:
 //     the feedback is the lesson.
 func GateDecision(tool string, kind domain.GateKind, in GateDecisionInput) (domain.GateStatus, error) {
@@ -38,7 +39,7 @@ func GateDecision(tool string, kind domain.GateKind, in GateDecisionInput) (doma
 		return "", fmt.Errorf("%s is not a gate tool: %w", tool, ErrInvalidInput)
 	}
 	if !kind.AllowsDecision(decision) {
-		return "", fmt.Errorf("%s is not allowed on %s gates; use %s to retry or %s to stop: %w",
+		return "", fmt.Errorf("%s is not allowed on %s gates; use %s or %s: %w",
 			tool, kind, ToolApprove, ToolReject, ErrInvalidInput)
 	}
 	return decision, nil

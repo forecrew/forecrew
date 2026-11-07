@@ -71,6 +71,7 @@ type storeData struct {
 	bootstrap     table[domain.BootstrapToken]
 	joinCodes     table[domain.ProviderJoinCode]
 	policies      table[domain.FleetPolicy]
+	trackers      trackerData
 	images        table[domain.Image]
 	configPlans   table[domain.ConfigPlan]
 	settings      table[domain.ConfigSetting]
@@ -129,6 +130,7 @@ func NewStore(now func() time.Time) *Store {
 		bootstrap:     table[domain.BootstrapToken]{key: func(r domain.BootstrapToken) (uuid.UUID, uuid.UUID) { return r.AccountID, r.MachineID }},
 		joinCodes:     table[domain.ProviderJoinCode]{key: func(r domain.ProviderJoinCode) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		policies:      table[domain.FleetPolicy]{key: func(r domain.FleetPolicy) (uuid.UUID, uuid.UUID) { return r.AccountID, r.AccountID }},
+		trackers:      newTrackerData(),
 		images:        table[domain.Image]{key: func(r domain.Image) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		configPlans:   table[domain.ConfigPlan]{key: func(r domain.ConfigPlan) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		settings:      table[domain.ConfigSetting]{key: func(r domain.ConfigSetting) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
@@ -140,6 +142,7 @@ func NewStore(now func() time.Time) *Store {
 
 func (d *storeData) clone() *storeData {
 	c := *d
+	c.trackers = d.trackers.clone()
 	c.accounts = d.accounts.clone()
 	c.projects = d.projects.clone()
 	c.goals = d.goals.clone()

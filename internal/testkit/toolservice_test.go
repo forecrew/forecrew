@@ -175,7 +175,7 @@ func checkGateTool(t *testing.T, kind domain.GateKind, name string, call gateToo
 	t.Helper()
 	s, by, g, f := gateTools(t, kind)
 	got, err := call(s, t.Context(), by, mcp.GateDecisionInput{Gate: g.Ref(), Feedback: "why"})
-	if kind == domain.GateNeedsYou && name == mcp.ToolRequestChanges {
+	if !kind.AllowsDecision(domain.GateChangesRequested) && name == mcp.ToolRequestChanges {
 		wantErr(t, err, mcp.ErrInvalidInput)
 		if stored, _ := f.st.Gates().Get(t.Context(), f.account, g.ID); stored.Status != domain.GatePending {
 			t.Fatalf("gate resolved anyway: %s", stored.Status)

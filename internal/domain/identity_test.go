@@ -32,6 +32,12 @@ func TestGatePermissionCoversEveryKind(t *testing.T) {
 	seen := map[Permission]bool{}
 	for _, k := range GateKinds() {
 		p := GatePermission(k, false)
+		if k == GateTicketIntake {
+			if p != PermGoalCreate {
+				t.Errorf("%s: %q, accepting a ticket creates a goal", k, p)
+			}
+			continue
+		}
 		if !p.Valid() || !strings.HasPrefix(string(p), "gate.approve.") || seen[p] {
 			t.Errorf("%s: %q", k, p)
 		}

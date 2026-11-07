@@ -200,7 +200,7 @@ func TestDecide(t *testing.T) {
 				f := newFixture(t)
 				g := f.open(t, kind)
 				got, err := f.svc.Decide(t.Context(), f.by, tool, mcp.GateDecisionInput{Gate: g.Ref(), Feedback: "why"})
-				if kind == domain.GateNeedsYou && tool == mcp.ToolRequestChanges {
+				if !kind.AllowsDecision(domain.GateChangesRequested) && tool == mcp.ToolRequestChanges {
 					wantErr(t, err, mcp.ErrInvalidInput)
 					if stored, _ := f.svc.Get(t.Context(), f.account, g.ID); stored.Status != domain.GatePending {
 						t.Fatalf("gate resolved anyway: %s", stored.Status)

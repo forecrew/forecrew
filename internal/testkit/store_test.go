@@ -1049,6 +1049,15 @@ func TestKnowledgeStore(t *testing.T) {
 	KnowledgeProposalStoreSuite(t, st, acc.ID, p.ID)
 }
 
+func TestTrackerStore(t *testing.T) {
+	st := NewStore(nil)
+	acc := domain.Account{Name: "default"}
+	must(t, st.Accounts().Create(t.Context(), &acc))
+	p := domain.Project{AccountID: acc.ID, Name: "app", Repo: "acme/app", DefaultBranch: "main", Status: domain.ProjectRegistered}
+	must(t, st.Projects().Create(t.Context(), &p))
+	TrackerStoreSuite(t, st, acc.ID, p.ID, domain.NewID())
+}
+
 func TestImageStore(t *testing.T) {
 	st := NewStore(nil)
 	a, b := domain.Account{Name: "a"}, domain.Account{Name: "b"}

@@ -262,12 +262,12 @@ func (r workerRepo) Revoke(ctx context.Context, accountID, id uuid.UUID) error {
 type workflowRunRepo struct{ db dbtx }
 
 var runCols = `id, account_id, project_id, playbook, status, ` + cuuid("goal_id") + `, ` + cuuid("task_id") + `, inputs, state, ` +
-	ctext("error") + `, created_at, updated_at, ` + ctime("finished_at")
+	ctext("error") + `, cancel_reason, created_at, updated_at, ` + ctime("finished_at")
 
 func scanRun(row pgx.Row) (r domain.WorkflowRun, err error) {
 	var inputs, state []byte
 	err = row.Scan(&r.ID, &r.AccountID, &r.ProjectID, &r.Playbook, &r.Status, &r.GoalID, &r.TaskID, &inputs, &state,
-		&r.Error, &r.CreatedAt, &r.UpdatedAt, &r.FinishedAt)
+		&r.Error, &r.CancelReason, &r.CreatedAt, &r.UpdatedAt, &r.FinishedAt)
 	r.Inputs, r.State = inputs, state
 	utc(&r.CreatedAt, &r.UpdatedAt, &r.FinishedAt)
 	return r, err
@@ -309,6 +309,12 @@ func (r workflowRunRepo) Update(ctx context.Context, run *domain.WorkflowRun) er
 		WHERE account_id = $1 AND id = $2 RETURNING updated_at`,
 		run.AccountID, run.ID, string(run.Status), jsonOrEmpty(run.State), opt(run.Error), optTime(run.FinishedAt)).Scan(&run.UpdatedAt)
 	utc(&run.UpdatedAt)
+	return mapErr(err)
+}
+
+func (r workflowRunRepo) RequestCancel(ctx context.Context, accountID, id uuid.UUID, reason string) error {
+	_, err := r.db.Exec(ctx, `UPDATE workflow_runs SET cancel_reason = $3, updated_at = now()
+		WHERE account_id = $1 AND id = $2 AND status IN ('running', 'waiting')`, accountID, id, reason)
 	return mapErr(err)
 }
 

@@ -20,19 +20,22 @@ const (
 
 // WorkflowRun is one execution of a playbook.
 type WorkflowRun struct {
-	ID         uuid.UUID       `json:"id"`
-	AccountID  uuid.UUID       `json:"account_id"`
-	ProjectID  uuid.UUID       `json:"project_id"`
-	Playbook   string          `json:"playbook"` // playbook name
-	Status     RunStatus       `json:"status"`
-	GoalID     uuid.UUID       `json:"goal_id,omitzero"`
-	TaskID     uuid.UUID       `json:"task_id,omitzero"`
-	Inputs     json.RawMessage `json:"inputs,omitempty"`
-	State      json.RawMessage `json:"state,omitempty"` // step outputs and variables, owned by the engine
-	Error      string          `json:"error,omitempty"`
-	CreatedAt  time.Time       `json:"created_at"`
-	UpdatedAt  time.Time       `json:"updated_at"`
-	FinishedAt time.Time       `json:"finished_at,omitzero"`
+	ID        uuid.UUID       `json:"id"`
+	AccountID uuid.UUID       `json:"account_id"`
+	ProjectID uuid.UUID       `json:"project_id"`
+	Playbook  string          `json:"playbook"` // playbook name
+	Status    RunStatus       `json:"status"`
+	GoalID    uuid.UUID       `json:"goal_id,omitzero"`
+	TaskID    uuid.UUID       `json:"task_id,omitzero"`
+	Inputs    json.RawMessage `json:"inputs,omitempty"`
+	State     json.RawMessage `json:"state,omitempty"` // step outputs and variables, owned by the engine
+	Error     string          `json:"error,omitempty"`
+	// CancelReason, when set, asks the engine to cancel the run the next
+	// time it looks at it.
+	CancelReason string    `json:"cancel_reason,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	FinishedAt   time.Time `json:"finished_at,omitzero"`
 }
 
 // StepStatus is the state of a step run.

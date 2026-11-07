@@ -268,7 +268,7 @@ func TestGateResolve(t *testing.T) {
 			t.Errorf("second resolve err = %v", err)
 		}
 	}
-	if len(GateKinds()) != 10 {
+	if len(GateKinds()) != 11 {
 		t.Errorf("GateKinds = %v", GateKinds())
 	}
 }
