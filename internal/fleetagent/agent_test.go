@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -473,4 +474,56 @@ func TestCapabilityChangeIsRegistered(t *testing.T) {
 	eventually(t, "the first registration", func() bool { return stored() == "nas" })
 	host.Store("nas-2")
 	eventually(t, "the change", func() bool { return stored() == "nas-2" })
+}
+
+// A compromised or confused forecrewd cannot point the agent's credentials at
+// something the provider did not list.
+func TestReconcileDestroysOnlyWhatWasListed(t *testing.T) {
+	listed := &listHiding{FakeProvider: testkit.NewFakeProvider()}
+	hidden, err := listed.Create(t.Context(), fleet.CreateRequest{MachineID: uuid.New(), Bootstrap: &fleet.Bootstrap{Token: "fcb_x"}})
+	must(t, err)
+	listed.hide = hidden.ExternalID
+	stray, err := listed.Create(t.Context(), fleet.CreateRequest{MachineID: uuid.New(), Bootstrap: &fleet.Bootstrap{Token: "fcb_y"}})
+	must(t, err)
+	var answered atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/reconcile"):
+			fmt.Fprintf(rw, `{"destroy":[%q,%q]}`, hidden.ExternalID, stray.ExternalID)
+			answered.Store(true)
+		case strings.HasSuffix(r.URL.Path, "/poll"):
+			time.Sleep(5 * time.Millisecond)
+			fmt.Fprint(rw, `{"generation":"1","machines":[]}`)
+		default:
+			fmt.Fprint(rw, `{}`)
+		}
+	}))
+	defer srv.Close()
+	logs := &safeBuffer{}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- fleetagent.New(fleetagent.Config{Client: fleetagent.NewClient(srv.URL, "fcp_t", nil), Provider: listed, Logger: slog.New(slog.NewTextHandler(logs, nil)),
+			Detect: func(context.Context) domain.ProviderCapabilities { return domain.ProviderCapabilities{} }}).Run(ctx)
+	}()
+	eventually(t, "the listed orphan to go", func() bool { return slices.Contains(listed.Destroyed(), stray.ExternalID) })
+	cancel()
+	must(t, <-done)
+	if slices.Contains(listed.Destroyed(), hidden.ExternalID) {
+		t.Fatal("destroyed something the provider did not list")
+	}
+	if !answered.Load() || !strings.Contains(logs.String(), "did not list") {
+		t.Fatalf("not logged:\n%s", logs.String())
+	}
+}
+
+// listHiding leaves one instance out of List, as what is not Forecrew's.
+type listHiding struct {
+	*testkit.FakeProvider
+	hide string
+}
+
+func (l *listHiding) List(ctx context.Context) ([]fleet.Instance, error) {
+	all, err := l.FakeProvider.List(ctx)
+	return slices.DeleteFunc(all, func(i fleet.Instance) bool { return i.ExternalID == l.hide }), err
 }
