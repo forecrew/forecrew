@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func fixture(t *testing.T, name string) Data {
@@ -133,5 +134,48 @@ func TestParseDependencies(t *testing.T) {
 	got := parseDependencies("## .\n\n- github.com/a/b v1.2.3 (go)\n\n## web\n\n- react 18 (npm)\n- vitest 1 (npm-dev)\n")
 	if !slices.Equal(got["."], []string{"github.com/a/b"}) || !slices.Equal(got["web"], []string{"react", "vitest"}) {
 		t.Fatalf("got %v", got)
+	}
+}
+
+func TestSignalKeysAreBounded(t *testing.T) {
+	long := "Test" + strings.Repeat("Ä", 60)
+	k := signalKey("testing:flaky", long)
+	if len(k) > len("testing:flaky:")+keptSubject+13 || !utf8.ValidString(k) || !strings.HasPrefix(k, "testing:flaky:Test") {
+		t.Fatalf("key %q", k)
+	}
+	if k != signalKey("testing:flaky", long) || k == signalKey("testing:flaky", long+"x") {
+		t.Fatal("a long key must be stable and distinct")
+	}
+	if got := signalKey("cost", "reviewer"); got != "cost:reviewer" {
+		t.Fatalf("a short key = %q", got)
+	}
+	d := fixture(t, "testing")
+	for i := range d.Reports {
+		for j := range d.Reports[i].Report.Flaky {
+			d.Reports[i].Report.Flaky[j].Test = long
+		}
+	}
+	for _, s := range detectTesting(d) {
+		if len(s.Key) > 80 {
+			t.Errorf("key %q", s.Key)
+		}
+	}
+}
+
+// A cluster whose first questions share no word has no topic, and the
+// detector refuses it rather than file a signal keyed "knowledge:".
+func TestTopicOf(t *testing.T) {
+	q := func(words ...string) question {
+		m := map[string]bool{}
+		for _, w := range words {
+			m[w] = true
+		}
+		return question{terms: m}
+	}
+	if got := topicOf([]question{q("staging", "database", "tests"), q("database", "staging", "url")}); got != "database-staging" {
+		t.Fatalf("topic %q", got)
+	}
+	if got := topicOf([]question{q("staging"), q("logo")}); got != "" {
+		t.Fatalf("topic %q", got)
 	}
 }
