@@ -110,6 +110,11 @@ func newEnv(t *testing.T, edit func(*Config)) *env {
 	e.ec2 = newFakeEC2(e.clock.now)
 	policy := kitPolicy(t)
 	e.ec2.policy = &policy
+	e.ec2.instanceTypes = []types.InstanceTypeInfo{
+		instanceType("c7i.large", 2, 4096, types.ArchitectureTypeX8664, 0),
+		instanceType("c7i.xlarge", 4, 8192, types.ArchitectureTypeX8664, 0),
+		instanceType("m7g.large", 2, 8192, types.ArchitectureTypeArm64, 0),
+	}
 	e.sts = &fakeSTS{account: testAccount}
 	log := slog.New(slog.NewTextHandler(e.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	e.p, err = newWith(cfg, log, e.ec2, e.sts, e.clock.now)

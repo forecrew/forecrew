@@ -137,8 +137,8 @@ type, so say what is slow or minimal:
 
 `provider_config` takes `instance_type`, `region` (if given, the agent's),
 `subnet` (one of the kit's, default the first), `security_group` (the kit's) and
-`spot`; anything else is refused when the machine is created. Set
-`price_per_minute` to what the instance costs you per minute: the budgets, here and
+`spot`; anything else is refused when the machine is created. Set `cpu`, `memory_mb` and `gpu` to what the instance type has or less: the agent refuses a shape that promises more, or
+of another architecture. Set `price_per_minute` to what the instance costs you per minute: the budgets, here and
 in Forecrew, count with it. `disk_gb` is the size of the encrypted gp3 root volume.
 
 ## What the role can do

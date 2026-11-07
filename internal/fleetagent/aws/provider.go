@@ -94,9 +94,10 @@ type Provider struct {
 	launch sync.Mutex
 
 	mu      sync.Mutex
-	account string                 // the account the credentials belong to
-	timers  map[string]*time.Timer // deadlines, by instance
-	known   map[string]seen        // instances the last List or Create saw
+	account string                            // the account the credentials belong to
+	timers  map[string]*time.Timer            // deadlines, by instance
+	known   map[string]seen                   // instances the last List or Create saw
+	types   map[string]types.InstanceTypeInfo // what EC2 says about the types shapes use
 }
 
 // New returns the provider of cfg, with the SDK's default credential chain. It
@@ -116,7 +117,7 @@ func newWith(cfg Config, log *slog.Logger, api ec2API, ident identityAPI, now fu
 	if log == nil {
 		log = slog.Default()
 	}
-	p := &Provider{cfg: cfg, log: log, ec2: api, ident: ident, now: now, timers: map[string]*time.Timer{}, known: map[string]seen{}}
+	p := &Provider{cfg: cfg, log: log, ec2: api, ident: ident, now: now, timers: map[string]*time.Timer{}, known: map[string]seen{}, types: map[string]types.InstanceTypeInfo{}}
 	p.keys = func() ([]ed25519.PublicKey, error) {
 		raw, err := os.ReadFile(cfg.TrustedKeysFile) // #nosec G304 -- the operator's file
 		if err != nil {
@@ -156,33 +157,51 @@ func (p *Provider) accountID(ctx context.Context) (string, error) {
 	return p.account, nil
 }
 
-// Create implements fleet.Provider.
-func (p *Provider) Create(ctx context.Context, req fleet.CreateRequest) (fleet.Instance, error) {
+// plan is what a machine is started with, once the request has passed every check
+// that needs no change in the account.
+type plan struct {
+	shape ShapeConfig
+	ami   amiInfo
+	data  string
+	tags  []types.Tag
+}
+
+// prepare checks req and makes what RunInstances needs. Nothing it does changes
+// the account, so a refusal costs nothing.
+func (p *Provider) prepare(ctx context.Context, req fleet.CreateRequest) (plan, error) {
+	var pl plan
 	if req.Bootstrap == nil {
-		return fleet.Instance{}, errors.New("no bootstrap settings")
+		return pl, errors.New("no bootstrap settings")
 	}
 	if req.Shape.OS != domain.OSLinux {
-		return fleet.Instance{}, fmt.Errorf("an AWS location starts Linux machines, not %s: macOS runs on a Mac host through tart (docs/runbooks/byoc-aws.md)", req.Shape.OS)
+		return pl, fmt.Errorf("an AWS location starts Linux machines, not %s: macOS runs on a Mac host through tart (docs/runbooks/byoc-aws.md)", req.Shape.OS)
 	}
 	if len(req.NetworkAllow) > 0 {
-		return fleet.Instance{}, errors.New("network_allow does not apply to an AWS location: what a machine reaches is set by its security group; clear network_allow on the location")
+		return pl, errors.New("network_allow does not apply to an AWS location: what a machine reaches is set by its security group; clear network_allow on the location")
 	}
 	if req.Shape.DiskGB < 1 || req.Shape.DiskGB > maxDiskGB {
-		return fleet.Instance{}, fmt.Errorf("disk_gb must be between 1 and %d", maxDiskGB)
+		return pl, fmt.Errorf("disk_gb must be between 1 and %d", maxDiskGB)
 	}
-	shape, err := p.cfg.shapeConfig(req.Shape.ProviderConfig)
-	if err != nil {
-		return fleet.Instance{}, err
+	var err error
+	if pl.shape, err = p.cfg.shapeConfig(req.Shape.ProviderConfig); err != nil {
+		return pl, err
 	}
-	ami, err := p.checkImage(ctx, req.Image, req.Shape)
-	if err != nil {
-		return fleet.Instance{}, err
+	if err = p.checkSize(ctx, pl.shape.InstanceType, req.Shape); err != nil {
+		return pl, err
 	}
-	data, err := userData(req.Bootstrap, p.cfg.MaxLifetime)
-	if err != nil {
-		return fleet.Instance{}, err
+	if pl.ami, err = p.checkImage(ctx, req.Image, req.Shape); err != nil {
+		return pl, err
 	}
-	tags, err := p.tags(req)
+	if pl.data, err = userData(req.Bootstrap, p.cfg.MaxLifetime); err != nil {
+		return pl, err
+	}
+	pl.tags, err = p.tags(req)
+	return pl, err
+}
+
+// Create implements fleet.Provider.
+func (p *Provider) Create(ctx context.Context, req fleet.CreateRequest) (fleet.Instance, error) {
+	pl, err := p.prepare(ctx, req)
 	if err != nil {
 		return fleet.Instance{}, err
 	}
@@ -197,7 +216,7 @@ func (p *Provider) Create(ctx context.Context, req fleet.CreateRequest) (fleet.I
 	if err := p.room(ctx); err != nil {
 		return fleet.Instance{}, err
 	}
-	out, err := p.ec2.RunInstances(ctx, p.runInput(req, shape, ami, data, tags))
+	out, err := p.ec2.RunInstances(ctx, p.runInput(req, pl.shape, pl.ami, pl.data, pl.tags))
 	if err != nil {
 		return fleet.Instance{}, fmt.Errorf("run instance: %w", capacity(err))
 	}
@@ -223,6 +242,37 @@ func (p *Provider) Create(ctx context.Context, req fleet.CreateRequest) (fleet.I
 		p.arm(external, req.Deadline)
 	}
 	return made, nil
+}
+
+// checkSize refuses a shape that is bigger than its instance type, or of another
+// architecture: jobs would be sent to a machine that cannot run them, and paid for.
+// What EC2 says about a type does not change, so it is asked once.
+func (p *Provider) checkSize(ctx context.Context, instanceType string, shape domain.Shape) error {
+	p.mu.Lock()
+	info, ok := p.types[instanceType]
+	p.mu.Unlock()
+	if !ok {
+		out, err := p.ec2.DescribeInstanceTypes(ctx, &ec2.DescribeInstanceTypesInput{InstanceTypes: []types.InstanceType{types.InstanceType(instanceType)}})
+		if err != nil {
+			return fmt.Errorf("describe instance type %s: %w", instanceType, err)
+		}
+		if len(out.InstanceTypes) != 1 {
+			return fmt.Errorf("EC2 does not know the instance type %s in %s", instanceType, p.cfg.Region)
+		}
+		info = out.InstanceTypes[0]
+		p.mu.Lock()
+		p.types[instanceType] = info
+		p.mu.Unlock()
+	}
+	var c domain.ProviderCapabilities
+	sizeBy(&c, info)
+	switch {
+	case shape.CPU > c.MaxCPU || shape.MemoryMB > c.MaxMemoryMB || shape.GPU > c.MaxGPU:
+		return fmt.Errorf("the shape asks for %d CPUs, %d MB and %d GPUs, and %s has %d, %d and %d: a shape must not promise more than its instance type", shape.CPU, shape.MemoryMB, shape.GPU, instanceType, c.MaxCPU, c.MaxMemoryMB, c.MaxGPU)
+	case !slices.Contains(c.Arch, shape.Arch):
+		return fmt.Errorf("the shape is %s and %s is %v", shape.Arch, instanceType, c.Arch)
+	}
+	return nil
 }
 
 // room answers ErrCapacity when the customer's own limits are reached: the

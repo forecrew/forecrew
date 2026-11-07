@@ -73,8 +73,7 @@ func TestCreateRetryReplacesTheMachine(t *testing.T) {
 func TestCreateSpot(t *testing.T) {
 	e := newEnv(t, nil)
 	req := e.request()
-	req.Shape.ProviderConfig = map[string]any{"instance_type": "m7g.large", "spot": true}
-	e.addAMI(testAMI, testAccount, e.img.Digest)
+	req.Shape.ProviderConfig = map[string]any{"instance_type": "c7i.large", "spot": true}
 	e.create(req)
 	in := e.ec2.runs[0]
 	if o := in.InstanceMarketOptions; o == nil || o.MarketType != types.MarketTypeSpot || o.SpotOptions.InstanceInterruptionBehavior != types.InstanceInterruptionBehaviorTerminate || o.SpotOptions.SpotInstanceType != types.SpotInstanceTypeOneTime {
@@ -90,6 +89,7 @@ func TestBurstableTypesGetStandardCredits(t *testing.T) {
 	req := e.request()
 	req.Shape.ProviderConfig = map[string]any{"instance_type": "t3.large"}
 	// The policy of the test account lists c7i and m7g only: this checks the request, not IAM.
+	e.ec2.instanceTypes = append(e.ec2.instanceTypes, instanceType("t3.large", 2, 8192, types.ArchitectureTypeX8664, 0))
 	e.ec2.policy = nil
 	e.create(req)
 	if c := e.ec2.runs[0].CreditSpecification; c == nil || awssdk.ToString(c.CpuCredits) != "standard" {
@@ -445,6 +445,27 @@ func TestCreateRefusals(t *testing.T) {
 				t.Fatal("the token is in the error")
 			}
 		})
+	}
+}
+
+func TestInstanceTypeIsAskedOnce(t *testing.T) {
+	e := newEnv(t, nil)
+	e.create(e.request())
+	e.create(e.request())
+	n := 0
+	for _, c := range e.ec2.calls {
+		if c == "DescribeInstanceTypes" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d DescribeInstanceTypes calls, want 1", n)
+	}
+	e.ec2.policy = &policyDocument{}
+	req := e.request()
+	req.Shape.ProviderConfig = map[string]any{"instance_type": "c7i.xlarge"}
+	if _, err := e.p.Create(t.Context(), req); apiCode(err) != "UnauthorizedOperation" {
+		t.Fatalf("a failed look is an error, not a pass: %v", err)
 	}
 }
 
