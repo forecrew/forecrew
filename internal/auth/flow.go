@@ -181,16 +181,24 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 	}
 	http.SetCookie(w, s.SessionCookie(token))
 	noStore(w)
-	http.Redirect(w, r, cmp.Or(f.Return, "/"), http.StatusFound)
+	// The cookie is not signed: check the path again.
+	http.Redirect(w, r, cmp.Or(sitePath(f.Return), "/"), http.StatusFound)
 }
 
 // sitePath returns target when it is a path on this site, else nothing: a
 // sign-in must never send the person to another site.
 func sitePath(target string) string {
-	if strings.HasPrefix(target, "/") && !strings.HasPrefix(target, "//") && !strings.HasPrefix(target, "/\\") && len(target) <= 2048 && !strings.ContainsAny(target, "\r\n") {
-		return target
+	if !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") || len(target) > 2048 {
+		return ""
 	}
-	return ""
+	// Browsers drop tabs and newlines from addresses, and read a backslash as
+	// a slash: "/\t/evil.example" would go to another site.
+	for _, r := range target {
+		if r < 0x20 || r == 0x7f || r == '\\' {
+			return ""
+		}
+	}
+	return target
 }
 
 // SessionCookie is the cookie of a session token, for as long as a session

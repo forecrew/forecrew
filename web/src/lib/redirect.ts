@@ -1,6 +1,9 @@
 /** The page to return to after login: a path on this site, else the home page. */
 export function safeRedirect(target: string | undefined): string {
-  if (target && target.startsWith("/") && !target.startsWith("//") && !target.startsWith("/\\")) return target
+  // Browsers drop tabs and newlines from addresses and read a backslash as a
+  // slash, so "/\t/evil.example" would leave the site: refuse them all.
+  // eslint-disable-next-line no-control-regex
+  if (target && target.startsWith("/") && !target.startsWith("//") && !/[\u0000-\u001f\u007f\\]/.test(target)) return target
   return "/"
 }
 

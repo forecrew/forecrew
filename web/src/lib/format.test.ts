@@ -52,6 +52,10 @@ test.each([
   ["", "/"],
   ["//evil.example", "/"],
   ["/\\evil.example", "/"],
+  ["/\t/evil.example", "/"],
+  ["/\n/evil.example", "/"],
+  ["/a\\b", "/"],
+  ["/a\u0000b", "/"],
   ["https://evil.example", "/"],
   ["goals", "/"],
 ])("safeRedirect(%j) = %s", (input, want) => {
