@@ -90,6 +90,7 @@ func TestEverySettingHasAResource(t *testing.T) {
 		"server": "where forecrewd listens", "github": "the GitHub App", "evidence": "artifact storage", "fleet": "the instance's currency",
 		"sizing": "moves with roles", "policy": "moves with roles", "model_tiers": "T69", "roles": "T69",
 		"max_test_results_size": "a limit of the server", "actions": "a limit of the server", "testing": "the projects on the testing playbook, a rollout switch",
+		"goal_v3":   "the projects on the councils and learning playbook, a rollout switch",
 		"knowledge": "how old knowledge may get, a tuning value of the server",
 		"trackers":  "a limit of the server; connections and routes are resources from T74",
 	}
