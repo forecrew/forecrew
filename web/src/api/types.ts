@@ -30,6 +30,18 @@ export interface Account {
   created_at: string
 }
 
+/** A permission of docs/contracts/permissions.md, such as "member.manage". */
+export type Permission = string
+
+/** A role the caller holds, on the organization or one project. */
+export interface HeldRole {
+  role: string
+  scope: "organization" | "project"
+  project_id?: string
+  /** Set when the role comes through a team. */
+  team_id?: string
+}
+
 /** Answer of POST /session and GET /me. */
 export interface Session {
   /** Name of the token, when the caller uses one. */
@@ -37,7 +49,16 @@ export interface Session {
   user?: { id: string; name: string; email?: string }
   /** The current organization; a session may not have picked one yet. */
   account?: Account
+  /**
+   * The organizations the session can switch to. A session from an
+   * organization's own connection has only that one.
+   */
   organizations?: { id: string; name: string; slug: string }[]
+  roles?: HeldRole[]
+  /** Held on the organization and, for project-scoped ones, on every project. */
+  permissions?: Permission[]
+  /** By project ID: the project-scoped permissions on each project where the caller has any. */
+  projects?: Record<string, Permission[]>
 }
 
 /** A way to sign in, from POST /auth/discover. */
@@ -134,6 +155,8 @@ export interface GateInfo extends Gate {
   goal_ref?: string
   task_ref?: string
   url?: string
+  /** Whether the caller may resolve the gate; the buttons are left out when not. */
+  can_resolve?: boolean
 }
 
 export interface GoalTicket {
@@ -517,6 +540,19 @@ export interface Token {
   revoked_at?: string
   /** The token of this request. */
   current?: boolean
+  owner_kind?: "user" | "service_account"
+  owner_id?: string
+  /** read, write or admin; absent on a token from before scopes. */
+  scopes?: Scope[]
+  expires_at?: string
+}
+
+export type Scope = "read" | "write" | "admin"
+
+/** Answer of POST /tokens: the secret is shown once. */
+export interface CreatedToken {
+  token: Token
+  secret: string
 }
 
 /** The answer of revoke_token. */
@@ -703,4 +739,173 @@ export interface StartCouncilInput {
 
 export interface ErrorBody {
   error: { code: string; message: string }
+}
+
+export type MembershipStatus = "active" | "invited" | "suspended"
+export type Source = "manual" | "invitation" | "jit" | "scim" | "idp"
+
+/** A role a member holds directly. */
+export interface MemberRole {
+  role: string
+  scope: "organization" | "project"
+  /** Empty for a role on the organization. */
+  project?: string
+}
+
+/** A member of the organization (GET /members). */
+export interface Member {
+  user_id: string
+  name: string
+  /** Only shown with member.manage. */
+  email?: string
+  status: MembershipStatus
+  source: Source
+  disabled?: boolean
+  roles: MemberRole[]
+  /** Team slugs. */
+  teams: string[]
+  last_seen_at?: string
+  created_at: string
+}
+
+export interface Team {
+  id: string
+  name: string
+  slug: string
+  source: Source
+  created_at: string
+}
+
+export interface TeamMember {
+  team_id: string
+  user_id: string
+  source: Source
+  created_at: string
+}
+
+export interface Role {
+  name: string
+  description?: string
+  scope: "organization" | "project"
+  permissions: Permission[]
+  built_in: boolean
+  custom: boolean
+}
+
+export interface RoleBinding {
+  id: string
+  subject_kind: "user" | "team" | "service_account"
+  subject_id: string
+  subject_name?: string
+  role: string
+  role_scope: "organization" | "project"
+  /** Empty: the organization. */
+  project?: string
+  created_at: string
+}
+
+export interface ServiceAccount {
+  id: string
+  name: string
+  description?: string
+  disabled_at?: string
+  created_at: string
+}
+
+export interface Invitation {
+  id: string
+  email?: string
+  github_login?: string
+  expires_at: string
+  accepted_at?: string
+  revoked_at?: string
+  created_at: string
+}
+
+export interface CreatedInvitation {
+  invitation: Invitation
+  /** The link, shown once. */
+  url: string
+}
+
+export type ConnectionKind = "github" | "google" | "microsoft" | "oidc"
+
+/** A way to sign in (GET /connections). */
+export interface Connection {
+  id: string
+  kind: ConnectionKind
+  name: string
+  issuer?: string
+  /** Absent on an instance connection. */
+  client_id?: string
+  client_secret_ref?: string
+  enabled: boolean
+  /** From the server file: not changed here. */
+  instance: boolean
+  /** A test sign-in worked. */
+  tested: boolean
+  redirect_url: string
+  test_url?: string
+  created_at: string
+}
+
+export interface CreateConnectionInput {
+  kind: ConnectionKind
+  name: string
+  issuer?: string
+  client_id: string
+  client_secret_ref: string
+}
+
+/** An entry of the audit log (GET /audit). */
+export interface AuditEntry {
+  id: string
+  actor: string
+  actor_name?: string
+  credential?: string
+  action: string
+  subject_type: string
+  subject_id?: string
+  project_id?: string
+  /** What the action recorded; text, never markup. */
+  data?: Record<string, unknown>
+  created_at: string
+}
+
+export interface AuditFilter {
+  actor?: string
+  action?: string
+  subject_type?: string
+  since?: string
+  until?: string
+}
+
+/** A browser session of the signed-in person (GET /sessions). */
+export interface BrowserSession {
+  id: string
+  created_at: string
+  last_seen_at: string
+  expires_at: string
+  user_agent?: string
+  ip?: string
+  organization?: string
+  connection?: string
+  current: boolean
+}
+
+/** A sign-in linked to the signed-in person (GET /identities). */
+export interface Identity {
+  id: string
+  connection: string
+  kind: ConnectionKind
+  login?: string
+  email?: string
+  last_used_at?: string
+  created_at: string
+}
+
+/** The answer of POST /cli/authorize. */
+export interface CliAuthorization {
+  redirect: string
+  code: string
 }

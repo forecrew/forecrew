@@ -1,7 +1,7 @@
 import { keepPreviousData, queryOptions, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { api } from "./client"
 import type {
-  Assumption, AssumptionStatus, CouncilStatus, GateInfo, GoalStatus, JobEvent, JobStatus, KnowledgeKind, KnowledgeProposalStatus, Level,
+  Assumption, AssumptionStatus, AuditFilter, CouncilStatus, GateInfo, GoalStatus, JobEvent, JobStatus, KnowledgeKind, KnowledgeProposalStatus, Level,
   StartCouncilInput,
 } from "./types"
 
@@ -36,6 +36,17 @@ export const keys = {
   knowledgeSearch: (project: string, q: string, section: string, kind: string, provider: string) => ["knowledge-search", project, q, section, kind, provider] as const,
   knowledgeSections: (project: string) => ["knowledge-sections", project] as const,
   knowledgeProposals: (project: string, status: string) => ["knowledge-proposals", project, status] as const,
+  members: ["members"] as const,
+  invitations: ["invitations"] as const,
+  teams: ["teams"] as const,
+  teamMembers: (slug: string) => ["team-members", slug] as const,
+  roles: ["roles"] as const,
+  bindings: (project?: string) => ["bindings", project ?? ""] as const,
+  serviceAccounts: ["service-accounts"] as const,
+  connections: ["connections"] as const,
+  audit: (f: AuditFilter) => ["audit", f] as const,
+  sessions: ["sessions"] as const,
+  identities: ["identities"] as const,
 }
 
 const poll = { refetchInterval: POLL_MS, refetchIntervalInBackground: false }
@@ -130,7 +141,7 @@ export const useQuality = (project: string) => useQuery({ queryKey: keys.quality
 /** The verification report of a change; a 404 (no report yet) is an error the caller can read. */
 export const useVerification = (change: string, project = "", enabled = true) =>
   useQuery({ queryKey: keys.verification(change, project), queryFn: () => api.getVerification(change, project), enabled, retry: false, ...poll })
-export const useTokens = () => useQuery({ queryKey: keys.tokens, queryFn: api.listTokens, ...poll })
+export const useTokens = (enabled = true) => useQuery({ queryKey: keys.tokens, queryFn: api.listTokens, enabled, ...poll })
 export const useWorkers = () => useQuery({ queryKey: keys.workers, queryFn: api.listWorkers, ...poll })
 
 export interface LogState {
@@ -309,3 +320,30 @@ export function useDeleteNote() {
     onSettled: () => Promise.all(["knowledge", "knowledge-search"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
   })
 }
+// The organization's people and sign-in. Each is read with its own permission;
+// a page asks only for what its caller may read.
+export const useMembers = (enabled = true) => useQuery({ queryKey: keys.members, queryFn: api.listMembers, enabled, ...poll })
+export const useInvitations = (enabled = true) => useQuery({ queryKey: keys.invitations, queryFn: api.listInvitations, enabled, ...poll })
+export const useTeams = (enabled = true) => useQuery({ queryKey: keys.teams, queryFn: api.listTeams, enabled, ...poll })
+export const useTeamMembers = (slug: string) => useQuery({ queryKey: keys.teamMembers(slug), queryFn: () => api.listTeamMembers(slug), ...poll })
+export const useRoles = (enabled = true) => useQuery({ queryKey: keys.roles, queryFn: api.listRoles, enabled })
+export const useBindings = (project?: string, enabled = true) =>
+  useQuery({ queryKey: keys.bindings(project), queryFn: () => api.listBindings({ project }), enabled, ...poll })
+export const useServiceAccounts = (enabled = true) => useQuery({ queryKey: keys.serviceAccounts, queryFn: api.listServiceAccounts, enabled, ...poll })
+export const useConnections = (enabled = true) => useQuery({ queryKey: keys.connections, queryFn: api.listConnections, enabled, ...poll })
+export const useAudit = (f: AuditFilter) =>
+  useQuery({ queryKey: keys.audit(f), queryFn: () => api.listAudit({ ...f, limit: 200 }), placeholderData: keepPreviousData })
+export const useSessions = () => useQuery({ queryKey: keys.sessions, queryFn: api.listSessions, ...poll })
+export const useIdentities = () => useQuery({ queryKey: keys.identities, queryFn: api.listIdentities })
+
+/** A mutation that refreshes the lists named by keys when it settles. */
+export function useChange<V, T>(fn: (v: V) => Promise<T>, ...refresh: (readonly unknown[])[]) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: fn,
+    onSettled: () => Promise.all(refresh.map((queryKey) => qc.invalidateQueries({ queryKey }))),
+  })
+}
+
+/** Revokes an invitation; the list refreshes. */
+export const useRevokeInvitation = () => useChange((id: string) => api.revokeInvitation(id), keys.invitations)
