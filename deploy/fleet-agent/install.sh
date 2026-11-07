@@ -282,6 +282,13 @@ else
 	kind=$(awk '$1 == "kind:" { print $2 }' "$conf")
 fi
 
+# The jailer, tap devices and nftables need root. The machines themselves run
+# each as a user of its own.
+if [ "$kind" = microvm ]; then
+	svc_user=root
+	svc_group=root
+fi
+
 # --- user, files ---------------------------------------------------------------
 
 # run_as_service COMMAND...: runs a command as the service user.
@@ -293,15 +300,12 @@ run_as_service() {
 }
 
 create_user() {
+	[ "$svc_user" != root ] || return 0
 	case "$os" in
 	Linux)
 		if ! getent passwd "$svc_user" >/dev/null 2>&1; then
 			say "creating the user $svc_user"
 			useradd --system --home-dir "$state_dir" --create-home --shell /usr/sbin/nologin "$svc_user"
-		fi
-		# microVMs need /dev/kvm, which its group opens.
-		if getent group kvm >/dev/null 2>&1; then
-			usermod -aG kvm "$svc_user"
 		fi
 		;;
 	Darwin)

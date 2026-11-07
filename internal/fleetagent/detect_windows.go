@@ -14,7 +14,8 @@ type memoryStatus struct {
 	virtTotal, virtAvail, virtExtended uint64
 }
 
-func memoryMB() (int, error) {
+// MemoryMB says how much memory this machine has.
+func MemoryMB() (int, error) {
 	m := memoryStatus{}
 	m.length = uint32(unsafe.Sizeof(m))
 	r, _, err := kernel32.NewProc("GlobalMemoryStatusEx").Call(uintptr(unsafe.Pointer(&m)))
@@ -24,7 +25,8 @@ func memoryMB() (int, error) {
 	return int(m.total >> 20), nil
 }
 
-func diskFreeGB(path string) (int, error) {
+// DiskFreeGB says how much of the file system of path is free.
+func DiskFreeGB(path string) (int, error) {
 	p, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
 		return 0, err

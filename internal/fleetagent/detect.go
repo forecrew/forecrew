@@ -36,7 +36,7 @@ type host struct {
 
 func thisHost() host {
 	return host{
-		goos: runtime.GOOS, goarch: runtime.GOARCH, cpus: runtime.NumCPU(), name: os.Hostname, memoryMB: memoryMB, diskFreeGB: diskFreeGB,
+		goos: runtime.GOOS, goarch: runtime.GOARCH, cpus: runtime.NumCPU(), name: os.Hostname, memoryMB: MemoryMB, diskFreeGB: DiskFreeGB,
 		exists: func(path string) bool {
 			_, err := os.Stat(path)
 			return err == nil

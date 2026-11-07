@@ -6,7 +6,8 @@ import (
 	"strings"
 )
 
-func memoryMB() (int, error) {
+// MemoryMB says how much memory this machine has.
+func MemoryMB() (int, error) {
 	out, err := exec.Command("/usr/sbin/sysctl", "-n", "hw.memsize").Output()
 	if err != nil {
 		return 0, err
