@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/forecrew/forecrew/internal/fleetagent"
 )
 
 // tapPrefix starts the name of every machine's tap device.
@@ -124,51 +126,9 @@ func localNets(subnet netip.Prefix) []netip.Prefix {
 	return out
 }
 
-// resolve turns entries of network_allow, hosts or CIDRs, into networks, for a
-// guest that has IPv4 only.
-func resolve(ctx context.Context, r *net.Resolver, entries []string) ([]netip.Prefix, error) {
-	var out []netip.Prefix
-	for _, e := range entries {
-		if p, err := netip.ParsePrefix(e); err == nil {
-			if p.Addr().Is4() {
-				out = append(out, p.Masked())
-			}
-			continue
-		}
-		addrs, err := lookup4(ctx, r, e)
-		if err != nil {
-			return nil, fmt.Errorf("network_allow: %w", err)
-		}
-		for _, a := range addrs {
-			out = append(out, netip.PrefixFrom(a, 32))
-		}
-	}
-	return out, nil
-}
-
-// lookup4 returns the IPv4 addresses of a host or address, sorted.
-func lookup4(ctx context.Context, r *net.Resolver, host string) ([]netip.Addr, error) {
-	if a, err := netip.ParseAddr(host); err == nil {
-		if !a.Is4() {
-			return nil, nil
-		}
-		return []netip.Addr{a}, nil
-	}
-	found, err := r.LookupNetIP(ctx, "ip4", host)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]netip.Addr, 0, len(found))
-	for _, a := range found {
-		out = append(out, a.Unmap())
-	}
-	slices.SortFunc(out, netip.Addr.Compare)
-	return out, nil
-}
-
 // applyRules loads the machine's table.
 func (p *Provider) applyRules(ctx context.Context, r *record, n network) error {
-	nets, err := resolve(ctx, p.resolver, r.Allow)
+	nets, err := fleetagent.ResolveAllow(ctx, p.resolver, r.Allow)
 	if err != nil {
 		return err
 	}

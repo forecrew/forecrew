@@ -313,7 +313,7 @@ func (p *Provider) settings(ctx context.Context, b *fleet.Bootstrap) (guestinit.
 	if err != nil {
 		return guestinit.Settings{}, 0, errors.New("bad server URL")
 	}
-	found, err := lookup4(ctx, p.resolver, u.Hostname())
+	found, err := fleetagent.Lookup4(ctx, p.resolver, u.Hostname())
 	if err != nil {
 		return guestinit.Settings{}, 0, fmt.Errorf("resolve the server: %w", err)
 	}
