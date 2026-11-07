@@ -240,4 +240,31 @@ describe("your account", () => {
     await screen.findByRole("dialog")
     expect(screen.queryByText("goal GOAL-99: not found")).not.toBeInTheDocument()
   })
+  test("lists the connected apps and disconnects one", async () => {
+    let apps = fx.connectedApps
+    const ids: string[] = []
+    server.use(
+      http.get("/api/v1/me", () => HttpResponse.json(fx.meAdmin)),
+      http.get("/api/v1/connected-apps", () => HttpResponse.json(apps)),
+      http.post("/api/v1/connected-apps/:id/revoke", ({ params }) => {
+        ids.push(String(params.id))
+        const app = apps[0]
+        apps = []
+        return HttpResponse.json(app)
+      }),
+    )
+    const { user } = await renderApp("/account")
+    const row = (await screen.findByText("Claude")).closest("tr")!
+    expect(within(row).getByText("read, write")).toBeInTheDocument()
+    await user.click(within(row).getByRole("button", { name: "Disconnect Claude" }))
+    await user.click(await screen.findByRole("button", { name: "Disconnect Claude" }))
+    await waitFor(() => expect(ids).toEqual([fx.connectedApps[0]!.id]))
+    expect(await screen.findByText("No connected apps.")).toBeInTheDocument()
+  })
+
+  test("a token login has no connected apps to show", async () => {
+    await renderApp("/account")
+    await screen.findByRole("heading", { name: "Personal tokens" })
+    expect(screen.queryByRole("heading", { name: "Connected apps" })).not.toBeInTheDocument()
+  })
 })

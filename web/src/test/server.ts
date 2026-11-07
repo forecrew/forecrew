@@ -60,6 +60,7 @@ import projects from "./fixtures/projects.json"
 import session from "./fixtures/session.json"
 import tokens from "./fixtures/tokens.json"
 import tokensEmpty from "./fixtures/tokens-empty.json"
+import connectedApps from "./fixtures/connected-apps.json"
 import tokenRevoke from "./fixtures/token-revoke.json"
 import tokenRevokeSelf from "./fixtures/token-revoke-self.json"
 import workers from "./fixtures/workers.json"
@@ -174,6 +175,7 @@ export const handlers = [
   http.post("/api/v1/connections/:name/disable", () => HttpResponse.json(connections[1])),
   http.get("/api/v1/audit", () => HttpResponse.json(audit)),
   http.get("/api/v1/tokens", () => HttpResponse.json(tokens)),
+  http.get("/api/v1/connected-apps", () => HttpResponse.json([])),
   http.post("/api/v1/tokens/:id/revoke", ({ params }) =>
     HttpResponse.json(params.id === tokens.find((t) => t.current)?.id ? tokenRevokeSelf : tokenRevoke),
   ),
@@ -214,7 +216,7 @@ export const server = setupServer(...handlers)
 export const fx = {
   authDiscover, me, session, projects, projectsEmpty, project, projectOnboard, goals, goalsEmpty, goal, goalCreate, jobs, jobsEmpty, job,
   jobQueued, jobFailed, jobDispatch, jobCancel, jobLogs, jobLogsCaughtUp, jobLogsEmpty, jobLogsAllKinds, projectMinimalProfile, projectUnknownCommands, workers, workersEmpty, gates, gatesEmpty, gateApprove,
-  gateRequestChanges, gateReject, jobArtifacts, jobArtifactsEmpty, jobCommand, quality, qualityBaselineOnly, qualityEmpty, verification, tokens, tokensEmpty, tokenRevoke, tokenRevokeSelf,
+  connectedApps, gateRequestChanges, gateReject, jobArtifacts, jobArtifactsEmpty, jobCommand, quality, qualityBaselineOnly, qualityEmpty, verification, tokens, tokensEmpty, tokenRevoke, tokenRevokeSelf,
   councils, councilsEmpty, councilRunning, councilDecided, councilFailed, councilPending, councilStart, councilConstraint,
   assumptions, assumptionResolve, decisions, decisionsEmpty, gatesCouncil,
   trace, assumptionRegister, assumptionRegisterEmpty, assumptionRegisterResolve, knowledgeEntries, knowledgeEntriesEmpty, knowledgeNotes,
