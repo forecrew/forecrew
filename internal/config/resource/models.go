@@ -56,6 +56,9 @@ func modelConnectionArea() Area {
 	a.Protection = modelConnectionProtection
 	a.Secrets = func(want Resource) []SecretField {
 		s, _ := decode[modelConnectionSpec](want.Spec)
+		if s.SecretRef == "" {
+			return nil
+		}
 		return []SecretField{{Ref: s.SecretRef, Title: "API key of " + want.Name}}
 	}
 	a.Affects = "Jobs leased from now on see the change; workers need nothing."
@@ -130,8 +133,9 @@ func modelConnectionValidate(_ context.Context, _ *Env, old *Resource, want Reso
 	case own == "" && !domain.ValidModelKeyEnv(s.KeyEnv):
 		return invalid("key_env: %s needs the variable of its provider, uppercase and ending in _KEY", s.Adapter)
 	}
-	if !domain.ValidModelSecretRef(s.SecretRef) {
-		return invalid("secret_ref must be %s%s<name>", domain.SecretRefStore, domain.ModelSecretPrefix)
+	// A model on your own network may need no key.
+	if !domain.ValidModelSecretRef(s.SecretRef) && (s.SecretRef != "" || !models.LocalEndpoint(s.BaseURL)) {
+		return invalid("secret_ref must be %s%s<name>; only a local base_url may have none", domain.SecretRefStore, domain.ModelSecretPrefix)
 	}
 	if err := checkModelInfo(s.Models); err != nil {
 		return err
