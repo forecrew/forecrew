@@ -260,6 +260,23 @@ func TestSeparationOfVendors(t *testing.T) {
 			"developer": map[string]any{"connection": "a", "tier": "strong"}, "reviewer": map[string]any{"connection": "b", "tier": "strong"}}}))
 }
 
+func TestReviewerThroughARouterOfTheDevelopersMaker(t *testing.T) {
+	w := newWorld(t)
+	strict := *w.server
+	strict.Policy.AllowSameVendorReview = false
+	w.engine = resource.NewEngine(resource.Config{Store: w.st, Server: &strict, Getenv: env, Secrets: w.vault})
+	direct := map[string]any{"vendor": "anthropic", "adapter": "claude-code", "secret_ref": "store:models/a"}
+	router := map[string]any{"vendor": "openrouter", "adapter": "opencode", "key_env": "OPENROUTER_API_KEY", "secret_ref": "store:models/r"}
+	roles := map[string]any{"developer": map[string]any{"connection": "a", "tier": "strong"}, "reviewer": map[string]any{"connection": "r", "tier": "best"}}
+	tiers := func(reviewer string) map[string]any {
+		return map[string]any{"strong": map[string]any{"anthropic": "claude-sonnet-4-5"}, "best": map[string]any{"openrouter": reviewer}}
+	}
+	w.refused(w.owner, `models of "anthropic"`, wanted(t, "model_connection", "a", direct), wanted(t, "model_connection", "r", router),
+		wanted(t, "model_assignment", "organization", map[string]any{"tiers": tiers("anthropic/claude-opus-4.5"), "roles": roles}))
+	w.plan(w.owner, wanted(t, "model_connection", "a", direct), wanted(t, "model_connection", "r", router),
+		wanted(t, "model_assignment", "organization", map[string]any{"tiers": tiers("openai/gpt-5"), "roles": roles}))
+}
+
 func TestProjectOverrides(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()

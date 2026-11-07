@@ -182,7 +182,7 @@ custom endpoint receives the repo code in the prompts and the runtime's key.
 | `runtimes.<name>.base_url` | URL | no | empty | Custom model endpoint, sent with the job when it is leased. Must be `https://`, or `http://` only to `localhost` or a loopback or private IP address; a host name is not enough for `http`, because it could resolve anywhere. No credentials, query, fragment or braces. `claude-code` gets it as `ANTHROPIC_BASE_URL`, `codex` as `openai_base_url`, and `opencode` as a custom OpenAI-compatible provider named by the model's provider part. The first `credential_env` holds the endpoint's key (opencode; the others read their usual variable). A job with that variable set nowhere fails with an error naming it. Empty means the vendor's own. |
 | `model_tiers` | map tier → vendor → model | yes for every (tier, vendor) a role uses | | Tiers are `fast`, `strong`, `best`. A vendor of an `opencode` runtime has its models in `provider/model` form. |
 | `roles` | map role → `{runtime, tier}` | no | empty | Runtime and tier per role. Role definitions (prompts, write paths, schemas) live in `packs/roles`. |
-| `policy.allow_same_vendor_review` | bool | no | `false` | When false, `reviewer` and `developer` must use runtimes of different vendors. |
+| `policy.allow_same_vendor_review` | bool | no | `false` | When false, `reviewer` and `developer` must use models of different makers. The maker of a model is the model catalog's (`packs/catalog/models.yaml`) when it knows the model, so a router or a cloud reseller (OpenRouter, Bedrock) does not hide that both run models of one maker; otherwise it is the runtime's vendor. The same rule holds for an organization's model connections (config-resources.md). |
 | `policy.accept_recommendations` | list of council kinds | no | empty | Council kinds (`domain.CouncilKind`) whose recommendation is accepted without a human; the decision is recorded as `policy`. Empty means every brief opens a `council_decision` gate. `reversible` is declared by the facilitator, an agent, and nothing verifies it, so this policy rests on that claim. A brief is accepted only when it says `reversible` and no member other than the devil's advocate, whose dissent its seat requires, dissents or votes against the recommendation. |
 | `pools` | map name → pool | no | `build`, `control`, `actions` as above | Worker pools (`config.Pool`). Names are `domain.ValidName`s. An entry replaces the default of the same name; the defaults not redefined always exist. Every worker belongs to one pool (worker-api.md, Pools). |
 | `pools.<name>.roles` | list of strings | no | empty | Roles whose agent jobs the pool runs, or `"*"` for all. Not used for command jobs. |
@@ -272,7 +272,7 @@ missing or malformed `public_base_url`, `public_base_url` not matching
 missing vendor, invalid runtime name, a `base_url` that breaks its rules, an
 `opencode` model not in `provider/model` form, unknown tier, role referring to an
 unknown runtime, role tier without a model for the runtime's vendor,
-reviewer/developer on the same vendor without `allow_same_vendor_review`,
+reviewer/developer on models of the same maker (or vendor) without `allow_same_vendor_review`,
 invalid pool names, pools without kinds or with unknown kinds, empty role
 names, pool runtimes that are not configured, unknown `repo_token` scopes,
 and, when `evidence` is set, a malformed endpoint, no bucket, a negative

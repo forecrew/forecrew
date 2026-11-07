@@ -474,7 +474,7 @@ func (c *Config) validateRoles(p *problems) {
 			p.addf("roles.%s: model_tiers.%s.%s is not set", name, r.Tier, rt.Vendor)
 		}
 	}
-	if v, ok := c.SameVendorReview(); ok {
+	if v, ok := c.SameVendorReview(nil); ok {
 		p.addf("roles: reviewer and developer both use vendor %q; set policy.allow_same_vendor_review to allow it", v)
 	}
 	for _, k := range c.Policy.AcceptRecommendations {
@@ -485,24 +485,36 @@ func (c *Config) validateRoles(p *problems) {
 }
 
 // SameVendorReview reports whether the reviewer and developer roles use
-// runtimes of the same vendor without policy.allow_same_vendor_review, which
-// separation of duties forbids, and returns that vendor.
-func (c *Config) SameVendorReview() (string, bool) {
-	dev, okDev := c.vendor("developer")
-	rev, okRev := c.vendor("reviewer")
+// models of the same maker without policy.allow_same_vendor_review, which
+// separation of duties forbids, and returns that maker. maker gives the maker
+// of a model when it is known (the model catalog), so a router does not hide
+// it; otherwise, and with a nil maker, the runtimes' vendors are compared.
+func (c *Config) SameVendorReview(maker func(model string) string) (string, bool) {
+	dev, okDev := c.reviewKey("developer", maker)
+	rev, okRev := c.reviewKey("reviewer", maker)
 	if okDev && okRev && dev == rev && !c.Policy.AllowSameVendorReview {
 		return dev, true
 	}
 	return "", false
 }
 
-func (c *Config) vendor(role string) (string, bool) {
+// reviewKey is what separation of duties compares for role: the maker of its
+// model when known, else the vendor of its runtime.
+func (c *Config) reviewKey(role string, maker func(model string) string) (string, bool) {
 	r, ok := c.Roles[role]
 	if !ok {
 		return "", false
 	}
 	rt, ok := c.Runtimes[r.Runtime]
-	return rt.Vendor, ok
+	if !ok {
+		return "", false
+	}
+	if maker != nil {
+		if m := maker(c.ModelTiers[r.Tier][rt.Vendor]); m != "" {
+			return m, true
+		}
+	}
+	return rt.Vendor, true
 }
 
 // Model returns the runtime adapter and the model a role runs with.

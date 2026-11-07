@@ -136,7 +136,9 @@ code is `internal/models`; nothing else decides a job's connection.
 - **Plans** check the model changes together: every assigned role must end up
   on a connection that exists, is on and has a model for its tier, a role
   with a toolbox is not put on `opencode`, and the reviewer stays off the
-  developer's vendor unless `policy.allow_same_vendor_review`. So disabling or
+  developer's maker unless `policy.allow_same_vendor_review`: the maker of the
+  model from the model catalog when it is known, so a router does not hide it,
+  else the vendor. So disabling or
   deleting a connection a role uses is refused unless the same plan reassigns
   the role, and the plan's `affects` lists the roles and projects on it. The
   check runs again in the transaction that applies the plan.

@@ -167,21 +167,50 @@ func TestSameVendorReview(t *testing.T) {
 		Runtimes: map[string]Runtime{"a": {Vendor: "anthropic"}, "a2": {Vendor: "anthropic"}, "o": {Vendor: "openai"}},
 		Roles:    map[string]Role{"developer": {Runtime: "a"}, "reviewer": {Runtime: "o"}},
 	}
-	if v, ok := c.SameVendorReview(); ok {
+	if v, ok := c.SameVendorReview(nil); ok {
 		t.Errorf("different vendors: SameVendorReview = %q, true", v)
 	}
 	c.Roles["reviewer"] = Role{Runtime: "a2"}
-	if v, ok := c.SameVendorReview(); !ok || v != "anthropic" {
+	if v, ok := c.SameVendorReview(nil); !ok || v != "anthropic" {
 		t.Errorf("same vendor: SameVendorReview = %q, %v; want anthropic, true", v, ok)
 	}
 	c.Policy.AllowSameVendorReview = true
-	if _, ok := c.SameVendorReview(); ok {
+	if _, ok := c.SameVendorReview(nil); ok {
 		t.Error("allowed same vendor reported")
 	}
 	c.Policy.AllowSameVendorReview = false
 	delete(c.Roles, "reviewer")
-	if _, ok := c.SameVendorReview(); ok {
+	if _, ok := c.SameVendorReview(nil); ok {
 		t.Error("missing reviewer reported")
+	}
+}
+
+func TestSameMakerReview(t *testing.T) {
+	// The reviewer goes through a router, to a model of the developer's maker.
+	c := &Config{
+		Runtimes:   map[string]Runtime{"a": {Vendor: "anthropic"}, "r": {Vendor: "openrouter"}, "x": {Vendor: "nowhere"}},
+		ModelTiers: map[Tier]map[string]string{TierStrong: {"anthropic": "claude-sonnet-4-5", "openrouter": "anthropic/claude-opus-4.5", "nowhere": "?"}},
+		Roles:      map[string]Role{"developer": {Runtime: "a", Tier: TierStrong}, "reviewer": {Runtime: "r", Tier: TierStrong}},
+	}
+	maker := func(model string) string {
+		if strings.Contains(model, "claude") {
+			return "anthropic"
+		}
+		return ""
+	}
+	if _, ok := c.SameVendorReview(nil); ok {
+		t.Error("vendors differ")
+	}
+	if v, ok := c.SameVendorReview(maker); !ok || v != "anthropic" {
+		t.Errorf("router of the same maker: %q, %v", v, ok)
+	}
+	c.Roles["reviewer"] = Role{Runtime: "x", Tier: TierStrong}
+	if _, ok := c.SameVendorReview(maker); ok {
+		t.Error("an unknown maker counts as its vendor")
+	}
+	c.Roles["reviewer"] = Role{Runtime: "missing"}
+	if _, ok := c.SameVendorReview(maker); ok {
+		t.Error("a missing runtime reported")
 	}
 }
 
