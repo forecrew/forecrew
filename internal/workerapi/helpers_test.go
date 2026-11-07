@@ -71,6 +71,7 @@ func newEnv(t *testing.T, opts ...option) *env {
 		},
 		PollWait:    200 * time.Millisecond,
 		PollRecheck: time.Hour, // wake-ups must come from job creation
+		Now:         b.clock.Now,
 	}
 	for _, o := range opts {
 		o(&cfg)

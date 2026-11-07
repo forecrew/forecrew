@@ -385,6 +385,15 @@ func TestStoreWorkersAndTokens(t *testing.T) {
 	if err != nil || !got.Online(t0) || got.Version != "v1" || got.Labels[0] != "go" {
 		t.Fatalf("worker = %+v, %v", got, err)
 	}
+	agents := []domain.WorkerAgent{{Adapter: "codex", Source: domain.AgentSourceSystem}}
+	must(t, f.st.Workers().SetAgents(ctx, f.account, w.ID, agents))
+	if got, _ = f.st.Workers().Get(ctx, f.account, w.ID); len(got.Agents) != 1 || got.Agents[0] != agents[0] {
+		t.Fatalf("agents = %+v", got.Agents)
+	}
+	must(t, f.st.Workers().SetAgents(ctx, f.account, w.ID, nil))
+	if got, _ = f.st.Workers().Get(ctx, f.account, w.ID); got.Agents != nil {
+		t.Fatalf("agents = %+v", got.Agents)
+	}
 	must(t, f.st.Workers().SetPool(ctx, f.account, w.ID, domain.PoolControl))
 	if got, _ = f.st.Workers().Get(ctx, f.account, w.ID); got.Pool != domain.PoolControl {
 		t.Fatalf("pool = %q", got.Pool)

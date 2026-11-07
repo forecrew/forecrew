@@ -41,6 +41,11 @@ type Worker struct {
 // it AgentInstallLabel, and asks only such workers.
 const AgentInstallCapability = "agent_install"
 
+// AgentInstallHeader is the header of a 204 poll answer that asks a worker
+// to install an agent CLI. It carries an adapter name only: the worker takes
+// version, address and checksum from its own manifest.
+const AgentInstallHeader = "Forecrew-Install-Agent"
+
 // AgentInstallLabel marks a worker that installs agent CLIs when asked; a
 // worker never sets it itself.
 const AgentInstallLabel = "agents:install"

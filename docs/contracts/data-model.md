@@ -1524,6 +1524,19 @@ CREATE INDEX model_checks_job ON model_checks (account_id, job_id);
 
 `jobs.kind` may be `model_check` (job-spec.md); the migration widens its check.
 
+### Worker agents (migration 00018)
+
+What each worker reported of its agent CLIs at its last poll (worker-api.md,
+poll; docs/worker.md, Agent install), shown on the machine and in the waiting
+reason of a job no worker can run.
+
+```sql
+-- [{adapter, source, version, error}] (domain.WorkerAgent): source is image,
+-- installed or system, empty while missing; error is the code of a failed
+-- install (unsupported, download, checksum, archive, write), never text.
+ALTER TABLE workers ADD COLUMN agents jsonb NOT NULL DEFAULT '[]';
+```
+
 ### Configuration (migration 00010)
 
 See [config-resources.md](config-resources.md).

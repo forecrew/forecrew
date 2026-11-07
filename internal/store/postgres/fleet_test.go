@@ -48,8 +48,9 @@ func TestFleetMigration(t *testing.T) {
 	must(t, err)
 
 	st := New(pool)
-	w, err := st.Workers().GetByTokenHash(ctx, []byte{1})
-	must(t, err)
+	// Read with SQL: the store reads columns of later migrations.
+	var w domain.Worker
+	must(t, pool.QueryRow(ctx, `SELECT id, account_id, pool, ephemeral FROM workers WHERE token_hash = '\x01'`).Scan(&w.ID, &w.AccountID, &w.Pool, &w.Ephemeral))
 	if w.Ephemeral || w.Pool != "control" || w.ID.String() != worker {
 		t.Fatalf("worker = %+v", w)
 	}
