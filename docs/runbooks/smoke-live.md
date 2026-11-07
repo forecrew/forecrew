@@ -129,9 +129,10 @@ eyes at what the run cannot judge:
 3. On Data Center, rename a user who commented and read the issue again
    (`forecrew tracker test` then a ticket of theirs): the person keeps the same
    ID, the user key.
-4. A webhook from Jira (Data Center 10.3 or later, and Cloud) with a secret
-   reaches `POST /webhooks/tracker/{connection}` with a valid
-   `X-Hub-Signature`; an automation rule with the secret URL does too.
+4. A webhook from Jira with a secret reaches `POST /webhooks/tracker/{connection}`
+   with a valid `X-Hub-Signature`, on Cloud and on the Data Center version
+   tested (note whether its form has a secret field); an automation rule with
+   the secret URL does too.
 
 ## opencode
 
