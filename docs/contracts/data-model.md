@@ -1,6 +1,6 @@
 # Data model
 
-Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access, 00007 the fleet, 00008 invitation GitHub ID, 00009 knowledge note hits and promotion, 00013 tracker route warnings and positions). Each table maps to a
+Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access, 00007 the fleet, 00008 invitation GitHub ID, 00009 knowledge note hits and promotion, 00013 tracker route warnings and positions, 00016 fleet notices). Each table maps to a
 type in `internal/domain` and a repository in `store.Store`; JSON names in
 `domain` equal the column names. The DDL below is the contract; T02 may add
 indexes but not change columns, types or constraints without a contract
@@ -1294,6 +1294,24 @@ CREATE TABLE usage_records (
   CHECK (ended_at >= started_at)
 );
 CREATE INDEX usage_records_account ON usage_records (account_id, ended_at);
+
+-- Migration 00016. What the instance's operator must look at: a machine its
+-- location stopped for abuse (fleet.md, Abuse). One per machine and kind.
+CREATE TABLE fleet_notices (
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id  uuid REFERENCES accounts(id),      -- the machine's organization; NULL for an unassigned one
+  machine_id  uuid NOT NULL REFERENCES machines(id),
+  provider_id uuid NOT NULL REFERENCES capacity_providers(id),
+  job_id      uuid,
+  kind        text NOT NULL CHECK (kind IN ('cpu','mining')),
+  detail      text NOT NULL DEFAULT '',          -- the agent's words: untrusted
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  resolved_at timestamptz,
+  resolved_by text NOT NULL DEFAULT '',
+  UNIQUE (machine_id, kind),
+  CHECK ((resolved_at IS NULL) = (resolved_by = ''))
+);
+CREATE INDEX fleet_notices_open ON fleet_notices (created_at) WHERE resolved_at IS NULL;
 ```
 
 ### Trackers
@@ -1698,6 +1716,7 @@ cap). `RequeueExpired` does not delay the job.
 | FleetPolicy, FleetQuotas | fleet_policy | `store.FleetPolicyRepo` (T58) |
 | Image, ImageContents | images | `store.ImageRepo` (T60) |
 | UsageRecord | usage_records | `store.UsageRepo` (T65) |
+| FleetNotice | fleet_notices | `store.FleetNoticeRepo` (T65) |
 | TrackerConnection, TrackerTriggers | tracker_connections | `store.TrackerConnectionRepo` (added to `Store` by T72) |
 | TrackerRoute, TrackerMatch | tracker_routes | `store.TrackerRouteRepo` (T72) |
 | TrackerIdentity | tracker_identities | `store.TrackerIdentityRepo` (T72) |

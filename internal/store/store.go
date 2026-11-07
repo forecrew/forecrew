@@ -102,6 +102,7 @@ type Store interface {
 	FleetPolicies() FleetPolicyRepo
 	Images() ImageRepo
 	Usage() UsageRepo
+	FleetNotices() FleetNoticeRepo
 	ConfigPlans() ConfigPlanRepo
 	ConfigSettings() ConfigSettingRepo
 	ModelConnections() ModelConnectionRepo
@@ -1371,6 +1372,18 @@ type UsageRepo interface {
 	// Unmetered returns destroyed machines of an organization with no record,
 	// destroyed at or after since, oldest first: what metering missed.
 	Unmetered(ctx context.Context, since time.Time, limit int) ([]domain.Machine, error)
+}
+
+// FleetNoticeRepo stores what the instance's operator must look at. It is
+// the instance's, so nothing in it is scoped to an organization.
+type FleetNoticeRepo interface {
+	// Create stores a notice; a machine that has one of that kind fails with
+	// ErrConflict, so a report sent again opens none.
+	Create(ctx context.Context, n *domain.FleetNotice) error
+	// List returns the open notices, or all of them, newest first.
+	List(ctx context.Context, all bool, limit int) ([]domain.FleetNotice, error)
+	// Resolve closes a notice for by; ErrConflict when it is closed already.
+	Resolve(ctx context.Context, id uuid.UUID, by string) (domain.FleetNotice, error)
 }
 
 // TrackerConnectionRepo stores tracker connections. (account, name) is

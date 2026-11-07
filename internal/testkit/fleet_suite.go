@@ -25,6 +25,7 @@ func FleetStoreSuite(t *testing.T, st store.Store, account, project uuid.UUID) {
 	s.policies()
 	s.joinCodes(prov)
 	s.usage(prov, shape)
+	s.notices(prov, shape)
 }
 
 type fleetSuite struct {
@@ -509,5 +510,50 @@ func (s *fleetSuite) usage(prov domain.CapacityProvider, shape domain.Shape) {
 	}
 	if t, err := r.SumByProvider(ctx, domain.NewID(), time.Time{}, time.Time{}); err != nil || t != (store.UsageTotal{}) {
 		s.t.Fatalf("other provider = %+v %v", t, err)
+	}
+}
+
+func (s *fleetSuite) notices(prov domain.CapacityProvider, shape domain.Shape) {
+	ctx := s.t.Context()
+	r := s.st.FleetNotices()
+	m := domain.Machine{AccountID: s.account, ProviderID: prov.ID, ShapeID: shape.ID}
+	s.must(s.st.Machines().Create(ctx, &m))
+	n := domain.FleetNotice{AccountID: s.account, MachineID: m.ID, ProviderID: prov.ID, Kind: domain.AbuseMining, Detail: "stratum"}
+	s.must(r.Create(ctx, &n))
+	if n.ID == uuid.Nil() || n.CreatedAt.IsZero() {
+		s.t.Fatalf("created %+v", n)
+	}
+	again := n
+	again.ID = uuid.Nil()
+	s.want(r.Create(ctx, &again), store.ErrConflict) // one per machine and kind
+	if err := r.Create(ctx, &domain.FleetNotice{MachineID: m.ID, ProviderID: prov.ID, Kind: "bitcoin"}); !errors.Is(err, domain.ErrInvalidRecord) {
+		s.t.Fatalf("bad kind: %v", err)
+	}
+	cpu := domain.FleetNotice{MachineID: m.ID, ProviderID: prov.ID, Kind: domain.AbuseCPU}
+	s.must(r.Create(ctx, &cpu))
+
+	open, err := r.List(ctx, false, 0)
+	s.must(err)
+	if len(open) < 2 || open[0].ID != cpu.ID || open[1].AccountID != s.account || open[1].Detail != "stratum" {
+		s.t.Fatalf("open = %+v", open)
+	}
+	done, err := r.Resolve(ctx, n.ID, "user:ops")
+	s.must(err)
+	if done.ResolvedAt.IsZero() || done.ResolvedBy != "user:ops" {
+		s.t.Fatalf("resolved %+v", done)
+	}
+	_, err = r.Resolve(ctx, n.ID, "user:ops")
+	s.want(err, store.ErrConflict)
+	_, err = r.Resolve(ctx, domain.NewID(), "user:ops")
+	s.want(err, store.ErrNotFound)
+	open, err = r.List(ctx, false, 0)
+	s.must(err)
+	if slices.ContainsFunc(open, func(x domain.FleetNotice) bool { return x.ID == n.ID }) {
+		s.t.Fatal("a resolved notice is open")
+	}
+	all, err := r.List(ctx, true, 1)
+	s.must(err)
+	if len(all) != 1 {
+		s.t.Fatalf("limit: %d", len(all))
 	}
 }
