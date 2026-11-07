@@ -260,7 +260,7 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolRevokeProvider, map[string]any{"provider": "home"}, mcp.ProviderRefInput{Provider: "home", WrapUntrusted: true}},
 		{mcp.ToolCreateJoinCode, map[string]any{"cloud": true}, mcp.CreateJoinCodeInput{Cloud: true}},
 		{mcp.ToolListJoinCodes, nil, mcp.ListJoinCodesInput{WrapUntrusted: true}},
-		{mcp.ToolConfirmJoin, map[string]any{"join": "j", "name": "home"}, mcp.ConfirmJoinInput{Join: "j", Name: "home", WrapUntrusted: true}},
+		{mcp.ToolConfirmJoin, map[string]any{"join": "j", "name": "home", "facts_hash": "h"}, mcp.ConfirmJoinInput{Join: "j", Name: "home", FactsHash: "h", WrapUntrusted: true}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))
@@ -565,7 +565,7 @@ func TestEveryToolChecksItsPermission(t *testing.T) {
 		mcp.ToolCreateInvitation: {"email": "a@b.c", "roles": []map[string]string{{"role": "member"}}}, mcp.ToolRevokeInvitation: {"invitation": "x"},
 		mcp.ToolConfigPlan: {"changes": []any{}}, mcp.ToolConfigApply: {"plan": "p"}, mcp.ToolConfigRevert: {"plan": "p"}, mcp.ToolConfigImport: {"yaml": "y"},
 		mcp.ToolConfigGetPlan: {"plan": "p"}, mcp.ToolConfigCancel: {"plan": "p"}, mcp.ToolAssistantSend: {"message": "m"}, mcp.ToolAssistantGet: {"conversation": "c"},
-		mcp.ToolCreateProvider: {"name": "n", "kind": "aws"}, mcp.ToolRevokeProvider: {"provider": "n"}, mcp.ToolConfirmJoin: {"join": "j", "name": "n"},
+		mcp.ToolCreateProvider: {"name": "n", "kind": "aws"}, mcp.ToolRevokeProvider: {"provider": "n"}, mcp.ToolConfirmJoin: {"join": "j", "name": "n", "facts_hash": "h"},
 	}
 	for name, a := range mcp.ToolAccess() {
 		if a.Permission == "" || a.Own {

@@ -136,3 +136,18 @@ func TestJoinOfARevokedProvider(t *testing.T) {
 		t.Fatalf("provider = %+v, %v", got, err)
 	}
 }
+
+func TestFactsHash(t *testing.T) {
+	facts := domain.ProviderCapabilities{Host: "nas", MaxCPU: 8}
+	h := fleet.FactsHash(domain.ProviderMicroVM, facts)
+	if len(h) != 32 || h != fleet.FactsHash(domain.ProviderMicroVM, facts) {
+		t.Fatalf("hash %q", h)
+	}
+	if h == fleet.FactsHash(domain.ProviderAWS, facts) {
+		t.Error("the kind is not in it")
+	}
+	facts.Host = "other"
+	if h == fleet.FactsHash(domain.ProviderMicroVM, facts) {
+		t.Error("the facts are not in it")
+	}
+}

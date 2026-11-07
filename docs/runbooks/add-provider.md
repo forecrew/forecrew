@@ -56,10 +56,12 @@ Nobody sees a token this way, and the code alone gives access to nothing.
 
    ```sh
    forecrew provider joins
-   forecrew provider confirm <id> --name home-server
+   forecrew provider confirm <id> --name home-server --facts <FACTS>
    ```
 
-   The agent gets its token at its next call, within 5 seconds, and
+   `--facts` is the FACTS column of the report you read. If the agent sent
+   another since, the confirmation is refused: read it again. The agent gets its
+   token at its next call, within 5 seconds, and
    `forecrew providers` shows the location online.
 
 If the agent restarts before you confirm, the code stays bound to the agent that
@@ -111,6 +113,6 @@ none there.
 |---------|----------|
 | `forecrewd rejected this agent` in the log, and the service stopped | The token is revoked or wrong, or the join code unknown, used or expired. Connect it again |
 | `join code claimed by another agent` | Another agent used the code first, or this one restarted. Draw a new code. If you did not start that other agent, do not confirm its report |
-| `too many join calls` (429) | Too many calls from one address, or too many unknown codes from anywhere. The agent backs off and tries again |
+| `too many join calls` (429) | Too many calls from one address, or too many unknown codes from anywhere. During a flood of wrong codes every join gets this, real codes too; connected locations are not touched. The agent backs off and tries again ([fleet.md](../fleet.md#limits-on-joining)) |
 | `no contact with forecrewd` | Machines keep running and nothing new starts. It reconnects by itself |
 | `this build of the fleet agent has no provider of kind ...` | The release does not serve that kind yet |

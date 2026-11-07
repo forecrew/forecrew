@@ -921,15 +921,18 @@ const (
 // structured fields stay in Facts.
 type JoinCodeInfo struct {
 	domain.ProviderJoinCode
-	Status    string `json:"status"`
+	Status string `json:"status"`
+	// FactsHash names the report, once there is one; confirm_join takes it.
+	FactsHash string `json:"facts_hash,omitempty"`
 	Untrusted string `json:"untrusted,omitempty"`
 }
 
-// ConfirmJoinInput is the input of confirm_join: the code by its ID, and the
-// name of the provider it becomes.
+// ConfirmJoinInput is the input of confirm_join: the code by its ID, the name
+// of the provider it becomes, and the facts_hash of the report that was read.
 type ConfirmJoinInput struct {
-	Join string `json:"join"`
-	Name string `json:"name"`
+	Join      string `json:"join"`
+	Name      string `json:"name"`
+	FactsHash string `json:"facts_hash"`
 	// WrapUntrusted is as in ListProvidersInput.
 	WrapUntrusted bool `json:"-"`
 }

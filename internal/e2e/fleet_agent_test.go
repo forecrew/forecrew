@@ -288,7 +288,7 @@ func TestFleetAgentJoin(t *testing.T) {
 		t.Fatalf("join = %+v", joins[0])
 	}
 	var p mcp.ProviderInfo
-	if code := w.api(http.MethodPost, "/join-codes/"+joins[0].ID.String()+"/confirm", mcp.ConfirmJoinInput{Name: "joined"}, &p); code != http.StatusOK {
+	if code := w.api(http.MethodPost, "/join-codes/"+joins[0].ID.String()+"/confirm", mcp.ConfirmJoinInput{Name: "joined", FactsHash: joins[0].FactsHash}, &p); code != http.StatusOK {
 		t.Fatalf("confirm: status %d", code)
 	}
 	s.token = <-tokens

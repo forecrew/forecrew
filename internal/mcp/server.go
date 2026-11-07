@@ -364,12 +364,12 @@ func registerProviderTools(r registrar, svc ToolService) {
 			return list("join_codes", c, "%d join codes.", len(c)), err
 		})
 	register(r, ToolConfirmJoin, "Confirm what an agent with a join code reported: creates the provider, and the agent gets its token over its own connection, shown to nobody. Check the host and account first.",
-		fieldDocs{"join": "Join code ID from list_join_codes.", "name": "Name of the new provider."},
+		fieldDocs{"join": "Join code ID from list_join_codes.", "name": "Name of the new provider.", "facts_hash": "facts_hash from list_join_codes of the report you read; a report that changed since is refused."},
 		func(ctx context.Context, by domain.Actor, in ConfirmJoinInput) (toolResult, error) {
 			in.WrapUntrusted = true
 			p, err := svc.ConfirmJoin(ctx, by, in)
 			return result(p, "Provider %s created; its agent connects at its next call.", p.Name), err
-		}, "join", "name")
+		}, "join", "name", "facts_hash")
 }
 
 // registerAccessTools adds the tools that manage who may do what.
