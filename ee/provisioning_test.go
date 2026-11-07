@@ -354,6 +354,11 @@ func TestProvisioningNoEscalation(t *testing.T) {
 	if _, err := e.svc.SetConnectionProvisioning(ctx, e.owner, mcp.SetProvisioningInput{Connection: "hub", JITEnabled: &on}); !isInvalid(err) {
 		t.Errorf("instance connection: %v", err)
 	}
+	hub := domain.Connection{AccountID: e.org.ID, Kind: domain.ConnectionGitHub, Name: "own-hub", ClientID: "c", ClientSecretRef: "env:FORECREW_CONN_HUB", Enabled: true}
+	must(t, e.st.Connections().Create(ctx, &hub))
+	if _, err := e.svc.SetConnectionProvisioning(ctx, e.owner, mcp.SetProvisioningInput{Connection: "own-hub", JITEnabled: &on}); !isInvalid(err) {
+		t.Errorf("JIT on an organization's GitHub connection: %v", err)
+	}
 	if _, err := e.svc.SetConnectionProvisioning(ctx, e.owner, mcp.SetProvisioningInput{Connection: "nope"}); !isNotFound(err) {
 		t.Errorf("unknown: %v", err)
 	}

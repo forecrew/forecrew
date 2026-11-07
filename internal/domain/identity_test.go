@@ -301,6 +301,8 @@ func TestConnectionValidate(t *testing.T) {
 		"google issuer":         func(c *Connection) { c.Kind = ConnectionGoogle },
 		"jit on instance":       func(c *Connection) { c.AccountID = uuid.Nil() },
 		"jit roles on instance": func(c *Connection) { c.AccountID, c.JIT.Enabled = uuid.Nil(), false },
+		"jit on github":         func(c *Connection) { c.Kind, c.Issuer = ConnectionGitHub, "" },
+		"jit on google":         func(c *Connection) { c.Kind, c.Issuer = ConnectionGoogle, "" },
 	}
 	for name, mutate := range bad {
 		c := base
