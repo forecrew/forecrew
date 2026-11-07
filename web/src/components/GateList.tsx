@@ -126,6 +126,7 @@ function GateCard({ gate, selected, mode, setMode, onSelect, note, setNote, onDe
   // A council gets one human round: after it the gate can only be approved or rejected.
   const roundUsed = (council?.contributions ?? []).filter((k) => k.stage === "synthesis").length >= 2
   const w = wordsFor(gate, roundUsed)
+  const mayResolve = gate.can_resolve !== false
 
   useEffect(() => {
     if (selected) ref.current?.scrollIntoView?.({ block: "nearest" })
@@ -172,7 +173,9 @@ function GateCard({ gate, selected, mode, setMode, onSelect, note, setNote, onDe
             {gate.task_ref ? <> · {gate.task_ref}</> : null}
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            {shown === null ? (
+            {!mayResolve ? (
+              <p className="text-sm text-muted-foreground">You may read this decision, but your role does not let you decide it.</p>
+            ) : shown === null ? (
               <>
                 <Button variant={selected ? "default" : "outline"} onClick={() => onDecide("approve", note)} disabled={pending}>
                   {w.approve}
@@ -216,7 +219,7 @@ function GateCard({ gate, selected, mode, setMode, onSelect, note, setNote, onDe
           </div>
           <GateBody gate={gate} assumption={assumption} council={council} />
           {gate.kind === "merge_approval" && gate.url ? <VerificationSection change={gate.url} title={`${gate.ref} verification`} /> : null}
-          {shown === null ? (
+          {!mayResolve ? null : shown === null ? (
             <Field key="note" label={w.note} error={refused ? "This council had its human round: approve or reject its brief." : error}>
               {(p) => <Textarea {...p} rows={2} value={note} onChange={(e) => setNote(e.target.value)} />}
             </Field>
@@ -301,10 +304,10 @@ export function GateList({ gates: all, keyboard = false, initialRef }: { gates: 
           setInvalid(undefined)
           break
         case "a":
-          if (selected && !decide.isPending) onDecide(selected, "approve", notes[selected.ref] ?? "")
+          if (selected && selected.can_resolve !== false && !decide.isPending) onDecide(selected, "approve", notes[selected.ref] ?? "")
           break
         case "r":
-          if (selected && !yesOrNo(selected.kind)) {
+          if (selected && selected.can_resolve !== false && !yesOrNo(selected.kind)) {
             e.preventDefault()
             setMode("changes")
           }

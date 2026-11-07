@@ -125,7 +125,7 @@ function GoalJobs({ goal, tasks }: { goal: string; tasks: GoalDetail["tasks"] })
                   <TableCell className="font-mono">{(j.task_id && taskRefs.get(j.task_id)) || <span className="font-sans text-muted-foreground">none</span>}</TableCell>
                   <TableCell className="font-mono">{(j.worker_id && workerNames.get(j.worker_id)) || <span className="font-sans text-muted-foreground">none</span>}</TableCell>
                   <TableCell className="text-right">{cost(j.cost_usd)}</TableCell>
-                  <TableCell>{cancelable(j.status) ? <CancelJob jobRef={jobRef(j.number)} label="Cancel" ariaLabel={`Cancel ${jobRef(j.number)}`} /> : null}</TableCell>
+                  <TableCell>{cancelable(j.status) ? <CancelJob jobRef={jobRef(j.number)} label="Cancel" ariaLabel={`Cancel ${jobRef(j.number)}`} projectId={j.project_id} /> : null}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

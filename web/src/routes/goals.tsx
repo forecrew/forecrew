@@ -18,10 +18,12 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { goalRef, goalTone, splitList, stageOf, words } from "@/lib/format"
+import { useCanAnywhere } from "@/lib/permissions"
 
 export function GoalsPage() {
   const { project = "", status = "" } = useSearch({ from: "/app/goals" })
   const navigate = useNavigate({ from: "/goals" })
+  const canAnywhere = useCanAnywhere()
   const goals = useGoals(project, status as GoalStatus | "")
   const projects = useProjects()
   const names = new Map(projects.data?.map((p) => [p.id, p.name]))
@@ -33,9 +35,11 @@ export function GoalsPage() {
   return (
     <>
       <PageHeader title="Goals">
-        <Link to="/goals/new" className={cn(buttonVariants())}>
-          New goal
-        </Link>
+        {canAnywhere("goal.create") ? (
+          <Link to="/goals/new" className={cn(buttonVariants())}>
+            New goal
+          </Link>
+        ) : null}
       </PageHeader>
       <div className="mb-4 flex flex-wrap gap-4">
         <div className="space-y-1.5">

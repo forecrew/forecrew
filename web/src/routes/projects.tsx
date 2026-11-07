@@ -13,15 +13,19 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { projectTone } from "@/lib/format"
+import { useCan } from "@/lib/permissions"
 
 export function ProjectsPage() {
   const projects = useProjects()
+  const can = useCan()
   return (
     <>
       <PageHeader title="Projects">
-        <Link to="/projects/new" className={cn(buttonVariants())}>
-          Onboard repository
-        </Link>
+        {can("project.create") ? (
+          <Link to="/projects/new" className={cn(buttonVariants())}>
+            Onboard repository
+          </Link>
+        ) : null}
       </PageHeader>
       <Async query={projects} isEmpty={(d) => d.length === 0} empty="No projects yet. Onboard a repository to get started.">
         {(items) => (

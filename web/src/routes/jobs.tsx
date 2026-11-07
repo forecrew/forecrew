@@ -71,7 +71,7 @@ export function JobsPage() {
                     <TableCell>
                       <Age iso={j.created_at} ago />
                     </TableCell>
-                    <TableCell>{cancelable(j.status) ? <CancelJob jobRef={jobRef(j.number)} label="Cancel" ariaLabel={`Cancel ${jobRef(j.number)}`} /> : null}</TableCell>
+                    <TableCell>{cancelable(j.status) ? <CancelJob jobRef={jobRef(j.number)} label="Cancel" ariaLabel={`Cancel ${jobRef(j.number)}`} projectId={j.project_id} /> : null}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

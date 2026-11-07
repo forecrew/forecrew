@@ -207,7 +207,7 @@ export function JobPage() {
             meta={<JobMeta job={j} />}
           >
             <JobWhy job={j} />
-            {cancelable(j.status) ? <CancelJob jobRef={j.ref} /> : null}
+            {cancelable(j.status) ? <CancelJob jobRef={j.ref} projectId={j.project_id} /> : null}
           </PageHeader>
           <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1fr_22rem]">
             <div className="min-w-0 space-y-6">

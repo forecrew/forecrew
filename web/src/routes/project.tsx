@@ -17,6 +17,8 @@ import { Label } from "@/components/ui/label"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { goalRef, goalTone, isRefOrId, jobRef, projectTone, splitList, stageOf, words } from "@/lib/format"
+import { ProjectAccess } from "@/components/ProjectAccess"
+import { useCan } from "@/lib/permissions"
 
 function ProfileView({ profile }: { profile: Profile }) {
   return (
@@ -187,6 +189,7 @@ export function ProjectPage() {
   const { name } = useParams({ from: "/app/projects/$name" })
   const project = useProject(name)
   const goals = useGoals(name)
+  const can = useCan()
   return (
     <Async query={project}>
       {(p) => (
@@ -239,8 +242,10 @@ export function ProjectPage() {
             <h2 id="adhoc" className="mb-2 text-lg font-semibold">
               Run ad-hoc job
             </h2>
-            <DispatchForm project={p.name} />
+            {can("job.dispatch", p.id) ? <DispatchForm project={p.name} /> : <p className="text-sm text-muted-foreground">Dispatching a job needs <code className="font-mono">job.dispatch</code>.</p>}
           </section>
+
+          <ProjectAccess project={p} />
         </>
       )}
     </Async>
