@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testreport"
 	"github.com/forecrew/forecrew/internal/workflow"
@@ -53,12 +55,51 @@ func (a *actions) goalADR(ctx context.Context, call workflow.ActionCall) (any, e
 		return nil, fmt.Errorf("list the councils of %s: %w", g.Ref(), err)
 	}
 	for _, c := range cs {
-		if c.Kind == domain.CouncilTechnical {
+		if c.Kind != domain.CouncilTechnical {
+			continue
+		}
+		writable, err := a.adrWritable(ctx, g)
+		if err != nil {
+			return nil, err
+		}
+		if writable {
 			return adrOutput{WritePaths: adrPaths, Pool: domain.PoolBuild, Branch: adrBranch(g)}, nil
 		}
 	}
 	return adrOutput{WritePaths: []string{}}, nil
 }
+
+// adrWritable reports whether the architect's job may write an ADR under the
+// project's knowledge policy: a section that is protected, or whose globs
+// reach beyond the ADR folder, keeps its files out of the job's write paths
+// (knowledge.PathRules), and then the architect stays read-only, since a job
+// that cannot write its ADR would fail at the end. Without a knowledge base
+// nothing is curated.
+func (a *actions) adrWritable(ctx context.Context, g domain.Goal) (bool, error) {
+	if a.Proposals == nil || a.Proposals.Policy == nil {
+		return true, nil
+	}
+	p, err := a.Store.Projects().Get(ctx, g.AccountID, g.ProjectID)
+	if err != nil {
+		return false, fmt.Errorf("get project of %s: %w", g.Ref(), err)
+	}
+	policy, err := a.Proposals.Policy(ctx, p)
+	if err != nil {
+		return false, fmt.Errorf("read the knowledge policy of %s: %w", p.Name, err)
+	}
+	paths := slices.Clone(adrPaths)
+	for _, d := range policy.PathRules(adrRole, false).DeniedFor(adrPaths) {
+		paths = append(paths, "!"+d)
+	}
+	return roles.PathAllowed(paths, adrFile), nil
+}
+
+// adrRole is the role that writes the ADR, and adrFile a file of the folder
+// it writes to.
+const (
+	adrRole = "architect"
+	adrFile = "docs/adr/0001-record.md"
+)
 
 // adrReady is the output of goal.adr_ready. IfADR holds the branch for a
 // foreach that skips the ADR's steps when the architect wrote none.
