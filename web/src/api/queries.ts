@@ -33,6 +33,15 @@ export const keys = {
   tokens: ["tokens"] as const,
   connectedApps: ["connected-apps"] as const,
   trace: (ref: string) => ["trace", ref] as const,
+  fleet: ["fleet"] as const,
+  providers: ["providers"] as const,
+  shapes: ["shapes"] as const,
+  machines: ["machines"] as const,
+  joinCodes: ["join-codes"] as const,
+  plans: (inbox: boolean) => ["plans", inbox] as const,
+  plan: (id: string) => ["plan", id] as const,
+  resources: (kind: string) => ["resources", kind] as const,
+  conversation: (id: string) => ["conversation", id] as const,
   assumptionRegister: (project: string, status: string, impact: string) => ["assumption-register", project, status, impact] as const,
   knowledge: (project: string, section: string, kind: string, provider: string, goal: string) => ["knowledge", project, section, kind, provider, goal] as const,
   knowledgeSearch: (project: string, q: string, section: string, kind: string, provider: string) => ["knowledge-search", project, q, section, kind, provider] as const,
@@ -381,3 +390,17 @@ export function useChange<V, T>(fn: (v: V) => Promise<T>, ...refresh: (readonly 
 
 /** Revokes an invitation; the list refreshes. */
 export const useRevokeInvitation = () => useChange((id: string) => api.revokeInvitation(id), keys.invitations)
+
+/** The Machines overview: refreshed like the other lists. */
+export const useFleet = () => useQuery({ queryKey: keys.fleet, queryFn: api.getFleet, ...poll })
+export const useProviders = () => useQuery({ queryKey: keys.providers, queryFn: api.listProviders, ...poll })
+export const useShapes = () => useQuery({ queryKey: keys.shapes, queryFn: api.listShapes, ...poll })
+export const useMachines = () => useQuery({ queryKey: keys.machines, queryFn: api.listMachines, ...poll })
+/** Join codes, faster than the lists: a person waits for the machine to report. */
+export const useJoinCodes = (enabled = true) => useQuery({ queryKey: keys.joinCodes, queryFn: api.listJoinCodes, enabled, refetchInterval: 2000, refetchIntervalInBackground: false })
+/** Plans waiting for the caller (the Inbox), or the whole history. */
+export const usePlans = (inbox = false, enabled = true) => useQuery({ queryKey: keys.plans(inbox), queryFn: () => api.listPlans({ inbox }), enabled, ...poll })
+export const useResources = (kind: string, enabled = true) => useQuery({ queryKey: keys.resources(kind), queryFn: () => api.getResources(kind), enabled })
+
+/** Everything a confirmed plan can change: refresh what shows it. */
+export const CONFIG_KEYS = [keys.fleet, keys.providers, keys.shapes, keys.machines, ["plans"], ["resources"], ["plan"], keys.joinCodes, keys.me] as const

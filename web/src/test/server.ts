@@ -69,6 +69,36 @@ import tokenRevokeSelf from "./fixtures/token-revoke-self.json"
 import workers from "./fixtures/workers.json"
 import audit from "./fixtures/audit.json"
 import auditEmpty from "./fixtures/audit-empty.json"
+import assistantConversation from "./fixtures/assistant-conversation.json"
+import assistantConversations from "./fixtures/assistant-conversations.json"
+import assistantSend from "./fixtures/assistant-send.json"
+import assistantThinking from "./fixtures/assistant-thinking.json"
+import assistantUnavailable from "./fixtures/assistant-unavailable.json"
+import configExport from "./fixtures/config-export.json"
+import configPlanApplied from "./fixtures/config-plan-applied.json"
+import configPlanApproval from "./fixtures/config-plan-approval.json"
+import configPlanCannotConfirm from "./fixtures/config-plan-cannot-confirm.json"
+import configPlanLowers from "./fixtures/config-plan-lowers.json"
+import configPlanNeedsSecret from "./fixtures/config-plan-needs-secret.json"
+import configPlanRevert from "./fixtures/config-plan-revert.json"
+import configPlanStale from "./fixtures/config-plan-stale.json"
+import configPlan from "./fixtures/config-plan.json"
+import configPlansEmpty from "./fixtures/config-plans-empty.json"
+import configPlansInbox from "./fixtures/config-plans-inbox.json"
+import configPlans from "./fixtures/config-plans.json"
+import configResourcesFleetPolicy from "./fixtures/config-resources-fleet-policy.json"
+import configResourcesProvider from "./fixtures/config-resources-provider.json"
+import errorAssistantSecret from "./fixtures/error-assistant-secret.json"
+import fleetEmpty from "./fixtures/fleet-empty.json"
+import fleet from "./fixtures/fleet.json"
+import imageRegister from "./fixtures/image-register.json"
+import jobWaiting from "./fixtures/job-waiting.json"
+import joinCodeCreate from "./fixtures/join-code-create.json"
+import joinCodes from "./fixtures/join-codes.json"
+import joinConfirm from "./fixtures/join-confirm.json"
+import machines from "./fixtures/machines.json"
+import providers from "./fixtures/providers.json"
+import shapes from "./fixtures/shapes.json"
 import configPlanApply from "./fixtures/config-plan-apply.json"
 import configPlanCancel from "./fixtures/config-plan-cancel.json"
 import configPlanConnection from "./fixtures/config-plan-connection.json"
@@ -168,6 +198,26 @@ export const handlers = [
   http.get("/api/v1/service-accounts", () => HttpResponse.json(serviceAccounts)),
   http.post("/api/v1/service-accounts", () => HttpResponse.json(serviceAccountCreate, { status: 201 })),
   http.post("/api/v1/service-accounts/:name/:action", () => HttpResponse.json(serviceAccounts[0])),
+  http.get("/api/v1/fleet", () => HttpResponse.json(fleet)),
+  http.get("/api/v1/providers", () => HttpResponse.json(providers)),
+  http.get("/api/v1/shapes", () => HttpResponse.json(shapes)),
+  http.get("/api/v1/machines", () => HttpResponse.json(machines)),
+  http.get("/api/v1/join-codes", () => HttpResponse.json(joinCodes)),
+  http.post("/api/v1/join-codes", () => HttpResponse.json(joinCodeCreate, { status: 201 })),
+  http.post("/api/v1/join-codes/:join/confirm", () => HttpResponse.json(joinConfirm)),
+  http.post("/api/v1/images", () => HttpResponse.json(imageRegister, { status: 201 })),
+  http.get("/api/v1/config/resources", ({ request }) =>
+    HttpResponse.json(new URL(request.url).searchParams.get("kind") === "fleet_policy" ? configResourcesFleetPolicy : configResourcesProvider),
+  ),
+  http.get("/api/v1/config/export", () => HttpResponse.json(configExport)),
+  http.get("/api/v1/config/plans", ({ request }) => HttpResponse.json(new URL(request.url).searchParams.get("inbox") ? configPlansInbox : configPlans)),
+  http.get("/api/v1/config/plans/:plan", () => HttpResponse.json(configPlan)),
+  http.post("/api/v1/config/plans/:plan/request-approval", () => HttpResponse.json(configPlanApproval)),
+  http.post("/api/v1/config/plans/:plan/revert", () => HttpResponse.json(configPlanRevert, { status: 201 })),
+  http.post("/api/v1/config/import", () => HttpResponse.json(configPlan, { status: 201 })),
+  http.get("/api/v1/assistant/conversations", () => HttpResponse.json(assistantConversations)),
+  http.get("/api/v1/assistant/conversations/:id", () => HttpResponse.json(assistantConversation)),
+  http.post("/api/v1/assistant/messages", () => HttpResponse.json(assistantSend, { status: 202 })),
   http.post("/api/v1/config/plans", () => HttpResponse.json(configPlanConnection, { status: 201 })),
   http.put("/api/v1/config/plans/:plan/secrets/:secret", () => HttpResponse.json(configPlanSecret)),
   http.post("/api/v1/config/plans/:plan/apply", () => HttpResponse.json(configPlanApply)),
@@ -226,6 +276,7 @@ export const fx = {
   assumptions, assumptionResolve, decisions, decisionsEmpty, gatesCouncil, gatesProposal, proposals, proposalDecide,
   trace, assumptionRegister, assumptionRegisterEmpty, assumptionRegisterResolve, knowledgeEntries, knowledgeEntriesEmpty, knowledgeNotes,
   knowledgeNoteDelete, knowledgeProposals, knowledgeProposalsEmpty, knowledgePropose, knowledgeSearch, knowledgeSearchEmpty,
+  assistantConversation, assistantConversations, assistantSend, assistantThinking, assistantUnavailable, configExport, configPlanApplied, configPlanApproval, configPlanCannotConfirm, configPlanLowers, configPlanNeedsSecret, configPlanRevert, configPlanStale, configPlan, configPlansEmpty, configPlansInbox, configPlans, configResourcesFleetPolicy, configResourcesProvider, errorAssistantSecret, fleetEmpty, fleet, imageRegister, jobWaiting, joinCodeCreate, joinCodes, joinConfirm, machines, providers, shapes,
   audit, auditEmpty, configPlanApply, configPlanCancel, configPlanConnection, configPlanSecret, connectionCreate, connectionEnable, connectionEnableUntested, connections, identities, invitationCreate, invitationRevoke, invitations,
   meAdmin, meContributor, meViewer, memberLastOwner, memberSuspend, members, organization, roleBindingCreate, roleBindingDelete, roleBindings, roles,
   serviceAccountCreate, serviceAccounts, sessions, teamCreate, teamMembers, teamsEmpty, teams, tokenCreate, tokensScopes,
