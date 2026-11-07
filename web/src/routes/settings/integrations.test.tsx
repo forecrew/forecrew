@@ -82,6 +82,26 @@ describe("the tracker screen", () => {
     })
   })
 
+  test("a certificate failure of Linear offers no certificate field: only Jira takes one", async () => {
+    server.use(http.post("/api/v1/tracker-connections/:name/test", () => HttpResponse.json({ connection: "linear", ok: false, checks: [{ name: "certificate", ok: false, detail: "not trusted" }] })))
+    const { user } = await renderApp("/settings/integrations")
+    const card = await screen.findByRole("region", { name: /Linear linear/ })
+    await user.click(within(card).getByRole("button", { name: "Test connection of linear" }))
+    expect(await within(card).findByText(/takes no certificate of its own/)).toBeInTheDocument()
+    expect(within(card).queryByRole("form", { name: "Add the company's certificate" })).toBeNull()
+  })
+
+  test("the people are read from the trackers once, not each time the window gets focus", async () => {
+    let reads = 0
+    server.use(http.get("/api/v1/tracker-people/unmapped", () => (reads++, HttpResponse.json(fx.trackerUnmapped))))
+    await renderApp("/settings/integrations")
+    await within(await jira()).findByText("2 people not matched yet")
+    window.dispatchEvent(new Event("focus"))
+    document.dispatchEvent(new Event("visibilitychange"))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(reads).toBe(1)
+  })
+
   test("a private address is told to a person in words, in the test and in the form", async () => {
     server.use(
       http.post("/api/v1/tracker-connections/:name/test", () =>

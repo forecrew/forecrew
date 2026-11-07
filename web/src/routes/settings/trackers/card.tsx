@@ -14,7 +14,7 @@ import { AddRule } from "./rules"
 import { WaitingTickets } from "./tickets"
 
 /** The results of a connection test, one line each, with what to do about the ones that failed. Details can quote the tracker: plain text. */
-function Results({ test, children }: { test: TrackerTest; children?: React.ReactNode }) {
+function Results({ test, kind, children }: { test: TrackerTest; kind: string; children?: React.ReactNode }) {
   return (
     <div className="space-y-2">
       <ul aria-label={`Test of ${test.connection}`} className="space-y-1.5 text-sm">
@@ -24,7 +24,7 @@ function Results({ test, children }: { test: TrackerTest; children?: React.React
             <span>
               <span className="font-medium">{c.name}</span>
               <span className="sr-only">{c.ok ? " passed" : " failed"}</span>: <span className="text-muted-foreground">{c.detail}</span>
-              {!c.ok && !c.detail?.startsWith("not checked") && checkHelp(c.name, c.detail) ? <span className="block">{checkHelp(c.name, c.detail)}</span> : null}
+              {!c.ok && !c.detail?.startsWith("not checked") && checkHelp(c.name, c.detail, kind) ? <span className="block">{checkHelp(c.name, c.detail, kind)}</span> : null}
             </span>
           </li>
         ))}
@@ -150,7 +150,7 @@ export function TrackerCard({
           {testError}
         </p>
       ) : null}
-      {test ? <Results test={test.result}>{certFailed && connection.kind === "jira" ? <AddCertificate connection={connection} /> : null}</Results> : null}
+      {test ? <Results test={test.result} kind={connection.kind}>{certFailed && connection.kind === "jira" ? <AddCertificate connection={connection} /> : null}</Results> : null}
 
       <div className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">

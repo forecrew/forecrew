@@ -135,14 +135,16 @@ export function looksPrivate(url: string): boolean {
 }
 
 /** What to do about a failed check of a connection test, in words. */
-export function checkHelp(name: string, detail: string | undefined): string {
+export function checkHelp(name: string, detail: string | undefined, kind = "jira"): string {
   switch (name) {
     case "address":
       return /private|refused/i.test(detail ?? "")
         ? "This server does not reach private addresses. On a hosted server the tracker must be reachable from outside; a self-hosted server in the same network turns on trackers.private_addresses."
         : "Forecrew could not reach the address. Check it, and that the tracker is up."
     case "certificate":
-      return "The server's certificate is not trusted. Add your company's certificate below."
+      return kind === "jira"
+        ? "The server's certificate is not trusted. Add your company's certificate below."
+        : "The server's certificate is not trusted. Forecrew never skips that check, and this tracker takes no certificate of its own: whoever runs the connection to it has to fix it."
     case "login":
       return "The token was refused or has expired. Make a new token for the dedicated account and connect again."
     case "projects":

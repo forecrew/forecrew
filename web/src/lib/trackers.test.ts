@@ -67,6 +67,8 @@ test("tells what to do about each check", () => {
   expect(checkHelp("address", "address 10.0.0.1 is private: refused")).toMatch(/hosted server/)
   expect(checkHelp("address", "no such host")).toMatch(/Check it/)
   expect(checkHelp("address", undefined)).toMatch(/Check it/)
+  expect(checkHelp("certificate", "x")).toMatch(/Add your company/)
+  expect(checkHelp("certificate", "x", "linear")).toMatch(/takes no certificate/)
   for (const n of ["certificate", "login", "projects", "transitions", "routes"]) expect(checkHelp(n, "x")).not.toBe("")
   expect(checkHelp("other", "x")).toBe("")
 })
