@@ -1,0 +1,149 @@
+#!/bin/sh
+# A fake tart for the provider's tests. It follows the documented commands of
+# Tart (clone, set, get, list, run, stop, delete, exec, pull, prune, --version)
+# and keeps its state under $TART_HOME: vms/<name>/ for a VM, a "pid" file in it
+# while it runs, "calls.log" with one line per call, and "guest-<name>.stdin"
+# with what a guest was given on standard input. A file named fail-<command> in
+# $TART_HOME makes that command fail with its content; "no-agent" makes exec
+# fail as a guest with no guest agent does; "version" sets what --version says.
+set -u
+home=${TART_HOME:?TART_HOME is not set}
+mkdir -p "$home/vms"
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+
+pass=none
+[ -n "${TART_REGISTRY_PASSWORD:-}" ] && pass=set
+echo "$cmd $* | registry-password=$pass home=$HOME agent-secret=${FORECREW_PROVIDER_TOKEN:-unset}" >>"$home/calls.log"
+
+if [ -f "$home/fail-$cmd" ]; then
+	cat "$home/fail-$cmd" >&2
+	exit 1
+fi
+
+alive() { # alive NAME: a VM runs while its pid is alive
+	[ -f "$home/vms/$1/pid" ] && kill -0 "$(cat "$home/vms/$1/pid")" 2>/dev/null
+}
+die() {
+	echo "Error: $*" >&2
+	exit 1
+}
+exists() { [ -d "$home/vms/$1" ]; }
+running_count() {
+	n=0
+	for d in "$home"/vms/*; do
+		[ -d "$d" ] || continue
+		alive "$(basename "$d")" && n=$((n + 1))
+	done
+	echo $n
+}
+
+case $cmd in
+--version)
+	if [ -f "$home/version" ]; then cat "$home/version"; else echo "2.30.0"; fi
+	;;
+list)
+	printf '['
+	sep=
+	for d in "$home"/vms/*; do
+		[ -d "$d" ] || continue
+		n=$(basename "$d")
+		if alive "$n"; then r=true s=running; else r=false s=stopped; fi
+		printf '%s{"Source":"local","Name":"%s","Disk":%s,"Size":20,"Running":%s,"State":"%s","Accessed":"2026-11-01T10:00:00Z"}' "$sep" "$n" "$(cat "$d/disk")" "$r" "$s"
+		sep=,
+	done
+	printf ']\n'
+	;;
+get)
+	n=$1
+	exists "$n" || die "the VM \"$n\" does not exist"
+	if alive "$n"; then r=true s=running; else r=false s=stopped; fi
+	printf '{"OS":"darwin","CPU":4,"Memory":8192,"Disk":%s,"DiskFormat":"raw","Size":20,"Display":"1024x768px","MACAddress":"aa:bb","Running":%s,"State":"%s"}\n' "$(cat "$home/vms/$n/disk")" "$r" "$s"
+	;;
+pull)
+	mkdir -p "$home/cache"
+	echo "$1" >>"$home/cache/pulled"
+	;;
+clone)
+	src=$1 new=$2
+	case $new in */*) die "$new should be a local name" ;; esac
+	exists "$new" && die "VM \"$new\" already exists, use --overwrite to replace it"
+	case $src in
+	*/*) grep -qx "$src" "$home/cache/pulled" 2>/dev/null || { mkdir -p "$home/cache"; echo "$src" >>"$home/cache/pulled"; } ;;
+	*) exists "$src" || die "the VM \"$src\" does not exist" ;;
+	esac
+	mkdir -p "$home/vms/$new"
+	echo 50 >"$home/vms/$new/disk"
+	echo "$src" >"$home/vms/$new/source"
+	;;
+set)
+	n=$1
+	shift
+	exists "$n" || die "the VM \"$n\" does not exist"
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--disk-size)
+			[ "$2" -gt "$(cat "$home/vms/$n/disk")" ] || die "new disk size must be larger"
+			echo "$2" >"$home/vms/$n/disk"
+			;;
+		esac
+		echo "$1 $2" >>"$home/vms/$n/set"
+		shift 2
+	done
+	;;
+run)
+	for last; do :; done
+	n=$last
+	exists "$n" || die "the VM \"$n\" does not exist"
+	alive "$n" && die "VM \"$n\" is already running!"
+	[ "$(running_count)" -lt 2 ] || die "virtualMachineLimitExceeded: the number of VMs exceeds the system limit"
+	echo "$*" >"$home/vms/$n/run-args"
+	echo $$ >"$home/vms/$n/pid"
+	trap 'rm -f "$home/vms/$n/pid"; exit 0' INT TERM
+	[ -f "$home/crash-run" ] && die "the VM crashed"
+	while :; do
+		sleep 1 &
+		wait $!
+	done
+	;;
+stop)
+	while [ $# -gt 1 ]; do shift; done
+	n=$1
+	exists "$n" || die "the VM \"$n\" does not exist"
+	alive "$n" || die "VMNotRunning"
+	pid=$(cat "$home/vms/$n/pid")
+	kill -TERM "$pid" 2>/dev/null
+	for _ in 1 2 3 4 5 6 7 8 9 10; do
+		alive "$n" || break
+		sleep 0.1
+	done
+	rm -f "$home/vms/$n/pid"
+	;;
+delete)
+	for n; do
+		exists "$n" || die "the VM \"$n\" does not exist"
+		alive "$n" && die "the VM \"$n\" is running"
+		rm -rf "${home:?}/vms/$n"
+	done
+	;;
+exec)
+	stdin=0
+	[ "$1" = "-i" ] && { stdin=1; shift; }
+	n=$1
+	shift
+	exists "$n" || die "the VM \"$n\" does not exist"
+	alive "$n" || die "the VM \"$n\" is not running"
+	[ -f "$home/no-agent" ] && die "failed to connect: is the Tart Guest Agent running?"
+	if [ "$1" = "/usr/bin/true" ]; then exit 0; fi
+	printf '%s\n' "$*" >>"$home/vms/$n/exec"
+	[ $stdin = 1 ] && cat >"$home/guest-$n.stdin"
+	[ -f "$home/exec-says" ] && cat "$home/exec-says"
+	exit 0
+	;;
+prune)
+	echo "$*" >>"$home/prune"
+	;;
+*)
+	die "unknown command $cmd"
+	;;
+esac
