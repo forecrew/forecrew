@@ -8,8 +8,8 @@ and removed. Starting machines from them is the fleet agent's job.
 | Image | Formats | Built by | Used by |
 |-------|---------|----------|---------|
 | Linux, microVM | `rootfs` (ext4) plus a kernel | `deploy/images/linux` (the container source) and `forecrew image rootfs` | Firecracker, Cloud Hypervisor |
-| Linux, VM | `qcow2` | `deploy/images/linux` (the QEMU source) | Proxmox, Hyper-V (converted), cloud |
-| Windows Server | `vhdx`, `qcow2` | `deploy/images/windows`, on a host, from your ISO | Hyper-V, Proxmox |
+| Linux, VM | `qcow2` | `deploy/images/linux` (the QEMU source) | Proxmox, cloud |
+| Windows Server | `vhdx`, `qcow2` | `deploy/images/windows`, on a host, from your ISO (`forecrew-fleet-agent build-image`) | Hyper-V (`vhdx`), Proxmox (`qcow2`) |
 | macOS | `tart` | `deploy/images/macos`, on an Apple silicon Mac | Tart |
 
 What is in a Linux image: git, Go, Python and a C toolchain from Debian 13, and Node
@@ -152,12 +152,12 @@ Where the file goes, and what that means for the token:
 | OS | Path | Storage | Delivery the provider must use |
 |----|------|---------|--------------------------------|
 | Linux microVM | none: the init reads the config disk into memory | the config disk, wiped by the guest once read, and removed with the machine | a config disk made for this machine (`guestinit.Encode`) |
-| Linux VM (systemd) | `/run/forecrew/bootstrap.env` | RAM, but see below | a config drive the guest copies into `/run`; cloud-init `write_files` works but **cloud-init keeps its user-data, token included, on the machine's disk** (`/var/lib/cloud`) until the machine is destroyed |
+| Linux VM (systemd) | `/run/forecrew/bootstrap.env` | RAM, but see below | the QEMU guest agent writes the file into the running machine (Proxmox; `qemu-guest-agent` is in the image and `forecrew-worker.path` starts the worker when the file is closed), or a config drive the guest copies into `/run`; cloud-init `write_files` works but **cloud-init keeps its user-data, token included, on the machine's disk** (`/var/lib/cloud`) until the machine is destroyed |
 | macOS (Tart) | `/var/run/forecrew/bootstrap.env` | **the machine's own disk**, mode 0700 root | `tart exec` into the running machine after it is assigned |
-| Windows | `C:\ProgramData\Forecrew\run\bootstrap.env` | **the machine's own disk**, ACL for SYSTEM and administrators only | into the running machine after it is assigned: Hyper-V PowerShell Direct. WinRM is turned off in the image, so it is not a route. A Proxmox clone needs the QEMU guest agent or a config disk the guest copies the file from, which T62 must provide |
+| Windows | `C:\ProgramData\Forecrew\run\bootstrap.env` | **the machine's own disk**, ACL for SYSTEM and administrators only | Hyper-V: a config disk of the machine's own, labelled `FCCONFIG`, that `forecrew-start.ps1` copies the file from, overwrites and deletes. Proxmox: the QEMU guest agent writes the file (the virtio-win guest tools are in the image, built with `guest_tools_installer`). WinRM is turned off in the image, so it is not a route |
 
 RAM holds the token on Linux only, and on a systemd image delivered by cloud-init not even there. On macOS and Windows it is a file on the
-guest's disk until `forecrew-start` reads and deletes it, so a provider must deliver it into the running machine (the Tart provider does, with `tart exec -i`, the token on standard input), never bake it into the
+guest's disk until `forecrew-start` reads and deletes it, so a provider must deliver it into the running machine (the Tart provider does, with `tart exec -i`, the token on standard input; Hyper-V on a config disk of the machine's own and Proxmox through the QEMU guest agent, as above), never bake it into the
 image, a shared folder or a host path, and must destroy the disk with the
 machine (fleet.md: it is never written to the host's disk outside the guest's
 own image). On systemd images `forecrew-worker.service` starts when the file
@@ -224,6 +224,20 @@ its own cache of fetched images by the same rule (docs/fleet.md).
   before it, and the answer file (`sysprep.xml`) gives each clone's Administrator a
   random password at its first boot and disables the account; the worker runs as
   SYSTEM and needs no login. Clones share neither a password nor a SID.
+  The worker starts from the scheduled task `ForecrewWorker` at boot, not as a
+  Windows service (it does not implement the service control protocol).
+- **Two builders.** The template has two sources, picked with `packer build
+  -only=windows.qemu.windows` (a Linux host with KVM, also the host of a Proxmox
+  location; leaves a `qcow2` and a `vhdx`) or `-only=windows.hyperv-iso.windows` (a
+  Windows host with Hyper-V; BIOS, generation 1, the answer file on a floppy).
+  For Proxmox pass `guest_tools_installer` and `guest_tools_sha256`, the
+  virtio-win guest tools you supply and have reviewed: they hold the QEMU guest
+  agent the provider writes the bootstrap settings through. The image is built
+  with IDE and e1000 hardware, so make the Proxmox template with `sata0` (or
+  `ide0`) and an `e1000` device. Forecrew downloads neither.
+- **The fleet agent builds it for you** with `forecrew-fleet-agent build-image`
+  (docs/fleet.md): it checks the licence statement, the ISO's checksum and the
+  worker, runs the template, and leaves the unsigned manifest.
 - **macOS** needs an Apple silicon Mac. The base VM is pinned by digest
   (`base_vm=registry/name@sha256:...`, which you resolve and review). The base
   VM's login (`admin`/`admin` in the public Cirrus images) is replaced by a random
