@@ -1,6 +1,7 @@
 package tools_test
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"testing"
@@ -325,5 +326,53 @@ func TestConnectionTools(t *testing.T) {
 		if err := call(); !errors.Is(err, authz.ErrDenied) {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+}
+
+// revokeFails is a store whose personal token revocation fails, inside and
+// outside transactions.
+type revokeFails struct{ store.Store }
+
+type revokeFailsTokens struct{ store.PersonalTokenRepo }
+
+func (revokeFailsTokens) RevokeByOwner(context.Context, uuid.UUID, domain.SubjectKind, uuid.UUID) error {
+	return errors.New("the database went away")
+}
+
+func (s revokeFails) MCPTokens() store.PersonalTokenRepo { return revokeFailsTokens{s.Store.MCPTokens()} }
+
+func (s revokeFails) WithTx(ctx context.Context, fn func(context.Context, store.Store) error) error {
+	return s.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error { return fn(ctx, revokeFails{tx}) })
+}
+
+// Suspending and removing are one transaction with ending the member's
+// access: when that fails, the member is as before.
+func TestSuspendAndRemoveRollBack(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	admin, _ := f.named(t, "ana", orgScope, domain.RoleAdmin, uuid.Nil())
+	_, marta := f.named(t, "marta", orgScope, domain.RoleMember, uuid.Nil())
+	sess, tok := f.access(t, marta, "first")
+	svc := tools.New(tools.Config{Store: revokeFails{f.st}})
+
+	_, err := svc.SetMemberSuspended(ctx, admin, mcp.SetMemberInput{User: marta.String(), Suspended: true})
+	if err == nil {
+		t.Fatal("suspend went through")
+	}
+	_, err = svc.RemoveMember(ctx, admin, mcp.MemberRefInput{User: marta.String()})
+	if err == nil {
+		t.Fatal("remove went through")
+	}
+	members, err := f.svc.ListMembers(ctx, admin)
+	must(t, err)
+	i := slices.IndexFunc(members, func(m mcp.MemberInfo) bool { return m.UserID == marta })
+	if i < 0 || members[i].Status != domain.MembershipActive || len(members[i].Roles) != 1 {
+		t.Fatalf("marta = %+v", members)
+	}
+	if f.ended(t, sess, tok) {
+		t.Error("the access ended although the change did not")
+	}
+	if entries, _ := f.st.Audit().List(ctx, f.account.ID, store.AuditFilter{SubjectType: "user"}); len(entries) != 0 {
+		t.Errorf("audited a change that did not happen: %+v", entries)
 	}
 }
