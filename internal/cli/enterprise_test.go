@@ -10,7 +10,7 @@ import (
 
 func TestEnterpriseCommands(t *testing.T) {
 	e := newRemoteEnv(t)
-	d := mcp.DomainInfo{VerifiedDomain: domain.VerifiedDomain{Domain: "acme.com"}, RecordName: "_forecrew-challenge.acme.com", RecordValue: "forecrew-verification=x"}
+	d := mcp.DomainInfo{Domain: "acme.com", RecordName: "_forecrew-challenge.acme.com", RecordValue: "forecrew-verification=x"}
 	one := func(context.Context, domain.Actor, mcp.DomainInput) (mcp.DomainInfo, error) { return d, nil }
 	e.svc.ListDomainsFunc = func(context.Context, domain.Actor, any) ([]mcp.DomainInfo, error) { return []mcp.DomainInfo{d}, nil }
 	e.svc.AddDomainFunc, e.svc.VerifyDomainFunc, e.svc.DeleteDomainFunc = one, one, one
