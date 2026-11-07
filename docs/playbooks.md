@@ -517,7 +517,9 @@ a human's decision is recorded as a decision (`DEC-n`). A snooze leaves the
 gate pending and out of `list_pending_gates` until the date.
 
 The detectors (`internal/advisor`) are deterministic. The key of a signal is
-its proposal's `dedupe_key`, and its weight the proposal's measure:
+its proposal's `dedupe_key`, and its weight the proposal's measure. A subject
+from the repo or an agent longer than 64 bytes keeps its first 40 and a hash of
+the whole, and a knowledge cluster whose questions share no word is no signal:
 
 | Detector | Signal | Key | Weight |
 |----------|--------|-----|--------|

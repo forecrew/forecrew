@@ -6,7 +6,10 @@ package advisor
 
 import (
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/forecrew/forecrew/internal/analyzer"
@@ -111,6 +114,24 @@ func find(signals []Signal, key string) (Signal, bool) {
 		return Signal{}, false
 	}
 	return signals[i], true
+}
+
+// Bounds of a signal key: a subject longer than maxKeySubject keeps its
+// first keptSubject bytes and a hash of the whole, so the key stays short,
+// stable from one run to the next, and distinct.
+const (
+	maxKeySubject = 64
+	keptSubject   = 40
+)
+
+// signalKey is the key of a signal about subject, which may be repo or
+// agent text: a test name, a path, labels.
+func signalKey(prefix, subject string) string {
+	if len(subject) <= maxKeySubject {
+		return prefix + ":" + subject
+	}
+	sum := sha256.Sum256([]byte(subject))
+	return prefix + ":" + strings.ToValidUTF8(subject[:keptSubject], "") + "~" + hex.EncodeToString(sum[:6])
 }
 
 // bounded cuts evidence to maxEvidence items.
