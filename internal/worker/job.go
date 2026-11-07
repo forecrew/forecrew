@@ -96,6 +96,8 @@ func leaseEnd(sent, server time.Time) time.Time {
 
 // jobRun is the execution of one leased job.
 type jobRun struct {
+	// runEnv is added to the agent's environment for this run only.
+	runEnv  map[string]string
 	w       *Worker
 	spec    domain.JobSpec
 	write   bool // a writing role
@@ -515,6 +517,7 @@ func (r *jobRun) runAgent(ctx context.Context, prompt string, box *toolboxRun) (
 	if env == nil {
 		env = map[string]string{}
 	}
+	maps.Copy(env, r.runEnv)
 	mark := r.spec.JobID.String()
 	env[markEnv] = mark
 	env[runtime.EvidenceDirEnv] = r.scratch

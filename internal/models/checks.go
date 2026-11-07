@@ -49,7 +49,7 @@ const TestPrompt = `This is a short test of what you can do here. The work tree 
 
 1. Read the file notes.txt. After "code word:" it holds one word. Put that word in code_word.
 2. Change greeting.txt so that it holds exactly one line: hello, forecrew
-3. Run the command ` + "`sh check.sh`" + ` in the work tree, and put the line it prints in command_output.
+3. Run the command ` + "`sh check.sh`" + ` in the work tree, in your own shell with its environment, and put the line it prints in command_output.
 4. Call the tool report_progress of the forecrew MCP server with the message: suitability test
 5. Answer with JSON that matches the output schema: code_word, command_output, and done set to true.
 `

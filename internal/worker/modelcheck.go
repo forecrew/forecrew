@@ -2,6 +2,9 @@ package worker
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -70,9 +73,17 @@ func (r *jobRun) executeSuitability(ctx context.Context) Completion {
 	}
 	defer func() { _ = os.RemoveAll(r.dir) }()
 	defer r.removeScratch()
-	if err := writeFixture(r.dir, s.Nonce); err != nil {
+	// The command's token and salt are the worker's own and differ from
+	// the code word: reading notes.txt proves nothing about the command, and
+	// the line the worker expects needs the salt, which only the run's
+	// environment holds, so writing it shows the agent used a shell there.
+	// The name has no SECRET, KEY or TOKEN in it: some agents' shells drop
+	// such variables.
+	token, salt := randomText(), randomText()
+	if err := writeFixture(r.dir, s.Nonce, token); err != nil {
 		return r.retry("prepare the fixture: %v", err)
 	}
+	r.runEnv = map[string]string{CheckSaltEnv: salt}
 	if err := r.makeScratch(); err != nil {
 		return r.retry("%v", err)
 	}
@@ -88,7 +99,7 @@ func (r *jobRun) executeSuitability(ctx context.Context) Completion {
 	}
 	rep.Read = strings.Contains(res.Text, s.Nonce)
 	rep.Edited = fileIs(filepath.Join(r.dir, fixtureGreeting), wantGreeting)
-	rep.Ran = fileIs(filepath.Join(r.dir, fixtureRan), s.Nonce+"-ran")
+	rep.Ran = fileIs(filepath.Join(r.dir, fixtureRan), CheckLine(token, salt))
 	out, err := json.Marshal(rep)
 	if err != nil {
 		return r.failed("encode the report: %v", err)
@@ -96,9 +107,26 @@ func (r *jobRun) executeSuitability(ctx context.Context) Completion {
 	return Completion{Status: StatusSucceeded, Output: out, Usage: res.Usage, CostUSD: res.CostUSD}
 }
 
+// CheckSaltEnv holds the per-run value of a suitability test, which
+// check.sh needs.
+const CheckSaltEnv = "FORECREW_CHECK_SALT"
+
+// CheckLine is what check.sh writes for token and salt.
+func CheckLine(token, salt string) string {
+	sum := sha256.Sum256([]byte(token + salt))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
+// randomText is a fresh random value.
+func randomText() string {
+	b := make([]byte, 12)
+	_, _ = rand.Read(b) // crypto/rand never fails
+	return hex.EncodeToString(b)
+}
+
 // writeFixture copies the fixture into dir with the test's code word and
-// token.
-func writeFixture(dir, nonce string) error {
+// the command's token.
+func writeFixture(dir, nonce, token string) error {
 	src, err := fs.Sub(forecrew.Files, FixtureDir)
 	if err != nil {
 		return err
@@ -111,7 +139,7 @@ func writeFixture(dir, nonce string) error {
 	}
 	files := map[string]string{
 		fixtureNotes: "Notes of the test.\ncode word: " + nonce + "\n",
-		fixtureToken: nonce + "-ran\n",
+		fixtureToken: token + "\n",
 	}
 	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
