@@ -85,6 +85,31 @@ type Recorder interface {
 	GateResolved(ctx context.Context, tx store.Store, by domain.Actor, g domain.Gate) (func(ctx context.Context) error, error)
 }
 
+// Recorders tells several recorders, in order; together they are one Recorder.
+type Recorders []Recorder
+
+// GateResolved implements Recorder: the first error stops, and the functions
+// to run after the commit run in order.
+func (rs Recorders) GateResolved(ctx context.Context, tx store.Store, by domain.Actor, g domain.Gate) (func(ctx context.Context) error, error) {
+	var then []func(context.Context) error
+	for _, r := range rs {
+		fn, err := r.GateResolved(ctx, tx, by, g)
+		if err != nil {
+			return nil, err
+		}
+		if fn != nil {
+			then = append(then, fn)
+		}
+	}
+	return func(ctx context.Context) error {
+		var errs []error
+		for _, fn := range then {
+			errs = append(errs, fn(ctx))
+		}
+		return errors.Join(errs...)
+	}, nil
+}
+
 // LessonSaver turns the feedback of a resolved gate into a lesson: a
 // proposal to the lessons section with the gate as its source.
 type LessonSaver interface {

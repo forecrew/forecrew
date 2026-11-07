@@ -1,0 +1,50 @@
+{
+ "now": "2026-11-07T12:00:00Z",
+ "profile": {
+  "version": 1,
+  "name": "app",
+  "summary": "s",
+  "integrations": [
+   {
+    "tool": "jira",
+    "uses": [
+     "tracker"
+    ],
+    "evidence": [],
+    "confidence": "high",
+    "status": "approved"
+   },
+   {
+    "tool": "linear",
+    "uses": [
+     "tracker"
+    ],
+    "evidence": [],
+    "confidence": "low",
+    "status": "proposed"
+   },
+   {
+    "tool": "slack",
+    "uses": [
+     "notifications"
+    ],
+    "evidence": [],
+    "confidence": "low",
+    "status": "connected"
+   }
+  ]
+ },
+ "gates": [
+  {
+   "id": "00000000-0000-0000-0000-0000000003e9",
+   "number": 1,
+   "kind": "profile_approval",
+   "status": "approved",
+   "title": "Stuck",
+   "summary": "",
+   "origin": "playbook",
+   "created_at": "2026-11-06T12:00:00Z",
+   "resolved_at": "2026-09-28T12:00:00Z"
+  }
+ ]
+}

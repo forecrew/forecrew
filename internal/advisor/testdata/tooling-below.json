@@ -1,0 +1,45 @@
+{
+ "now": "2026-11-07T12:00:00Z",
+ "gates": [
+  {
+   "id": "00000000-0000-0000-0000-0000000003e9",
+   "number": 1,
+   "kind": "needs_you",
+   "status": "pending",
+   "title": "Stuck",
+   "summary": "bash: terraform: command not found",
+   "origin": "playbook",
+   "created_at": "2026-11-06T12:00:00Z"
+  },
+  {
+   "id": "00000000-0000-0000-0000-0000000003ea",
+   "number": 2,
+   "kind": "needs_you",
+   "status": "pending",
+   "title": "Stuck",
+   "summary": "the build failed with exit code 2",
+   "origin": "playbook",
+   "created_at": "2026-11-06T12:00:00Z"
+  },
+  {
+   "id": "00000000-0000-0000-0000-0000000003eb",
+   "number": 3,
+   "kind": "needs_you",
+   "status": "pending",
+   "title": "Stuck",
+   "summary": "bash: terraform: command not found",
+   "origin": "playbook",
+   "created_at": "2026-07-10T12:00:00Z"
+  },
+  {
+   "id": "00000000-0000-0000-0000-0000000003ec",
+   "number": 4,
+   "kind": "spec_approval",
+   "status": "pending",
+   "title": "Stuck",
+   "summary": "bash: terraform: command not found",
+   "origin": "playbook",
+   "created_at": "2026-11-06T12:00:00Z"
+  }
+ ]
+}
