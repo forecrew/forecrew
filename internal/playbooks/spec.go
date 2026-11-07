@@ -10,6 +10,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -125,10 +126,9 @@ func (a *actions) goalSpec(ctx context.Context, call workflow.ActionCall) (any, 
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
 	}
-	body := strings.TrimSpace(g.Body + "\n\n---\n\n" + spec.Body)
-	issue, err := a.Tracker.UpdateIssue(ctx, p.Repo, g.IssueNumber, github.IssueUpdate{Body: &body})
+	issue, err := a.publishSpec(ctx, p, g, spec)
 	if err != nil {
-		return nil, fmt.Errorf("write the spec into issue %s#%d: %w", p.Repo, g.IssueNumber, err)
+		return nil, err
 	}
 	switch g.Status {
 	case domain.GoalDraft:
@@ -140,6 +140,32 @@ func (a *actions) goalSpec(ctx context.Context, call workflow.ActionCall) (any, 
 		return nil, fmt.Errorf("%s is %s, not in spec review", g.Ref(), g.Status)
 	}
 	return specOutput{SpecID: spec.ID, Revision: spec.Revision, Summary: doc.gateSummary(issue.URL)}, nil
+}
+
+// publishSpec puts the spec in the goal's issue. An issue that is a person's
+// ticket keeps their text: the spec goes in a comment.
+func (a *actions) publishSpec(ctx context.Context, p domain.Project, g domain.Goal, spec domain.Spec) (github.Issue, error) {
+	link, err := a.Store.TicketLinks().GetByGoal(ctx, g.AccountID, g.ID)
+	switch {
+	case err == nil && link.IssueNumber == g.IssueNumber:
+		marker := fmt.Sprintf("<!-- forecrew:spec:%s -->", spec.ID)
+		if err := a.commentOnce(ctx, p.Repo, g.IssueNumber, marker, marker+"\n"+spec.Body); err != nil {
+			return github.Issue{}, err
+		}
+		issue, err := a.Tracker.GetIssue(ctx, p.Repo, g.IssueNumber)
+		if err != nil {
+			return github.Issue{}, fmt.Errorf("get issue %s#%d: %w", p.Repo, g.IssueNumber, err)
+		}
+		return issue, nil
+	case err != nil && !errors.Is(err, store.ErrNotFound):
+		return github.Issue{}, fmt.Errorf("find the ticket of %s: %w", g.Ref(), err)
+	}
+	body := strings.TrimSpace(g.Body + "\n\n---\n\n" + spec.Body)
+	issue, err := a.Tracker.UpdateIssue(ctx, p.Repo, g.IssueNumber, github.IssueUpdate{Body: &body})
+	if err != nil {
+		return github.Issue{}, fmt.Errorf("write the spec into issue %s#%d: %w", p.Repo, g.IssueNumber, err)
+	}
+	return issue, nil
 }
 
 // gateSummary is the text of the spec_approval gate.
