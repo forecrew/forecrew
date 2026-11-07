@@ -1265,6 +1265,11 @@ type TrackerConnectionRepo interface {
 	// ListByKind returns the connections of a kind in every account, for a
 	// webhook all of them share.
 	ListByKind(ctx context.Context, kind string) ([]domain.TrackerConnection, error)
+	// Delete removes a connection with its routes, identities, cursor and
+	// outbox, and answers ErrConflict while it has a live ticket. Ended ticket
+	// links stay without their connection: they say that a goal's text came
+	// from a ticket.
+	Delete(ctx context.Context, accountID, id uuid.UUID) error
 }
 
 // TrackerRouteRepo stores routes.

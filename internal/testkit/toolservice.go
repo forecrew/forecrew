@@ -79,6 +79,7 @@ type ToolService struct {
 
 	ListTrackerConnectionsFunc  func(context.Context, domain.Actor, any) ([]domain.TrackerConnection, error)
 	CreateTrackerConnectionFunc func(context.Context, domain.Actor, mcp.CreateTrackerConnectionInput) (domain.TrackerConnection, error)
+	DeleteTrackerConnectionFunc func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (domain.TrackerConnection, error)
 	ListTrackerRoutesFunc       func(context.Context, domain.Actor, mcp.TrackerConnectionFilterInput) ([]mcp.TrackerRouteInfo, error)
 	CreateTrackerRouteFunc      func(context.Context, domain.Actor, mcp.CreateTrackerRouteInput) (mcp.TrackerRouteInfo, error)
 	DeleteTrackerRouteFunc      func(context.Context, domain.Actor, mcp.TrackerRouteRefInput) (domain.TrackerRoute, error)
@@ -495,6 +496,11 @@ func (s *ToolService) OpenArtifact(ctx context.Context, by domain.Actor, id stri
 // ListTrackerConnections implements mcp.ToolService.
 func (s *ToolService) ListTrackerConnections(ctx context.Context, by domain.Actor) ([]domain.TrackerConnection, error) {
 	return invoke[any](ctx, s, mcp.ToolListTrackerConnections, by, nil, s.ListTrackerConnectionsFunc)
+}
+
+// DeleteTrackerConnection implements mcp.ToolService.
+func (s *ToolService) DeleteTrackerConnection(ctx context.Context, by domain.Actor, in mcp.TrackerConnectionRefInput) (domain.TrackerConnection, error) {
+	return invoke(ctx, s, mcp.ToolDeleteTrackerConnection, by, in, s.DeleteTrackerConnectionFunc)
 }
 
 // ListTrackerRoutes implements mcp.ToolService.

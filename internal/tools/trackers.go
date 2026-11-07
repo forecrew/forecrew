@@ -106,6 +106,24 @@ func (s *Service) CreateTrackerConnection(ctx context.Context, by domain.Actor, 
 	return c, conflict(err, "a tracker connection called "+c.Name+" exists")
 }
 
+// DeleteTrackerConnection implements mcp.ToolService.
+func (s *Service) DeleteTrackerConnection(ctx context.Context, by domain.Actor, in mcp.TrackerConnectionRefInput) (domain.TrackerConnection, error) {
+	if err := s.allowOrg(ctx, by, domain.PermTrackersManage); err != nil {
+		return domain.TrackerConnection{}, err
+	}
+	c, err := s.connection(ctx, by.AccountID, in.Connection)
+	if err != nil {
+		return domain.TrackerConnection{}, err
+	}
+	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		if err := tx.TrackerConnections().Delete(ctx, by.AccountID, c.ID); err != nil {
+			return err
+		}
+		return s.audit(ctx, tx, by, uuid.Nil(), "tracker.disconnected", "tracker_connection", c.ID, map[string]any{"name": c.Name, "kind": c.Kind})
+	})
+	return c, conflict(err, "tickets of "+c.Name+" are waiting, queued or at work: finish or dismiss them first")
+}
+
 func (s *Service) routeInfo(ctx context.Context, r domain.TrackerRoute) (mcp.TrackerRouteInfo, error) {
 	c, err := s.cfg.Store.TrackerConnections().Get(ctx, r.AccountID, r.ConnectionID)
 	if err != nil {
@@ -311,11 +329,14 @@ func (s *Service) UnmapTrackerIdentity(ctx context.Context, by domain.Actor, in 
 // ticketInfo adds the refs of a ticket.
 func (s *Service) ticketInfo(ctx context.Context, l domain.TicketLink) (mcp.TicketInfo, error) {
 	st := s.cfg.Store
-	c, err := st.TrackerConnections().Get(ctx, l.AccountID, l.ConnectionID)
-	if err != nil {
-		return mcp.TicketInfo{}, err
+	info := mcp.TicketInfo{TicketLink: l}
+	if l.ConnectionID != uuid.Nil() { // zero: the connection was deleted
+		c, err := st.TrackerConnections().Get(ctx, l.AccountID, l.ConnectionID)
+		if err != nil {
+			return mcp.TicketInfo{}, err
+		}
+		info.Connection = c.Name
 	}
-	info := mcp.TicketInfo{TicketLink: l, Connection: c.Name}
 	if l.ProjectID != uuid.Nil() {
 		p, err := st.Projects().Get(ctx, l.AccountID, l.ProjectID)
 		if err != nil {

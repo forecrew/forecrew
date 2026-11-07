@@ -38,6 +38,7 @@ func TestTrackerCommands(t *testing.T) {
 	e.check(t, []string{"tracker", "connections"}, "forecrew", mcp.ToolListTrackerConnections, nil)
 	e.check(t, []string{"tracker", "connect", "gh", "--repo", "acme/app", "--bot-login", "app[bot]", "--label", "forecrew"}, "github", mcp.ToolCreateTrackerConnection,
 		mcp.CreateTrackerConnectionInput{Name: "gh", Kind: "github", Config: map[string]any{"bot_login": "app[bot]", "repos": []any{"acme/app"}}, Triggers: domain.TrackerTriggers{Label: "forecrew"}})
+	e.check(t, []string{"tracker", "disconnect", "gh"}, "connection deleted", mcp.ToolDeleteTrackerConnection, mcp.TrackerConnectionRefInput{Connection: "gh"})
 	e.check(t, []string{"tracker", "routes", "--connection", "gh"}, "app", mcp.ToolListTrackerRoutes, mcp.TrackerConnectionFilterInput{Connection: "gh"})
 	e.check(t, []string{"tracker", "route-add", "gh", "app", "--match-label", "x", "--state-map", "done=closed", "--goal-kind", "bug"}, "app", mcp.ToolCreateTrackerRoute,
 		mcp.CreateTrackerRouteInput{Connection: "gh", Project: "app", Match: domain.TrackerMatch{Labels: []string{"x"}}, GoalKind: domain.GoalBug, States: map[domain.TicketState]string{domain.TicketDone: "closed"}})

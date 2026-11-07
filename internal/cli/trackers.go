@@ -26,7 +26,7 @@ func trackerCommand(r *remote) *cobra.Command {
 	cmd := &cobra.Command{Use: "tracker", Short: "Manage tracker connections, routes and people"}
 	cmd.AddCommand(
 		listCommand(r, "connections", "List the tracker connections", "/tracker-connections", printTrackerConnections),
-		connectTrackerCommand(r),
+		connectTrackerCommand(r), disconnectTrackerCommand(r),
 		trackerRoutesCommand(r), addRouteCommand(r), deleteRouteCommand(r),
 		trackerPeopleCommand(r), mapPersonCommand(r), unmapPersonCommand(r),
 	)
@@ -66,6 +66,22 @@ func connectTrackerCommand(r *remote) *cobra.Command {
 	f.StringVar(&in.Triggers.Label, "label", "", "hand over by adding this label")
 	f.StringVar(&in.Triggers.State, "state", "", "hand over by moving to this state or column")
 	return cmd
+}
+
+func disconnectTrackerCommand(r *remote) *cobra.Command {
+	return &cobra.Command{
+		Use:   "disconnect <connection>",
+		Short: "Delete a tracker connection with its routes and people",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var out domain.TrackerConnection
+			if err := r.call(cmd.Context(), http.MethodDelete, "/tracker-connections/"+url.PathEscape(args[0]), nil, &out); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), "connection deleted")
+			return nil
+		},
+	}
 }
 
 func trackerRoutesCommand(r *remote) *cobra.Command {

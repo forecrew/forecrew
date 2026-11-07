@@ -186,6 +186,43 @@ func TestCreateTrackerConnection(t *testing.T) {
 	}
 }
 
+func TestDeleteTrackerConnection(t *testing.T) {
+	w := newTicketWorld(t)
+	ctx := t.Context()
+	member, _ := w.member(t, orgScope, domain.RoleMember, uuid.Nil())
+	_, err := w.svc.DeleteTrackerConnection(ctx, member, mcp.TrackerConnectionRefInput{Connection: "board"})
+	wantErr(t, err, authz.ErrDenied)
+	_, err = w.svc.DeleteTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "nope"})
+	wantErr(t, err, mcp.ErrNotFound)
+	w.route(t)
+	l := w.waiting(t, "T-1")
+	_, err = w.svc.DeleteTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board"})
+	wantErr(t, err, mcp.ErrConflict)
+	info, err := w.svc.AcceptTicket(ctx, w.owner, mcp.AcceptTicketInput{Ticket: l.ID.String()})
+	must(t, err)
+	goal, err := w.st.Goals().GetByNumber(ctx, w.account.ID, 1)
+	must(t, err)
+	_, err = w.svc.DeleteTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board"})
+	wantErr(t, err, mcp.ErrConflict) // its goal is at work
+	must(t, w.st.Goals().UpdateStatus(ctx, w.account.ID, goal.ID, domain.GoalDraft, domain.GoalCanceled))
+	must(t, w.core.Sync(ctx))
+
+	c, err := w.svc.DeleteTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board"})
+	must(t, err)
+	if c.Name != "board" {
+		t.Errorf("deleted = %+v", c)
+	}
+	if got, err := w.svc.ListTrackerConnections(ctx, w.owner); err != nil || len(got) != 0 {
+		t.Errorf("connections = %+v, %v", got, err)
+	}
+	// The goal keeps its ticket, so its text stays marked as untrusted.
+	d, err := w.svc.GetGoal(ctx, w.owner, mcp.GoalRefInput{Goal: info.GoalRef, WrapUntrusted: true})
+	must(t, err)
+	if d.Ticket == nil || d.Ticket.Key != "T-1" || d.Ticket.Connection != "" || !strings.Contains(d.Goal.Body, "<untrusted-data") {
+		t.Errorf("goal = %+v", d)
+	}
+}
+
 func TestTrackerRoutes(t *testing.T) {
 	w := newTicketWorld(t)
 	ctx := t.Context()
