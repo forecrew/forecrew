@@ -50,8 +50,8 @@ const (
 	sweepGrace = 2 * time.Minute
 	// terminateTimeout bounds a termination the agent starts on its own.
 	terminateTimeout = time.Minute
-	// maxDiskGB is the size of the largest gp3 volume.
-	maxDiskGB = 16384
+	// maxDiskGB is the largest volume the role allows.
+	maxDiskGB = 1000
 	// maxTags is what EC2 allows on a resource.
 	maxTags = 50
 )

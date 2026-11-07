@@ -54,6 +54,7 @@ func TestRoleCannotTouchUntaggedResources(t *testing.T) {
 		{"hide the fleet tag", request{"ec2:DeleteTags", arn("instance", "i-1"), withKeys(ours, "forecrew:fleet")}, false},
 		{"change the machine tag", request{"ec2:CreateTags", arn("instance", "i-1"), withKeys(ours, "forecrew:machine", "team")}, false},
 		{"change the price tag", request{"ec2:CreateTags", arn("instance", "i-1"), withKeys(ours, "forecrew:price")}, false},
+		{"delete every tag of its own machine", request{"ec2:DeleteTags", arn("instance", "i-1"), ours}, false},
 		{"remove a tag of its own machine", request{"ec2:DeleteTags", arn("instance", "i-1"), withKeys(ours, "forecrew:job")}, true},
 		{"tag a volume it did not just create", request{"ec2:CreateTags", arn("volume", "vol-1"), withKeys(nil, "forecrew:fleet")}, false},
 		{"tag at launch without the fleet tag", request{"ec2:CreateTags", arn("instance", "i-7"), ctx("ec2:CreateAction", "RunInstances", "aws:RequestTag/team", "x")}, false},
@@ -94,8 +95,8 @@ func launch() []request {
 	}
 	owner := ctx("ec2:Owner", testAccount)
 	return []request{
-		{"ec2:RunInstances", arn("instance", "i-1"), tags("ec2:InstanceType", "c7i.large", "ec2:MetadataHttpTokens", "required", "ec2:MetadataHttpPutResponseHopLimit", "1")},
-		{"ec2:RunInstances", arn("volume", "vol-1"), tags("ec2:Encrypted", "true")},
+		{"ec2:RunInstances", arn("instance", "i-1"), tags("ec2:InstanceType", "c7i.large", "ec2:Tenancy", "default", "ec2:MetadataHttpTokens", "required", "ec2:MetadataHttpPutResponseHopLimit", "1")},
+		{"ec2:RunInstances", arn("volume", "vol-1"), tags("ec2:Encrypted", "true", "ec2:VolumeType", "gp3", "ec2:VolumeSize", "30")},
 		{"ec2:RunInstances", arn("network-interface", "eni-1"), tags("ec2:Subnet", subnet)},
 		{"ec2:RunInstances", subnet, nil},
 		{"ec2:RunInstances", arn("security-group", testGroup), nil},
@@ -131,6 +132,9 @@ func TestRoleRefusesABadLaunch(t *testing.T) {
 		"an instance profile": func(rs []request) {
 			rs[0].context["ec2:IamInstanceProfile"] = []string{"arn:aws:iam::1:instance-profile/admin"}
 		},
+		"a dedicated host":      func(rs []request) { rs[0].context["ec2:Tenancy"] = []string{"host"} },
+		"an io2 volume":         func(rs []request) { rs[1].context["ec2:VolumeType"] = []string{"io2"} },
+		"a huge volume":         func(rs []request) { rs[1].context["ec2:VolumeSize"] = []string{"5000"} },
 		"an unencrypted volume": func(rs []request) { delete(rs[1].context, "ec2:Encrypted") },
 		"a subnet that is not listed": func(rs []request) {
 			rs[2].context["ec2:Subnet"] = []string{arn("subnet", "subnet-0000000000000000f")}

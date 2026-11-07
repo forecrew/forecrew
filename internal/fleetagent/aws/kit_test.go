@@ -624,6 +624,7 @@ func TestCopyRoleIsNarrow(t *testing.T) {
 	for _, r := range []request{
 		{"ec2:CopyImage", "arn:aws:ec2:" + testRegion + "::image/ami-1", nil},
 		{"ec2:DescribeImages", "*", nil},
+		{"ec2:CreateTags", "arn:aws:ec2:" + testRegion + "::image/ami-2", ctx("ec2:CreateAction", "CopyImage")},
 		{"ec2:DeregisterImage", "arn:aws:ec2:" + testRegion + "::image/ami-1", ctx("ec2:ResourceTag/forecrew:kit", "aws-byoc")},
 	} {
 		if !d.allows(r) {
@@ -632,6 +633,8 @@ func TestCopyRoleIsNarrow(t *testing.T) {
 	}
 	for _, r := range []request{
 		{"ec2:DeregisterImage", "arn:aws:ec2:" + testRegion + "::image/ami-1", nil},
+		{"ec2:CreateTags", "arn:aws:ec2:" + testRegion + "::image/ami-1", nil}, // an image that already exists
+		{"ec2:CreateTags", "arn:aws:ec2:" + testRegion + "::image/ami-1", ctx("ec2:CreateAction", "RegisterImage")},
 		{"ec2:DeleteSnapshot", "arn:aws:ec2:" + testRegion + "::snapshot/snap-1", ctx("ec2:ResourceTag/forecrew:kit", "other")},
 		{"ec2:RunInstances", "*", nil},
 		{"ec2:TerminateInstances", "*", nil},
