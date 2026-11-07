@@ -42,7 +42,7 @@ const PAGES = [
   { label: "Settings", to: "/settings" },
 ] as const
 
-function Results({ go, text, ask }: { go: (to: string, params?: Record<string, string>) => void; text: string; ask: () => void }) {
+function Results({ go, text, ask }: { go: (to: string, params?: Record<string, string>) => void; text: string; ask: (() => void) | undefined }) {
   const goals = useGoals()
   const projects = useProjects()
   const jobs = useJobs()
@@ -100,11 +100,13 @@ function Results({ go, text, ask }: { go: (to: string, params?: Record<string, s
           ))}
         </CommandGroup>
       ) : null}
-      <CommandGroup forceMount>
-        <CommandItem forceMount value="ask the assistant" onSelect={ask}>
-          Ask the assistant{text.trim() ? <>: “{text.trim()}”</> : null}
-        </CommandItem>
-      </CommandGroup>
+      {ask ? (
+        <CommandGroup forceMount>
+          <CommandItem forceMount value="ask the assistant" onSelect={ask}>
+            Ask the assistant{text.trim() ? <>: “{text.trim()}”</> : null}
+          </CommandItem>
+        </CommandGroup>
+      ) : null}
     </CommandList>
   )
 }
@@ -127,7 +129,7 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
     <CommandDialog open={open} onOpenChange={onOpenChange} title="Command menu" description="Jump to a page, goal, project or job">
       <Command>
         <CommandInput placeholder="Search pages, goals, projects, jobs…" value={text} onValueChange={setText} />
-        <Results go={go} text={text} ask={ask} />
+        <Results go={go} text={text} ask={assistant.enabled ? ask : undefined} />
       </Command>
     </CommandDialog>
   )
