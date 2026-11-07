@@ -1365,3 +1365,18 @@ func TestTesterLosesTheRightMidTest(t *testing.T) {
 		t.Errorf("audit = %+v", entries)
 	}
 }
+
+// TestSignInReturnsToAnAuthorization is the way back to an OAuth client's
+// consent screen, with its whole query.
+func TestSignInReturnsToAnAuthorization(t *testing.T) {
+	f := newFixture(t)
+	f.member("ana@example.com")
+	f.claims("ana", "ana@example.com", true)
+	target := auth.AuthorizePath + "?client_id=x&state=y&redirect_uri=" + url.QueryEscape("https://app.example/cb")
+	res, err := f.browser.Get(f.web.URL + "/auth/" + f.inst.ID.String() + "/login?redirect=" + url.QueryEscape(target))
+	must(t, err)
+	_ = res.Body.Close()
+	if landed := res.Request.URL.RequestURI(); landed != target {
+		t.Errorf("landed on %q, want %q", landed, target)
+	}
+}
