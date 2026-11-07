@@ -5,7 +5,6 @@ package ee
 import (
 	"testing"
 	"time"
-	"uuid"
 
 	"github.com/forecrew/forecrew/internal/auth"
 	"github.com/forecrew/forecrew/internal/domain"
@@ -24,16 +23,7 @@ func TestRecordedSequencesOnPostgres(t *testing.T) {
 			must(t, postgres.Migrate(ctx, pool))
 			e := newEnvOn(t, postgres.New(pool), testkit.NewClock(time.Now()))
 			e.verified("acme.example")
-			var client, grant uuid.UUID
-			must(t, pool.QueryRow(ctx, `INSERT INTO oauth_clients (client_id, name, redirect_uris) VALUES ('c', 'c', '{https://x/cb}') RETURNING id`).Scan(&client))
-			e.scim().replay(file, e.accessHooks(func(user uuid.UUID) {
-				must(t, pool.QueryRow(ctx, `INSERT INTO oauth_grants (kind, token_hash, family_id, client_id, user_id, account_id, scopes, resource, expires_at)
-					VALUES ('access', $1, uuidv7(), $2, $3, $4, '{read}', 'https://x/mcp', $5) RETURNING id`, mcp.HashToken(user.String()), client, user, e.org.ID, time.Now().Add(time.Hour)).Scan(&grant))
-			}, func() bool {
-				var revoked bool
-				must(t, pool.QueryRow(ctx, `SELECT revoked_at IS NOT NULL FROM oauth_grants WHERE id = $1`, grant).Scan(&revoked))
-				return revoked
-			}))
+			e.scim().replay(file, grantHooks(t, e))
 		})
 	}
 }
