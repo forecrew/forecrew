@@ -46,6 +46,9 @@ The screens follow `2 - UI design/Configuration and fleet UI.md`.
     the link is shown once with Copy.
   - Teams: members, and the roles each team holds on the organization and on
     projects. Roles lists the built-in roles read-only as capabilities by area.
+    In the enterprise build (`enterprise` in `/me`), someone with
+    `role.manage` creates, edits and deletes custom roles there, choosing
+    permissions from the catalog of the role's scope (docs/enterprise.md).
   - Sign-in: the server's connections are read-only ("Managed by server file").
     Adding a company sign-in takes a client ID and the client secret in a
     secure field (a password input that goes through a change plan to the secret

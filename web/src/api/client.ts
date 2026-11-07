@@ -97,6 +97,14 @@ async function redeemSetupLink(token: string): Promise<{ organization: string }>
   throw new ApiError(res.status, "setup_link", message)
 }
 
+/** A custom role as the enterprise build creates it. */
+export interface RoleInput {
+  name: string
+  scope: "organization" | "project"
+  description?: string
+  permissions: string[]
+}
+
 export const api = {
   redeemSetupLink,
   login: (token: string) => request<Session>("POST", "/api/v1/session", { token }, { login: true }),
@@ -160,6 +168,9 @@ export const api = {
   removeTeamMember: (slug: string, user: string) => request<TeamMember>("DELETE", `/api/v1/teams/${seg(slug)}/members/${seg(user)}`),
 
   listRoles: () => request<Role[]>("GET", "/api/v1/roles"),
+  createRole: (input: RoleInput) => request<Role>("POST", "/api/v1/roles", input),
+  updateRole: (role: string, input: Partial<Omit<RoleInput, "scope">>) => request<Role>("PATCH", `/api/v1/roles/${seg(role)}`, input),
+  deleteRole: (role: string) => request<Role>("DELETE", `/api/v1/roles/${seg(role)}`),
   listBindings: (f: { project?: string; subject_kind?: string; subject?: string } = {}) =>
     request<RoleBinding[]>("GET", `/api/v1/role-bindings${query(f)}`),
   createBinding: (input: { subject_kind: string; subject: string; role: string; project?: string }) =>

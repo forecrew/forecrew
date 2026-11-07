@@ -40,6 +40,10 @@ func ownedBy(name string, scope domain.RoleScope, role string, onProject bool) f
 	}
 }
 
+// customRole is the custom role of the enterprise fixtures.
+var customRole = domain.Role{ID: fid(380), AccountID: fid(1), Name: "release-manager", Description: "Merges and cancels", Scope: domain.RoleScopeProject,
+	Permissions: []domain.Permission{domain.PermGateApproveMerge, domain.PermJobCancel}, Custom: true, CreatedAt: at(-100), UpdatedAt: at(-100)}
+
 // withSessions gives a person two sessions and an identity, and the request
 // the first one: sessions are listed for a browser session, not for a token.
 func withSessions(e *env) {
@@ -168,6 +172,32 @@ func orgFixtureCases() []fixtureCase {
 		}},
 		{"roles", "GET", "/api/v1/roles", "", 200, "bearer", func(e *env) {
 			e.svc.ListRolesFunc = func(context.Context, domain.Actor, any) ([]domain.Role, error) { return domain.BuiltInRoles(), nil }
+		}},
+		{"me-owner-enterprise", "GET", "/api/v1/me", "", 200, "bearer", func(e *env) {
+			ownedBy("gianmaria", domain.RoleScopeOrganization, domain.RoleOwner, false)(e)
+			e.cfg.Enterprise = true
+		}},
+		{"roles-custom", "GET", "/api/v1/roles", "", 200, "bearer", func(e *env) {
+			e.svc.ListRolesFunc = func(context.Context, domain.Actor, any) ([]domain.Role, error) {
+				return append(domain.BuiltInRoles(), customRole), nil
+			}
+		}},
+		{"role-create", "POST", "/api/v1/roles", `{"name":"release-manager","scope":"project","description":"Merges and cancels","permissions":["gate.approve.merge","job.cancel"]}`, 201, "bearer", func(e *env) {
+			e.svc.CreateRoleFunc = func(context.Context, domain.Actor, mcp.CreateRoleInput) (domain.Role, error) {
+				return customRole, nil
+			}
+		}},
+		{"role-update", "PATCH", "/api/v1/roles/" + fid(380).String(), `{"permissions":["gate.approve.merge"]}`, 200, "bearer", func(e *env) {
+			e.svc.UpdateRoleFunc = func(context.Context, domain.Actor, mcp.UpdateRoleInput) (domain.Role, error) {
+				r := customRole
+				r.Permissions = []domain.Permission{domain.PermGateApproveMerge}
+				return r, nil
+			}
+		}},
+		{"role-delete-in-use", "DELETE", "/api/v1/roles/" + fid(380).String(), "", 409, "bearer", func(e *env) {
+			e.svc.DeleteRoleFunc = func(context.Context, domain.Actor, mcp.RoleRefInput) (domain.Role, error) {
+				return domain.Role{}, fmt.Errorf("role release-manager is used by connection okta: %w", mcp.ErrConflict)
+			}
 		}},
 		{"role-bindings", "GET", "/api/v1/role-bindings", "", 200, "bearer", func(e *env) {
 			e.svc.ListRoleBindingsFunc = func(context.Context, domain.Actor, mcp.ListRoleBindingsInput) ([]mcp.RoleBindingInfo, error) {
