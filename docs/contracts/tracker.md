@@ -202,7 +202,9 @@ person to read, one at a time.
 cannot do. Only `done` and `canceled` may map to a closed state: anything else
 would read as a person closing the ticket, and cancel the goal. Comments carry the goal link, PR links, agents' questions and the
 outcome. Every write goes through `tracker_outbox`: retried with backoff from
-30 seconds up to an hour, and a tracker outage never stops a goal.
+30 seconds up to an hour, and a tracker outage never stops a goal. A link has at
+most one pending transition: a new state replaces the one waiting, so a retry
+never undoes what came after it.
 
 ## Human changes win
 

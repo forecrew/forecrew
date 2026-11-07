@@ -285,6 +285,8 @@ func scenarios() map[string]func(*testing.T, *world) {
 		"accept and dismiss rules":      acceptRules,
 		"project not onboarded":         projectNotOnboarded,
 		"an issue has one goal":         anIssueHasOneGoal,
+		"a stale transition is dropped": staleTransitionIsDropped,
+		"so is one with no successor":   staleTransitionWithoutASuccessor,
 	}
 }
 
@@ -1186,6 +1188,41 @@ func anIssueHasOneGoal(t *testing.T, w *world) {
 	w.put(t, k)
 	if l := w.link(t, "acme/app#8"); l.Status != domain.LinkActive {
 		t.Errorf("link = %+v", l)
+	}
+}
+
+// A transition that failed waits for its retry; the state after it must not
+// be undone by it.
+func staleTransitionIsDropped(t *testing.T, w *world) {
+	w.route(t, w.app.ID, domain.TrackerMatch{}, map[domain.TicketState]string{domain.TicketInProgress: "doing", domain.TicketDone: "closed"})
+	w.fake.Down = true
+	w.put(t, labeled("AH-1", w.ann))
+	w.sync(t) // the writes fail and back off
+	w.fake.Down = false
+	w.setGoal(t, w.link(t, "AH-1"), domain.GoalDone)
+	w.sync(t) // done goes out at once
+	w.advance(2 * time.Minute)
+	w.sync(t)
+	if got := w.fake.Ticket("AH-1"); got.State != "closed" || !got.Closed {
+		t.Errorf("a stale write reopened the ticket: %+v", got)
+	}
+}
+
+// The same when the new state is not mapped: a person closed the ticket, the
+// goal was canceled, and nothing may write doing over it.
+func staleTransitionWithoutASuccessor(t *testing.T, w *world) {
+	w.route(t, w.app.ID, domain.TrackerMatch{}, map[domain.TicketState]string{domain.TicketInProgress: "doing"})
+	w.fake.Down = true
+	w.put(t, labeled("AI-1", w.ann))
+	w.sync(t)
+	w.fake.Down = false
+	w.fake.Edit("AI-1", func(k *tracker.Ticket) { k.State, k.Closed = "closed", true })
+	w.hint(t, "AI-1")
+	w.sync(t)
+	w.advance(2 * time.Minute)
+	w.sync(t)
+	if got := w.fake.Ticket("AI-1"); got.State != "closed" || !got.Closed {
+		t.Errorf("a person's change was undone: %+v", got)
 	}
 }
 

@@ -1333,6 +1333,9 @@ type TrackerOutboxRepo interface {
 	// Enqueue stores w unless its (LinkID, DedupeKey) exists, and reports
 	// whether it did.
 	Enqueue(ctx context.Context, w *domain.TrackerWrite) (bool, error)
+	// DropTransitions removes the unsent transitions of a link: the state
+	// that replaces them is the only one that may reach the ticket.
+	DropTransitions(ctx context.Context, accountID, linkID uuid.UUID) error
 	// Due returns the unsent writes whose next attempt has come, oldest
 	// first.
 	Due(ctx context.Context, accountID uuid.UUID, now time.Time, limit int) ([]domain.TrackerWrite, error)
