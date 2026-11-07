@@ -8,7 +8,7 @@ import { ManagedBy } from "@/components/ManagedBy"
 import { StatusBadge } from "@/components/StatusBadge"
 import { Button } from "@/components/ui/button"
 import { PermButton, useCan } from "@/lib/permissions"
-import { connectionTitle, keyAdvice, keyCheckOf, keyStatus, levelText, localAddress, providerOf, testsOf, whereText, type Connection } from "@/lib/models"
+import { connectionTitle, keyAdvice, keyCheckOf, keyStatus, levelText, localAddress, providerOf, qualifiedModel, testsOf, whereText, type Connection } from "@/lib/models"
 import { TestModel } from "./test"
 
 /** Which projects may send their private code through a connection, in words. */
@@ -44,7 +44,7 @@ export function ConnectionRow({
   const status = keyStatus(check)
   const local = localAddress(c.spec.base_url) || provider?.country === "local"
   const listed = check?.key?.models ?? []
-  const models = [...new Set([...tests.map((t) => t.model ?? ""), ...listed])].filter(Boolean)
+  const models = [...new Set([...tests.map((t) => t.model ?? ""), ...listed.map((m) => qualifiedModel(c, m))])].filter(Boolean)
   const title = connectionTitle(c, providers)
   const where = whereText(c, provider)
   const manage = can("models.manage") && !c.fromFile

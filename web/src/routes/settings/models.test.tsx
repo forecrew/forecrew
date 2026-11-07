@@ -66,13 +66,13 @@ describe("the AI models page", () => {
     const { user } = await renderApp("/settings/models")
     const deepseek = await row(/^DeepSeek$/)
     await user.click(within(deepseek).getByText("Models and options"))
-    await user.click(await within(deepseek).findByRole("button", { name: "Test again deepseek-chat on deepseek" }))
-    const test = await within(deepseek).findByRole("group", { name: "Test of deepseek-chat" })
+    await user.click(await within(deepseek).findByRole("button", { name: "Test again deepseek/deepseek-chat on deepseek" }))
+    const test = await within(deepseek).findByRole("group", { name: "Test of deepseek/deepseek-chat" })
     expect(test).toHaveTextContent("about $0.18, at most $15.00")
-    expect(bodies).toEqual([{ model: "deepseek-chat" }])
+    expect(bodies).toEqual([{ model: "deepseek/deepseek-chat" }])
     await user.click(within(test).getByRole("button", { name: "Run the test" }))
     expect(await within(deepseek).findByText(/Test started/)).toBeInTheDocument()
-    expect(bodies[1]).toEqual({ model: "deepseek-chat", run: true })
+    expect(bodies[1]).toEqual({ model: "deepseek/deepseek-chat", run: true })
   })
 
   test("checks a key again and turns a connection off with a plan", async () => {
@@ -143,9 +143,9 @@ describe("the AI models page", () => {
     const table = await screen.findByRole("region", { name: "Who uses what table" })
     const rows = within(table).getAllByRole("row")
     expect(rows[1]).toHaveTextContent("Writes codeDeveloper, Test Engineerclaude-sonnet-4-5 on claude")
-    expect(rows[2]).toHaveTextContent("ReviewsReviewer, Security Reviewerdeepseek-chat on deepseek")
+    expect(rows[2]).toHaveTextContent("ReviewsReviewer, Security Reviewerdeepseek/deepseek-chat on deepseek")
     expect(rows[3]).toHaveTextContent("PlansArchitect, Product Ownerclaude-opus-4-5 on claude")
-    expect(rows[4]).toHaveTextContent("Quick tasksTriage, Facilitatordeepseek-chat on deepseek")
+    expect(rows[4]).toHaveTextContent("Quick tasksTriage, Facilitatordeepseek/deepseek-chat on deepseek")
   })
 
   test("a preset makes the plan of a suggestion, with its notes and the second confirmation", async () => {
@@ -170,7 +170,7 @@ describe("the AI models page", () => {
     expect(within(dialog).getByText("Not tested yet")).toBeInTheDocument()
     expect(within(dialog).getByRole("button", { name: "Test it first claude-sonnet-4-5 on claude" })).toBeInTheDocument()
     await user.selectOptions(within(dialog).getByLabelText("Provider"), "deepseek")
-    expect(within(dialog).getByLabelText("Model")).toHaveValue("deepseek-chat")
+    expect(within(dialog).getByLabelText("Model")).toHaveValue("deepseek/deepseek-chat")
     expect(within(dialog).getByText("Writes code")).toBeInTheDocument()
     await user.click(within(dialog).getByRole("button", { name: "Review the change" }))
     await waitFor(() => expect(bodies).toHaveLength(1))
@@ -178,8 +178,21 @@ describe("the AI models page", () => {
     expect(bodies[0]?.changes[0]).toMatchObject({ kind: "model_assignment", name: "organization" })
     expect(spec.roles.developer).toEqual({ connection: "deepseek", tier: "strong" })
     expect(spec.roles.reviewer).toEqual({ connection: "deepseek", tier: "strong" })
-    expect(spec.tiers.strong).toEqual({ anthropic: "claude-sonnet-4-5", deepseek: "deepseek-chat" })
+    expect(spec.tiers.strong).toEqual({ anthropic: "claude-sonnet-4-5", deepseek: "deepseek/deepseek-chat" })
     expect(await screen.findByRole("region", { name: /Change plan/ })).toBeInTheDocument()
+  })
+
+  test("a model on opencode is named provider/model", async () => {
+    const bodies = plans(fx.configPlan)
+    const { user } = await renderApp("/settings/models")
+    await user.click(await screen.findByRole("button", { name: "Change a role" }))
+    const dialog = await screen.findByRole("dialog", { name: "Change a role" })
+    await user.selectOptions(within(dialog).getByLabelText("Provider"), "deepseek")
+    await user.clear(within(dialog).getByLabelText("Model"))
+    await user.type(within(dialog).getByLabelText("Model"), "deepseek-chat")
+    await user.click(within(dialog).getByRole("button", { name: "Review the change" }))
+    expect(within(dialog).getByText("Name it provider/model on this provider, such as deepseek/deepseek-chat.")).toBeInTheDocument()
+    expect(bodies).toHaveLength(0)
   })
 
   test("a model that did not pass says it needs the second confirmation", async () => {
@@ -189,7 +202,7 @@ describe("the AI models page", () => {
     await user.selectOptions(within(dialog).getByLabelText("Provider"), "deepseek")
     await user.click(within(dialog).getByText("More options"))
     await user.selectOptions(within(dialog).getByLabelText("Tier"), "best")
-    expect(within(dialog).getByLabelText("Model")).toHaveValue("deepseek-reasoner")
+    expect(within(dialog).getByLabelText("Model")).toHaveValue("deepseek/deepseek-reasoner")
     expect(within(dialog).getByText(/Using it anyway asks you to confirm a second time/)).toBeInTheDocument()
   })
 

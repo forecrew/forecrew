@@ -41,14 +41,14 @@
       "tiers": {
         "best": {
           "anthropic": "claude-opus-4-5",
-          "deepseek": "deepseek-reasoner"
+          "deepseek": "deepseek/deepseek-reasoner"
         },
         "fast": {
-          "deepseek": "deepseek-chat"
+          "deepseek": "deepseek/deepseek-chat"
         },
         "strong": {
           "anthropic": "claude-sonnet-4-5",
-          "deepseek": "deepseek-chat"
+          "deepseek": "deepseek/deepseek-chat"
         }
       }
     },
