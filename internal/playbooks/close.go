@@ -152,14 +152,6 @@ func (a *actions) settleGoal(ctx context.Context, call workflow.ActionCall) (any
 	if err := a.cancelCouncils(ctx, g); err != nil {
 		return nil, err
 	}
-	// What agents proposed for the knowledge base during the goal is not
-	// kept: the learn step that would have sent it will not run.
-	if a.Proposals != nil {
-		b := proposals.LearnBatch{AccountID: g.AccountID, ProjectID: g.ProjectID, GoalID: g.ID}
-		if err := a.Proposals.LearnSettle(ctx, b, true); err != nil {
-			return nil, fmt.Errorf("reject the proposals of %s: %w", g.Ref(), err)
-		}
-	}
 	p, err := a.Store.Projects().Get(ctx, g.AccountID, g.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("get project: %w", err)
@@ -192,6 +184,16 @@ func (a *actions) settleGoal(ctx context.Context, call workflow.ActionCall) (any
 	reason := "Forecrew stopped working on this goal: the run failed or was canceled. Pull requests that were merged stay merged."
 	if err := a.closeIssue(ctx, p.Repo, g.IssueNumber, fmt.Sprintf("<!-- forecrew:settle:%s -->", g.ID), reason); err != nil {
 		return nil, err
+	}
+	// Last, so that a GitHub error here does not keep the tasks open: a
+	// repeated call settles the proposals again.
+	// What agents proposed for the knowledge base during the goal is not
+	// kept: the learn step that would have sent it will not run.
+	if a.Proposals != nil {
+		b := proposals.LearnBatch{AccountID: g.AccountID, ProjectID: g.ProjectID, GoalID: g.ID}
+		if err := a.Proposals.LearnSettle(ctx, b, true); err != nil {
+			return nil, fmt.Errorf("reject the proposals of %s: %w", g.Ref(), err)
+		}
 	}
 	return map[string]string{"status": string(domain.GoalCanceled)}, nil
 }

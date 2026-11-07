@@ -393,12 +393,17 @@ func (s *Service) LearnSettle(ctx context.Context, b LearnBatch, failed bool) er
 		return err
 	}
 	if failed {
-		// What still waits for the learn step goes too: it will never run.
+		// What still waits for the learn step goes too, whatever happened to
+		// the PR: a queued proposal is not in it. A merged PR accepts what
+		// was in it (reject does that).
 		queued, err := s.Store.KnowledgeProposals().List(ctx, b.AccountID, store.KnowledgeProposalFilter{GoalID: goal.ID, Batch: domain.BatchPerGoal, Status: domain.KnowledgeQueued})
 		if err != nil {
 			return err
 		}
-		return s.reject(ctx, p, slices.Concat(ks, queued), number, "the learn step of "+goal.Ref(), "the learn step did not finish")
+		if err := s.finish(ctx, queued, domain.KnowledgeRejected, "the learn step did not finish"); err != nil {
+			return err
+		}
+		return s.reject(ctx, p, ks, number, "the learn step of "+goal.Ref(), "the learn step did not finish")
 	}
 	return s.settleAt(ctx, p, ks, number, goal.Ref())
 }

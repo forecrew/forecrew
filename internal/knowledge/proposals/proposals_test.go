@@ -1023,6 +1023,25 @@ func TestLearnSettleFailedRejectsQueued(t *testing.T) {
 	must(t, e.svc.LearnSettle(t.Context(), b, true)) // again
 }
 
+// A proposal still queued when the learn PR is merged was never in it: it is
+// rejected, while what was in the PR is accepted.
+func TestLearnSettleFailedWithAMergedPR(t *testing.T) {
+	ctx := t.Context()
+	e := newEnv(t)
+	b, out, ks := learn(t, e, learnFiles, add("architecture", "docs/adr/2.md"))
+	queued, err := e.svc.Submit(ctx, e.job(t, "architect", b.GoalID), add("architecture", "docs/adr/5.md"))
+	must(t, err)
+	_, err = e.tracker.MergePR(ctx, "acme/app", out.Number, github.MergeInput{})
+	must(t, err)
+	must(t, e.svc.LearnSettle(ctx, b, true))
+	if got := e.get(t, ks[0]); got.Status != domain.KnowledgeAccepted {
+		t.Errorf("the proposal in the PR = %s", got.Status)
+	}
+	if got := e.get(t, queued); got.Status != domain.KnowledgeRejected {
+		t.Errorf("the proposal never sent = %s", got.Status)
+	}
+}
+
 // Learn is called again after a crash: the same files and proposals, the same
 // PR and gate; and a goal or a project that does not exist is an error.
 func TestLearnRepeatsAndErrors(t *testing.T) {
