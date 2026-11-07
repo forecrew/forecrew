@@ -47,13 +47,17 @@ type Config struct {
 	CAFile string `yaml:"ca_file"`
 	// ImageCacheDays is how long an image unused stays cached.
 	ImageCacheDays int `yaml:"image_cache_days"`
+	// Egress is open (the internet and network_allow) or allowlist
+	// (network_allow only, never a private network), for an instance's
+	// hosted location.
+	Egress string `yaml:"egress"`
 }
 
 func defaults() Config {
 	return Config{
 		StateDir: "/var/lib/forecrew-microvm", TrustedKeysFile: "/etc/forecrew-fleet-agent/image-keys.pub",
 		Firecracker: "firecracker", Jailer: "jailer", CloudHypervisor: "cloud-hypervisor",
-		UIDBase: 900000, Subnet: "172.30.0.0/16", DNS: "1.1.1.1", ImageCacheDays: 14,
+		UIDBase: 900000, Subnet: "172.30.0.0/16", DNS: "1.1.1.1", ImageCacheDays: 14, Egress: egressOpen,
 	}
 }
 
@@ -88,6 +92,9 @@ func (c Config) validate() error {
 	}
 	if c.UIDBase < 1000 {
 		bad = append(bad, fmt.Errorf("uid_base must be at least 1000, got %d", c.UIDBase))
+	}
+	if c.Egress != egressOpen && c.Egress != egressAllowlist {
+		bad = append(bad, fmt.Errorf("egress must be %s or %s, got %q", egressOpen, egressAllowlist, c.Egress))
 	}
 	if c.ImageCacheDays < 1 {
 		bad = append(bad, fmt.Errorf("image_cache_days must be at least 1, got %d", c.ImageCacheDays))

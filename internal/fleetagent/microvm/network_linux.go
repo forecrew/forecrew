@@ -47,6 +47,27 @@ var blocked = []string{
 	"192.0.0.0/24", "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/3",
 }
 
+// neverOpen is what no allowlist opens: link-local, where the metadata
+// endpoints of clouds are (169.254.169.254), and addresses that are no
+// destination. A machine has IPv4 only, so fd00:ec2::254 is closed with the
+// rest of IPv6.
+var neverOpen = []string{"0.0.0.0/8", "169.254.0.0/16", "224.0.0.0/3"}
+
+// miningPorts are the usual stratum ports of mining pools. New connections to
+// them are counted (counter "mining") for the abuse checks, whatever egress
+// allows.
+var miningPorts = []int{3333, 4444, 5555, 7777, 9999, 14433, 14444, 45560, 45700}
+
+// Egress modes (microvm.yaml egress).
+const (
+	// egressOpen reaches the internet and network_allow.
+	egressOpen = "open"
+	// egressAllowlist reaches network_allow only, and never a private
+	// network: an instance's hosted location, where network_allow is the
+	// organization's list.
+	egressAllowlist = "allowlist"
+)
+
 // allowed is the machine's way past those rules.
 type allowed struct {
 	// Server is forecrewd, which a machine must reach wherever it runs: its
@@ -62,6 +83,9 @@ type allowed struct {
 	// Local are the networks the host is connected to, blocked as the
 	// private ones are.
 	Local []netip.Prefix
+	// Allowlist keeps the machine to Nets, and Nets to public addresses: no
+	// entry opens the host's networks, private ones or other machines.
+	Allowlist bool
 }
 
 // rules are the machine's nftables table. A table each makes removing a machine
@@ -70,7 +94,9 @@ type allowed struct {
 // DNAT that happens before the forward chain sees the packet.
 //
 // The host takes from a machine only forecrewd's port and DNS; network_allow is
-// for the forward chain alone. Other machines stay closed whatever it says.
+// for the forward chain alone. Other machines and the networks of neverOpen
+// stay closed whatever it says, and in allowlist mode every private network
+// and the host's own too.
 func rules(n network, a allowed) string {
 	var only strings.Builder // what the machine reaches anyway
 	for _, s := range a.Server {
@@ -82,20 +108,34 @@ func rules(n network, a allowed) string {
 	for _, p := range a.Local {
 		closed = append(closed, p.Masked().String())
 	}
+	always := neverOpen
+	if a.Allowlist {
+		always = closed
+	}
+	ports := make([]string, len(miningPorts))
+	for i, p := range miningPorts {
+		ports[i] = strconv.Itoa(p)
+	}
 	var b strings.Builder
 	// Adding the table first makes deleting it work the first time too.
-	fmt.Fprintf(&b, "table inet %s {}\ndelete table inet %s\ntable inet %s {\n", n.Table, n.Table, n.Table)
+	fmt.Fprintf(&b, "table inet %s {}\ndelete table inet %s\ntable inet %s {\n\tcounter mining {}\n", n.Table, n.Table, n.Table)
 	b.WriteString("\tchain input {\n\t\ttype filter hook input priority filter - 10; policy accept;\n")
 	b.WriteString(spoof + only.String())
 	fmt.Fprintf(&b, "\t\tiifname %q drop\n\t}\n", n.Tap)
 	b.WriteString("\tchain forward {\n\t\ttype filter hook forward priority filter - 10; policy accept;\n")
 	b.WriteString(spoof + only.String())
 	fmt.Fprintf(&b, "\t\tiifname %q ip daddr %s drop\n", n.Tap, a.Subnet.Masked())
+	fmt.Fprintf(&b, "\t\tiifname %q ip daddr { %s } drop\n", n.Tap, strings.Join(always, ", "))
+	fmt.Fprintf(&b, "\t\tiifname %q ct state new tcp dport { %s } counter name \"mining\"\n", n.Tap, strings.Join(ports, ", "))
 	for _, p := range a.Nets {
 		fmt.Fprintf(&b, "\t\tiifname %q ct original ip daddr %s accept\n", n.Tap, p)
 	}
-	fmt.Fprintf(&b, "\t\tiifname %q ip daddr { %s } drop\n", n.Tap, strings.Join(closed, ", "))
-	fmt.Fprintf(&b, "\t\tiifname %q accept\n", n.Tap)
+	if a.Allowlist {
+		fmt.Fprintf(&b, "\t\tiifname %q drop\n", n.Tap)
+	} else {
+		fmt.Fprintf(&b, "\t\tiifname %q ip daddr { %s } drop\n", n.Tap, strings.Join(closed, ", "))
+		fmt.Fprintf(&b, "\t\tiifname %q accept\n", n.Tap)
+	}
 	fmt.Fprintf(&b, "\t\toifname %q ct state established,related accept\n", n.Tap)
 	fmt.Fprintf(&b, "\t\toifname %q drop\n\t}\n", n.Tap)
 	b.WriteString("\tchain postrouting {\n\t\ttype nat hook postrouting priority srcnat; policy accept;\n")
@@ -132,7 +172,7 @@ func (p *Provider) applyRules(ctx context.Context, r *record, n network) error {
 	if err != nil {
 		return err
 	}
-	a := allowed{Port: r.Port, DNS: p.dns, Nets: nets, Subnet: p.subnet, Local: p.localNets(p.subnet)}
+	a := allowed{Port: r.Port, DNS: p.dns, Nets: nets, Subnet: p.subnet, Local: p.localNets(p.subnet), Allowlist: p.cfg.Egress == egressAllowlist}
 	for _, s := range r.Server {
 		addr, err := netip.ParseAddr(s)
 		if err != nil {

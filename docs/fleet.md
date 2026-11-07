@@ -174,7 +174,16 @@ finish what a crash interrupted:
   to, other machines or metadata addresses. A location's `network_allow` (hosts
   or CIDRs) opens networks beyond the host, for a home or on-premise network;
   it never opens the host itself (which takes only forecrewd's port and DNS
-  from a machine) or other machines. Machines have IPv4 only.
+  from a machine), other machines, or link-local addresses, where clouds keep
+  their metadata endpoints (169.254.169.254). Machines have IPv4 only, so IPv6
+  (and `fd00:ec2::254`) is closed. With `egress: allowlist`, for a location of
+  the instance that runs hosted machines, a machine reaches forecrewd, its
+  resolver and `network_allow` only, which forecrewd fills with the hosted
+  list, the organization's model endpoints and its `egress`
+  ([contracts/fleet.md](contracts/fleet.md), Network); no entry of it opens a
+  private network, a network of the host, the host, metadata or another
+  machine, whatever it says. New connections to the usual mining-pool ports are
+  counted, for the abuse checks.
 - **A wall-time kill.** At its deadline the agent kills the VMM and everything in
   its session, whether or not forecrewd can be reached; forecrewd then destroys
   the rest.
@@ -220,6 +229,7 @@ secrets.
 | `gpus` | none | PCI addresses bound to `vfio-pci`, one per machine that asks for a GPU |
 | `ca_file` | the host's bundle | What an https forecrewd's certificate chains to |
 | `image_cache_days` | `14` | How long an unused image stays |
+| `egress` | `open` | `open`: machines reach the internet and `network_allow`. `allowlist`: only `network_allow`, never a private network; for a location of the instance that runs hosted machines |
 
 ### Home server setup
 
