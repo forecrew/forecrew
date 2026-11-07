@@ -301,16 +301,21 @@ func (a *actions) learnDecide(ctx context.Context, call workflow.ActionCall) (an
 // that goes on.
 func (a *actions) learnSettle(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
-		GoalID  uuid.UUID `json:"goal_id"`
-		Skipped bool      `json:"skipped"`
+		GoalID uuid.UUID `json:"goal_id"`
+		// Skipped is set by the goal playbook after its learn step: true
+		// settles it as failed, false (the step finished) settles nothing.
+		Skipped *bool `json:"skipped"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
+	}
+	if with.Skipped != nil && !*with.Skipped {
+		return map[string]bool{"failed": false, "settled": true}, nil
 	}
 	b, err := a.learnBatch(ctx, call, with.GoalID)
 	if err != nil {
 		return nil, err
 	}
-	failed := with.Skipped || call.Run.Status == domain.RunFailed || call.Run.Status == domain.RunCanceled
-	return map[string]bool{"failed": failed}, a.Proposals.LearnSettle(ctx, b, failed)
+	failed := with.Skipped != nil || call.Run.Status == domain.RunFailed || call.Run.Status == domain.RunCanceled
+	return map[string]bool{"failed": failed, "settled": true}, a.Proposals.LearnSettle(ctx, b, failed)
 }
