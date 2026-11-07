@@ -396,3 +396,35 @@ func TestParseSchedulesAndKnowledge(t *testing.T) {
 		}
 	}
 }
+
+func TestServerKeysForOrganizations(t *testing.T) {
+	c, err := Parse([]byte(validYAML), env(nil))
+	if err != nil || !c.ServerKeys() {
+		t.Fatalf("default = %v, %v", c, err)
+	}
+	c, err = Parse([]byte(validYAML+"models:\n  server_keys_for_organizations: false\n"), env(nil))
+	if err != nil || c.ServerKeys() {
+		t.Fatalf("off = %v, %v", c, err)
+	}
+}
+
+func TestHostedServerNeedsNoRuntimes(t *testing.T) {
+	off := false
+	c := &Config{Models: Models{ServerKeysForOrganizations: &off}}
+	var p problems
+	c.validateRuntimes(&p)
+	if len(p) != 0 {
+		t.Fatalf("problems = %v", p)
+	}
+	c.Models = Models{}
+	c.validateRuntimes(&p)
+	if len(p) != 1 {
+		t.Fatalf("problems = %v", p)
+	}
+}
+
+func TestExportedChecks(t *testing.T) {
+	if !ValidAdapter(AdapterOpencode) || ValidAdapter("other") || !ValidRuntimeName("my-runtime") || ValidRuntimeName("My") || !TierFast.Valid() || Tier("x").Valid() {
+		t.Fatal("checks disagree")
+	}
+}
