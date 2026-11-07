@@ -555,6 +555,17 @@ export interface CreatedToken {
   secret: string
 }
 
+/** An OAuth client the user authorized in this organization. */
+export interface ConnectedApp {
+  id: string
+  name: string
+  client: string
+  scopes: string[]
+  refreshed_at: string
+  /** The app of this request. */
+  current?: boolean
+}
+
 /** The answer of revoke_token. */
 export interface RevokeResult {
   token: Token

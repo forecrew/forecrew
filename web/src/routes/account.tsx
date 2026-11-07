@@ -1,8 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { api } from "@/api/client"
-import { keys, useChange, useIdentities, useMe, useRevokeToken, useSessions, useTokens } from "@/api/queries"
-import type { Token } from "@/api/types"
+import { keys, useChange, useConnectedApps, useIdentities, useMe, useRevokeConnectedApp, useRevokeToken, useSessions, useTokens } from "@/api/queries"
+import type { ConnectedApp, Token } from "@/api/types"
 import { Age } from "@/components/Age"
 import { Async } from "@/components/Async"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -126,7 +126,65 @@ function Section({ id, title, children }: { id: string; title: string; children:
   )
 }
 
-/** Sign-ins, personal tokens and sessions of the person signed in. */
+/** A "Disconnect" button that asks for confirmation. */
+function RevokeApp({ app }: { app: ConnectedApp }) {
+  return (
+    <ConfirmDialog
+      trigger="Disconnect"
+      triggerAriaLabel={`Disconnect ${app.name}`}
+      title={`Disconnect ${app.name}?`}
+      description="Its access stops at once. To use it again, connect it again from the app."
+      confirmLabel={`Disconnect ${app.name}`}
+      keepLabel="Keep connected"
+      mutation={useRevokeConnectedApp()}
+      variables={app.id}
+    />
+  )
+}
+
+/** The OAuth clients the user authorized in this organization. */
+function ConnectedApps() {
+  const apps = useConnectedApps()
+  return (
+    <Section id="apps" title="Connected apps">
+      <p className="text-sm text-muted-foreground">
+        Apps you connected with OAuth, such as Claude, in this organization. Each acts as you, within the scopes you allowed.
+      </p>
+      <Async query={apps} isEmpty={(d) => d.length === 0} empty="No connected apps.">
+        {(items) => (
+          <TableWrap label="Connected apps">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>App</TableHead>
+                  <TableHead>Scopes</TableHead>
+                  <TableHead>Last refreshed</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((a) => (
+                  <TableRow key={a.id}>
+                    <TableCell>{a.name}</TableCell>
+                    <TableCell className="font-mono">{a.scopes.join(", ")}</TableCell>
+                    <TableCell>
+                      <Age iso={a.refreshed_at} ago />
+                    </TableCell>
+                    <TableCell>
+                      <RevokeApp app={a} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableWrap>
+        )}
+      </Async>
+    </Section>
+  )
+}
+
+/** Sign-ins, personal tokens, connected apps and sessions of the person signed in. */
 export function AccountPage() {
   const me = useMe().data
   const identities = useIdentities()
@@ -195,6 +253,8 @@ export function AccountPage() {
           {(items) => <TokenTable items={mine(items)} label="Tokens" />}
         </Async>
       </Section>
+
+      {person ? <ConnectedApps /> : null}
 
       {person ? (
       <Section id="sessions" title="Sessions">

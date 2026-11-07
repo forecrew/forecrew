@@ -30,6 +30,7 @@ export const keys = {
   verification: (change: string, project: string) => ["verification", change, project] as const,
   workers: ["workers"] as const,
   tokens: ["tokens"] as const,
+  connectedApps: ["connected-apps"] as const,
   trace: (ref: string) => ["trace", ref] as const,
   assumptionRegister: (project: string, status: string, impact: string) => ["assumption-register", project, status, impact] as const,
   knowledge: (project: string, section: string, kind: string, provider: string, goal: string) => ["knowledge", project, section, kind, provider, goal] as const,
@@ -142,6 +143,7 @@ export const useQuality = (project: string) => useQuery({ queryKey: keys.quality
 export const useVerification = (change: string, project = "", enabled = true) =>
   useQuery({ queryKey: keys.verification(change, project), queryFn: () => api.getVerification(change, project), enabled, retry: false, ...poll })
 export const useTokens = (enabled = true) => useQuery({ queryKey: keys.tokens, queryFn: api.listTokens, enabled, ...poll })
+export const useConnectedApps = (enabled = true) => useQuery({ queryKey: keys.connectedApps, queryFn: api.listConnectedApps, enabled, ...poll })
 export const useWorkers = () => useQuery({ queryKey: keys.workers, queryFn: api.listWorkers, ...poll })
 
 export interface LogState {
@@ -220,6 +222,15 @@ export function useRevokeToken() {
   return useMutation({
     mutationFn: (id: string) => api.revokeToken(id),
     onSettled: (res) => (res?.self ? undefined : qc.invalidateQueries({ queryKey: keys.tokens })),
+  })
+}
+
+/** Disconnects an app by ID; the list refreshes. */
+export function useRevokeConnectedApp() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.revokeConnectedApp(id),
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.connectedApps }),
   })
 }
 

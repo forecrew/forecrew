@@ -1,0 +1,13 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000095",
+    "name": "Claude",
+    "client": "https://claude.ai/oauth/mcp-client-metadata",
+    "scopes": [
+      "read",
+      "write"
+    ],
+    "refreshed_at": "2026-03-01T11:00:00Z"
+  }
+]
+

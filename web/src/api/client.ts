@@ -4,7 +4,7 @@ import type {
   Artifact, Assumption, AssumptionStatus, Council, CouncilDetail, CouncilStatus, Decision, StartCouncilInput,
   CreateGoalInput, Discovery, DispatchJobInput, ErrorBody, Gate, GateInfo, Goal, GoalDetail, GoalStatus, Job, JobInfo,
   JobLogs, JobStatus, KnowledgeKind, KnowledgeListing, KnowledgeProposal, KnowledgeProposalStatus, KnowledgeResult, Level,
-  OnboardInput, OnboardResult, Project, ProposeKnowledgeInput, ProposeKnowledgeResult, QualityInfo, RevokeResult, Session, Token,
+  ConnectedApp, OnboardInput, OnboardResult, Project, ProposeKnowledgeInput, ProposeKnowledgeResult, QualityInfo, RevokeResult, Session, Token,
   Trace, VerificationInfo, Worker,
 } from "./types"
 
@@ -161,6 +161,8 @@ export const api = {
     request<Connection>("POST", `/api/v1/connections/${seg(name)}/${enabled ? "enable" : "disable"}`),
 
   listAudit: (f: AuditFilter & { limit?: number } = {}) => request<AuditEntry[]>("GET", `/api/v1/audit${query({ ...f })}`),
+  listConnectedApps: () => request<ConnectedApp[]>("GET", "/api/v1/connected-apps"),
+  revokeConnectedApp: (id: string) => request<ConnectedApp>("POST", `/api/v1/connected-apps/${seg(id)}/revoke`),
 
   listCouncils: (f: { project: string; status?: CouncilStatus | "" }) => request<Council[]>("GET", `/api/v1/councils${query(f)}`),
   getCouncil: (ref: string) => request<CouncilDetail>("GET", `/api/v1/councils/${seg(ref)}`),
