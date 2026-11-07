@@ -27,7 +27,7 @@ for dir in linux windows macos; do
 	case $dir in
 	windows)
 		set -- -var version=0.0.0 -var "worker_binary=$tmp/forecrew-worker" -var "iso_path=$tmp/windows.iso" \
-			-var iso_checksum=none -var "chocolatey_installer_sha256=$(printf '%064d' 0)" -var "output_dir=$tmp/out"
+			-var "iso_checksum=sha256:$(printf '%064d' 0)" -var "chocolatey_installer_sha256=$(printf '%064d' 0)" -var "output_dir=$tmp/out"
 		packer validate "$@" -var license_confirmed=true .
 		# The licence check refuses to run without the confirmation, and for that reason.
 		if out=$(packer validate "$@" . 2>&1); then
