@@ -47,6 +47,11 @@ func (w *wireEC2) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 <rootDeviceType>ebs</rootDeviceType><rootDeviceName>/dev/xvda</rootDeviceName><virtualizationType>hvm</virtualizationType>
 <tagSet><item><key>%s</key><value>sha256:%s</value></item></tagSet></item></imagesSet></DescribeImagesResponse>`,
 			ec2NS, w.image, testAccount, TagImageDigest, strings.Repeat("ab", 32))
+	case "DescribeInstanceTypes":
+		fmt.Fprintf(rw, `<DescribeInstanceTypesResponse xmlns=%q><requestId>r</requestId><instanceTypeSet><item><instanceType>%s</instanceType>
+<vCpuInfo><defaultVCpus>2</defaultVCpus></vCpuInfo><memoryInfo><sizeInMiB>4096</sizeInMiB></memoryInfo>
+<processorInfo><supportedArchitectures><item>x86_64</item></supportedArchitectures></processorInfo></item></instanceTypeSet></DescribeInstanceTypesResponse>`,
+			ec2NS, r.PostForm.Get("InstanceType.1"))
 	case "DescribeInstances":
 		w.describe(rw, r.PostForm)
 	case "RunInstances":

@@ -653,7 +653,8 @@ team are in [runbooks/byoc-aws.md](runbooks/byoc-aws.md).
   and optionally `subnet`, `security_group` and `spot`; the image is an AMI
   (`ami:<region>/<id>`). A fresh EC2 instance boots in about a minute, slower than
   a microVM: say so in the shape's `note`. The disk is an encrypted gp3 volume of
-  `disk_gb`. Machines are Linux; macOS runs on an EC2 Mac dedicated host through
+  `disk_gb`. A shape that promises more CPUs, memory or GPUs than its instance type
+  has, or another architecture, is refused when the machine is created. Machines are Linux; macOS runs on an EC2 Mac dedicated host through
   Tart, and a metal or nested-virtualization instance can host microVMs (kit modes
   `mac` and `microvm`: the agent's own instance is the host, and the kind is
   `tart` or `microvm`, not `aws`).

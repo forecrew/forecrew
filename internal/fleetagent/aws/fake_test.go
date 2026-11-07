@@ -334,6 +334,10 @@ func (f *fakeEC2) DescribeInstanceTypes(_ context.Context, in *ec2.DescribeInsta
 	}
 	out := &ec2.DescribeInstanceTypesOutput{}
 	for _, t := range f.instanceTypes {
+		if slices.Contains(in.InstanceTypes, t.InstanceType) {
+			out.InstanceTypes = append(out.InstanceTypes, t)
+			continue
+		}
 		for _, fl := range in.Filters {
 			if awssdk.ToString(fl.Name) == "instance-type" && slices.ContainsFunc(fl.Values, func(p string) bool { return glob(p).MatchString(string(t.InstanceType)) }) {
 				out.InstanceTypes = append(out.InstanceTypes, t)

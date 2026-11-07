@@ -78,6 +78,7 @@ func TestCapabilitiesCountGPUs(t *testing.T) {
 
 func TestCapabilitiesSayWhatIsWrong(t *testing.T) {
 	e := newEnv(t, nil)
+	e.ec2.instanceTypes = nil // EC2 knows none of the listed types
 	e.sts.err = errors.New("no credentials in the chain")
 	delete(e.ec2.subnets, testSubnet2)
 	e.ec2.groups[testGroup] = types.SecurityGroup{GroupId: awssdk.String(testGroup), IpPermissions: []types.IpPermission{{IpProtocol: awssdk.String("tcp")}}}
