@@ -252,15 +252,15 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolUpdateServiceAccount, map[string]any{"service_account": "ci", "name": "build"}, mcp.UpdateServiceAccountInput{ServiceAccount: "ci", Name: "build"}},
 		{mcp.ToolSetServiceAccount, map[string]any{"service_account": "ci", "disabled": true}, mcp.SetServiceAccountInput{ServiceAccount: "ci", Disabled: true}},
 		{mcp.ToolProjectQuality, map[string]any{"project": "app"}, mcp.ProjectInput{Project: "app"}},
-		{mcp.ToolListMachines, map[string]any{"state": "busy", "limit": 5}, mcp.ListMachinesInput{State: "busy", Limit: 5}},
+		{mcp.ToolListMachines, map[string]any{"state": "busy", "limit": 5}, mcp.ListMachinesInput{State: "busy", Limit: 5, WrapUntrusted: true}},
 		{mcp.ToolListShapes, nil, nil},
-		{mcp.ToolListProviders, nil, nil},
+		{mcp.ToolListProviders, nil, mcp.ListProvidersInput{WrapUntrusted: true}},
 		{mcp.ToolFleetOverview, nil, nil},
 		{mcp.ToolCreateProvider, map[string]any{"name": "home", "kind": "microvm", "org": "acme"}, mcp.CreateProviderInput{Name: "home", Kind: domain.ProviderMicroVM, Org: "acme"}},
-		{mcp.ToolRevokeProvider, map[string]any{"provider": "home"}, mcp.ProviderRefInput{Provider: "home"}},
+		{mcp.ToolRevokeProvider, map[string]any{"provider": "home"}, mcp.ProviderRefInput{Provider: "home", WrapUntrusted: true}},
 		{mcp.ToolCreateJoinCode, map[string]any{"cloud": true}, mcp.CreateJoinCodeInput{Cloud: true}},
 		{mcp.ToolListJoinCodes, nil, mcp.ListJoinCodesInput{WrapUntrusted: true}},
-		{mcp.ToolConfirmJoin, map[string]any{"join": "j", "name": "home"}, mcp.ConfirmJoinInput{Join: "j", Name: "home"}},
+		{mcp.ToolConfirmJoin, map[string]any{"join": "j", "name": "home"}, mcp.ConfirmJoinInput{Join: "j", Name: "home", WrapUntrusted: true}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))

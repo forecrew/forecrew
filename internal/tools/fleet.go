@@ -57,6 +57,10 @@ func (s *Service) ListMachines(ctx context.Context, by domain.Actor, in mcp.List
 			m.ExternalID = "" // the instance's own business
 		}
 		out[i] = mcp.MachineInfo{Machine: m, Name: fleet.MachineName(shape, m), Shape: shape.Name, Provider: providers[m.ProviderID].Name}
+		if in.WrapUntrusted && m.Error != "" {
+			out[i].Error = ""
+			out[i].Untrusted = contextpack.WrapUntrusted("error of machine "+out[i].Name, m.Error)
+		}
 		if m.JobID == uuid.Nil() {
 			continue
 		}
@@ -139,7 +143,7 @@ func (s *Service) ListShapes(ctx context.Context, by domain.Actor) ([]mcp.ShapeI
 // ListProviders implements mcp.ToolService. An instance-wide provider shows
 // when the organization's policy lets it use one of its shapes, with what
 // its jobs need to know and nothing of how the instance is built.
-func (s *Service) ListProviders(ctx context.Context, by domain.Actor) ([]mcp.ProviderInfo, error) {
+func (s *Service) ListProviders(ctx context.Context, by domain.Actor, in mcp.ListProvidersInput) ([]mcp.ProviderInfo, error) {
 	if err := s.allowOrg(ctx, by, domain.PermWorkerRead); err != nil {
 		return nil, err
 	}
@@ -165,9 +169,39 @@ func (s *Service) ListProviders(ctx context.Context, by domain.Actor) ([]mcp.Pro
 			}
 			p = hostedView(p)
 		}
-		out = append(out, mcp.ProviderInfo{CapacityProvider: p, Online: online, Ownership: p.Ownership()})
+		out = append(out, wrapProvider(mcp.ProviderInfo{CapacityProvider: p, Online: online, Ownership: p.Ownership()}, in.WrapUntrusted))
 	}
 	return out, nil
+}
+
+// reportedWords is what an agent says about itself in words. Nobody checked
+// it, and it may reach another agent.
+type reportedWords struct {
+	Host         string                 `json:"host,omitempty"`
+	CloudAccount string                 `json:"cloud_account,omitempty"`
+	Region       string                 `json:"region,omitempty"`
+	AgentVersion string                 `json:"agent_version,omitempty"`
+	Checks       []domain.ProviderCheck `json:"checks,omitempty"`
+}
+
+// wrapFacts moves the words of c into a block marked as data, source naming
+// where they come from, and leaves the structured fields. With no words the
+// block is empty.
+func wrapFacts(source string, c domain.ProviderCapabilities) (domain.ProviderCapabilities, string) {
+	words := reportedWords{c.Host, c.CloudAccount, c.Region, c.AgentVersion, c.Checks}
+	if words.Host+words.CloudAccount+words.Region+words.AgentVersion == "" && len(words.Checks) == 0 {
+		return c, ""
+	}
+	raw, _ := json.Marshal(words) // plain strings
+	c.Host, c.CloudAccount, c.Region, c.AgentVersion, c.Checks = "", "", "", "", nil
+	return c, contextpack.WrapUntrusted(source, string(raw))
+}
+
+func wrapProvider(p mcp.ProviderInfo, wrap bool) mcp.ProviderInfo {
+	if wrap {
+		p.Capabilities, p.Untrusted = wrapFacts("fleet agent of provider "+p.Name, p.Capabilities)
+	}
+	return p
 }
 
 // hostedView leaves out of an instance-wide provider what says how the
@@ -319,7 +353,7 @@ func (s *Service) RevokeProvider(ctx context.Context, by domain.Actor, in mcp.Pr
 		return mcp.ProviderInfo{}, err
 	}
 	p.Status = domain.ProviderRevoked
-	return providerInfo(p, s.cfg.Now()), nil
+	return wrapProvider(providerInfo(p, s.cfg.Now()), in.WrapUntrusted), nil
 }
 
 // CreateJoinCode implements mcp.ToolService.
@@ -363,10 +397,8 @@ func (s *Service) joinInfo(c domain.ProviderJoinCode, wrap bool) mcp.JoinCodeInf
 	default:
 		info.Status = mcp.JoinWaiting
 	}
-	if wrap && len(c.ClaimHash) != 0 {
-		raw, _ := json.Marshal(c.Facts) // plain strings and numbers
-		info.Facts = domain.ProviderCapabilities{}
-		info.Untrusted = contextpack.WrapUntrusted("fleet agent "+c.ID.String(), string(raw))
+	if wrap {
+		info.Facts, info.Untrusted = wrapFacts("fleet agent "+c.ID.String(), c.Facts)
 	}
 	return info
 }
@@ -431,5 +463,5 @@ func (s *Service) ConfirmJoin(ctx context.Context, by domain.Actor, in mcp.Confi
 	if err != nil {
 		return mcp.ProviderInfo{}, err
 	}
-	return providerInfo(p, s.cfg.Now()), nil
+	return wrapProvider(providerInfo(p, s.cfg.Now()), in.WrapUntrusted), nil
 }

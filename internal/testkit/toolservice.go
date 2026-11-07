@@ -36,7 +36,7 @@ type ToolService struct {
 	ListWorkersFunc            func(context.Context, domain.Actor, any) ([]mcp.WorkerInfo, error)
 	ListMachinesFunc           func(context.Context, domain.Actor, mcp.ListMachinesInput) ([]mcp.MachineInfo, error)
 	ListShapesFunc             func(context.Context, domain.Actor, any) ([]mcp.ShapeInfo, error)
-	ListProvidersFunc          func(context.Context, domain.Actor, any) ([]mcp.ProviderInfo, error)
+	ListProvidersFunc          func(context.Context, domain.Actor, mcp.ListProvidersInput) ([]mcp.ProviderInfo, error)
 	FleetOverviewFunc          func(context.Context, domain.Actor, any) (fleet.Overview, error)
 	ListPendingGatesFunc       func(context.Context, domain.Actor, mcp.ProjectFilterInput) ([]mcp.GateInfo, error)
 	ApproveFunc                func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
@@ -197,8 +197,8 @@ func (s *ToolService) ConfirmJoin(ctx context.Context, by domain.Actor, in mcp.C
 }
 
 // ListProviders implements mcp.ToolService.
-func (s *ToolService) ListProviders(ctx context.Context, by domain.Actor) ([]mcp.ProviderInfo, error) {
-	return invoke[any](ctx, s, mcp.ToolListProviders, by, nil, s.ListProvidersFunc)
+func (s *ToolService) ListProviders(ctx context.Context, by domain.Actor, in mcp.ListProvidersInput) ([]mcp.ProviderInfo, error) {
+	return invoke(ctx, s, mcp.ToolListProviders, by, in, s.ListProvidersFunc)
 }
 
 // FleetOverview implements mcp.ToolService.

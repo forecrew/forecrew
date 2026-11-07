@@ -136,7 +136,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/workers", serve(s, http.StatusOK, noInput, list(noArg(t.ListWorkers))))
 	route("GET /api/v1/machines", serve(s, http.StatusOK, listMachinesInput, list(t.ListMachines)))
 	route("GET /api/v1/shapes", serve(s, http.StatusOK, noInput, list(noArg(t.ListShapes))))
-	route("GET /api/v1/providers", serve(s, http.StatusOK, noInput, list(noArg(t.ListProviders))))
+	route("GET /api/v1/providers", serve(s, http.StatusOK, listProvidersInput, list(t.ListProviders)))
 	route("GET /api/v1/fleet", serve(s, http.StatusOK, noInput, noArg(t.FleetOverview)))
 	route("POST /api/v1/providers", serve(s, http.StatusCreated, bodyOf[mcp.CreateProviderInput], t.CreateProvider))
 	route("POST /api/v1/providers/{provider}/revoke", serve(s, http.StatusOK, providerInput, t.RevokeProvider))
@@ -394,6 +394,10 @@ func bodyOf[In any](r *http.Request) (In, error) {
 
 func providerInput(r *http.Request) (mcp.ProviderRefInput, error) {
 	return mcp.ProviderRefInput{Provider: r.PathValue("provider")}, nil
+}
+
+func listProvidersInput(*http.Request) (mcp.ListProvidersInput, error) {
+	return mcp.ListProvidersInput{}, nil
 }
 
 func listJoinCodesInput(*http.Request) (mcp.ListJoinCodesInput, error) {

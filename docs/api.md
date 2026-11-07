@@ -124,7 +124,7 @@ structs in `internal/domain` and `internal/mcp`.
 | `GET /api/v1/workers` | `list_workers` | | `200` workers with `pool`, `labels`, `version`, `last_seen_at`, `online` and `running_jobs` (refs) |
 | `GET /api/v1/machines?state=&limit=` | `list_machines` | both optional; without `state` the machines that exist; `limit` defaults to 100, at most 500 | `200` machines with `state`, `name`, `shape`, `provider`, `job_ref`, `error` and their times |
 | `GET /api/v1/shapes` | `list_shapes` | | `200` shapes offered to the organization with `provider` and `ownership` |
-| `GET /api/v1/providers` | `list_providers` | | `200` providers with `online` and `ownership` |
+| `GET /api/v1/providers` | `list_providers` | | `200` providers with `online` and `ownership`. Capabilities are what an agent said, unchecked; they are not wrapped here |
 | `GET /api/v1/fleet` | `fleet_overview` | | `200` the overview as in [mcp.md](mcp.md): `headline`, `working`, `waiting`, `spend`, `routing`, `locations`, `queue`, `running` |
 | `GET /api/v1/images?name=&os=&arch=&format=&limit=` | `list_images` | all optional; `limit` defaults to 100, at most 500 | `200` images (an array) of the organization and the instance, newest build first within a name, each with `scope` |
 | `POST /api/v1/images` | | a signed image manifest ([images.md](images.md)) and optional `"instance": true`: `{"name", "version", "os", "arch", "format", "uri", "digest", "signature", "built_at", "contents"}` | `201` the image. `403` unless the caller is a person with `worker.manage` (an instance admin for `instance`); `400` for an invalid or unsigned manifest; `409` when the name, version, arch and format exist. The server checks the form; the fleet agent checks the signature |

@@ -73,7 +73,7 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.SetServiceAccountDisabled(ctx, by, mcp.SetServiceAccountInput{}); return err },
 		func() error { _, err := s.ListMachines(ctx, by, mcp.ListMachinesInput{}); return err },
 		func() error { _, err := s.ListShapes(ctx, by); return err },
-		func() error { _, err := s.ListProviders(ctx, by); return err },
+		func() error { _, err := s.ListProviders(ctx, by, mcp.ListProvidersInput{}); return err },
 		func() error { _, err := s.FleetOverview(ctx, by); return err },
 		func() error { _, err := s.GetTrace(ctx, by, mcp.GetTraceInput{}); return err },
 		func() error {

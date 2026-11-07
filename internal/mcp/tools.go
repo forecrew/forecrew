@@ -209,7 +209,7 @@ type ToolService interface {
 	ListShapes(ctx context.Context, by domain.Actor) ([]ShapeInfo, error)
 	// ListProviders lists the organization's capacity providers and the
 	// instance-wide ones.
-	ListProviders(ctx context.Context, by domain.Actor) ([]ProviderInfo, error)
+	ListProviders(ctx context.Context, by domain.Actor, in ListProvidersInput) ([]ProviderInfo, error)
 	// FleetOverview says whether jobs have somewhere to run, and where.
 	FleetOverview(ctx context.Context, by domain.Actor) (fleet.Overview, error)
 	ListImages(ctx context.Context, by domain.Actor, in ListImagesInput) ([]ImageInfo, error)
@@ -805,6 +805,8 @@ type JobLogsOutput struct {
 type ListMachinesInput struct {
 	State string `json:"state,omitempty"` // one state; by default the machines that exist
 	Limit int    `json:"limit,omitempty"` // default 100, at most 500
+	// WrapUntrusted is as in ListProvidersInput.
+	WrapUntrusted bool `json:"-"`
 }
 
 // MachineInfo is a machine with the names people know.
@@ -814,6 +816,9 @@ type MachineInfo struct {
 	Shape    string `json:"shape"`    // name of its shape
 	Provider string `json:"provider"` // name of its provider
 	JobRef   string `json:"job_ref,omitempty"`
+	// Untrusted holds, with WrapUntrusted, its error, marked as data, in place
+	// of Error: a fleet agent may have written it.
+	Untrusted string `json:"untrusted,omitempty"`
 }
 
 // ShapeInfo is a shape with its provider's name and whose it is. An
@@ -832,6 +837,15 @@ type ProviderInfo struct {
 	domain.CapacityProvider
 	Online    bool             `json:"online"`
 	Ownership domain.Ownership `json:"ownership"`
+	// Untrusted holds, with WrapUntrusted, what its agent reported in words,
+	// marked as data, in place of those fields of Capabilities.
+	Untrusted string `json:"untrusted,omitempty"`
+}
+
+// ListProvidersInput is the input of list_providers. WrapUntrusted marks what
+// agents reported as data, for an MCP client that may be an agent itself.
+type ListProvidersInput struct {
+	WrapUntrusted bool `json:"-"`
 }
 
 // ListImagesInput filters list_images; empty fields match everything.
@@ -869,6 +883,8 @@ type CreateProviderOutput struct {
 // ProviderRefInput names a provider by name or ID.
 type ProviderRefInput struct {
 	Provider string `json:"provider"`
+	// WrapUntrusted is as in ListProvidersInput.
+	WrapUntrusted bool `json:"-"`
 }
 
 // CreateJoinCodeInput is the input of create_join_code. Cloud gives the code
@@ -901,7 +917,8 @@ const (
 
 // JoinCodeInfo is a join code without its hashes. Facts are what an agent
 // holding the code says about itself, which nobody has checked. With
-// WrapUntrusted they come as Untrusted, marked as data, in place of Facts.
+// WrapUntrusted their words come as Untrusted, marked as data, and only the
+// structured fields stay in Facts.
 type JoinCodeInfo struct {
 	domain.ProviderJoinCode
 	Status    string `json:"status"`
@@ -913,6 +930,8 @@ type JoinCodeInfo struct {
 type ConfirmJoinInput struct {
 	Join string `json:"join"`
 	Name string `json:"name"`
+	// WrapUntrusted is as in ListProvidersInput.
+	WrapUntrusted bool `json:"-"`
 }
 
 // WorkerInfo is a worker with its online state and running jobs.

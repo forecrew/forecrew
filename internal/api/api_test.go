@@ -145,7 +145,7 @@ func TestEndpoints(t *testing.T) {
 		{"GET", "/api/v1/workers", "", 200, mcp.ToolListWorkers, nil},
 		{"GET", "/api/v1/machines?state=busy&limit=5", "", 200, mcp.ToolListMachines, mcp.ListMachinesInput{State: "busy", Limit: 5}},
 		{"GET", "/api/v1/shapes", "", 200, mcp.ToolListShapes, nil},
-		{"GET", "/api/v1/providers", "", 200, mcp.ToolListProviders, nil},
+		{"GET", "/api/v1/providers", "", 200, mcp.ToolListProviders, mcp.ListProvidersInput{}},
 		{"GET", "/api/v1/fleet", "", 200, mcp.ToolFleetOverview, nil},
 		{"GET", "/api/v1/images?name=linux", "", 200, mcp.ToolListImages, mcp.ListImagesInput{Name: "linux"}},
 		{"GET", "/api/v1/config/schema?kind=shape", "", 200, mcp.ToolConfigSchema, mcp.ConfigKindInput{Kind: "shape"}},
