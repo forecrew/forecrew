@@ -243,8 +243,39 @@ func modelAssignmentArea() Area {
 	a.Read = modelAssignmentRead
 	a.Validate = modelAssignmentValidate
 	a.Apply = modelAssignmentApply
+	a.Protection = modelAssignmentProtection
 	a.Affects = "Queued jobs and jobs leased from now on follow it."
 	return a
+}
+
+// modelAssignmentProtection flags every role that moves to another
+// connection, or off a project's override: its code then goes to another
+// endpoint, which only a person in the web UI decides.
+func modelAssignmentProtection(_ context.Context, _ *Env, old, want *Resource) []string {
+	var o, w modelAssignmentSpec
+	if old != nil {
+		o, _ = decode[modelAssignmentSpec](old.Spec)
+	}
+	if want != nil {
+		w, _ = decode[modelAssignmentSpec](want.Spec)
+	}
+	name := firstOf(old, want).Name
+	var moved []string
+	for role, r := range w.Roles {
+		if before, ok := o.Roles[role]; !ok || before.Connection != r.Connection {
+			moved = append(moved, role)
+		}
+	}
+	for role := range o.Roles {
+		if _, ok := w.Roles[role]; !ok {
+			moved = append(moved, role)
+		}
+	}
+	if len(moved) == 0 {
+		return nil
+	}
+	slices.Sort(moved)
+	return []string{"Sends the code of " + strings.Join(moved, ", ") + " (" + name + ") to another connection"}
 }
 
 func specOfAssignment(a domain.ModelAssignment) modelAssignmentSpec {

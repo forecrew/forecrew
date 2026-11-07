@@ -129,10 +129,10 @@ func TestEveryChangeOfEndpointOrKeyNeedsTheBrowser(t *testing.T) {
 			t.Errorf("%s: plan = %+v", k, p)
 		}
 	}
-	// Turning off stops traffic; turning on starts it again.
-	w.plan(w.owner, wanted(t, "model_assignment", "organization", map[string]any{}))
+	// Turning off stops traffic; turning on starts it again. Here the role
+	// that used it moves back to the server file, which is a move.
 	off := w.plan(w.owner, wanted(t, "model_assignment", "organization", map[string]any{}), wanted(t, "model_connection", "acme", change("enabled", false)))
-	if len(off.LowersProtection) != 0 {
+	if len(off.LowersProtection) != 1 || !strings.Contains(off.LowersProtection[0], "developer") {
 		t.Fatalf("turning off = %v", off.LowersProtection)
 	}
 	w.apply(w.owner, off)
@@ -413,4 +413,43 @@ func mustUUID(t *testing.T, s string) uuid.UUID {
 	id, err := uuid.Parse(s)
 	check(t, err)
 	return id
+}
+
+// TestMovingARoleNeedsTheBrowser: a plan that sends a role's code to another
+// connection is confirmed only by a person in the web UI, so a token cannot
+// apply it, whoever made it.
+func TestMovingARoleNeedsTheBrowser(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	w.connect("acme")
+	check(t, w.vault.Put(ctx, w.owner, w.account.ID, "models/other", []byte("k")))
+	w.apply(w.owner, w.plan(w.owner, wanted(t, "model_connection", "other", modelConn("store:models/other"))))
+
+	moves := map[string]mcp.ConfigWanted{
+		"another connection": wanted(t, "model_assignment", "organization", assignment("other")),
+		"a new role":         wanted(t, "model_assignment", "organization", assignment("acme", "architect")),
+		"a project override": wanted(t, "model_assignment", "project:app", assignment("other")),
+		"a role taken off":   wanted(t, "model_assignment", "organization", map[string]any{"tiers": assignment("acme")["tiers"]}),
+	}
+	for name, change := range moves {
+		t.Run(name, func(t *testing.T) {
+			p := w.plan(w.owner, change)
+			if len(p.LowersProtection) != 1 || p.ConfirmWord != "acme" {
+				t.Fatalf("plan = %+v", p)
+			}
+			_, err := w.engine.Apply(ctx, w.owner, resource.Confirmation{Plan: p.ID, Word: p.ConfirmWord})
+			wantErr(t, err, mcp.ErrConflict)
+		})
+	}
+	// Tiers alone move no code.
+	tiers := assignment("acme")
+	tiers["tiers"] = map[string]any{"strong": map[string]any{"acme": "m3", "zeta": "m2"}}
+	if p := w.plan(w.owner, wanted(t, "model_assignment", "organization", tiers)); len(p.LowersProtection) != 0 {
+		t.Fatalf("tiers = %v", p.LowersProtection)
+	}
+	// Taking a project's override off moves its roles back.
+	w.apply(w.owner, w.plan(w.owner, moves["a project override"]))
+	if p := w.plan(w.owner, mcp.ConfigWanted{Kind: "model_assignment", Name: "project:app", Delete: true}); len(p.LowersProtection) != 1 {
+		t.Fatalf("delete = %v", p.LowersProtection)
+	}
 }
