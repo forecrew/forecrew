@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright"
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
 import { mockApi } from "./api"
 
 const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: boolean; gates?: string; me?: string }[] = [
@@ -55,6 +55,14 @@ const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: bo
   { name: "project access", path: "/projects/app", ready: "app", me: "me-admin" },
 ]
 
+/** No serious or critical violation on the page as it is now (dialogs and sheets included). */
+async function expectNoSeriousViolations(page: Page) {
+  await page.waitForLoadState("networkidle")
+  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()
+  const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical")
+  expect(bad.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`)).toEqual([])
+}
+
 const sizes = [
   { name: "desktop", width: 1280, height: 800 },
   { name: "phone", width: 375, height: 812 },
@@ -91,6 +99,115 @@ for (const size of sizes) {
     const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()
     const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical")
     expect(bad.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`)).toEqual([])
+  })
+
+  test(`the second confirmation of a plan that lowers protection has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page, { lowering: true })
+    await page.goto("/machines")
+    await page.getByRole("button", { name: "Ask", exact: true }).click()
+    await page.getByLabel("Say what you want").fill("Let jobs use Forecrew Cloud")
+    await page.getByRole("button", { name: "Send" }).click()
+    const plan = page.getByRole("region", { name: /Change plan/ })
+    await expect(plan).toBeVisible()
+    if (size.width >= 768) {
+      await plan.getByRole("button", { name: "Confirm" }).click()
+      await expect(page.getByRole("dialog", { name: /Confirm: / })).toBeVisible()
+    } else {
+      // a plan that lowers protection is not confirmed from a phone
+      await expect(plan.getByText(/cannot be confirmed from a phone/)).toBeVisible()
+    }
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`a plan viewed as YAML has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page)
+    await page.goto("/machines")
+    await page.getByRole("button", { name: "Ask", exact: true }).click()
+    await page.getByLabel("Say what you want").fill("Add my Linux server")
+    await page.getByRole("button", { name: "Send" }).click()
+    await page.getByRole("button", { name: "View as YAML" }).click()
+    await expect(page.getByRole("dialog", { name: /Add machine types/ })).toBeVisible()
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`the change history sheet with the revert card has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page, { me: "me-admin" })
+    await page.goto("/settings/history")
+    await page.getByRole("button", { name: "Add machine types to Home server" }).click()
+    const sheet = page.getByRole("dialog", { name: "Add machine types to Home server" })
+    await sheet.getByRole("button", { name: "Revert" }).click()
+    await expect(sheet.getByRole("region", { name: /Change plan: Revert/ })).toBeVisible()
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`the Export and Import dialogs have no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page, { me: "me-admin" })
+    await page.goto("/settings/history")
+    await page.getByRole("button", { name: "Export YAML" }).click()
+    await expect(page.getByRole("dialog", { name: "Export YAML" }).getByText(/name: home-server/)).toBeVisible()
+    await expectNoSeriousViolations(page)
+    await page.keyboard.press("Escape")
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await page.getByRole("button", { name: "Import", exact: true }).click()
+    await expect(page.getByRole("dialog", { name: "Import YAML" })).toBeVisible()
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`the machine type sheet has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page, { me: "me-admin" })
+    await page.goto("/machines?tab=types")
+    await page.getByRole("button", { name: "Linux Small" }).click()
+    await expect(page.getByRole("dialog", { name: "Linux Small" })).toBeVisible()
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`the Inbox with plans has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page, { inboxPlans: true })
+    await page.goto("/inbox")
+    await expect(page.getByRole("region", { name: "Change plan: Add Windows test machine type" })).toBeVisible()
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`the banner of a waiting job has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page)
+    await page.goto("/jobs/JOB-42")
+    await expect(page.getByRole("status", { name: "Why it waits" })).toContainText("Only Mac Mini can run this")
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`the join flow after the machine reports has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page)
+    await page.goto("/machines/add?kind=computer")
+    await page.getByRole("button", { name: "Get the command" }).click()
+    await expect(page.getByRole("heading", { name: "Checks" })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Confirm this location" })).toBeVisible()
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`the error alert of a list that failed to load has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page, { me: "me-admin" })
+    await page.route("**/api/v1/connected-apps", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: { code: "internal", message: "The server could not list your apps" } }) }))
+    await page.goto("/account")
+    await expect(page.getByRole("alert").first()).toContainText("Could not load this")
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`the setup link page has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page, { loggedIn: false })
+    await page.route("**/auth/setup", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ organization: "Acme Labs" }) }))
+    await page.goto("/setup-link#fcu_secret")
+    await expect(page.getByRole("link", { name: /Sign in with/ }).first()).toBeVisible()
+    await expectNoSeriousViolations(page)
   })
 
   test(`the command menu and the dark theme have no serious violations on ${size.name}`, async ({ page }) => {
