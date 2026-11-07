@@ -34,3 +34,20 @@ func TestParseTestingInvalid(t *testing.T) {
 		})
 	}
 }
+
+func TestParseGoalV3(t *testing.T) {
+	c, err := Parse([]byte(validYAML), env(nil))
+	if err != nil || len(c.GoalV3.Projects) != 0 {
+		t.Fatalf("absent: %v, %+v", err, c.GoalV3)
+	}
+	c, err = Parse([]byte(validYAML+"goal_v3:\n  projects: [app]\n"), env(nil))
+	if err != nil || !slices.Equal(c.GoalV3.Projects, []string{"app"}) {
+		t.Fatalf("Parse = %v, %+v", err, c.GoalV3)
+	}
+	for _, block := range []string{"projects: ['']", "projects: [app, app]"} {
+		_, err := Parse([]byte(validYAML+"goal_v3:\n  "+block+"\n"), env(nil))
+		if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "goal_v3.projects") {
+			t.Errorf("%s: Parse = %v", block, err)
+		}
+	}
+}

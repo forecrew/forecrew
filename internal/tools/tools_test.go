@@ -370,6 +370,29 @@ func TestCreateGoalPlaybookByProject(t *testing.T) {
 	}
 }
 
+// A project listed in GoalV3Projects runs goal-v3, also when it is in
+// TestingProjects.
+func TestCreateGoalPlaybookGoalV3(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		testing, goalV3 []string
+		want            string
+	}{
+		{"another project is listed", nil, []string{"other"}, tools.PlaybookGoal},
+		{"listed", nil, []string{"app"}, tools.PlaybookGoalCouncils},
+		{"listed in both", []string{"app"}, []string{"app"}, tools.PlaybookGoalCouncils},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t, func(c *tools.Config) { c.TestingProjects, c.GoalV3Projects = tt.testing, tt.goalV3 })
+			_, err := f.svc.CreateGoal(t.Context(), f.by, mcp.CreateGoalInput{Project: "app", Title: "Login"})
+			must(t, err)
+			if starts := f.playbooks.Starts(); len(starts) != 1 || starts[0].Playbook != tt.want {
+				t.Errorf("starts = %+v, want %s", starts, tt.want)
+			}
+		})
+	}
+}
+
 func TestReportBug(t *testing.T) {
 	f := newFixture(t, func(c *tools.Config) { c.TestingProjects = []string{"app"} })
 	g, err := f.svc.ReportBug(t.Context(), f.by, mcp.ReportBugInput{Project: "acme/app", Title: " Crash ", Body: "On save", Platforms: []string{"Web"}})

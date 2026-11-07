@@ -269,21 +269,25 @@ func (s *Service) startGoal(ctx context.Context, by domain.Actor, p domain.Proje
 }
 
 // GoalPlaybook is the playbook a goal of kind runs in p, given the names of
-// the projects with the testing system. The bug-fix playbook writes its
+// the projects with the testing system and those with councils and learning
+// (which have the testing system too). The bug-fix playbook writes its
 // regression test with that system, so a bug elsewhere runs the goal playbook.
-func GoalPlaybook(testing []string, p domain.Project, kind domain.GoalKind) string {
+func GoalPlaybook(testing, goalV3 []string, p domain.Project, kind domain.GoalKind) string {
+	v3 := slices.Contains(goalV3, p.Name)
 	switch {
-	case !slices.Contains(testing, p.Name):
+	case !v3 && !slices.Contains(testing, p.Name):
 		return PlaybookGoal
 	case kind == domain.GoalBug:
 		return PlaybookBugfix
+	case v3:
+		return PlaybookGoalCouncils
 	}
 	return PlaybookGoalTesting
 }
 
 // goalPlaybook is the playbook the goals of p run.
 func (s *Service) goalPlaybook(p domain.Project) string {
-	return GoalPlaybook(s.cfg.TestingProjects, p, domain.GoalFeature)
+	return GoalPlaybook(s.cfg.TestingProjects, s.cfg.GoalV3Projects, p, domain.GoalFeature)
 }
 
 // overrideCouncils returns the councils a human chose for a goal, in the

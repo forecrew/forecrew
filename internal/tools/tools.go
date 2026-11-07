@@ -49,6 +49,10 @@ const (
 	// from the spec, a matrix per head, a verification gate). It takes the
 	// same inputs and runs only for the projects of Config.TestingProjects.
 	PlaybookGoalTesting = "goal-v2"
+	// PlaybookGoalCouncils is PlaybookGoalTesting with triage, councils and
+	// the learn step. It takes the same inputs and runs only for the
+	// projects of Config.GoalV3Projects.
+	PlaybookGoalCouncils = "goal-v3"
 	// PlaybookBugfix fixes a bug: a regression test, the fix, verification,
 	// review and a merge gate. It takes the inputs of PlaybookGoal and runs
 	// only for the projects of Config.TestingProjects.
@@ -99,6 +103,9 @@ type Config struct {
 	// TestingProjects are the names of the projects whose new goals run
 	// PlaybookGoalTesting instead of PlaybookGoal (forecrew.yaml testing).
 	TestingProjects []string
+	// GoalV3Projects are the names of the projects whose new goals run
+	// PlaybookGoalCouncils (forecrew.yaml goal_v3).
+	GoalV3Projects []string
 	// Councils holds the council packs.
 	Councils *councils.Set
 	// Evidence serves artifact content; nil when no evidence storage is

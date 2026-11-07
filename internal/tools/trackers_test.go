@@ -270,7 +270,7 @@ func TestTrackerRoutes(t *testing.T) {
 }
 
 func TestGoalPlaybook(t *testing.T) {
-	tested, plain := domain.Project{Name: "app"}, domain.Project{Name: "other"}
+	tested, plain, councils := domain.Project{Name: "app"}, domain.Project{Name: "other"}, domain.Project{Name: "v3"}
 	for _, tt := range []struct {
 		p    domain.Project
 		kind domain.GoalKind
@@ -280,8 +280,10 @@ func TestGoalPlaybook(t *testing.T) {
 		{tested, domain.GoalFeature, tools.PlaybookGoalTesting},
 		{plain, domain.GoalBug, tools.PlaybookGoal}, // no testing system, no regression test first
 		{plain, domain.GoalFeature, tools.PlaybookGoal},
+		{councils, domain.GoalBug, tools.PlaybookBugfix}, // goal-v3 has the testing system
+		{councils, domain.GoalFeature, tools.PlaybookGoalCouncils},
 	} {
-		if got := tools.GoalPlaybook([]string{"app"}, tt.p, tt.kind); got != tt.want {
+		if got := tools.GoalPlaybook([]string{"app"}, []string{"v3"}, tt.p, tt.kind); got != tt.want {
 			t.Errorf("%s %s = %s, want %s", tt.p.Name, tt.kind, got, tt.want)
 		}
 	}

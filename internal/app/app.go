@@ -329,7 +329,7 @@ func New(d Deps) (*App, error) {
 	tickets := tracker.New(tracker.Config{
 		Store: st, Registry: trackers, Gates: gateSvc, Authz: access, Runs: engine, MaxActiveGoals: cfg.Trackers.MaxActiveGoals,
 		Playbook: func(p domain.Project, k domain.GoalKind) string {
-			return tools.GoalPlaybook(cfg.Testing.Projects, p, k)
+			return tools.GoalPlaybook(cfg.Testing.Projects, cfg.GoalV3.Projects, p, k)
 		},
 		PublicURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now,
 	})
@@ -344,7 +344,7 @@ func New(d Deps) (*App, error) {
 	authSvc := auth.New(auth.Config{Store: st, Auth: cfg.Auth, BaseURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now, GitHubURL: d.GitHubURL, GitHubAPIURL: d.GitHubAPIURL, Secrets: vault})
 	toolSvc := tools.New(tools.Config{
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes, Proposals: kbProposals,
-		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, Fleet: machines, Logger: log, PublicURL: cfg.Server.PublicBaseURL, TokenTTL: cfg.Auth.TokenDefaultTTL, Now: d.Now,
+		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, GoalV3Projects: cfg.GoalV3.Projects, Fleet: machines, Logger: log, PublicURL: cfg.Server.PublicBaseURL, TokenTTL: cfg.Auth.TokenDefaultTTL, Now: d.Now,
 		GitHubUserID: authSvc.GitHubUserID, Server: d.File, Getenv: d.Getenv, Repo: d.GitHub, Secrets: vault, Trackers: tickets,
 		CheckSchedule: func(sc config.Schedule) error { return checkSchedule(books, sc) },
 	})
