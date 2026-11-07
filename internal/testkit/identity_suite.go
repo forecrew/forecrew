@@ -42,6 +42,7 @@ type identitySuite struct {
 func (s *identitySuite) oauth() {
 	client := s.oauthClient()
 	expired := s.oauthGrants(client)
+	s.oauthMembership(client)
 	s.oauthSweep(client, expired)
 }
 
@@ -137,6 +138,45 @@ func (s *identitySuite) oauthGrants(client domain.OAuthClient) uuid.UUID {
 		s.t.Fatalf("RevokeByUser everywhere = %+v, %v", g, err)
 	}
 	return expired.ID
+}
+
+// oauthMembership checks that leaving an organization, even for a while,
+// ends the grants there and nowhere else.
+func (s *identitySuite) oauthMembership(client domain.OAuthClient) {
+	ctx := s.t.Context()
+	r := s.st.OAuth()
+	person := s.user("leaver@example.com", true)
+	s.member(person)
+	grant := func() domain.OAuthGrant {
+		s.n++
+		h := sha256.Sum256([]byte("leaver" + strconv.Itoa(s.n)))
+		g := domain.OAuthGrant{Kind: domain.OAuthRefresh, TokenHash: h[:], FamilyID: domain.NewID(), ClientID: client.ID, UserID: person.ID, AccountID: s.account,
+			Scopes: []domain.Scope{domain.ScopeRead}, Resource: "https://f.example/mcp", ExpiresAt: time.Now().Add(time.Hour)}
+		s.must(r.CreateGrant(ctx, &g))
+		return g
+	}
+	revoked := func(g domain.OAuthGrant) bool {
+		s.t.Helper()
+		got, err := r.GetGrant(ctx, g.ID)
+		s.must(err)
+		return !got.RevokedAt.IsZero()
+	}
+	m := s.st.Memberships()
+	g := grant()
+	s.must(m.SetStatus(ctx, s.account, person.ID, domain.MembershipActive))
+	if revoked(g) {
+		s.t.Fatal("staying active revoked a grant")
+	}
+	s.must(m.SetStatus(ctx, s.account, person.ID, domain.MembershipSuspended))
+	s.must(m.SetStatus(ctx, s.account, person.ID, domain.MembershipActive))
+	if !revoked(g) {
+		s.t.Fatal("a grant came back with the reinstated member")
+	}
+	g = grant()
+	s.must(m.Remove(ctx, s.account, person.ID))
+	if !revoked(g) {
+		s.t.Fatal("removing the member kept the grant")
+	}
 }
 
 func (s *identitySuite) oauthSweep(client domain.OAuthClient, expired uuid.UUID) {

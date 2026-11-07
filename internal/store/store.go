@@ -819,18 +819,21 @@ type MembershipRepo interface {
 	// SetStatus moves a membership to status; ErrLastOwner when it would
 	// suspend the last Owner. Suspending a member who holds a role needs
 	// every permission of that role, which the caller checks first
-	// (permissions.md, No escalation). Ending their sessions and OAuth
-	// grants and revoking their tokens are separate calls (SessionRepo,
-	// OAuthRepo, PersonalTokenRepo) the caller makes in the same WithTx.
+	// (permissions.md, No escalation). A status other than active also
+	// revokes their OAuth grants in the organization, in the same
+	// transaction, so no path forgets it and reinstating them brings none
+	// back. Ending their sessions and revoking their tokens are separate
+	// calls (SessionRepo, PersonalTokenRepo) the caller makes in the same
+	// WithTx.
 	SetStatus(ctx context.Context, accountID, userID uuid.UUID, status domain.MembershipStatus) error
 	SetExternalID(ctx context.Context, accountID, userID uuid.UUID, externalID string) error
 	// Remove deletes the membership with the user's team memberships and
 	// role bindings in the organization, in one transaction. Removing a
 	// member who holds a role needs every permission of that role, which
-	// the caller checks first (permissions.md, No escalation). Ending their
-	// sessions and OAuth grants and revoking their tokens are separate calls
-	// (SessionRepo, OAuthRepo, PersonalTokenRepo) the caller makes in the
-	// same WithTx.
+	// the caller checks first (permissions.md, No escalation). It revokes
+	// their OAuth grants there as SetStatus does. Ending their sessions and
+	// revoking their tokens are separate calls (SessionRepo,
+	// PersonalTokenRepo) the caller makes in the same WithTx.
 	Remove(ctx context.Context, accountID, userID uuid.UUID) error
 }
 

@@ -240,8 +240,22 @@ func (r membershipRepo) SetStatus(_ context.Context, accountID, userID uuid.UUID
 			return store.ErrLastOwner
 		}
 		m.Status, m.UpdatedAt = status, now
+		if status != domain.MembershipActive {
+			d.revokeGrants(accountID, userID, now)
+		}
 		return nil
 	})
+}
+
+// revokeGrants ends the user's OAuth grants in the organization, as the
+// membership changes do in Postgres.
+func (d *storeData) revokeGrants(accountID, userID uuid.UUID, now time.Time) {
+	for i := range d.identity.oauthGrants.rows {
+		g := &d.identity.oauthGrants.rows[i]
+		if g.AccountID == accountID && g.UserID == userID && g.RevokedAt.IsZero() {
+			g.RevokedAt = now
+		}
+	}
 }
 
 func (r membershipRepo) SetExternalID(_ context.Context, accountID, userID uuid.UUID, externalID string) error {
@@ -252,7 +266,7 @@ func (r membershipRepo) SetExternalID(_ context.Context, accountID, userID uuid.
 }
 
 func (r membershipRepo) Remove(_ context.Context, accountID, userID uuid.UUID) error {
-	return r.s.do(func(d *storeData, _ time.Time) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
 		if _, err := d.identity.memberships.get(accountID, userID); err != nil {
 			return err
 		}
@@ -260,6 +274,7 @@ func (r membershipRepo) Remove(_ context.Context, accountID, userID uuid.UUID) e
 			return store.ErrLastOwner
 		}
 		d.removeBindings(accountID, userID)
+		d.revokeGrants(accountID, userID, now)
 		t := &d.identity.memberships
 		t.rows = slices.DeleteFunc(slices.Clone(t.rows), func(m domain.Membership) bool { return m.AccountID == accountID && m.UserID == userID })
 		return nil
