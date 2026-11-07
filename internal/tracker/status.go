@@ -474,14 +474,48 @@ func (s *Service) drain(ctx context.Context, accountID uuid.UUID) error {
 	for _, w := range due {
 		id, err := s.send(ctx, w)
 		switch {
+		case err == nil && w.Kind == domain.WriteTransition:
+			errs = append(errs, box.MarkSent(ctx, accountID, w.ID, id, s.cfg.Now()), s.warn(ctx, w, ""))
 		case err == nil, errors.Is(err, ErrNotFound): // a ticket that is gone takes no more writes
 			errs = append(errs, box.MarkSent(ctx, accountID, w.ID, id, s.cfg.Now()))
+		case errors.Is(err, ErrBlocked): // trying again forces nothing
+			errs = append(errs, box.MarkSent(ctx, accountID, w.ID, "", s.cfg.Now()), s.blocked(ctx, w, err))
 		default:
 			s.cfg.Logger.Warn("write to tracker", "account_id", accountID, "connection", w.ConnectionID, "key", w.Key, "attempts", w.Attempts+1, "error", err)
 			errs = append(errs, box.MarkFailed(ctx, accountID, w.ID, clip(err.Error(), 500), s.cfg.Now().Add(retryAfter(w.Attempts))))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// blocked tells the ticket and the route that the tracker did not take a
+// state, and why.
+func (s *Service) blocked(ctx context.Context, w domain.TrackerWrite, cause error) error {
+	reason := clip(cause.Error(), 500)
+	s.cfg.Logger.Warn("tracker refused a state", "account_id", w.AccountID, "connection", w.ConnectionID, "key", w.Key, "state", w.Value, "error", reason)
+	l, err := s.cfg.Store.TicketLinks().Get(ctx, w.AccountID, w.LinkID)
+	if err != nil {
+		return fmt.Errorf("get the link of %s: %w", w.Key, err)
+	}
+	text := fmt.Sprintf("Forecrew did not move this ticket to %s: %s. Move it by hand, or change the workflow or the route.", w.Value, reason)
+	return errors.Join(s.say(ctx, s.cfg.Store, l, "blocked:"+w.ID.String(), text),
+		s.warn(ctx, w, fmt.Sprintf("%s did not move to %s: %s", w.Key, w.Value, reason)))
+}
+
+// warn sets the warning of the route of a write's ticket; "" clears it.
+func (s *Service) warn(ctx context.Context, w domain.TrackerWrite, warning string) error {
+	l, err := s.cfg.Store.TicketLinks().Get(ctx, w.AccountID, w.LinkID)
+	if err != nil || l.RouteID == uuid.Nil() {
+		return err
+	}
+	r, err := s.cfg.Store.TrackerRoutes().Get(ctx, w.AccountID, l.RouteID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && r.Warning == warning) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return s.cfg.Store.TrackerRoutes().SetWarning(ctx, w.AccountID, r.ID, warning)
 }
 
 // send does one write, leaving out what the tracker cannot do.

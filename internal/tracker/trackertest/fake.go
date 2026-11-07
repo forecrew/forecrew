@@ -36,6 +36,9 @@ type Fake struct {
 	next    int
 	// Down makes every write fail, as an outage does.
 	Down bool
+	// Refuse, when set, is what every transition fails with, as a workflow
+	// that does not allow it does.
+	Refuse error
 	// Writes counts the comments and transitions that reached the tracker.
 	Writes int
 	// Caps is what the fake says it can do.
@@ -187,6 +190,8 @@ func (f *Fake) Transition(_ context.Context, key, state string) error {
 		return errDown
 	case !ok:
 		return fmt.Errorf("%s: %w", key, tracker.ErrNotFound)
+	case f.Refuse != nil:
+		return f.Refuse
 	}
 	t.State, t.Closed = state, state == "closed"
 	f.Writes++

@@ -44,7 +44,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	events, err := ad.ParseEvent(Request{Header: r.Header, Body: body})
+	events, err := ad.ParseEvent(Request{Header: r.Header, Query: r.URL.Query(), Body: body})
 	switch {
 	case errors.Is(err, ErrBadSignature):
 		s.cfg.Logger.Warn("tracker webhook rejected", "connection", id, "error", err)
