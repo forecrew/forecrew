@@ -1,0 +1,50 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000720",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "facts": {
+      "os": [
+        "linux"
+      ],
+      "arch": [
+        "amd64"
+      ],
+      "max_cpu": 16,
+      "max_memory_mb": 65536,
+      "max_disk_gb": 412,
+      "max_machines": 3,
+      "checks": [
+        {
+          "name": "kvm",
+          "status": "ok",
+          "detail": "Available"
+        },
+        {
+          "name": "disk",
+          "status": "ok",
+          "detail": "412 GB free"
+        },
+        {
+          "name": "sleep",
+          "status": "warn",
+          "detail": "This \u003cb\u003eMac\u003c/b\u003e goes to sleep"
+        }
+      ],
+      "host": "home-nas"
+    },
+    "kind": "microvm",
+    "expires_at": "2026-03-01T13:00:00Z",
+    "created_at": "2026-03-01T11:55:00Z",
+    "status": "claimed",
+    "facts_hash": "f3a9c1"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000721",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "facts": {},
+    "expires_at": "2026-03-01T12:55:00Z",
+    "created_at": "2026-03-01T11:59:00Z",
+    "status": "waiting"
+  }
+]
+

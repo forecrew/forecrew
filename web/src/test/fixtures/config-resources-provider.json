@@ -1,0 +1,34 @@
+[
+  {
+    "kind": "provider",
+    "name": "home-server",
+    "spec": {
+      "kind": "microvm",
+      "limits": {
+        "max_machines": 3
+      },
+      "mode": "agent"
+    },
+    "scope": "organization"
+  },
+  {
+    "kind": "provider",
+    "name": "aws-frankfurt",
+    "spec": {
+      "kind": "aws",
+      "limits": {
+        "max_machines": 20,
+        "monthly_budget": 200
+      },
+      "mode": "agent",
+      "network_allow": [
+        "registry.acme.test"
+      ],
+      "tags": {
+        "team": "platform"
+      }
+    },
+    "scope": "organization"
+  }
+]
+

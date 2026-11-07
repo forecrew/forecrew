@@ -1,0 +1,30 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000750",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "provider_id": "018f0000-0000-7000-8000-000000000700",
+    "shape_id": "018f0000-0000-7000-8000-000000000710",
+    "state": "busy",
+    "jobs_taken": 1,
+    "created_at": "2026-03-01T11:55:00Z",
+    "updated_at": "2026-03-01T11:56:00Z",
+    "name": "linux-small-8f2",
+    "shape": "linux-small",
+    "provider": "home-server",
+    "job_ref": "JOB-41"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000751",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "provider_id": "018f0000-0000-7000-8000-000000000700",
+    "shape_id": "018f0000-0000-7000-8000-000000000711",
+    "state": "booting",
+    "jobs_taken": 0,
+    "created_at": "2026-03-01T11:59:00Z",
+    "updated_at": "2026-03-01T11:59:00Z",
+    "name": "linux-medium-1ac",
+    "shape": "linux-medium",
+    "provider": "home-server"
+  }
+]
+

@@ -1,0 +1,19 @@
+[
+  {
+    "kind": "fleet_policy",
+    "name": "fleet",
+    "spec": {
+      "egress": [
+        "registry.acme.test"
+      ],
+      "plan": "free",
+      "quotas": {
+        "concurrent_machines": 20,
+        "monthly_budget": 200
+      },
+      "routing": "own_only"
+    },
+    "scope": "organization"
+  }
+]
+
