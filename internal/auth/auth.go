@@ -87,6 +87,9 @@ type Service struct {
 	mu    sync.Mutex
 	oidc  map[string]*oidc.Provider // by issuer: discovery and JWKS are cached
 
+	testMu sync.Mutex
+	tests  map[[32]byte]pendingTest // tests of connections waiting for the provider, by SHA-256 of state
+
 	cliMu    sync.Mutex
 	cliCodes map[[32]byte]cliCode // codes of CLI logins by SHA-256
 }
@@ -124,7 +127,7 @@ func New(cfg Config) *Service {
 		cfg.Auth.SessionAbsolute = config.DefaultSessionAbsolute
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
-	return &Service{cfg: cfg, authz: authz.New(cfg.Store, cfg.Logger), oidc: map[string]*oidc.Provider{}, cliCodes: map[[32]byte]cliCode{}}
+	return &Service{cfg: cfg, authz: authz.New(cfg.Store, cfg.Logger), oidc: map[string]*oidc.Provider{}, cliCodes: map[[32]byte]cliCode{}, tests: map[[32]byte]pendingTest{}}
 }
 
 // NewToken returns a random token: 32 bytes, base64url without padding.

@@ -3,6 +3,7 @@ package auth
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 	"uuid"
 
 	"golang.org/x/oauth2"
@@ -32,8 +34,9 @@ type flow struct {
 	Invite     string `json:"i,omitempty"` // invitation token of the link
 	// Return is the page of this site to go back to after the sign-in.
 	Return string `json:"r,omitempty"`
-	// Test is the user who tests the connection: the flow signs nobody in
-	// and only shows what the provider says.
+	// Test marks a test of a connection: the flow signs nobody in and only
+	// shows what the provider says. Who tests it is kept on the server
+	// (pendingTest), never in this cookie.
 	Test string `json:"t,omitempty"`
 }
 
@@ -88,6 +91,7 @@ func flowCookie(value string, maxAge int) *http.Cookie {
 // browser to the provider.
 func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	test := r.URL.Query().Get("test") != ""
+	var testBy uuid.UUID
 	conn, err := s.connection(r.Context(), r.PathValue("connection"), test)
 	if err != nil {
 		s.refuse(w, r, refusal(reasonUnknownConnection), err)
@@ -100,7 +104,8 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 			s.refuse(w, r, nil, err)
 			return
 		}
-		f = flow{Connection: conn.ID.String(), Verifier: f.Verifier, Test: tester.String()}
+		f = flow{Connection: conn.ID.String(), Verifier: f.Verifier, Test: "1"}
+		testBy = tester
 	}
 	p, err := s.provider(r.Context(), conn)
 	if err != nil {
@@ -113,6 +118,9 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.refuse(w, r, refusal(reasonProvider), err)
 		return
+	}
+	if test {
+		s.rememberTest(f.State, testBy, conn.ID)
 	}
 	raw, err := json.Marshal(f)
 	if err != nil {
@@ -148,6 +156,12 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		s.refuse(w, r, refusal(reasonState), nil)
 		return
 	}
+	// A test is what the server remembers, not what the cookie claims.
+	tester, pending := s.takeTest(f.State, f.Connection)
+	if f.Test != "" && !pending {
+		s.refuse(w, r, refusal(reasonState), nil)
+		return
+	}
 	conn, err := s.connection(r.Context(), f.Connection, f.Test != "")
 	if err != nil {
 		s.refuse(w, r, refusal(reasonUnknownConnection), err)
@@ -171,7 +185,7 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if f.Test != "" {
-		s.testResult(w, r, conn, f, claims)
+		s.testResult(w, r, conn, tester, claims)
 		return
 	}
 	token, err := s.signIn(r.Context(), conn, claims, f, r.UserAgent(), remoteIP(r))
@@ -295,13 +309,14 @@ func (s *Service) refuse(w http.ResponseWriter, r *http.Request, why *refused, c
 // testResult ends a test sign-in: it records that the connection works and
 // shows what the provider said, and signs nobody in. The page is plain
 // escaped text.
-func (s *Service) testResult(w http.ResponseWriter, r *http.Request, conn domain.Connection, f flow, c Claims) {
-	tester, err := uuid.Parse(f.Test)
-	if err == nil {
-		by := domain.UserActor(conn.AccountID, tester, domain.Credential{})
-		err = audit(r.Context(), s.cfg.Store, by, "connection.tested", "connection", conn.ID, nil)
+func (s *Service) testResult(w http.ResponseWriter, r *http.Request, conn domain.Connection, tester uuid.UUID, c Claims) {
+	by := domain.UserActor(conn.AccountID, tester, domain.Credential{})
+	// The tester may have lost the right since the test began.
+	if err := s.authz.Authorize(r.Context(), by, domain.PermConnectionManage, authz.Organization(conn.AccountID)); err != nil {
+		s.refuse(w, r, refusal(reasonTestDenied), err)
+		return
 	}
-	if err != nil {
+	if err := audit(r.Context(), s.cfg.Store, by, "connection.tested", "connection", conn.ID, nil); err != nil {
 		s.refuse(w, r, nil, err)
 		return
 	}
@@ -312,4 +327,43 @@ func (s *Service) testResult(w http.ResponseWriter, r *http.Request, conn domain
 <p>%s answered. Nobody was signed in. You can close this window and turn the sign-in on.</p>
 <dl><dt>Name</dt><dd>%s</dd><dt>Email</dt><dd>%s</dd><dt>Email verified</dt><dd>%t</dd><dt>Login</dt><dd>%s</dd></dl></body></html>
 `, html.EscapeString(conn.Name), html.EscapeString(c.Name), html.EscapeString(c.Email), c.EmailVerified, html.EscapeString(c.Login))
+}
+
+// pendingTest is a test of a connection waiting for the provider: who started
+// it and for which connection, found by the SHA-256 of its state.
+type pendingTest struct {
+	tester, connection uuid.UUID
+	expires            time.Time
+}
+
+// maxPendingTests bounds the tests waiting at once.
+const maxPendingTests = 1000
+
+// rememberTest keeps a test until its callback or loginTTL.
+func (s *Service) rememberTest(state string, tester, connection uuid.UUID) {
+	now := s.cfg.Now()
+	s.testMu.Lock()
+	defer s.testMu.Unlock()
+	for k, v := range s.tests {
+		if now.After(v.expires) {
+			delete(s.tests, k)
+		}
+	}
+	if len(s.tests) < maxPendingTests {
+		s.tests[sha256.Sum256([]byte(state))] = pendingTest{tester: tester, connection: connection, expires: now.Add(loginTTL)}
+	}
+}
+
+// takeTest returns the test of state, once: it is single use whatever the
+// outcome. It must be for the connection of the callback.
+func (s *Service) takeTest(state, connection string) (uuid.UUID, bool) {
+	key := sha256.Sum256([]byte(state))
+	s.testMu.Lock()
+	t, ok := s.tests[key]
+	delete(s.tests, key)
+	s.testMu.Unlock()
+	if !ok || s.cfg.Now().After(t.expires) || t.connection.String() != connection {
+		return uuid.Nil(), false
+	}
+	return t.tester, true
 }
