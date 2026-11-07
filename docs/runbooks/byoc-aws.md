@@ -36,6 +36,7 @@ secret you put in the kit.
 - A VPC with a subnet for the agent and one to three subnets for machines
   (usually one per availability zone). Machines need outbound internet: a public
   subnet with `AssignPublicIp: true`, or a private subnet behind a NAT gateway.
+- A forecrewd at a **public address** over HTTPS: the agent's security group reaches public addresses only. For a private forecrewd, add its range to the agent's group yourself.
 - A signed AMI of the Forecrew Linux image in the account, or one you will copy
   in (below). The agent boots only AMIs of **your own account**.
 - The public key your images are signed with
@@ -81,7 +82,7 @@ boot, so read it first.
 | Input | Default | Meaning |
 |-------|---------|---------|
 | `Mode` | `ec2` | `ec2`, `microvm` or `mac` (below) |
-| `FleetName` | none (OpenTofu: `forecrew-` and a hash of account, region and VPC) | The `forecrew:fleet` tag value. The role allows exactly this, **and the agent terminates every instance of the account and region that carries it**, whoever started it. It must be unique per account and region: never reuse a name another kit, a script or a person tags with. Two kits with different names never touch each other's machines |
+| `FleetName` | none, required in both kits | The `forecrew:fleet` tag value. The role allows exactly this, **and the agent terminates every instance of the account and region that carries it**, whoever started it. It must be unique per account and region: never reuse a name another kit, a script or a person tags with. Two kits in one VPC with the same name would terminate each other's machines; with different names they never touch each other's |
 | `InstanceTypes` | four `c7i` sizes | What machines may use; `*` works. The role refuses any other type |
 | `AssignPublicIp` | `false` | `true` for a public subnet |
 | `MaxMachines` | `10` | The most machines at once, whatever Forecrew asks for |
@@ -117,7 +118,7 @@ That makes the tag a trust decision: **anyone in your account who may tag AMIs
 making, and the agent will boot it as the signed image. The copy step below does
 not check that the AMI's content matches the digest: it only tags what it was
 given, so give it the digest from a manifest you verified and the AMI ID you
-built. Keep tagging of AMIs to the people who build images.
+built. Keep tagging of AMIs to the people who build images. The same goes for **whoever can invoke or update the copy Lambda** (`lambda:InvokeFunction`, `lambda:UpdateFunctionCode`, `lambda:UpdateFunctionConfiguration`, or changing the stack): its role can copy any image it can see and tag the copy with any digest, so that person can make an AMI trusted.
 
 To bring an image built elsewhere, give `CopyAmiId`, `CopyAmiRegion` and
 `CopyAmiDigest`: the stack copies the AMI into the account (`CopyImage`), tags
@@ -211,11 +212,7 @@ The security group is the only network control the kit sets, and it is weaker th
 - `network_allow` of the location does not apply to AWS: a machine has no group of
   its own. A location with `network_allow` set refuses to create machines and says
   so. Change what machines reach by changing the security group.
-- In `microvm` and `mac` modes the jobs run on the agent's own instance, and what
-  they reach is what **that instance's** group allows: the kit's agent group lets
-  out HTTPS (443) to any address, DNS and time, and nothing else, so jobs can reach
-  only HTTPS services (everything the same caveats apply to). Those jobs also share
-  the host with the agent and its role; the microVM or the Tart VM is the boundary.
+- In `microvm` and `mac` modes the jobs run on the agent's own instance, and **there is no role and no machine security group**: what jobs reach is what the agent instance's group allows. The kit's agent group lets out HTTPS (443) to the same public ranges as the machine group (no private range), DNS and time, so jobs reach only public HTTPS services, with the caveats above. Those jobs share the host with the agent; the microVM or the Tart VM is the boundary. In these modes the instance has no EC2 permissions at all.
 - Endpoints and NAT gateways have their own prices.
 
 ## The bootstrap token and user data
