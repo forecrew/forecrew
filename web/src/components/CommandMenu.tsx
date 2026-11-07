@@ -34,6 +34,7 @@ const PAGES = [
   { label: "Jobs", to: "/jobs" },
   { label: "Quality", to: "/quality" },
   { label: "Assumptions", to: "/assumptions" },
+  { label: "Proposals", to: "/proposals" },
   { label: "Knowledge", to: "/knowledge" },
   { label: "Workers", to: "/workers" },
   { label: "Your account", to: "/account" },

@@ -6,6 +6,7 @@ import type {
   JobLogs, JobStatus, KnowledgeKind, KnowledgeListing, KnowledgeProposal, KnowledgeProposalStatus, KnowledgeResult, Level,
   ConnectedApp, OnboardInput, OnboardResult, Project, ProposeKnowledgeInput, ProposeKnowledgeResult, QualityInfo, RevokeResult, Session, Token,
   Trace, VerificationInfo, Worker,
+  Proposal, ProposalCategory, ProposalDecision, ProposalStatus,
 } from "./types"
 
 /** An error answer of the API. */
@@ -175,6 +176,10 @@ export const api = {
   resolveAssumption: (ref: string, status: AssumptionStatus, evidence?: string) =>
     request<Assumption>("POST", `/api/v1/assumptions/${seg(ref)}/resolve`, evidence ? { status, evidence } : { status }),
   listDecisions: (f: { project: string }) => request<Decision[]>("GET", `/api/v1/decisions${query(f)}`),
+  listProposals: (f: { project: string; status?: ProposalStatus | ""; category?: ProposalCategory | "" }) =>
+    request<Proposal[]>("GET", `/api/v1/proposals${query(f)}`),
+  decideProposal: (ref: string, body: { decision: ProposalDecision; reason?: string; until?: string }) =>
+    request<Proposal>("POST", `/api/v1/proposals/${seg(ref)}/decide`, body),
 
   getTrace: (ref: string) => request<Trace>("GET", `/api/v1/trace${query({ ref })}`),
 

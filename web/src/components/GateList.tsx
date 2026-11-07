@@ -8,6 +8,7 @@ import { BriefView } from "@/components/CouncilBrief"
 import { ExternalLink } from "@/components/ExternalLink"
 import { Field } from "@/components/Field"
 import { Markdown } from "@/components/Markdown"
+import { ProposalDetails, SnoozeProposal } from "@/components/ProposalDetails"
 import { StatusBadge } from "@/components/StatusBadge"
 import { VerificationSection } from "@/components/Verification"
 import { WhyLink } from "@/components/WhyLink"
@@ -56,11 +57,13 @@ function wordsFor(g: GateInfo, humanRoundUsed: boolean) {
   const question = isQuestion(g)
   const council = g.kind === "council_decision"
   const assumption = g.kind === "assumption_review"
+  const proposal = g.kind === "improvement_proposal"
   return {
-    approve: question ? "Send answer" : g.kind === "needs_you" ? "Approve and retry" : council ? "Approve recommendation" : assumption ? "Accept" : "Approve",
+    approve: question ? "Send answer" : g.kind === "needs_you" ? "Approve and retry" : council ? "Approve recommendation" : assumption || proposal ? "Accept" : "Approve",
     reject: question ? "Decline" : assumption ? "Invalidate" : "Reject",
     confirmReject: question ? "Confirm decline" : assumption ? "Confirm invalidate" : "Confirm reject",
-    rejectField: assumption ? "Why is it wrong? (optional)" : question ? "Why decline? (optional)" : "Why stop? (optional)",
+    rejectField: proposal ? "Why not? It comes back only if the evidence doubles or after 90 days." : assumption ? "Why is it wrong? (optional)" : question ? "Why decline? (optional)" : "Why stop? (optional)",
+    rejectNeedsReason: proposal,
     changesField: council ? "Constraint for one more round" : assumption ? "What should be checked?" : "What should change?",
     sendChanges: council ? "Send constraint" : "Send changes request",
     note: question ? "Your answer" : "Note (optional)",
@@ -111,6 +114,7 @@ function GateBody({ gate, assumption, council }: { gate: GateInfo; assumption?: 
       </div>
     )
   }
+  if (gate.proposal) return <ProposalDetails proposal={gate.proposal} />
   return <Markdown>{gate.summary}</Markdown>
 }
 
@@ -146,6 +150,11 @@ function GateCard({ gate, selected, mode, setMode, onSelect, note, setNote, onDe
     }
     if (shown === "verify" && !note.trim()) {
       setError("Evidence is required to verify.")
+      feedbackRef.current?.focus()
+      return
+    }
+    if (shown === "reject" && w.rejectNeedsReason && !note.trim()) {
+      setError("A reason is required to reject.")
       feedbackRef.current?.focus()
       return
     }
@@ -193,6 +202,7 @@ function GateCard({ gate, selected, mode, setMode, onSelect, note, setNote, onDe
                 <Button variant="outline" onClick={() => setMode("reject")}>
                   {w.reject}
                 </Button>
+                {gate.proposal ? <SnoozeProposal proposal={gate.proposal} /> : null}
               </>
             ) : (
               <>
@@ -230,7 +240,7 @@ function GateCard({ gate, selected, mode, setMode, onSelect, note, setNote, onDe
               error={error}
             >
               {(p) => (
-                <Textarea {...p} ref={feedbackRef} rows={3} value={note} onChange={(e) => setNote(e.target.value)} required={shown !== "reject"} />
+                <Textarea {...p} ref={feedbackRef} rows={3} value={note} onChange={(e) => setNote(e.target.value)} required={shown !== "reject" || w.rejectNeedsReason} />
               )}
             </Field>
           )}

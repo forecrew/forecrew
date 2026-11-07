@@ -1,0 +1,152 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000300",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 3,
+    "scope": "project",
+    "category": "security",
+    "title": "Scan dependencies in CI",
+    "rationale": "Nothing scans the dependencies.",
+    "evidence": [
+      {
+        "kind": "security",
+        "ref": "ci",
+        "detail": "2 CI files read"
+      }
+    ],
+    "benefit": "Vulnerable packages show up before release.",
+    "effort": "s",
+    "risk": "low",
+    "action": {
+      "goal": {
+        "title": "Add a scan",
+        "body": "Run osv-scanner on each push."
+      }
+    },
+    "status": "proposed",
+    "dedupe_key": "signal:3",
+    "evidence_weight": 1,
+    "created_at": "2026-03-01T10:00:00Z",
+    "updated_at": "2026-03-01T11:00:00Z",
+    "ref": "PROP-3",
+    "gate_ref": "GATE-30",
+    "can_decide": true
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000301",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 2,
+    "scope": "project",
+    "category": "workers",
+    "title": "Add a macOS worker",
+    "rationale": "Nothing scans the dependencies.",
+    "evidence": [
+      {
+        "kind": "security",
+        "ref": "ci",
+        "detail": "2 CI files read"
+      }
+    ],
+    "benefit": "Vulnerable packages show up before release.",
+    "effort": "s",
+    "risk": "low",
+    "action": {
+      "setup": {
+        "instructions": "Run forecrew worker add"
+      }
+    },
+    "measure": {
+      "detector": "workers",
+      "value": 4
+    },
+    "status": "done",
+    "dedupe_key": "signal:2",
+    "evidence_weight": 1,
+    "outcome": {
+      "before": 4,
+      "after": 0,
+      "measured_at": "2026-03-01T11:30:00Z"
+    },
+    "created_at": "2026-03-01T10:00:00Z",
+    "updated_at": "2026-03-01T11:00:00Z",
+    "ref": "PROP-2",
+    "gate_ref": "GATE-20",
+    "can_decide": false
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000302",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 4,
+    "scope": "platform",
+    "category": "tooling",
+    "title": "Connect Sentry",
+    "rationale": "Nothing scans the dependencies.",
+    "evidence": [
+      {
+        "kind": "security",
+        "ref": "ci",
+        "detail": "2 CI files read"
+      }
+    ],
+    "benefit": "Vulnerable packages show up before release.",
+    "effort": "s",
+    "risk": "low",
+    "action": {
+      "setup": {
+        "instructions": "Connect it",
+        "issue": "Add a Sentry adapter"
+      }
+    },
+    "status": "accepted",
+    "dedupe_key": "signal:4",
+    "evidence_weight": 1,
+    "created_at": "2026-03-01T10:00:00Z",
+    "updated_at": "2026-03-01T11:00:00Z",
+    "ref": "PROP-4",
+    "gate_ref": "GATE-31",
+    "can_decide": true
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000303",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 5,
+    "scope": "project",
+    "category": "ci",
+    "title": "Build on Windows",
+    "rationale": "Nothing scans the dependencies.",
+    "evidence": [
+      {
+        "kind": "security",
+        "ref": "ci",
+        "detail": "2 CI files read"
+      }
+    ],
+    "benefit": "Vulnerable packages show up before release.",
+    "effort": "s",
+    "risk": "low",
+    "action": {
+      "config_pr": {
+        "files": [
+          {
+            "path": ".forecrew/matrix.yaml",
+            "content": "axes: {}\n"
+          }
+        ]
+      }
+    },
+    "status": "rejected",
+    "dedupe_key": "signal:5",
+    "evidence_weight": 1,
+    "reason": "We ship Linux only",
+    "created_at": "2026-03-01T10:00:00Z",
+    "updated_at": "2026-03-01T11:00:00Z",
+    "ref": "PROP-5",
+    "gate_ref": "GATE-32",
+    "can_decide": false
+  }
+]
+

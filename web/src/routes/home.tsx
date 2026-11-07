@@ -84,6 +84,22 @@ function NeedsYouStat() {
   )
 }
 
+/** Improvement proposals waiting for a decision; a snoozed one has no gate on the list. */
+function SuggestionsStat() {
+  const gates = useGates()
+  if (gates.isError) return <LoadError message={gates.error.message} />
+  if (!gates.data) return <Loading />
+  const n = gates.data.filter((g) => g.kind === "improvement_proposal").length
+  return (
+    <>
+      <p className="text-3xl font-semibold">{n}</p>
+      <Link to="/proposals" className="text-sm text-primary underline underline-offset-2">
+        Open proposals
+      </Link>
+    </>
+  )
+}
+
 function AgentsStat() {
   const jobs = useJobs(undefined, "running")
   if (jobs.isError) return <LoadError message={jobs.error.message} />
@@ -273,9 +289,12 @@ export function HomePage() {
         ) : null}
       </div>
       <Headline />
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat title="Decisions waiting">
           <NeedsYouStat />
+        </Stat>
+        <Stat title="Suggestions">
+          <SuggestionsStat />
         </Stat>
         <Stat title="Agents working">
           <AgentsStat />

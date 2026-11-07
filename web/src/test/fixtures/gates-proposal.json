@@ -1,0 +1,53 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000310",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "number": 30,
+    "kind": "improvement_proposal",
+    "origin": "playbook",
+    "status": "pending",
+    "title": "Scan dependencies in CI",
+    "summary": "\u003cuntrusted-data\u003eraw\u003c/untrusted-data\u003e",
+    "subject_repo": "acme/app",
+    "created_at": "2026-03-01T10:00:00Z",
+    "ref": "GATE-30",
+    "project": "app",
+    "can_resolve": true,
+    "proposal": {
+      "id": "018f0000-0000-7000-8000-000000000300",
+      "account_id": "018f0000-0000-7000-8000-000000000001",
+      "project_id": "018f0000-0000-7000-8000-000000000010",
+      "number": 3,
+      "scope": "project",
+      "category": "security",
+      "title": "Scan dependencies in CI",
+      "rationale": "Nothing scans the dependencies.",
+      "evidence": [
+        {
+          "kind": "security",
+          "ref": "ci",
+          "detail": "2 CI files read"
+        }
+      ],
+      "benefit": "Vulnerable packages show up before release.",
+      "effort": "s",
+      "risk": "low",
+      "action": {
+        "goal": {
+          "title": "Add a scan",
+          "body": "Run osv-scanner on each push."
+        }
+      },
+      "status": "proposed",
+      "dedupe_key": "signal:3",
+      "evidence_weight": 1,
+      "created_at": "2026-03-01T10:00:00Z",
+      "updated_at": "2026-03-01T11:00:00Z",
+      "ref": "PROP-3",
+      "gate_ref": "GATE-30",
+      "can_decide": true
+    }
+  }
+]
+
