@@ -43,11 +43,13 @@ type fakeJira struct {
 	next     int
 	unreach  map[string]bool   // statuses no transition reaches
 	needs    map[string]string // status -> a required field of its transition
+	free     map[string]bool   // statuses with a second transition that needs nothing
 	refuse   bool              // a POST of a transition answers 400
 	limited  []string          // Retry-After values of the next answers, one each
 	seen     []string          // method and path of each request
 	jql      []string
-	posted   []any // bodies of comments
+	posted   []any    // bodies of comments
+	moves    []string // IDs of the transitions taken
 	redirect string
 }
 
@@ -86,7 +88,7 @@ func (f *fakeJira) version() string {
 func newFakeJira(t *testing.T, cloud bool, prefix string) *fakeJira {
 	f := &fakeJira{
 		t: t, cloud: cloud, prefix: prefix, now: time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC), tz: "Europe/Rome",
-		issues: map[string]*fakeIssue{}, unreach: map[string]bool{}, needs: map[string]string{},
+		issues: map[string]*fakeIssue{}, unreach: map[string]bool{}, needs: map[string]string{}, free: map[string]bool{},
 	}
 	f.token = "Bearer dc-token"
 	if cloud {
@@ -290,6 +292,9 @@ func (f *fakeJira) transitions(w http.ResponseWriter) {
 			fields["comment"] = map[string]any{"required": false, "name": "Comment"}
 		}
 		ts = append(ts, map[string]any{"id": fmt.Sprint(11 + n*10), "name": "Move to " + s, "to": map[string]any{"name": s}, "fields": fields})
+		if f.free[s] {
+			ts = append(ts, map[string]any{"id": fmt.Sprint(12 + n*10), "name": "Quick move to " + s, "to": map[string]any{"name": s}, "fields": map[string]any{}})
+		}
 	}
 	f.write(w, http.StatusOK, map[string]any{"transitions": ts})
 }
@@ -302,9 +307,10 @@ func (f *fakeJira) move(w http.ResponseWriter, r *http.Request, i *fakeIssue) {
 	var in struct {
 		Transition struct{ ID string }
 	}
+	defer func() { f.moves = append(f.moves, in.Transition.ID) }()
 	must(f.t, json.NewDecoder(r.Body).Decode(&in))
 	for n, s := range f.statuses() {
-		if fmt.Sprint(11+n*10) == in.Transition.ID {
+		if id := in.Transition.ID; id == fmt.Sprint(11+n*10) || id == fmt.Sprint(12+n*10) {
 			i.Status, i.Updated = s, f.now
 		}
 	}

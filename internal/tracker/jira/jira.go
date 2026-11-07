@@ -863,27 +863,12 @@ func (a *Adapter) Transition(ctx context.Context, key, state string) error {
 		}
 		return fmt.Errorf("read the transitions of %s: %w", key, err)
 	}
-	i := slices.IndexFunc(offered.Transitions, func(t transition) bool { return strings.EqualFold(t.To.Name, state) })
-	if i < 0 {
-		names := make([]string, 0, len(offered.Transitions))
-		for _, t := range offered.Transitions {
-			names = append(names, t.To.Name)
-		}
-		return fmt.Errorf("no transition of %s reaches %s; it offers %s: %w", key, state, orNone(names), tracker.ErrBlocked)
-	}
-	t := offered.Transitions[i]
-	var needs []string
-	for id, f := range t.Fields {
-		if f.Required && !f.HasDefault {
-			needs = append(needs, cmp(f.Name, id))
-		}
-	}
-	if len(needs) > 0 {
-		slices.Sort(needs)
-		return fmt.Errorf("the transition %q of %s needs %s, which Forecrew does not fill: %w", t.Name, key, strings.Join(needs, ", "), tracker.ErrBlocked)
+	t, err := pick(key, state, offered.Transitions)
+	if err != nil {
+		return err
 	}
 	in := map[string]any{"transition": map[string]string{"id": t.ID}}
-	err := a.c.do(ctx, call{method: http.MethodPost, base: a.api(), path: path, in: in}, nil)
+	err = a.c.do(ctx, call{method: http.MethodPost, base: a.api(), path: path, in: in}, nil)
 	var api *apiError
 	if errors.As(err, &api) && api.Status == http.StatusBadRequest { // a validator or a screen said no
 		return fmt.Errorf("the transition %q of %s was refused: %s: %w", t.Name, key, api.Message, tracker.ErrBlocked)
@@ -892,6 +877,42 @@ func (a *Adapter) Transition(ctx context.Context, key, state string) error {
 		return fmt.Errorf("move %s to %s: %w", key, state, err)
 	}
 	return nil
+}
+
+// pick takes, of the transitions that reach state, one that needs no field
+// Forecrew does not fill.
+func pick(key, state string, offered []transition) (transition, error) {
+	var names []string
+	var blocked error
+	for _, t := range offered {
+		names = append(names, t.To.Name)
+		if !strings.EqualFold(t.To.Name, state) {
+			continue
+		}
+		needs := t.needs()
+		if len(needs) == 0 {
+			return t, nil
+		}
+		if blocked == nil {
+			blocked = fmt.Errorf("the transition %q of %s needs %s, which Forecrew does not fill: %w", t.Name, key, strings.Join(needs, ", "), tracker.ErrBlocked)
+		}
+	}
+	if blocked != nil {
+		return transition{}, blocked
+	}
+	return transition{}, fmt.Errorf("no transition of %s reaches %s; it offers %s: %w", key, state, orNone(names), tracker.ErrBlocked)
+}
+
+// needs lists the required fields of a transition that have no default.
+func (t transition) needs() []string {
+	var out []string
+	for id, f := range t.Fields {
+		if f.Required && !f.HasDefault {
+			out = append(out, cmp(f.Name, id))
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 func cmp(a, b string) string {
