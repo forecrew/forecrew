@@ -56,6 +56,17 @@ func TestDetectHost(t *testing.T) {
 	}
 }
 
+// A provider in a cloud has no machines on this host, so this host's KVM, or its
+// lack, is not worth a check.
+func TestDetectSkipsKVMForACloud(t *testing.T) {
+	p := testkit.NewFakeProvider()
+	p.Caps = domain.ProviderCapabilities{CloudAccount: "123456789012", Region: "eu-west-1"}
+	got := detect(t.Context(), fakeHost("linux"), p, "v1")
+	if check(got, "kvm").Name != "" || got.CloudAccount != "123456789012" {
+		t.Fatalf("checks = %+v", got.Checks)
+	}
+}
+
 func TestDetectUnreadable(t *testing.T) {
 	h := fakeHost("windows")
 	h.memoryMB = func() (int, error) { return 0, errors.New("no") }

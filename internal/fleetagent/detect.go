@@ -101,7 +101,8 @@ func detect(ctx context.Context, h host, p fleet.Provider, version string) domai
 		c.MaxDiskGB = cmpOr(c.MaxDiskGB, disk)
 		checks = append(checks, domain.ProviderCheck{Name: "disk", Status: statusOK, Detail: fmt.Sprintf("%d GB free", disk)})
 	}
-	if h.goos == "linux" {
+	// A cloud provider's machines are not on this host, so its KVM says nothing.
+	if h.goos == "linux" && c.CloudAccount == "" {
 		checks = append(checks, kvmCheck(h))
 	}
 	for i := range checks {
