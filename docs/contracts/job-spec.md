@@ -207,12 +207,19 @@ A `model_check` job lists the models of a connection; a job with
    `agent_version` is what the adapter's CLI says here. The provider's own
    words are never reported.
 2. `suitability`: copy `packs/fixtures/model-test` into a fresh work dir,
-   write the code word into `notes.txt` and `<nonce>-ran` into `token.txt`,
-   and run the agent there with `prompt`, `schema`, `max_turns` and
-   `timeout`, on `endpoint` with `env`, as for an organization's connection.
+   write the code word into `notes.txt` and a random token of the worker's
+   into `token.txt`, and run the agent there with `prompt`, `schema`,
+   `max_turns` and `timeout`, on `endpoint` with `env` plus
+   `FORECREW_CHECK_SALT`, another random value of the worker's, as for an
+   organization's connection.
    Never clone `repo`, commit or push. Complete with `succeeded` and the
    output `{output, error, read, edited, ran, turns, agent_version}`:
    `output` is the agent's answer when it matched `schema`, `read` whether
    its final answer named the code word, `edited` whether `greeting.txt`
-   holds `hello, forecrew`, `ran` whether `.check-ran` holds the token. A
+   holds `hello, forecrew`, `ran` whether `.check-ran` holds what `check.sh`
+   derives from the token and the salt (the first 16 hex digits of the
+   SHA-256 of both). That shows the agent used a shell that knew the
+   per-run salt, as running `check.sh` does, not that `check.sh` itself ran.
+   The salt's name has no `SECRET`, `KEY` or `TOKEN` in it, which some
+   agents' shells drop. A
    missing agent gives the job back (`retry`).

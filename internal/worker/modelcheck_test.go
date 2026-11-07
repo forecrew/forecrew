@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -92,8 +93,8 @@ func report(t *testing.T, c Completion) domain.SuitabilityReport {
 func TestASuitabilityTestRunsOnTheFixture(t *testing.T) {
 	var saw []string
 	all := runtime.Script{
-		Edits:  []runtime.ScriptEdit{{Path: "greeting.txt", Content: "hello, forecrew\n"}, {Path: ".check-ran", Content: "fcnonce-ran\n"}},
-		Output: json.RawMessage(`{"code_word":"fcnonce","command_output":"check: fcnonce-ran","done":true}`), Turns: 6,
+		Edits:  []runtime.ScriptEdit{{Path: "greeting.txt", Content: "hello, forecrew\n"}},
+		Output: json.RawMessage(`{"code_word":"fcnonce","command_output":"check","done":true}`), Turns: 6,
 		Usage: domain.Usage{InputTokens: 100, OutputTokens: 10},
 	}
 	e := newEnv(t, funcAdapter{fn: func(ctx context.Context, spec runtime.RunSpec, emit func(domain.JobEvent)) (runtime.Result, error) {
@@ -102,9 +103,11 @@ func TestASuitabilityTestRunsOnTheFixture(t *testing.T) {
 			saw = append(saw, en.Name())
 		}
 		notes, _ := os.ReadFile(filepath.Join(spec.WorkDir, "notes.txt"))
-		if !strings.Contains(string(notes), "code word: fcnonce") || spec.MaxTurns != 15 {
-			t.Errorf("notes %q, max turns %d", notes, spec.MaxTurns)
+		token, _ := os.ReadFile(filepath.Join(spec.WorkDir, "token.txt"))
+		if !strings.Contains(string(notes), "code word: fcnonce") || strings.Contains(string(token), "fcnonce") || spec.MaxTurns != 15 {
+			t.Errorf("notes %q, token %q, max turns %d", notes, token, spec.MaxTurns)
 		}
+		runCheck(t, spec)
 		return scriptAdapter(t, all).Run(ctx, spec, emit)
 	}})
 	s := e.testSpec()
@@ -133,5 +136,57 @@ func TestASuitabilityTestRunsOnTheFixture(t *testing.T) {
 	s3.Runtime = "missing"
 	if c := e3.doComplete(s3); c.Status != StatusRetry {
 		t.Fatalf("missing agent = %+v", c)
+	}
+}
+
+// runCheck runs check.sh as an agent would, with the run's environment.
+func runCheck(t *testing.T, spec runtime.RunSpec) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "sh", "check.sh")
+	cmd.Dir = spec.WorkDir
+	cmd.Env = append(os.Environ(), CheckSaltEnv+"="+spec.Env[CheckSaltEnv])
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("check.sh: %v %s", err, out)
+	}
+}
+
+// TestASuitabilityTestCannotBeFaked: an agent that guesses, or writes what
+// the worker looks for instead of doing it, passes nothing.
+func TestASuitabilityTestCannotBeFaked(t *testing.T) {
+	for name, tt := range map[string]struct {
+		run  func(t *testing.T, spec runtime.RunSpec) string // returns the answer
+		want func(domain.SuitabilityReport) bool
+	}{
+		"code word from the token file": {func(_ *testing.T, spec runtime.RunSpec) string {
+			token, _ := os.ReadFile(filepath.Join(spec.WorkDir, "token.txt"))
+			return `{"code_word":"` + strings.TrimSpace(string(token)) + `","command_output":"x","done":true}`
+		}, func(r domain.SuitabilityReport) bool { return !r.Read }},
+		"check line written by hand": {func(t *testing.T, spec runtime.RunSpec) string {
+			token, _ := os.ReadFile(filepath.Join(spec.WorkDir, "token.txt"))
+			must(t, os.WriteFile(filepath.Join(spec.WorkDir, ".check-ran"), token, 0o600))
+			return `{"code_word":"x","command_output":"x","done":true}`
+		}, func(r domain.SuitabilityReport) bool { return !r.Ran }},
+		"check line without the salt": {func(t *testing.T, spec runtime.RunSpec) string {
+			token, _ := os.ReadFile(filepath.Join(spec.WorkDir, "token.txt"))
+			must(t, os.WriteFile(filepath.Join(spec.WorkDir, ".check-ran"), []byte(CheckLine(strings.TrimSpace(string(token)), "")), 0o600))
+			return `{"code_word":"x","command_output":"x","done":true}`
+		}, func(r domain.SuitabilityReport) bool { return !r.Ran }},
+		"greeting almost right": {func(t *testing.T, spec runtime.RunSpec) string {
+			must(t, os.WriteFile(filepath.Join(spec.WorkDir, "greeting.txt"), []byte("hello, forecrew!"), 0o600))
+			return `{"code_word":"x","command_output":"x","done":true}`
+		}, func(r domain.SuitabilityReport) bool { return !r.Edited }},
+		"answer not matching the schema": {func(_ *testing.T, _ runtime.RunSpec) string {
+			return `{"code_word":"fcnonce"}`
+		}, func(r domain.SuitabilityReport) bool { return len(r.Output) == 0 && r.Error != "" }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t, funcAdapter{fn: func(ctx context.Context, spec runtime.RunSpec, emit func(domain.JobEvent)) (runtime.Result, error) {
+				answer := tt.run(t, spec)
+				return scriptAdapter(t, runtime.Script{Output: json.RawMessage(answer)}).Run(ctx, spec, emit)
+			}})
+			if r := report(t, e.doComplete(e.testSpec())); !tt.want(r) {
+				t.Fatalf("faked = %+v", r)
+			}
+		})
 	}
 }
