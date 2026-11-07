@@ -12,7 +12,7 @@ runs there and only dials out to forecrewd. It needs:
 | `proxmox` | Linux next to Proxmox | an API token in a local file (the installer asks for it), the datacenter firewall on, a template per image ([fleet.md](../fleet.md#proxmox-locations)) |
 | `hyperv` | Windows | Hyper-V, `powershell.exe`, a virtual switch, trusted image keys ([fleet.md](../fleet.md#hyper-v-locations)) |
 | `tart` | Apple silicon | `tart` and `softnet` on PATH, a Mac that never sleeps, trusted image keys ([fleet.md](../fleet.md#macos-locations-tart)) |
-| `aws` | an EC2 instance in your account | its instance role |
+| `aws` | an EC2 instance in your account | its instance role; the kit in [byoc-aws.md](byoc-aws.md) makes both |
 
 ## Add with a join code
 
