@@ -75,6 +75,17 @@ describe("policies", () => {
     expect(screen.getByText("Build", { selector: "span" }).closest("li")).toHaveTextContent("Linux Small")
   })
 
+  test("trust zones say they are hidden, not empty, without worker.read", async () => {
+    let shapes = 0
+    as("worker.read")
+    server.use(http.get("/api/v1/shapes", () => (shapes++, HttpResponse.json(fx.shapes))))
+    const { user } = await renderApp("/settings/policies")
+    await user.click(await screen.findByRole("button", { name: "Trust zones" }))
+    expect(await screen.findByText(/Hidden\. Seeing which machine types run in each zone needs/)).toHaveTextContent("worker.read")
+    expect(screen.queryByText("Reasoning", { selector: "span" })).toBeNull()
+    expect(shapes).toBe(0)
+  })
+
   test("a rejected plan says why, in place", async () => {
     server.use(http.post("/api/v1/config/plans", () => HttpResponse.json({ error: { code: "invalid_input", message: "egress host is not valid" } }, { status: 400 })))
     const { user } = await renderApp("/settings/policies")
@@ -151,6 +162,18 @@ describe("change history", () => {
     await user.click(within(dialog).getByRole("button", { name: "Make a plan" }))
     expect(await within(dialog).findByRole("region", { name: /Change plan/ })).toBeInTheDocument()
     await waitFor(() => expect(imported).toEqual({ yaml: "kind: provider" }))
+  })
+
+  test("Export needs config.read and Import needs config.apply, and each says so", async () => {
+    as("config.read", "config.apply")
+    server.use(http.get("/api/v1/me", () => HttpResponse.json({ ...fx.me, permissions: [...fx.me.permissions.filter((p) => !["config.read", "config.apply"].includes(p)), "audit.read"] })))
+    await renderApp("/settings/history")
+    const exportButton = await screen.findByRole("button", { name: "Export YAML" })
+    expect(exportButton).toBeDisabled()
+    expect(exportButton).toHaveAccessibleDescription("Needs config.read")
+    const importButton = screen.getByRole("button", { name: "Import" })
+    expect(importButton).toBeDisabled()
+    expect(importButton).toHaveAccessibleDescription("Needs config.apply")
   })
 
   test("the audit log is the other tab", async () => {

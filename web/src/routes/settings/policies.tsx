@@ -34,7 +34,8 @@ function Rules({ resource }: { resource: ConfigResource }) {
   const policy = resource.spec as Policy
   const can = useCan()
   const draft = useDraft()
-  const shapes = useShapes()
+  const seesZones = can("worker.read")
+  const shapes = useShapes(seesZones)
   const [routing, setRouting] = useState<FleetRouting>()
   const [machines, setMachines] = useState<string>()
   const [budget, setBudget] = useState<string>()
@@ -114,14 +115,20 @@ function Rules({ resource }: { resource: ConfigResource }) {
         <CollapsibleTrigger render={<Button variant="link" className="h-auto p-0" />}>Trust zones</CollapsibleTrigger>
         <CollapsibleContent className="mt-2 space-y-2 text-sm">
           <p className="text-muted-foreground">Which agents run where, and what they may receive. Each machine type has one; change it from its settings on Machines.</p>
-          <ul>
-            {zones.map((z) => (
-              <li key={z}>
-                <span className="font-medium">{ZONES[z] ?? humanName(z)}</span>:{" "}
-                {(shapes.data ?? []).filter((s) => s.pool === z).map((s) => humanName(s.name)).join(", ")}
-              </li>
-            ))}
-          </ul>
+          {seesZones ? (
+            <ul>
+              {zones.map((z) => (
+                <li key={z}>
+                  <span className="font-medium">{ZONES[z] ?? humanName(z)}</span>:{" "}
+                  {(shapes.data ?? []).filter((s) => s.pool === z).map((s) => humanName(s.name)).join(", ")}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>
+              Hidden. Seeing which machine types run in each zone needs <code className="font-mono">worker.read</code>.
+            </p>
+          )}
         </CollapsibleContent>
       </Collapsible>
     </div>
