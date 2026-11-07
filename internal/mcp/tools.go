@@ -123,20 +123,21 @@ const (
 	ToolGetTrace               = "get_trace"
 	ToolListImages             = "list_images"
 
-	ToolListTrackerConnections  = "list_tracker_connections"
-	ToolCreateTrackerConnection = "create_tracker_connection"
-	ToolDeleteTrackerConnection = "delete_tracker_connection"
-	ToolDiscardTrackerWrites    = "discard_tracker_writes"
-	ToolTestTrackerConnection   = "test_tracker_connection"
-	ToolListTrackerRoutes       = "list_tracker_routes"
-	ToolCreateTrackerRoute      = "create_tracker_route"
-	ToolDeleteTrackerRoute      = "delete_tracker_route"
-	ToolListTrackerIdentities   = "list_tracker_identities"
-	ToolMapTrackerIdentity      = "map_tracker_identity"
-	ToolUnmapTrackerIdentity    = "unmap_tracker_identity"
-	ToolListTicketsWaiting      = "list_tickets_waiting"
-	ToolAcceptTicket            = "accept_ticket"
-	ToolDismissTicket           = "dismiss_ticket"
+	ToolListTrackerConnections    = "list_tracker_connections"
+	ToolCreateTrackerConnection   = "create_tracker_connection"
+	ToolDeleteTrackerConnection   = "delete_tracker_connection"
+	ToolDiscardTrackerWrites      = "discard_tracker_writes"
+	ToolTestTrackerConnection     = "test_tracker_connection"
+	ToolListTrackerRoutes         = "list_tracker_routes"
+	ToolCreateTrackerRoute        = "create_tracker_route"
+	ToolDeleteTrackerRoute        = "delete_tracker_route"
+	ToolListTrackerIdentities     = "list_tracker_identities"
+	ToolMapTrackerIdentity        = "map_tracker_identity"
+	ToolUnmapTrackerIdentity      = "unmap_tracker_identity"
+	ToolListUnmappedTrackerPeople = "list_unmapped_tracker_people"
+	ToolListTicketsWaiting        = "list_tickets_waiting"
+	ToolAcceptTicket              = "accept_ticket"
+	ToolDismissTicket             = "dismiss_ticket"
 
 	ToolConfigSchema       = "config_schema"
 	ToolConfigGet          = "config_get"
@@ -176,7 +177,7 @@ func Tools() []string {
 		ToolListServiceAccounts, ToolCreateServiceAccount, ToolUpdateServiceAccount, ToolSetServiceAccount,
 		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview,
 		ToolListTrackerConnections, ToolCreateTrackerConnection, ToolDeleteTrackerConnection, ToolDiscardTrackerWrites, ToolTestTrackerConnection, ToolListTrackerRoutes, ToolCreateTrackerRoute, ToolDeleteTrackerRoute,
-		ToolListTrackerIdentities, ToolMapTrackerIdentity, ToolUnmapTrackerIdentity, ToolListTicketsWaiting, ToolAcceptTicket, ToolDismissTicket,
+		ToolListTrackerIdentities, ToolMapTrackerIdentity, ToolUnmapTrackerIdentity, ToolListUnmappedTrackerPeople, ToolListTicketsWaiting, ToolAcceptTicket, ToolDismissTicket,
 		ToolGetTrace, ToolListKnowledgeProposals, ToolListKnowledge,
 		ToolListImages,
 		ToolConfigSchema, ToolConfigGet, ToolConfigPlan, ToolConfigApply, ToolConfigRevert, ToolConfigExport, ToolConfigImport,
@@ -255,6 +256,8 @@ type ToolService interface {
 	// hold more than the caller (No escalation).
 	MapTrackerIdentity(ctx context.Context, by domain.Actor, in MapTrackerIdentityInput) (domain.TrackerIdentity, error)
 	UnmapTrackerIdentity(ctx context.Context, by domain.Actor, in TrackerIdentityRefInput) (domain.TrackerIdentity, error)
+	// ListUnmappedTrackerPeople lists who handed tickets over and is mapped to no user.
+	ListUnmappedTrackerPeople(ctx context.Context, by domain.Actor, in TrackerConnectionFilterInput) (UnmappedTrackerPeople, error)
 	// ListTicketsWaiting lists the tickets in the Inbox.
 	ListTicketsWaiting(ctx context.Context, by domain.Actor, in ListTicketsWaitingInput) ([]TicketInfo, error)
 	// AcceptTicket starts a waiting ticket's goal as the caller, or queues it
@@ -1283,11 +1286,21 @@ type TrackerCheck struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+// TrackerState is a state or column of a tracker, as a route can map to it.
+// Name is the tracker's own text.
+type TrackerState struct {
+	Name   string `json:"name"`
+	Closed bool   `json:"closed,omitempty"`
+}
+
 // TrackerConnectionTest is the answer of test_tracker_connection.
 type TrackerConnectionTest struct {
 	Connection string         `json:"connection"`
 	OK         bool           `json:"ok"`
 	Checks     []TrackerCheck `json:"checks"`
+	// States are the tracker's states, read when every check passed: what
+	// a route's mapping can choose from.
+	States []TrackerState `json:"states,omitempty"`
 }
 
 // TrackerConnectionFilterInput narrows a list to one connection.
@@ -1338,6 +1351,9 @@ type TrackerIdentityRefInput struct {
 // ListTicketsWaitingInput is the input of list_tickets_waiting.
 type ListTicketsWaitingInput struct {
 	Project string `json:"project,omitempty"` // name or repo
+	// Queued adds the tickets accepted and queued under the limit of goals at
+	// work in their project.
+	Queued bool `json:"queued,omitempty"`
 	// WrapUntrusted marks ticket titles, as in SearchKnowledgeInput.
 	WrapUntrusted bool `json:"-"`
 }
@@ -1362,6 +1378,33 @@ type TicketInfo struct {
 	Project    string `json:"project,omitempty"`
 	GateRef    string `json:"gate_ref,omitempty"` // GATE-7: its ticket_intake gate
 	GoalRef    string `json:"goal_ref,omitempty"` // GOAL-3
+	// Limit is trackers.max_active_goals, on a queued ticket: why it waits.
+	Limit int `json:"limit,omitempty"`
+}
+
+// PersonSuggestion is a member who may be the person on a tracker.
+type PersonSuggestion struct {
+	User   uuid.UUID `json:"user"`
+	Name   string    `json:"name"`
+	Reason string    `json:"reason"` // for people to read: same name
+}
+
+// UnmappedTrackerPerson is someone on a tracker who handed Forecrew tickets
+// and is mapped to no user. ExternalName and the tickets' keys are the
+// tracker's text.
+type UnmappedTrackerPerson struct {
+	Connection   string             `json:"connection"`
+	ExternalID   string             `json:"external_id"`
+	ExternalName string             `json:"external_name,omitempty"`
+	Tickets      []string           `json:"tickets"`
+	Suggestions  []PersonSuggestion `json:"suggestions"`
+}
+
+// UnmappedTrackerPeople is the answer of list_unmapped_tracker_people.
+// Problems say which connection could not be read; the rest still answers.
+type UnmappedTrackerPeople struct {
+	People   []UnmappedTrackerPerson `json:"people"`
+	Problems []string                `json:"problems,omitempty"`
 }
 
 // GetTraceInput is the input of get_trace.

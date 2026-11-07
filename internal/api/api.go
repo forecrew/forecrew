@@ -159,6 +159,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/tracker-identities", serve(s, http.StatusOK, trackerFilterInput, list(t.ListTrackerIdentities)))
 	route("POST /api/v1/tracker-identities", serve(s, http.StatusCreated, bodyOf[mcp.MapTrackerIdentityInput], t.MapTrackerIdentity))
 	route("DELETE /api/v1/tracker-identities/{identity}", serve(s, http.StatusOK, trackerIdentityInput, t.UnmapTrackerIdentity))
+	route("GET /api/v1/tracker-people/unmapped", serve(s, http.StatusOK, trackerFilterInput, t.ListUnmappedTrackerPeople))
 	route("GET /api/v1/tickets/waiting", serve(s, http.StatusOK, ticketsWaitingInput, list(t.ListTicketsWaiting)))
 	route("POST /api/v1/tickets/{ticket}/accept", serve(s, http.StatusOK, acceptTicketInput, t.AcceptTicket))
 	route("POST /api/v1/tickets/{ticket}/dismiss", serve(s, http.StatusOK, dismissTicketInput, t.DismissTicket))
@@ -324,6 +325,7 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/tracker-identities":                               tool[mcp.ToolListTrackerIdentities],
 		"POST /api/v1/tracker-identities":                              tool[mcp.ToolMapTrackerIdentity],
 		"DELETE /api/v1/tracker-identities/{identity}":                 tool[mcp.ToolUnmapTrackerIdentity],
+		"GET /api/v1/tracker-people/unmapped":                          tool[mcp.ToolListUnmappedTrackerPeople],
 		"GET /api/v1/tickets/waiting":                                  tool[mcp.ToolListTicketsWaiting],
 		"POST /api/v1/tickets/{ticket}/accept":                         tool[mcp.ToolAcceptTicket],
 		"POST /api/v1/tickets/{ticket}/dismiss":                        tool[mcp.ToolDismissTicket],
@@ -754,7 +756,8 @@ func trackerIdentityInput(r *http.Request) (mcp.TrackerIdentityRefInput, error) 
 }
 
 func ticketsWaitingInput(r *http.Request) (mcp.ListTicketsWaitingInput, error) {
-	return mcp.ListTicketsWaitingInput{Project: r.URL.Query().Get("project")}, nil
+	q := r.URL.Query()
+	return mcp.ListTicketsWaitingInput{Project: q.Get("project"), Queued: q.Get("queued") == "true"}, nil
 }
 
 func acceptTicketInput(r *http.Request) (mcp.AcceptTicketInput, error) {
