@@ -3,6 +3,7 @@ package testkit
 import (
 	"bytes"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 	"uuid"
@@ -23,6 +24,7 @@ func FleetStoreSuite(t *testing.T, st store.Store, account, project uuid.UUID) {
 	s.tokens(prov, shape)
 	s.policies()
 	s.joinCodes(prov)
+	s.usage(prov, shape)
 }
 
 type fleetSuite struct {
@@ -435,4 +437,77 @@ func (s *fleetSuite) joinCodes(prov domain.CapacityProvider) {
 	s.must(s.st.CapacityProviders().Create(ctx, &gone))
 	s.must(s.st.CapacityProviders().SetStatus(ctx, gone.ID, domain.ProviderRevoked))
 	s.want(s.st.CapacityProviders().SetToken(ctx, gone.ID, fleetHash(40)), store.ErrNotFound)
+}
+
+func (s *fleetSuite) usage(prov domain.CapacityProvider, shape domain.Shape) {
+	ctx := s.t.Context()
+	r := s.st.Usage()
+	m := domain.Machine{AccountID: s.account, ProviderID: prov.ID, ShapeID: shape.ID}
+	s.must(s.st.Machines().Create(ctx, &m))
+	s.must(s.st.Machines().UpdateState(ctx, m.ID, domain.MachineRequested, domain.MachineDestroyed, ""))
+	var since time.Time // the fake's clock is the test's
+	missed, err := r.Unmetered(ctx, since, 0)
+	s.must(err)
+	if !slices.ContainsFunc(missed, func(x domain.Machine) bool { return x.ID == m.ID }) {
+		s.t.Fatalf("unmetered = %+v, want machine %s", missed, m.ID)
+	}
+	start := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	u := domain.UsageRecord{AccountID: s.account, MachineID: m.ID, ShapeID: shape.ID, Ownership: domain.OwnershipOwn,
+		Minutes: 12.3456, Cost: 0.1234567, StartedAt: start, EndedAt: start.Add(12 * time.Minute)}
+	s.must(r.Create(ctx, &u))
+	if u.ID == uuid.Nil() || u.Minutes != 12.346 || u.Cost != 0.123457 {
+		s.t.Fatalf("stored %+v", u)
+	}
+	again := u
+	again.ID = uuid.Nil()
+	s.want(r.Create(ctx, &again), store.ErrConflict) // one per machine
+	bad := u
+	bad.ID, bad.Minutes = uuid.Nil(), -1
+	if err := r.Create(ctx, &bad); !errors.Is(err, domain.ErrInvalidRecord) {
+		s.t.Fatalf("negative minutes: %v", err)
+	}
+	// The organization and shape are the machine's own.
+	other := domain.Machine{AccountID: s.account, ProviderID: prov.ID, ShapeID: shape.ID}
+	s.must(s.st.Machines().Create(ctx, &other))
+	wrong := domain.UsageRecord{AccountID: domain.NewID(), MachineID: other.ID, ShapeID: shape.ID, Ownership: domain.OwnershipOwn, StartedAt: start, EndedAt: start}
+	if err := r.Create(ctx, &wrong); err == nil {
+		s.t.Fatal("a record landed on another organization")
+	}
+	missed, err = r.Unmetered(ctx, since, 0)
+	s.must(err)
+	if slices.ContainsFunc(missed, func(x domain.Machine) bool { return x.ID == m.ID }) {
+		s.t.Fatal("a metered machine is still unmetered")
+	}
+
+	list, err := r.List(ctx, s.account, store.UsageFilter{From: start, To: start.Add(time.Hour)})
+	s.must(err)
+	if len(list) != 1 || list[0].MachineID != m.ID {
+		s.t.Fatalf("list = %+v", list)
+	}
+	for name, f := range map[string]store.UsageFilter{
+		"before":    {To: start},
+		"after":     {From: start.Add(time.Hour)},
+		"shape":     {ShapeID: domain.NewID()},
+		"ownership": {Ownership: domain.OwnershipHosted},
+	} {
+		if list, err := r.List(ctx, s.account, f); err != nil || len(list) != 0 {
+			s.t.Fatalf("%s: %+v %v", name, list, err)
+		}
+	}
+	sum, err := r.Sum(ctx, s.account, store.UsageFilter{})
+	s.must(err)
+	if sum.Minutes != 12.346 || sum.Cost != 0.123457 {
+		s.t.Fatalf("sum = %+v", sum)
+	}
+	if sum, err := r.Sum(ctx, domain.NewID(), store.UsageFilter{}); err != nil || sum != (store.UsageTotal{}) {
+		s.t.Fatalf("sum of another organization = %+v %v", sum, err)
+	}
+	byProvider, err := r.SumByProvider(ctx, prov.ID, start, start.Add(time.Hour))
+	s.must(err)
+	if byProvider != sum {
+		s.t.Fatalf("by provider = %+v, want %+v", byProvider, sum)
+	}
+	if t, err := r.SumByProvider(ctx, domain.NewID(), time.Time{}, time.Time{}); err != nil || t != (store.UsageTotal{}) {
+		s.t.Fatalf("other provider = %+v %v", t, err)
+	}
 }

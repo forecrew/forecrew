@@ -101,6 +101,7 @@ type Store interface {
 	BootstrapTokens() BootstrapTokenRepo
 	FleetPolicies() FleetPolicyRepo
 	Images() ImageRepo
+	Usage() UsageRepo
 	ConfigPlans() ConfigPlanRepo
 	ConfigSettings() ConfigSettingRepo
 	ModelConnections() ModelConnectionRepo
@@ -1164,8 +1165,7 @@ type SCIMTokenRepo interface {
 }
 
 // The fleet repositories (docs/contracts/fleet.md, data-model.md, migration
-// 00007). UsageRepo is a contract only until it joins Store, with the Postgres
-// implementation and the testkit fake, by T65. They serve a controller that works across organizations, so the calls
+// 00007). They serve a controller that works across organizations, so the calls
 // that find a provider, machine or token by its ID or hash are unscoped; the
 // zero account ID means the instance-wide rows.
 
@@ -1368,6 +1368,9 @@ type UsageRepo interface {
 	// SumByProvider sums a provider's records of every organization, for
 	// its monthly budget.
 	SumByProvider(ctx context.Context, providerID uuid.UUID, from, to time.Time) (UsageTotal, error)
+	// Unmetered returns destroyed machines of an organization with no record,
+	// destroyed at or after since, oldest first: what metering missed.
+	Unmetered(ctx context.Context, since time.Time, limit int) ([]domain.Machine, error)
 }
 
 // TrackerConnectionRepo stores tracker connections. (account, name) is
