@@ -38,9 +38,15 @@ const (
 const UnusedClientTTL = 30 * 24 * time.Hour
 
 // MaxUnusedClients caps the registrations nobody has authorized yet: past it,
-// a new one waits until the sweep or a consent makes room. Rate limits bound
-// how fast they come, this bounds how many rows they leave.
+// a new one replaces the oldest of them, so flooding the registration
+// endpoint never locks a real app out. Rate limits bound how fast they come,
+// this bounds how many rows they leave.
 const MaxUnusedClients = 1000
+
+// NeverUsedClientTTL is how long a client nobody has authorized stays
+// registered: long enough to finish a sign-in, short enough that a flood
+// leaves nothing behind for long.
+const NeverUsedClientTTL = 12 * time.Hour
 
 // SweepEvery is how often expired grants and unused clients are deleted.
 const SweepEvery = time.Hour
@@ -182,6 +188,9 @@ func (s *Server) RunSweep(ctx context.Context, every time.Duration) {
 func (s *Server) Sweep(ctx context.Context) error {
 	now := s.cfg.Now()
 	if _, err := s.cfg.Store.OAuth().DeleteExpiredGrants(ctx, now); err != nil {
+		return err
+	}
+	if _, err := s.cfg.Store.OAuth().DeleteNeverUsedClients(ctx, now.Add(-NeverUsedClientTTL)); err != nil {
 		return err
 	}
 	_, err := s.cfg.Store.OAuth().DeleteUnusedClients(ctx, now.Add(-UnusedClientTTL))

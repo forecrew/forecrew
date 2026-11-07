@@ -73,6 +73,7 @@ func (s *identitySuite) oauthClient() domain.OAuthClient {
 	if n, err := r.CountUnusedClients(ctx); err != nil || n != before {
 		s.t.Fatalf("a used client counts as unused: %d, %v", n, err)
 	}
+	s.oauthEviction(client)
 	return client
 }
 
@@ -185,6 +186,37 @@ func (s *identitySuite) oauthMembership(client domain.OAuthClient) {
 	if !revoked(g) {
 		s.t.Fatal("removing the member kept the grant")
 	}
+}
+
+// oauthEviction checks that only clients nobody used make room or expire.
+func (s *identitySuite) oauthEviction(used domain.OAuthClient) {
+	ctx := s.t.Context()
+	r := s.st.OAuth()
+	for _, id := range []string{"evict-a", "evict-b"} {
+		s.must(r.CreateClient(ctx, &domain.OAuthClient{ClientID: id, Name: id, RedirectURIs: []string{"https://tool.example/cb"}}))
+	}
+	s.must(r.DeleteOldestUnusedClient(ctx))
+	if _, err := r.GetClient(ctx, used.ClientID); err != nil {
+		s.t.Fatalf("a used client was evicted: %v", err)
+	}
+	if _, err := r.GetClient(ctx, "evict-b"); err != nil {
+		s.t.Fatalf("the newer client was evicted: %v", err)
+	}
+	_, err := r.GetClient(ctx, "evict-a")
+	s.wantErr(err, store.ErrNotFound)
+	if n, err := r.DeleteNeverUsedClients(ctx, time.Now().Add(-time.Hour)); err != nil || n != 0 {
+		s.t.Fatalf("a client younger than its lifetime was deleted: %d, %v", n, err)
+	}
+	if n, err := r.DeleteNeverUsedClients(ctx, time.Now().Add(time.Hour)); err != nil || n < 1 {
+		s.t.Fatalf("DeleteNeverUsedClients = %d, %v", n, err)
+	}
+	if _, err := r.GetClient(ctx, used.ClientID); err != nil {
+		s.t.Fatalf("a used client expired: %v", err)
+	}
+	if n, err := r.CountUnusedClients(ctx); err != nil || n != 0 {
+		s.t.Fatalf("unused clients left: %d, %v", n, err)
+	}
+	s.must(r.DeleteOldestUnusedClient(ctx)) // none left: nothing to do
 }
 
 func (s *identitySuite) oauthSweep(client domain.OAuthClient, expired uuid.UUID) {

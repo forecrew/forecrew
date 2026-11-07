@@ -1036,6 +1036,12 @@ type OAuthRepo interface {
 	// CountUnusedClients counts the clients never used and without grants:
 	// registrations nobody has authorized yet.
 	CountUnusedClients(ctx context.Context) (int, error)
+	// DeleteNeverUsedClients deletes the clients never used and without
+	// grants that were registered before t, and returns how many.
+	DeleteNeverUsedClients(ctx context.Context, t time.Time) (int, error)
+	// DeleteOldestUnusedClient deletes the oldest client never used and
+	// without grants; nothing when there is none.
+	DeleteOldestUnusedClient(ctx context.Context) error
 	CreateGrant(ctx context.Context, g *domain.OAuthGrant) error
 	// GetGrant finds a grant by ID, whatever its state; it is unscoped like
 	// GetGrantByTokenHash.
