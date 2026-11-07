@@ -77,17 +77,50 @@ func (r oauthRepo) DeleteUnusedClients(_ context.Context, t time.Time) (int, err
 	return n, err
 }
 
+// neverUsed reports whether nobody ever authorized c.
+func (d *storeData) neverUsed(c domain.OAuthClient) bool {
+	return c.LastUsedAt.IsZero() && !slices.ContainsFunc(d.identity.oauthGrants.rows, func(g domain.OAuthGrant) bool { return g.ClientID == c.ID })
+}
+
 func (r oauthRepo) CountUnusedClients(_ context.Context) (int, error) {
 	n := 0
 	err := r.s.do(func(d *storeData, _ time.Time) error {
 		for _, c := range d.identity.oauthClients.rows {
-			if c.LastUsedAt.IsZero() && !slices.ContainsFunc(d.identity.oauthGrants.rows, func(g domain.OAuthGrant) bool { return g.ClientID == c.ID }) {
+			if d.neverUsed(c) {
 				n++
 			}
 		}
 		return nil
 	})
 	return n, err
+}
+
+func (r oauthRepo) DeleteNeverUsedClients(_ context.Context, t time.Time) (int, error) {
+	n := 0
+	err := r.s.do(func(d *storeData, _ time.Time) error {
+		rows := &d.identity.oauthClients.rows
+		before := len(*rows)
+		*rows = slices.DeleteFunc(slices.Clone(*rows), func(c domain.OAuthClient) bool { return c.CreatedAt.Before(t) && d.neverUsed(c) })
+		n = before - len(*rows)
+		return nil
+	})
+	return n, err
+}
+
+func (r oauthRepo) DeleteOldestUnusedClient(_ context.Context) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		rows := &d.identity.oauthClients.rows
+		oldest := -1
+		for i, c := range *rows {
+			if d.neverUsed(c) && (oldest < 0 || cmp.Or(c.CreatedAt.Compare((*rows)[oldest].CreatedAt), bytes.Compare(c.ID[:], (*rows)[oldest].ID[:])) < 0) {
+				oldest = i
+			}
+		}
+		if oldest >= 0 {
+			*rows = slices.Delete(slices.Clone(*rows), oldest, oldest+1)
+		}
+		return nil
+	})
 }
 
 func (r oauthRepo) CreateGrant(_ context.Context, g *domain.OAuthGrant) error {

@@ -172,20 +172,24 @@ func (s *Server) registerClient(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, out)
 }
 
-// errTooManyClients is a registration past MaxUnusedClients.
-var errTooManyClients = refuse(http.StatusServiceUnavailable, "temporarily_unavailable", "too many apps are registered and not yet used here; try again later")
-
-// createClient stores a new client, unless too many wait for their first use.
+// createClient stores a new client. When too many wait for their first use,
+// the oldest of them goes: a flood of registrations pushes out its own rows,
+// never the apps people use, and never refuses the next one.
 func (s *Server) createClient(ctx context.Context, c *domain.OAuthClient) error {
-	n, err := s.cfg.Store.OAuth().CountUnusedClients(ctx)
+	repo := s.cfg.Store.OAuth()
+	n, err := repo.CountUnusedClients(ctx)
 	if err != nil {
 		return err
 	}
 	if n >= s.cfg.MaxUnusedClients {
-		s.cfg.Logger.WarnContext(ctx, "oauth client refused: too many unused clients", "unused", n)
-		return errTooManyClients
+		s.cfg.Logger.WarnContext(ctx, "unused oauth clients at the cap: the oldest make room", "unused", n)
 	}
-	return s.cfg.Store.OAuth().CreateClient(ctx, c)
+	for ; n >= s.cfg.MaxUnusedClients; n-- {
+		if err := repo.DeleteOldestUnusedClient(ctx); err != nil {
+			return err
+		}
+	}
+	return repo.CreateClient(ctx, c)
 }
 
 // metadataURL reports whether a client_id has the form of a client ID
@@ -270,9 +274,7 @@ func (s *Server) resolveClient(ctx context.Context, clientID, address string) (d
 	c, err := repo.GetClient(ctx, clientID)
 	if errors.Is(err, store.ErrNotFound) {
 		c = domain.OAuthClient{ClientID: clientID, Name: cleanName(d.ClientName), RedirectURIs: d.RedirectURIs}
-		if err := s.createClient(ctx, &c); errors.Is(err, errTooManyClients) {
-			return c, errUnknownClient
-		} else if !errors.Is(err, store.ErrConflict) {
+		if err := s.createClient(ctx, &c); !errors.Is(err, store.ErrConflict) {
 			return c, err
 		}
 		c, err = repo.GetClient(ctx, clientID) // created meanwhile

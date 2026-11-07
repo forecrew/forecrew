@@ -122,10 +122,12 @@ Rules a client may meet:
   ignored when asked for.
 - Registration, the token endpoint and the reading of metadata documents are
   rate limited by address (`429`). Clients nobody used for 30 days and that
-  hold no grant are deleted; a dynamic client then registers again. At most
-  1000 registered apps may wait for their first consent; past that,
-  registration answers `503` `temporarily_unavailable` until one is used or
-  swept.
+  hold no grant are deleted; a dynamic client then registers again. A client
+  nobody has authorized at all is deleted after 12 hours, and at most 1000
+  wait for their first consent: past that, each new registration replaces the
+  oldest of them, so a flood of registrations never locks out a real app nor
+  an app in use. A client should register right before sending the person to
+  sign in, and register again if its `client_id` is refused.
 - Refresh one connection at a time. Two refreshes with the same refresh
   token race: one gets the new tokens, the other is a reuse and ends the whole
   connection, the winner's new tokens included. A client must serialize its

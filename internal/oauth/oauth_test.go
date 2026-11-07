@@ -917,25 +917,32 @@ func TestMetadataDocumentClient(t *testing.T) {
 	}
 }
 
-// TestUnusedClientsAreCapped is registrations nobody authorizes: past the
-// cap there is no room for more, until one is used.
+// TestUnusedClientsAreCapped is a flood of registrations nobody authorizes:
+// past the cap the oldest unused one makes room, so a real app still
+// registers, and an app in use is never pushed out.
 func TestUnusedClientsAreCapped(t *testing.T) {
 	e := newEnv(t, func(c *oauth.Config) { c.MaxUnusedClients = 2 })
-	first := e.register(t, callback)
-	e.register(t, callback)
-	body := map[string]any{"client_name": "Third", "redirect_uris": []string{callback}}
-	status, out := e.postJSON(t, "/oauth/register", body)
-	wantError(t, status, out, http.StatusServiceUnavailable, "temporarily_unavailable")
+	used := e.register(t, callback)
+	e.code(t, e.params(used), e.a.Slug)
+	flood := []string{e.register(t, callback), e.register(t, callback)}
+	real := e.register(t, callback)
+	if _, err := e.st.OAuth().GetClient(t.Context(), flood[0]); err == nil {
+		t.Error("the oldest unused client was kept past the cap")
+	}
+	for _, id := range []string{used, flood[1], real} {
+		if _, err := e.st.OAuth().GetClient(t.Context(), id); err != nil {
+			t.Errorf("client %s: %v", id, err)
+		}
+	}
+	if n, err := e.st.OAuth().CountUnusedClients(t.Context()); err != nil || n != 2 {
+		t.Errorf("unused clients = %d, %v", n, err)
+	}
+	e.code(t, e.params(real), e.a.Slug) // the newcomer still works
 
 	id := "https://app.example/client.json"
 	e.docs.set(id, `{"client_id":"`+id+`","client_name":"Doc","redirect_uris":["`+callback+`"]}`)
-	if res, _ := e.get(t, e.params(id), cookie); res.StatusCode != http.StatusBadRequest {
-		t.Errorf("a metadata document past the cap = %d", res.StatusCode)
-	}
-
-	e.code(t, e.params(first), e.a.Slug) // a consent makes room
-	if status, out := e.postJSON(t, "/oauth/register", body); status != http.StatusCreated {
-		t.Fatalf("after a consent = %d %v", status, out)
+	if res, _ := e.get(t, e.params(id), cookie); res.StatusCode != http.StatusOK {
+		t.Errorf("a metadata document at the cap = %d", res.StatusCode)
 	}
 }
 
@@ -967,15 +974,21 @@ func TestSweep(t *testing.T) {
 	}
 	for _, id := range []string{unused, used} {
 		if _, err := e.st.OAuth().GetClient(t.Context(), id); err != nil {
-			t.Errorf("a client younger than 30 days was deleted: %v", err)
+			t.Errorf("a client younger than its lifetime was deleted: %v", err)
 		}
+	}
+	e.now = e.now.Add(oauth.NeverUsedClientTTL) // the store's clock stays real
+	must(t, e.server.Sweep(t.Context()))
+	if _, err := e.st.OAuth().GetClient(t.Context(), unused); err == nil {
+		t.Error("a client nobody authorized outlived its hours")
+	}
+	if _, err := e.st.OAuth().GetClient(t.Context(), used); err != nil {
+		t.Errorf("a client in use was deleted: %v", err)
 	}
 	e.now = e.now.Add(oauth.UnusedClientTTL + time.Hour) // the store's clock stays real
 	must(t, e.server.Sweep(t.Context()))
-	for _, id := range []string{unused, used} {
-		if _, err := e.st.OAuth().GetClient(t.Context(), id); err == nil {
-			t.Errorf("client %s outlived its 30 days without grants", id)
-		}
+	if _, err := e.st.OAuth().GetClient(t.Context(), used); err == nil {
+		t.Errorf("client %s outlived its 30 days without grants", used)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
