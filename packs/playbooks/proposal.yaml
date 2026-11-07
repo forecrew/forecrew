@@ -1,0 +1,50 @@
+description: Follow one improvement proposal from its gate to its result. A human accepts or rejects it, or asks for changes, which the advisor makes before a new gate. Accepting starts its action; a config_pr proposal is done when a human merges the PR, a goal proposal when its goal closes, a setup proposal when the human marks it. Started by forecrewd for each new proposal, with the proposal's ID as the run's.
+inputs: [repo, proposal_id]
+steps:
+  - id: review
+    type: loop
+    max_iterations: 4
+    until: steps.assess.output.settled
+    steps:
+      - id: round
+        type: action
+        action: proposal.round
+        with: {proposal_id: '${inputs.proposal_id}'}
+      - {id: decision, type: wait, with: {signal: gate.resolved, gate_id: '${steps.round.output.gate_id}'}}
+      - id: assess
+        type: action
+        action: proposal.assess
+        with: {proposal_id: '${inputs.proposal_id}'}
+      - id: revise
+        type: foreach
+        items: '${steps.assess.output.if_revise}'
+        steps:
+          - id: advisor
+            type: job
+            with:
+              role: advisor
+              task: revise
+              repo: '${inputs.repo}'
+              feedback: '${item}'
+            on_failure: escalate
+      - id: reopen
+        type: action
+        action: proposal.reopen
+        with: {proposal_id: '${inputs.proposal_id}', jobs: '${steps.revise.output}', settled: '${steps.assess.output.settled}'}
+  - id: carry
+    type: action
+    action: proposal.carry
+    with: {proposal_id: '${inputs.proposal_id}'}
+    on_failure: escalate
+  # A human merges the PR forecrewd wrote.
+  - id: merged
+    type: foreach
+    items: '${steps.carry.output.if_pr}'
+    steps:
+      - {id: pr, type: wait, with: {signal: pr.merged, repo: '${inputs.repo}', number: '${item}'}}
+      - id: ended
+        type: action
+        action: proposal.pr_ended
+        with: {proposal_id: '${inputs.proposal_id}', signal: '${steps.pr.signal}'}
+finally:
+  - {id: abandon, type: action, action: proposal.abandon, with: {proposal_id: '${inputs.proposal_id}'}}

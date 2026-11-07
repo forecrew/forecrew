@@ -541,7 +541,7 @@ func TestGoalV3LearnIsTheLearnPlaybooks(t *testing.T) {
 		}
 	}
 	body = strings.Join(lines, "\n")
-	for _, id := range []string{"history", "retro", "learn", "human", "decide", "merged", "followed", "settle", "decision", "checks", "merge", "pr"} {
+	for _, id := range []string{"history", "retro", "learn", "human", "decide", "merged", "followed", "settle", "decision", "checks", "merge", "pr", "advise"} {
 		body = regexp.MustCompile(`\bid: `+id+`\b`).ReplaceAllString(body, "id: learn_"+id)
 		body = regexp.MustCompile(`steps\.`+id+`\.`).ReplaceAllString(body, "steps.learn_"+id+".")
 	}

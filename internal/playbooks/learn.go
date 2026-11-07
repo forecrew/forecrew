@@ -80,6 +80,13 @@ func (a *actions) retroContext(ctx context.Context, call workflow.ActionCall) (a
 	b.WriteString(retroFailures(jobs))
 	b.WriteString(retroCosts(jobs))
 	b.WriteString(retroNotes(notes))
+	if a.Advisor != nil {
+		outcomes, err := a.Advisor.RetroText(ctx, g.AccountID, g.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		b.WriteString(outcomes)
+	}
 	return retroOutput{Text: b.String(), Notes: min(len(notes), retroMaxNotes)}, nil
 }
 

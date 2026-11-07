@@ -63,3 +63,14 @@ func TestTools(t *testing.T) {
 		t.Fatalf("duplicate tool names: %v", tools)
 	}
 }
+
+func TestGateDecisionRejectingAProposalNeedsAReason(t *testing.T) {
+	in := GateDecisionInput{Gate: "GATE-1"}
+	if _, err := GateDecision(ToolReject, domain.GateImprovementProposal, in); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("no reason: %v", err)
+	}
+	in.Feedback = "not now"
+	if d, err := GateDecision(ToolReject, domain.GateImprovementProposal, in); err != nil || d != domain.GateRejected {
+		t.Fatalf("with a reason: %v, %v", d, err)
+	}
+}

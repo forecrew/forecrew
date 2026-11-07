@@ -368,8 +368,15 @@ func TestEndpointWithoutKey(t *testing.T) {
 
 func TestParseSchedulesAndKnowledge(t *testing.T) {
 	c, err := Parse([]byte(validYAML), env(nil))
-	if err != nil || c.Knowledge.VerifyWindow != DefaultVerifyWindow || len(c.Schedules) != 1 || c.Schedules[0] != (Schedule{Playbook: "curate", Project: "*", Cron: "0 3 * * 1"}) {
-		t.Fatalf("defaults: %+v %+v, %v", c.Knowledge, c.Schedules, err)
+	if err != nil || c.Knowledge.VerifyWindow != DefaultVerifyWindow || !slices.Equal(c.Schedules, DefaultSchedules()) || c.Schedules[0] != (Schedule{Playbook: "curate", Project: "*", Cron: "0 3 * * 1"}) ||
+		c.Schedules[1].Playbook != "advise" || c.Advisor.MaxPerWeek != DefaultMaxProposalsPerWeek {
+		t.Fatalf("defaults: %+v %+v %+v, %v", c.Knowledge, c.Advisor, c.Schedules, err)
+	}
+	if c, err = Parse([]byte(validYAML+"advisor: {max_per_week: 5}\n"), env(nil)); err != nil || c.Advisor.MaxPerWeek != 5 {
+		t.Fatalf("advisor: %+v, %v", c.Advisor, err)
+	}
+	if _, err = Parse([]byte(validYAML+"advisor: {max_per_week: -1}\n"), env(nil)); err == nil || !strings.Contains(err.Error(), "advisor.max_per_week") {
+		t.Fatalf("a negative cap: %v", err)
 	}
 	// An explicit empty list turns the default off.
 	if c, err = Parse([]byte(validYAML+"schedules: []\n"), env(nil)); err != nil || len(c.Schedules) != 0 {

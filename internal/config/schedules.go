@@ -49,6 +49,7 @@ type Advisor struct {
 func DefaultSchedules() []Schedule {
 	return []Schedule{
 		{Playbook: "curate", Project: AllProjects, Cron: "0 3 * * 1"},
+		{Playbook: "advise", Project: AllProjects, Cron: "0 4 * * 1"},
 	}
 }
 
