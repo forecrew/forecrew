@@ -587,6 +587,44 @@ func assumptionRegister(e *env) {
 	}
 }
 
+// improvements makes the proposal tools answer with one proposal of each
+// kind of action, status and outcome the Proposals page shows.
+func improvements(e *env) {
+	base := func(id, number int, status domain.ProposalStatus, category domain.ProposalCategory, title, gate string, a domain.ProposalAction) mcp.ProposalInfo {
+		return mcp.ProposalInfo{Proposal: domain.Proposal{
+			ID: fid(id), AccountID: fid(1), ProjectID: fid(10), Number: int64(number), Scope: domain.ScopeProject, Category: category, Title: title,
+			Rationale: "Nothing scans the dependencies.", Evidence: []domain.ProposalEvidence{{Kind: "security", Ref: "ci", Detail: "2 CI files read"}},
+			Benefit: "Vulnerable packages show up before release.", Effort: domain.EffortS, Risk: domain.LevelLow, Action: a, Status: status,
+			DedupeKey: fmt.Sprintf("signal:%d", number), EvidenceWeight: 1, CreatedAt: at(-120), UpdatedAt: at(-60),
+		}, Ref: fmt.Sprintf("PROP-%d", number), GateRef: gate, CanDecide: !status.Final()}
+	}
+	open := base(300, 3, domain.ProposalProposed, domain.CategorySecurity, "Scan dependencies in CI", "GATE-30",
+		domain.ProposalAction{Goal: &domain.GoalAction{Title: "Add a scan", Body: "Run osv-scanner on each push."}})
+	done := base(301, 2, domain.ProposalDone, domain.CategoryWorkers, "Add a macOS worker", "GATE-20",
+		domain.ProposalAction{Setup: &domain.SetupAction{Instructions: "Run forecrew worker add"}})
+	done.Measure, done.Outcome = &domain.ProposalMeasure{Detector: "workers", Value: 4}, &domain.ProposalOutcome{Before: 4, After: 0, MeasuredAt: at(-30)}
+	setup := base(302, 4, domain.ProposalAccepted, domain.CategoryTooling, "Connect Sentry", "GATE-31",
+		domain.ProposalAction{Setup: &domain.SetupAction{Instructions: "Connect it", Issue: "Add a Sentry adapter"}})
+	setup.Scope = domain.ScopePlatform
+	rejected := base(303, 5, domain.ProposalRejected, domain.CategoryCI, "Build on Windows", "GATE-32",
+		domain.ProposalAction{ConfigPR: &domain.ConfigPRAction{Files: []domain.ConfigFile{{Path: ".forecrew/matrix.yaml", Content: "axes: {}\n"}}}})
+	rejected.Reason = "We ship Linux only"
+	e.svc.ListProposalsFunc = func(context.Context, domain.Actor, mcp.ListProposalsInput) ([]mcp.ProposalInfo, error) {
+		return []mcp.ProposalInfo{open, done, setup, rejected}, nil
+	}
+	e.svc.DecideProposalFunc = func(context.Context, domain.Actor, mcp.DecideProposalInput) (mcp.ProposalInfo, error) {
+		finished := setup
+		finished.Status, finished.CanDecide = domain.ProposalDone, false
+		return finished, nil
+	}
+	e.svc.ListPendingGatesFunc = func(context.Context, domain.Actor, mcp.ProjectFilterInput) ([]mcp.GateInfo, error) {
+		return []mcp.GateInfo{{Gate: domain.Gate{
+			ID: fid(310), AccountID: fid(1), ProjectID: fid(10), Number: 30, Kind: domain.GateImprovementProposal, Status: domain.GatePending, Origin: domain.GateFromPlaybook,
+			Title: open.Title, Summary: "<untrusted-data>raw</untrusted-data>", SubjectRepo: "acme/app", CreatedAt: at(-120),
+		}, Ref: "GATE-30", Project: "app", CanResolve: true, Proposal: &open}}, nil
+	}
+}
+
 func fixtureJob(number int64, status domain.JobStatus, role string, attempts int, started time.Time) domain.Job {
 	return domain.Job{
 		ID: fid(int(number) + 100), AccountID: fid(1), ProjectID: fid(10), Number: number, Status: status, Role: role, Runtime: "claude-code",
@@ -742,6 +780,9 @@ func baseFixtureCases() []fixtureCase {
 				return mcp.CouncilInfo{}, fmt.Errorf("COUNCIL-3 is decided: %w", domain.ErrInvalidTransition)
 			}
 		}},
+		{"proposals", "GET", "/api/v1/proposals?project=app", "", 200, "bearer", improvements},
+		{"proposal-decide", "POST", "/api/v1/proposals/PROP-4/decide", `{"decision":"done"}`, 200, "bearer", improvements},
+		{"gates-proposal", "GET", "/api/v1/gates", "", 200, "bearer", improvements},
 		{"assumptions", "GET", "/api/v1/assumptions?project=app", "", 200, "bearer", nil},
 		{"assumption-resolve", "POST", "/api/v1/assumptions/A-7/resolve", `{"status":"verified","evidence":"Load test with 80 workers."}`, 200, "bearer", nil},
 		{"decisions", "GET", "/api/v1/decisions?project=app", "", 200, "bearer", nil},
