@@ -27,6 +27,7 @@ type organization struct {
 type snapshot struct {
 	now       time.Time
 	currency  string
+	freePlan  domain.FleetQuotas
 	providers map[uuid.UUID]domain.CapacityProvider
 	shapes    map[uuid.UUID]domain.Shape
 	// machines are the machines that exist or ended this month.
@@ -72,6 +73,8 @@ type usage struct {
 	orgMinutes   map[uuid.UUID]float64
 	orgCost      map[uuid.UUID]float64 // every machine
 	orgHosted    map[uuid.UUID]float64 // hosted machines only
+	// orgHostedMinutes counts the minutes of hosted machines only.
+	orgHostedMinutes map[uuid.UUID]float64
 }
 
 // monthStart returns the first moment of t's calendar month in UTC.
@@ -81,7 +84,7 @@ func monthStart(t time.Time) time.Time {
 }
 
 func (s *snapshot) usage() usage {
-	u := usage{map[uuid.UUID]float64{}, map[uuid.UUID]float64{}, map[uuid.UUID]float64{}, map[uuid.UUID]float64{}, map[uuid.UUID]float64{}}
+	u := usage{map[uuid.UUID]float64{}, map[uuid.UUID]float64{}, map[uuid.UUID]float64{}, map[uuid.UUID]float64{}, map[uuid.UUID]float64{}, map[uuid.UUID]float64{}}
 	start := monthStart(s.now)
 	for _, m := range s.machines {
 		shape, ok := s.shapes[m.ShapeID]
@@ -107,6 +110,7 @@ func (s *snapshot) usage() usage {
 		u.orgCost[m.AccountID] += cost
 		if shape.Ownership() == domain.OwnershipHosted {
 			u.orgHosted[m.AccountID] += cost
+			u.orgHostedMinutes[m.AccountID] += minutes
 		}
 	}
 	return u
@@ -123,6 +127,9 @@ type planner struct {
 	shapeCount    map[uuid.UUID]int
 	providerCount map[uuid.UUID]int
 	orgCount      map[uuid.UUID]int
+	// hostedCount counts an organization's machines of instance-wide
+	// shapes: its share of the hosted fleet.
+	hostedCount map[uuid.UUID]int
 	// runningOn counts running jobs by worker.
 	runningOn map[uuid.UUID]int
 	// live holds the machines that can still take jobs, the most ready
@@ -137,7 +144,7 @@ type planner struct {
 func (s *snapshot) plan() *plan {
 	p := &planner{
 		s: s, out: &plan{reasons: map[uuid.UUID]Reason{}}, usage: s.usage(), orgs: map[uuid.UUID]*organization{},
-		shapeCount: map[uuid.UUID]int{}, providerCount: map[uuid.UUID]int{}, orgCount: map[uuid.UUID]int{},
+		shapeCount: map[uuid.UUID]int{}, providerCount: map[uuid.UUID]int{}, orgCount: map[uuid.UUID]int{}, hostedCount: map[uuid.UUID]int{},
 		runningOn: map[uuid.UUID]int{}, slots: map[uuid.UUID]int{}, claimed: map[uuid.UUID]bool{}, inLine: map[string]int{},
 	}
 	for i := range s.orgs {
@@ -148,9 +155,7 @@ func (s *snapshot) plan() *plan {
 		}
 	}
 	p.sweep()
-	for i := range s.orgs {
-		p.placeAll(&s.orgs[i])
-	}
+	p.placeAll()
 	p.keepWarm()
 	p.trim()
 	return p.out
@@ -161,6 +166,9 @@ func (p *planner) count(m domain.Machine, by int) {
 	p.providerCount[m.ProviderID] += by
 	if m.AccountID != uuid.Nil() {
 		p.orgCount[m.AccountID] += by
+		if p.s.shapes[m.ShapeID].Ownership() == domain.OwnershipHosted {
+			p.hostedCount[m.AccountID] += by
+		}
 	}
 }
 
@@ -245,20 +253,79 @@ func readiness(s domain.MachineState) int {
 	return slices.Index([]domain.MachineState{domain.MachineReady, domain.MachineBusy, domain.MachineBooting, domain.MachineRequested}, s)
 }
 
-// placeAll finds somewhere to run each queued job, oldest first.
-func (p *planner) placeAll(o *organization) {
-	free := map[uuid.UUID]int{}
+// planWeight is an organization's share of the hosted fleet by its plan: when
+// both wait, a paid organization gets three machines for each one of a free
+// one.
+var planWeight = map[domain.FleetPlan]int{domain.PlanFree: 1, domain.PlanPaid: 3}
+
+func weight(o *organization) int { return max(planWeight[o.policy.Plan], 1) }
+
+// line is what an organization has waiting: its queued jobs, oldest first,
+// and the room left on its static workers.
+type line struct {
+	o    *organization
+	jobs []domain.Job
+	free map[uuid.UUID]int
+}
+
+// placeAll finds somewhere to run every queued job. An organization's jobs go
+// oldest first. Between organizations the next job is of the one with the
+// smallest share of the hosted fleet for its plan's weight, then of a paid
+// one, then the oldest: two busy organizations share the instance-wide
+// machines, and neither takes them all because it comes first in a list.
+func (p *planner) placeAll() {
+	var lines []*line
+	for i := range p.s.orgs {
+		if l := p.lineOf(&p.s.orgs[i]); len(l.jobs) > 0 {
+			lines = append(lines, l)
+		}
+	}
+	for len(lines) > 0 {
+		i := 0
+		for k := range lines {
+			if p.before(lines[k], lines[i]) < 0 {
+				i = k
+			}
+		}
+		l := lines[i]
+		j := l.jobs[0]
+		l.jobs = l.jobs[1:]
+		p.out.reasons[j.ID] = p.place(l.o, j, l.free)
+		if len(l.jobs) == 0 {
+			lines = slices.Delete(lines, i, i+1)
+		}
+	}
+}
+
+// lineOf returns what organization o has waiting.
+func (p *planner) lineOf(o *organization) *line {
+	l := &line{o: o, free: map[uuid.UUID]int{}}
 	for _, w := range o.workers {
 		if !w.Ephemeral && w.Online(p.s.now) {
-			free[w.ID] = max(w.MaxJobs-p.runningOn[w.ID], 0)
+			l.free[w.ID] = max(w.MaxJobs-p.runningOn[w.ID], 0)
 		}
 	}
 	for _, j := range o.queued {
-		if j.Pool == domain.PoolActions || j.RunAfter.After(p.s.now) {
-			continue // the Actions provider's, or held back by its retry
+		if j.Pool != domain.PoolActions && !j.RunAfter.After(p.s.now) { // not the Actions provider's, nor held back by its retry
+			l.jobs = append(l.jobs, j)
 		}
-		p.out.reasons[j.ID] = p.place(o, j, free)
 	}
+	return l
+}
+
+// before orders two organizations' next jobs (placeAll).
+func (p *planner) before(a, b *line) int {
+	wa, wb := weight(a.o), weight(b.o)
+	if c := cmp.Compare(p.hostedCount[a.o.id]*wb, p.hostedCount[b.o.id]*wa); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(wb, wa); c != 0 {
+		return c
+	}
+	if c := a.jobs[0].CreatedAt.Compare(b.jobs[0].CreatedAt); c != 0 {
+		return c
+	}
+	return a.o.id.Compare(b.o.id)
 }
 
 // place runs through the options of one job: an idle static worker, a machine
@@ -324,6 +391,7 @@ func (p *planner) assignWarm(o *organization, matches []domain.Shape) *domain.Ma
 			p.out.assign = append(p.out.assign, assignment{*m, o.id, p.s.now.Add(time.Duration(s.BootTimeoutSeconds) * time.Second)})
 			m.AccountID, m.AssignedAt = o.id, p.s.now
 			p.orgCount[o.id]++
+			p.hostedCount[o.id]++
 			p.take(m)
 			return m
 		}
@@ -423,6 +491,22 @@ func (p *planner) room(org uuid.UUID, s domain.Shape, isNew bool) *block {
 	}
 	if b := q.MonthlyBudget; b != nil && s.Ownership() == domain.OwnershipHosted && p.usage.orgHosted[org] >= *b {
 		return spent("This month's limit of " + money(cur, *b) + " is used up")
+	}
+	return p.freePlanRoom(o, s)
+}
+
+// freePlanRoom applies the limits of the free plan (config.md
+// fleet.free_plan) to a hosted machine of an organization on it.
+func (p *planner) freePlanRoom(o *organization, s domain.Shape) *block {
+	if s.Ownership() != domain.OwnershipHosted || o.policy.Plan != domain.PlanFree {
+		return nil
+	}
+	f := p.s.freePlan
+	if n := f.ConcurrentMachines; n > 0 && p.hostedCount[o.id] >= n {
+		return limited("The free plan runs " + plural(n, "hosted machine") + " at once")
+	}
+	if n := f.MonthlyMinutes; n > 0 && p.usage.orgHostedMinutes[o.id] >= float64(n) {
+		return spent("The free plan's " + plural(n, "minute") + " of hosted machines this month are used up")
 	}
 	return nil
 }

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/fleet"
@@ -90,4 +92,87 @@ func TestHostedEgress(t *testing.T) {
 			t.Fatalf("own machine reaches %v", r.NetworkAllow)
 		}
 	}
+}
+
+// hostedOf counts the hosted machines each organization has.
+func (e *env) hostedOf(accounts ...uuid.UUID) []int {
+	e.t.Helper()
+	out := make([]int, len(accounts))
+	for i, a := range accounts {
+		out[i] = len(e.machines(store.MachineFilter{AccountID: a, Active: true}))
+	}
+	return out
+}
+
+// Two busy organizations share the hosted fleet, however many jobs the first
+// queued before the other; a paid one gets the bigger share.
+func TestFairShare(t *testing.T) {
+	for name, c := range map[string]struct {
+		planB domain.FleetPlan
+		want  []int
+	}{
+		"same plan":  {domain.PlanFree, []int{2, 2}},
+		"paid first": {domain.PlanPaid, []int{1, 3}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			e.hosted(func(s *domain.Shape) { s.Max = 4 })
+			orgB, projectB := e.org("beta")
+			e.policy(e.account, domain.RoutingHosted, nil)
+			e.policy(orgB, domain.RoutingHosted, func(p *domain.FleetPolicy) { p.Plan = c.planB })
+			for range 6 {
+				e.job(e.account, e.project, nil)
+			}
+			e.clock.Advance(time.Minute)
+			var waiting domain.Job
+			for range 6 {
+				waiting = e.job(orgB, projectB, nil)
+			}
+			e.reconcile()
+			if got := e.hostedOf(e.account, orgB); !slices.Equal(got, c.want) {
+				t.Fatalf("machines = %v, want %v", got, c.want)
+			}
+			if r := e.reason(waiting); r.Code != fleet.ReasonQueue {
+				t.Fatalf("a job past the fleet's room: %+v", r)
+			}
+		})
+	}
+}
+
+// The free plan's limits stop hosted machines with a reason that says so;
+// a paid organization and own machines are not held by them.
+func TestFreePlanLimits(t *testing.T) {
+	e := newEnv(t)
+	e.c = fleet.New(fleet.Config{Store: e.st, Now: e.clock.Now, Currency: "CHF", ServerURL: "https://forecrew.example.com",
+		Direct:   func(p domain.CapacityProvider) fleet.Provider { return e.drivers[p.ID] },
+		FreePlan: domain.FleetQuotas{ConcurrentMachines: 1, MonthlyMinutes: 30}})
+	cloud, _ := e.hosted(nil)
+	orgB, projectB := e.org("beta")
+	e.policy(e.account, domain.RoutingHosted, nil)
+	e.policy(orgB, domain.RoutingHosted, func(p *domain.FleetPolicy) { p.Plan = domain.PlanPaid })
+	e.job(e.account, e.project, nil)
+	second := e.job(e.account, e.project, nil)
+	e.job(orgB, projectB, nil)
+	e.job(orgB, projectB, nil)
+	e.reconcile()
+	if got := e.hostedOf(e.account, orgB); !slices.Equal(got, []int{1, 2}) {
+		t.Fatalf("machines = %v", got)
+	}
+	wantReason(t, e.reason(second), fleet.ReasonLimit, "The free plan runs 1 hosted machine at once")
+
+	// Half an hour later the month's minutes are used up.
+	for _, req := range cloud.Requests() {
+		if e.machine(req.MachineID).AccountID == e.account {
+			e.boot(req)
+		}
+	}
+	e.clock.Advance(31 * time.Minute)
+	for _, m := range e.machines(store.MachineFilter{AccountID: e.account, Active: true}) {
+		must(t, e.st.Machines().UpdateState(e.ctx, m.ID, m.State, domain.MachineFailed, "gone"))
+	}
+	e.reconcile()
+	if got := e.hostedOf(e.account); got[0] != 0 {
+		t.Fatalf("%d machines past the month's minutes", got[0])
+	}
+	wantReason(t, e.reason(second), fleet.ReasonBudget, "The free plan's 30 minutes of hosted machines this month are used up")
 }

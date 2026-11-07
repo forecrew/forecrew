@@ -322,7 +322,8 @@ func New(d Deps) (*App, error) {
 	bus := workflow.NewBus(st.Signals())
 	regs := registers.New(st, bus, d.Now)
 	machines := fleet.New(fleet.Config{Store: st, Logger: log, Now: d.Now, Direct: d.FleetDirect, ServerURL: cfg.Server.PublicBaseURL, Currency: cfg.Fleet.Currency,
-		Image: images.Resolver(st.Images()), Models: modelSvc})
+		Image: images.Resolver(st.Images()), Models: modelSvc,
+		FreePlan: domain.FleetQuotas{ConcurrentMachines: cfg.Fleet.FreePlan.ConcurrentMachines, MonthlyMinutes: cfg.Fleet.FreePlan.MonthlyMinutes}})
 	jobSvc := jobs.New(st, bus, cfg.Pools, log, d.Now).WithRegistrar(regs).WithWaiting(modelSvc.Before(machines))
 	gateSvc := gates.New(st, bus, d.Now)
 	emb := d.Embedder
