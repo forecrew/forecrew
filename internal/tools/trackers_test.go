@@ -3,6 +3,7 @@ package tools_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"uuid"
@@ -504,4 +505,79 @@ func TestDismissTicket(t *testing.T) {
 	must(t, err)
 	_, err = w.svc.DismissTicket(ctx, w.owner, mcp.DismissTicketInput{Ticket: "x"})
 	wantErr(t, err, mcp.ErrInvalidInput)
+}
+
+// A write that cannot reach a ticket that is over would keep its connection
+// from being deleted: a person discards it, and the audit log says so.
+func TestDiscardTrackerWrites(t *testing.T) {
+	w := newTicketWorld(t)
+	ctx := t.Context()
+	member, _ := w.member(t, orgScope, domain.RoleMember, uuid.Nil())
+	_, err := w.svc.DiscardTrackerWrites(ctx, member, mcp.TrackerConnectionRefInput{Connection: "board"})
+	wantErr(t, err, authz.ErrDenied)
+	_, err = w.svc.DiscardTrackerWrites(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "nope"})
+	wantErr(t, err, mcp.ErrNotFound)
+
+	w.route(t)
+	l := w.waiting(t, "T-1")
+	stuck := domain.TrackerWrite{AccountID: w.account.ID, ConnectionID: w.conn.ID, LinkID: l.ID, Key: l.Key, DedupeKey: "state:done", Kind: domain.WriteTransition, Value: "Gone", NextAttempt: w.clock.Now()}
+	if _, err := w.st.TrackerOutbox().Enqueue(ctx, &stuck); err != nil {
+		t.Fatal(err)
+	}
+	must(t, w.st.TrackerOutbox().MarkFailed(ctx, w.account.ID, stuck.ID, "no such column", w.clock.Now()))
+
+	// The ticket is still at work in the Inbox: its writes stay.
+	got, err := w.svc.DiscardTrackerWrites(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board"})
+	must(t, err)
+	if len(got.Writes) != 0 || got.Connection != "board" {
+		t.Fatalf("discarded for a live ticket: %+v", got)
+	}
+	_, err = w.svc.DismissTicket(ctx, w.owner, mcp.DismissTicketInput{Ticket: l.ID.String()})
+	must(t, err)
+	_, err = w.svc.DeleteTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board"})
+	wantErr(t, err, mcp.ErrConflict)
+
+	wrapped, err := w.svc.DiscardTrackerWrites(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board", WrapUntrusted: true})
+	must(t, err)
+	if i := slices.IndexFunc(wrapped.Writes, func(d mcp.DiscardedWrite) bool { return d.Kind == "transition" }); i < 0 ||
+		!strings.Contains(wrapped.Writes[i].LastError, "<untrusted-data") || !strings.Contains(wrapped.Writes[i].LastError, "no such column") {
+		t.Fatalf("the error of a tracker is not marked untrusted: %+v", wrapped.Writes)
+	}
+	// Dropped, so a second call over REST or the CLI has nothing: put it back to read it as plain text.
+	again := stuck
+	again.ID = uuid.Nil()
+	if _, err := w.st.TrackerOutbox().Enqueue(ctx, &again); err != nil {
+		t.Fatal(err)
+	}
+	must(t, w.st.TrackerOutbox().MarkFailed(ctx, w.account.ID, again.ID, "no such column", w.clock.Now()))
+	got, err = w.svc.DiscardTrackerWrites(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board"})
+	must(t, err)
+	var stuckKinds []string
+	for _, d := range got.Writes {
+		stuckKinds = append(stuckKinds, d.Kind+" "+d.Key)
+		if d.Kind == string(domain.WriteTransition) && (d.Attempts != 1 || d.LastError != "no such column") {
+			t.Errorf("discarded = %+v", d)
+		}
+	}
+	if !slices.Contains(stuckKinds, "transition T-1") {
+		t.Fatalf("discarded = %v", stuckKinds)
+	}
+	audits, err := w.st.Audit().List(ctx, w.account.ID, store.AuditFilter{})
+	must(t, err)
+	i := slices.IndexFunc(audits, func(a domain.AuditEntry) bool { return a.Action == "tracker.writes_discarded" })
+	if i < 0 || audits[i].SubjectID != w.conn.ID || !strings.Contains(string(audits[i].Data), "no such column") || strings.Contains(string(audits[i].Data), "Gone") {
+		t.Errorf("audit = %+v", audits)
+	}
+	if again, err := w.svc.DiscardTrackerWrites(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board"}); err != nil || len(again.Writes) != 0 {
+		t.Errorf("second discard = %+v, %v", again, err)
+	}
+	if len(audits) > 0 {
+		before := len(audits)
+		after, _ := w.st.Audit().List(ctx, w.account.ID, store.AuditFilter{})
+		if len(after) != before {
+			t.Error("an empty discard was audited")
+		}
+	}
+	_, err = w.svc.DeleteTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board"})
+	must(t, err)
 }

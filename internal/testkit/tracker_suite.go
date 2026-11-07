@@ -35,18 +35,38 @@ func deleteConnection(ctx context.Context, t *testing.T, st store.Store, conn do
 	if err := repo.Delete(ctx, acc, conn.ID); !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("Delete with a live ticket: %v", err)
 	}
+	// A write to a ticket at work is not discarded, and one to a ticket that
+	// is over would be lost with the connection.
+	now := time.Now().UTC()
+	box := st.TrackerOutbox()
+	write := func(key string) domain.TrackerWrite {
+		w := domain.TrackerWrite{AccountID: acc, ConnectionID: conn.ID, LinkID: live.ID, Key: live.Key, DedupeKey: key, Kind: domain.WriteComment, Value: "bye", NextAttempt: now}
+		if _, err := box.Enqueue(ctx, &w); err != nil {
+			t.Fatal(err)
+		}
+		return w
+	}
+	write("while live")
+	if got, err := box.DiscardEnded(ctx, acc, conn.ID); err != nil || len(got) != 0 {
+		t.Fatalf("DiscardEnded with a live link = %+v, %v", got, err)
+	}
 	live.Status = domain.LinkDismissed
 	mustT(t, st.TicketLinks().Update(ctx, &live))
-	// A write that has not reached the tracker would be lost with the connection.
-	now := time.Now().UTC()
-	unsent := domain.TrackerWrite{AccountID: acc, ConnectionID: conn.ID, LinkID: live.ID, Key: live.Key, DedupeKey: "unsent", Kind: domain.WriteComment, Value: "bye", NextAttempt: now}
-	if _, err := st.TrackerOutbox().Enqueue(ctx, &unsent); err != nil {
-		t.Fatal(err)
-	}
+	sent := write("sent")
+	mustT(t, box.MarkSent(ctx, acc, sent.ID, "", now))
 	if err := repo.Delete(ctx, acc, conn.ID); !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("Delete with an unsent write: %v", err)
 	}
-	mustT(t, st.TrackerOutbox().MarkSent(ctx, acc, unsent.ID, "", now))
+	got, err := box.DiscardEnded(ctx, acc, conn.ID)
+	if err != nil || len(got) != 1 || got[0].DedupeKey != "while live" || got[0].Value != "bye" || got[0].Key != live.Key {
+		t.Fatalf("DiscardEnded = %+v, %v", got, err)
+	}
+	if got, err := box.DiscardEnded(ctx, acc, conn.ID); err != nil || len(got) != 0 {
+		t.Errorf("second DiscardEnded = %+v, %v", got, err)
+	}
+	if got, err := box.DiscardEnded(ctx, uuid.NewV7(), conn.ID); err != nil || len(got) != 0 {
+		t.Errorf("DiscardEnded of another account = %+v, %v", got, err)
+	}
 	mustT(t, st.TrackerCursors().Set(ctx, acc, conn.ID, "c3"))
 	mustT(t, repo.Delete(ctx, acc, conn.ID))
 	if err := repo.Delete(ctx, acc, conn.ID); !errors.Is(err, store.ErrNotFound) {
@@ -58,9 +78,9 @@ func deleteConnection(ctx context.Context, t *testing.T, st store.Store, conn do
 	if got, err := st.TrackerCursors().Get(ctx, acc, conn.ID); err != nil || got != "" {
 		t.Errorf("cursor = %q, %v", got, err)
 	}
-	got, err := st.TicketLinks().Get(ctx, acc, live.ID)
-	if err != nil || got.ConnectionID != uuid.Nil() || got.Key != live.Key {
-		t.Errorf("ended link = %+v, %v", got, err)
+	ended, err := st.TicketLinks().Get(ctx, acc, live.ID)
+	if err != nil || ended.ConnectionID != uuid.Nil() || ended.Key != live.Key {
+		t.Errorf("ended link = %+v, %v", ended, err)
 	}
 	if err := repo.Delete(ctx, uuid.NewV7(), conn.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("Delete from another account: %v", err)

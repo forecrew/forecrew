@@ -355,6 +355,13 @@ func (r trackerOutboxRepo) DropTransitions(ctx context.Context, accountID, linkI
 	return mapErr(err)
 }
 
+func (r trackerOutboxRepo) DiscardEnded(ctx context.Context, accountID, connectionID uuid.UUID) ([]domain.TrackerWrite, error) {
+	return many(ctx, r.db, scanTrackerWrite, `DELETE FROM tracker_outbox WHERE id IN (
+			SELECT o.id FROM tracker_outbox o JOIN ticket_links l ON l.id = o.link_id
+			WHERE o.account_id = $1 AND o.connection_id = $2 AND o.sent_at IS NULL AND l.status NOT IN ('waiting', 'queued', 'active'))
+		RETURNING `+trackerWriteCols, accountID, connectionID)
+}
+
 func (r trackerOutboxRepo) Due(ctx context.Context, accountID uuid.UUID, now time.Time, limit int) ([]domain.TrackerWrite, error) {
 	return many(ctx, r.db, scanTrackerWrite, `SELECT `+trackerWriteCols+` FROM tracker_outbox
 		WHERE account_id = $1 AND sent_at IS NULL AND next_attempt_at <= $2 ORDER BY created_at, id LIMIT $3`, accountID, now, limit)

@@ -41,6 +41,10 @@ func TestTrackerCommands(t *testing.T) {
 	e.check(t, []string{"tracker", "connect", "board", "--kind", "github_project", "--owner", "acme", "--project", "7", "--field", "Stage", "--closed", "Shipped", "--state", "Forecrew"}, "github", mcp.ToolCreateTrackerConnection,
 		mcp.CreateTrackerConnectionInput{Name: "board", Kind: "github_project", Config: map[string]any{"owner": "acme", "project": float64(7), "field": "Stage", "closed": []any{"Shipped"}}, Triggers: domain.TrackerTriggers{State: "Forecrew"}})
 	e.check(t, []string{"tracker", "disconnect", "gh"}, "connection deleted", mcp.ToolDeleteTrackerConnection, mcp.TrackerConnectionRefInput{Connection: "gh"})
+	e.svc.DiscardTrackerWritesFunc = func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (mcp.DiscardedWrites, error) {
+		return mcp.DiscardedWrites{Connection: "gh", Writes: []mcp.DiscardedWrite{{Key: "T-1", Kind: "transition", Attempts: 3, LastError: "no such column"}}}, nil
+	}
+	e.check(t, []string{"tracker", "discard-writes", "gh"}, "1 writes discarded", mcp.ToolDiscardTrackerWrites, mcp.TrackerConnectionRefInput{Connection: "gh"})
 	e.check(t, []string{"tracker", "routes", "--connection", "gh"}, "app", mcp.ToolListTrackerRoutes, mcp.TrackerConnectionFilterInput{Connection: "gh"})
 	e.check(t, []string{"tracker", "route-add", "gh", "app", "--match-label", "x", "--state-map", "done=closed", "--goal-kind", "bug"}, "app", mcp.ToolCreateTrackerRoute,
 		mcp.CreateTrackerRouteInput{Connection: "gh", Project: "app", Match: domain.TrackerMatch{Labels: []string{"x"}}, GoalKind: domain.GoalBug, States: map[domain.TicketState]string{domain.TicketDone: "closed"}})

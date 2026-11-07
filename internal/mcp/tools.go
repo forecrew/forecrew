@@ -124,6 +124,7 @@ const (
 	ToolListTrackerConnections  = "list_tracker_connections"
 	ToolCreateTrackerConnection = "create_tracker_connection"
 	ToolDeleteTrackerConnection = "delete_tracker_connection"
+	ToolDiscardTrackerWrites    = "discard_tracker_writes"
 	ToolListTrackerRoutes       = "list_tracker_routes"
 	ToolCreateTrackerRoute      = "create_tracker_route"
 	ToolDeleteTrackerRoute      = "delete_tracker_route"
@@ -171,7 +172,7 @@ func Tools() []string {
 		ToolListRoleBindings, ToolCreateRoleBinding, ToolDeleteRoleBinding,
 		ToolListServiceAccounts, ToolCreateServiceAccount, ToolUpdateServiceAccount, ToolSetServiceAccount,
 		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview,
-		ToolListTrackerConnections, ToolCreateTrackerConnection, ToolDeleteTrackerConnection, ToolListTrackerRoutes, ToolCreateTrackerRoute, ToolDeleteTrackerRoute,
+		ToolListTrackerConnections, ToolCreateTrackerConnection, ToolDeleteTrackerConnection, ToolDiscardTrackerWrites, ToolListTrackerRoutes, ToolCreateTrackerRoute, ToolDeleteTrackerRoute,
 		ToolListTrackerIdentities, ToolMapTrackerIdentity, ToolUnmapTrackerIdentity, ToolListTicketsWaiting, ToolAcceptTicket, ToolDismissTicket,
 		ToolGetTrace, ToolListKnowledgeProposals, ToolListKnowledge,
 		ToolListImages,
@@ -231,6 +232,9 @@ type ToolService interface {
 	// DeleteTrackerConnection removes a connection without live tickets, with
 	// its routes and identities.
 	DeleteTrackerConnection(ctx context.Context, by domain.Actor, in TrackerConnectionRefInput) (domain.TrackerConnection, error)
+	// DiscardTrackerWrites drops the writes to tickets that no longer have a
+	// live link and could not be sent, so the connection can be deleted.
+	DiscardTrackerWrites(ctx context.Context, by domain.Actor, in TrackerConnectionRefInput) (DiscardedWrites, error)
 	// ListTrackerRoutes lists routes in the order they are tried.
 	ListTrackerRoutes(ctx context.Context, by domain.Actor, in TrackerConnectionFilterInput) ([]TrackerRouteInfo, error)
 	CreateTrackerRoute(ctx context.Context, by domain.Actor, in CreateTrackerRouteInput) (TrackerRouteInfo, error)
@@ -1195,6 +1199,23 @@ type CreateTrackerConnectionInput struct {
 // TrackerConnectionRefInput names a connection.
 type TrackerConnectionRefInput struct {
 	Connection string `json:"connection"` // name or UUID
+	// WrapUntrusted marks text that came from a tracker as untrusted data
+	// in the result of discard_tracker_writes; MCP sets it.
+	WrapUntrusted bool `json:"-"`
+}
+
+// DiscardedWrite is a write to a ticket that was dropped without being sent.
+type DiscardedWrite struct {
+	Key       string `json:"key"`
+	Kind      string `json:"kind"`
+	Attempts  int    `json:"attempts"`
+	LastError string `json:"last_error,omitempty"`
+}
+
+// DiscardedWrites is the result of discard_tracker_writes.
+type DiscardedWrites struct {
+	Connection string           `json:"connection"`
+	Writes     []DiscardedWrite `json:"writes"`
 }
 
 // TrackerConnectionFilterInput narrows a list to one connection.

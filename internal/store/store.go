@@ -1378,6 +1378,9 @@ type TrackerOutboxRepo interface {
 	// DropTransitions removes the unsent transitions of a link: the state
 	// that replaces them is the only one that may reach the ticket.
 	DropTransitions(ctx context.Context, accountID, linkID uuid.UUID) error
+	// DiscardEnded deletes the unsent writes of a connection's links that are
+	// no longer live, and returns them. A live link keeps its writes.
+	DiscardEnded(ctx context.Context, accountID, connectionID uuid.UUID) ([]domain.TrackerWrite, error)
 	// Due returns the unsent writes whose next attempt has come, oldest
 	// first.
 	Due(ctx context.Context, accountID uuid.UUID, now time.Time, limit int) ([]domain.TrackerWrite, error)

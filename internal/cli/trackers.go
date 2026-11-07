@@ -26,7 +26,7 @@ func trackerCommand(r *remote) *cobra.Command {
 	cmd := &cobra.Command{Use: "tracker", Short: "Manage tracker connections, routes and people"}
 	cmd.AddCommand(
 		listCommand(r, "connections", "List the tracker connections", "/tracker-connections", printTrackerConnections),
-		connectTrackerCommand(r), disconnectTrackerCommand(r),
+		connectTrackerCommand(r), disconnectTrackerCommand(r), discardTrackerWritesCommand(r),
 		trackerRoutesCommand(r), addRouteCommand(r), deleteRouteCommand(r),
 		trackerPeopleCommand(r), mapPersonCommand(r), unmapPersonCommand(r),
 	)
@@ -97,6 +97,25 @@ func disconnectTrackerCommand(r *remote) *cobra.Command {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "connection deleted")
+			return nil
+		},
+	}
+}
+
+func discardTrackerWritesCommand(r *remote) *cobra.Command {
+	return &cobra.Command{
+		Use:   "discard-writes <connection>",
+		Short: "Drop the unsent writes of tickets that are over, so the connection can be deleted",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var out mcp.DiscardedWrites
+			if err := r.call(cmd.Context(), http.MethodPost, "/tracker-connections/"+url.PathEscape(args[0])+"/discard-writes", nil, &out); err != nil {
+				return err
+			}
+			for _, w := range out.Writes {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%d attempts\t%s\n", w.Key, w.Kind, w.Attempts, w.LastError)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "%d writes discarded\n", len(out.Writes))
 			return nil
 		},
 	}
