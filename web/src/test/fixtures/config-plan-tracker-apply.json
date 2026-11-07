@@ -1,0 +1,64 @@
+{
+  "plan": {
+    "id": "018f0000-0000-7000-8000-000000000390",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "status": "applied",
+    "source": "form",
+    "title": "Connect tracker linear",
+    "applies": "now",
+    "changes": [
+      {
+        "op": "create",
+        "kind": "tracker_connection",
+        "name": "linear",
+        "new": {
+          "kind": "linear",
+          "config": {
+            "teams": [
+              "ENG"
+            ],
+            "token_ref": "store:linear-token"
+          },
+          "triggers": {
+            "label": "forecrew"
+          }
+        },
+        "fields": null,
+        "line": "+ Tracker connection linear (linear)"
+      }
+    ],
+    "steps": [
+      {
+        "kind": "secret_required",
+        "resource": "tracker_connection/linear",
+        "title": "token of tracker connection linear",
+        "secret": "linear-token",
+        "filled": true
+      },
+      {
+        "kind": "connect",
+        "resource": "tracker_connection/linear",
+        "title": "Test the connection",
+        "detail": "Run forecrew tracker test linear once the plan is applied.",
+        "filled": false
+      }
+    ],
+    "needs": [
+      "trackers.manage"
+    ],
+    "affects": "Tickets handed over on the tracker become goals; status goes back to them.",
+    "cost": "",
+    "undo": "",
+    "reversible": true,
+    "lowers_protection": [],
+    "base_digest": "",
+    "created_by": "user:018f0000-0000-7000-8000-000000000300",
+    "expires_at": "2026-03-01T13:00:00Z",
+    "created_at": "2026-03-01T12:00:00Z",
+    "updated_at": "2026-03-01T12:00:00Z",
+    "can_confirm": true,
+    "stale": false
+  },
+  "show_once": []
+}
+

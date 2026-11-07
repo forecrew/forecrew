@@ -1,0 +1,30 @@
+{
+  "people": [
+    {
+      "connection": "jira",
+      "external_id": "JIRAUSER10300",
+      "external_name": "Marta Rossi",
+      "tickets": [
+        "ENG-21",
+        "ENG-23"
+      ],
+      "suggestions": [
+        {
+          "user": "018f0000-0000-7000-8000-000000000301",
+          "name": "Marta Rossi",
+          "reason": "same name"
+        }
+      ]
+    },
+    {
+      "connection": "jira",
+      "external_id": "JIRAUSER10400",
+      "external_name": "R. Verdi \u003ci\u003e(contractor)\u003c/i\u003e",
+      "tickets": [
+        "OPS-3"
+      ],
+      "suggestions": []
+    }
+  ]
+}
+

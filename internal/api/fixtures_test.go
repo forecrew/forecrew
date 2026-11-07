@@ -672,7 +672,7 @@ func failWith(err error) func(*env) {
 }
 
 func fixtureCases() []fixtureCase {
-	return slices.Concat(baseFixtureCases(), orgFixtureCases(), fleetFixtureCases())
+	return slices.Concat(baseFixtureCases(), orgFixtureCases(), fleetFixtureCases(), trackerFixtureCases())
 }
 
 func baseFixtureCases() []fixtureCase {

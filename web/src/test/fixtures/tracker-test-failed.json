@@ -1,0 +1,37 @@
+{
+  "connection": "jira",
+  "ok": false,
+  "checks": [
+    {
+      "name": "address",
+      "ok": true,
+      "detail": "reached https://jira.acme.local/jira"
+    },
+    {
+      "name": "certificate",
+      "ok": false,
+      "detail": "not trusted: x509: certificate signed by unknown authority; add the CA of the server to ca_bundle"
+    },
+    {
+      "name": "login",
+      "ok": false,
+      "detail": "not checked: an earlier check failed"
+    },
+    {
+      "name": "projects",
+      "ok": false,
+      "detail": "not checked: an earlier check failed"
+    },
+    {
+      "name": "transitions",
+      "ok": false,
+      "detail": "not checked: an earlier check failed"
+    },
+    {
+      "name": "routes",
+      "ok": false,
+      "detail": "not checked: an earlier check failed"
+    }
+  ]
+}
+

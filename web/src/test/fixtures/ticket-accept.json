@@ -1,0 +1,17 @@
+{
+  "id": "018f0000-0000-7000-8000-000000000951",
+  "account_id": "018f0000-0000-7000-8000-000000000001",
+  "connection_id": "018f0000-0000-7000-8000-000000000920",
+  "key": "OPS-3",
+  "title": "Rotate the staging keys",
+  "url": "https://jira.acme.local/jira/browse/OPS-3",
+  "status": "active",
+  "project_id": "018f0000-0000-7000-8000-000000000010",
+  "handed_by": "Marta Rossi",
+  "created_at": "2026-03-01T11:10:00Z",
+  "updated_at": "2026-03-01T11:20:00Z",
+  "connection": "jira",
+  "project": "app",
+  "goal_ref": "GOAL-5"
+}
+
