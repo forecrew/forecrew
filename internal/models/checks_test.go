@@ -213,8 +213,19 @@ func answer(nonce string) domain.SuitabilityReport {
 // full answer, calling the MCP tool when mcp is set.
 func (c *checks) runTest(t *testing.T, change func(*domain.SuitabilityReport), mcp bool) domain.ModelCheck {
 	t.Helper()
+	return c.runTestOf(t, "cloud", change, mcp)
+}
+
+// runTestOn runs a test that passes on connection name.
+func (c *checks) runTestOn(t *testing.T, name string) {
+	t.Helper()
+	c.runTestOf(t, name, nil, true)
+}
+
+func (c *checks) runTestOf(t *testing.T, name string, change func(*domain.SuitabilityReport), mcp bool) domain.ModelCheck {
+	t.Helper()
 	ctx := t.Context()
-	row, err := c.checker.Test(ctx, c.by, "cloud", "claude-sonnet-4-5")
+	row, err := c.checker.Test(ctx, c.by, name, "claude-sonnet-4-5")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +241,17 @@ func (c *checks) runTest(t *testing.T, change func(*domain.SuitabilityReport), m
 		}
 	}
 	c.finish(t, j.ID, domain.JobSucceeded, rep, nil)
-	return c.row(t, "claude-sonnet-4-5")
+	rows, err := c.checker.Results(ctx, c.account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.Connection == name && r.Model == "claude-sonnet-4-5" {
+			return r
+		}
+	}
+	t.Fatalf("no test on %s", name)
+	return domain.ModelCheck{}
 }
 
 func TestSuitabilityTest(t *testing.T) {
@@ -393,8 +414,31 @@ func TestANewAgentVersionTestsAgain(t *testing.T) {
 	}
 	c.finish(t, row.JobID, domain.JobSucceeded, domain.ModelCheckResult{Status: domain.ModelCheckReachable, AgentVersion: "3.0"}, nil)
 	got := c.row(t, "claude-sonnet-4-5")
-	if got.JobID == first.JobID || got.Status != domain.SuitabilityQueued {
+	if got.JobID == first.JobID || got.Status != domain.SuitabilityQueued || !got.Stale || got.Test == nil || got.Test.AgentVersion != "2.0" {
 		t.Fatalf("not tested again: %+v", got)
+	}
+	rerun, _ := c.st.Jobs().Get(ctx, c.account, got.JobID)
+	c.finish(t, got.JobID, domain.JobSucceeded, answer(rerun.Spec.Suitability.Nonce), nil)
+	if got := c.row(t, "claude-sonnet-4-5"); got.Stale || got.Status != domain.SuitabilityDone {
+		t.Fatalf("after the rerun: %+v", got)
+	}
+	// A test of a connection turned off only goes stale.
+	cn := c.add(t, conn("other", config.AdapterClaudeCode, "anthropic"))
+	c.runTestOn(t, "other")
+	cn.Enabled = false
+	if err := c.st.ModelConnections().Put(ctx, &cn); err != nil {
+		t.Fatal(err)
+	}
+	row, err = c.checker.Check(ctx, c.by, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.finish(t, row.JobID, domain.JobSucceeded, domain.ModelCheckResult{Status: domain.ModelCheckReachable, AgentVersion: "3.0"}, nil)
+	rows, _ := c.checker.Results(ctx, c.account)
+	for _, r := range rows {
+		if r.Connection == "other" && r.Model != "" && (!r.Stale || r.Status != domain.SuitabilityDone) {
+			t.Fatalf("off = %+v", r)
+		}
 	}
 }
 

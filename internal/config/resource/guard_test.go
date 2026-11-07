@@ -66,4 +66,14 @@ func TestAssigningAnUntestedModelNeedsTheSecondConfirmation(t *testing.T) {
 	if got := reasons(w.plan(w.owner, reviewer("r4"))); len(got) != 1 || !strings.Contains(got[0], "another version") {
 		t.Fatalf("stale = %v", got)
 	}
+	w.tested("acme", "r5", "")
+	for _, r := range func() []domain.ModelCheck { rows, _ := w.st.ModelChecks().List(ctx, w.account.ID); return rows }() {
+		if r.Model == "r5" {
+			r.Test, r.Status = nil, domain.SuitabilityQueued
+			check(t, w.st.ModelChecks().Put(ctx, &r))
+		}
+	}
+	if got := reasons(w.plan(w.owner, reviewer("r5"))); len(got) != 1 || !strings.Contains(got[0], "still being tested") {
+		t.Fatalf("queued = %v", got)
+	}
 }

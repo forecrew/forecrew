@@ -66,8 +66,10 @@ func roleWrites(e *Env, role string) bool {
 func untested(checks []domain.ModelCheck, c domain.ModelConnection, model string, writes bool) string {
 	i := slices.IndexFunc(checks, func(x domain.ModelCheck) bool { return x.ConnectionID == c.ID && x.Model == model })
 	switch {
-	case c.ID == uuid.Nil() || i < 0 || checks[i].Test == nil:
+	case c.ID == uuid.Nil() || i < 0:
 		return "was never tested"
+	case checks[i].Test == nil:
+		return "is still being tested"
 	case checks[i].Stale:
 		return "was tested with another version of its agent"
 	case !domain.Serves(checks[i].Test.Level, writes):

@@ -322,11 +322,21 @@ func (c *Checker) rerun(ctx context.Context, tx store.Store, j domain.Job, key d
 	}
 	by := domain.Actor{AccountID: j.AccountID, Kind: domain.ActorSystem, Name: "model-checks"}
 	for _, r := range rows {
-		if r.ConnectionID != key.ConnectionID || r.Model == "" || r.Test == nil || r.Test.AgentVersion == "" || r.Test.AgentVersion == version || r.Status == domain.SuitabilityQueued {
+		if r.ConnectionID != key.ConnectionID || r.Model == "" || r.Test == nil || r.Test.AgentVersion == "" || r.Test.AgentVersion == version || r.Stale {
 			continue
 		}
-		if _, err := c.test(ctx, tx, by, conn, r.Model); err != nil && !errors.Is(err, ErrUnknownConnection) {
+		// The old result stays, marked stale, until the new test ends.
+		next, err := c.test(ctx, tx, by, conn, r.Model)
+		switch {
+		case errors.Is(err, ErrUnknownConnection): // turned off: nothing runs
+			r.Stale = true
+		case err != nil:
 			return fmt.Errorf("test %s again: %w", r.Model, err)
+		default:
+			r.JobID, r.Status, r.Stale, r.CreatedBy = next.JobID, next.Status, true, next.CreatedBy
+		}
+		if err := tx.ModelChecks().Put(ctx, &r); err != nil {
+			return err
 		}
 	}
 	return nil
