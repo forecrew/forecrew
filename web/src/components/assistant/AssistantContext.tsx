@@ -6,9 +6,7 @@ export interface AssistantControl {
   /** Opens the panel, with a message to start from. */
   ask: (message?: string) => void
   close: () => void
-  /** The text the panel starts with once, then forgets. */
-  take: () => string | undefined
 }
 
-export const AssistantContext = createContext<AssistantControl>({ open: false, ask: () => {}, close: () => {}, take: () => undefined })
+export const AssistantContext = createContext<AssistantControl>({ open: false, ask: () => {}, close: () => {} })
 export const useAssistant = () => useContext(AssistantContext)

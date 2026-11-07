@@ -177,6 +177,7 @@ export const api = {
   listJoinCodes: () => request<JoinCode[]>("GET", "/api/v1/join-codes"),
   confirmJoin: (join: string, name: string, factsHash: string) =>
     request<Provider>("POST", `/api/v1/join-codes/${seg(join)}/confirm`, { name, facts_hash: factsHash }),
+  listImages: (f: { os?: string } = {}) => request<(ImageManifest & { id: string; scope: string })[]>("GET", `/api/v1/images${query(f)}`),
   registerImage: (manifest: ImageManifest) => request<{ name: string; version: string }>("POST", "/api/v1/images", manifest),
 
   listConnections: () => request<Connection[]>("GET", "/api/v1/connections"),

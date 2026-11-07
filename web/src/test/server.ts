@@ -202,6 +202,7 @@ export const handlers = [
   http.get("/api/v1/join-codes", () => HttpResponse.json(joinCodes)),
   http.post("/api/v1/join-codes", () => HttpResponse.json(joinCodeCreate, { status: 201 })),
   http.post("/api/v1/join-codes/:join/confirm", () => HttpResponse.json(joinConfirm)),
+  http.get("/api/v1/images", () => HttpResponse.json([])),
   http.post("/api/v1/images", () => HttpResponse.json(imageRegister, { status: 201 })),
   http.get("/api/v1/config/resources", ({ request }) =>
     HttpResponse.json(new URL(request.url).searchParams.get("kind") === "fleet_policy" ? configResourcesFleetPolicy : configResourcesProvider),
