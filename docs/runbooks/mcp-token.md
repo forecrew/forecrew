@@ -63,9 +63,9 @@ claude mcp add --transport http forecrew https://forecrew.example.com/mcp \
 claude mcp list
 ```
 
-Claude Desktop (through `mcp-remote`) and a team `.mcp.json` are described in
-[mcp.md](../mcp.md). The Claude web and mobile connectors cannot send a static
-`Authorization` header and cannot be used.
+A team `.mcp.json` is described in [mcp.md](../mcp.md). Clients that sign you in
+with OAuth, the Claude apps among them, need no token at all: give them the URL,
+see [mcp.md](../mcp.md#connect-from-claude-apps).
 
 Check the connection by asking the client to call a read-only tool (for
 example listing projects), or:
