@@ -75,13 +75,19 @@ func (p *Provider) describe(ctx context.Context, ids []string, filters ...types.
 	return out, nil
 }
 
+// live reports an instance that exists and costs money: the filters ask for
+// these states, and this is the check on what came back.
+func live(i types.Instance) bool {
+	return i.State != nil && slices.Contains(liveStates, string(i.State.Name))
+}
+
 // listOurs returns every instance of this agent's fleet that exists.
 func (p *Provider) listOurs(ctx context.Context) ([]types.Instance, error) {
 	all, err := p.describe(ctx, nil, tagFilter(TagFleet, p.cfg.Fleet), types.Filter{Name: awssdk.String("instance-state-name"), Values: liveStates})
 	if err != nil {
 		return nil, fmt.Errorf("list instances: %w", err)
 	}
-	return all, nil
+	return slices.DeleteFunc(all, func(i types.Instance) bool { return !live(i) }), nil
 }
 
 // destroyMachine terminates what exists for a machine ID. The caller holds launch
@@ -93,6 +99,10 @@ func (p *Provider) destroyMachine(ctx context.Context, machineID string) error {
 		return fmt.Errorf("find the machine: %w", err)
 	}
 	for _, i := range found {
+		// The filter did the choosing; this is the check that nothing else is ended.
+		if tagOf(i, fleet.TagMachine) != machineID || !live(i) {
+			continue
+		}
 		if err := p.terminate(ctx, awssdk.ToString(i.InstanceId)); err != nil {
 			return err
 		}
