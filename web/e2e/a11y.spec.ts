@@ -58,6 +58,8 @@ const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: bo
 /** No serious or critical violation on the page as it is now (dialogs and sheets included). */
 async function expectNoSeriousViolations(page: Page) {
   await page.waitForLoadState("networkidle")
+  // A dialog that is still fading in fails the contrast check: let animations end.
+  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)))
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()
   const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical")
   expect(bad.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`)).toEqual([])
