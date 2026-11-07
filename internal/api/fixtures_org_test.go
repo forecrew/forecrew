@@ -64,6 +64,17 @@ func withSessions(e *env) {
 	e.client.Jar.SetCookies(base, []*http.Cookie{{Name: api.CookieName, Value: first, Path: "/", Secure: true}})
 }
 
+// connectionPlan is the plan the connection form makes: a connection turned
+// off and a secure field for its client secret.
+func connectionPlan(filled bool, status domain.ConfigPlanStatus) mcp.ConfigPlanView {
+	return mcp.ConfigPlanView{ConfigPlan: domain.ConfigPlan{
+		ID: fid(380), AccountID: fid(1), Status: status, Source: domain.ConfigFromForm, Title: "Add sign-in google", Applies: "now",
+		Changes: []domain.ConfigChange{}, Needs: []domain.Permission{domain.PermConnectionManage}, Affects: "People sign in through it from now on. Sessions already open are not touched.",
+		Steps: []domain.ConfigStep{{Kind: domain.ConfigStepSecret, Resource: "connection/google", Title: "Client secret of google", Secret: "conn-google", Filled: filled}},
+		LowersProtection: []string{}, Reversible: true, CreatedBy: "user:" + fid(300).String(), ExpiresAt: at(60), CreatedAt: at(0), UpdatedAt: at(0),
+	}, CanConfirm: true}
+}
+
 func orgFixtureCases() []fixtureCase {
 	members := []mcp.MemberInfo{
 		{UserID: fid(300), Name: "Gianmaria", Email: "gianmaria@acme.test", Status: domain.MembershipActive, Source: domain.SourceManual,
@@ -104,6 +115,7 @@ func orgFixtureCases() []fixtureCase {
 			return []mcp.TokenInfo{
 				{ID: fid(90), Name: "laptop", CreatedAt: at(-2000), LastUsedAt: at(-1), Current: true, Scopes: []domain.Scope{domain.ScopeWrite}, ExpiresAt: at(60 * 24 * 60)},
 				{ID: fid(91), Name: "old-laptop", CreatedAt: at(-3000), LastUsedAt: at(-1500), Scopes: []domain.Scope{domain.ScopeRead}, ExpiresAt: at(-100)},
+				{ID: fid(94), Name: "deploy", CreatedAt: at(-500), LastUsedAt: at(-30), OwnerKind: domain.SubjectServiceAccount, OwnerID: fid(340), Scopes: []domain.Scope{domain.ScopeWrite}, ExpiresAt: at(60 * 24 * 30)},
 				{ID: fid(92), Name: "ci-box", CreatedAt: at(-2500), RevokedAt: at(-700), OwnerKind: domain.SubjectServiceAccount, OwnerID: fid(340), Scopes: []domain.Scope{domain.ScopeAdmin}},
 			}, nil
 		}
@@ -163,6 +175,7 @@ func orgFixtureCases() []fixtureCase {
 					{ID: fid(370), AccountID: fid(1), SubjectKind: domain.SubjectUser, SubjectID: fid(300), CreatedBy: "user:x", CreatedAt: at(-5000), Role: "owner", RoleScope: domain.RoleScopeOrganization, SubjectName: "Gianmaria"},
 					{ID: fid(371), AccountID: fid(1), SubjectKind: domain.SubjectUser, SubjectID: fid(301), ProjectID: fid(10), CreatedBy: "user:x", CreatedAt: at(-4000), Role: "maintainer", RoleScope: domain.RoleScopeProject, Project: "app", SubjectName: "Marta Rossi"},
 					{ID: fid(372), AccountID: fid(1), SubjectKind: domain.SubjectTeam, SubjectID: fid(330), ProjectID: fid(10), CreatedBy: "user:x", CreatedAt: at(-3000), Role: "contributor", RoleScope: domain.RoleScopeProject, Project: "app", SubjectName: "Mobile"},
+					{ID: fid(375), AccountID: fid(1), SubjectKind: domain.SubjectUser, SubjectID: fid(301), CreatedBy: "user:x", CreatedAt: at(-4500), Role: "member", RoleScope: domain.RoleScopeOrganization, SubjectName: "Marta Rossi"},
 					{ID: fid(373), AccountID: fid(1), SubjectKind: domain.SubjectTeam, SubjectID: fid(330), CreatedBy: "user:x", CreatedAt: at(-3000), Role: "member", RoleScope: domain.RoleScopeOrganization, SubjectName: "Mobile"},
 				}, nil
 			}
@@ -209,6 +222,20 @@ func orgFixtureCases() []fixtureCase {
 			e.svc.CreateConnectionFunc = func(context.Context, domain.Actor, mcp.CreateConnectionInput) (mcp.ConnectionInfo, error) {
 				return connections[2], nil
 			}
+		}},
+		{"config-plan-connection", "POST", "/api/v1/config/plans", `{"title":"Add sign-in google","source":"form","changes":[{"kind":"connection","name":"google","spec":{"kind":"google","client_id":"123.apps.googleusercontent.com","client_secret_ref":"store:conn-google","jit":{"enabled":false},"enabled":false}}]}`, 201, "bearer", func(e *env) {
+			e.svc.ConfigPlanFunc = func(context.Context, domain.Actor, mcp.ConfigPlanInput) (mcp.ConfigPlanView, error) { return connectionPlan(false, domain.ConfigPlanPending), nil }
+		}},
+		{"config-plan-secret", "PUT", "/api/v1/config/plans/" + fid(380).String() + "/secrets/conn-google", `{"value":"the-client-secret"}`, 200, "bearer", func(e *env) {
+			e.svc.ConfigPutSecretFunc = func(context.Context, domain.Actor, mcp.ConfigSecretInput) (mcp.ConfigPlanView, error) { return connectionPlan(true, domain.ConfigPlanPending), nil }
+		}},
+		{"config-plan-apply", "POST", "/api/v1/config/plans/" + fid(380).String() + "/apply", `{}`, 200, "bearer", func(e *env) {
+			e.svc.ConfigApplyFunc = func(context.Context, domain.Actor, mcp.ConfigApplyInput) (mcp.ConfigApplied, error) {
+				return mcp.ConfigApplied{Plan: connectionPlan(true, domain.ConfigPlanApplied), ShowOnce: []mcp.ConfigShowOnce{}}, nil
+			}
+		}},
+		{"config-plan-cancel", "POST", "/api/v1/config/plans/" + fid(380).String() + "/cancel", "", 200, "bearer", func(e *env) {
+			e.svc.ConfigCancelFunc = func(context.Context, domain.Actor, mcp.ConfigPlanRefInput) (mcp.ConfigPlanView, error) { return connectionPlan(true, domain.ConfigPlanCanceled), nil }
 		}},
 		{"connection-enable", "POST", "/api/v1/connections/okta/enable", "", 200, "bearer", func(e *env) {
 			e.svc.SetConnectionFunc = func(context.Context, domain.Actor, mcp.SetConnectionInput) (mcp.ConnectionInfo, error) {

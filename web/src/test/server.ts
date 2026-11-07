@@ -65,6 +65,10 @@ import tokenRevokeSelf from "./fixtures/token-revoke-self.json"
 import workers from "./fixtures/workers.json"
 import audit from "./fixtures/audit.json"
 import auditEmpty from "./fixtures/audit-empty.json"
+import configPlanApply from "./fixtures/config-plan-apply.json"
+import configPlanCancel from "./fixtures/config-plan-cancel.json"
+import configPlanConnection from "./fixtures/config-plan-connection.json"
+import configPlanSecret from "./fixtures/config-plan-secret.json"
 import connectionCreate from "./fixtures/connection-create.json"
 import connectionEnable from "./fixtures/connection-enable.json"
 import connectionEnableUntested from "./fixtures/connection-enable-untested.json"
@@ -160,6 +164,10 @@ export const handlers = [
   http.get("/api/v1/service-accounts", () => HttpResponse.json(serviceAccounts)),
   http.post("/api/v1/service-accounts", () => HttpResponse.json(serviceAccountCreate, { status: 201 })),
   http.post("/api/v1/service-accounts/:name/:action", () => HttpResponse.json(serviceAccounts[0])),
+  http.post("/api/v1/config/plans", () => HttpResponse.json(configPlanConnection, { status: 201 })),
+  http.put("/api/v1/config/plans/:plan/secrets/:secret", () => HttpResponse.json(configPlanSecret)),
+  http.post("/api/v1/config/plans/:plan/apply", () => HttpResponse.json(configPlanApply)),
+  http.post("/api/v1/config/plans/:plan/cancel", () => HttpResponse.json(configPlanCancel)),
   http.get("/api/v1/connections", () => HttpResponse.json(connections)),
   http.post("/api/v1/connections", () => HttpResponse.json(connectionCreate, { status: 201 })),
   http.post("/api/v1/connections/:name/enable", () => HttpResponse.json(connectionEnable)),
@@ -211,7 +219,7 @@ export const fx = {
   assumptions, assumptionResolve, decisions, decisionsEmpty, gatesCouncil,
   trace, assumptionRegister, assumptionRegisterEmpty, assumptionRegisterResolve, knowledgeEntries, knowledgeEntriesEmpty, knowledgeNotes,
   knowledgeNoteDelete, knowledgeProposals, knowledgeProposalsEmpty, knowledgePropose, knowledgeSearch, knowledgeSearchEmpty,
-  audit, auditEmpty, connectionCreate, connectionEnable, connectionEnableUntested, connections, identities, invitationCreate, invitationRevoke, invitations,
+  audit, auditEmpty, configPlanApply, configPlanCancel, configPlanConnection, configPlanSecret, connectionCreate, connectionEnable, connectionEnableUntested, connections, identities, invitationCreate, invitationRevoke, invitations,
   meAdmin, meContributor, meViewer, memberLastOwner, memberSuspend, members, organization, roleBindingCreate, roleBindingDelete, roleBindings, roles,
   serviceAccountCreate, serviceAccounts, sessions, teamCreate, teamMembers, teamsEmpty, teams, tokenCreate, tokensScopes,
 }
