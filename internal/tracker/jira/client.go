@@ -3,44 +3,37 @@ package jira
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
-	"net"
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/tracker"
+	"github.com/forecrew/forecrew/internal/tracker/trackerhttp"
 )
 
 // Limits of a call to Jira.
 const (
 	defaultTimeout = 30 * time.Second
 	maxResponse    = 16 << 20
-	maxRedirects   = 3
 	// maxRetryAfter is the longest wait for a rate limit within one call;
 	// a longer one fails the call, and the outbox or the next poll tries
 	// again.
 	maxRetryAfter = time.Minute
 	maxAttempts   = 3
-	// maxWait bounds what a Retry-After can say, so that no value overflows.
-	maxWait = 24 * time.Hour
 )
 
 // Errors of the client.
 var (
 	// ErrRefused means the address is private or loopback on a server that
 	// does not allow those, or redirects to one; it is the councils guard's.
-	ErrRefused = councils.ErrRefused
+	ErrRefused = trackerhttp.ErrRefused
 	errLogin   = errors.New("jira refused the credentials")
 	errDenied  = errors.New("jira denied access")
 )
@@ -72,10 +65,13 @@ func (e *apiError) Unwrap() error {
 	return nil
 }
 
-// guarded checks the host of every request, redirects included, before it
-// goes out. A request through a proxy goes to the proxied transport: the
-// proxy makes the connection, so the dial guard would see the proxy, and only
-// this check applies; the proxy enforces egress.
+// options are the settings of the shared HTTP client, with the connection's
+// private CA.
+func (d Deps) options(caBundle string) trackerhttp.Options {
+	return trackerhttp.Options{PrivateAddresses: d.PrivateAddresses, Proxy: d.Proxy, Lookup: d.Lookup, Dial: d.Dial, Timeout: d.Timeout, CABundle: caBundle}
+}
+
+// guarded is the shared guarded transport of these Deps.
 type guarded struct {
 	d       Deps
 	direct  http.RoundTripper
@@ -83,75 +79,14 @@ type guarded struct {
 }
 
 func (g guarded) RoundTrip(req *http.Request) (*http.Response, error) {
-	if !g.d.PrivateAddresses {
-		if err := g.d.allow(req.Context(), req.URL.Hostname()); err != nil {
-			return nil, err
-		}
-	}
-	if p, err := g.d.Proxy(req); err == nil && p != nil {
-		return g.proxied.RoundTrip(req)
-	}
-	return g.direct.RoundTrip(req)
+	return trackerhttp.Guarded{Options: g.d.options(""), Direct: g.direct, Proxied: g.proxied}.RoundTrip(req)
 }
 
-// allow fails with ErrRefused unless every address of host is public.
-func (d Deps) allow(ctx context.Context, host string) error {
-	if err := councils.AllowHost(ctx, d.Lookup, host); err != nil {
-		if errors.Is(err, ErrRefused) {
-			return fmt.Errorf("%w; this server does not reach private addresses (trackers.private_addresses)", err)
-		}
-		return err
-	}
-	return nil
-}
-
-// httpClient returns a client that trusts the system's CAs and caBundle,
-// never skips TLS verification, honors the server's proxy and, unless the
-// server allows private addresses, reaches only public ones.
+// httpClient returns the shared client: system CAs and caBundle, never an
+// unverified certificate, the server's proxy, and public addresses only unless
+// the server allows private ones.
 func (d Deps) httpClient(caBundle string) (*http.Client, error) {
-	pool, err := x509.SystemCertPool()
-	if err != nil {
-		pool = x509.NewCertPool()
-	}
-	if caBundle != "" && !pool.AppendCertsFromPEM([]byte(caBundle)) {
-		return nil, fmt.Errorf("ca_bundle holds no PEM certificate: %w", tracker.ErrInvalid)
-	}
-	tlsConf := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	if !d.PrivateAddresses {
-		dialer.Control = councils.GuardDial
-	}
-	dial := dialer.DialContext
-	if d.Dial != nil {
-		dial = d.Dial
-	}
-	// No idle connections: an adapter is built for each operation, and its
-	// transport would keep them open after it is gone.
-	direct := &http.Transport{DialContext: dial, TLSClientConfig: tlsConf, TLSHandshakeTimeout: 10 * time.Second, ForceAttemptHTTP2: true, DisableKeepAlives: true}
-	proxied := direct.Clone()
-	proxied.Proxy = d.Proxy
-	proxied.DialContext = (&net.Dialer{Timeout: 10 * time.Second}).DialContext
-	if d.Dial != nil {
-		proxied.DialContext = d.Dial
-	}
-	return &http.Client{
-		Transport:     guarded{d: d, direct: direct, proxied: proxied},
-		Timeout:       d.Timeout,
-		CheckRedirect: checkRedirect,
-	}, nil
-}
-
-// checkRedirect follows a redirect only on the same scheme, host and port:
-// the token goes with it, and must never go in clear or to another server.
-func checkRedirect(req *http.Request, via []*http.Request) error {
-	first := via[0].URL
-	switch {
-	case len(via) >= maxRedirects:
-		return fmt.Errorf("more than %d redirects", maxRedirects)
-	case req.URL.Scheme != first.Scheme || req.URL.Host != first.Host:
-		return fmt.Errorf("%w: a redirect from %s://%s to %s://%s leaves the server", ErrRefused, first.Scheme, first.Host, req.URL.Scheme, req.URL.Host)
-	}
-	return nil
+	return trackerhttp.NewClient(d.options(caBundle))
 }
 
 // client calls the REST API of one Jira.
@@ -240,19 +175,8 @@ func (c *client) once(ctx context.Context, r call, u *url.URL, body []byte, out 
 	return 0, nil
 }
 
-// retryAfter reads Retry-After, in seconds or as a date. A 429 without one
-// waits a little; a 503 without one is an outage, not a limit.
 func retryAfter(h string, now time.Time, limited bool) time.Duration {
-	if s, err := strconv.ParseInt(strings.TrimSpace(h), 10, 64); err == nil && s >= 0 {
-		return max(time.Second, time.Duration(min(s, int64(maxWait/time.Second)))*time.Second)
-	}
-	if t, err := http.ParseTime(h); err == nil {
-		return min(maxWait, max(time.Second, t.Sub(now)))
-	}
-	if limited {
-		return 5 * time.Second
-	}
-	return 0
+	return trackerhttp.RetryAfter(h, now, limited)
 }
 
 // message is Jira's own explanation of an error, clipped.

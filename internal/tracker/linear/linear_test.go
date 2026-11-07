@@ -365,6 +365,11 @@ func TestRedirectsStayOnTheServer(t *testing.T) {
 	if other.calls != 0 {
 		t.Error("the other server was called")
 	}
+	// A redirect to the same host in clear is no better: the token would go with it.
+	w.f.redirect = "http://" + strings.TrimPrefix(w.f.srv.URL, "https://") + "/graphql"
+	if _, err := w.adapter(t).Get(t.Context(), "ENG-1"); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "leaves the server") {
+		t.Errorf("a redirect from https to http: %v", err)
+	}
 	w.f.redirect = w.f.srv.URL
 	if _, err := w.adapter(t).Get(t.Context(), "ENG-1"); err == nil || !strings.Contains(err.Error(), "redirects") {
 		t.Errorf("a redirect loop: %v", err)

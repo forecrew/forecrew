@@ -27,6 +27,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/secrets"
 	"github.com/forecrew/forecrew/internal/tracker"
+	"github.com/forecrew/forecrew/internal/tracker/trackerhttp"
 )
 
 // Kind is the kind of the connections of this adapter.
@@ -69,31 +70,13 @@ func (d Deps) withDefaults() Deps {
 	if d.Endpoint == "" {
 		d.Endpoint = DefaultEndpoint
 	}
+	o := trackerhttp.Options{Proxy: d.Proxy, Lookup: d.Lookup, Timeout: d.Timeout}.WithDefaults()
+	d.Proxy, d.Lookup, d.Timeout = o.Proxy, o.Lookup, o.Timeout
 	if d.Now == nil {
 		d.Now = func() time.Time { return time.Now().UTC() }
 	}
-	if d.Proxy == nil {
-		d.Proxy = http.ProxyFromEnvironment
-	}
-	if d.Lookup == nil {
-		d.Lookup = func(ctx context.Context, host string) ([]netip.Addr, error) {
-			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-		}
-	}
 	if d.Sleep == nil {
-		d.Sleep = func(ctx context.Context, wait time.Duration) error {
-			t := time.NewTimer(wait)
-			defer t.Stop()
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-t.C:
-				return nil
-			}
-		}
-	}
-	if d.Timeout == 0 {
-		d.Timeout = defaultTimeout
+		d.Sleep = trackerhttp.Sleep
 	}
 	return d
 }
@@ -111,8 +94,12 @@ func Factory(d Deps) tracker.Factory {
 		if err != nil {
 			return nil, fmt.Errorf("connection %s: %w", c.Name, err)
 		}
+		hc, err := d.httpClient()
+		if err != nil {
+			return nil, err
+		}
 		a := &Adapter{d: d, conn: c, cfg: cfg, cache: cache}
-		a.c = &client{http: d.httpClient(), d: d, endpoint: d.Endpoint, auth: a.authorization}
+		a.c = &client{http: hc, d: d, endpoint: d.Endpoint, auth: a.authorization}
 		return a, nil
 	}
 }
