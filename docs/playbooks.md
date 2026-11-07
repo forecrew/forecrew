@@ -229,9 +229,10 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `bug.reproduced` | `ready`, `feedback`, `tests`, `base`, `missing` | `{done, feedback, if_stuck}`. `ready`, `feedback` and `tests` are from `tests.map`; `base` is the output of `tests.base_check_result` and `missing` the one of `tests.base_check_request`, both empty when the tests were not ready and the base check did not run. Test ids in the text are quoted as untrusted data. `done` is true when the test engineer's tests are ready, there is one and it failed on the default branch. Else `feedback` says why (no test, `cannot_reproduce`, a test that passes on base, a base check no worker could run) and `if_stuck` is `[feedback]`, for a `foreach` that opens a gate. |
 | `goal.size` | `goal_id`, `triage` | `{councils, if_product, if_technical}`. A goal without a size takes it from `triage`, the `triage` job's output: the councils the sizing rule gives (config.md, sizing) are stored as `goals.size`. A goal that has a size keeps it and `triage` is not read: a human's override (create_goal with `councils`) is such a size, so that goal skips the triage job. `if_product` and `if_technical` are `[goal_id]` when the goal gets that council, else `[]`, for a `foreach` that skips the council steps. Refuses a triage with an unknown grade, no area or no reason. |
 | `goal.untriaged` | `goal_id` | `{if_triage}`. `[goal_id]` for a goal without a size, else `[]`, for a `foreach` that runs the triage job only when no human chose the councils. |
-| `goal.council_constraints` | `goal_id` | `{constraints}`. What a council of the goal starts with: its ref and title as one line and the platforms it targets. They come from the goal's fields, not its text; the members read the goal itself in their pack, marked as data. |
-| `goal.adr` | `goal_id` | `{write_paths, pool, branch}`. For the architect's job in `goal-v3`: when a technical council of the goal decided, `["docs/adr/**"]`, the `build` pool and the branch `agent/adr-GOAL-n`; otherwise `[]` and two empty strings, which leaves the job read-only in its usual pool. Read-only. |
+| `goal.council_constraints` | `goal_id` | `{constraints}`. What a council of the goal starts with, binding on every option: the platforms it targets (`The change must work on: ios, web.`), and nothing else. The goal's title and text are the human's request, not rules; members read the goal in their pack, marked as data. `[]` for a goal without platforms. |
+| `goal.adr` | `goal_id` | `{write_paths, pool, branch}`. For the architect's job in `goal-v3`: when a technical council of the goal decided and the project's knowledge policy lets the job write its ADR, `["docs/adr/**"]`, the `build` pool and the branch `agent/adr-GOAL-n`; otherwise `[]` and two empty strings, which leaves the job read-only in its usual pool. The policy lets it when no protected section holds `docs/adr/` and no section reaches beyond it (a section of `docs/adr/**` that is not protected is opened for this job, see `PathRules.DeniedFor`). Read-only. |
 | `goal.adr_ready` | `goal_id` | `{if_adr, sha, title, body}`. `if_adr` is `[branch]` when `agent/adr-GOAL-n` exists, the architect having pushed an ADR, with the head `sha` and the text of its PR, else `[]`. |
+| `goal.adr_round` | `decision`, optional `feedback` | `{if_rework, done}`. How a round of the ADR's review ended, from the decision of its gate (empty when the architect wrote no ADR). `done` is true for no gate and for `approved`; `changes_requested` is not done and `if_rework` is `[feedback]` (a default text when the human wrote none), for a `foreach` that reruns the architect. |
 | `goal.spec` | `goal_id`, `job_id`, `spec` | `{spec_id, revision, summary}`. Stores the product owner's output as the next spec revision (once per job), adds the spec as a dependent of the assumptions the job stated, renders it under the goal's text in the goal issue (in a comment, once, when that issue is a person's ticket, whose text stays: tracker.md), moves the goal to `spec_review`. `summary` is the text of the `spec_approval` gate. When the goal has a decided product council, the summary also names its brief (`get_council COUNCIL-n`) and what it recommended. |
 | `goal.plan` | `goal_id`, `spec_id`, `platforms`, `plan`, `spec` | `{valid, errors, tasks: [{id, ref, number, seq, title, issue_number, branch, needs, criteria}]}`. Stores the architect's tasks in order, one issue per task (labels `forecrew:task` and `needs:<label>`, a sub-issue of the goal's), comments the plan on the goal issue and moves the goal to `planned`. `needs` are the task's labels plus `platforms`. A plan that cannot be used (the architect escalated, no task, an unknown criterion, a dependency that is not an earlier task, criteria of the spec that no task covers) stores nothing: the output is `valid: false` with `errors` as the architect's feedback, which is also commented on the goal issue (once per call) for the human a `needs_you` gate asks. Kept tasks and issues are not created twice. |
 | `goal.round` | `task_id`, `iteration`, `human`, `review` | `{task_id, ref, title, branch, feedback}`. Before a developer job: the task goes (back) to `in_progress`, the goal to `in_progress`, the branch `agent/TASK-n` is recorded. `feedback` is `human` in the first round and `review` in the others. |
@@ -289,7 +290,7 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `goal.retro_context` | `goal_id` | `{text, notes}`. The goal's history for the retro job: spec revisions, what humans answered at the goal's gates, the reviews that asked for changes, the jobs that failed or were canceled, costs by role and the goal's notes with their ids. Everything a person or agent wrote is marked as data, each text cut and each list bounded. Reads only. |
 | `goal.learn` | `goal_id` | `{proposals, files, number, branch, head_sha, gate, if_gate}`. The learn step: writes in one PR `agent/learn-GOAL-n` the goal's register files (`.forecrew/assumptions/A-n.yaml`, `docs/decisions/DEC-n.md`, as `registers.Export` gives them, only when they differ from the default branch) and the goal's queued `per_goal` proposals for the repo (`entry`: provenance frontmatter, then the body; source `GOAL-n`). It checks them against the policy again first: what the policy no longer allows, or a section that became protected, is rejected and audited. Proposals for a provider without a review flow wait at the gate. Opens one `knowledge_proposal` gate, with the call's key as ID, for the PR and those proposals; `gate` is its ID (empty when there was nothing to send) and `if_gate` holds it for a `foreach`. Idempotent for its key. |
 | `goal.learn_decide` | `goal_id`, `gate` | `{if_merge, if_follow}`. Anything but an approved gate closes the learn PR and rejects the proposals; an approval accepts the ones copied across by hand and says how the PR gets merged (`if_follow` when a section it changes is owned by `codeowners`). |
-| `goal.learn_settle` | `goal_id`, optional `skipped` | `{failed}`. Last step and `finally` step of `learn`: a merged PR accepts what is in review, a closed one rejects it; in a run that failed or was canceled, or with `skipped` (the learn step of `goal-v3` that a human skipped), the PR is closed and what is in review or still queued rejected. |
+| `goal.learn_settle` | `goal_id`, optional `skipped` | `{failed, settled}` (`settled` is always true: it ends the learn loop of `goal-v3`). Last step and `finally` step of `learn`: a merged PR accepts what is in review, a closed one rejects it; in a run that failed or was canceled, or with `skipped` (the learn step of `goal-v3` that a human skipped), the PR is closed and what is in review or still queued rejected, a queued proposal even when the PR was merged, since it was never in it. |
 
 ### Command jobs
 
@@ -827,7 +828,8 @@ council, the spec gate, the technical council, the ADR, the tasks, test design,
 implementation, verification, review, the merge gate and the learn step. It
 takes the inputs of `goal`. It is off for every project: `create_goal` starts it
 only for the projects listed in `goal_v3.projects` of forecrew.yaml
-([config.md](contracts/config.md)), also when they are in `testing.projects`;
+([config.md](contracts/config.md)), also when they are in `testing.projects`
+(and such a project reports bugs, since it runs the testing system);
 every other project, and every goal that already runs, keeps its playbook, and
 the files of `goal` and `goal-v2` did not change. It was built as a new version
 because it changes the loop a pilot may be running on.
@@ -855,21 +857,27 @@ It is `goal-v2` with these steps added:
    a wait on `council.decided`. The council's brief is in the `decisions` the
    product owner's job reads (`contextpack`: the briefs of the goal's decided
    councils are listed with its decisions, as untrusted agent text), and the
-   spec gate's summary names it (`goal.spec`). A council that fails, for example
+   spec gate's summary names it and quotes its recommendation as agent text
+   (`goal.spec`). A council that fails, for example
    a brief a human rejected, stops the run: do not build what the council
    said not to.
 3. **Technical council**, a `foreach` over `if_technical`, after the spec gate
    (it needs the approved spec) with the question "How should we build it?". Its
-   brief and its decision feed the architect's job in the same way.
+   members read the goal's latest spec, which `contextpack` puts in their pack,
+   and its brief and its decision feed the architect's job in the same way.
 4. **ADR.** The decision of a goal is architectural when its technical council
    decided: that council weighs the design. `goal.adr` then gives the
    architect's job `write_paths: [docs/adr/**]`, the `build` pool (the `control`
    pool has no write token) and the branch `agent/adr-GOAL-n`, and the job's
    prompt asks for the record; without that council the job stays read-only.
-   After the plan, `goal.adr_ready` finds the branch (an architect may write
-   nothing), the PR is opened, waits for its checks, and a `merge_approval` gate
-   merges it (`github.merge_pr` with the head `sha`); rejecting the gate stops the
-   run and leaves the PR open. This is a docs PR, so the merge does not need a
+   A repo whose policy keeps its ADRs in a protected section, or in a section
+   wider than `docs/adr/`, gets a read-only architect and no ADR (`goal.adr`).
+   After the plan, a loop of at most three rounds (a needs_you gate for the next
+   ones) reviews the ADR: `goal.adr_ready` finds the branch (an architect may
+   write nothing), the PR is opened, waits for its checks, and a `merge_approval`
+   gate merges it (`github.merge_pr` with the head `sha`). Requesting changes
+   runs the architect again on the same branch with the feedback and reviews the
+   new head; rejecting the gate stops the run and leaves the PR open. This is a docs PR, so the merge does not need a
    verification report, unlike the tasks'.
 5. **Tasks.** The delivery is `goal-v2`'s, step for step
    (`TestBugfixDeliveryIsGoalV2s` keeps `goal-v2`, `goal-v3` and `bugfix` equal):
@@ -898,11 +906,11 @@ the goal's knowledge proposals that waited for a learn step that will not run.
   technical one. A goal sized in for both runs two, besides triage (a `fast` model, at most 15 turns), the ADR in the architect's
   job and the retro. Raise `sizing` thresholds to size fewer goals in; a human who
   creates a goal with `councils: []` pays for none.
-- A technical council does not read the spec: its members read the goal. The
-  spec is the architect's, after it.
+- The constraints of a council are the goal's platforms only; the goal's own
+  text reaches the members as data.
 - The ADR is written only after a technical council; an architectural decision
   of a goal sized without one is not recorded.
-- Rejecting the ADR gate cancels the run, as every gate does.
+- Rejecting the ADR gate cancels the run, as every gate does. A rework round runs the whole architect job again, and the plan it returns is ignored: the plan stored before stays.
 - A learn step skipped by a human leaves the register files and the proposals
   unsent: the goal is done without its retro.
 - The limits of [goal-v2](#limits-of-goal-v2) apply to the delivery.

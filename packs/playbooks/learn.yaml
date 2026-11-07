@@ -1,4 +1,4 @@
-description: Close a goal with a retro. A knowledge-curator job reads what happened (spec revisions, what humans and the reviewer asked to change, failures, costs, the notes agents shared) and proposes lessons and other knowledge, promoting the notes worth keeping. Then one PR agent/learn-GOAL-n carries the goal's assumptions and decisions as files and the repo proposals of the goal, with a knowledge_proposal gate; proposals for other providers go to them or to the same gate. Started for a goal that is done; the goal playbook starts it.
+description: Close a goal with a retro. A knowledge-curator job reads what happened (spec revisions, what humans and the reviewer asked to change, failures, costs, the notes agents shared) and proposes lessons and other knowledge, promoting the notes worth keeping. Then one PR agent/learn-GOAL-n carries the goal's assumptions and decisions as files and the repo proposals of the goal, with a knowledge_proposal gate; proposals for other providers go to them or to the same gate. Started on its own for a goal that is done; goal-v3 runs the same steps itself, before it closes the goal.
 inputs: [repo, goal_id]
 steps:
   - id: history
