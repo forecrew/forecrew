@@ -1,6 +1,7 @@
 package tools_test
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -94,6 +95,50 @@ func TestConnectedAppCreatesNoToken(t *testing.T) {
 	wantErr(t, err, authz.ErrDenied)
 	if got, _ := f.auditOf(ctx, t); !slices.Contains(got, "access.denied") {
 		t.Errorf("audit = %v", got)
+	}
+}
+
+// TestConnectedAppMintsNoCredential is everything that would outlive
+// disconnecting the app: a provider token, a join code, an invitation link,
+// and an instance admin's reach over instance-wide rows.
+func TestConnectedAppMintsNoCredential(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	admin := manager(t, f, true)
+	id, _ := admin.SubjectID()
+	app, _ := grantFor(t, f, id, "admin-app", domain.ScopeAdmin)
+	calls := map[string]func(domain.Actor) error{
+		"create_provider": func(by domain.Actor) error {
+			_, err := f.svc.CreateProvider(ctx, by, mcp.CreateProviderInput{Name: "home-" + string(by.Credential.Kind), Kind: domain.ProviderAWS})
+			return err
+		},
+		"create_join_code": func(by domain.Actor) error {
+			_, err := f.svc.CreateJoinCode(ctx, by, mcp.CreateJoinCodeInput{})
+			return err
+		},
+		"create_invitation": func(by domain.Actor) error {
+			_, err := f.svc.CreateInvitation(ctx, by, mcp.CreateInvitationInput{Email: string(by.Credential.Kind) + "@example.com", Roles: []mcp.RoleGrant{{Role: domain.RoleViewer}}})
+			return err
+		},
+	}
+	session := admin
+	session.Credential = domain.Credential{Kind: domain.CredentialSession, ID: domain.NewID()}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			wantErr(t, call(app), authz.ErrDenied)
+			must(t, call(session))
+		})
+	}
+	if got, _ := f.auditOf(ctx, t); !slices.Contains(got, "access.denied") {
+		t.Errorf("audit = %v", got)
+	}
+
+	hosted, _ := fleetRows(t, f.st, uuid.Nil(), "cloud")
+	if _, err := f.svc.RevokeProvider(ctx, app, mcp.ProviderRefInput{Provider: hosted.ID.String()}); !errors.Is(err, mcp.ErrNotFound) {
+		t.Errorf("an instance admin's app reached an instance-wide provider: %v", err)
+	}
+	if _, err := f.svc.RevokeProvider(ctx, session, mcp.ProviderRefInput{Provider: hosted.ID.String()}); err != nil {
+		t.Errorf("the instance admin in person: %v", err)
 	}
 }
 
