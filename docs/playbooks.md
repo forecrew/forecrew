@@ -35,7 +35,7 @@ rejected.
 
 | Type | Fields | What it does |
 |------|--------|--------------|
-| `job` | `with`, `on_failure` | Creates a job through `workflow.JobCreator`, then waits for its `job.completed`. `with` takes the json keys of `workflow.JobRequest` (`role` required; `account_id`, `project_id` are set by the engine; `goal_id` and `task_id` default to the run's; `pool` picks the worker pool and defaults to the role pack's `pool`, and a pool whose policy does not run the role fails the step (docs/worker.md, Pools); `task` makes the job a read-only task of the role instead of its usual work (`packs/tasks/<role>.<task>.md` with its output schema `<role>.<task>.json`; the knowledge curator has `retro` and `curate`); `prompt` adds instructions to the job's prompt and must be literal text written in the playbook: a `${...}` reference in it is refused when the playbook loads, because the prompt is rendered as trusted instructions; `locked_paths`, a list of globs, goes into the job spec and the prompt: the job fails if it changes a matching file, see Locked tests). Fails when the job fails or is canceled. |
+| `job` | `with`, `on_failure` | Creates a job through `workflow.JobCreator`, then waits for its `job.completed`. `with` takes the json keys of `workflow.JobRequest` (`role` required; `account_id`, `project_id` are set by the engine; `goal_id` and `task_id` default to the run's; `pool` picks the worker pool and defaults to the role pack's `pool`, and a pool whose policy does not run the role fails the step (docs/worker.md, Pools); `task` makes the job a read-only task of the role instead of its usual work (`packs/tasks/<role>.<task>.md` with its output schema `<role>.<task>.json`; the knowledge curator has `retro` and `curate`); `prompt` adds instructions to the job's prompt and must be literal text written in the playbook: a `${...}` reference in it is refused when the playbook loads, because the prompt is rendered as trusted instructions; `locked_paths`, a list of globs, goes into the job spec and the prompt: the job fails if it changes a matching file, see Locked tests; `write_paths`, a list of globs, is added to the role's write paths for this job, so a read-only role writes the files they name (the architect's ADR in `goal-v3`): take it from an action, never from a job's output, and run the job in a pool that gets a write token). Fails when the job fails or is canceled. |
 | `action` | `action`, `with`, `on_failure` | Calls the Go function registered under `action` in `workflow.Actions` with the resolved `with`. Its result is the step output; an error fails the step. |
 | `gate` | `with`, `on_failure` | Opens a gate and waits for `gate.resolved`. `with` takes the json keys of `gates.OpenRequest`: `kind`, `title`, `subject_repo` (required), `summary`, `subject_number`, `goal_id`, `spec_id`, `task_id`, `job_id`. |
 | `wait` | `with`, `timeout`, `on_failure` | Waits for a signal. `with.signal` is the kind and the remaining keys build its key with the `domain` helpers: `checks.completed` (`repo`, `sha`), `pr.merged` / `pr.closed` (`repo`, `number`), `job.completed` (`job_id`), `gate.resolved` (`gate_id`), `council.decided` (`council_id`). The first signal stored under the key completes the step, so for a PR either merged or closed does (the output's `signal` says which). On `job.completed` the step follows the job-step rules: it outputs the job's values and fails when the job did not succeed. On `gate.resolved` it outputs the gate's values but does not apply the gate-decision rules below. A wait for `gate.resolved` (like a gate step) finds the gate resolved when the signal was lost; the other waits have no lost-signal fallback. `timeout` (Go duration, e.g. `30m`) fails the step after that long; zero waits forever. |
@@ -228,7 +228,11 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `bug.brief` | `problem`, `note` | `{feedback}`. The feedback of the next test engineer attempt: the problem `bug.reproduced` found and the note a person gave at the gate, trimmed and separated by a blank line; empty in the first attempt. |
 | `bug.reproduced` | `ready`, `feedback`, `tests`, `base`, `missing` | `{done, feedback, if_stuck}`. `ready`, `feedback` and `tests` are from `tests.map`; `base` is the output of `tests.base_check_result` and `missing` the one of `tests.base_check_request`, both empty when the tests were not ready and the base check did not run. Test ids in the text are quoted as untrusted data. `done` is true when the test engineer's tests are ready, there is one and it failed on the default branch. Else `feedback` says why (no test, `cannot_reproduce`, a test that passes on base, a base check no worker could run) and `if_stuck` is `[feedback]`, for a `foreach` that opens a gate. |
 | `goal.size` | `goal_id`, `triage` | `{councils, if_product, if_technical}`. A goal without a size takes it from `triage`, the `triage` job's output: the councils the sizing rule gives (config.md, sizing) are stored as `goals.size`. A goal that has a size keeps it and `triage` is not read: a human's override (create_goal with `councils`) is such a size, so that goal skips the triage job. `if_product` and `if_technical` are `[goal_id]` when the goal gets that council, else `[]`, for a `foreach` that skips the council steps. Refuses a triage with an unknown grade, no area or no reason. |
-| `goal.spec` | `goal_id`, `job_id`, `spec` | `{spec_id, revision, summary}`. Stores the product owner's output as the next spec revision (once per job), adds the spec as a dependent of the assumptions the job stated, renders it under the goal's text in the goal issue (in a comment, once, when that issue is a person's ticket, whose text stays: tracker.md), moves the goal to `spec_review`. `summary` is the text of the `spec_approval` gate. |
+| `goal.untriaged` | `goal_id` | `{if_triage}`. `[goal_id]` for a goal without a size, else `[]`, for a `foreach` that runs the triage job only when no human chose the councils. |
+| `goal.council_constraints` | `goal_id` | `{constraints}`. What a council of the goal starts with: its ref and title as one line and the platforms it targets. They come from the goal's fields, not its text; the members read the goal itself in their pack, marked as data. |
+| `goal.adr` | `goal_id` | `{write_paths, pool, branch}`. For the architect's job in `goal-v3`: when a technical council of the goal decided, `["docs/adr/**"]`, the `build` pool and the branch `agent/adr-GOAL-n`; otherwise `[]` and two empty strings, which leaves the job read-only in its usual pool. Read-only. |
+| `goal.adr_ready` | `goal_id` | `{if_adr, sha, title, body}`. `if_adr` is `[branch]` when `agent/adr-GOAL-n` exists, the architect having pushed an ADR, with the head `sha` and the text of its PR, else `[]`. |
+| `goal.spec` | `goal_id`, `job_id`, `spec` | `{spec_id, revision, summary}`. Stores the product owner's output as the next spec revision (once per job), adds the spec as a dependent of the assumptions the job stated, renders it under the goal's text in the goal issue (in a comment, once, when that issue is a person's ticket, whose text stays: tracker.md), moves the goal to `spec_review`. `summary` is the text of the `spec_approval` gate. When the goal has a decided product council, the summary also names its brief (`get_council COUNCIL-n`) and what it recommended. |
 | `goal.plan` | `goal_id`, `spec_id`, `platforms`, `plan`, `spec` | `{valid, errors, tasks: [{id, ref, number, seq, title, issue_number, branch, needs, criteria}]}`. Stores the architect's tasks in order, one issue per task (labels `forecrew:task` and `needs:<label>`, a sub-issue of the goal's), comments the plan on the goal issue and moves the goal to `planned`. `needs` are the task's labels plus `platforms`. A plan that cannot be used (the architect escalated, no task, an unknown criterion, a dependency that is not an earlier task, criteria of the spec that no task covers) stores nothing: the output is `valid: false` with `errors` as the architect's feedback, which is also commented on the goal issue (once per call) for the human a `needs_you` gate asks. Kept tasks and issues are not created twice. |
 | `goal.round` | `task_id`, `iteration`, `human`, `review` | `{task_id, ref, title, branch, feedback}`. Before a developer job: the task goes (back) to `in_progress`, the goal to `in_progress`, the branch `agent/TASK-n` is recorded. `feedback` is `human` in the first round and `review` in the others. |
 | `goal.task_move` | `task_id`, `to` | `{status}`. Moves a task to a state, through the ones in between when going forward, or back to `in_progress`. |
@@ -455,8 +459,10 @@ run in the `council` playbook.
 ## The learn playbook
 
 `packs/playbooks/learn.yaml`, inputs `repo` and `goal_id`, closes a goal that is
-done with a retro. It is not wired into the goal playbook yet: a run is
-started for a goal with the engine, as councils are.
+done with a retro. `goal-v3` runs its steps itself, in a loop with
+`on_failure: skip`, before closing the goal (a file cannot include another, so
+`TestGoalV3LearnIsTheLearnPlaybooks` keeps the copy equal); started alone, as
+councils are, it is the same retro for a goal that is done.
 
 1. `goal.retro_context` writes the goal's history.
 2. A `knowledge-curator` job with `task: retro` reads it and the code, searches
@@ -656,9 +662,8 @@ goal's worker labels); `create_goal` starts it.
 
 Sizing: the `triage` role and `goal.size` decide which councils a goal gets
 (config.md, sizing). A goal created with `councils` (`product`, `technical`,
-or `[]` for none) keeps that size and skips the triage job. The goal playbook
-does not run triage yet; wiring it in, with a `foreach` over `if_product` and
-`if_technical`, is a later task.
+or `[]` for none) keeps that size and skips the triage job. This playbook does
+not run triage; [`goal-v3`](#the-goal-playbook-with-councils-and-learning) does.
 
 1. **Intake.** `goal.intake` opens the goal's GitHub issue.
 2. **Spec.** A loop of at most three rounds (a needs_you gate for the next
@@ -814,6 +819,93 @@ It is `goal` with these differences, task by task:
 - An environment the matrix needs and the repo lacks stays a failure of
   `matrix.plan` or `verification.build` for a human; the playbook does not run
   the `environment-engineer`.
+
+## The goal playbook with councils and learning
+
+`packs/playbooks/goal-v3.yaml` is the full feature workflow: triage, the product
+council, the spec gate, the technical council, the ADR, the tasks, test design,
+implementation, verification, review, the merge gate and the learn step. It
+takes the inputs of `goal`. It is off for every project: `create_goal` starts it
+only for the projects listed in `goal_v3.projects` of forecrew.yaml
+([config.md](contracts/config.md)), also when they are in `testing.projects`;
+every other project, and every goal that already runs, keeps its playbook, and
+the files of `goal` and `goal-v2` did not change. It was built as a new version
+because it changes the loop a pilot may be running on.
+
+```
+intake -> sized? -> triage job -> goal.size
+              (skipped when a human chose the councils)
+ -> product council -> spec loop (spec_approval gate, brief linked)
+ -> technical council -> architect (ADR) -> goal.plan -> ADR PR (merge_approval)
+ -> per task: test design -> delivery (as goal-v2: locked tests, matrix,
+    verification report, review, assess, merge_approval, merge)
+ -> learn (retro job, goal.learn PR, knowledge_proposal gate, merge)
+ -> goal.close
+```
+
+It is `goal-v2` with these steps added:
+
+1. **Triage.** `goal.untriaged` says whether the goal has no size (a goal
+   created with `councils`, even `[]`, has one); a `foreach` over its `if_triage`
+   runs the `triage` job, and `goal.size` stores the councils the sizing rule
+   (config.md, sizing) gives the triage, or keeps the human's. A small, reversible
+   goal gets no council and goes on to the spec.
+2. **Product council**, a `foreach` over `if_product`: `goal.council_constraints`,
+   `council.run` with the question "Should we build this, and what exactly?" and
+   a wait on `council.decided`. The council's brief is in the `decisions` the
+   product owner's job reads (`contextpack`: the briefs of the goal's decided
+   councils are listed with its decisions, as untrusted agent text), and the
+   spec gate's summary names it (`goal.spec`). A council that fails, for example
+   a brief a human rejected, stops the run: do not build what the council
+   said not to.
+3. **Technical council**, a `foreach` over `if_technical`, after the spec gate
+   (it needs the approved spec) with the question "How should we build it?". Its
+   brief and its decision feed the architect's job in the same way.
+4. **ADR.** The decision of a goal is architectural when its technical council
+   decided: that council weighs the design. `goal.adr` then gives the
+   architect's job `write_paths: [docs/adr/**]`, the `build` pool (the `control`
+   pool has no write token) and the branch `agent/adr-GOAL-n`, and the job's
+   prompt asks for the record; without that council the job stays read-only.
+   After the plan, `goal.adr_ready` finds the branch (an architect may write
+   nothing), the PR is opened, waits for its checks, and a `merge_approval` gate
+   merges it (`github.merge_pr` with the head `sha`); rejecting the gate stops the
+   run and leaves the PR open. This is a docs PR, so the merge does not need a
+   verification report, unlike the tasks'.
+5. **Tasks.** The delivery is `goal-v2`'s, step for step
+   (`TestBugfixDeliveryIsGoalV2s` keeps `goal-v2`, `goal-v3` and `bugfix` equal):
+   tests written from the spec and locked for the developer, a verification
+   report on every PR head, review, `goal.assess` and `github.merge_pr` with
+   `require_verification` and the approved `sha`. `TestGoalV3KeepsTheMergeGate`
+   fails when a change drops one of them. The merge gate stays closed while a
+   high-impact assumption of the task is unverified (`goal.assess`, tested end to
+   end by `TestGoalV3HighImpactAssumptionBlocksTheMergeGate`).
+6. **Learn**, after every task is merged and before `goal.close`: a loop with
+   `on_failure: skip` that holds the steps of the learn playbook. The PR
+   `agent/learn-GOAL-n` is open, with its `knowledge_proposal` gate, before the
+   goal closes. A failure in it (the retro job, GitHub, the merge) does not fail
+   the goal: a `needs_you` gate shows it, approving skips the learn step
+   (`goal.learn_settle` with `skipped` closes its PR and rejects its proposals)
+   and the goal closes; rejecting stops the run like any other.
+
+A goal whose run ends failed or canceled runs `goal.settle`, which also rejects
+the goal's knowledge proposals that waited for a learn step that will not run.
+
+### Limits of goal-v3
+
+- **Cost.** A council is four or five members, a facilitator and up to two
+  revision rounds (councils.md); its pack caps the tokens and the time: 600,000
+  tokens and 60 minutes for a product council, 800,000 and 90 minutes for a
+  technical one. A goal sized in for both runs two, besides triage (a `fast` model, at most 15 turns), the ADR in the architect's
+  job and the retro. Raise `sizing` thresholds to size fewer goals in; a human who
+  creates a goal with `councils: []` pays for none.
+- A technical council does not read the spec: its members read the goal. The
+  spec is the architect's, after it.
+- The ADR is written only after a technical council; an architectural decision
+  of a goal sized without one is not recorded.
+- Rejecting the ADR gate cancels the run, as every gate does.
+- A learn step skipped by a human leaves the register files and the proposals
+  unsent: the goal is done without its retro.
+- The limits of [goal-v2](#limits-of-goal-v2) apply to the delivery.
 
 ## Bug-fix playbook
 
