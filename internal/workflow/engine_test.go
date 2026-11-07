@@ -276,6 +276,68 @@ steps:
 	}
 }
 
+// A loop with on_failure skip: a failure inside it opens a needs_you gate,
+// approving it skips the loop and the run goes on; rejecting stops the run.
+func TestLoopSkip(t *testing.T) {
+	const pb = `
+steps:
+  - id: optional
+    type: loop
+    max_iterations: 1
+    until: steps.risky.output
+    on_failure: skip
+    steps:
+      - {id: risky, type: action, action: record}
+  - {id: after, type: action, action: record, with: {skipped: '${steps.optional.output.skipped}'}}
+`
+	fail := func(workflow.ActionCall, int) (any, error) { return nil, errors.New("broke") }
+	t.Run("approved", func(t *testing.T) {
+		v := newEnv(t)
+		v.actions["record"] = v.record(func(c workflow.ActionCall, _ int) (any, error) {
+			if _, ok := c.With["skipped"]; ok {
+				return "after", nil
+			}
+			return fail(c, 0)
+		})
+		_, r := v.engine(t, pb, nil)
+		esc := v.waitStep(t, r.ID, "optional:escalate", 1, domain.StepWaiting)
+		g, err := v.gates.Get(t.Context(), v.account, esc.GateID)
+		must(t, err)
+		if !strings.Contains(g.Summary, "step optional/1/risky failed: broke") || !strings.Contains(g.Summary, "skip it") {
+			t.Fatalf("summary = %q", g.Summary)
+		}
+		v.decide(t, r.ID, "optional:escalate", 1, domain.GateApproved, "")
+		v.waitRun(t, r.ID, domain.RunSucceeded)
+		calls := v.actionCalls()
+		if last := calls[len(calls)-1]; last.With["skipped"] != true {
+			t.Errorf("after got %v", last.With)
+		}
+	})
+	t.Run("rejected", func(t *testing.T) {
+		v := newEnv(t)
+		v.actions["record"] = v.record(fail)
+		_, r := v.engine(t, pb, nil)
+		v.waitStep(t, r.ID, "optional:escalate", 1, domain.StepWaiting)
+		v.decide(t, r.ID, "optional:escalate", 1, domain.GateRejected, "")
+		v.waitRun(t, r.ID, domain.RunCanceled)
+	})
+	t.Run("not failing", func(t *testing.T) {
+		v := newEnv(t)
+		v.actions["record"] = v.record(func(c workflow.ActionCall, _ int) (any, error) {
+			if _, ok := c.With["skipped"]; ok {
+				return "after", nil
+			}
+			return true, nil
+		})
+		_, r := v.engine(t, pb, nil)
+		v.waitRun(t, r.ID, domain.RunSucceeded)
+		calls := v.actionCalls()
+		if last := calls[len(calls)-1]; last.With["skipped"] != false {
+			t.Errorf("after got %v", last.With)
+		}
+	})
+}
+
 func TestForeach(t *testing.T) {
 	v := newEnv(t)
 	_, r := v.engine(t, `
