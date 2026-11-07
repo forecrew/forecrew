@@ -111,6 +111,7 @@ because these are what fail on-premise:
 | `login` | the token is refused, expired or unreadable |
 | `projects` | the account cannot browse a project, comment on or transition its issues |
 | `transitions` | the projects have no status in the done category |
+| `routes` | a route maps a logical state to a status the projects do not have |
 
 A check after a failed one says it was not checked. The first test that
 passes stores the deployment, if the plan's connection did not have it yet.

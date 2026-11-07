@@ -624,7 +624,7 @@ func TestPreparedConnections(t *testing.T) {
 	p.checks[1] = tracker.Check{Name: "login", Detail: "401"}
 	got, err := w.svc.TestTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "jira"})
 	must(t, err)
-	if got.OK || len(got.Checks) != 2 || got.Checks[1].Detail != "401" || got.Connection != "jira" {
+	if got.OK || len(got.Checks) != 3 || got.Checks[1].Detail != "401" || got.Connection != "jira" {
 		t.Errorf("test = %+v", got)
 	}
 	if stored, _ := w.st.TrackerConnections().Get(ctx, w.account.ID, c.ID); stored.Config["deployment"] != nil {
@@ -645,12 +645,27 @@ func TestPreparedConnections(t *testing.T) {
 	if err == nil {
 		t.Error("a connection whose tracker could not be read was created")
 	}
-	// The fake has no checks of its own: Verify is its one check.
+	// The fake has no checks of its own: Verify is its one check, and its
+	// routes' states are checked against its states.
 	got, err = w.svc.TestTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board"})
 	must(t, err)
-	if !got.OK || len(got.Checks) != 1 || got.Checks[0].Name != "connection" {
+	if !got.OK || len(got.Checks) != 2 || got.Checks[0].Name != "connection" || got.Checks[1].Name != "routes" {
 		t.Errorf("test of the fake = %+v", got)
 	}
+	r := domain.TrackerRoute{AccountID: w.account.ID, ConnectionID: w.conn.ID, ProjectID: w.project.ID, States: map[domain.TicketState]string{domain.TicketDone: "Shipped"}}
+	must(t, w.st.TrackerRoutes().Create(ctx, &r))
+	got, err = w.svc.TestTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board"})
+	must(t, err)
+	if got.OK || !strings.Contains(got.Checks[1].Detail, "Shipped") {
+		t.Errorf("a route to a state the tracker lacks = %+v", got)
+	}
+	w.fake.Down = true
+	p.checks[1].OK = false
+	got, _ = w.svc.TestTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "jira"})
+	if got.Checks[2].Name != "routes" || !strings.Contains(got.Checks[2].Detail, "not checked") {
+		t.Errorf("routes after a failed check = %+v", got)
+	}
+	w.fake.Down = false
 	_, err = w.svc.TestTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "nope"})
 	wantErr(t, err, mcp.ErrNotFound)
 	member, _ := w.member(t, orgScope, domain.RoleMember, uuid.Nil())
