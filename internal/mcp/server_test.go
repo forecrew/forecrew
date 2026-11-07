@@ -275,6 +275,7 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolListShapes, nil, nil},
 		{mcp.ToolListProviders, nil, mcp.ListProvidersInput{WrapUntrusted: true}},
 		{mcp.ToolFleetOverview, nil, nil},
+		{mcp.ToolFleetUsage, map[string]any{"month": "2026-03", "records": true}, mcp.FleetUsageInput{Month: "2026-03", Records: true}},
 		{mcp.ToolCreateProvider, map[string]any{"name": "home", "kind": "microvm", "org": "acme"}, mcp.CreateProviderInput{Name: "home", Kind: domain.ProviderMicroVM, Org: "acme"}},
 		{mcp.ToolRevokeProvider, map[string]any{"provider": "home"}, mcp.ProviderRefInput{Provider: "home", WrapUntrusted: true}},
 		{mcp.ToolCreateJoinCode, map[string]any{"cloud": true}, mcp.CreateJoinCodeInput{Cloud: true}},

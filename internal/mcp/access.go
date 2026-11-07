@@ -108,6 +108,7 @@ func ToolAccess() map[string]Access {
 		ToolListShapes:             {Permission: domain.PermWorkerRead},
 		ToolListProviders:          {Permission: domain.PermWorkerRead},
 		ToolFleetOverview:          {Permission: domain.PermWorkerRead},
+		ToolFleetUsage:             {Permission: domain.PermWorkerRead},
 		ToolListKnowledgeProposals: {Permission: domain.PermProjectRead},
 		ToolListKnowledge:          {Permission: domain.PermProjectRead},
 		ToolGetTrace:               {Permission: domain.PermProjectRead},

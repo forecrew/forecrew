@@ -233,6 +233,26 @@ func (s *Service) FleetOverview(ctx context.Context, by domain.Actor) (fleet.Ove
 	return s.cfg.Fleet.Overview(ctx, by.AccountID, visible.Has)
 }
 
+// FleetUsage implements mcp.ToolService.
+func (s *Service) FleetUsage(ctx context.Context, by domain.Actor, in mcp.FleetUsageInput) (fleet.UsageReport, error) {
+	if err := s.allowOrg(ctx, by, domain.PermWorkerRead); err != nil {
+		return fleet.UsageReport{}, err
+	}
+	if s.cfg.Fleet == nil {
+		return fleet.UsageReport{}, fmt.Errorf("the fleet is not configured: %w", mcp.ErrUnavailable)
+	}
+	from := s.cfg.Now().UTC()
+	from = time.Date(from.Year(), from.Month(), 1, 0, 0, 0, 0, time.UTC)
+	if in.Month != "" {
+		m, err := time.Parse("2006-01", in.Month)
+		if err != nil {
+			return fleet.UsageReport{}, fmt.Errorf("month %q must be YYYY-MM: %w", in.Month, mcp.ErrInvalidInput)
+		}
+		from = m
+	}
+	return s.cfg.Fleet.Usage(ctx, by.AccountID, from, from.AddDate(0, 1, 0), in.Records)
+}
+
 // instanceAdmin reports whether by is a person flagged as an instance admin:
 // instance-wide rows are theirs alone (fleet.md, Permissions).
 func (s *Service) instanceAdmin(ctx context.Context, by domain.Actor) (bool, error) {

@@ -84,6 +84,7 @@ type JobService interface {
 // it.
 type FleetService interface {
 	Overview(ctx context.Context, accountID uuid.UUID, visible func(project uuid.UUID) bool) (fleet.Overview, error)
+	Usage(ctx context.Context, accountID uuid.UUID, from, to time.Time, records bool) (fleet.UsageReport, error)
 }
 
 // Checker reads from GitHub; github.Tracker implements it.
@@ -121,7 +122,7 @@ type Config struct {
 	Notes  *knowledge.Notes
 	// Proposals serves propose_knowledge; nil answers unavailable.
 	Proposals *proposals.Service
-	// Fleet serves fleet_overview; nil answers unavailable.
+	// Fleet serves fleet_overview and fleet_usage; nil answers unavailable.
 	Fleet FleetService
 	// Trackers serves the tracker tools; nil answers unavailable.
 	Trackers *tracker.Service

@@ -38,6 +38,7 @@ type ToolService struct {
 	ListShapesFunc             func(context.Context, domain.Actor, any) ([]mcp.ShapeInfo, error)
 	ListProvidersFunc          func(context.Context, domain.Actor, mcp.ListProvidersInput) ([]mcp.ProviderInfo, error)
 	FleetOverviewFunc          func(context.Context, domain.Actor, any) (fleet.Overview, error)
+	FleetUsageFunc             func(context.Context, domain.Actor, mcp.FleetUsageInput) (fleet.UsageReport, error)
 	ListPendingGatesFunc       func(context.Context, domain.Actor, mcp.ProjectFilterInput) ([]mcp.GateInfo, error)
 	ApproveFunc                func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
 	RequestChangesFunc         func(context.Context, domain.Actor, mcp.GateDecisionInput) (domain.Gate, error)
@@ -253,6 +254,11 @@ func (s *ToolService) ListProviders(ctx context.Context, by domain.Actor, in mcp
 // FleetOverview implements mcp.ToolService.
 func (s *ToolService) FleetOverview(ctx context.Context, by domain.Actor) (fleet.Overview, error) {
 	return invoke[any](ctx, s, mcp.ToolFleetOverview, by, nil, s.FleetOverviewFunc)
+}
+
+// FleetUsage implements mcp.ToolService.
+func (s *ToolService) FleetUsage(ctx context.Context, by domain.Actor, in mcp.FleetUsageInput) (fleet.UsageReport, error) {
+	return invoke(ctx, s, mcp.ToolFleetUsage, by, in, s.FleetUsageFunc)
 }
 
 // ListWorkers implements mcp.ToolService.

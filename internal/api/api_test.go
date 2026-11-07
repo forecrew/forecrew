@@ -180,6 +180,8 @@ func TestEndpoints(t *testing.T) {
 		{"GET", "/api/v1/shapes", "", 200, mcp.ToolListShapes, nil},
 		{"GET", "/api/v1/providers", "", 200, mcp.ToolListProviders, mcp.ListProvidersInput{}},
 		{"GET", "/api/v1/fleet", "", 200, mcp.ToolFleetOverview, nil},
+		{"GET", "/api/v1/usage?month=2026-03&records=true", "", 200, mcp.ToolFleetUsage, mcp.FleetUsageInput{Month: "2026-03", Records: true}},
+		{"GET", "/api/v1/usage", "", 200, mcp.ToolFleetUsage, mcp.FleetUsageInput{}},
 		{"GET", "/api/v1/images?name=linux", "", 200, mcp.ToolListImages, mcp.ListImagesInput{Name: "linux"}},
 		{"GET", "/api/v1/config/schema?kind=shape", "", 200, mcp.ToolConfigSchema, mcp.ConfigKindInput{Kind: "shape"}},
 		{"GET", "/api/v1/config/resources?kind=team&name=core", "", 200, mcp.ToolConfigGet, mcp.ConfigGetInput{Kind: "team", Name: "core"}},

@@ -77,6 +77,7 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.ListShapes(ctx, by); return err },
 		func() error { _, err := s.ListProviders(ctx, by, mcp.ListProvidersInput{}); return err },
 		func() error { _, err := s.FleetOverview(ctx, by); return err },
+		func() error { _, err := s.FleetUsage(ctx, by, mcp.FleetUsageInput{}); return err },
 		func() error { _, err := s.ListTrackerConnections(ctx, by); return err },
 		func() error {
 			_, err := s.CreateTrackerConnection(ctx, by, mcp.CreateTrackerConnectionInput{})

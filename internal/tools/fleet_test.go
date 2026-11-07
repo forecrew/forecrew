@@ -137,6 +137,38 @@ func (f overviewFunc) Overview(ctx context.Context, id uuid.UUID, visible func(u
 	return f(ctx, id, visible)
 }
 
+// Usage answers the organization and the month asked for.
+func (f overviewFunc) Usage(_ context.Context, id uuid.UUID, from, to time.Time, records bool) (fleet.UsageReport, error) {
+	u := fleet.UsageReport{Currency: id.String(), From: from, To: to}
+	if records {
+		u.Records = []domain.UsageRecord{}
+	}
+	return u, nil
+}
+
+func TestFleetUsage(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	if _, err := f.svc.FleetUsage(ctx, f.by, mcp.FleetUsageInput{}); !errors.Is(err, mcp.ErrUnavailable) {
+		t.Fatalf("no fleet: %v", err)
+	}
+	svc := tools.New(tools.Config{Store: f.st, Now: f.clock.Now, Fleet: overviewFunc(nil)})
+	u, err := svc.FleetUsage(ctx, f.by, mcp.FleetUsageInput{Month: "2026-02", Records: true})
+	must(t, err)
+	if u.Currency != f.account.ID.String() || !u.From.Equal(time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)) || !u.To.Equal(time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)) || u.Records == nil {
+		t.Fatalf("usage = %+v", u)
+	}
+	now := f.clock.Now().UTC()
+	u, err = svc.FleetUsage(ctx, f.by, mcp.FleetUsageInput{})
+	must(t, err)
+	if u.From.Year() != now.Year() || u.From.Month() != now.Month() || u.From.Day() != 1 || u.Records != nil {
+		t.Fatalf("this month = %+v", u)
+	}
+	if _, err := svc.FleetUsage(ctx, f.by, mcp.FleetUsageInput{Month: "March"}); !errors.Is(err, mcp.ErrInvalidInput) {
+		t.Fatalf("bad month: %v", err)
+	}
+}
+
 func TestFleetOverview(t *testing.T) {
 	f := newFixture(t)
 	if _, err := f.svc.FleetOverview(t.Context(), f.by); !errors.Is(err, mcp.ErrUnavailable) {
@@ -175,6 +207,7 @@ func TestFleetToolsNeedWorkerRead(t *testing.T) {
 			return err
 		},
 		"fleet_overview": func() error { _, err := f.svc.FleetOverview(ctx, by); return err },
+		"fleet_usage":    func() error { _, err := f.svc.FleetUsage(ctx, by, mcp.FleetUsageInput{}); return err },
 	} {
 		if err := call(); !errors.Is(err, authz.ErrDenied) {
 			t.Errorf("%s: err = %v, want denied", name, err)

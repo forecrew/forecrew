@@ -118,6 +118,7 @@ const (
 	ToolListShapes             = "list_shapes"
 	ToolListProviders          = "list_providers"
 	ToolFleetOverview          = "fleet_overview"
+	ToolFleetUsage             = "fleet_usage"
 	ToolListKnowledgeProposals = "list_knowledge_proposals"
 	ToolListKnowledge          = "list_knowledge"
 	ToolGetTrace               = "get_trace"
@@ -180,7 +181,7 @@ func Tools() []string {
 		ToolListTeamMembers, ToolAddTeamMember, ToolRemoveTeamMember,
 		ToolListRoleBindings, ToolCreateRoleBinding, ToolDeleteRoleBinding,
 		ToolListServiceAccounts, ToolCreateServiceAccount, ToolUpdateServiceAccount, ToolSetServiceAccount,
-		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview,
+		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview, ToolFleetUsage,
 		ToolListTrackerConnections, ToolCreateTrackerConnection, ToolDeleteTrackerConnection, ToolDiscardTrackerWrites, ToolTestTrackerConnection, ToolListTrackerRoutes, ToolCreateTrackerRoute, ToolDeleteTrackerRoute,
 		ToolListTrackerIdentities, ToolMapTrackerIdentity, ToolUnmapTrackerIdentity, ToolListUnmappedTrackerPeople, ToolListTicketsWaiting, ToolAcceptTicket, ToolDismissTicket,
 		ToolGetTrace, ToolListKnowledgeProposals, ToolListKnowledge,
@@ -291,6 +292,8 @@ type ToolService interface {
 	ListProviders(ctx context.Context, by domain.Actor, in ListProvidersInput) ([]ProviderInfo, error)
 	// FleetOverview says whether jobs have somewhere to run, and where.
 	FleetOverview(ctx context.Context, by domain.Actor) (fleet.Overview, error)
+	// FleetUsage reports what the organization's machines cost in a month.
+	FleetUsage(ctx context.Context, by domain.Actor, in FleetUsageInput) (fleet.UsageReport, error)
 	ListImages(ctx context.Context, by domain.Actor, in ListImagesInput) ([]ImageInfo, error)
 	// CreateProvider adds an agent provider and returns its token, which is
 	// not stored.
@@ -913,6 +916,12 @@ type JobLogsOutput struct {
 	Events []domain.JobEvent `json:"events"`
 	// NextSeq is the after_seq of the next call.
 	NextSeq int64 `json:"next_seq"`
+}
+
+// FleetUsageInput is the input of fleet_usage.
+type FleetUsageInput struct {
+	Month   string `json:"month,omitempty"`   // YYYY-MM in UTC; by default the current month
+	Records bool   `json:"records,omitempty"` // include every usage record
 }
 
 // ListMachinesInput is the input of list_machines.
