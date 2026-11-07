@@ -237,7 +237,7 @@ func TestGoalV3LargeGoalRunsBothCouncils(t *testing.T) {
 
 	calls := r.councilCalls()
 	if len(calls) != 1 || calls[0].Kind != domain.CouncilProduct || calls[0].Question != "Should we build this, and what exactly?" ||
-		!strings.Contains(strings.Join(calls[0].Constraints, "\n"), `titled "Add checkout"`) {
+		len(calls[0].Constraints) != 0 {
 		t.Fatalf("councils before the spec = %+v", calls)
 	}
 	if got := r.goalNow(t).Size; got == nil || !slices.Equal(got.Councils, []domain.CouncilKind{domain.CouncilProduct, domain.CouncilTechnical}) {

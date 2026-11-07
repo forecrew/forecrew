@@ -10,9 +10,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/config"
-	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
-	"github.com/forecrew/forecrew/internal/testreport"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -150,10 +148,11 @@ type councilConstraints struct {
 }
 
 // goalCouncilConstraints is the action goal.council_constraints: the
-// constraints a council of the goal starts with. They come from the goal's
-// own fields, not from its text: the platforms it targets, and its title as
-// one line (members read the goal itself, marked as the data it is, in their
-// pack). Without platforms there is no constraint besides the title.
+// constraints a council of the goal starts with. They are binding on every
+// option, so they come from the goal's platforms only, a list of labels the
+// worker checks: the goal's text, a title included, is the human's request and
+// not a rule, and members read it in their pack, marked as the data it is. A
+// goal without platforms has no constraint.
 func (a *actions) goalCouncilConstraints(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
 		GoalID uuid.UUID `json:"goal_id"`
@@ -165,7 +164,7 @@ func (a *actions) goalCouncilConstraints(ctx context.Context, call workflow.Acti
 	if err != nil {
 		return nil, err
 	}
-	out := councilConstraints{Constraints: []string{fmt.Sprintf("The goal is %s, titled %q.", g.Ref(), testreport.Clip(contextpack.OneLine(g.Title), 200))}}
+	out := councilConstraints{Constraints: []string{}}
 	if len(g.Platforms) > 0 {
 		out.Constraints = append(out.Constraints, "The change must work on: "+strings.Join(g.Platforms, ", ")+".")
 	}
