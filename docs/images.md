@@ -115,7 +115,7 @@ converter and the templates alike.
   the image runs, and nothing the image says is used, until the machine's
   bootstrap token is spent**. The init first turns off the kernel's module
   autoloader, which would run the image's `/sbin/modprobe` as root, until the
-  exchange is done. It mounts the pseudo file systems and `cgroup2`, loads the kernel modules the command line names
+  exchange is done (a kernel built without modules has none to turn off). It mounts the pseudo file systems and `cgroup2`, loads the kernel modules the command line names
   (`forecrew.modules=`, never a list of the image's), brings up the network over
   netlink (`forecrew.ip=`, `forecrew.gw=`, `forecrew.dns=`), grows the root file
   system to its disk (`forecrew.root=`), mounts the read-only cache disk

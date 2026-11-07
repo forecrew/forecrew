@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"net"
 	"net/http"
@@ -146,6 +147,10 @@ const modprobeOff = "/nonexistent/forecrew-modprobe-off"
 func (g *guest) blockModprobe() (func() error, error) {
 	path := g.path("/proc/sys/kernel/modprobe")
 	old, err := os.ReadFile(path) // #nosec G304 -- a fixed path
+	if errors.Is(err, fs.ErrNotExist) {
+		// A kernel without modules has no loader: nothing to turn off.
+		return func() error { return nil }, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("module loader: %w", err)
 	}
