@@ -37,9 +37,9 @@ Local credentials are not in this file. Each provider finds its own by the
 machine's own means: files readable by the agent's user, or an instance role.
 Nothing of them is ever sent to forecrewd: capabilities hold facts.
 
-This build has the `microvm`, `proxmox` and `hyperv` providers and, on a Mac, the
-`tart` provider (all below); the other kinds come with T64. For a kind it does not have, `run` says so and `doctor` lists it as
-missing.
+This build has the `microvm`, `proxmox` and `hyperv` providers, on a Mac the `tart`
+provider, and the `aws` provider (all below). For a kind it does not have, `run` says
+so and `doctor` lists it as missing.
 
 ## Connecting
 
@@ -640,3 +640,68 @@ stays off the host, registers it, and puts the public key in the host's
 
 A button for this on the web UI's Add machines page is planned and **not available
 yet**: run the command on the host.
+
+## AWS locations
+
+A customer's own AWS account: each machine is one EC2 instance in the customer's
+VPC, started by an agent that runs in that account and holds nothing but its
+instance role. Forecrew has no credentials for the account. The setup kit
+(`deploy/byoc/aws`: CloudFormation and OpenTofu) and the runbook for the cloud
+team are in [runbooks/byoc-aws.md](runbooks/byoc-aws.md).
+
+- **One instance per job.** The shape's `provider_config` names `instance_type`,
+  and optionally `subnet`, `security_group` and `spot`; the image is an AMI
+  (`ami:<region>/<id>`). A fresh EC2 instance boots in about a minute, slower than
+  a microVM: say so in the shape's `note`. The disk is an encrypted gp3 volume of
+  `disk_gb`. Machines are Linux; macOS runs on an EC2 Mac dedicated host through
+  Tart, and a metal or nested-virtualization instance can host microVMs (kit modes
+  `mac` and `microvm`: the agent's own instance is the host, and the kind is
+  `tart` or `microvm`, not `aws`).
+- **Tags.** Everything created carries `forecrew:fleet` (the agent's fleet name),
+  `forecrew:machine`, `forecrew:org` and `forecrew:job` when known, the
+  location's `tags` and the machine's own, so the agent finds its machines by tag,
+  and the role of the kit lets it touch nothing without the fleet tag.
+- **The image.** Before first use the agent checks the image's signature against
+  `trusted_keys_file`, the AMI's architecture, region and state, and that the AMI
+  is in the agent's account with the tag `forecrew:image-digest` equal to the
+  signed digest (or in an account listed in `trusted_ami_owners`). The signature
+  covers the manifest, not the AMI's ID: this is what binds them.
+- **Delivery of the token** is cloud-init user data that writes
+  `/run/forecrew/bootstrap.env`; the worker spends the token first, as on every
+  machine. IMDSv2 only, one hop, no instance profile.
+- **Idempotent.** Create terminates what exists for the machine ID and starts
+  again; Destroy terminates, and an instance that is gone or ending succeeds.
+  Destroying an instance without the fleet tag is refused before EC2 is asked.
+- **Limits and cleaning.** `max_machines`, `monthly_budget` (an estimate, from the
+  shapes' prices), `max_lifetime` and the sweep of `List` are described in the
+  runbook; running out of room, quota or spot capacity is `fleet.ErrCapacity`.
+  A spot machine taken back is not listed, so forecrewd fails it at its next
+  reconciliation and its job is requeued through its lease.
+- **Hosted instances.** With `fleet.hosted: true` (config.md), attaching an own
+  cloud to an organization needs its fleet policy's `plan` to be `paid`, a stub
+  until billing exists (S.3). Instance-wide locations and other kinds are not
+  gated.
+
+### aws.yaml
+
+`/etc/forecrew-fleet-agent/aws.yaml` (`FORECREW_AWS_CONFIG` moves it); the kit
+writes it. It holds no credentials and refuses unknown keys, so a pasted access
+key is an error: the AWS SDK finds credentials by itself (the instance role, or
+`AWS_PROFILE` for a test).
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `region` | required | Where machines start |
+| `fleet` | `forecrew` | The `forecrew:fleet` tag; the role allows exactly this |
+| `subnets` | required | Subnets machines may use; a shape names one or gets the first |
+| `security_group` | required | The machines' group: no inbound, public internet out (kit) |
+| `instance_types` | required | Instance types and patterns (`c7i.*`) shapes may use |
+| `trusted_keys_file` | `/etc/forecrew-fleet-agent/image-keys.pub` | Public keys images must be signed with |
+| `trusted_ami_owners` | none | Accounts whose AMIs need no digest tag; widen the role to match |
+| `assign_public_ip` | `false` | `true` for a public subnet |
+| `max_machines` | `10` | Machines at once, counted from EC2 by tag |
+| `monthly_budget` | `0` | Stops new machines at this estimated spend; 0 is none |
+| `budget_warn_percent` | `80` | Where the `budget` check warns |
+| `max_lifetime` | `24h` | No machine lives longer |
+| `state_dir` | `/var/lib/forecrew-fleet-agent/aws` | The spend ledger |
+
