@@ -1,0 +1,7 @@
+{
+ "now": "2026-11-07T12:00:00Z",
+ "ci_files": {
+  ".github/workflows/ci.yml": "steps:\n  - uses: gitleaks/gitleaks-action@v2\n",
+  ".github/dependabot.yml": "version: 2\n"
+ }
+}

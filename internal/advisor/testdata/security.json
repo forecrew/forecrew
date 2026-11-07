@@ -1,0 +1,6 @@
+{
+ "now": "2026-11-07T12:00:00Z",
+ "ci_files": {
+  ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: go test ./...\n"
+ }
+}
