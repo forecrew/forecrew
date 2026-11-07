@@ -49,14 +49,15 @@ func (b *StoreBuilder) WithAssumptions(a TaskAssumptions) *StoreBuilder {
 
 // Limits of the candidates of each section; the budget cuts further.
 const (
-	maxKnowledge   = 6
-	maxADRs        = 8
-	maxDecisions   = 10
-	maxAssumptions = 20
-	maxSimilar     = 5
-	maxNotes       = 20
-	maxFiles       = 30
-	maxAreas       = 20
+	maxKnowledge     = 6
+	maxADRs          = 8
+	maxDecisions     = 10
+	maxCouncilBriefs = 4
+	maxAssumptions   = 20
+	maxSimilar       = 5
+	maxNotes         = 20
+	maxFiles         = 30
+	maxAreas         = 20
 	// excerpt is how much of a task or decision text a pack shows, in runes.
 	excerpt = 600
 )
@@ -207,6 +208,11 @@ func (s packSource) decisions(ctx context.Context) (Section, error) {
 			sec.Items = append(sec.Items, decisionItem(d))
 		}
 	}
+	briefs, err := s.councilBriefs(ctx)
+	if err != nil {
+		return Section{}, err
+	}
+	sec.Items = append(sec.Items, briefs...)
 	found, down, err := s.search(ctx, knowledge.Query{
 		Sections: []string{ADRSection}, Kinds: []domain.KnowledgeKind{domain.KnowledgeEntryKind}, Limit: maxADRs,
 	})
@@ -220,6 +226,44 @@ func (s packSource) decisions(ctx context.Context) (Section, error) {
 		sec.Note = unavailable
 	}
 	return sec, nil
+}
+
+// councilBriefs returns the briefs of the goal's decided councils, oldest
+// first: what the council weighed, which the decision record alone leaves out.
+func (s packSource) councilBriefs(ctx context.Context) ([]Item, error) {
+	if s.goal == nil {
+		return nil, nil
+	}
+	cs, err := s.b.store.Councils().List(ctx, s.project.AccountID, store.CouncilFilter{ProjectID: s.project.ID, GoalID: s.goal.ID, Status: domain.CouncilDecided, Limit: maxCouncilBriefs})
+	if err != nil {
+		return nil, fmt.Errorf("list the councils of %s: %w", s.goal.Ref(), err)
+	}
+	slices.SortFunc(cs, func(a, b domain.Council) int { return cmp.Compare(a.Number, b.Number) })
+	var items []Item
+	for _, c := range cs {
+		if c.Brief != nil {
+			items = append(items, councilBriefItem(c))
+		}
+	}
+	return items, nil
+}
+
+// councilBriefItem shows the brief of a decided council: the question, each
+// option with its summary and the recommendation. The texts are an agent's.
+func councilBriefItem(c domain.Council) Item {
+	b := c.Brief
+	var body strings.Builder
+	fmt.Fprintf(&body, "Question: %s\nRecommendation: %s\n", clip(OneLine(b.Question)), clip(OneLine(b.Recommendation)))
+	for _, o := range b.Options {
+		fmt.Fprintf(&body, "- %s: %s\n", clip(OneLine(o.Name)), clip(OneLine(o.Summary)))
+	}
+	for _, d := range b.Dissent {
+		fmt.Fprintf(&body, "Dissent (%s): %s\n", clip(OneLine(d.Member)), clip(OneLine(d.Position)))
+	}
+	if !b.Reversible {
+		body.WriteString("The council calls the decision hard to reverse.\n")
+	}
+	return Item{ID: c.Ref(), Label: "Brief of " + c.Ref() + " (" + string(c.Kind) + " council)", Body: body.String(), Untrusted: true, Source: "brief of " + c.Ref()}
 }
 
 func decisionItem(d domain.Decision) Item {
