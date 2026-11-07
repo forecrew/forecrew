@@ -260,64 +260,57 @@ func TestWebhookReplayAndSignature(t *testing.T) {
 	}
 }
 
-func TestCheck(t *testing.T) {
-	names := func(cs []tracker.Check) (out []string) {
-		for _, c := range cs {
-			out = append(out, c.Name+map[bool]string{true: ":ok", false: ":fail"}[c.OK])
-		}
-		return out
+func checkNames(cs []tracker.Check) (out []string) {
+	for _, c := range cs {
+		out = append(out, c.Name+map[bool]string{true: ":ok", false: ":fail"}[c.OK])
 	}
-	t.Run("all pass", func(t *testing.T) {
-		w := newWorld(t)
-		got := w.adapter(t).Check(t.Context())
-		if !slices.Equal(names(got), []string{"address:ok", "certificate:ok", "login:ok", "projects:ok", "transitions:ok"}) {
-			t.Errorf("checks = %+v", got)
-		}
-		if !strings.Contains(got[2].Detail, "Forecrew (u-forecrew)") {
-			t.Errorf("login detail %q", got[2].Detail)
-		}
-	})
-	t.Run("a refused token", func(t *testing.T) {
-		w := newWorld(t, func(cfg map[string]any) { cfg["auth"] = AuthOAuthToken })
-		got := w.adapter(t).Check(t.Context())
-		if !slices.Equal(names(got), []string{"address:ok", "certificate:ok", "login:fail", "projects:fail", "transitions:fail"}) || !strings.Contains(got[3].Detail, "not checked") {
-			t.Errorf("checks = %+v", got)
-		}
-		if err := w.adapter(t).Verify(t.Context()); err == nil {
-			t.Error("Verify passed")
-		}
-	})
-	t.Run("a team the user cannot see", func(t *testing.T) {
-		w := newWorld(t, func(cfg map[string]any) { cfg["teams"] = []string{"ENG", "HR"} })
-		got := w.adapter(t).Check(t.Context())
-		if !slices.Equal(names(got), []string{"address:ok", "certificate:ok", "login:ok", "projects:fail", "transitions:fail"}) || !strings.Contains(got[3].Detail, "HR") {
-			t.Errorf("checks = %+v", got)
-		}
-	})
-	t.Run("no closed state", func(t *testing.T) {
-		w := newWorld(t)
-		w.f.teams["ENG"] = states("eng")[:4]
-		got := w.adapter(t).Check(t.Context())
-		if last := got[len(got)-1]; last.OK || !strings.Contains(last.Detail, "completed or canceled") {
-			t.Errorf("checks = %+v", got)
-		}
-	})
-	t.Run("an untrusted certificate", func(t *testing.T) {
-		w := newWorld(t)
-		w.deps.RootCAs = nil
-		got := w.adapter(t).Check(t.Context())
-		if !slices.Equal(names(got), []string{"address:ok", "certificate:fail", "login:fail", "projects:fail", "transitions:fail"}) {
-			t.Errorf("checks = %+v", got)
-		}
-	})
-	t.Run("an address nothing answers on", func(t *testing.T) {
-		w := newWorld(t)
-		w.deps.Endpoint = "https://127.0.0.1:1/graphql"
-		got := w.adapter(t).Check(t.Context())
-		if !slices.Equal(names(got), []string{"address:fail", "certificate:fail", "login:fail", "projects:fail", "transitions:fail"}) {
-			t.Errorf("checks = %+v", got)
-		}
-	})
+	return out
+}
+
+func TestCheck(t *testing.T) {
+	for name, tt := range map[string]struct {
+		edit func(*world)
+		want []string
+		// detail is where in the checks a text must be.
+		at   int
+		text string
+	}{
+		"all pass": {want: []string{"address:ok", "certificate:ok", "login:ok", "projects:ok", "transitions:ok"}, at: 2, text: "Forecrew (u-forecrew)"},
+		"a refused token": {
+			edit: func(w *world) { w.conn.Config["auth"] = AuthOAuthToken },
+			want: []string{"address:ok", "certificate:ok", "login:fail", "projects:fail", "transitions:fail"}, at: 3, text: "not checked",
+		},
+		"a team the user cannot see": {
+			edit: func(w *world) { w.conn.Config["teams"] = []string{"ENG", "HR"} },
+			want: []string{"address:ok", "certificate:ok", "login:ok", "projects:fail", "transitions:fail"}, at: 3, text: "HR",
+		},
+		"no closed state": {
+			edit: func(w *world) { w.f.teams["ENG"] = states("eng")[:4] },
+			want: []string{"address:ok", "certificate:ok", "login:ok", "projects:ok", "transitions:fail"}, at: 4, text: "completed or canceled",
+		},
+		"an untrusted certificate": {
+			edit: func(w *world) { w.deps.RootCAs = nil },
+			want: []string{"address:ok", "certificate:fail", "login:fail", "projects:fail", "transitions:fail"}, at: 1, text: "not trusted",
+		},
+		"an address nothing answers on": {
+			edit: func(w *world) { w.deps.Endpoint = "https://127.0.0.1:1/graphql" },
+			want: []string{"address:fail", "certificate:fail", "login:fail", "projects:fail", "transitions:fail"}, at: 0, text: "connect",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			if tt.edit != nil {
+				tt.edit(w)
+			}
+			got := w.adapter(t).Check(t.Context())
+			if !slices.Equal(checkNames(got), tt.want) || !strings.Contains(got[tt.at].Detail, tt.text) {
+				t.Errorf("checks = %+v", got)
+			}
+			if failed := slices.ContainsFunc(tt.want, func(s string) bool { return strings.HasSuffix(s, ":fail") }); failed != (w.adapter(t).Verify(t.Context()) != nil) {
+				t.Errorf("Verify disagrees with the checks")
+			}
+		})
+	}
 }
 
 func TestRateLimitsAreWaitedOutForReadsOnly(t *testing.T) {

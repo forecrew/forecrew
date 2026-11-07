@@ -601,16 +601,9 @@ func (s *Service) ListTicketsWaiting(ctx context.Context, by domain.Actor, in mc
 	if err != nil {
 		return nil, err
 	}
-	links, err := s.cfg.Store.TicketLinks().List(ctx, by.AccountID, store.TicketLinkFilter{ProjectID: project, Status: domain.LinkWaiting})
+	links, err := s.waitingLinks(ctx, by.AccountID, project, in.Queued)
 	if err != nil {
 		return nil, err
-	}
-	if in.Queued {
-		queued, err := s.cfg.Store.TicketLinks().List(ctx, by.AccountID, store.TicketLinkFilter{ProjectID: project, Status: domain.LinkQueued})
-		if err != nil {
-			return nil, err
-		}
-		links = append(links, queued...)
 	}
 	out := make([]mcp.TicketInfo, 0, len(links))
 	for _, l := range links {
@@ -625,15 +618,33 @@ func (s *Service) ListTicketsWaiting(ctx context.Context, by domain.Actor, in mc
 			info.Title = contextpack.WrapUntrusted("ticket "+l.Key, l.Title)
 		}
 		if l.Status == domain.LinkQueued {
-			core, err := s.trackers()
-			if err != nil {
+			if info.Limit, err = s.activeLimit(); err != nil {
 				return nil, err
 			}
-			info.Limit = core.MaxActiveGoals()
 		}
 		out = append(out, info)
 	}
 	return out, nil
+}
+
+// waitingLinks lists the tickets in the Inbox, and with queued those queued
+// under the limit of goals.
+func (s *Service) waitingLinks(ctx context.Context, accountID, project uuid.UUID, queued bool) ([]domain.TicketLink, error) {
+	links, err := s.cfg.Store.TicketLinks().List(ctx, accountID, store.TicketLinkFilter{ProjectID: project, Status: domain.LinkWaiting})
+	if err != nil || !queued {
+		return links, err
+	}
+	more, err := s.cfg.Store.TicketLinks().List(ctx, accountID, store.TicketLinkFilter{ProjectID: project, Status: domain.LinkQueued})
+	return append(links, more...), err
+}
+
+// activeLimit is trackers.max_active_goals.
+func (s *Service) activeLimit() (int, error) {
+	core, err := s.trackers()
+	if err != nil {
+		return 0, err
+	}
+	return core.MaxActiveGoals(), nil
 }
 
 // ListUnmappedTrackerPeople implements mcp.ToolService: the people tickets
