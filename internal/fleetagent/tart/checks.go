@@ -135,3 +135,26 @@ func (p *Provider) credentials() error {
 	}
 	return nil
 }
+
+// vmProcessName is the process Virtualization.framework runs for each VM.
+const vmProcessName = "com.apple.Virtualization.VirtualMachine"
+
+// parseVMProcesses counts the lines of `ps -axo comm=` that are VM processes.
+func parseVMProcesses(ps string) int {
+	n := 0
+	for line := range strings.SplitSeq(ps, "\n") {
+		line = strings.TrimSpace(line)
+		if line[strings.LastIndexByte(line, '/')+1:] == vmProcessName {
+			n++
+		}
+	}
+	return n
+}
+
+func countVMProcesses(ctx context.Context) (int, error) {
+	out, err := exec.CommandContext(ctx, "/bin/ps", "-axo", "comm=").Output()
+	if err != nil {
+		return 0, err
+	}
+	return parseVMProcesses(string(out)), nil
+}

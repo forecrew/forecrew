@@ -98,6 +98,7 @@ run)
 	n=$last
 	exists "$n" || die "the VM \"$n\" does not exist"
 	alive "$n" && die "VM \"$n\" is already running!"
+	[ -f "$home/limit-run" ] && die "virtualMachineLimitExceeded: the number of VMs exceeds the system limit (other running VMs: some-other)"
 	[ "$(running_count)" -lt 2 ] || die "virtualMachineLimitExceeded: the number of VMs exceeds the system limit"
 	echo "$*" >"$home/vms/$n/run-args"
 	echo $$ >"$home/vms/$n/pid"

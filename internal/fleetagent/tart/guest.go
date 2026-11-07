@@ -68,6 +68,10 @@ func (p *Provider) waitGuest(ctx context.Context, id string, exited <-chan error
 		select {
 		case err := <-exited:
 			wait.Stop()
+			if strings.Contains(strings.ToLower(tailRaw(p.logPath(id))), "limitexceeded") {
+				// Apple's limit, reached by VMs this agent cannot see: no room, not a failure.
+				return fmt.Errorf("%w: tart run says the Mac's limit of VMs is reached", fleet.ErrCapacity)
+			}
 			return fmt.Errorf("the VM ended before its guest agent answered (%v): tart said %s", err, tail(p.logPath(id)))
 		case <-limit.C:
 			wait.Stop()
