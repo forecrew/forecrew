@@ -37,6 +37,16 @@ func deleteConnection(ctx context.Context, t *testing.T, st store.Store, conn do
 	}
 	live.Status = domain.LinkDismissed
 	mustT(t, st.TicketLinks().Update(ctx, &live))
+	// A write that has not reached the tracker would be lost with the connection.
+	now := time.Now().UTC()
+	unsent := domain.TrackerWrite{AccountID: acc, ConnectionID: conn.ID, LinkID: live.ID, Key: live.Key, DedupeKey: "unsent", Kind: domain.WriteComment, Value: "bye", NextAttempt: now}
+	if _, err := st.TrackerOutbox().Enqueue(ctx, &unsent); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Delete(ctx, acc, conn.ID); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("Delete with an unsent write: %v", err)
+	}
+	mustT(t, st.TrackerOutbox().MarkSent(ctx, acc, unsent.ID, "", now))
 	mustT(t, st.TrackerCursors().Set(ctx, acc, conn.ID, "c3"))
 	mustT(t, repo.Delete(ctx, acc, conn.ID))
 	if err := repo.Delete(ctx, acc, conn.ID); !errors.Is(err, store.ErrNotFound) {

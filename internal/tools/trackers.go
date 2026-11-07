@@ -121,7 +121,7 @@ func (s *Service) DeleteTrackerConnection(ctx context.Context, by domain.Actor, 
 		}
 		return s.audit(ctx, tx, by, uuid.Nil(), "tracker.disconnected", "tracker_connection", c.ID, map[string]any{"name": c.Name, "kind": c.Kind})
 	})
-	return c, conflict(err, "tickets of "+c.Name+" are waiting, queued or at work: finish or dismiss them first")
+	return c, conflict(err, "tickets of "+c.Name+" are waiting, queued or at work, or writes to it are not sent yet: finish or dismiss them, and let the writes go out first")
 }
 
 func (s *Service) routeInfo(ctx context.Context, r domain.TrackerRoute) (mcp.TrackerRouteInfo, error) {
