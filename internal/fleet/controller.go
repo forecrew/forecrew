@@ -87,6 +87,8 @@ type Controller struct {
 	applied map[uuid.UUID]string
 	// lastBackfill is when backfill last found every machine metered.
 	lastBackfill time.Time
+	// jobs stops the job of a machine stopped for abuse.
+	jobs JobStopper
 }
 
 // New returns a controller.

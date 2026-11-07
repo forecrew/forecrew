@@ -263,20 +263,44 @@
         "error": {
           "type": "string",
           "maxLength": 2000
+        },
+        "abuse": {
+          "enum": [
+            "cpu",
+            "mining"
+          ]
         }
       },
-      "if": {
-        "properties": {
-          "state": {
-            "const": "booting"
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "booting"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "external_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "abuse"
+            ]
+          },
+          "then": {
+            "properties": {
+              "state": {
+                "const": "failed"
+              }
+            }
           }
         }
-      },
-      "then": {
-        "required": [
-          "external_id"
-        ]
-      }
+      ]
     },
     "instance": {
       "type": "object",

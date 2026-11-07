@@ -325,6 +325,7 @@ func New(d Deps) (*App, error) {
 		Image: images.Resolver(st.Images()), Models: modelSvc,
 		FreePlan: domain.FleetQuotas{ConcurrentMachines: cfg.Fleet.FreePlan.ConcurrentMachines, MonthlyMinutes: cfg.Fleet.FreePlan.MonthlyMinutes}})
 	jobSvc := jobs.New(st, bus, cfg.Pools, log, d.Now).WithRegistrar(regs).WithWaiting(modelSvc.Before(machines))
+	machines.StopJobsWith(jobSvc)
 	gateSvc := gates.New(st, bus, d.Now)
 	emb := d.Embedder
 	if emb == nil && os.Getenv(EnvEmbeddingsKey) != "" {

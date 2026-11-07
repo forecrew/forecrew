@@ -362,6 +362,7 @@ func (s *Server) state(rw http.ResponseWriter, r *http.Request) {
 		State      domain.MachineState `json:"state"`
 		ExternalID string              `json:"external_id"`
 		Error      string              `json:"error"`
+		Abuse      string              `json:"abuse"`
 	}
 	if !workerapi.Decode(rw, r, &req) {
 		return
@@ -370,7 +371,15 @@ func (s *Server) state(rw http.ResponseWriter, r *http.Request) {
 		badRequest(rw, "external_id is not a short line of text")
 		return
 	}
-	err = s.cfg.Fleet.ReportState(ctx, providerOf(ctx), id, req.State, req.ExternalID, req.Error)
+	if req.Abuse != "" && req.State != domain.MachineFailed {
+		badRequest(rw, "abuse goes with state failed")
+		return
+	}
+	if req.Abuse != "" {
+		err = s.cfg.Fleet.ReportAbuse(ctx, providerOf(ctx), id, req.Abuse, req.Error)
+	} else {
+		err = s.cfg.Fleet.ReportState(ctx, providerOf(ctx), id, req.State, req.ExternalID, req.Error)
+	}
 	switch {
 	case err == nil:
 		workerapi.WriteJSON(rw, http.StatusOK, struct{}{})

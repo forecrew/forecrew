@@ -206,7 +206,7 @@ Request:
 |---------|---------|
 | `booting` | Created; `external_id` is required. From `requested`. |
 | `destroyed` | Gone, as asked or found gone. Writes `destroyed_at`. |
-| `failed` | It broke; `error` says why, at most 2000 characters, with no secrets. |
+| `failed` | It broke; `error` says why, at most 2000 characters, with no secrets. With `abuse` (`cpu` or `mining`) the provider's abuse checks stopped it (fleet.md, Abuse): forecrewd cancels its job instead of running it again and opens a notice for the operator. |
 
 `ready`, `busy` and `draining` belong to forecrewd: a report of them is `400`.
 `fleet.ErrCapacity` from `Create` is not reported; the agent tries again on the
