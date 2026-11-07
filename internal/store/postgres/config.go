@@ -301,3 +301,41 @@ func (r modelAssignmentRepo) Put(ctx context.Context, a *domain.ModelAssignment)
 func (r modelAssignmentRepo) Delete(ctx context.Context, accountID, projectID uuid.UUID) error {
 	return mustUpdate(ctx, r.db, `DELETE FROM model_assignments WHERE account_id = $1 AND project_id IS NOT DISTINCT FROM $2`, accountID, opt(projectID))
 }
+
+type modelAuthorizationRepo struct{ db dbtx }
+
+const modelAuthorizationCols = `id, account_id, COALESCE(project_id, ` + zeroUUID + `), connection_id, connection, adapter, base_url, authorized_by, created_at`
+
+func scanModelAuthorization(row pgx.Row) (a domain.ModelAuthorization, err error) {
+	err = row.Scan(&a.ID, &a.AccountID, &a.ProjectID, &a.ConnectionID, &a.Connection, &a.Adapter, &a.BaseURL, &a.AuthorizedBy, &a.CreatedAt)
+	utc(&a.CreatedAt)
+	return a, err
+}
+
+func (r modelAuthorizationRepo) List(ctx context.Context, accountID uuid.UUID) ([]domain.ModelAuthorization, error) {
+	return many(ctx, r.db, scanModelAuthorization, `SELECT `+modelAuthorizationCols+` FROM model_authorizations WHERE account_id = $1
+		ORDER BY connection, project_id NULLS FIRST`, accountID)
+}
+
+func (r modelAuthorizationRepo) Put(ctx context.Context, a *domain.ModelAuthorization) error {
+	a.ID = newID(a.ID)
+	if err := owned(ctx, r.db, a.AccountID, ref{"projects", a.ProjectID}, ref{"model_connections", a.ConnectionID}); err != nil {
+		return err
+	}
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO model_authorizations (id, account_id, project_id, connection_id, connection, adapter, base_url, authorized_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (account_id, connection_id, project_id) DO UPDATE SET connection = EXCLUDED.connection, adapter = EXCLUDED.adapter, base_url = EXCLUDED.base_url,
+			authorized_by = EXCLUDED.authorized_by, created_at = now()
+		RETURNING id, created_at`,
+		a.ID, a.AccountID, opt(a.ProjectID), a.ConnectionID, a.Connection, a.Adapter, a.BaseURL, a.AuthorizedBy).Scan(&a.ID, &a.CreatedAt))
+}
+
+func (r modelAuthorizationRepo) Delete(ctx context.Context, accountID, connectionID, projectID uuid.UUID) error {
+	return mustUpdate(ctx, r.db, `DELETE FROM model_authorizations WHERE account_id = $1 AND connection_id = $2 AND project_id IS NOT DISTINCT FROM $3`,
+		accountID, connectionID, opt(projectID))
+}
+
+func (r modelAuthorizationRepo) DeleteConnection(ctx context.Context, accountID, connectionID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM model_authorizations WHERE account_id = $1 AND connection_id = $2`, accountID, connectionID)
+	return mapErr(err)
+}

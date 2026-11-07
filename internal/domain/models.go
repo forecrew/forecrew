@@ -99,3 +99,30 @@ type ModelAssignment struct {
 func (a ModelAssignment) OverridesAllowed() bool {
 	return a.ProjectOverrides == nil || *a.ProjectOverrides
 }
+
+// AllProjects is the project of a model authorization for every project.
+const AllProjects = "*"
+
+// ModelAuthorization lets a model connection receive the private code of a
+// project, or of every project with a zero ProjectID (config-resources.md,
+// Private code). It counts only while the connection keeps the adapter and
+// base_url it was authorized with: a new endpoint needs a new authorization.
+type ModelAuthorization struct {
+	ID        uuid.UUID `json:"id"`
+	AccountID uuid.UUID `json:"account_id"`
+	// ProjectID is zero for every project.
+	ProjectID    uuid.UUID `json:"project_id,omitzero"`
+	ConnectionID uuid.UUID `json:"connection_id"`
+	Connection   string    `json:"connection"`
+	Adapter      string    `json:"adapter"`
+	BaseURL      string    `json:"base_url,omitempty"`
+	// AuthorizedBy is who confirmed the plan, as an Actor string.
+	AuthorizedBy string    `json:"authorized_by"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// Covers reports whether a lets connection c receive the code of project.
+func (a ModelAuthorization) Covers(project uuid.UUID, c ModelConnection) bool {
+	return a.AccountID == c.AccountID && (a.ProjectID == uuid.Nil() || a.ProjectID == project) &&
+		a.ConnectionID == c.ID && a.Adapter == c.Adapter && a.BaseURL == c.BaseURL
+}

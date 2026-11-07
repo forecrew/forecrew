@@ -43,9 +43,13 @@ func configModels(t *testing.T, st store.Store, accountID, projectID uuid.UUID) 
 	if err != nil || len(rows) != 1 || rows[0].Enabled || rows[0].SecretRef != "store:models/zai-2" || rows[0].KeyEnv != "ZAI_KEY" {
 		t.Fatalf("connections = %+v, %v", rows, err)
 	}
+	configAuthorizations(t, st, accountID, projectID, rows[0])
 	must(st.ModelConnections().Delete(ctx, accountID, "zai"))
 	if err := st.ModelConnections().Delete(ctx, accountID, "zai"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("delete again = %v", err)
+	}
+	if auths, err := st.ModelAuthorizations().List(ctx, accountID); err != nil || len(auths) != 0 {
+		t.Fatalf("authorizations outlive their connection: %+v, %v", auths, err)
 	}
 
 	off := false
@@ -286,4 +290,45 @@ func configAccounts(t *testing.T, st store.Store, accountID uuid.UUID) {
 	if err := st.Accounts().Rename(ctx, other.ID, "x", a.Slug); !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("a slug that is taken: %v", err)
 	}
+}
+
+// configAuthorizations checks model authorizations of connection c, and
+// leaves one for the connection's delete to remove.
+func configAuthorizations(t *testing.T, st store.Store, accountID, projectID uuid.UUID, c domain.ModelConnection) {
+	t.Helper()
+	ctx := t.Context()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	all := domain.ModelAuthorization{AccountID: accountID, ConnectionID: c.ID, Connection: c.Name, Adapter: c.Adapter, AuthorizedBy: "user:ana"}
+	must(st.ModelAuthorizations().Put(ctx, &all))
+	one := domain.ModelAuthorization{AccountID: accountID, ProjectID: projectID, ConnectionID: c.ID, Connection: c.Name, Adapter: c.Adapter, BaseURL: "https://x.example", AuthorizedBy: "user:ana"}
+	must(st.ModelAuthorizations().Put(ctx, &one))
+	one.ID, one.AuthorizedBy = uuid.Nil(), "user:bo"
+	must(st.ModelAuthorizations().Put(ctx, &one))
+	rows, err := st.ModelAuthorizations().List(ctx, accountID)
+	if err != nil || len(rows) != 2 || rows[0].ProjectID != uuid.Nil() || rows[1].ProjectID != projectID || rows[1].AuthorizedBy != "user:bo" ||
+		rows[1].BaseURL != "https://x.example" || rows[1].CreatedAt.IsZero() || rows[1].Covers(projectID, c) {
+		t.Fatalf("authorizations = %+v, %v", rows, err)
+	}
+	if !rows[0].Covers(projectID, c) || !rows[0].Covers(domain.NewID(), c) {
+		t.Fatalf("the authorization for every project does not cover: %+v", rows[0])
+	}
+	other := domain.ModelAuthorization{AccountID: domain.NewID(), ConnectionID: c.ID, Connection: c.Name, AuthorizedBy: "user:ana"}
+	if err := st.ModelAuthorizations().Put(ctx, &other); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("put on another account's connection = %v", err)
+	}
+	must(st.ModelAuthorizations().Delete(ctx, accountID, c.ID, projectID))
+	if err := st.ModelAuthorizations().Delete(ctx, accountID, c.ID, projectID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("delete again = %v", err)
+	}
+	must(st.ModelAuthorizations().Put(ctx, &one))
+	must(st.ModelAuthorizations().DeleteConnection(ctx, accountID, c.ID))
+	if rows, _ := st.ModelAuthorizations().List(ctx, accountID); len(rows) != 0 {
+		t.Fatalf("after DeleteConnection: %+v", rows)
+	}
+	must(st.ModelAuthorizations().Put(ctx, &all))
 }

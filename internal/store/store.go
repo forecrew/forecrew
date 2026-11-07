@@ -105,6 +105,7 @@ type Store interface {
 	ConfigSettings() ConfigSettingRepo
 	ModelConnections() ModelConnectionRepo
 	ModelAssignments() ModelAssignmentRepo
+	ModelAuthorizations() ModelAuthorizationRepo
 	Secrets() SecretRepo
 	Conversations() ConversationRepo
 	ProviderJoinCodes() ProviderJoinCodeRepo
@@ -1530,6 +1531,21 @@ type ModelAssignmentRepo interface {
 	// another account is ErrNotFound.
 	Put(ctx context.Context, a *domain.ModelAssignment) error
 	Delete(ctx context.Context, accountID, projectID uuid.UUID) error
+}
+
+// ModelAuthorizationRepo stores which connection may receive the private code
+// of which project. A connection's rows go with it.
+type ModelAuthorizationRepo interface {
+	// List returns the rows of the account, by connection then project.
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.ModelAuthorization, error)
+	// Put creates or replaces the row of (account, connection, project). A
+	// project or connection of another account is ErrNotFound.
+	Put(ctx context.Context, a *domain.ModelAuthorization) error
+	// Delete removes the row of (account, connection, project); a zero
+	// project is the row for every project.
+	Delete(ctx context.Context, accountID, connectionID, projectID uuid.UUID) error
+	// DeleteConnection removes every row of a connection.
+	DeleteConnection(ctx context.Context, accountID, connectionID uuid.UUID) error
 }
 
 // SecretRepo stores encrypted secrets; internal/secrets holds the key. The
