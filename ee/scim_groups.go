@@ -26,7 +26,7 @@ type scimGroup struct {
 	ID          string       `json:"id,omitempty"`
 	ExternalID  string       `json:"externalId,omitempty"`
 	DisplayName string       `json:"displayName"`
-	Members     []scimMember `json:"members"`
+	Members     []scimMember `json:"members,omitzero"`
 	Meta        *scimMeta    `json:"meta,omitempty"`
 }
 
