@@ -1,0 +1,12 @@
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"],
+  "documentationUri": "https://github.com/forecrew/forecrew/blob/main/docs/enterprise.md",
+  "patch": {"supported": true},
+  "bulk": {"supported": false, "maxOperations": 0, "maxPayloadSize": 0},
+  "filter": {"supported": true, "maxResults": 200},
+  "changePassword": {"supported": false},
+  "sort": {"supported": false},
+  "etag": {"supported": false},
+  "authenticationSchemes": [{"type": "oauthbearertoken", "name": "Bearer token", "description": "A SCIM token of the organization", "primary": true}],
+  "meta": {"resourceType": "ServiceProviderConfig"}
+}

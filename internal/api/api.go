@@ -52,7 +52,9 @@ type Config struct {
 	TokenLogin bool
 	// SessionMaxAge is how long a token login's cookie lasts.
 	SessionMaxAge time.Duration
-	Now           func() time.Time // defaults to the real time
+	// Enterprise says this is the enterprise build, for the UI.
+	Enterprise bool
+	Now        func() time.Time // defaults to the real time
 }
 
 // Server is the /api/v1 handler.
