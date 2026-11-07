@@ -174,6 +174,12 @@ func (e *engine) runCommand(ctx context.Context, p domain.Project, ev github.Eve
 	if cmd == "status" {
 		return e.reply(ctx, ev, statusReply(pending))
 	}
+	switch _, err := e.Store.TicketLinks().GetByIssue(ctx, p.AccountID, p.ID, ev.Number); {
+	case err == nil:
+		return e.reply(ctx, ev, "This issue is a ticket: its approvals stay in Forecrew. A comment here never decides a gate.")
+	case !errors.Is(err, store.ErrNotFound):
+		return fmt.Errorf("find the ticket of %s#%d: %w", ev.Repo, ev.Number, err)
+	}
 	if len(pending) == 0 {
 		return e.reply(ctx, ev, "Nothing is waiting for a decision here.")
 	}

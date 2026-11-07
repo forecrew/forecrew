@@ -8,6 +8,8 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/tracker"
+	"github.com/forecrew/forecrew/internal/tracker/githubissues"
 )
 
 // maxBody is GitHub's limit for webhook payloads.
@@ -18,8 +20,9 @@ const queueSize = 256
 
 // delivery is an accepted webhook delivery waiting for Run.
 type delivery struct {
-	id string
-	ev github.Event
+	id  string
+	ev  github.Event
+	raw tracker.Request
 }
 
 // Handler serves POST /webhooks/github. It verifies and queues events and
@@ -71,7 +74,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	select {
-	case h.queue <- delivery{id: id, ev: ev}:
+	case h.queue <- delivery{id: id, ev: ev, raw: tracker.Request{Header: r.Header, Body: body}}:
 		w.WriteHeader(http.StatusAccepted)
 	default:
 		h.e.Log.Warn("webhook queue full", "delivery", id, "event", kind)
@@ -107,5 +110,10 @@ func (h *Handler) process(ctx context.Context, d delivery) {
 	ev := d.ev
 	if err := h.e.handle(ctx, ev); err != nil {
 		h.e.Log.Error("process webhook event", "delivery", d.id, "event", ev.Kind, "action", ev.Action, "repo", ev.Repo, "number", ev.Number, "error", err)
+	}
+	if h.e.Tickets != nil && (ev.Kind == "issues" || ev.Kind == "issue_comment") {
+		if err := h.e.Tickets.Deliver(ctx, githubissues.Kind, d.raw); err != nil {
+			h.e.Log.Error("process ticket event", "delivery", d.id, "event", ev.Kind, "repo", ev.Repo, "number", ev.Number, "error", err)
+		}
 	}
 }

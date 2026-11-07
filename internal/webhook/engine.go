@@ -13,6 +13,7 @@ import (
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/tracker"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -30,6 +31,9 @@ type Deps struct {
 	// Proposals settles the knowledge proposals of closed PRs; nil leaves
 	// them to their runs.
 	Proposals ProposalFollower
+	// Tickets is told of issue events, for the GitHub Issues tracker; nil
+	// leaves tickets to polling.
+	Tickets TicketDeliverer
 	// Bugs starts the bug-fix playbook for @forecrew bug; nil answers that
 	// the command is not available.
 	Bugs BugReporter
@@ -49,6 +53,12 @@ type Deps struct {
 // runs on the goroutine that handles webhooks.
 type KnowledgeSyncer interface {
 	Request(p domain.Project, before, head string)
+}
+
+// TicketDeliverer hands a delivery to the trackers of a kind; *tracker.Service
+// implements it.
+type TicketDeliverer interface {
+	Deliver(ctx context.Context, kind string, r tracker.Request) error
 }
 
 // BugReporter makes an issue the goal issue of a bug goal and starts the

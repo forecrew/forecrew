@@ -3,9 +3,11 @@ package playbooks_test
 import (
 	"strings"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
@@ -129,5 +131,39 @@ func TestGoalSpecErrors(t *testing.T) {
 			_, err := v.call(t, "goal.spec", tt.with)
 			wantErr(t, err, tt.want)
 		})
+	}
+}
+
+// An issue that is a person's ticket keeps their text; the spec goes in a
+// comment, once.
+func TestGoalSpecOnATicketIssue(t *testing.T) {
+	v := newEnv(t)
+	ctx := t.Context()
+	issue, err := v.tracker.CreateIssue(ctx, "acme/app", github.IssueInput{Title: "Pay by card", Body: "As a customer I want to pay by card."})
+	must(t, err)
+	g := v.newGoal(t)
+	g.IssueNumber = issue.Number
+	must(t, v.st.Goals().Update(ctx, &g))
+	conn := domain.TrackerConnection{AccountID: v.account, Name: "issues", Kind: "github", Triggers: domain.TrackerTriggers{Label: "forecrew"}}
+	must(t, v.st.TrackerConnections().Create(ctx, &conn))
+	must(t, v.st.TicketLinks().Create(ctx, &domain.TicketLink{AccountID: v.account, ConnectionID: conn.ID, Key: "acme/app#1", Status: domain.LinkActive, ProjectID: v.project.ID, GoalID: g.ID, IssueNumber: issue.Number}))
+	if got := v.intake(t, g); got != issue.Number {
+		t.Fatalf("intake opened issue %d, want the ticket's %d", got, issue.Number)
+	}
+	job := v.newJob(t, "product-owner", g)
+	with := map[string]any{"goal_id": g.ID.String(), "job_id": job.String(), "spec": specOutput("Card works")}
+	for range 2 { // the action can run again after a crash
+		_, err = v.call(t, "goal.spec", with)
+		must(t, err)
+	}
+	got, err := v.tracker.GetIssue(ctx, "acme/app", issue.Number)
+	must(t, err)
+	if got.Body != "As a customer I want to pay by card." {
+		t.Errorf("the ticket's text changed: %q", got.Body)
+	}
+	comments, err := v.tracker.ListComments(ctx, "acme/app", issue.Number, time.Time{})
+	must(t, err)
+	if len(comments) != 1 || !strings.Contains(comments[0].Body, "Card works") {
+		t.Errorf("comments = %+v", comments)
 	}
 }

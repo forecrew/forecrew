@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -186,6 +187,15 @@ func (b *StoreBuilder) goalText(ctx context.Context, acc, goalID uuid.UUID, in *
 	in.Goal.Untrusted, in.Goal.Source = b.untrusted(g.CreatedBy), g.CreatedBy
 	if g.Kind == domain.GoalBug {
 		b.bugReport(in, g)
+	}
+	// The text of a ticket is untrusted whoever handed it over, its title too:
+	// the heading is not marked.
+	l, err := b.store.TicketLinks().GetByGoal(ctx, acc, g.ID)
+	switch {
+	case err == nil:
+		in.Goal = Text{Heading: "Goal " + g.Ref(), Body: "Title: " + OneLine(g.Title) + "\n\n" + g.Body, Untrusted: true, Source: "ticket " + l.Key}
+	case !errors.Is(err, store.ErrNotFound):
+		return nil, fmt.Errorf("load the ticket of %s: %w", g.Ref(), err)
 	}
 	return &g, nil
 }
