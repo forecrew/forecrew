@@ -158,6 +158,8 @@ type Service struct {
 	cfg    Config
 	authz  *authz.Engine
 	config *cfgres.Engine
+	// people remembers who waiting tickets are from, per connection.
+	people *peopleCache
 }
 
 var _ mcp.ToolService = (*Service)(nil)
@@ -180,7 +182,7 @@ func New(cfg Config) *Service {
 	if cfg.Enterprise == nil {
 		cfg.Enterprise = mcp.NoEnterprise{}
 	}
-	s := &Service{EnterpriseTools: cfg.Enterprise, cfg: cfg, authz: engine}
+	s := &Service{EnterpriseTools: cfg.Enterprise, cfg: cfg, authz: engine, people: &peopleCache{}}
 	s.config = cfgres.NewEngine(cfgres.Config{
 		Store: cfg.Store, Access: func(st store.Store) cfgres.Access { return s.in(st) }, Server: cfg.Server, Getenv: cfg.Getenv, CheckSchedule: cfg.CheckSchedule,
 		Repo: cfg.Repo, Secrets: cfg.Secrets, Roles: cfg.RoleToolbox, Logger: cfg.Logger, Now: cfg.Now,

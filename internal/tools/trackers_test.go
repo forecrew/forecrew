@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/authz"
@@ -46,6 +47,7 @@ func newTicketWorld(t *testing.T) *ticketWorld {
 	registry.Register(trackertest.Kind, w.fake.Factory())
 	w.fixture = newFixture(t, func(c *tools.Config) {
 		c.TestingProjects = []string{"app"}
+		c.Now = func() time.Time { return w.clock.Now() } // the fixture's clock, which the tests move
 		w.core = tracker.New(tracker.Config{
 			Store: c.Store, Registry: registry, Gates: c.Gates, Authz: authz.New(c.Store, nil), Runs: w.runs,
 			Playbook: func(domain.Project, domain.GoalKind) string { return tools.PlaybookGoal },
@@ -765,5 +767,67 @@ func TestRoutesAreCheckedAgainstTheStatesOfTheTracker(t *testing.T) {
 	}
 	if routes, _ = w.svc.ListTrackerRoutes(ctx, w.owner, mcp.TrackerConnectionFilterInput{}); routes[0].Warning != "ignore your rules" {
 		t.Errorf("unwrapped warning = %q", routes[0].Warning)
+	}
+}
+
+// Who waiting tickets are from is read from the tracker once in a while, not
+// on every call: the screen, MCP and the CLI share the budget of the token.
+func TestUnmappedPeopleAreRememberedForAWhile(t *testing.T) {
+	w := newTicketWorld(t)
+	ctx := t.Context()
+	w.route(t)
+	hand := func(key, id string) {
+		w.fake.Put(tracker.Ticket{
+			Ref: tracker.Ref{Key: key}, Title: "t", Labels: []string{"forecrew"},
+			Handovers: []tracker.Handover{{Trigger: tracker.TriggerLabel, Value: "forecrew", By: tracker.User{ID: id, Name: "Person " + id}, At: w.clock.Now()}},
+		})
+		must(t, w.core.Hint(ctx, w.conn, tracker.Event{Key: key}))
+	}
+	hand("C-1", "u1")
+	count := func() int {
+		got, err := w.svc.ListUnmappedTrackerPeople(ctx, w.owner, mcp.TrackerConnectionFilterInput{})
+		must(t, err)
+		return len(got.People)
+	}
+	if count() != 1 {
+		t.Fatal("the first call missed the person")
+	}
+	// Another person arrives: the answer is the remembered one until it goes stale.
+	hand("C-2", "u2")
+	if count() != 1 {
+		t.Error("the second call read the tracker again")
+	}
+	// Mapping someone drops what was remembered.
+	_, person := w.member(t, orgScope, domain.RoleMember, uuid.Nil())
+	_, err := w.svc.MapTrackerIdentity(ctx, w.owner, mcp.MapTrackerIdentityInput{Connection: "board", ExternalID: "u1", User: person.String()})
+	must(t, err)
+	if count() != 1 {
+		t.Error("after a mapping the list was not read again")
+	}
+	hand("C-3", "u3")
+	if count() != 1 {
+		t.Error("remembered again")
+	}
+	ids, err := w.svc.ListTrackerIdentities(ctx, w.owner, mcp.TrackerConnectionFilterInput{})
+	must(t, err)
+	_, err = w.svc.UnmapTrackerIdentity(ctx, w.owner, mcp.TrackerIdentityRefInput{Identity: ids[0].ID.String()})
+	must(t, err)
+	if count() != 3 {
+		t.Error("after an unmapping the list was not read again")
+	}
+	// A dismissal changes who waits.
+	hand("C-4", "u4")
+	waiting, err := w.svc.ListTicketsWaiting(ctx, w.owner, mcp.ListTicketsWaitingInput{})
+	must(t, err)
+	_, err = w.svc.DismissTicket(ctx, w.owner, mcp.DismissTicketInput{Ticket: waiting[0].ID.String()})
+	must(t, err)
+	if count() != 3 { // the first ticket is gone, and u4 is new
+		t.Error("after a dismissal the list was not read again")
+	}
+	// A stale answer is read again.
+	hand("C-5", "u5")
+	w.clock.Advance(6 * time.Minute)
+	if count() != 4 {
+		t.Error("a stale answer was served")
 	}
 }
