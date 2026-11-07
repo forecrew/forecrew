@@ -1028,6 +1028,7 @@ export interface ConfigPlan {
   applied_at?: string
   pr_url?: string
   created_at: string
+  updated_at: string
   can_confirm: boolean
   /** The configuration moved since the plan was made: it has to be rebuilt. */
   stale: boolean
