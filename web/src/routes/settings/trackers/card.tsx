@@ -140,7 +140,7 @@ export function TrackerCard({
           ) : (
             <StatusBadge>Not tested here yet</StatusBadge>
           )}
-          <PermButton permission="trackers.manage" variant="outline" aria-label={`Test ${connection.name}`} disabled={testing} onClick={onTest}>
+          <PermButton permission="trackers.manage" variant="outline" aria-label={`Test connection of ${connection.name}`} disabled={testing} onClick={onTest}>
             {testing ? "Testing…" : "Test connection"}
           </PermButton>
         </div>

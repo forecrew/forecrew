@@ -48,7 +48,7 @@ describe("the tracker screen", () => {
   test("a test shows each check on its own", async () => {
     const { user } = await renderApp("/settings/integrations")
     const card = await jira()
-    await user.click(within(card).getByRole("button", { name: "Test jira" }))
+    await user.click(within(card).getByRole("button", { name: "Test connection of jira" }))
     const results = await within(card).findByRole("list", { name: "Test of jira" })
     expect(within(results).getAllByRole("listitem")).toHaveLength(6)
     expect(within(results).getByText("address")).toBeInTheDocument()
@@ -67,7 +67,7 @@ describe("the tracker screen", () => {
     )
     const { user } = await renderApp("/settings/integrations")
     const card = await jira()
-    await user.click(within(card).getByRole("button", { name: "Test jira" }))
+    await user.click(within(card).getByRole("button", { name: "Test connection of jira" }))
     expect(await within(card).findByText("Needs attention", { exact: false })).toBeInTheDocument()
     expect(within(card).getByText(/certificate is not trusted/)).toBeInTheDocument()
     // The checks after the failed one only say they were not checked: no advice for them.
@@ -90,7 +90,7 @@ describe("the tracker screen", () => {
     )
     const { user } = await renderApp("/settings/integrations")
     const card = await jira()
-    await user.click(within(card).getByRole("button", { name: "Test jira" }))
+    await user.click(within(card).getByRole("button", { name: "Test connection of jira" }))
     expect(await within(card).findByText(/On a hosted server the tracker must be reachable from outside/)).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Connect a tracker" }))
     const dialog = await screen.findByRole("dialog")
@@ -101,7 +101,7 @@ describe("the tracker screen", () => {
   test("a test that cannot run says so", async () => {
     server.use(http.post("/api/v1/tracker-connections/:name/test", () => HttpResponse.json({ error: { code: "unavailable", message: "the secret store is not configured" } }, { status: 503 })))
     const { user } = await renderApp("/settings/integrations")
-    await user.click(within(await jira()).getByRole("button", { name: "Test jira" }))
+    await user.click(within(await jira()).getByRole("button", { name: "Test connection of jira" }))
     expect(await within(await jira()).findByRole("alert")).toHaveTextContent("the secret store is not configured")
   })
 })
@@ -113,7 +113,7 @@ describe("permissions", () => {
     server.use(http.get("/api/v1/tracker-people/unmapped", () => (people++, HttpResponse.json(fx.trackerUnmapped))))
     await renderApp("/settings/integrations")
     const card = await jira()
-    expect(within(card).getByRole("button", { name: "Test jira" })).toBeDisabled()
+    expect(within(card).getByRole("button", { name: "Test connection of jira" })).toBeDisabled()
     expect(within(card).getByRole("button", { name: "Add a rule to jira" })).toBeDisabled()
     expect(within(card).getByRole("button", { name: "Remove the rule jira/1" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Connect a tracker" })).toBeDisabled()
@@ -137,7 +137,7 @@ describe("permissions", () => {
     await user.click(await within(await jira()).findByRole("button", { name: "Open the waiting tickets of jira" }))
     const list = await screen.findByRole("list", { name: "Tickets waiting" })
     expect(within(list).getAllByText("goal.create").length).toBeGreaterThanOrEqual(2)
-    expect(within(list).getByRole("button", { name: "Start ENG-21" })).toBeDisabled()
+    expect(within(list).getByRole("button", { name: "Start anyway: ENG-21" })).toBeDisabled()
   })
 })
 
@@ -329,7 +329,7 @@ describe("people", () => {
     expect(within(list).getAllByRole("listitem")).toHaveLength(2)
     // Names come from the tracker: text, never markup.
     expect(within(list).getByText("R. Verdi <i>(contractor)</i>")).toBeInTheDocument()
-    await user.click(within(list).getByRole("button", { name: "Confirm Marta Rossi is Marta Rossi" }))
+    await user.click(within(list).getByRole("button", { name: "Same person as Marta Rossi (same name)" }))
     await waitFor(() => expect(body).toEqual({ connection: "jira", external_id: "JIRAUSER10300", external_name: "Marta Rossi", user: fx.members.find((m) => m.name === "Marta Rossi")?.user_id }))
   })
 
@@ -349,7 +349,7 @@ describe("people", () => {
     server.use(http.post("/api/v1/tracker-identities", () => HttpResponse.json({ error: { code: "forbidden", message: "the user holds more than you" } }, { status: 403 })))
     const { user } = await renderApp("/settings/integrations")
     await user.click(await within(await jira()).findByRole("button", { name: "Review the people of jira" }))
-    await user.click(await screen.findByRole("button", { name: "Confirm Marta Rossi is Marta Rossi" }))
+    await user.click(await screen.findByRole("button", { name: "Same person as Marta Rossi (same name)" }))
     expect(await screen.findByText("the user holds more than you")).toBeInTheDocument()
   })
 
@@ -384,10 +384,10 @@ describe("waiting tickets", () => {
     const accepted: { id: string; body: unknown }[] = []
     server.use(http.post("/api/v1/tickets/:ticket/accept", async ({ params, request }) => (accepted.push({ id: String(params.ticket), body: await request.json() }), HttpResponse.json(fx.ticketAccept))))
     const { user, list } = await open()
-    await user.click(within(list).getByRole("button", { name: "Start ENG-21" }))
+    await user.click(within(list).getByRole("button", { name: "Start anyway: ENG-21" }))
     await waitFor(() => expect(accepted).toHaveLength(1))
     expect(accepted[0]).toEqual({ id: "018f0000-0000-7000-8000-000000000950", body: {} })
-    const accept = within(list).getByRole("button", { name: "Accept OPS-3" })
+    const accept = within(list).getByRole("button", { name: "Accept: OPS-3" })
     expect(accept).toBeDisabled()
     await user.selectOptions(within(list).getByLabelText("Project for OPS-3"), "app")
     await user.click(accept)
@@ -399,10 +399,10 @@ describe("waiting tickets", () => {
     let dismissed = 0
     server.use(http.post("/api/v1/tickets/:ticket/dismiss", () => (dismissed++, HttpResponse.json(fx.ticketDismiss))))
     const { user, list } = await open()
-    await user.click(within(list).getByRole("button", { name: "Dismiss OPS-3" }))
+    await user.click(within(list).getByRole("button", { name: "Dismiss: OPS-3" }))
     await waitFor(() => expect(dismissed).toBe(1))
     server.use(http.post("/api/v1/tickets/:ticket/accept", () => HttpResponse.json({ error: { code: "conflict", message: "ticket ENG-21 is not waiting" } }, { status: 409 })))
-    await user.click(within(list).getByRole("button", { name: "Start ENG-21" }))
+    await user.click(within(list).getByRole("button", { name: "Start anyway: ENG-21" }))
     expect(await within(list).findByRole("alert")).toHaveTextContent("ticket ENG-21 is not waiting")
   })
 

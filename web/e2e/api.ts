@@ -23,10 +23,11 @@ export interface Calls {
  * the page in and sends it back to the page it came from. `me` names the
  * fixture of who is signed in (me, me-admin, me-viewer, me-contributor).
  * `lowering` makes the assistant's and the forms' plan one that lowers
- * protection (the second confirmation); `inboxPlans` puts plans in the Inbox.
+ * protection (the second confirmation); `inboxPlans` puts plans in the Inbox. `trackerFails` makes the test of a tracker connection
+ * fail on its certificate. A plan for a tracker connection or rule is the recorded one with its secure field.
  * A join code reports as soon as it is made. JOB-42 is a waiting job.
  */
-export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: string; me?: string; lowering?: boolean; inboxPlans?: boolean; roles?: string } = {}): Promise<Calls> {
+export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: string; me?: string; lowering?: boolean; inboxPlans?: boolean; roles?: string; trackerFails?: boolean } = {}): Promise<Calls> {
   let loggedIn = opts.loggedIn ?? true
   let gates = fixture(opts.gates ?? "gates") as { ref: string }[]
   let canceled = false
@@ -39,7 +40,7 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
   const newPlan = () => fixture(opts.lowering ? "config-plan-lowers" : "config-plan") as { id: string }
   // Every recorded plan, found by its ID.
   const planById = (id: string) => {
-    const names = ["config-plan", "config-plan-lowers", "config-plan-revert", "config-plan-needs-secret", "config-plan-secret", "config-plan-connection", "config-plan-stale", "config-plan-cannot-confirm", "config-plan-approval"]
+    const names = ["config-plan-tracker", "config-plan", "config-plan-lowers", "config-plan-revert", "config-plan-needs-secret", "config-plan-secret", "config-plan-connection", "config-plan-stale", "config-plan-cannot-confirm", "config-plan-approval"]
     const all = [...names.map((n) => fixture(n)), ...(fixture("config-plans") as unknown[]), ...(fixture("config-plans-inbox") as unknown[])] as { id: string }[]
     return all.find((p) => p.id === id)
   }
@@ -117,6 +118,10 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
       "GET /assistant/conversations": "assistant-conversations",
       "GET /trace": "trace",
       "GET /assumptions": "assumptions",
+      "GET /tracker-connections": "tracker-connections",
+      "GET /tracker-routes": "tracker-routes",
+      "GET /tracker-identities": "tracker-identities",
+      "GET /tracker-people/unmapped": "tracker-unmapped",
     }
     if (req.method() === "GET" && path === "/join-codes") {
       // The machine reports as soon as its code is made: the code the page waits for is the claimed one.
@@ -126,6 +131,13 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
     const known = routes[`${req.method()} ${path}`]
     if (known) return json(route, fixture(known))
     if (req.method() === "GET" && path === "/gates") return json(route, gates)
+    // Trackers: the test of a connection passes unless the page asks for the failing one.
+    if (req.method() === "POST" && /^\/tracker-connections\/[^/]+\/test$/.test(path)) return json(route, fixture(opts.trackerFails ? "tracker-test-failed" : "tracker-test"))
+    if (req.method() === "GET" && path === "/tickets/waiting") return json(route, fixture("tickets-waiting"))
+    if (req.method() === "POST" && path === "/tracker-identities") return json(route, fixture("tracker-identity-map"), 201)
+    if (req.method() === "POST" && /^\/tickets\/[^/]+\/accept$/.test(path)) return json(route, fixture("ticket-accept"))
+    if (req.method() === "POST" && /^\/tickets\/[^/]+\/dismiss$/.test(path)) return json(route, fixture("ticket-dismiss"))
+    if (req.method() === "POST" && path === "/config/plans" && (body as { changes?: { kind: string }[] } | undefined)?.changes?.[0]?.kind?.startsWith("tracker_")) return json(route, fixture("config-plan-tracker"), 201)
     if (req.method() === "GET" && /^\/teams\/[^/]+\/members$/.test(path)) return json(route, fixture("team-members"))
     if (req.method() === "POST" && path === "/invitations") return json(route, fixture("invitation-create"), 201)
     if (req.method() === "POST" && path === "/tokens") return json(route, fixture("token-create"), 201)
@@ -160,7 +172,7 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
       if (req.method() === "POST" && action === "cancel") return json(route, fixture("config-plan-cancel"))
       if (req.method() === "POST" && action === "revert") return json(route, fixture("config-plan-revert"), 201)
       if (req.method() === "POST" && action === "request-approval") return json(route, fixture("config-plan-approval"))
-      if (req.method() === "PUT" && action?.startsWith("secrets/")) return json(route, fixture("config-plan-secret"))
+      if (req.method() === "PUT" && action?.startsWith("secrets/")) return json(route, fixture(id === (fixture("config-plan-tracker") as { id: string }).id ? "config-plan-tracker-secret" : "config-plan-secret"))
     }
     if (req.method() === "POST" && path === "/config/import") return json(route, fixture("config-plan"), 201)
     if (req.method() === "POST" && /^\/join-codes\/[^/]+\/confirm$/.test(path)) return json(route, fixture("join-confirm"))
