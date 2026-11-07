@@ -238,6 +238,7 @@ ticket holds its issue from the moment it has a project, so `@forecrew bug`
 refuses it, and a ticket whose issue a goal already works on ends with a comment
 saying which. The spec then goes in a comment, so the person's text stays. For an issue of any
 other repo, and any other tracker, `goal.intake` opens its issue as usual and
-its body links the ticket. `@forecrew approve` and `changes` do nothing on an
+its body links the ticket. A canceled goal does not close an issue that is its
+ticket: the route's `canceled` mapping does, if it has one. `@forecrew approve` and `changes` do nothing on an
 issue that is a ticket, and keep working everywhere else, `github.allowlist`
 included.
