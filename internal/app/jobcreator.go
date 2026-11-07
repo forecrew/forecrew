@@ -139,10 +139,6 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 		}
 	}
 	needs, allowed := toolboxJob(role, req.Needs)
-	pinned := ""
-	if req.Council != nil {
-		pinned = req.Council.Runtime // a seat stays on its agent
-	}
 	j, err := c.jobs.Create(ctx, domain.SystemActor(req.AccountID, domain.ForecrewdName), domain.Job{
 		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Pool: pool, Role: role.Name, Runtime: role.Runtime, Needs: needs, Resources: role.Resources,
 		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID, ContextManifest: pack.Manifest,
@@ -150,7 +146,7 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, WritePaths: writePaths, Model: role.Model,
 			Prompt: pack.Prompt, OutputSchema: role.OutputSchema, AllowedTools: allowed, MaxTurns: role.MaxTurns,
 			Timeout: domain.Duration(role.Timeout), IncludeRepoFacts: req.IncludeRepoFacts, LockedPaths: req.LockedPaths,
-			Toolbox: role.Toolbox, PinnedRuntime: pinned,
+			Toolbox: role.Toolbox, PinnedRuntime: pinnedRuntime(req),
 		},
 	})
 	if err != nil {
@@ -176,6 +172,14 @@ func checkWritePaths(req workflow.JobRequest) error {
 		}
 	}
 	return nil
+}
+
+// pinnedRuntime is the agent a council seat stays on.
+func pinnedRuntime(req workflow.JobRequest) string {
+	if req.Council == nil {
+		return ""
+	}
+	return req.Council.Runtime
 }
 
 // jobRole resolves the role of req, as a council turn, the review of a
