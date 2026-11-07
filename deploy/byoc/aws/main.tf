@@ -11,7 +11,7 @@ data "aws_ssm_parameter" "al2023" {
 }
 
 locals {
-  fleet_name = var.fleet_name != "" ? var.fleet_name : "forecrew-${substr(sha1("${data.aws_caller_identity.current.account_id}${data.aws_region.current.name}${var.vpc_id}"), 0, 8)}"
+  fleet_name = var.fleet_name
 
   is_ec2   = var.mode == "ec2"
   is_mac   = var.mode == "mac"
@@ -99,12 +99,12 @@ resource "aws_security_group" "agent" {
 }
 
 resource "aws_vpc_security_group_egress_rule" "agent_https" {
+  for_each          = toset(local.public_cidrs)
   security_group_id = aws_security_group.agent.id
   ip_protocol       = "tcp"
   from_port         = 443
   to_port           = 443
-  cidr_ipv4         = "0.0.0.0/0"
-  description       = "forecrewd, the AWS APIs and the release"
+  cidr_ipv4         = each.value
 }
 
 resource "aws_vpc_security_group_egress_rule" "agent_dns_udp" {

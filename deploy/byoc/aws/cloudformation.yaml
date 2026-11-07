@@ -230,10 +230,60 @@ Resources:
   AgentSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Forecrew fleet agent - no inbound, HTTPS and DNS out
+      GroupDescription: Forecrew fleet agent - no inbound, HTTPS to public addresses, DNS and time out
       VpcId: !Ref VpcId
       SecurityGroupEgress:
-        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: forecrewd, the AWS APIs and the release}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 1.0.0.0/8}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 2.0.0.0/7}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 4.0.0.0/6}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 8.0.0.0/7}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 11.0.0.0/8}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 12.0.0.0/6}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 16.0.0.0/4}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 32.0.0.0/3}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 64.0.0.0/3}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 96.0.0.0/6}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 100.0.0.0/10}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 100.128.0.0/9}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 101.0.0.0/8}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 102.0.0.0/7}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 104.0.0.0/5}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 112.0.0.0/5}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 120.0.0.0/6}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 124.0.0.0/7}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 126.0.0.0/8}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 128.0.0.0/3}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 160.0.0.0/5}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 168.0.0.0/8}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 169.0.0.0/9}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 169.128.0.0/10}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 169.192.0.0/11}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 169.224.0.0/12}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 169.240.0.0/13}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 169.248.0.0/14}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 169.252.0.0/15}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 169.255.0.0/16}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 170.0.0.0/7}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 172.0.0.0/12}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 172.32.0.0/11}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 172.64.0.0/10}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 172.128.0.0/9}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 173.0.0.0/8}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 174.0.0.0/7}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 176.0.0.0/4}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 192.0.0.0/9}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 192.128.0.0/11}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 192.160.0.0/13}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 192.169.0.0/16}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 192.170.0.0/15}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 192.172.0.0/14}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 192.176.0.0/12}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 192.192.0.0/10}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 193.0.0.0/8}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 194.0.0.0/7}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 196.0.0.0/6}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 200.0.0.0/5}
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 208.0.0.0/4}
         - {IpProtocol: udp, FromPort: 53, ToPort: 53, CidrIp: 169.254.169.253/32, Description: VPC DNS resolver}
         - {IpProtocol: tcp, FromPort: 53, ToPort: 53, CidrIp: 169.254.169.253/32, Description: VPC DNS resolver}
         - {IpProtocol: udp, FromPort: 123, ToPort: 123, CidrIp: 169.254.169.123/32, Description: Amazon Time Sync}
