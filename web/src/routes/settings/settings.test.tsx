@@ -495,6 +495,18 @@ describe("custom roles (enterprise)", () => {
     expect(await screen.findByText(/used by connection okta/)).toBeInTheDocument()
   })
 
+  test("permissions the editor does not hold cannot be chosen", async () => {
+    asMe({ ...fx.meAdmin, enterprise: true })
+    const { user } = await renderApp("/settings/people?tab=roles")
+    await user.click(await screen.findByRole("button", { name: "New custom role" }))
+    const dialog = await screen.findByRole("dialog", { name: "New custom role" })
+    expect(within(dialog).getByText(/the others are shown but cannot be chosen/)).toBeInTheDocument()
+    await user.selectOptions(within(dialog).getByLabelText("Where it applies"), "organization")
+    const billing = within(dialog).getByLabelText(/billing\.manage \(you do not hold it\)/)
+    expect(billing).toBeDisabled()
+    expect(within(dialog).getByRole("checkbox", { name: "audit.read" })).toBeEnabled()
+  })
+
   test("without role.manage the editor is named, not offered", async () => {
     asMe({ ...fx.meViewer, enterprise: true })
     withCustom()
