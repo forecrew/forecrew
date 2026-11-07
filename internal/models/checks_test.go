@@ -167,6 +167,7 @@ func TestCheckGrantSendsTheKeyToTheConnectionOnly(t *testing.T) {
 		{conn("cloud", config.AdapterClaudeCode, "anthropic"), "https://api.anthropic.com/v1/models", models.AuthXAPIKey, "ANTHROPIC_API_KEY"},
 		{proxy, "https://gateway.example.com/anthropic/v1/models", models.AuthXAPIKey, "ANTHROPIC_API_KEY"},
 		{conn("gpt", config.AdapterCodex, "someone"), "https://api.openai.com/v1/models", models.AuthBearer, "CODEX_API_KEY"},
+		{conn("mixed", config.AdapterClaudeCode, "openai"), "https://api.anthropic.com/v1/models", models.AuthXAPIKey, "ANTHROPIC_API_KEY"},
 		{domain.ModelConnection{Name: "local", Adapter: config.AdapterOpencode, Vendor: "ollama", KeyEnv: "OLLAMA_API_KEY", BaseURL: "http://10.0.0.5:11434/v1", SecretRef: "store:models/local", Enabled: true},
 			"http://10.0.0.5:11434/v1/models", models.AuthNone, "OLLAMA_API_KEY"},
 		{domain.ModelConnection{Name: "bedrock", Adapter: config.AdapterOpencode, Vendor: "bedrock", KeyEnv: "BEDROCK_API_KEY", BaseURL: "https://bedrock.example.com/openai/v1", SecretRef: "store:models/bedrock", Enabled: true},
@@ -414,5 +415,21 @@ func TestEstimateOfATest(t *testing.T) {
 	local.BaseURL = "http://127.0.0.1:11434/v1"
 	if e := c.checker.EstimateTest(local, "claude-sonnet-4-5"); e.CostUSD == nil || *e.CostUSD != 0 {
 		t.Fatalf("local = %+v", e)
+	}
+}
+
+func TestListOfWithoutACatalog(t *testing.T) {
+	for _, tt := range []struct {
+		c   domain.ModelConnection
+		url string
+	}{
+		{conn("a", config.AdapterClaudeCode, "x"), "https://api.anthropic.com/v1/models"},
+		{conn("o", config.AdapterCodex, "x"), "https://api.openai.com/v1/models"},
+		{conn("oc", config.AdapterOpencode, "x"), ""},
+		{domain.ModelConnection{Name: "oc2", Adapter: config.AdapterOpencode, Vendor: "x", BaseURL: "https://m.example.com/v1"}, "https://m.example.com/v1/models"},
+	} {
+		if got := models.ListOf(nil, tt.c); got.URL != tt.url {
+			t.Errorf("%s: %+v", tt.c.Name, got)
+		}
 	}
 }

@@ -411,11 +411,17 @@ func (s *Service) CheckGrant(ctx context.Context, j domain.Job) (spec domain.Mod
 }
 
 // ListOf is where and how the models of connection c are listed: its
-// base_url, or its provider's from the catalog, and the provider's path. URL
-// is empty when the provider has no list.
+// base_url, or else where its agent sends the key (the catalog's provider of
+// the vendor for opencode), and the provider's path. URL is empty when the
+// provider has no list.
 func ListOf(cat *Catalog, c domain.ModelConnection) domain.ModelCheckSpec {
 	out := domain.ModelCheckSpec{Connection: c.Name, Adapter: c.Adapter}
 	p, known := cat.Provider(c.Vendor)
+	// Without a base_url, Claude Code and Codex send the key to their own
+	// vendor whatever the connection's vendor says: so does the check.
+	if own := map[string]string{config.AdapterClaudeCode: "anthropic", config.AdapterCodex: "openai"}[c.Adapter]; c.BaseURL == "" && own != "" {
+		p, known = cat.Provider(own)
+	}
 	list := p.ListEndpoint
 	base := cmp.Or(c.BaseURL, p.BaseURL)
 	if !known {
