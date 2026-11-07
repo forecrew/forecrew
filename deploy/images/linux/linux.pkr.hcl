@@ -105,7 +105,10 @@ locals {
   container_image     = coalesce(var.container_image, "debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2")
   qemu_binary         = coalesce(var.qemu_binary, var.arch == "amd64" ? "qemu-system-x86_64" : "qemu-system-aarch64")
   machine_type        = var.arch == "amd64" ? "pc" : "virt"
-  qemuargs            = var.arch == "arm64" ? [["-bios", var.uefi_firmware], ["-cpu", "host"]] : []
+  # The VM gets the host's CPU: the default qemu64 model has no SSE4 or AVX, and
+  # the agent CLIs are native binaries (opencode's install script runs its
+  # binary with --version) that need them.
+  qemuargs            = var.arch == "arm64" ? [["-bios", var.uefi_firmware], ["-cpu", "host"]] : [["-cpu", "host"]]
 
   # Cloud-init NoCloud seed for the build VM only; provision-linux.sh locks
   # the account and resets cloud-init before the image is kept.
