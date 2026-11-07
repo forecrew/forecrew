@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -41,6 +42,10 @@ const (
 	maxFact   = 255
 	maxChecks = 64
 	claimSize = 32
+	// maxListed bounds the instances of a reconcile and the have of a poll:
+	// each unknown instance costs a lookup and an audit row, and have is
+	// searched for every requested machine. Far above what a host runs.
+	maxListed = 1000
 )
 
 // Config holds the dependencies of a Server.
@@ -291,6 +296,10 @@ func (s *Server) poll(rw http.ResponseWriter, r *http.Request) {
 	if !workerapi.Decode(rw, r, &req) {
 		return
 	}
+	if len(req.Have) > maxListed {
+		badRequest(rw, fmt.Sprintf("have lists more than %d machines", maxListed))
+		return
+	}
 	if err := s.cfg.Store.CapacityProviders().Seen(ctx, id, nil); err != nil {
 		s.fail(ctx, rw, "record contact", err)
 		return
@@ -386,6 +395,10 @@ func (s *Server) reconcile(rw http.ResponseWriter, r *http.Request) {
 		Instances []fleet.Instance `json:"instances"`
 	}
 	if !workerapi.Decode(rw, r, &req) {
+		return
+	}
+	if len(req.Instances) > maxListed {
+		badRequest(rw, fmt.Sprintf("instances lists more than %d", maxListed))
 		return
 	}
 	for _, i := range req.Instances {
