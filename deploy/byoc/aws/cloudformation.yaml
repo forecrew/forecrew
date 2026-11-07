@@ -260,6 +260,7 @@ Resources:
                   StringEquals:
                     'aws:RequestTag/forecrew:fleet': !Ref FleetName
                     'ec2:MetadataHttpTokens': required
+                    'ec2:Tenancy': default
                   NumericLessThanEquals:
                     'ec2:MetadataHttpPutResponseHopLimit': '1'
                   StringLike:
@@ -273,6 +274,9 @@ Resources:
                 Condition:
                   StringEquals:
                     'aws:RequestTag/forecrew:fleet': !Ref FleetName
+                    'ec2:VolumeType': gp3
+                  NumericLessThanEquals:
+                    'ec2:VolumeSize': '1000'
                   Bool:
                     'ec2:Encrypted': 'true'
               - Sid: RunInstanceNetworkInterface
@@ -330,6 +334,8 @@ Resources:
                 Condition:
                   StringEquals:
                     'ec2:ResourceTag/forecrew:fleet': !Ref FleetName
+                  'Null':
+                    'aws:TagKeys': 'false'
                   'ForAllValues:StringNotEquals':
                     'aws:TagKeys': ['forecrew:fleet', 'forecrew:machine', 'forecrew:price']
               - Sid: TerminateOwnMachines
@@ -456,10 +462,19 @@ Resources:
             Statement:
               - Sid: Copy
                 Effect: Allow
-                Action: ['ec2:CopyImage', 'ec2:CreateTags']
+                Action: 'ec2:CopyImage'
                 Resource:
                   - !Sub 'arn:aws:ec2:${AWS::Region}::image/*'
                   - !Sub 'arn:aws:ec2:${AWS::Region}::snapshot/*'
+              - Sid: TagTheCopyOnly
+                Effect: Allow
+                Action: 'ec2:CreateTags'
+                Resource:
+                  - !Sub 'arn:aws:ec2:${AWS::Region}::image/*'
+                  - !Sub 'arn:aws:ec2:${AWS::Region}::snapshot/*'
+                Condition:
+                  StringEquals:
+                    'ec2:CreateAction': CopyImage
               - Sid: Look
                 Effect: Allow
                 Action: 'ec2:DescribeImages'

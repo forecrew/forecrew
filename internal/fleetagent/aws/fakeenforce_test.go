@@ -52,6 +52,19 @@ func TestFakeEC2EnforcesThePolicy(t *testing.T) {
 	if _, err := e.ec2.DeleteTags(t.Context(), &ec2.DeleteTagsInput{Resources: []string{inst.ExternalID}, Tags: []types.Tag{{Key: awssdk.String(TagFleet)}}}); apiCode(err) != "UnauthorizedOperation" {
 		t.Errorf("hide the fleet tag: %v", err)
 	}
+	// DeleteTags with no tags deletes every user tag, as EC2 does; the role refuses it.
+	if _, err := e.ec2.DeleteTags(t.Context(), &ec2.DeleteTagsInput{Resources: []string{inst.ExternalID}}); apiCode(err) != "UnauthorizedOperation" {
+		t.Errorf("delete every tag: %v", err)
+	}
+	e.ec2.policy = nil
+	if _, err := e.ec2.DeleteTags(t.Context(), &ec2.DeleteTagsInput{Resources: []string{inst.ExternalID}}); err != nil {
+		t.Fatal(err)
+	}
+	if tags := e.ec2.get(inst.ExternalID).Tags; len(tags) != 0 {
+		t.Errorf("EC2 deletes every user tag when none is named, and %v is left", tags)
+	}
+	policy := kitPolicy(t)
+	e.ec2.policy = &policy
 	if err := e.p.Destroy(t.Context(), stranger); err == nil || !strings.Contains(err.Error(), "not a machine") {
 		t.Errorf("Destroy must refuse before asking EC2: %v", err)
 	}

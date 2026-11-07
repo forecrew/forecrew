@@ -9,7 +9,8 @@
       "Condition": {
         "StringEquals": {
           "aws:RequestTag/forecrew:fleet": "${fleet}",
-          "ec2:MetadataHttpTokens": "required"
+          "ec2:MetadataHttpTokens": "required",
+          "ec2:Tenancy": "default"
         },
         "NumericLessThanEquals": {
           "ec2:MetadataHttpPutResponseHopLimit": "1"
@@ -29,7 +30,11 @@
       "Resource": "arn:aws:ec2:${region}:${account}:volume/*",
       "Condition": {
         "StringEquals": {
-          "aws:RequestTag/forecrew:fleet": "${fleet}"
+          "aws:RequestTag/forecrew:fleet": "${fleet}",
+          "ec2:VolumeType": "gp3"
+        },
+        "NumericLessThanEquals": {
+          "ec2:VolumeSize": "1000"
         },
         "Bool": {
           "ec2:Encrypted": "true"
@@ -109,6 +114,9 @@
       "Condition": {
         "StringEquals": {
           "ec2:ResourceTag/forecrew:fleet": "${fleet}"
+        },
+        "Null": {
+          "aws:TagKeys": "false"
         },
         "ForAllValues:StringNotEquals": {
           "aws:TagKeys": [

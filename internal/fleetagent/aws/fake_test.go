@@ -281,6 +281,10 @@ func (f *fakeEC2) DeleteTags(_ context.Context, in *ec2.DeleteTagsInput, _ ...fu
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return &ec2.DeleteTagsOutput{}, f.changeTags("DeleteTags", in.Resources, in.Tags, func(i *types.Instance) {
+		if len(in.Tags) == 0 {
+			i.Tags = slices.DeleteFunc(i.Tags, func(x types.Tag) bool { return !strings.HasPrefix(awssdk.ToString(x.Key), "aws:") })
+			return
+		}
 		for _, t := range in.Tags {
 			i.Tags = slices.DeleteFunc(i.Tags, func(x types.Tag) bool { return awssdk.ToString(x.Key) == awssdk.ToString(t.Key) })
 		}
@@ -299,7 +303,9 @@ func (f *fakeEC2) changeTags(call string, ids []string, tags []types.Tag, apply 
 		for _, t := range tags {
 			keys = append(keys, awssdk.ToString(t.Key))
 		}
-		c["aws:TagKeys"] = keys
+		if len(keys) > 0 { // DeleteTags with no tags deletes every user tag, and carries no key
+			c["aws:TagKeys"] = keys
+		}
 		reqs = append(reqs, request{action: "ec2:" + call, resource: f.arn("instance", id), context: c})
 	}
 	if err := f.authorize(call, reqs...); err != nil {
@@ -443,7 +449,11 @@ func (f *fakeEC2) launchRequests(in *ec2.RunInstancesInput, id string, img types
 	eni := fmt.Sprintf("eni-%017x", f.seq+1)
 	subnetARN := f.arn("subnet", awssdk.ToString(nic.SubnetId))
 
-	instCtx := map[string][]string{"ec2:InstanceType": {string(in.InstanceType)}}
+	tenancy := "default"
+	if in.Placement != nil && in.Placement.Tenancy != "" {
+		tenancy = string(in.Placement.Tenancy)
+	}
+	instCtx := map[string][]string{"ec2:InstanceType": {string(in.InstanceType)}, "ec2:Tenancy": {tenancy}}
 	tagContext("aws:RequestTag/", f.tagsOf(in, types.ResourceTypeInstance), instCtx)
 	if m := in.MetadataOptions; m != nil {
 		instCtx["ec2:MetadataHttpTokens"] = []string{string(m.HttpTokens)}
@@ -457,9 +467,14 @@ func (f *fakeEC2) launchRequests(in *ec2.RunInstancesInput, id string, img types
 	volCtx := map[string][]string{}
 	tagContext("aws:RequestTag/", f.tagsOf(in, types.ResourceTypeVolume), volCtx)
 	for _, b := range in.BlockDeviceMappings {
-		if b.Ebs != nil && awssdk.ToBool(b.Ebs.Encrypted) {
+		if b.Ebs == nil {
+			continue
+		}
+		if awssdk.ToBool(b.Ebs.Encrypted) {
 			volCtx["ec2:Encrypted"] = []string{"true"}
 		}
+		volCtx["ec2:VolumeType"] = []string{string(b.Ebs.VolumeType)}
+		volCtx["ec2:VolumeSize"] = []string{strconv.Itoa(int(awssdk.ToInt32(b.Ebs.VolumeSize)))}
 	}
 	eniCtx := map[string][]string{"ec2:Subnet": {subnetARN}}
 	tagContext("aws:RequestTag/", f.tagsOf(in, types.ResourceTypeNetworkInterface), eniCtx)
