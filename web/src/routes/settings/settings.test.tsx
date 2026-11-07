@@ -643,7 +643,7 @@ describe("sign-in", () => {
 describe("change history", () => {
   test("lists changes with who and when, and opens the details as plain text", async () => {
     asAdmin()
-    const { user } = await renderApp("/settings/history")
+    const { user } = await renderApp("/settings/history?tab=activity")
     const table = await screen.findByRole("table")
     expect(within(table).getByText("Member suspended")).toBeInTheDocument()
     expect(within(table).getAllByText("Gianmaria").length).toBeGreaterThan(0)
@@ -665,7 +665,7 @@ describe("change history", () => {
         return HttpResponse.json(fx.audit)
       }),
     )
-    const { user } = await renderApp("/settings/history")
+    const { user } = await renderApp("/settings/history?tab=activity")
     await screen.findByRole("table")
     await user.selectOptions(screen.getByLabelText("Who"), `user:${fx.members[0]!.user_id}`)
     await user.type(screen.getByLabelText("Action"), "member.removed")
@@ -687,7 +687,7 @@ describe("change history", () => {
   test("says when nothing changed yet", async () => {
     asAdmin()
     server.use(http.get("/api/v1/audit", () => HttpResponse.json(fx.auditEmpty)))
-    await renderApp("/settings/history")
+    await renderApp("/settings/history?tab=activity")
     expect(await screen.findByText(/No changes yet/)).toBeInTheDocument()
   })
 })

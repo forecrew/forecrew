@@ -28,6 +28,7 @@ import { GeneralPage } from "@/routes/settings/general"
 import { HistoryPage } from "@/routes/settings/history"
 import { SettingsLayout } from "@/routes/settings/layout"
 import { PeoplePage } from "@/routes/settings/people"
+import { PoliciesPage } from "@/routes/settings/policies"
 import { SignInPage } from "@/routes/settings/sign-in"
 import { AddMachinesPage } from "@/routes/machines/add"
 import { MachinesPage } from "@/routes/machines"
@@ -57,6 +58,8 @@ interface Search {
   kind?: string
   provider?: string
   goal?: string
+  /** The plan the inbox opens with (a link from an MCP client). */
+  plan?: string
   /** The title a new goal starts with. */
   title?: string
   /** What forecrew login asks the browser to allow. */
@@ -69,7 +72,7 @@ interface Search {
 
 const search = (s: Record<string, unknown>): Search => {
   const out: Search = {}
-  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question", "impact", "category", "tab", "redirect_uri", "state", "code_challenge", "organization", "host", "q", "section", "kind", "provider", "goal", "title"] as const) {
+  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question", "impact", "category", "tab", "redirect_uri", "state", "code_challenge", "organization", "host", "q", "section", "kind", "provider", "goal", "title", "plan"] as const) {
     const v = s[k]
     if (typeof v === "string" && v) out[k] = v
   }
@@ -139,6 +142,7 @@ const routeTree = root.addChildren([
       createRoute({ getParentRoute: () => settings, path: "/", validateSearch: search, component: GeneralPage }),
       createRoute({ getParentRoute: () => settings, path: "/people", validateSearch: search, component: PeoplePage }),
       createRoute({ getParentRoute: () => settings, path: "/sign-in", validateSearch: search, component: SignInPage }),
+      createRoute({ getParentRoute: () => settings, path: "/policies", validateSearch: search, component: PoliciesPage }),
       createRoute({ getParentRoute: () => settings, path: "/history", validateSearch: search, component: HistoryPage }),
     ]),
   ]),
