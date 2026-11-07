@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, test } from "@playwright/test"
 import { mockApi } from "./api"
 
-const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: boolean; gates?: string }[] = [
+const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: boolean; gates?: string; me?: string }[] = [
   { name: "login", path: "/login", ready: "Log in to Forecrew", loggedIn: false },
   { name: "home", path: "/", ready: "Home" },
   { name: "inbox", path: "/inbox", ready: "Inbox" },
@@ -25,13 +25,23 @@ const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: bo
   { name: "job", path: "/jobs/JOB-41", ready: /JOB-41/ },
   { name: "quality", path: "/quality", ready: "Quality" },
   { name: "workers", path: "/workers", ready: "Workers" },
-  { name: "tokens", path: "/tokens", ready: "Tokens" },
   { name: "assumptions", path: "/assumptions", ready: "Assumptions" },
   { name: "knowledge", path: "/knowledge?project=app", ready: "Knowledge" },
   { name: "knowledge proposals", path: "/knowledge?project=app&tab=proposals", ready: "Knowledge" },
   { name: "knowledge notes", path: "/knowledge?project=app&tab=notes", ready: "Knowledge" },
   { name: "knowledge integrations", path: "/knowledge?project=app&tab=integrations", ready: "Knowledge" },
   { name: "trace", path: "/trace/TASK-12", ready: "Why TASK-12?" },
+  { name: "your account", path: "/account", ready: "Your account", me: "me-admin" },
+  { name: "allow the command line", path: "/cli-login?redirect_uri=http%3A%2F%2F127.0.0.1%3A5555%2Fcallback&state=s&code_challenge=c&host=laptop", ready: "Allow the command line", me: "me-admin" },
+  { name: "settings general", path: "/settings", ready: "General", me: "me-admin" },
+  { name: "settings members", path: "/settings/people", ready: "People", me: "me-admin" },
+  { name: "settings teams", path: "/settings/people?tab=teams", ready: "People", me: "me-admin" },
+  { name: "settings roles", path: "/settings/people?tab=roles", ready: "People", me: "me-admin" },
+  { name: "settings service accounts", path: "/settings/people?tab=service-accounts", ready: "People", me: "me-admin" },
+  { name: "settings members for a viewer", path: "/settings/people", ready: "People", me: "me-viewer" },
+  { name: "settings sign-in", path: "/settings/sign-in", ready: "Sign-in", me: "me-admin" },
+  { name: "settings change history", path: "/settings/history", ready: "Change history", me: "me-admin" },
+  { name: "project access", path: "/projects/app", ready: "app", me: "me-admin" },
 ]
 
 const sizes = [
@@ -43,7 +53,7 @@ for (const size of sizes) {
   for (const p of pages) {
     test(`${p.name} has no serious accessibility violations on ${size.name}`, async ({ page }) => {
       await page.setViewportSize({ width: size.width, height: size.height })
-      await mockApi(page, { loggedIn: p.loggedIn ?? true, gates: p.gates })
+      await mockApi(page, { loggedIn: p.loggedIn ?? true, gates: p.gates, me: p.me })
       await page.goto(p.path)
       await expect(page.getByRole("heading", { level: 1, name: p.ready })).toBeVisible()
       // wait for the data of the page

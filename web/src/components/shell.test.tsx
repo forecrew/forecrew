@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
-import { fx, server } from "@/test/server"
+import { errors, fx, server } from "@/test/server"
 import { renderApp } from "@/test/render"
 
 describe("navigation", () => {
@@ -14,12 +14,103 @@ describe("navigation", () => {
     expect(within(nav).getByRole("link", { name: /^Home/ })).not.toHaveAttribute("aria-current")
   })
 
-  test("keeps Tokens at the bottom of the sidebar, with the app name and who is signed in", async () => {
+  test("keeps Settings and the account menu at the bottom of the sidebar, with the app name", async () => {
+    server.use(http.get("/api/v1/me", () => HttpResponse.json(fx.meAdmin)))
     await renderApp("/")
     const aside = (await screen.findByText("Forecrew", { selector: "aside p" })).closest("aside") as HTMLElement
-    expect(within(aside).getByRole("link", { name: "Tokens" })).toHaveAttribute("href", "/tokens")
-    expect(within(aside).getByRole("button", { name: /Log out/ })).toBeInTheDocument()
-    expect(await within(aside).findByText(/Signed in as/)).toBeInTheDocument()
+    expect(await within(aside).findByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings")
+    expect(within(aside).getByRole("button", { name: "Account menu" })).toHaveTextContent("ana")
+    expect(within(aside).queryByRole("link", { name: "Tokens" })).not.toBeInTheDocument()
+  })
+
+  test("a token session shows the token name in the account menu", async () => {
+    await renderApp("/")
+    const aside = (await screen.findByText("Forecrew", { selector: "aside p" })).closest("aside") as HTMLElement
+    expect(await within(aside).findByRole("button", { name: "Account menu" })).toHaveTextContent("laptop")
+  })
+
+  test("the account menu leads to Your account and signs out", async () => {
+    server.use(http.get("/api/v1/me", () => HttpResponse.json(fx.meAdmin)))
+    const { user, router } = await renderApp("/")
+    await user.click(await screen.findByRole("button", { name: "Account menu" }))
+    expect(await screen.findByRole("menuitem", { name: "Sign out everywhere" })).toBeInTheDocument()
+    await user.click(screen.getByRole("menuitem", { name: "Your account" }))
+    await waitFor(() => expect(router.state.location.pathname).toBe("/account"))
+  })
+
+  test("sign out everywhere ends every session and shows the login page", async () => {
+    server.use(http.get("/api/v1/me", () => HttpResponse.json(fx.meAdmin)))
+    let everywhere = false
+    server.use(
+      http.delete("/api/v1/sessions", () => {
+        everywhere = true
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const { user, router } = await renderApp("/")
+    await user.click(await screen.findByRole("button", { name: "Account menu" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Sign out everywhere" }))
+    await waitFor(() => expect(router.state.location.pathname).toBe("/login"))
+    expect(everywhere).toBe(true)
+  })
+
+  test("a Contributor has no Settings link", async () => {
+    server.use(http.get("/api/v1/me", () => HttpResponse.json(fx.meContributor)))
+    await renderApp("/")
+    const aside = (await screen.findByText("Forecrew", { selector: "aside p" })).closest("aside") as HTMLElement
+    await within(aside).findByRole("button", { name: "Account menu" })
+    expect(within(aside).queryByRole("link", { name: "Settings" })).not.toBeInTheDocument()
+  })
+
+  test("with one organization the sidebar names it and has no switcher", async () => {
+    server.use(http.get("/api/v1/me", () => HttpResponse.json(fx.meAdmin)))
+    await renderApp("/")
+    const aside = (await screen.findByText("Forecrew", { selector: "aside p" })).closest("aside") as HTMLElement
+    expect(await within(aside).findByText("acme")).toBeInTheDocument()
+    expect(within(aside).queryByLabelText("Switch organization")).not.toBeInTheDocument()
+  })
+
+  test("with several organizations the switcher moves the session and starts over in the other", async () => {
+    const other = { id: "018f0000-0000-7000-8000-000000000002", name: "Other", slug: "other" }
+    const me = { ...fx.meAdmin, organizations: [...fx.meAdmin.organizations, other] }
+    let current = me
+    const picked: unknown[] = []
+    server.use(
+      http.get("/api/v1/me", () => HttpResponse.json(current)),
+      http.put("/api/v1/session/organization", async ({ request }) => {
+        picked.push(await request.json())
+        current = { ...me, account: { ...me.account, ...other, created_at: me.account.created_at } }
+        return HttpResponse.json(current)
+      }),
+    )
+    const { user, router } = await renderApp("/goals")
+    const aside = (await screen.findByText("Forecrew", { selector: "aside p" })).closest("aside") as HTMLElement
+    const select = await within(aside).findByLabelText("Switch organization")
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["acme", "Other"])
+    await user.selectOptions(select, "other")
+    await waitFor(() => expect(router.state.location.pathname).toBe("/"))
+    expect(picked).toEqual([{ organization: "other" }])
+    await waitFor(() => expect(within(aside).getByLabelText("Switch organization")).toHaveValue("other"))
+  })
+
+  test("a refused switch is shown and the session stays where it is", async () => {
+    const other = { id: "018f0000-0000-7000-8000-000000000002", name: "Other", slug: "other" }
+    server.use(
+      http.get("/api/v1/me", () => HttpResponse.json({ ...fx.meAdmin, organizations: [...fx.meAdmin.organizations, other] })),
+      http.put("/api/v1/session/organization", errors.invalidInput),
+    )
+    const { user, router } = await renderApp("/goals")
+    await user.selectOptions(await screen.findByLabelText("Switch organization"), "other")
+    expect(await screen.findByRole("alert")).toHaveTextContent("feedback is required")
+    expect(router.state.location.pathname).toBe("/goals")
+  })
+
+  test("a session from an organization's own connection has one organization and no switcher", async () => {
+    // /me lists only the organization of that connection.
+    server.use(http.get("/api/v1/me", () => HttpResponse.json({ ...fx.meAdmin, organizations: fx.meAdmin.organizations.slice(0, 1) })))
+    await renderApp("/")
+    await screen.findByRole("button", { name: "Account menu" })
+    expect(screen.queryByLabelText("Switch organization")).not.toBeInTheDocument()
   })
 
   test("the project switcher stays on the page and sets the project filter in the address", async () => {

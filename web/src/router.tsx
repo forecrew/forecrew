@@ -6,6 +6,8 @@ import { ApiError, setUnauthorizedHandler } from "@/api/client"
 import { meOptions } from "@/api/queries"
 import { AppShell } from "@/components/AppShell"
 import { NotFound, RouteError } from "@/components/RouteError"
+import { AccountPage } from "@/routes/account"
+import { CliLoginPage } from "@/routes/cli-login"
 import { CouncilPage, CouncilsPage, NewCouncilPage } from "@/routes/councils"
 import { DecisionsPage } from "@/routes/decisions"
 import { AssumptionsPage } from "@/routes/assumptions"
@@ -20,8 +22,12 @@ import { LoginPage } from "@/routes/login"
 import { QualityPage } from "@/routes/quality"
 import { ProjectPage } from "@/routes/project"
 import { OnboardPage, ProjectsPage } from "@/routes/projects"
-import { TokensPage } from "@/routes/tokens"
 import { TracePage } from "@/routes/trace"
+import { GeneralPage } from "@/routes/settings/general"
+import { HistoryPage } from "@/routes/settings/history"
+import { SettingsLayout } from "@/routes/settings/layout"
+import { PeoplePage } from "@/routes/settings/people"
+import { SignInPage } from "@/routes/settings/sign-in"
 import { WorkersPage } from "@/routes/workers"
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({ component: Outlet })
@@ -47,11 +53,17 @@ interface Search {
   kind?: string
   provider?: string
   goal?: string
+  /** What forecrew login asks the browser to allow. */
+  redirect_uri?: string
+  state?: string
+  code_challenge?: string
+  organization?: string
+  host?: string
 }
 
 const search = (s: Record<string, unknown>): Search => {
   const out: Search = {}
-  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question", "impact", "tab", "q", "section", "kind", "provider", "goal"] as const) {
+  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question", "impact", "tab", "redirect_uri", "state", "code_challenge", "organization", "host", "q", "section", "kind", "provider", "goal"] as const) {
     const v = s[k]
     if (typeof v === "string" && v) out[k] = v
   }
@@ -84,6 +96,8 @@ const app = createRoute({
 const child = <P extends string>(path: P, component: () => React.ReactNode) =>
   createRoute({ getParentRoute: () => app, path, validateSearch: search, component })
 
+const settings = createRoute({ getParentRoute: () => app, path: "/settings", validateSearch: search, component: SettingsLayout })
+
 const routeTree = root.addChildren([
   login,
   app.addChildren([
@@ -105,8 +119,17 @@ const routeTree = root.addChildren([
     child("/jobs/$ref", JobPage),
     child("/quality", QualityPage),
     child("/workers", WorkersPage),
-    child("/tokens", TokensPage),
     child("/trace/$ref", TracePage),
+    // Tokens moved into the account page.
+    createRoute({ getParentRoute: () => app, path: "/tokens", validateSearch: search, beforeLoad: () => { throw redirect({ to: "/account" }) } }),
+    child("/account", AccountPage),
+    child("/cli-login", CliLoginPage),
+    settings.addChildren([
+      createRoute({ getParentRoute: () => settings, path: "/", validateSearch: search, component: GeneralPage }),
+      createRoute({ getParentRoute: () => settings, path: "/people", validateSearch: search, component: PeoplePage }),
+      createRoute({ getParentRoute: () => settings, path: "/sign-in", validateSearch: search, component: SignInPage }),
+      createRoute({ getParentRoute: () => settings, path: "/history", validateSearch: search, component: HistoryPage }),
+    ]),
   ]),
 ])
 

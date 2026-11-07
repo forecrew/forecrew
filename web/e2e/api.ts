@@ -19,13 +19,23 @@ export interface Calls {
  * Answers /api/v1 from the fixtures. The session starts logged out when
  * loggedIn is false and turns on after POST /session. Gate decisions remove
  * the gate from the list; canceling a job turns the job page into the canceled job.
+ * Signing in goes through the fake GitHub connection: its login address signs
+ * the page in and sends it back to the page it came from. `me` names the
+ * fixture of who is signed in (me, me-admin, me-viewer, me-contributor).
  */
-export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: string } = {}): Promise<Calls> {
+export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: string; me?: string } = {}): Promise<Calls> {
   let loggedIn = opts.loggedIn ?? true
   let gates = fixture(opts.gates ?? "gates") as { ref: string }[]
   let canceled = false
   let revoked = false
   const calls: Calls = { log: [] }
+
+  // The fake GitHub: the server's own sign-in routes are outside /api/v1.
+  await page.route("**/auth/*/login*", async (route) => {
+    loggedIn = true
+    const back = new URL(route.request().url()).searchParams.get("redirect") ?? "/"
+    await route.fulfill({ status: 302, headers: { location: back } })
+  })
 
   await page.route("**/api/v1/**", async (route) => {
     const req = route.request()
@@ -43,7 +53,7 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
       loggedIn = false
       return route.fulfill({ status: 204 })
     }
-    if (req.method() === "POST" && path === "/auth/discover") return json(route, fixture("auth-discover"))
+    if (req.method() === "POST" && path === "/auth/discover") return json(route, { ...(fixture("auth-discover") as object), token_login: false })
     if (!loggedIn) return json(route, fixture("error-unauthorized"), 401)
 
     const decision = /^\/gates\/([^/]+)\/(approve|request-changes|reject)$/.exec(path)
@@ -66,8 +76,22 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
       else revoked = true
       return json(route, fixture(self ? "token-revoke-self" : "token-revoke"))
     }
+    const bindings = fixture("role-bindings") as { project?: string }[]
+    if (req.method() === "GET" && path === "/role-bindings" && url.searchParams.get("project")) {
+      return json(route, bindings.filter((b) => b.project === url.searchParams.get("project")))
+    }
     const routes: Record<string, string> = {
-      "GET /me": "me",
+      "GET /me": opts.me ?? "me",
+      "GET /members": "members",
+      "GET /teams": "teams",
+      "GET /roles": "roles",
+      "GET /role-bindings": "role-bindings",
+      "GET /service-accounts": "service-accounts",
+      "GET /invitations": "invitations",
+      "GET /connections": "connections",
+      "GET /audit": "audit",
+      "GET /sessions": "sessions",
+      "GET /identities": "identities",
       "GET /projects": "projects",
       "GET /goals": "goals",
       "GET /jobs": "jobs",
@@ -78,6 +102,10 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
     const known = routes[`${req.method()} ${path}`]
     if (known) return json(route, fixture(known))
     if (req.method() === "GET" && path === "/gates") return json(route, gates)
+    if (req.method() === "GET" && /^\/teams\/[^/]+\/members$/.test(path)) return json(route, fixture("team-members"))
+    if (req.method() === "POST" && path === "/invitations") return json(route, fixture("invitation-create"), 201)
+    if (req.method() === "POST" && path === "/tokens") return json(route, fixture("token-create"), 201)
+    if (req.method() === "PATCH" && path === "/organization") return json(route, fixture("organization"))
     // The council fixtures belong to the project app.
     if (req.method() === "GET" && (path === "/councils" || path === "/decisions")) {
       return json(route, url.searchParams.get("project") === "app" ? fixture(path === "/councils" ? "councils" : "decisions") : [])

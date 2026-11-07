@@ -1,6 +1,6 @@
-import { screen, waitFor, within } from "@testing-library/react"
-import { http } from "msw"
-import { errors, server } from "./server"
+import { screen, waitFor } from "@testing-library/react"
+import { http, HttpResponse } from "msw"
+import { errors, fx, server } from "./server"
 import { renderApp } from "./render"
 
 describe("login and session", () => {
@@ -117,9 +117,10 @@ describe("login and session", () => {
     expect(router.state.location.search).toEqual({ redirect: "/workers" })
   })
 
-  test("log out clears the session and shows the login page", async () => {
+  test("sign out clears the session and shows the login page", async () => {
     let called = false
     server.use(
+      http.get("/api/v1/me", () => HttpResponse.json(fx.meAdmin)),
       http.delete("/api/v1/session", () => {
         called = true
         return new Response(null, { status: 204 })
@@ -127,9 +128,8 @@ describe("login and session", () => {
     )
     const { user, router } = await renderApp("/")
     await screen.findByRole("heading", { name: "Home" })
-    const aside = screen.getByText(/Signed in as/).closest("div")!
-    expect(within(aside).getByText("laptop")).toBeInTheDocument()
-    await user.click(within(aside).getByRole("button", { name: /Log out/ }))
+    await user.click(await screen.findByRole("button", { name: "Account menu" }))
+    await user.click(await screen.findByRole("menuitem", { name: "Sign out" }))
     await waitFor(() => expect(router.state.location.pathname).toBe("/login"))
     expect(called).toBe(true)
   })
