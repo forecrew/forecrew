@@ -226,6 +226,22 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/connections/{connection}/disable", serve(s, http.StatusOK, setConnectionInput(false), t.SetConnectionEnabled))
 	route("GET /api/v1/audit", serve(s, http.StatusOK, listAuditInput, list(t.ListAudit)))
 	route("PATCH /api/v1/organization", serve(s, http.StatusOK, bodyOf[mcp.UpdateOrganizationInput], t.UpdateOrganization))
+	route("GET /api/v1/domains", serve(s, http.StatusOK, noInput, list(noArg(t.ListDomains))))
+	route("POST /api/v1/domains", serve(s, http.StatusCreated, bodyOf[mcp.DomainInput], t.AddDomain))
+	route("POST /api/v1/domains/{domain}/verify", serve(s, http.StatusOK, domainInput, t.VerifyDomain))
+	route("DELETE /api/v1/domains/{domain}", serve(s, http.StatusOK, domainInput, t.DeleteDomain))
+	route("PUT /api/v1/domains/{domain}/enforcement", serve(s, http.StatusOK, enforcementInput, t.SetSSOEnforcement))
+	route("PUT /api/v1/organization/max-token-ttl", serve(s, http.StatusOK, bodyOf[mcp.SetMaxTokenTTLInput], t.SetMaxTokenTTL))
+	route("PUT /api/v1/connections/{connection}/provisioning", serve(s, http.StatusOK, provisioningInput, t.SetConnectionProvisioning))
+	route("GET /api/v1/group-mappings", serve(s, http.StatusOK, noInput, list(noArg(t.ListGroupMappings))))
+	route("POST /api/v1/group-mappings", serve(s, http.StatusCreated, bodyOf[mcp.AddGroupMappingInput], t.AddGroupMapping))
+	route("DELETE /api/v1/group-mappings/{mapping}", serve(s, http.StatusOK, groupMappingInput, t.RemoveGroupMapping))
+	route("GET /api/v1/scim-tokens", serve(s, http.StatusOK, noInput, list(noArg(t.ListSCIMTokens))))
+	route("POST /api/v1/scim-tokens", serve(s, http.StatusCreated, bodyOf[mcp.CreateSCIMTokenInput], t.CreateSCIMToken))
+	route("POST /api/v1/scim-tokens/{token}/revoke", serve(s, http.StatusOK, scimTokenInput, t.RevokeSCIMToken))
+	route("POST /api/v1/roles", serve(s, http.StatusCreated, bodyOf[mcp.CreateRoleInput], t.CreateRole))
+	route("PATCH /api/v1/roles/{role}", serve(s, http.StatusOK, updateRoleInput, t.UpdateRole))
+	route("DELETE /api/v1/roles/{role}", serve(s, http.StatusOK, roleInput, t.DeleteRole))
 
 	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errors.New("no such endpoint"), http.StatusNotFound, "not_found")
@@ -381,6 +397,22 @@ func RouteAccess() map[string]mcp.Access {
 		"POST /api/v1/connections":                           tool[mcp.ToolCreateConnection],
 		"POST /api/v1/connections/{connection}/enable":       tool[mcp.ToolSetConnection],
 		"POST /api/v1/connections/{connection}/disable":      tool[mcp.ToolSetConnection],
+		"GET /api/v1/domains":                                tool[mcp.ToolListDomains],
+		"POST /api/v1/domains":                               tool[mcp.ToolAddDomain],
+		"POST /api/v1/domains/{domain}/verify":               tool[mcp.ToolVerifyDomain],
+		"DELETE /api/v1/domains/{domain}":                    tool[mcp.ToolDeleteDomain],
+		"PUT /api/v1/domains/{domain}/enforcement":           tool[mcp.ToolSetSSOEnforcement],
+		"PUT /api/v1/organization/max-token-ttl":             tool[mcp.ToolSetMaxTokenTTL],
+		"PUT /api/v1/connections/{connection}/provisioning":  tool[mcp.ToolSetProvisioning],
+		"GET /api/v1/group-mappings":                         tool[mcp.ToolListGroupMappings],
+		"POST /api/v1/group-mappings":                        tool[mcp.ToolAddGroupMapping],
+		"DELETE /api/v1/group-mappings/{mapping}":            tool[mcp.ToolRemoveGroupMapping],
+		"GET /api/v1/scim-tokens":                            tool[mcp.ToolListSCIMTokens],
+		"POST /api/v1/scim-tokens":                           tool[mcp.ToolCreateSCIMToken],
+		"POST /api/v1/scim-tokens/{token}/revoke":            tool[mcp.ToolRevokeSCIMToken],
+		"POST /api/v1/roles":                                 tool[mcp.ToolCreateRole],
+		"PATCH /api/v1/roles/{role}":                         tool[mcp.ToolUpdateRole],
+		"DELETE /api/v1/roles/{role}":                        tool[mcp.ToolDeleteRole],
 	}
 }
 
@@ -581,6 +613,40 @@ func setServiceAccountInput(disabled bool) func(*http.Request) (mcp.SetServiceAc
 	return func(r *http.Request) (mcp.SetServiceAccountInput, error) {
 		return mcp.SetServiceAccountInput{ServiceAccount: r.PathValue("service_account"), Disabled: disabled}, nil
 	}
+}
+
+func domainInput(r *http.Request) (mcp.DomainInput, error) {
+	return mcp.DomainInput{Domain: r.PathValue("domain")}, nil
+}
+
+func enforcementInput(r *http.Request) (mcp.SetSSOEnforcementInput, error) {
+	in, err := bodyOf[mcp.SetSSOEnforcementInput](r)
+	in.Domain = r.PathValue("domain")
+	return in, err
+}
+
+func provisioningInput(r *http.Request) (mcp.SetProvisioningInput, error) {
+	in, err := bodyOf[mcp.SetProvisioningInput](r)
+	in.Connection = r.PathValue("connection")
+	return in, err
+}
+
+func groupMappingInput(r *http.Request) (mcp.GroupMappingRefInput, error) {
+	return mcp.GroupMappingRefInput{Mapping: r.PathValue("mapping")}, nil
+}
+
+func scimTokenInput(r *http.Request) (mcp.SCIMTokenRefInput, error) {
+	return mcp.SCIMTokenRefInput{Token: r.PathValue("token")}, nil
+}
+
+func roleInput(r *http.Request) (mcp.RoleRefInput, error) {
+	return mcp.RoleRefInput{Role: r.PathValue("role")}, nil
+}
+
+func updateRoleInput(r *http.Request) (mcp.UpdateRoleInput, error) {
+	in, err := bodyOf[mcp.UpdateRoleInput](r)
+	in.Role = r.PathValue("role")
+	return in, err
 }
 
 func traceInput(r *http.Request) (mcp.GetTraceInput, error) {
