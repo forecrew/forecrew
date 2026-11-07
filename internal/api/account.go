@@ -1,10 +1,11 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 	"uuid"
 
@@ -124,6 +125,13 @@ type CLIToken struct {
 	User    domain.User    `json:"user"`
 }
 
+// randomSuffix is four random hex digits.
+func randomSuffix() string {
+	b := make([]byte, 2)
+	_, _ = rand.Read(b) // never fails
+	return hex.EncodeToString(b)
+}
+
 var nonNameRE = regexp.MustCompile(`[^a-z0-9._-]+`)
 
 // cliTokenName makes a token name of what the CLI sent.
@@ -132,7 +140,7 @@ func cliTokenName(in string) string {
 	if n == "" {
 		n = "cli"
 	}
-	return n[:min(len(n), 56)]
+	return n[:min(len(n), 50)]
 }
 
 // cliToken redeems the code of a CLI login for a personal token. It is
@@ -156,11 +164,12 @@ func (s *Server) cliToken(w http.ResponseWriter, r *http.Request) {
 	by := domain.UserActor(accountID, userID, domain.Credential{})
 	base := cliTokenName(in.Name)
 	var out mcp.CreateTokenOutput
-	// The token gets the highest scope the person's roles allow.
-	for n := 1; n <= 20; n++ {
+	// The token gets the highest scope the person's roles allow. A name that
+	// is taken gets a short random suffix.
+	for n := 1; n <= 8; n++ {
 		name := base
 		if n > 1 {
-			name = base + "-" + strconv.Itoa(n)
+			name = base + "-" + randomSuffix()
 		}
 		for _, scope := range []domain.Scope{domain.ScopeAdmin, domain.ScopeWrite, domain.ScopeRead} {
 			out, err = s.cfg.Tools.CreateToken(r.Context(), by, mcp.CreateTokenInput{Name: name, Scopes: []domain.Scope{scope}})

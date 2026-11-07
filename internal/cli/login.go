@@ -3,6 +3,7 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -133,7 +134,7 @@ func pasted(in io.Reader) <-chan string {
 // login runs the loopback login with PKCE and stores the token.
 func (r *remote) login(cmd *cobra.Command, f loginFlags) error {
 	ctx := cmd.Context()
-	server := strings.TrimRight(cmpOr(f.server, r.url), "/")
+	server := strings.TrimRight(cmp.Or(f.server, r.url), "/")
 	if err := secureServer(server); err != nil {
 		return err
 	}
@@ -186,7 +187,7 @@ func (r *remote) login(cmd *cobra.Command, f loginFlags) error {
 	if err != nil {
 		return err
 	}
-	if err := creds.keep(server, out); err != nil {
+	if err := r.keepLogin(cmd, creds, server, out); err != nil {
 		return fmt.Errorf("keep the login: %w", err)
 	}
 	cmd.Printf("Logged in to %s as %s on %s, with the token %s.\n", server, safeText(out.User.Name), safeText(out.Account.Name), out.Token.Name)
@@ -205,13 +206,6 @@ func waitForCode(ctx context.Context, got, paste <-chan string) (string, error) 
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
-}
-
-func cmpOr(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }
 
 // exchange redeems the code of a login for a token.
@@ -265,13 +259,22 @@ func (r *remote) revokeLogin(cmd *cobra.Command, creds *credStore, st stored, or
 		return nil
 	}
 	token, err := creds.token(st, org)
-	if err != nil {
+	if errors.Is(err, ErrNoSecret) {
 		return nil // nothing to revoke with: the secret is gone already
 	}
+	if err != nil {
+		return fmt.Errorf("read the token from the keychain: %w", err)
+	}
+	return r.revokeToken(cmd.Context(), st.Server, o.TokenID, token)
+}
+
+// revokeToken revokes a token with itself on a server; one the server does
+// not know any more is revoked already.
+func (r *remote) revokeToken(ctx context.Context, server, id, secret string) error {
 	one := *r
-	one.token = token
-	one.url, one.urlSet = st.Server, true
-	err = one.call(cmd.Context(), http.MethodPost, "/tokens/"+url.PathEscape(o.TokenID)+"/revoke", nil, &struct{}{})
+	one.token = secret
+	one.url, one.urlSet = server, true
+	err := one.call(ctx, http.MethodPost, "/tokens/"+url.PathEscape(id)+"/revoke", nil, &struct{}{})
 	var ae *apiError
 	if errors.As(err, &ae) && (ae.Status == http.StatusUnauthorized || ae.Status == http.StatusNotFound) {
 		return nil
@@ -394,19 +397,45 @@ func (r *remote) logout(cmd *cobra.Command, all bool) error {
 	return nil
 }
 
-// keep stores the token of a login and makes its organization the current one.
-func (c *credStore) keep(server string, out api.CLIToken) error {
-	st, err := c.load()
+// keepLogin stores the token of a login and makes its organization the
+// current one. The token it replaces (the same organization on the same
+// server), or every token of another server, is revoked once the new one is
+// kept, so repeated logins do not pile tokens up; a failure only warns.
+func (r *remote) keepLogin(cmd *cobra.Command, creds *credStore, server string, out api.CLIToken) error {
+	st, err := creds.load()
 	if err != nil {
 		return err
 	}
+	type old struct{ server, org, id, secret string }
+	var olds []old
+	collect := func(org string) {
+		o := st.Orgs[org]
+		if secret, err := creds.token(st, org); err == nil {
+			olds = append(olds, old{st.Server, org, o.TokenID, secret})
+		} else if !errors.Is(err, ErrNoSecret) {
+			cmd.PrintErrf("warning: could not read the previous token of %s from the keychain to revoke it: %v\n", org, err)
+		}
+	}
 	if st.Server != server { // another server: the old logins are no use here
 		for org := range st.Orgs {
-			c.drop(&st, org)
+			collect(org)
+			creds.drop(&st, org)
 		}
 		st = stored{Server: server, Orgs: map[string]storedOrg{}}
+	} else if _, ok := st.Orgs[out.Account.Slug]; ok {
+		collect(out.Account.Slug)
 	}
-	c.put(&st, out.Account.Slug, storedOrg{TokenID: out.Token.ID.String(), TokenName: out.Token.Name, User: out.User.Name}, out.Secret)
+	if err := creds.put(&st, out.Account.Slug, storedOrg{TokenID: out.Token.ID.String(), TokenName: out.Token.Name, User: out.User.Name}, out.Secret); err != nil {
+		cmd.PrintErrf("The OS keychain could not be used (%v): the token is kept in %s, which only you can read.\n", err, creds.path)
+	}
 	st.Current = out.Account.Slug
-	return c.save(st)
+	if err := creds.save(st); err != nil {
+		return err
+	}
+	for _, o := range olds {
+		if err := r.revokeToken(cmd.Context(), o.server, o.id, o.secret); err != nil {
+			cmd.PrintErrf("warning: the previous token of %s was not revoked on the server (revoke it with forecrew tokens revoke): %v\n", o.org, err)
+		}
+	}
+	return nil
 }

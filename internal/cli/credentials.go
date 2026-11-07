@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/zalando/go-keyring"
 )
@@ -25,18 +26,52 @@ type Keyring interface {
 // ErrNoSecret means the keychain has no such entry.
 var ErrNoSecret = errors.New("no such secret")
 
+// keychainTimeout bounds a call to the OS keychain: on a machine with a
+// half-working secret service, a call can wait for a prompt nobody sees.
+var keychainTimeout = 5 * time.Second
+
+// errKeychainTimeout means the OS keychain did not answer in time.
+var errKeychainTimeout = errors.New("the OS keychain did not answer")
+
+// within runs fn and gives up on it after keychainTimeout; the call it
+// started may finish later, and its result is dropped.
+func within[T any](fn func() (T, error)) (T, error) {
+	type result struct {
+		v   T
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		v, err := fn()
+		ch <- result{v, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.v, r.err
+	case <-time.After(keychainTimeout):
+		var zero T
+		return zero, errKeychainTimeout
+	}
+}
+
 type osKeyring struct{}
 
 func (osKeyring) Get(service, user string) (string, error) {
-	v, err := keyring.Get(service, user)
+	v, err := within(func() (string, error) { return keyring.Get(service, user) })
 	if errors.Is(err, keyring.ErrNotFound) {
 		return "", ErrNoSecret
 	}
 	return v, err
 }
-func (osKeyring) Set(service, user, secret string) error { return keyring.Set(service, user, secret) }
+
+func (osKeyring) Set(service, user, secret string) error {
+	_, err := within(func() (struct{}, error) { return struct{}{}, keyring.Set(service, user, secret) })
+	return err
+}
+
 func (osKeyring) Delete(service, user string) error {
-	if err := keyring.Delete(service, user); !errors.Is(err, keyring.ErrNotFound) {
+	_, err := within(func() (struct{}, error) { return struct{}{}, keyring.Delete(service, user) })
+	if !errors.Is(err, keyring.ErrNotFound) {
 		return err
 	}
 	return nil
@@ -127,13 +162,21 @@ func (c *credStore) save(s stored) error {
 
 func keychainUser(server, org string) string { return server + "#" + org }
 
-// put keeps the token of org, in the keychain when it works, else in the file.
-func (c *credStore) put(s *stored, org string, o storedOrg, token string) {
+// put keeps the token of org, in the keychain when it works, else in the file;
+// it returns why the keychain was not used.
+func (c *credStore) put(s *stored, org string, o storedOrg, token string) error {
 	o.Token = ""
-	if c.keyring == nil || c.keyring.Set(keychainService, keychainUser(s.Server, org), token) != nil {
+	var err error
+	if c.keyring == nil {
+		err = errors.New("there is no OS keychain")
+	} else {
+		err = c.keyring.Set(keychainService, keychainUser(s.Server, org), token)
+	}
+	if err != nil {
 		o.Token = token
 	}
 	s.Orgs[org] = o
+	return err // not nil: the token is in the file
 }
 
 // token returns the secret of org.

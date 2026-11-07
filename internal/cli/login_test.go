@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -27,6 +28,8 @@ type memKeyring struct {
 	mu     sync.Mutex
 	items  map[string]string
 	broken bool
+	// getErr fails reads only, as a locked keychain does.
+	getErr error
 }
 
 func (k *memKeyring) Get(_, user string) (string, error) {
@@ -34,6 +37,9 @@ func (k *memKeyring) Get(_, user string) (string, error) {
 	defer k.mu.Unlock()
 	if k.broken {
 		return "", errors.New("no keychain")
+	}
+	if k.getErr != nil {
+		return "", k.getErr
 	}
 	v, ok := k.items[user]
 	if !ok {
@@ -91,7 +97,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 		if f.orgAsked != "" {
 			slug = f.orgAsked
 		}
-		_ = json.NewEncoder(w).Encode(api.CLIToken{Secret: "fcm_secret_" + slug, Token: mcp.TokenInfo{ID: domain.NewID(), Name: in.Name},
+		_ = json.NewEncoder(w).Encode(api.CLIToken{Secret: fmt.Sprintf("fcm_secret_%s_%d", slug, f.tokens), Token: mcp.TokenInfo{ID: domain.NewID(), Name: in.Name},
 			Account: domain.Account{Name: strings.ToUpper(slug), Slug: slug}, User: domain.User{Name: "Ana\x1b[2J"}})
 	})
 	mux.HandleFunc("POST /api/v1/tokens/{id}/revoke", func(w http.ResponseWriter, r *http.Request) {
@@ -190,7 +196,7 @@ func TestLoginThroughTheLoopback(t *testing.T) {
 	}
 	// The secret is in the keychain, not in the file, and the file is private.
 	s, info := l.file(t)
-	if l.keyring.items[keychainUser(l.server.URL, "acme")] != "fcm_secret_acme" || s.Orgs["acme"].Token != "" || s.Current != "acme" || s.Server != l.server.URL {
+	if l.keyring.items[keychainUser(l.server.URL, "acme")] != "fcm_secret_acme_1" || s.Orgs["acme"].Token != "" || s.Current != "acme" || s.Server != l.server.URL {
 		t.Errorf("stored = %+v, keychain %v", s, l.keyring.items)
 	}
 	if info.Mode().Perm() != 0o600 {
@@ -213,11 +219,12 @@ func TestLoginThroughTheLoopback(t *testing.T) {
 func TestLoginKeepsTheTokenInAPrivateFileWithoutAKeychain(t *testing.T) {
 	l := newLoginEnv(t)
 	l.keyring.broken = true
-	if out, errOut, code := l.run(t, "login", "--server", l.server.URL); code != 0 {
+	out, errOut, code := l.run(t, "login", "--server", l.server.URL)
+	if code != 0 || !strings.Contains(errOut, "OS keychain could not be used") || !strings.Contains(errOut, "only you can read") {
 		t.Fatalf("code %d, stderr %q, output %s", code, errOut, out)
 	}
 	s, info := l.file(t)
-	if s.Orgs["acme"].Token != "fcm_secret_acme" || info.Mode().Perm() != 0o600 {
+	if s.Orgs["acme"].Token != "fcm_secret_acme_1" || info.Mode().Perm() != 0o600 {
 		t.Errorf("stored = %+v, mode %v", s, info.Mode())
 	}
 	if out, errOut, code := l.run(t, "whoami"); code != 0 || !strings.Contains(out, "Ana") {
@@ -311,7 +318,7 @@ func TestLogoutRevokesTheToken(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "Logged out of acme") {
 		t.Fatalf("logout: code %d, %q, %s", code, errOut, out)
 	}
-	if len(l.server.revoked) != 1 || !strings.HasSuffix(l.server.revoked[0], "Bearer fcm_secret_acme") {
+	if len(l.server.revoked) != 1 || !strings.HasSuffix(l.server.revoked[0], "Bearer fcm_secret_acme_1") {
 		t.Errorf("revoked = %v", l.server.revoked)
 	}
 	s, _ := l.file(t)
@@ -429,4 +436,84 @@ func (s *syncBuffer) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.b.String()
+}
+
+func TestRepeatedLoginsRevokeThePreviousToken(t *testing.T) {
+	l := newLoginEnv(t)
+	for i := 0; i < 3; i++ {
+		if _, errOut, code := l.run(t, "login", "--server", l.server.URL); code != 0 {
+			t.Fatalf("login %d: %d %s", i, code, errOut)
+		}
+	}
+	// Each login replaced the one before: two revocations, each with the token it ends.
+	if len(l.server.revoked) != 2 || !strings.HasSuffix(l.server.revoked[0], "Bearer fcm_secret_acme_1") || !strings.HasSuffix(l.server.revoked[1], "Bearer fcm_secret_acme_2") {
+		t.Errorf("revoked = %v", l.server.revoked)
+	}
+	if got := l.keyring.items[keychainUser(l.server.URL, "acme")]; got != "fcm_secret_acme_3" {
+		t.Errorf("kept %q", got)
+	}
+	// A revocation that fails is a warning: the new login stands.
+	l.server.revokeCode = http.StatusInternalServerError
+	out, errOut, code := l.run(t, "login", "--server", l.server.URL)
+	if code != 0 || !strings.Contains(errOut, "was not revoked on the server") || !strings.Contains(out, "Logged in") {
+		t.Errorf("code %d, stderr %q", code, errOut)
+	}
+	if got := l.keyring.items[keychainUser(l.server.URL, "acme")]; got != "fcm_secret_acme_4" {
+		t.Errorf("kept %q", got)
+	}
+}
+
+func TestLoginToAnotherServerRevokesTheTokensOfTheFirst(t *testing.T) {
+	l := newLoginEnv(t)
+	first := l.server
+	if _, errOut, code := l.run(t, "login", "--server", first.URL); code != 0 {
+		t.Fatalf("login: %d %s", code, errOut)
+	}
+	l.server = newFakeServer(t)
+	l.env.HTTP = http.DefaultClient
+	if _, errOut, code := l.run(t, "login", "--server", l.server.URL); code != 0 {
+		t.Fatalf("second login: %d %s", code, errOut)
+	}
+	if len(first.revoked) != 1 || !strings.HasSuffix(first.revoked[0], "Bearer fcm_secret_acme_1") {
+		t.Errorf("revoked at the first server = %v", first.revoked)
+	}
+	if s, _ := l.file(t); s.Server != l.server.URL || len(s.Orgs) != 1 {
+		t.Errorf("stored = %+v", s)
+	}
+}
+
+func TestLogoutReportsAKeychainThatCannotBeRead(t *testing.T) {
+	l := newLoginEnv(t)
+	if _, errOut, code := l.run(t, "login", "--server", l.server.URL); code != 0 {
+		t.Fatalf("login: %d %s", code, errOut)
+	}
+	// A locked keychain is not "nothing to revoke": the token lives on and the user is told.
+	l.keyring.getErr = errors.New("keychain is locked")
+	_, errOut, code := l.run(t, "logout")
+	if code == 0 || !strings.Contains(errOut, "keychain is locked") || !strings.Contains(errOut, "not revoked on the server") || len(l.server.revoked) != 0 {
+		t.Errorf("code %d, stderr %q, revoked %v", code, errOut, l.server.revoked)
+	}
+	// A secret that is simply gone is nothing to revoke.
+	if _, errOut, code := l.run(t, "login", "--server", l.server.URL); code != 0 {
+		t.Fatalf("login: %d %s", code, errOut)
+	}
+	l.keyring.getErr = nil
+	delete(l.keyring.items, keychainUser(l.server.URL, "acme"))
+	if _, errOut, code := l.run(t, "logout"); code != 0 {
+		t.Errorf("logout with the secret gone: code %d, %q", code, errOut)
+	}
+}
+
+func TestKeychainCallsGiveUp(t *testing.T) {
+	was := keychainTimeout
+	keychainTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { keychainTimeout = was })
+	block := make(chan struct{})
+	t.Cleanup(func() { close(block) })
+	if _, err := within(func() (string, error) { <-block; return "late", nil }); !errors.Is(err, errKeychainTimeout) {
+		t.Errorf("a call that hangs: %v", err)
+	}
+	if v, err := within(func() (string, error) { return "ok", nil }); v != "ok" || err != nil {
+		t.Errorf("a call that answers: %q, %v", v, err)
+	}
 }
