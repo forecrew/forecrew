@@ -260,7 +260,7 @@ func TestBugfixPromptMarksTheReportUntrusted(t *testing.T) {
 		must(t, err)
 		pack, err := contextpack.New(r.st, nil, nil, 0).Build(t.Context(), req, role)
 		must(t, err)
-		for line := range strings.SplitSeq(pack.Prompt, "\n") {
+		for _, line := range strings.Split(pack.Prompt, "\n") {
 			if strings.HasPrefix(line, "#") && (strings.Contains(line, inTitle) || strings.Contains(line, inBody)) {
 				t.Errorf("%s: report text in a heading: %q", req.Role, line)
 			}
