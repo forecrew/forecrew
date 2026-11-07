@@ -363,6 +363,19 @@ func TestCloudFormationIsClosed(t *testing.T) {
 		t.Error("machines accept inbound traffic")
 	}
 	checkEgress(t, egressOf(t, c.value(child(sg, "SecurityGroupEgress")).([]any)))
+
+	// The agent's group opens HTTPS to the same public ranges and no private one.
+	agentSG := child(c.resource("AgentSecurityGroup"), "Properties")
+	var https []netip.Prefix
+	for _, r := range egressOf(t, c.value(child(agentSG, "SecurityGroupEgress")).([]any)) {
+		if r.proto == "tcp" && !strings.HasPrefix(r.cidr, "169.254.169.") {
+			https = append(https, netip.MustParsePrefix(r.cidr))
+		}
+	}
+	checkPartition(t, https)
+	if coveredBy(https, netip.MustParseAddr("10.1.2.3")) || strings.Contains(text, "CidrIp: 0.0.0.0/0") {
+		t.Error("the agent's group reaches private ranges")
+	}
 }
 
 type rule struct{ proto, cidr string }
@@ -661,7 +674,7 @@ func TestOpenTofuChecksTheSameInputs(t *testing.T) {
 	vars := string(kitFile(t, "variables.tf"))
 	for cfnName, tfName := range map[string]string{
 		"ServerUrl": "server_url", "JoinCode": "join_code", "ImageSigningKey": "image_signing_key", "AgentVersion": "agent_version",
-		"InstallRef": "install_ref", "AgentInstanceType": "agent_instance_type", "HostAvailabilityZone": "host_availability_zone",
+		"InstallRef": "install_ref", "FleetName": "fleet_name", "AgentInstanceType": "agent_instance_type", "HostAvailabilityZone": "host_availability_zone",
 	} {
 		want := child(child(c.section("Parameters"), cfnName), "AllowedPattern")
 		if want == nil {
@@ -686,7 +699,11 @@ func TestOpenTofuChecksTheSameInputs(t *testing.T) {
 	if child(child(c.section("Parameters"), "FleetName"), "Default") != nil || child(child(c.section("Parameters"), "InstallRef"), "Default") != nil {
 		t.Error("FleetName and InstallRef have no default")
 	}
-	if !strings.Contains(string(kitFile(t, "main.tf")), `"forecrew-${substr(sha1(`) {
-		t.Error("an empty fleet_name is not given a generated name")
+	// Two kits in one VPC must not share a name: neither template has a default.
+	if regexp.MustCompile(`(?s)variable "fleet_name" \{.*?\n\}`).FindString(vars) != "" && regexp.MustCompile(`(?m)^\s+default\s*=`).MatchString(regexp.MustCompile(`(?s)variable "fleet_name" \{.*?\n\}`).FindString(vars)) {
+		t.Error("fleet_name has a default in OpenTofu")
+	}
+	if strings.Contains(string(kitFile(t, "main.tf")), "sha1(") {
+		t.Error("OpenTofu makes up a fleet name")
 	}
 }

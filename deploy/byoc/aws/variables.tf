@@ -96,10 +96,9 @@ variable "host_availability_zone" {
 
 variable "fleet_name" {
   type        = string
-  default     = ""
-  description = "The value of the forecrew:fleet tag on everything the agent creates. The role allows exactly this, and the agent terminates every instance in the account and region that carries it, so it must be unique there. Empty means forecrew- and a hash of the account, region and VPC."
+  description = "The value of the forecrew:fleet tag on everything the agent creates. The role allows exactly this, and the agent terminates every instance in the account and region that carries it, so it must be unique there, for example forecrew-prod-eu1. There is no default on purpose: two kits in one VPC with the same name would terminate each other's machines."
   validation {
-    condition     = can(regex("^([A-Za-z0-9._-]{1,64})?$", var.fleet_name))
+    condition     = can(regex("^[A-Za-z0-9._-]{1,64}$", var.fleet_name))
     error_message = "fleet_name has 1 to 64 letters, digits and . _ -."
   }
 }
