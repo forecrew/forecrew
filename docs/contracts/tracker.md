@@ -264,3 +264,9 @@ its body links the ticket. A canceled goal does not close an issue that is its
 ticket: the route's `canceled` mapping does, if it has one. `@forecrew approve` and `changes` do nothing on an
 issue that is a ticket, and keep working everywhere else, `github.allowlist`
 included.
+
+## Jira
+
+Kind `jira`, package `internal/tracker/jira`: Jira Cloud and Data Center in
+one adapter, set up from `serverInfo`. Config, tokens, permissions, webhooks
+and private CAs are in [trackers/jira.md](../trackers/jira.md).

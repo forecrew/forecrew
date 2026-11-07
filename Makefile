@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
 
-.PHONY: build test test-integration test-docker test-toolbox-browser test-kvm images-validate lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live
+.PHONY: build test test-integration test-docker test-toolbox-browser test-kvm images-validate lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live smoke-live-jira
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
@@ -95,3 +95,11 @@ FORECREW_SMOKE_REPORT ?= smoke-report.md
 smoke-live:
 	@test -n "$$FORECREW_SMOKE_URL" -a -n "$$FORECREW_SMOKE_TOKEN" -a -n "$$FORECREW_SMOKE_GITHUB_TOKEN" -a -n "$$FORECREW_SMOKE_REPO" || { echo "set FORECREW_SMOKE_URL, FORECREW_SMOKE_TOKEN, FORECREW_SMOKE_GITHUB_TOKEN and FORECREW_SMOKE_REPO; see docs/runbooks/smoke-live.md"; exit 1; }
 	FORECREW_SMOKE_REPORT="$(abspath $(FORECREW_SMOKE_REPORT))" go test -tags smoke -count=1 -timeout 60m -run TestLive -v ./internal/smoke/
+
+# The Jira section of the live smoke test: the tracker contract against a real
+# Jira Data Center and a real Jira Cloud site, each run when its
+# FORECREW_SMOKE_JIRA_DC_* or FORECREW_SMOKE_JIRA_CLOUD_* variables are set.
+# It creates issues: use a sandbox project. See docs/runbooks/smoke-live.md.
+smoke-live-jira:
+	@test -n "$$FORECREW_SMOKE_JIRA_DC_URL$$FORECREW_SMOKE_JIRA_CLOUD_URL" || { echo "set FORECREW_SMOKE_JIRA_DC_* or FORECREW_SMOKE_JIRA_CLOUD_*; see docs/runbooks/smoke-live.md"; exit 1; }
+	go test -tags smoke -count=1 -timeout 10m -run TestLive -v ./internal/tracker/jira/
