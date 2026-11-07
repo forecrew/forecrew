@@ -77,6 +77,19 @@ func (r oauthRepo) DeleteUnusedClients(_ context.Context, t time.Time) (int, err
 	return n, err
 }
 
+func (r oauthRepo) CountUnusedClients(_ context.Context) (int, error) {
+	n := 0
+	err := r.s.do(func(d *storeData, _ time.Time) error {
+		for _, c := range d.identity.oauthClients.rows {
+			if c.LastUsedAt.IsZero() && !slices.ContainsFunc(d.identity.oauthGrants.rows, func(g domain.OAuthGrant) bool { return g.ClientID == c.ID }) {
+				n++
+			}
+		}
+		return nil
+	})
+	return n, err
+}
+
 func (r oauthRepo) CreateGrant(_ context.Context, g *domain.OAuthGrant) error {
 	return r.s.do(func(d *storeData, now time.Time) error {
 		g.ID = newID(g.ID)

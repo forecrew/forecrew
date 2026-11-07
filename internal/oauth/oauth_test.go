@@ -83,9 +83,9 @@ type env struct {
 	now    time.Time
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T, opts ...func(*oauth.Config)) *env {
 	t.Helper()
-	return newEnvOn(t, testkit.NewStore(nil))
+	return newEnvOn(t, testkit.NewStore(nil), opts...)
 }
 
 // addMember stores an active member of the organization.
@@ -97,7 +97,7 @@ func addMember(t *testing.T, st store.Store, account uuid.UUID, name string) dom
 	return u
 }
 
-func newEnvOn(t *testing.T, st store.Store) *env {
+func newEnvOn(t *testing.T, st store.Store, opts ...func(*oauth.Config)) *env {
 	t.Helper()
 	ctx := t.Context()
 	e := &env{st: st, tools: &testkit.ToolService{}, docs: &documents{docs: map[string]string{}}, now: time.Now()}
@@ -115,7 +115,11 @@ func newEnvOn(t *testing.T, st store.Store) *env {
 	e.base = "http://" + l.Addr().String()
 	logger := slog.New(slog.DiscardHandler)
 	signIn := auth.New(auth.Config{Store: st, BaseURL: e.base, Logger: logger})
-	e.server = oauth.New(oauth.Config{Store: st, Auth: signIn, BaseURL: e.base, Logger: logger, Now: func() time.Time { return e.now }, HTTP: &http.Client{Transport: e.docs}})
+	cfg := oauth.Config{Store: st, Auth: signIn, BaseURL: e.base, Logger: logger, Now: func() time.Time { return e.now }, HTTP: &http.Client{Transport: e.docs}}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	e.server = oauth.New(cfg)
 	mux := http.NewServeMux()
 	h := e.server.Handler()
 	for _, p := range oauth.Paths() {
@@ -910,6 +914,28 @@ func TestMetadataDocumentClient(t *testing.T) {
 	must(t, err)
 	if c.Name != "Renamed" || c.RedirectURIs[0] != "https://app.example/new" {
 		t.Errorf("client = %+v", c)
+	}
+}
+
+// TestUnusedClientsAreCapped is registrations nobody authorizes: past the
+// cap there is no room for more, until one is used.
+func TestUnusedClientsAreCapped(t *testing.T) {
+	e := newEnv(t, func(c *oauth.Config) { c.MaxUnusedClients = 2 })
+	first := e.register(t, callback)
+	e.register(t, callback)
+	body := map[string]any{"client_name": "Third", "redirect_uris": []string{callback}}
+	status, out := e.postJSON(t, "/oauth/register", body)
+	wantError(t, status, out, http.StatusServiceUnavailable, "temporarily_unavailable")
+
+	id := "https://app.example/client.json"
+	e.docs.set(id, `{"client_id":"`+id+`","client_name":"Doc","redirect_uris":["`+callback+`"]}`)
+	if res, _ := e.get(t, e.params(id), cookie); res.StatusCode != http.StatusBadRequest {
+		t.Errorf("a metadata document past the cap = %d", res.StatusCode)
+	}
+
+	e.code(t, e.params(first), e.a.Slug) // a consent makes room
+	if status, out := e.postJSON(t, "/oauth/register", body); status != http.StatusCreated {
+		t.Fatalf("after a consent = %d %v", status, out)
 	}
 }
 

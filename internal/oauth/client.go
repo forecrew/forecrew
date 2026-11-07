@@ -164,12 +164,28 @@ func (s *Server) registerClient(w http.ResponseWriter, r *http.Request) {
 		c.SecretHash = mcp.HashToken(secret)
 		out["client_secret"], out["client_secret_expires_at"] = secret, 0
 	}
-	if err := s.cfg.Store.OAuth().CreateClient(r.Context(), &c); err != nil {
+	if err := s.createClient(r.Context(), &c); err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	out["client_id_issued_at"] = c.CreatedAt.Unix()
 	writeJSON(w, http.StatusCreated, out)
+}
+
+// errTooManyClients is a registration past MaxUnusedClients.
+var errTooManyClients = refuse(http.StatusServiceUnavailable, "temporarily_unavailable", "too many apps are registered and not yet used here; try again later")
+
+// createClient stores a new client, unless too many wait for their first use.
+func (s *Server) createClient(ctx context.Context, c *domain.OAuthClient) error {
+	n, err := s.cfg.Store.OAuth().CountUnusedClients(ctx)
+	if err != nil {
+		return err
+	}
+	if n >= s.cfg.MaxUnusedClients {
+		s.cfg.Logger.WarnContext(ctx, "oauth client refused: too many unused clients", "unused", n)
+		return errTooManyClients
+	}
+	return s.cfg.Store.OAuth().CreateClient(ctx, c)
 }
 
 // metadataURL reports whether a client_id has the form of a client ID
@@ -254,7 +270,9 @@ func (s *Server) resolveClient(ctx context.Context, clientID, address string) (d
 	c, err := repo.GetClient(ctx, clientID)
 	if errors.Is(err, store.ErrNotFound) {
 		c = domain.OAuthClient{ClientID: clientID, Name: cleanName(d.ClientName), RedirectURIs: d.RedirectURIs}
-		if err := repo.CreateClient(ctx, &c); !errors.Is(err, store.ErrConflict) {
+		if err := s.createClient(ctx, &c); errors.Is(err, errTooManyClients) {
+			return c, errUnknownClient
+		} else if !errors.Is(err, store.ErrConflict) {
 			return c, err
 		}
 		c, err = repo.GetClient(ctx, clientID) // created meanwhile
