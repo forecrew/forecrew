@@ -40,6 +40,9 @@ type FailurePolicy string
 const (
 	FailRun  FailurePolicy = "fail"     // the run fails
 	Escalate FailurePolicy = "escalate" // open a needs_you gate: approve retries, reject stops the run
+	// Skip is for a loop: a failure inside it opens a needs_you gate, approve
+	// ends the loop as skipped and the run goes on, reject stops the run.
+	Skip FailurePolicy = "skip"
 )
 
 // Playbook is a declarative workflow (packs/playbooks/<name>.yaml).
@@ -259,9 +262,13 @@ func (s Step) checkFields() error {
 	if s.Parallel < 0 {
 		return errors.New("parallel must not be negative")
 	}
-	switch s.OnFailure {
-	case "", FailRun, Escalate:
+	switch {
+	case s.OnFailure == "" || s.OnFailure == FailRun || s.OnFailure == Escalate:
 		return nil
+	case s.OnFailure == Skip && s.Type == StepLoop:
+		return nil
+	case s.Type == StepLoop:
+		return fmt.Errorf("on_failure %q must be fail, escalate or skip", s.OnFailure)
 	}
 	return fmt.Errorf("on_failure %q must be fail or escalate", s.OnFailure)
 }

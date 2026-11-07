@@ -170,6 +170,9 @@ func (x *exec) step(ctx context.Context, s Step, path string, sc *scope) (any, e
 	case StepForeach:
 		return x.foreach(ctx, s, path, sc)
 	case StepLoop:
+		if s.OnFailure == Skip {
+			return x.skippable(ctx, s, path, sc)
+		}
 		return x.loop(ctx, s, path, sc)
 	}
 	feedback := ""
@@ -195,6 +198,32 @@ func (x *exec) step(ctx context.Context, s Step, path string, sc *scope) (any, e
 // escalate opens (or finds) the n-th needs_you gate of a step and returns
 // the feedback of its approval; a rejection ends the run.
 func (x *exec) escalate(ctx context.Context, path string, n int, reason string) (string, error) {
+	return x.ask(ctx, path, n, reason, "Approve to retry, reject to stop the run.")
+}
+
+// skippable runs a loop with on_failure skip: a failure inside it (not a
+// rejected gate or a canceled run) opens a needs_you gate whose approval
+// skips the loop. The loop's output has skipped set accordingly.
+func (x *exec) skippable(ctx context.Context, s Step, path string, sc *scope) (any, error) {
+	v, err := x.loop(ctx, s, path, sc)
+	var end *runEnd
+	switch {
+	case err == nil:
+		out, _ := v.(map[string]any)["output"].(map[string]any)
+		out["skipped"] = false
+		return v, nil
+	case !errors.As(err, &end) || end.status != domain.RunFailed:
+		return nil, err
+	}
+	if _, err := x.ask(ctx, path, 1, end.reason, "Approve to skip it and go on, reject to stop the run."); err != nil {
+		return nil, err
+	}
+	return map[string]any{"output": map[string]any{"iterations": 0, "skipped": true}}, nil
+}
+
+// ask opens (or finds) the n-th needs_you gate of a step; hint says what
+// approving does.
+func (x *exec) ask(ctx context.Context, path string, n int, reason, hint string) (string, error) {
 	project, err := x.e.cfg.Store.Projects().Get(ctx, x.run.AccountID, x.run.ProjectID)
 	if err != nil {
 		return "", err
@@ -202,7 +231,7 @@ func (x *exec) escalate(ctx context.Context, path string, n int, reason string) 
 	gate := Step{Type: StepGate, With: map[string]any{
 		"kind":         string(domain.GateNeedsYou),
 		"title":        fmt.Sprintf("%s needs you at step %s", x.run.Playbook, path),
-		"summary":      reason + "\n\nApprove to retry, reject to stop the run.",
+		"summary":      reason + "\n\n" + hint,
 		"subject_repo": project.Repo,
 	}}
 	v, err := x.leaf(ctx, gate, stepKey{path + ":escalate", n}, &scope{}, "")

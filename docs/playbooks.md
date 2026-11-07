@@ -40,7 +40,7 @@ rejected.
 | `gate` | `with`, `on_failure` | Opens a gate and waits for `gate.resolved`. `with` takes the json keys of `gates.OpenRequest`: `kind`, `title`, `subject_repo` (required), `summary`, `subject_number`, `goal_id`, `spec_id`, `task_id`, `job_id`. |
 | `wait` | `with`, `timeout`, `on_failure` | Waits for a signal. `with.signal` is the kind and the remaining keys build its key with the `domain` helpers: `checks.completed` (`repo`, `sha`), `pr.merged` / `pr.closed` (`repo`, `number`), `job.completed` (`job_id`), `gate.resolved` (`gate_id`), `council.decided` (`council_id`). The first signal stored under the key completes the step, so for a PR either merged or closed does (the output's `signal` says which). On `job.completed` the step follows the job-step rules: it outputs the job's values and fails when the job did not succeed. On `gate.resolved` it outputs the gate's values but does not apply the gate-decision rules below. A wait for `gate.resolved` (like a gate step) finds the gate resolved when the signal was lost; the other waits have no lost-signal fallback. `timeout` (Go duration, e.g. `30m`) fails the step after that long; zero waits forever. |
 | `foreach` | `items`, `parallel`, `steps` | Runs `steps` once per element of the list `items` (a single `${...}`), in order, or with `parallel: <n>` at most n items at a time (see [Parallel foreach](#parallel-foreach)). Inside, `${item}` and `${index}` (from 0) are set. |
-| `loop` | `steps`, `max_iterations`, `until`, `on_failure` | Runs `steps` until `until` holds after a round, at most `max_iterations` rounds. Inside, `${iteration}` (from 1) is set. When the rounds run out, `on_failure` applies. |
+| `loop` | `steps`, `max_iterations`, `until`, `on_failure` | Runs `steps` until `until` holds after a round, at most `max_iterations` rounds. Inside, `${iteration}` (from 1) is set. When the rounds run out, `on_failure` applies (`fail`, `escalate` or `skip`, see [Failures and escalation](#failures-and-escalation)). |
 
 A step waiting for a signal first looks at signals already stored under its
 key, so a signal that arrived before the step started is not missed. Stored
@@ -56,7 +56,7 @@ Step values:
   structured output for `job.completed`, `{decision, feedback}` for
   `gate.resolved`, `{council_id, status, decision_id}` for `council.decided`;
   foreach: a list with one `{<body step id>: value}` per item;
-  loop: `{iterations}`);
+  loop: `{iterations}` (and `skipped` for a loop with `on_failure: skip`));
 - job steps also `steps.<id>.job_id` and `steps.<id>.head_sha`; gate steps
   `steps.<id>.gate_id`; wait steps on `checks.completed`, `pr.merged` or
   `pr.closed` `steps.<id>.signal`. A wait on `job.completed` has the values
@@ -159,6 +159,13 @@ a `needs_you` gate on the project's repo:
   loop that ran out of rounds it is not passed on: the extra round only sees
   the values of the previous round, such as the last gate's feedback);
 - reject cancels the run.
+
+A `loop` also takes `on_failure: skip`, for a part of a playbook that must not
+fail the run (the learn step of `goal-v3`). A failure inside the loop (a failed
+step or the rounds running out) opens a `needs_you` gate: approve ends the loop
+as skipped and the run goes on, reject cancels the run. The loop's output has
+`skipped` (`true` or `false`); the steps inside keep the default `fail`, since
+`escalate` would retry them first.
 
 `foreach` has no `on_failure`; a failing body step decides with its own.
 

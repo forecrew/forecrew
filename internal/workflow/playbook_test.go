@@ -72,6 +72,8 @@ func TestParsePlaybookInvalid(t *testing.T) {
 		{"wait timeout", "steps:\n- {id: w, type: wait, timeout: -1m, with: {signal: job.completed, job_id: x}}", "timeout must not be negative"},
 		{"timeout on job", "steps:\n- {id: a, type: job, timeout: 1m, with: {role: dev}}", "timeout is not allowed on a job step"},
 		{"action name", "steps:\n- {id: a, type: action}", `step "a": invalid playbook: action is required`},
+		{"skip outside a loop", "steps:\n- {id: a, type: action, action: x, on_failure: skip}", `on_failure "skip" must be fail or escalate`},
+		{"loop on_failure value", "steps:\n- {id: l, type: loop, max_iterations: 1, until: steps.a.output, on_failure: retry, steps: [{id: a, type: action, action: x}]}", "must be fail, escalate or skip"},
 		{"on_failure value", "steps:\n- {id: a, type: action, action: x, on_failure: retry}", `on_failure "retry"`},
 		{"foreach items", "steps:\n- {id: f, type: foreach, items: list, steps: [{id: a, type: action, action: x}]}", `step "f": invalid playbook: items "list" must be one`},
 		{"parallel negative", "inputs: [xs]\nsteps:\n- {id: f, type: foreach, parallel: -1, items: '${inputs.xs}', steps: [{id: a, type: action, action: x}]}", "parallel must not be negative"},
