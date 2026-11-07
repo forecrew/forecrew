@@ -7,6 +7,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/models"
 )
 
 func TestModelsCommands(t *testing.T) {
@@ -68,5 +69,14 @@ func TestModelsCommands(t *testing.T) {
 	}
 	if out, _, _ := e.run(t, "models", "suggest"); !strings.Contains(out, "Note: nothing tested") || !strings.Contains(out, "Nothing to change.") {
 		t.Errorf("suggest = %q", out)
+	}
+
+	e.svc.ModelsCatalogFunc = func(context.Context, domain.Actor, mcp.ModelsCatalogInput) (mcp.ModelsCatalog, error) {
+		return mcp.ModelsCatalog{Providers: []models.Provider{{Name: "deepseek", Title: "DeepSeek API", Adapter: "opencode", Country: "CN", KeyEnv: "DEEPSEEK_API_KEY"}},
+			Models: []models.CatalogModel{{ID: "deepseek-chat", Maker: "deepseek", Tier: "strong", Context: 128000, Price: models.Price{Input: 0.28, Output: 0.42}}}}, nil
+	}
+	e.check(t, []string{"models", "catalog"}, "DeepSeek API", mcp.ToolModelsCatalog, mcp.ModelsCatalogInput{})
+	if out, _, _ := e.run(t, "models", "catalog"); !strings.Contains(out, "in CN") || !strings.Contains(out, "$0.28 / $0.42") {
+		t.Errorf("catalog = %q", out)
 	}
 }

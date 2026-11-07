@@ -157,6 +157,7 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/model-connections/{connection}/tests", serve(s, http.StatusOK, modelsTestInput, t.ModelsTest))
 	route("GET /api/v1/model-checks", serve(s, http.StatusOK, modelsResultsInput, list(t.ModelsResults)))
 	route("POST /api/v1/models/suggest", serve(s, http.StatusOK, bodyOf[mcp.ModelsSuggestInput], t.ModelsSuggest))
+	route("GET /api/v1/models/catalog", serve(s, http.StatusOK, modelsCatalogInput, t.ModelsCatalog))
 	route("GET /api/v1/tracker-routes", serve(s, http.StatusOK, trackerFilterInput, list(t.ListTrackerRoutes)))
 	route("POST /api/v1/tracker-routes", serve(s, http.StatusCreated, bodyOf[mcp.CreateTrackerRouteInput], t.CreateTrackerRoute))
 	route("DELETE /api/v1/tracker-routes/{route}", serve(s, http.StatusOK, trackerRouteInput, t.DeleteTrackerRoute))
@@ -330,6 +331,7 @@ func RouteAccess() map[string]mcp.Access {
 		"POST /api/v1/model-connections/{connection}/tests":            tool[mcp.ToolModelsTest],
 		"GET /api/v1/model-checks":                                     tool[mcp.ToolModelsResults],
 		"POST /api/v1/models/suggest":                                  tool[mcp.ToolModelsSuggest],
+		"GET /api/v1/models/catalog":                                   tool[mcp.ToolModelsCatalog],
 		"GET /api/v1/tracker-routes":                                   tool[mcp.ToolListTrackerRoutes],
 		"POST /api/v1/tracker-routes":                                  tool[mcp.ToolCreateTrackerRoute],
 		"DELETE /api/v1/tracker-routes/{route}":                        tool[mcp.ToolDeleteTrackerRoute],
@@ -766,6 +768,10 @@ func modelsTestInput(r *http.Request) (mcp.ModelsTestInput, error) {
 	in, err := bodyOf[mcp.ModelsTestInput](r)
 	in.Connection = r.PathValue("connection")
 	return in, err
+}
+
+func modelsCatalogInput(*http.Request) (mcp.ModelsCatalogInput, error) {
+	return mcp.ModelsCatalogInput{}, nil
 }
 
 func modelsResultsInput(r *http.Request) (mcp.ModelsResultsInput, error) {

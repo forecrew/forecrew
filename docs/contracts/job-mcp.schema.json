@@ -743,6 +743,10 @@
         "waiting": {
           "type": "boolean",
           "description": "Also return the jobs that wait, and why."
+        },
+        "models": {
+          "type": "boolean",
+          "description": "Also return the providers of the model catalog and the last key check and test of each model connection, without what providers said."
         }
       }
     },
@@ -785,6 +789,77 @@
               },
               "reason": {
                 "type": "string"
+              }
+            }
+          }
+        },
+        "models": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "providers",
+            "results"
+          ],
+          "properties": {
+            "providers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "title",
+                  "adapter",
+                  "key_env",
+                  "country"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "adapter": {
+                    "type": "string"
+                  },
+                  "base_url": {
+                    "type": "string"
+                  },
+                  "key_env": {
+                    "type": "string"
+                  },
+                  "country": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "results": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "connection",
+                  "status"
+                ],
+                "properties": {
+                  "connection": {
+                    "type": "string"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "Empty for the key check."
+                  },
+                  "status": {
+                    "type": "string"
+                  },
+                  "level": {
+                    "type": "string",
+                    "description": "What a test found the model can do: code, read or none."
+                  }
+                }
               }
             }
           }

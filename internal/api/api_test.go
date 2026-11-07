@@ -153,6 +153,7 @@ func TestEndpoints(t *testing.T) {
 		{"POST", "/api/v1/model-connections/cloud/tests", `{"model":"m","run":true}`, 200, mcp.ToolModelsTest, mcp.ModelsTestInput{Connection: "cloud", Model: "m", Run: true}},
 		{"GET", "/api/v1/model-checks?connection=cloud", "", 200, mcp.ToolModelsResults, mcp.ModelsResultsInput{Connection: "cloud"}},
 		{"POST", "/api/v1/models/suggest", `{"preset":"low_cost"}`, 200, mcp.ToolModelsSuggest, mcp.ModelsSuggestInput{Preset: "low_cost"}},
+		{"GET", "/api/v1/models/catalog", "", 200, mcp.ToolModelsCatalog, mcp.ModelsCatalogInput{}},
 		{"GET", "/api/v1/tracker-routes?connection=gh", "", 200, mcp.ToolListTrackerRoutes, mcp.TrackerConnectionFilterInput{Connection: "gh"}},
 		{"POST", "/api/v1/tracker-routes", `{"connection":"gh","project":"app","match":{"labels":["x"]},"states":{"done":"closed"}}`, 201, mcp.ToolCreateTrackerRoute,
 			mcp.CreateTrackerRouteInput{Connection: "gh", Project: "app", Match: domain.TrackerMatch{Labels: []string{"x"}}, States: map[domain.TicketState]string{domain.TicketDone: "closed"}}},

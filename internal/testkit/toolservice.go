@@ -102,6 +102,7 @@ type ToolService struct {
 	ModelsCheckFunc               func(context.Context, domain.Actor, mcp.ModelConnectionRefInput) (mcp.ModelCheckView, error)
 	ModelsTestFunc                func(context.Context, domain.Actor, mcp.ModelsTestInput) (mcp.ModelsTestOutput, error)
 	ModelsResultsFunc             func(context.Context, domain.Actor, mcp.ModelsResultsInput) ([]mcp.ModelCheckView, error)
+	ModelsCatalogFunc             func(context.Context, domain.Actor, mcp.ModelsCatalogInput) (mcp.ModelsCatalog, error)
 	ModelsSuggestFunc             func(context.Context, domain.Actor, mcp.ModelsSuggestInput) (mcp.ModelsSuggestion, error)
 
 	ListAssumptionsFunc   func(context.Context, domain.Actor, mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error)
@@ -595,6 +596,11 @@ func (s *ToolService) ModelsCheck(ctx context.Context, by domain.Actor, in mcp.M
 // ModelsTest implements mcp.ToolService.
 func (s *ToolService) ModelsTest(ctx context.Context, by domain.Actor, in mcp.ModelsTestInput) (mcp.ModelsTestOutput, error) {
 	return invoke(ctx, s, mcp.ToolModelsTest, by, in, s.ModelsTestFunc)
+}
+
+// ModelsCatalog implements mcp.ToolService.
+func (s *ToolService) ModelsCatalog(ctx context.Context, by domain.Actor, in mcp.ModelsCatalogInput) (mcp.ModelsCatalog, error) {
+	return invoke(ctx, s, mcp.ToolModelsCatalog, by, in, s.ModelsCatalogFunc)
 }
 
 // ModelsResults implements mcp.ToolService.

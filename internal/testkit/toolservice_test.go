@@ -168,6 +168,7 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.ModelsTest(ctx, by, mcp.ModelsTestInput{}); return err },
 		func() error { _, err := s.ModelsResults(ctx, by, mcp.ModelsResultsInput{}); return err },
 		func() error { _, err := s.ModelsSuggest(ctx, by, mcp.ModelsSuggestInput{}); return err },
+		func() error { _, err := s.ModelsCatalog(ctx, by, mcp.ModelsCatalogInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

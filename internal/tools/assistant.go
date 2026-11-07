@@ -325,6 +325,36 @@ func (s *Service) ConfigRead(ctx context.Context, j domain.Job, in jobmcp.Config
 			out.Waiting = append(out.Waiting, jobmcp.WaitingJob{Job: info.Ref, Role: info.Role, Reason: info.Reason})
 		}
 	}
+	if in.Models {
+		if out.Models, err = s.modelsRead(ctx, by); err != nil {
+			return out, toolError(err)
+		}
+	}
+	return out, nil
+}
+
+// modelsRead is the catalog's providers and the results of the checks and
+// tests, without the model names a provider listed or an agent's error.
+func (s *Service) modelsRead(ctx context.Context, by domain.Actor) (*jobmcp.ModelsRead, error) {
+	cat, err := s.ModelsCatalog(ctx, by, mcp.ModelsCatalogInput{})
+	if err != nil {
+		return nil, err
+	}
+	results, err := s.ModelsResults(ctx, by, mcp.ModelsResultsInput{})
+	if err != nil {
+		return nil, err
+	}
+	out := &jobmcp.ModelsRead{Providers: []jobmcp.ModelProvider{}, Results: []jobmcp.ModelResult{}}
+	for _, p := range cat.Providers {
+		out.Providers = append(out.Providers, jobmcp.ModelProvider{Name: p.Name, Title: p.Title, Adapter: p.Adapter, BaseURL: p.BaseURL, KeyEnv: p.KeyEnv, Country: p.Country})
+	}
+	for _, r := range results {
+		res := jobmcp.ModelResult{Connection: r.Connection, Model: r.Model, Status: string(r.Status)}
+		if r.Test != nil {
+			res.Level = r.Test.Level
+		}
+		out.Results = append(out.Results, res)
+	}
 	return out, nil
 }
 

@@ -15,7 +15,7 @@ import (
 
 func modelsCommand(r *remote) *cobra.Command {
 	cmd := &cobra.Command{Use: "models", Short: "Check model keys, test models and get suggestions"}
-	cmd.AddCommand(modelsCheckCommand(r), modelsTestCommand(r), modelsResultsCommand(r), modelsSuggestCommand(r))
+	cmd.AddCommand(modelsCheckCommand(r), modelsTestCommand(r), modelsResultsCommand(r), modelsSuggestCommand(r), modelsCatalogCommand(r))
 	return cmd
 }
 
@@ -119,6 +119,32 @@ func modelsResultsCommand(r *remote) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&connection, "connection", "", "only this connection")
 	return cmd
+}
+
+func modelsCatalogCommand(r *remote) *cobra.Command {
+	return &cobra.Command{
+		Use:   "catalog",
+		Short: "List the providers and models of the model catalog",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var out mcp.ModelsCatalog
+			if err := r.call(cmd.Context(), http.MethodGet, "/models/catalog", nil, &out); err != nil {
+				return err
+			}
+			rows := [][]string{{"PROVIDER", "TITLE", "AGENT", "WHERE", "KEY"}}
+			for _, p := range out.Providers {
+				rows = append(rows, []string{p.Name, p.Title, p.Adapter, p.Where(), p.KeyEnv})
+			}
+			table(cmd.OutOrStdout(), rows)
+			fmt.Fprintln(cmd.OutOrStdout())
+			rows = [][]string{{"MODEL", "MAKER", "TIER", "CONTEXT", "PRICE IN/OUT"}}
+			for _, m := range out.Models {
+				rows = append(rows, []string{m.ID, m.Maker, m.Tier, fmt.Sprint(m.Context), fmt.Sprintf("$%g / $%g", m.Price.Input, m.Price.Output)})
+			}
+			table(cmd.OutOrStdout(), rows)
+			return nil
+		},
+	}
 }
 
 // abilities lists what a test found, failed abilities in capitals.

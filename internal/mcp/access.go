@@ -133,6 +133,7 @@ func ToolAccess() map[string]Access {
 		ToolModelsCheck:               {Permission: domain.PermModelsManage},
 		ToolModelsTest:                {Permission: domain.PermModelsManage},
 		ToolModelsResults:             {Permission: domain.PermModelsRead},
+		ToolModelsCatalog:             {Permission: domain.PermModelsRead},
 		ToolModelsSuggest:             {Permission: domain.PermConfigApply},
 
 		ToolConfigSchema:       {Permission: domain.PermConfigRead},
