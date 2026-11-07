@@ -1,6 +1,8 @@
 # forecrew-worker on a Forecrew machine that runs systemd (qcow2 images). The
 # provider delivers /run/forecrew/bootstrap.env (cloud-init write_files, a
-# config drive, ...); forecrew-start reads it. When the worker ends, however it
+# config drive, the QEMU guest agent, ...); forecrew-start reads it. The unit
+# starts at boot when the file is already there, and forecrew-worker.path starts
+# it when the file arrives later. When the worker ends, however it
 # ends, the machine powers off: it is thrown away after its jobs.
 [Unit]
 Description=Forecrew worker

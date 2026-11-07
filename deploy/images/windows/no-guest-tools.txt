@@ -1,0 +1,1 @@
+No guest tools: the image has no QEMU guest agent, so a Proxmox location cannot deliver the bootstrap settings to it. Hyper-V does not need them.

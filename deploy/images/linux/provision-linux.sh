@@ -16,7 +16,8 @@ apt-get install -y --no-install-recommends \
 	golang-go xz-utils
 labels="go node python git"
 if [ "$kind" = vm ]; then
-	apt-get install -y --no-install-recommends docker.io cloud-init
+	# qemu-guest-agent: a Proxmox location writes the bootstrap settings through it.
+	apt-get install -y --no-install-recommends docker.io cloud-init qemu-guest-agent
 	systemctl enable docker
 	labels="$labels docker"
 fi
@@ -81,7 +82,11 @@ for l in $labels; do echo "$l"; done >/etc/forecrew/labels
 
 if [ "$kind" = vm ]; then
 	install -m 0644 /tmp/forecrew-guest/forecrew-worker.service /etc/systemd/system/forecrew-worker.service
-	systemctl enable forecrew-worker.service
+	install -m 0644 /tmp/forecrew-guest/forecrew-worker.path /etc/systemd/system/forecrew-worker.path
+	# The guest agent writes into /run/forecrew, and cannot make the directory.
+	echo 'd /run/forecrew 0700 root root -' >/etc/tmpfiles.d/forecrew.conf
+	systemctl enable forecrew-worker.service forecrew-worker.path
+	systemctl enable qemu-guest-agent.service || true # it starts by udev when the machine has the channel
 	# No identity travels with the image: each machine makes its own.
 	cloud-init clean --logs --seed
 	rm -f /etc/ssh/ssh_host_*

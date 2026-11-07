@@ -51,6 +51,23 @@ foreach ($cli in 'claude', 'codex', 'opencode') {
     if ($LASTEXITCODE -ne 0) { throw "$cli does not run" }
 }
 
+# The QEMU guest agent and the virtio drivers, for an image a Proxmox location
+# starts: the provider writes the bootstrap settings into the running machine
+# through the agent. The installer is the one you supplied, and runs only if it
+# has the hash you reviewed. Hyper-V needs none of this (GUEST_TOOLS is 0).
+$tools = Join-Path $root 'guest-tools.exe'
+if ($env:GUEST_TOOLS -eq '1') {
+    if (-not $env:GUEST_TOOLS_SHA256) { throw 'GUEST_TOOLS_SHA256 is not set' }
+    if ((Get-FileHash -Algorithm SHA256 -LiteralPath $tools).Hash -ne $env:GUEST_TOOLS_SHA256.ToUpper()) {
+        throw 'the guest tools installer does not have the reviewed hash'
+    }
+    $install = Start-Process -FilePath $tools -ArgumentList '/install', '/quiet', '/norestart' -Wait -PassThru
+    if ($install.ExitCode -ne 0 -and $install.ExitCode -ne 3010) { throw "the guest tools installer failed with $($install.ExitCode)" }
+    if (-not (Get-Service -Name 'QEMU-GA' -ErrorAction SilentlyContinue)) { throw 'the QEMU guest agent service is not installed' }
+    Set-Service -Name 'QEMU-GA' -StartupType Automatic
+}
+Remove-Item -LiteralPath $tools -Force
+
 # Labels and contents for the manifest.
 Set-Content -LiteralPath (Join-Path $root 'labels') -Value @('git', 'go', 'node', 'python', 'runtime:claude-code', 'runtime:codex', 'runtime:opencode') -Encoding ascii
 $packages.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" } | Set-Content -LiteralPath (Join-Path $root 'packages') -Encoding ascii

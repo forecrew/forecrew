@@ -1,0 +1,15 @@
+# Starts forecrew-worker.service when a provider writes the bootstrap settings
+# into a machine that is already running (Proxmox: the QEMU guest agent writes
+# /run/forecrew/bootstrap.env). PathChanged fires when the writer closes the
+# file, so the service never reads half of it. A file that was there before the
+# machine booted (cloud-init, a config drive) is picked up by the service itself,
+# which is enabled and starts when the file exists.
+[Unit]
+Description=Start the Forecrew worker when its settings arrive
+
+[Path]
+PathChanged=/run/forecrew/bootstrap.env
+Unit=forecrew-worker.service
+
+[Install]
+WantedBy=multi-user.target

@@ -8,7 +8,7 @@ become microVM root filesystems, signing, registering, retention and licensing.
 | Directory | Builds | Host |
 |-----------|--------|------|
 | `linux/` | `qcow2` (QEMU) and the container for a microVM `rootfs` | Linux with KVM and Docker |
-| `windows/` | Windows Server `qcow2` and `vhdx` from your ISO | Linux with KVM; set `license_confirmed=true` |
+| `windows/` | Windows Server `qcow2` and `vhdx` from your ISO | Linux with KVM (source `qemu.windows`) or Windows with Hyper-V (`hyperv-iso.windows`); set `license_confirmed=true` |
 | `macos/` | a Tart VM | Apple silicon Mac |
 
 ```sh
@@ -23,9 +23,12 @@ Windows, with your own ISO:
 
 ```sh
 cd deploy/images/windows && packer init .
-packer build -var version=2026.11.1 -var worker_binary=./forecrew-worker.exe \
+packer build -only=windows.qemu.windows -var version=2026.11.1 -var worker_binary=./forecrew-worker.exe \
   -var iso_path=/isos/server2022.iso -var iso_checksum=sha256:<hex> -var license_confirmed=true \
   -var chocolatey_installer_sha256=<hash of the install.ps1 you reviewed> .
+# on a Windows host with Hyper-V: -only=windows.hyperv-iso.windows (and -var hyperv_switch=...)
+# for a Proxmox location add -var guest_tools_installer=virtio-win-guest-tools.exe -var guest_tools_sha256=<hash you reviewed>
+# or let the fleet agent run all of this on its host: forecrew-fleet-agent build-image (docs/runbooks/add-provider.md)
 forecrew image manifest --name forecrew-windows --version 2026.11.1 --os windows --format qcow2 \
   --file ../out/windows-qcow2/forecrew-windows-2026.11.1-amd64.qcow2 --uri https://images.example.com/forecrew-windows-2026.11.1.qcow2
 forecrew image sign ... --key image.key && forecrew image add ...   # a person checks, signs and registers it

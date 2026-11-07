@@ -1,13 +1,19 @@
 # Forecrew Windows Server image, built on a host you own from an ISO you supply.
 # Forecrew cannot distribute Windows (docs/images.md, Licensing): this template
 # refuses to run until license_confirmed is set, and leaves an UNSIGNED manifest
-# that a person checks, signs and registers. Needs a Linux host with KVM and
-# QEMU, or adapt the source for Hyper-V. See ../README.md.
+# that a person checks, signs and registers. Two sources, picked with -only:
+# qemu.windows on a Linux host with KVM and QEMU (also the host of a Proxmox
+# location), and hyperv-iso.windows on a Windows host with Hyper-V. See
+# ../README.md; the fleet agent's build-image command runs this template.
 packer {
   required_plugins {
     qemu = {
       version = "= 1.1.8"
       source  = "github.com/hashicorp/qemu"
+    }
+    hyperv = {
+      version = "= 1.1.5"
+      source  = "github.com/hashicorp/hyperv"
     }
   }
 }
@@ -24,7 +30,11 @@ variable "iso_path" {
 
 variable "iso_checksum" {
   type        = string
-  description = "Checksum of the ISO, for example sha256:<hex>, from your licence portal."
+  description = "Checksum of the ISO, for example sha256:<hex>, from your licence portal. Required: there is no default, and none is refused."
+  validation {
+    condition     = can(regex("^(sha256|sha512|sha1|md5):[0-9a-fA-F]+$", var.iso_checksum))
+    error_message = "The iso_checksum variable must be <algorithm>:<hex>, for example sha256:<hex>; none is not accepted."
+  }
 }
 
 variable "license_confirmed" {
@@ -77,6 +87,28 @@ variable "output_dir" {
   default = "../out"
 }
 
+variable "hyperv_switch" {
+  type        = string
+  default     = "Default Switch"
+  description = "The virtual switch of the build VM on Hyper-V; it needs a route to the internet, for Chocolatey and npm."
+}
+
+variable "guest_tools_installer" {
+  type        = string
+  default     = ""
+  description = "Path of virtio-win-guest-tools.exe, for an image a Proxmox location starts: it holds the QEMU guest agent the provider delivers the bootstrap settings through, and the virtio drivers. Not needed on Hyper-V. Forecrew does not download it: take it from a source you trust."
+}
+
+variable "guest_tools_sha256" {
+  type        = string
+  default     = ""
+  description = "SHA-256 of that installer; it is installed only if the hash matches."
+  validation {
+    condition     = var.guest_tools_sha256 == "" || can(regex("^[0-9a-fA-F]{64}$", var.guest_tools_sha256))
+    error_message = "The guest_tools_sha256 variable must be 64 hex digits, or empty."
+  }
+}
+
 variable "accelerator" {
   type    = string
   default = "kvm"
@@ -123,9 +155,38 @@ source "qemu" "windows" {
   vm_name          = "forecrew-windows-${var.version}-amd64.qcow2"
 }
 
+# The same machine on Hyper-V: BIOS (generation 1) like the QEMU build, so the
+# answer file and the image are the same. The Autounattend.xml goes on a floppy,
+# which generation 1 has. Not run by Forecrew's CI: no Windows host.
+source "hyperv-iso" "windows" {
+  iso_url          = var.iso_path
+  iso_checksum     = var.iso_checksum
+  generation       = 1
+  switch_name      = var.hyperv_switch
+  cpus             = 2
+  memory           = 4096 # MB, as is disk_size
+  disk_size        = 61440
+  boot_wait        = "2s"
+  boot_command     = ["<space><wait><space><wait><space>"]
+  floppy_content = {
+    "Autounattend.xml" = templatefile("Autounattend.xml.pkrtpl.hcl", {
+      password   = local.admin_password
+      image_name = var.windows_image_name
+    })
+  }
+  communicator     = "winrm"
+  winrm_username   = "Administrator"
+  winrm_password   = local.admin_password
+  winrm_timeout    = "2h"
+  shutdown_timeout = "45m"
+  shutdown_command = "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\ProgramData\\Forecrew\\finish.ps1"
+  output_directory = "${var.output_dir}/windows-hyperv"
+  vm_name          = "forecrew-windows-${var.version}-amd64"
+}
+
 build {
   name    = "windows"
-  sources = ["source.qemu.windows"]
+  sources = ["source.qemu.windows", "source.hyperv-iso.windows"]
 
   provisioner "powershell" {
     inline = ["New-Item -ItemType Directory -Force -Path C:\\ProgramData\\Forecrew\\run, C:\\ProgramData\\Forecrew\\cli | Out-Null"]
@@ -146,9 +207,18 @@ build {
     source      = "sysprep.xml"
     destination = "C:\\ProgramData\\Forecrew\\sysprep.xml"
   }
+  # Always uploaded; without an installer it is a note, and nothing is installed.
+  provisioner "file" {
+    source      = var.guest_tools_installer != "" ? var.guest_tools_installer : "no-guest-tools.txt"
+    destination = "C:\\ProgramData\\Forecrew\\guest-tools.exe"
+  }
   provisioner "powershell" {
-    script           = "provision-windows.ps1"
-    environment_vars = ["CHOCOLATEY_INSTALLER_SHA256=${var.chocolatey_installer_sha256}"]
+    script = "provision-windows.ps1"
+    environment_vars = [
+      "CHOCOLATEY_INSTALLER_SHA256=${var.chocolatey_installer_sha256}",
+      "GUEST_TOOLS=${var.guest_tools_installer != "" ? "1" : "0"}",
+      "GUEST_TOOLS_SHA256=${var.guest_tools_sha256}",
+    ]
   }
   provisioner "file" {
     direction   = "download"
@@ -158,6 +228,7 @@ build {
 
   # Windows Server on Hyper-V wants a vhdx; the qcow2 stays for KVM hosts.
   post-processor "shell-local" {
+    only = ["qemu.windows"]
     inline = [
       "qemu-img convert -O vhdx -o subformat=dynamic ${var.output_dir}/windows-qcow2/forecrew-windows-${var.version}-amd64.qcow2 ${var.output_dir}/windows-qcow2/forecrew-windows-${var.version}-amd64.vhdx",
     ]
