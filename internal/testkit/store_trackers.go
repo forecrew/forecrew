@@ -106,6 +106,24 @@ func (r trackerConnRepo) ListByKind(_ context.Context, kind string) ([]domain.Tr
 	return listRows(r.s, trackerConnsT, 0, func(c domain.TrackerConnection) bool { return c.Kind == kind })
 }
 
+func (r trackerConnRepo) Update(_ context.Context, c *domain.TrackerConnection) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	return r.s.do(func(d *storeData, now time.Time) error {
+		old, err := d.trackers.connections.get(c.AccountID, c.ID)
+		if err != nil {
+			return err
+		}
+		if c.Config == nil {
+			c.Config = map[string]any{}
+		}
+		c.Name, c.Kind, c.CreatedAt, c.UpdatedAt = old.Name, old.Kind, old.CreatedAt, now
+		*old = *c
+		return nil
+	})
+}
+
 func (r trackerConnRepo) Delete(_ context.Context, accountID, id uuid.UUID) error {
 	return r.s.do(func(d *storeData, _ time.Time) error {
 		t := &d.trackers
@@ -154,6 +172,9 @@ func (r routeRepo) Create(_ context.Context, t *domain.TrackerRoute) error {
 			return err
 		}
 		t.ID = newID(t.ID)
+		if t.Position > 0 && d.trackers.routes.exists(func(x domain.TrackerRoute) bool { return x.ConnectionID == t.ConnectionID && x.Position == t.Position }) {
+			return store.ErrConflict
+		}
 		if t.Position == 0 {
 			for _, x := range d.trackers.routes.rows {
 				if x.ConnectionID == t.ConnectionID {
@@ -181,6 +202,38 @@ func (r routeRepo) List(_ context.Context, accountID, connectionID uuid.UUID) ([
 	})
 	slices.SortStableFunc(out, func(a, b domain.TrackerRoute) int { return a.Position - b.Position })
 	return out, err
+}
+
+func (r routeRepo) Update(_ context.Context, t *domain.TrackerRoute) error {
+	if err := t.Validate(); err != nil {
+		return err
+	}
+	return r.s.do(func(d *storeData, now time.Time) error {
+		old, err := d.trackers.routes.get(t.AccountID, t.ID)
+		if err != nil {
+			return err
+		}
+		if err := foreign(&d.projects, t.AccountID, t.ProjectID); err != nil {
+			return err
+		}
+		if t.States == nil {
+			t.States = map[domain.TicketState]string{}
+		}
+		t.ConnectionID, t.Position, t.Warning, t.CreatedAt, t.UpdatedAt = old.ConnectionID, old.Position, old.Warning, old.CreatedAt, now
+		*old = *t
+		return nil
+	})
+}
+
+func (r routeRepo) SetWarning(_ context.Context, accountID, id uuid.UUID, warning string) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		old, err := d.trackers.routes.get(accountID, id)
+		if err != nil {
+			return err
+		}
+		old.Warning, old.UpdatedAt = warning, now
+		return nil
+	})
 }
 
 func (r routeRepo) Delete(_ context.Context, accountID, id uuid.UUID) error {

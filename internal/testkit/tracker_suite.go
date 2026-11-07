@@ -116,6 +116,19 @@ func trackerConnections(ctx context.Context, t *testing.T, st store.Store, conn 
 	if _, err := repo.Get(ctx, uuid.NewV7(), conn.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("Get from another account: %v", err)
 	}
+	changed := got
+	changed.Name, changed.Kind, changed.Config, changed.Triggers = "renamed", "other", map[string]any{"x": "z"}, domain.TrackerTriggers{State: "Ready"}
+	mustT(t, repo.Update(ctx, &changed))
+	if got, err := repo.Get(ctx, conn.AccountID, conn.ID); err != nil || got.Name != conn.Name || got.Kind != "fake" || got.Config["x"] != "z" || got.Triggers.State != "Ready" {
+		t.Errorf("updated connection = %+v, %v", got, err)
+	}
+	changed.Config, changed.Triggers = conn.Config, conn.Triggers
+	mustT(t, repo.Update(ctx, &changed))
+	missing := changed
+	missing.ID = uuid.NewV7()
+	if err := repo.Update(ctx, &missing); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Update of nothing: %v", err)
+	}
 }
 
 func trackerRoutes(ctx context.Context, t *testing.T, st store.Store, conn domain.TrackerConnection, project uuid.UUID) domain.TrackerRoute {
@@ -140,6 +153,23 @@ func trackerRoutes(ctx context.Context, t *testing.T, st store.Store, conn domai
 	}
 	if all, err := repo.List(ctx, conn.AccountID, uuid.Nil()); err != nil || len(all) != 2 {
 		t.Errorf("List of every connection = %+v, %v", all, err)
+	}
+	taken := domain.TrackerRoute{AccountID: conn.AccountID, ConnectionID: conn.ID, ProjectID: project, Position: 2}
+	if err := repo.Create(ctx, &taken); !errors.Is(err, store.ErrConflict) {
+		t.Errorf("a taken position: %v", err)
+	}
+	second.Match, second.Playbook, second.Position = domain.TrackerMatch{Project: "ENG"}, "goal", 9
+	mustT(t, repo.Update(ctx, &second))
+	mustT(t, repo.SetWarning(ctx, conn.AccountID, second.ID, "no transition reaches Done"))
+	if got, err := repo.Get(ctx, conn.AccountID, second.ID); err != nil || got.Match.Project != "ENG" || got.Playbook != "goal" || got.Position != 2 ||
+		got.Warning != "no transition reaches Done" {
+		t.Errorf("updated route = %+v, %v", got, err)
+	}
+	if err := repo.SetWarning(ctx, conn.AccountID, uuid.NewV7(), "x"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("SetWarning of nothing: %v", err)
+	}
+	if err := repo.Update(ctx, &domain.TrackerRoute{AccountID: conn.AccountID, ID: uuid.NewV7(), ProjectID: project}); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("Update of nothing: %v", err)
 	}
 	mustT(t, repo.Delete(ctx, conn.AccountID, second.ID))
 	if err := repo.Delete(ctx, conn.AccountID, second.ID); !errors.Is(err, store.ErrNotFound) {
