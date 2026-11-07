@@ -27,7 +27,7 @@ func TestModelsCommands(t *testing.T) {
 	}
 	// It shows the cost and asks first.
 	out, _, code := e.runIn(t, "no\n", "models", "test", "cloud", "m")
-	if code != 0 || !strings.Contains(out, "about $0.2500") || !strings.Contains(out, "Not run.") {
+	if code != 0 || !strings.Contains(out, "Typical cost: about $0.2500") || !strings.Contains(out, "Worst-case cost: unknown") || !strings.Contains(out, "Not run.") {
 		t.Fatalf("declined: %d %q", code, out)
 	}
 	if last := e.svc.Calls()[len(e.svc.Calls())-1]; last.Input.(mcp.ModelsTestInput).Run {
@@ -41,7 +41,7 @@ func TestModelsCommands(t *testing.T) {
 	e.svc.ModelsTestFunc = func(_ context.Context, _ domain.Actor, in mcp.ModelsTestInput) (mcp.ModelsTestOutput, error) {
 		return mcp.ModelsTestOutput{Connection: in.Connection, Model: in.Model, Estimate: mcp.ModelsEstimate{Basis: "no price"}}, nil
 	}
-	if out, _, _ := e.runIn(t, "no\n", "models", "test", "cloud", "x"); !strings.Contains(out, "Cost: unknown (no price)") {
+	if out, _, _ := e.runIn(t, "no\n", "models", "test", "cloud", "x"); !strings.Contains(out, "Typical cost: unknown (no price)") {
 		t.Errorf("unknown cost: %q", out)
 	}
 

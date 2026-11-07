@@ -151,26 +151,48 @@ func (c *Checker) check(ctx context.Context, tx store.Store, by domain.Actor, na
 
 // Estimate is what a suitability test is expected to cost.
 type Estimate struct {
+	// The typical test: InputTokens and OutputTokens at the model's price.
 	InputTokens  int64 `json:"input_tokens"`
 	OutputTokens int64 `json:"output_tokens"`
 	// CostUSD is nil when the price of the model is unknown.
 	CostUSD *float64 `json:"cost_usd"`
 	Basis   string   `json:"basis"`
+	// The worst case: every turn of the limit with a full context window.
+	WorstInputTokens int64 `json:"worst_input_tokens"`
+	// WorstCostUSD is nil when the price or the context size is unknown.
+	WorstCostUSD *float64 `json:"worst_cost_usd"`
+	WorstBasis   string   `json:"worst_basis"`
 }
 
-// EstimateTest estimates a suitability test of model on connection conn.
+// EstimateTest estimates a suitability test of model on connection conn: a
+// typical figure, and the worst case of TestMaxTurns turns that each send a
+// full context window.
 func (c *Checker) EstimateTest(conn domain.ModelConnection, model string) Estimate {
 	e := Estimate{InputTokens: testInputTokens, OutputTokens: testOutputTokens}
 	price, ok := c.price(conn, model)
+	m, known := c.cat.Model(model)
+	if known {
+		e.WorstInputTokens = int64(TestMaxTurns) * int64(m.Context)
+	}
 	switch {
 	case LocalEndpoint(conn.BaseURL):
 		zero := 0.0
-		e.CostUSD, e.Basis = &zero, "the model runs on your own network"
+		e.CostUSD, e.WorstCostUSD = &zero, &zero
+		e.Basis, e.WorstBasis = "typical: the model runs on your own network", "worst case: the model runs on your own network"
 	case !ok:
-		e.Basis = "the catalog does not know the price of " + model + ": enter it on the connection"
+		e.Basis = "typical: unknown, the catalog does not know the price of " + model + ": enter it on the connection"
+		e.WorstBasis = "worst case: unknown, for the same reason"
 	default:
 		cost := (float64(e.InputTokens)*price.Input + float64(e.OutputTokens)*price.Output) / 1e6
-		e.CostUSD, e.Basis = &cost, fmt.Sprintf("about %d input and %d output tokens at the price of the model catalog", e.InputTokens, e.OutputTokens)
+		e.CostUSD = &cost
+		e.Basis = fmt.Sprintf("typical: about %d input and %d output tokens at the model's price", e.InputTokens, e.OutputTokens)
+		if !known {
+			e.WorstBasis = "worst case: unknown, the catalog does not know the context size of " + model
+			break
+		}
+		worst := (float64(e.WorstInputTokens)*price.Input + float64(int64(TestMaxTurns)*testOutputTokens)*price.Output) / 1e6
+		e.WorstCostUSD = &worst
+		e.WorstBasis = fmt.Sprintf("worst case: %d turns × a full context of %d tokens at the model's price", TestMaxTurns, m.Context)
 	}
 	return e
 }

@@ -74,11 +74,15 @@ func modelsTestCommand(r *remote) *cobra.Command {
 }
 
 func printEstimate(w io.Writer, p mcp.ModelsTestOutput) {
-	cost := "unknown"
-	if p.Estimate.CostUSD != nil {
-		cost = fmt.Sprintf("about $%.4f", *p.Estimate.CostUSD)
+	dollars := func(v *float64) string {
+		if v == nil {
+			return "unknown"
+		}
+		return fmt.Sprintf("about $%.4f", *v)
 	}
-	fmt.Fprintf(w, "Test of %s on %s: at most %d turns and %ds. Cost: %s (%s).\n", p.Model, p.Connection, p.MaxTurns, p.TimeoutSeconds, cost, p.Estimate.Basis)
+	fmt.Fprintf(w, "Test of %s on %s: at most %d turns and %ds.\n", p.Model, p.Connection, p.MaxTurns, p.TimeoutSeconds)
+	fmt.Fprintf(w, "Typical cost: %s (%s).\n", dollars(p.Estimate.CostUSD), p.Estimate.Basis)
+	fmt.Fprintf(w, "Worst-case cost: %s (%s).\n", dollars(p.Estimate.WorstCostUSD), p.Estimate.WorstBasis)
 }
 
 func modelsResultsCommand(r *remote) *cobra.Command {
