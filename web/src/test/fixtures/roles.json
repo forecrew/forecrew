@@ -8,6 +8,8 @@
       "assumption.resolve",
       "audit.read",
       "billing.manage",
+      "config.apply",
+      "config.read",
       "connection.manage",
       "council.start",
       "gate.approve.access_request",
@@ -56,6 +58,8 @@
     "permissions": [
       "assumption.resolve",
       "audit.read",
+      "config.apply",
+      "config.read",
       "connection.manage",
       "council.start",
       "gate.approve.access_request",
@@ -102,6 +106,8 @@
     "scope": "organization",
     "permissions": [
       "billing.manage",
+      "config.apply",
+      "config.read",
       "org.read"
     ],
     "built_in": true,
@@ -115,6 +121,8 @@
     "description": "Reads every project, creates goals and proposes knowledge",
     "scope": "organization",
     "permissions": [
+      "config.apply",
+      "config.read",
       "gate.read",
       "goal.create",
       "goal.read",
@@ -135,6 +143,7 @@
     "description": "Reads every project",
     "scope": "organization",
     "permissions": [
+      "config.read",
       "gate.read",
       "goal.read",
       "job.read",

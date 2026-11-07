@@ -3,8 +3,12 @@ package api_test
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/api"
+	"github.com/forecrew/forecrew/internal/auth"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 )
@@ -36,18 +40,28 @@ func ownedBy(name string, scope domain.RoleScope, role string, onProject bool) f
 	}
 }
 
-// withSessions gives the owner of the token two sessions and an identity.
+// withSessions gives a person two sessions and an identity, and the request
+// the first one: sessions are listed for a browser session, not for a token.
 func withSessions(e *env) {
-	ownedBy("ana", domain.RoleScopeOrganization, domain.RoleOwner, false)(e)
 	ctx := context.Background()
+	u := e.store.AddMember(e.account.ID, domain.User{ID: fid(300), Name: "ana", Email: "ana@acme.test", EmailVerified: true}, "")
 	conn := domain.Connection{ID: fid(90), Kind: domain.ConnectionGitHub, Name: "github", ClientID: "Iv1.abc", ClientSecretRef: "env:GITHUB_SECRET", Enabled: true}
 	orPanic(e.store.Connections().UpsertInstance(ctx, &conn))
+	var first string
 	for i, agent := range []string{"Firefox on Linux", "Safari on iPhone"} {
-		s := domain.Session{ID: fid(310 + i), TokenHash: []byte(agent), UserID: fid(300), AccountID: e.account.ID, ConnectionID: conn.ID,
+		token, err := auth.NewToken(auth.PrefixSession)
+		orPanic(err)
+		if i == 0 {
+			first = token
+		}
+		s := domain.Session{ID: fid(310 + i), TokenHash: mcp.HashToken(token), UserID: u.ID, AccountID: e.account.ID, ConnectionID: conn.ID,
 			UserAgent: agent, IP: "203.0.113.7", IdleExpiresAt: t0.Add(1000 * 24 * 60 * 60e9), ExpiresAt: t0.Add(1000 * 24 * 60 * 60e9)}
 		orPanic(e.store.Sessions().Create(ctx, &s))
 	}
-	orPanic(e.store.Identities().Create(ctx, &domain.Identity{ID: fid(320), UserID: fid(300), ConnectionID: conn.ID, Subject: "583231", Login: "ana", Email: "ana@acme.test"}))
+	orPanic(e.store.Identities().Create(ctx, &domain.Identity{ID: fid(320), UserID: u.ID, ConnectionID: conn.ID, Subject: "583231", Login: "ana", Email: "ana@acme.test"}))
+	base, err := url.Parse(e.server.URL)
+	orPanic(err)
+	e.client.Jar.SetCookies(base, []*http.Cookie{{Name: api.CookieName, Value: first, Path: "/", Secure: true}})
 }
 
 func orgFixtureCases() []fixtureCase {
@@ -214,7 +228,7 @@ func orgFixtureCases() []fixtureCase {
 				return []mcp.AuditInfo{}, nil
 			}
 		}},
-		{"sessions", "GET", "/api/v1/sessions", "", 200, "bearer", withSessions},
-		{"identities", "GET", "/api/v1/identities", "", 200, "bearer", withSessions},
+		{"sessions", "GET", "/api/v1/sessions", "", 200, "", withSessions},
+		{"identities", "GET", "/api/v1/identities", "", 200, "", withSessions},
 	}
 }

@@ -52,7 +52,7 @@ cannot name another at sign-in or switch to one, and only accepts that
 organization's invitations.
 
 `DELETE /api/v1/session` signs out and needs no credential; `DELETE
-/api/v1/sessions` ends every session of the caller. `GET /api/v1/me` shows who
+/api/v1/sessions` ends every session of the caller; it, the session and sign-in lists and `cli/authorize` work for a browser session only, and a token of any scope gets `403`. `GET /api/v1/me` shows who
 the caller is. These answers carry `Cache-Control: no-store`. A cookie request
 that gets `401` also clears the cookie.
 
@@ -162,10 +162,10 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/auth/discover` | | `{"org", "email", "invite"}`, all optional | `200` `{"connections": [{"id", "kind", "name", "login_url"}], "redirect": "optional", "token_login": false}` |
 | `POST /api/v1/session` | | `{"token": "fcm_..."}`; needs `auth.token_login` | `200` `me`, sets the cookie |
 | `DELETE /api/v1/session` | | | `204`, ends the session and clears the cookie |
-| `DELETE /api/v1/sessions` | | | `204`, ends every session of the caller |
-| `GET /api/v1/sessions` | | | `200` the active sessions of the calling person, newest first: `id`, `created_at`, `last_seen_at`, `expires_at`, `user_agent`, `ip`, `organization` (slug), `connection` (name) and `current`. For a person only |
+| `DELETE /api/v1/sessions` | | | `204`, ends every session of the caller (`403` for a token) |
+| `GET /api/v1/sessions` | | | `200` the active sessions of the calling person, newest first: `id`, `created_at`, `last_seen_at`, `expires_at`, `user_agent`, `ip`, `organization` (slug), `connection` (name) and `current`. A browser session only: a token of any scope gets `403` |
 | `DELETE /api/v1/sessions/{session}` | | | `204`, ends one of the person's sessions (clearing the cookie when it is the one used); `404` when it is not theirs or is over |
-| `GET /api/v1/identities` | | | `200` the sign-ins linked to the calling person: `id`, `connection` (name), `kind`, `login`, `email`, `last_used_at`, `created_at` |
+| `GET /api/v1/identities` | | | `200` (browser session only, `403` for a token) the sign-ins linked to the calling person: `id`, `connection` (name), `kind`, `login`, `email`, `last_used_at`, `created_at` |
 | `POST /api/v1/cli/authorize` | | `{"redirect_uri": "http://127.0.0.1:PORT/path", "state", "code_challenge", "organization"}`; a session only; `organization` is a slug, the session's own by default | `200` `{"redirect": "...?code=...&state=...", "code"}`: the browser goes to `redirect`, which the CLI listens on. The address must be a loopback IP with a port; the challenge is PKCE S256. `403` unless the person is an active member |
 | `POST /api/v1/cli/token` | | `{"code", "code_verifier", "name"}`; public: the code and its verifier are the credential | `200` `{"secret", "token", "account", "user"}`: a personal token named after `name` (a number is added when it is taken) with the highest scope the person's roles allow. A code works once, within 5 minutes, and is kept in memory only; `400` for any other code |
 | `PUT /api/v1/session/organization` | | `{"organization": "<slug>"}` | `200` `me`; `403` unless you are an active member |

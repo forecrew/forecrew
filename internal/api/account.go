@@ -23,6 +23,12 @@ func (s *Server) person(w http.ResponseWriter, r *http.Request) (mcp.Caller, boo
 		s.fail(w, r, errors.New("only a person has sessions and sign-ins"), http.StatusBadRequest, "invalid_input")
 		return c, false
 	}
+	// Sessions and sign-ins are for the browser the person is in: a token, of
+	// any scope, cannot list or end them.
+	if c.Actor.Credential.Kind != domain.CredentialSession {
+		s.fail(w, r, errors.New("sessions and sign-ins are managed from a browser session, not with a token"), http.StatusForbidden, "forbidden")
+		return c, false
+	}
 	return c, true
 }
 
