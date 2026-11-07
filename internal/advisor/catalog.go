@@ -30,8 +30,12 @@ type Tool struct {
 // Catalog is the tools the advisor may suggest, by name.
 type Catalog map[string]Tool
 
-// LoadCatalog reads every entry of CatalogDir in fsys and checks it against
-// its schema; an entry is named after its file.
+// modelsFile is the model catalog, which has its own schema
+// (internal/models).
+const modelsFile = "models.yaml"
+
+// LoadCatalog reads every entry of CatalogDir in fsys but the model catalog
+// and checks it against its schema; an entry is named after its file.
 func LoadCatalog(fsys fs.FS) (Catalog, error) {
 	files, err := fs.Glob(fsys, path.Join(CatalogDir, "*.yaml"))
 	if err != nil {
@@ -39,6 +43,9 @@ func LoadCatalog(fsys fs.FS) (Catalog, error) {
 	}
 	out := Catalog{}
 	for _, file := range files {
+		if path.Base(file) == modelsFile {
+			continue
+		}
 		data, err := fs.ReadFile(fsys, file)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", file, err)

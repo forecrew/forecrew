@@ -1,0 +1,138 @@
+# Model providers and models Forecrew knows (docs/contracts/model-catalog.schema.json).
+# It ships with each release and is never fetched at run time. Prices are in
+# US dollars per million tokens and are hints for estimates; a model that is
+# not listed works, with its maker, tier and price entered by hand.
+version: 1
+
+makers:
+  - {name: anthropic, title: Anthropic, prefixes: [claude]}
+  - {name: openai, title: OpenAI, prefixes: [gpt, o1, o3, o4, codex, chatgpt]}
+  - {name: google, title: Google, prefixes: [gemini, gemma]}
+  - {name: deepseek, title: DeepSeek, prefixes: [deepseek]}
+  - {name: moonshot, title: Moonshot AI, prefixes: [kimi, moonshot]}
+  - {name: zai, title: Z.AI, prefixes: [glm]}
+  - {name: alibaba, title: Alibaba Cloud, prefixes: [qwen, qwq]}
+  - {name: meta, title: Meta, prefixes: [llama]}
+  - {name: mistral, title: Mistral AI, prefixes: [mistral, codestral, devstral, magistral]}
+
+providers:
+  - name: anthropic
+    title: Anthropic API
+    adapter: claude-code
+    base_url: https://api.anthropic.com
+    key_env: ANTHROPIC_API_KEY
+    models_endpoint: {path: /v1/models, auth: x-api-key, format: anthropic}
+    homepage: https://docs.anthropic.com
+    country: US
+  - name: openai
+    title: OpenAI API
+    adapter: codex
+    base_url: https://api.openai.com/v1
+    key_env: CODEX_API_KEY
+    models_endpoint: {path: /models, auth: bearer, format: openai}
+    homepage: https://platform.openai.com
+    country: US
+  - name: google
+    title: Gemini API
+    adapter: opencode
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    key_env: GEMINI_API_KEY
+    models_endpoint: {path: /models, auth: bearer, format: openai}
+    homepage: https://ai.google.dev
+    country: US
+  - name: deepseek
+    title: DeepSeek API
+    adapter: opencode
+    base_url: https://api.deepseek.com/v1
+    key_env: DEEPSEEK_API_KEY
+    models_endpoint: {path: /models, auth: bearer, format: openai}
+    homepage: https://api-docs.deepseek.com
+    country: CN
+  - name: moonshot
+    title: Moonshot AI (Kimi) API
+    adapter: opencode
+    base_url: https://api.moonshot.ai/v1
+    key_env: MOONSHOT_API_KEY
+    models_endpoint: {path: /models, auth: bearer, format: openai}
+    homepage: https://platform.moonshot.ai
+    country: CN
+  - name: zai
+    title: Z.AI API
+    adapter: opencode
+    base_url: https://api.z.ai/api/paas/v4
+    key_env: ZAI_API_KEY
+    homepage: https://docs.z.ai
+    country: SG
+  - name: openrouter
+    title: OpenRouter
+    adapter: opencode
+    base_url: https://openrouter.ai/api/v1
+    key_env: OPENROUTER_API_KEY
+    models_endpoint: {path: /models, auth: bearer, format: openai}
+    homepage: https://openrouter.ai
+    country: US
+    router: true
+  - name: bedrock
+    title: Amazon Bedrock
+    adapter: opencode
+    key_env: BEDROCK_API_KEY
+    homepage: https://aws.amazon.com/bedrock
+    country: region
+    router: true
+  - name: azure
+    title: Azure OpenAI
+    adapter: opencode
+    key_env: AZURE_OPENAI_API_KEY
+    models_endpoint: {path: /models, auth: api-key, format: openai}
+    homepage: https://azure.microsoft.com/products/ai-services/openai-service
+    country: region
+    router: true
+  - name: vertex
+    title: Google Vertex AI
+    adapter: opencode
+    key_env: VERTEX_API_KEY
+    homepage: https://cloud.google.com/vertex-ai
+    country: region
+    router: true
+  - name: ollama
+    title: Ollama
+    adapter: opencode
+    base_url: http://localhost:11434/v1
+    key_env: OLLAMA_API_KEY
+    models_endpoint: {path: /models, auth: none, format: openai}
+    homepage: https://ollama.com
+    country: local
+    router: true
+  - name: lmstudio
+    title: LM Studio
+    adapter: opencode
+    base_url: http://localhost:1234/v1
+    key_env: LMSTUDIO_API_KEY
+    models_endpoint: {path: /models, auth: none, format: openai}
+    homepage: https://lmstudio.ai
+    country: local
+    router: true
+
+models:
+  - {id: claude-opus-4-5, maker: anthropic, tier: best, context: 200000, price: {input: 5, output: 25}}
+  - {id: claude-opus-4-1, maker: anthropic, tier: best, context: 200000, price: {input: 15, output: 75}}
+  - {id: claude-sonnet-4-5, maker: anthropic, tier: strong, context: 200000, price: {input: 3, output: 15}}
+  - {id: claude-haiku-4-5, maker: anthropic, tier: fast, context: 200000, price: {input: 1, output: 5}}
+  - {id: gpt-5, maker: openai, tier: best, context: 400000, price: {input: 1.25, output: 10}}
+  - {id: gpt-5-codex, maker: openai, tier: best, context: 400000, price: {input: 1.25, output: 10}}
+  - {id: gpt-5-mini, maker: openai, tier: strong, context: 400000, price: {input: 0.25, output: 2}}
+  - {id: gpt-5-nano, maker: openai, tier: fast, context: 400000, price: {input: 0.05, output: 0.4}}
+  - {id: gpt-oss-120b, maker: openai, tier: strong, context: 131072, price: {input: 0.15, output: 0.6}}
+  - {id: gpt-oss-20b, maker: openai, tier: fast, context: 131072, price: {input: 0.05, output: 0.2}}
+  - {id: gemini-2-5-pro, maker: google, tier: best, context: 1048576, price: {input: 1.25, output: 10}}
+  - {id: gemini-2-5-flash, maker: google, tier: strong, context: 1048576, price: {input: 0.3, output: 2.5}}
+  - {id: gemini-2-5-flash-lite, maker: google, tier: fast, context: 1048576, price: {input: 0.1, output: 0.4}}
+  - {id: deepseek-reasoner, maker: deepseek, tier: best, context: 128000, price: {input: 0.28, output: 0.42}}
+  - {id: deepseek-chat, maker: deepseek, tier: strong, context: 128000, price: {input: 0.28, output: 0.42}}
+  - {id: kimi-k2-thinking, maker: moonshot, tier: best, context: 262144, price: {input: 0.6, output: 2.5}}
+  - {id: kimi-k2-0905-preview, maker: moonshot, tier: strong, context: 262144, price: {input: 0.6, output: 2.5}}
+  - {id: glm-4-6, maker: zai, tier: strong, context: 200000, price: {input: 0.6, output: 2.2}}
+  - {id: glm-4-5-air, maker: zai, tier: fast, context: 131072, price: {input: 0.2, output: 1.1}}
+  - {id: qwen3-coder, maker: alibaba, tier: strong, context: 262144, price: {input: 0.3, output: 1.2}}
+  - {id: llama3-3, maker: meta, tier: fast, context: 131072, price: {input: 0.1, output: 0.3}}
+  - {id: devstral-medium, maker: mistral, tier: strong, context: 131072, price: {input: 0.4, output: 2}}
