@@ -133,6 +133,10 @@ type ModelAuthorization struct {
 	Connection   string    `json:"connection"`
 	Adapter      string    `json:"adapter"`
 	BaseURL      string    `json:"base_url,omitempty"`
+	// Vendor and KeyEnv decide, with the adapter, the base_url and the
+	// model's provider part, where opencode sends the code.
+	Vendor string `json:"vendor"`
+	KeyEnv string `json:"key_env,omitempty"`
 	// AuthorizedBy is who confirmed the plan, as an Actor string.
 	AuthorizedBy string    `json:"authorized_by"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -141,5 +145,24 @@ type ModelAuthorization struct {
 // Covers reports whether a lets connection c receive the code of project.
 func (a ModelAuthorization) Covers(project uuid.UUID, c ModelConnection) bool {
 	return a.AccountID == c.AccountID && (a.ProjectID == uuid.Nil() || a.ProjectID == project) &&
-		a.ConnectionID == c.ID && a.Adapter == c.Adapter && a.BaseURL == c.BaseURL
+		a.ConnectionID == c.ID && a.SameEndpoint(c)
+}
+
+// SameEndpoint reports whether c still sends code where it did when a was
+// given: same adapter, base_url, vendor and key variable.
+func (a ModelAuthorization) SameEndpoint(c ModelConnection) bool {
+	return a.Adapter == c.Adapter && a.BaseURL == c.BaseURL && a.Vendor == c.Vendor && a.KeyEnv == c.KeyEnv
+}
+
+// AuthorizationOf is the authorization of connection c for project (zero for
+// every project), confirmed by by: it holds where c sends code now.
+func AuthorizationOf(c ModelConnection, project uuid.UUID, by string) ModelAuthorization {
+	return ModelAuthorization{AccountID: c.AccountID, ProjectID: project, ConnectionID: c.ID, Connection: c.Name,
+		Adapter: c.Adapter, BaseURL: c.BaseURL, Vendor: c.Vendor, KeyEnv: c.KeyEnv, AuthorizedBy: by}
+}
+
+// MovedEndpoint reports whether a connection going from old to c sends code
+// elsewhere: its authorizations end and its tests no longer count.
+func MovedEndpoint(old, c ModelConnection) bool {
+	return !AuthorizationOf(old, uuid.Nil(), "").SameEndpoint(c)
 }

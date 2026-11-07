@@ -317,10 +317,10 @@ func (r modelAssignmentRepo) Delete(ctx context.Context, accountID, projectID uu
 
 type modelAuthorizationRepo struct{ db dbtx }
 
-const modelAuthorizationCols = `id, account_id, COALESCE(project_id, ` + zeroUUID + `), connection_id, connection, adapter, base_url, authorized_by, created_at`
+const modelAuthorizationCols = `id, account_id, COALESCE(project_id, ` + zeroUUID + `), connection_id, connection, adapter, base_url, vendor, key_env, authorized_by, created_at`
 
 func scanModelAuthorization(row pgx.Row) (a domain.ModelAuthorization, err error) {
-	err = row.Scan(&a.ID, &a.AccountID, &a.ProjectID, &a.ConnectionID, &a.Connection, &a.Adapter, &a.BaseURL, &a.AuthorizedBy, &a.CreatedAt)
+	err = row.Scan(&a.ID, &a.AccountID, &a.ProjectID, &a.ConnectionID, &a.Connection, &a.Adapter, &a.BaseURL, &a.Vendor, &a.KeyEnv, &a.AuthorizedBy, &a.CreatedAt)
 	utc(&a.CreatedAt)
 	return a, err
 }
@@ -335,12 +335,12 @@ func (r modelAuthorizationRepo) Put(ctx context.Context, a *domain.ModelAuthoriz
 	if err := owned(ctx, r.db, a.AccountID, ref{"projects", a.ProjectID}, ref{"model_connections", a.ConnectionID}); err != nil {
 		return err
 	}
-	return mapErr(r.db.QueryRow(ctx, `INSERT INTO model_authorizations (id, account_id, project_id, connection_id, connection, adapter, base_url, authorized_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO model_authorizations (id, account_id, project_id, connection_id, connection, adapter, base_url, vendor, key_env, authorized_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (account_id, connection_id, project_id) DO UPDATE SET connection = EXCLUDED.connection, adapter = EXCLUDED.adapter, base_url = EXCLUDED.base_url,
-			authorized_by = EXCLUDED.authorized_by, created_at = now()
+			vendor = EXCLUDED.vendor, key_env = EXCLUDED.key_env, authorized_by = EXCLUDED.authorized_by, created_at = now()
 		RETURNING id, created_at`,
-		a.ID, a.AccountID, opt(a.ProjectID), a.ConnectionID, a.Connection, a.Adapter, a.BaseURL, a.AuthorizedBy).Scan(&a.ID, &a.CreatedAt))
+		a.ID, a.AccountID, opt(a.ProjectID), a.ConnectionID, a.Connection, a.Adapter, a.BaseURL, a.Vendor, a.KeyEnv, a.AuthorizedBy).Scan(&a.ID, &a.CreatedAt))
 }
 
 func (r modelAuthorizationRepo) Delete(ctx context.Context, accountID, connectionID, projectID uuid.UUID) error {

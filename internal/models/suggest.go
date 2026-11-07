@@ -60,7 +60,7 @@ type Suggestion struct {
 func Candidates(cat *Catalog, conns []domain.ModelConnection, checks []domain.ModelCheck) (out []Candidate, notes []string) {
 	keyOK := map[string]bool{}
 	for _, c := range checks {
-		if c.Model == "" && (c.Status == domain.ModelCheckReachable || c.Status == domain.ModelCheckUnsupported) {
+		if c.Model == "" && !c.Stale && (c.Status == domain.ModelCheckReachable || c.Status == domain.ModelCheckUnsupported) {
 			keyOK[c.ConnectionID.String()] = true
 		}
 	}

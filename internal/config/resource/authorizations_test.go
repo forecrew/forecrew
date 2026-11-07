@@ -1,6 +1,7 @@
 package resource_test
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -119,4 +120,55 @@ func TestAuthorizationNames(t *testing.T) {
 	w.refused(w.owner, "not one of the organization's", wanted(t, "model_authorization", "nothing@app", map[string]any{}))
 	w.refused(w.owner, "does not exist", wanted(t, "model_authorization", "cloud@nowhere", map[string]any{}))
 	w.refused(w.owner, "unknown field", wanted(t, "model_authorization", "cloud@app", map[string]any{"who": "me"}))
+}
+
+// TestAnotherVendorOrKeyVariableEndsTheAuthorization: for opencode, the
+// vendor, key variable and the model's provider part decide where code goes,
+// so changing either is a move like a new base_url, and the connection's tests
+// go stale.
+func TestAnotherVendorOrKeyVariableEndsTheAuthorization(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	check(t, w.vault.Put(ctx, w.owner, w.account.ID, "models/oc", []byte("k")))
+	oc := map[string]any{"vendor": "deepseek", "adapter": "opencode", "key_env": "DEEPSEEK_API_KEY", "secret_ref": "store:models/oc"}
+	w.apply(w.owner, w.plan(w.owner, wanted(t, "model_connection", "oc", oc)))
+	for name, change := range map[string]func(map[string]any){
+		"vendor":  func(s map[string]any) { s["vendor"] = "moonshot" },
+		"key_env": func(s map[string]any) { s["key_env"] = "MOONSHOT_API_KEY" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			w.apply(w.owner, w.plan(w.owner, wanted(t, "model_authorization", "oc@app", map[string]any{})))
+			w.tested("oc", "deepseek/deepseek-chat", domain.LevelCode)
+			w.tested("oc", "", "")
+			rows, _ := w.st.ModelConnections().List(ctx, w.account.ID)
+			if len(w.authorizations()) != 1 || !w.authorizations()[0].Covers(w.project.ID, rows[0]) {
+				t.Fatalf("authorized = %+v", w.authorizations())
+			}
+			next := map[string]any{}
+			maps.Copy(next, oc)
+			change(next)
+			p := w.plan(w.owner, wanted(t, "model_connection", "oc", next))
+			if !strings.Contains(p.Affects, "authorizations for private code end") || !strings.Contains(p.Affects, "stale") {
+				t.Errorf("affects = %q", p.Affects)
+			}
+			w.apply(w.owner, p)
+			if rows := w.authorizations(); len(rows) != 0 {
+				t.Fatalf("after the change: %+v", rows)
+			}
+			checks, _ := w.st.ModelChecks().List(ctx, w.account.ID)
+			if len(checks) != 2 || !checks[0].Stale || !checks[1].Stale {
+				t.Fatalf("checks = %+v", checks)
+			}
+			oc = next
+		})
+	}
+	// The models a person enters are no move.
+	info := map[string]any{}
+	maps.Copy(info, oc)
+	info["models"] = map[string]any{"x": map[string]any{"tier": "fast"}}
+	w.apply(w.owner, w.plan(w.owner, wanted(t, "model_authorization", "oc@app", map[string]any{})))
+	w.apply(w.owner, w.plan(w.owner, wanted(t, "model_connection", "oc", info)))
+	if len(w.authorizations()) != 1 {
+		t.Fatalf("models moved the connection: %+v", w.authorizations())
+	}
 }

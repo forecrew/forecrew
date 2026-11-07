@@ -52,9 +52,9 @@ func slicesHas(kinds []JobKind, k JobKind) bool {
 }
 
 func TestAuthorizationCovers(t *testing.T) {
-	c := ModelConnection{ID: NewID(), AccountID: NewID(), Adapter: "claude-code", BaseURL: "https://x"}
+	c := ModelConnection{ID: NewID(), AccountID: NewID(), Adapter: "opencode", Vendor: "deepseek", KeyEnv: "DEEPSEEK_API_KEY", BaseURL: "https://x"}
 	p := NewID()
-	a := ModelAuthorization{AccountID: c.AccountID, ProjectID: p, ConnectionID: c.ID, Adapter: c.Adapter, BaseURL: c.BaseURL}
+	a := AuthorizationOf(c, p, "user:ana")
 	all := a
 	all.ProjectID = uuid.Nil()
 	moved := c
@@ -66,5 +66,21 @@ func TestAuthorizationCovers(t *testing.T) {
 		t.Fatal("projects")
 	case a.Covers(p, moved), a.Covers(p, other):
 		t.Fatal("another endpoint or organization")
+	}
+	for name, change := range map[string]func(*ModelConnection){
+		"vendor":  func(x *ModelConnection) { x.Vendor = "moonshot" },
+		"key_env": func(x *ModelConnection) { x.KeyEnv = "MOONSHOT_API_KEY" },
+		"adapter": func(x *ModelConnection) { x.Adapter = "codex" },
+	} {
+		x := c
+		change(&x)
+		if a.Covers(p, x) || !MovedEndpoint(c, x) {
+			t.Errorf("%s: still covered", name)
+		}
+	}
+	x := c
+	x.Models, x.Enabled = map[string]ModelInfo{"m": {}}, true
+	if MovedEndpoint(c, x) {
+		t.Error("models and enabled moved the endpoint")
 	}
 }

@@ -1475,7 +1475,9 @@ CREATE TABLE model_authorizations (
   connection_id uuid NOT NULL REFERENCES model_connections(id) ON DELETE CASCADE,
   connection    text NOT NULL,
   adapter       text NOT NULL,           -- as authorized: another endpoint
-  base_url      text NOT NULL DEFAULT '', -- needs a new authorization
+  base_url      text NOT NULL DEFAULT '', -- needs a new authorization,
+  vendor        text NOT NULL,            -- as do another vendor
+  key_env       text NOT NULL DEFAULT '', -- and another key variable
   authorized_by text NOT NULL,           -- domain.Actor.String()
   created_at    timestamptz NOT NULL DEFAULT now(),
   UNIQUE NULLS NOT DISTINCT (account_id, connection_id, project_id)

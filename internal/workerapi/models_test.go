@@ -65,7 +65,7 @@ func (m *modelsEnv) connect(t *testing.T, account uuid.UUID, ref, key string) {
 // authorize lets c receive the private code of project, or of every project.
 func (m *modelsEnv) authorize(t *testing.T, c domain.ModelConnection, project uuid.UUID) {
 	t.Helper()
-	a := domain.ModelAuthorization{AccountID: c.AccountID, ProjectID: project, ConnectionID: c.ID, Connection: c.Name, Adapter: c.Adapter, BaseURL: c.BaseURL, AuthorizedBy: "user:ana"}
+	a := domain.AuthorizationOf(c, project, "user:ana")
 	if err := m.st.ModelAuthorizations().Put(t.Context(), &a); err != nil {
 		t.Fatal(err)
 	}

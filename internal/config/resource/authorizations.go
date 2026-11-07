@@ -24,7 +24,7 @@ type modelAuthorizationSpec struct{}
 func modelAuthorizationArea() Area {
 	a := base[modelAuthorizationSpec](KindModelAuthorization, "Private code for", ScopeProject, domain.PermModelsRead)
 	a.Setting = domain.ModelAuthorization{}
-	a.Hidden = []string{"id", "account_id", "project_id", "connection_id", "connection", "adapter", "base_url", "authorized_by", "created_at"}
+	a.Hidden = []string{"id", "account_id", "project_id", "connection_id", "connection", "adapter", "base_url", "vendor", "key_env", "authorized_by", "created_at"}
 	a.Needs = modelAuthorizationNeeds
 	a.Read = modelAuthorizationRead
 	a.Validate = modelAuthorizationValidate
@@ -140,7 +140,7 @@ func modelAuthorizationApply(ctx context.Context, e *Env, old, want *Resource) e
 		}
 		return auditModel(ctx, e, "model_authorization.deleted", old.Name, nil)
 	}
-	a := domain.ModelAuthorization{AccountID: e.Actor.AccountID, ProjectID: id, ConnectionID: c.ID, Connection: c.Name, Adapter: c.Adapter, BaseURL: c.BaseURL, AuthorizedBy: e.Actor.String()}
+	a := domain.AuthorizationOf(c, id, e.Actor.String())
 	if err := e.Store.ModelAuthorizations().Put(ctx, &a); err != nil {
 		return err
 	}
@@ -238,7 +238,8 @@ func plannedConnections(e *Env, w *modelWorld, wanted []Wanted) map[string]domai
 			continue
 		}
 		if s, err := decode[modelConnectionSpec](x.Spec); err == nil {
-			conns[x.Name] = domain.ModelConnection{Name: x.Name, Adapter: s.Adapter, BaseURL: s.BaseURL, ID: conns[x.Name].ID, AccountID: e.Actor.AccountID}
+			conns[x.Name] = domain.ModelConnection{Name: x.Name, Vendor: s.Vendor, Adapter: s.Adapter, BaseURL: s.BaseURL, KeyEnv: s.KeyEnv,
+				ID: conns[x.Name].ID, AccountID: e.Actor.AccountID}
 		}
 	}
 	return conns

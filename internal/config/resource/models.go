@@ -191,10 +191,10 @@ func modelConnectionApply(ctx context.Context, e *Env, old, want *Resource) erro
 			return err
 		}
 		before = &o
-		// An authorization is for where the code goes: a new endpoint
-		// needs a new one.
-		if o.Adapter != s.Adapter || o.BaseURL != s.BaseURL {
-			if err := e.Store.ModelAuthorizations().DeleteConnection(ctx, e.Actor.AccountID, c.ID); err != nil {
+		// An authorization, and a test, are for where the code goes: a new
+		// endpoint, vendor or key variable needs new ones.
+		if domain.MovedEndpoint(o.endpoint(), s.endpoint()) {
+			if err := moveConnection(ctx, e, c.ID); err != nil {
 				return err
 			}
 		}
@@ -673,7 +673,35 @@ func moved(c domain.ConfigChange) bool {
 	}
 	o, _ := decode[modelConnectionSpec](old.Spec)
 	w, _ := decode[modelConnectionSpec](want.Spec)
-	return o.Adapter != w.Adapter || o.BaseURL != w.BaseURL
+	return domain.MovedEndpoint(o.endpoint(), w.endpoint())
+}
+
+// endpoint is what of a spec decides where code goes.
+func (s modelConnectionSpec) endpoint() domain.ModelConnection {
+	return domain.ModelConnection{Vendor: s.Vendor, Adapter: s.Adapter, BaseURL: s.BaseURL, KeyEnv: s.KeyEnv}
+}
+
+// moveConnection ends what a connection's old endpoint earned: its
+// authorizations for private code go, and its key check and tests count as
+// stale until they run again.
+func moveConnection(ctx context.Context, e *Env, id uuid.UUID) error {
+	if err := e.Store.ModelAuthorizations().DeleteConnection(ctx, e.Actor.AccountID, id); err != nil {
+		return err
+	}
+	checks, err := e.Store.ModelChecks().List(ctx, e.Actor.AccountID)
+	if err != nil {
+		return err
+	}
+	for _, c := range checks {
+		if c.ConnectionID != id || c.Stale {
+			continue
+		}
+		c.Stale = true
+		if err := e.Store.ModelChecks().Put(ctx, &c); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // retired reports whether c turns a connection off or deletes it.
@@ -713,7 +741,7 @@ func reviewModels(ctx context.Context, e *Env, changes []domain.ConfigChange) (p
 	var notes []string
 	for _, c := range changes {
 		if moved(c) {
-			notes = append(notes, "Connection "+c.Name+" goes to a new endpoint, so its authorizations for private code end: authorize it again where it should serve private repos.")
+			notes = append(notes, "Connection "+c.Name+" sends code elsewhere now (endpoint, vendor or key variable), so its authorizations for private code end and its model tests count as stale: authorize it again where it should serve private repos, and test its models again.")
 		}
 		if !retired(c) {
 			continue
