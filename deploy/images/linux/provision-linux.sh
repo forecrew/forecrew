@@ -48,11 +48,8 @@ install -m 0644 /tmp/package.json /tmp/package-lock.json /opt/forecrew-cli/
 for pkg in @anthropic-ai/claude-code @openai/codex opencode-ai; do
 	if ! (cd /opt/forecrew-cli && npm rebuild "$pkg" --no-audit --no-fund); then
 		echo "provision-linux.sh: the install script of $pkg failed; node $(node --version), npm $(npm --version), $(uname -m)" >&2
-		find /opt/forecrew-cli/node_modules -maxdepth 1 -name 'opencode*' >&2
-		ldd --version 2>&1 | head -1 >&2
-		grep -o -m1 avx2 /proc/cpuinfo >&2 || echo "no avx2" >&2
-		sed -n '/^function installPackage/,$p' "/opt/forecrew-cli/node_modules/$pkg/postinstall.mjs" >&2 || true
-		find /opt/forecrew-cli/node_modules/opencode-linux-x64-baseline /opt/forecrew-cli/node_modules/opencode-ai/bin -maxdepth 2 >&2 || true
+		(node_modules_bin=/opt/forecrew-cli/node_modules/opencode-ai/bin/opencode.exe; [ ! -x "$node_modules_bin" ] || "$node_modules_bin" --version 2>&1 | head -5 >&2) || true
+		grep -m1 -o 'flags.*' /proc/cpuinfo | head -c 400 >&2 || true
 		exit 1
 	fi
 done
