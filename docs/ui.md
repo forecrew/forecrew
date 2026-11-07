@@ -242,7 +242,9 @@ web/src
   its worker within about 30 s and its playbook takes its failure path; the
   job, job lists and gates refresh after it. Your account lists your tokens
   (the one you are using is badged "this session"); revoking that one logs you
-  out and goes to the login page. Tokens are created there too, or with the CLI.
+  out and goes to the login page. Tokens are created there too, or with the CLI. Your account
+  also lists your connected apps (the OAuth clients you authorized,
+  docs/mcp.md), each with a Disconnect button that asks first.
 - **Live data.** Lists poll every 5 s with TanStack Query; a running job's log
   polls every 2 s and asks only for events after the last one it has
   (`after_seq`). Polling pauses while the tab is hidden.

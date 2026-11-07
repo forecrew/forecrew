@@ -1,17 +1,8 @@
 # MCP server
 
 forecrewd serves Forecrew over MCP (streamable HTTP) at `/mcp` on its public
-URL (`server.public_base_url`). Every request needs an MCP token in the
-`Authorization` header:
-
-```
-Authorization: Bearer fcm_...
-```
-
-Tokens start with `fcm_`, belong to one account and are shown once when
-created. Only their SHA-256 is stored, so a lost token is revoked and
-replaced. A missing, unknown or revoked token gets `401`. The token's name is
-recorded as the actor (`mcp:<name>`) on everything it does.
+URL (`server.public_base_url`). A client connects with the URL alone and signs
+you in with OAuth, or sends a personal token.
 
 This server is for humans and their tools. Agents of running jobs use a
 separate endpoint, the job MCP gateway at `/job-mcp`, with a token
@@ -21,50 +12,43 @@ separate endpoint, the job MCP gateway at `/job-mcp`, with a token
 `needs_you` gates with `origin: ask_human`; answer with `approve` and the
 answer as `feedback`, or `reject` to decline.
 
+## Connect from Claude apps
+
+In Claude (web, desktop or mobile), add a custom connector with the URL:
+
+```
+https://forecrew.example.com/mcp
+```
+
+Claude opens Forecrew in your browser. Sign in if you need to, and on the
+consent screen check the app and where it returns to, pick the organization
+and allow it. Nothing else is needed: no token, no header, no bridge.
+
 ## Connect from Claude Code
+
+With OAuth:
+
+```sh
+claude mcp add --transport http forecrew https://forecrew.example.com/mcp
+```
+
+then run `/mcp` inside Claude Code and choose to authenticate; your browser
+opens the consent screen. Check with `claude mcp list`.
+
+With a personal token, for scripts and machines without a browser:
 
 ```sh
 claude mcp add --transport http forecrew https://forecrew.example.com/mcp \
   --header "Authorization: Bearer $FORECREW_TOKEN"
 ```
 
-Check with `claude mcp list`, or `/mcp` inside Claude Code.
+Tokens start with `fcm_`, belong to one organization and are shown once when
+created ([runbooks/mcp-token.md](runbooks/mcp-token.md)). Only their SHA-256 is
+stored, so a lost token is revoked and replaced.
 
-## Connect from Claude apps
-
-Custom connectors in the Claude apps (web, desktop and mobile) cannot send a
-static `Authorization` header, so a bearer-token server like this one cannot
-be added there directly. Use Claude Desktop with the `mcp-remote` bridge, which
-adds the header. In `claude_desktop_config.json` (macOS:
-`~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
-
-```json
-{
-  "mcpServers": {
-    "forecrew": {
-      "command": "npx",
-      "args": [
-        "mcp-remote",
-        "https://forecrew.example.com/mcp",
-        "--header",
-        "Authorization:${FORECREW_AUTH}"
-      ],
-      "env": {
-        "FORECREW_AUTH": "Bearer fcm_..."
-      }
-    }
-  }
-}
-```
-
-The space of `Bearer ` sits in `env` because Claude Desktop on Windows does
-not escape spaces in `args`. Restart Claude Desktop after editing the file. It
-needs Node.js for `npx`.
-
-## Project config for Claude Code
-
-To share the server with a team, put it in the project's `.mcp.json`; each
-person sets `FORECREW_TOKEN` in their environment:
+To share the server with a team, put it in the project's `.mcp.json`. Without
+`headers` everybody signs in with OAuth; with them, each person sets
+`FORECREW_TOKEN` in their environment:
 
 ```json
 {
@@ -77,6 +61,69 @@ person sets `FORECREW_TOKEN` in their environment:
   }
 }
 ```
+
+## Organizations, scopes and roles
+
+A connection belongs to **one organization**: the one you pick on the consent
+screen, or your only one. To work in another, connect again and pick it; each
+connection is its own connected app.
+
+The app asks for scopes, and the screen shows them: `read`, `write` (the
+default of a client that follows the `401`) or `admin`
+([contracts/permissions.md](contracts/permissions.md#scopes)). Every call is
+limited by both the scopes and your roles in the organization right now: a
+Viewer with `write` scope still cannot resolve a gate, and a role you lose
+counts from the next call. A client that asks for nothing gets `read`.
+
+An app acts as you and is recorded as you, with the grant as its credential
+(`oauth_grant:<id>` in the audit log), but it is not you at a browser. It
+reaches `/mcp` only, never `/api/v1`, and it cannot create tokens, which would
+outlive disconnecting it.
+
+## Revoke a connected app
+
+Your connected apps are on your account page of the web UI, with the
+`list_connected_apps` tool and with `forecrew connected-apps`. Disconnect one
+there, with `revoke_connected_app` or with `forecrew connected-apps revoke
+<id>`; its tokens stop working at once. Being suspended or removed from the
+organization, or being disabled, ends your connected apps there too.
+
+## How OAuth works here
+
+forecrewd is the authorization server of its own `/mcp`, following the MCP
+authorization specification (2025-11-25 and 2026-07-28, the versions of the Go
+SDK in use):
+
+| Step | Endpoint |
+|------|----------|
+| A call without a credential gets `401` with `WWW-Authenticate: Bearer resource_metadata="..."`, `scope="read write"` | `/mcp` |
+| Protected resource metadata (RFC 9728) | `/.well-known/oauth-protected-resource/mcp`, and without `/mcp` |
+| Authorization server metadata (RFC 8414); the issuer is `server.public_base_url` | `/.well-known/oauth-authorization-server` |
+| Client registration: a client ID metadata document (an `https` URL as `client_id`, read at every authorization, public clients only), or dynamic registration (RFC 7591) for clients that only know that | `POST /oauth/register` |
+| Sign-in and consent; the answer carries `iss` (RFC 9207) | `/oauth/authorize` |
+| Tokens: authorization code with PKCE `S256` only, refresh tokens | `POST /oauth/token` |
+
+Rules a client may meet:
+
+- Redirect URIs are `https` or loopback (`localhost`, `127.0.0.1`, `[::1]`),
+  matched exactly except for a loopback port.
+- `resource`, when sent, must be this `/mcp` (`invalid_target`). Access tokens
+  are bound to it and checked on every call.
+- Access tokens (`fca_`) last 1 hour, refresh tokens (`fcr_`) 30 days, codes
+  (`fco_`) 5 minutes. Only hashes are stored.
+- Refresh tokens rotate. Using a code or refresh token twice revokes
+  everything of that connection (`oauth.reuse_detected` in the audit log), so a
+  client must keep the newest refresh token. A refresh may narrow scopes, never
+  widen them.
+- Every grant gets a refresh token, so `offline_access` is not listed and is
+  ignored when asked for.
+- Registration, the token endpoint and the reading of metadata documents are
+  rate limited by address (`429`). Clients nobody used for 30 days and that
+  hold no grant are deleted; a dynamic client then registers again.
+- The consent screen says when you have not connected an app before. An
+  app's name is what it says about itself; the host it returns to is the fact.
+
+A missing, unknown, expired or revoked credential gets `401`.
 
 ## Tools
 
@@ -290,5 +337,5 @@ The `prompt` of `dispatch_job` is trusted: it goes into the job's prompt as
 instructions, unlike text from GitHub users outside the allowlist, which is
 marked untrusted. A manipulated MCP client (for example one that reads
 untrusted content and follows it) therefore passes a trusted prompt on. Give
-MCP tokens only to clients you trust, and revoke a token that may be
-compromised.
+tokens and OAuth consent only to clients you trust, and revoke a token or
+connected app that may be compromised.
