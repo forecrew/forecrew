@@ -12,7 +12,7 @@ import (
 // trackerPlan is the plan the tracker form makes: a Linear connection and a
 // secure field for its token.
 func trackerPlan(filled bool, status domain.ConfigPlanStatus) mcp.ConfigPlanView {
-	return mcp.ConfigPlanView{ConfigPlan: domain.ConfigPlan{
+	return mcp.ConfigPlanView{
 		ID: fid(390), AccountID: fid(1), Status: status, Source: domain.ConfigFromForm, Title: "Connect tracker linear", Applies: "now",
 		Changes: []domain.ConfigChange{{Op: domain.ConfigCreate, Kind: "tracker_connection", Name: "linear",
 			New:    json.RawMessage(`{"kind":"linear","config":{"teams":["ENG"],"token_ref":"store:linear-token"},"triggers":{"label":"forecrew"}}`),
@@ -23,8 +23,7 @@ func trackerPlan(filled bool, status domain.ConfigPlanStatus) mcp.ConfigPlanView
 			{Kind: domain.ConfigStepSecret, Resource: "tracker_connection/linear", Title: "token of tracker connection linear", Secret: "linear-token", Filled: filled},
 			{Kind: domain.ConfigStepConnect, Resource: "tracker_connection/linear", Title: "Test the connection", Detail: "Run forecrew tracker test linear once the plan is applied."},
 		},
-		LowersProtection: []string{}, Reversible: true, CreatedBy: "user:" + fid(300).String(), ExpiresAt: at(60), CreatedAt: at(0), UpdatedAt: at(0),
-	}, CanConfirm: true}
+		LowersProtection: []string{}, Reversible: true, CreatedBy: "user:" + fid(300).String(), ExpiresAt: at(60), CreatedAt: at(0), UpdatedAt: at(0), CanConfirm: true}
 }
 
 func trackerFixtureCases() []fixtureCase {
@@ -41,8 +40,8 @@ func trackerFixtureCases() []fixtureCase {
 			pid = fid(12)
 		}
 		return mcp.TrackerRouteInfo{
-			TrackerRoute: domain.TrackerRoute{ID: fid(id), AccountID: fid(1), ConnectionID: fid(conn), Position: pos, Match: m, ProjectID: pid, States: states, Warning: warning, CreatedAt: at(-800), UpdatedAt: at(-800)},
-			Connection:   name, Project: project,
+			ID: fid(id), AccountID: fid(1), ConnectionID: fid(conn), Position: pos, Match: m, ProjectID: pid, States: states, Warning: warning, CreatedAt: at(-800), UpdatedAt: at(-800),
+			Connection: name, Project: project,
 		}
 	}
 	routes := []mcp.TrackerRouteInfo{
@@ -53,8 +52,8 @@ func trackerFixtureCases() []fixtureCase {
 	identities := []domain.TrackerIdentity{{ID: fid(940), AccountID: fid(1), ConnectionID: fid(920), ExternalID: "JIRAUSER10100", ExternalName: "Ann Lee", UserID: fid(300), CreatedBy: "user:" + fid(300).String(), CreatedAt: at(-700)}}
 	ticket := func(id int, key, title string, status domain.TicketLinkStatus, reason domain.TicketWaitReason, project string) mcp.TicketInfo {
 		t := mcp.TicketInfo{
-			TicketLink: domain.TicketLink{ID: fid(id), AccountID: fid(1), ConnectionID: fid(920), Key: key, Title: title, URL: "https://jira.acme.local/jira/browse/" + key, Status: status, Reason: reason,
-				HandedBy: "Marta Rossi", CreatedAt: at(-50), UpdatedAt: at(-40)},
+			ID: fid(id), AccountID: fid(1), ConnectionID: fid(920), Key: key, Title: title, URL: "https://jira.acme.local/jira/browse/" + key, Status: status, Reason: reason,
+			HandedBy: "Marta Rossi", CreatedAt: at(-50), UpdatedAt: at(-40),
 			Connection: "jira",
 		}
 		if project != "" {
