@@ -27,7 +27,7 @@ function isTyping(el: EventTarget | null): boolean {
 type Chip = GateInfo["kind"] | "question"
 const CHIP_ORDER: Chip[] = [
   "merge_approval", "spec_approval", "council_decision", "assumption_review", "profile_approval", "test_plan_approval",
-  "knowledge_proposal", "access_request", "improvement_proposal", "needs_you", "question",
+  "knowledge_proposal", "access_request", "improvement_proposal", "ticket_intake", "needs_you", "question",
 ]
 const CHIP_LABEL: Record<Chip, string> = {
   merge_approval: "Merges",
@@ -39,6 +39,7 @@ const CHIP_LABEL: Record<Chip, string> = {
   knowledge_proposal: "Knowledge",
   access_request: "Access",
   improvement_proposal: "Improvements",
+  ticket_intake: "Tickets",
   needs_you: "Needs you",
   question: "Questions",
 }
@@ -46,6 +47,9 @@ const chipOf = (g: GateInfo): Chip => (isQuestion(g) ? "question" : g.kind)
 
 /** "verify" resolves the assumption of an assumption_review gate with evidence, which closes the gate. */
 type Decision = "approve" | "request-changes" | "reject" | "verify"
+
+/** These gates are decided yes or no: nothing can go back for changes. */
+const yesOrNo = (kind: GateInfo["kind"]) => kind === "needs_you" || kind === "ticket_intake"
 
 /** The words of a gate's actions, by what it asks. */
 function wordsFor(g: GateInfo, humanRoundUsed: boolean) {
@@ -60,7 +64,7 @@ function wordsFor(g: GateInfo, humanRoundUsed: boolean) {
     changesField: council ? "Constraint for one more round" : assumption ? "What should be checked?" : "What should change?",
     sendChanges: council ? "Send constraint" : "Send changes request",
     note: question ? "Your answer" : "Note (optional)",
-    canChange: g.kind !== "needs_you" && !(council && humanRoundUsed),
+    canChange: !yesOrNo(g.kind) && !(council && humanRoundUsed),
   }
 }
 
@@ -300,7 +304,7 @@ export function GateList({ gates: all, keyboard = false, initialRef }: { gates: 
           if (selected && !decide.isPending) onDecide(selected, "approve", notes[selected.ref] ?? "")
           break
         case "r":
-          if (selected && selected.kind !== "needs_you") {
+          if (selected && !yesOrNo(selected.kind)) {
             e.preventDefault()
             setMode("changes")
           }

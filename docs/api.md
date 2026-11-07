@@ -165,6 +165,21 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/service-accounts` | `create_service_account` | `{"name", "description"}` | `201` service account; `409` when the name is taken |
 | `PATCH /api/v1/service-accounts/{service_account}` | `update_service_account` | `{service_account}` is a name or UUID; `{"name", "description"}`, both optional | `200` service account |
 | `POST /api/v1/service-accounts/{service_account}/disable`, `.../enable` | `set_service_account_disabled` | body optional | `200` service account |
+| `GET /api/v1/tracker-connections` | `list_tracker_connections` | | `200` connections |
+| `POST /api/v1/tracker-connections` | `create_tracker_connection` | `{"name", "kind", "config", "triggers": {"assignee", "label", "state"}}` | `201` connection; `400` when the adapter refuses it; `409` when the name is taken |
+| `GET /api/v1/tracker-routes?connection=` | `list_tracker_routes` | optional | `200` routes in order, with `connection` and `project` |
+| `POST /api/v1/tracker-routes` | `create_tracker_route` | `{"connection", "project", "position", "match": {"project", "types", "labels", "components"}, "goal_kind", "playbook", "states"}` | `201` route |
+| `DELETE /api/v1/tracker-routes/{route}` | `delete_tracker_route` | | `200` the route |
+| `GET /api/v1/tracker-identities?connection=` | `list_tracker_identities` | optional | `200` identities |
+| `POST /api/v1/tracker-identities` | `map_tracker_identity` | `{"connection", "external_id", "external_name", "user"}` | `201` identity; `403` when the user holds more than you; `409` when mapped already |
+| `DELETE /api/v1/tracker-identities/{identity}` | `unmap_tracker_identity` | | `200` the identity |
+| `GET /api/v1/tickets/waiting?project=` | `list_tickets_waiting` | optional | `200` tickets with `reason`, `connection`, `project`, `gate_ref` |
+| `POST /api/v1/tickets/{ticket}/accept` | `accept_ticket` | `{"project"}`, needed when no route gave one; body optional | `200` ticket, `active` or `queued`; `409` when it is not waiting |
+| `POST /api/v1/tickets/{ticket}/dismiss` | `dismiss_ticket` | `{"reason"}`; body optional | `200` ticket; `409` when it is not waiting |
+
+`POST /webhooks/tracker/{connection}` takes the webhooks of a tracker, outside
+`/api/v1`: the adapter checks the signature (`401`), and the event only says
+which ticket to read ([contracts/tracker.md](contracts/tracker.md)).
 
 ### Artifact downloads
 

@@ -110,6 +110,18 @@ func ToolAccess() map[string]Access {
 		ToolListKnowledge:          {Permission: domain.PermProjectRead},
 		ToolGetTrace:               {Permission: domain.PermProjectRead},
 
+		ToolListTrackerConnections:  {Permission: domain.PermTrackersRead},
+		ToolCreateTrackerConnection: {Permission: domain.PermTrackersManage},
+		ToolListTrackerRoutes:       {Permission: domain.PermTrackersRead},
+		ToolCreateTrackerRoute:      {Permission: domain.PermTrackersManage},
+		ToolDeleteTrackerRoute:      {Permission: domain.PermTrackersManage},
+		ToolListTrackerIdentities:   {Permission: domain.PermTrackersRead},
+		ToolMapTrackerIdentity:      {Permission: domain.PermTrackersManage},
+		ToolUnmapTrackerIdentity:    {Permission: domain.PermTrackersManage},
+		ToolListTicketsWaiting:      {Permission: domain.PermTrackersRead},
+		ToolAcceptTicket:            {Permission: domain.PermGoalCreate},
+		ToolDismissTicket:           {Permission: domain.PermGoalCreate},
+
 		ToolConfigSchema:   {Permission: domain.PermConfigRead},
 		ToolConfigGet:      {Permission: domain.PermConfigRead},
 		ToolConfigPlan:     {Permission: domain.PermConfigApply},

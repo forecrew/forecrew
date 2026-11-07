@@ -243,6 +243,11 @@ func fixtureEnv(t *testing.T) *env {
 		change := domain.Change{ID: fid(80), AccountID: acc.ID, ProjectID: fid(10), TaskID: task.ID, Repo: "acme/app", Number: 9, Branch: "agent/task-12", BaseRef: "main", HeadSHA: "abc123", State: domain.ChangeOpen, URL: "https://github.com/acme/app/pull/9", CreatedAt: at(-100), UpdatedAt: at(-50)}
 		return mcp.GoalDetail{
 			Goal: goals[0], Ref: "GOAL-3", Project: "app", URL: "https://github.com/acme/app/issues/5",
+			Ticket: &mcp.TicketInfo{
+				ID: fid(90), AccountID: acc.ID, ConnectionID: fid(91), Key: "ENG-7", Title: "Sign in with an email link", URL: "https://jira.example.com/browse/ENG-7",
+				Status: domain.LinkActive, ProjectID: fid(10), GoalID: goals[0].ID, State: domain.TicketInProgress, CreatedAt: at(-300), UpdatedAt: at(-250),
+				Connection: "jira", Project: "app", GoalRef: "GOAL-3",
+			},
 			Spec: &domain.Spec{ID: fid(50), AccountID: acc.ID, ProjectID: fid(10), GoalID: fid(20), Number: 2, Revision: 2, Body: specBody, CreatedAt: at(-250)},
 			Tasks: []mcp.TaskDetail{
 				{Task: task, Ref: "TASK-12", URL: "https://github.com/acme/app/issues/6", Needs: []string{"GATE-9"}, Changes: []mcp.ChangeInfo{{Change: change, Checks: "failure"}}, Verification: &mcp.VerificationRef{Status: domain.VerificationFailed, SHA: "abc1234", Current: true, URL: "/api/v1/changes/TASK-12/verification"}, Iterations: 2, CostUSD: 0.75},

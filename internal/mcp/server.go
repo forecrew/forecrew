@@ -89,6 +89,7 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 			}
 			return list("workers", w, "%d workers, %d online.", len(w), online), err
 		})
+	registerTrackers(r, svc, project)
 	register(r, ToolListMachines, "List the organization's machines with their state, shape, provider and job: those that exist, or those of one state.",
 		fieldDocs{"state": "One state: requested, booting, ready, busy, draining, destroyed or failed.", "limit": "Maximum machines to return; default 100, maximum 500."},
 		func(ctx context.Context, by domain.Actor, in ListMachinesInput) (toolResult, error) {
@@ -121,7 +122,7 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 		})
 	register(r, ToolApprove, "Approve a pending gate. On a needs_you gate this retries the stuck work.",
 		fieldDocs{"gate": gate, "feedback": "Optional note recorded with the decision.", "save_as_lesson": saveAsLesson}, gateTool(svc.Approve))
-	register(r, ToolRequestChanges, "Ask for changes on a pending profile, spec, merge or test plan gate; feedback is required and goes to the next revision. Not valid on needs_you gates: use approve to retry or reject to stop.",
+	register(r, ToolRequestChanges, "Ask for changes on a pending profile, spec, merge or test plan gate; feedback is required and goes to the next revision. Not valid on needs_you and ticket_intake gates: use approve or reject.",
 		fieldDocs{"gate": gate, "feedback": "What to change. Required.", "save_as_lesson": saveAsLesson}, gateTool(svc.RequestChanges), "feedback")
 	register(r, ToolReject, "Reject a pending gate. On a needs_you gate this stops the work.",
 		fieldDocs{"gate": gate, "feedback": "Optional reason recorded with the decision.", "save_as_lesson": "Not for reject."}, gateTool(svc.Reject))
@@ -149,11 +150,13 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 		})
 	register(r, ToolListGoals, "List goals, optionally for one project and status.",
 		fieldDocs{"project": project, "status": "Goal status to filter on."}, func(ctx context.Context, by domain.Actor, in ListGoalsInput) (toolResult, error) {
+			in.WrapUntrusted = true
 			g, err := svc.ListGoals(ctx, by, in)
 			return list("goals", g, "%d goals.", len(g)), err
 		})
 	register(r, ToolGetGoal, "Show a goal with its latest spec, tasks (state, issue and PR links, check status, iterations, cost), gates with their decisions, its assumptions and total cost.",
 		fieldDocs{"goal": goal}, func(ctx context.Context, by domain.Actor, in GoalRefInput) (toolResult, error) {
+			in.WrapUntrusted = true
 			d, err := svc.GetGoal(ctx, by, in)
 			d.Tasks, d.Gates, d.Assumptions = NonNil(d.Tasks), NonNil(d.Gates), NonNil(d.Assumptions)
 			return result(d, "%s %s is %s: %d tasks, $%.2f.", d.Ref, d.Goal.Title, d.Goal.Status, len(d.Tasks), d.CostUSD), err
