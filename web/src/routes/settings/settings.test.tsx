@@ -608,6 +608,23 @@ describe("sign-in", () => {
     expect(canceled).toBe(true)
   })
 
+  test("closing the dialog forgets what was typed, the client secret included", async () => {
+    asAdmin()
+    const { user } = await renderApp("/settings/sign-in")
+    await user.click(await screen.findByRole("button", { name: "Add company sign-in" }))
+    let dialog = await screen.findByRole("dialog")
+    await user.type(within(dialog).getByLabelText("Name"), "okta")
+    await user.type(within(dialog).getByLabelText("Issuer"), "https://acme.okta.com")
+    await user.type(within(dialog).getByLabelText("Client ID"), "0oa1")
+    await user.type(within(dialog).getByLabelText("Client secret"), "the-client-secret")
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    await user.click(screen.getByRole("button", { name: "Add company sign-in" }))
+    dialog = await screen.findByRole("dialog")
+    for (const label of ["Name", "Issuer", "Client ID", "Client secret"]) expect(within(dialog).getByLabelText(label)).toHaveValue("")
+    expect(within(dialog).queryByText(/Use lowercase letters/)).not.toBeInTheDocument()
+  })
+
   test("a plan the server refuses outright shows its message", async () => {
     asAdmin()
     server.use(http.post("/api/v1/config/plans", errors.invalidInput))

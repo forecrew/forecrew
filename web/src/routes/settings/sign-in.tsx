@@ -47,6 +47,15 @@ function AddConnection({ onAdded }: { onAdded: (c: Connection) => void }) {
     return (await api.listConnections()).find((c) => c.name === v.name)
   }, keys.connections)
   const needsIssuer = kind === "oidc" || kind === "microsoft"
+  // Nothing typed stays in the page once the dialog is closed or the form is done.
+  const clear = () => {
+    setName("")
+    setIssuer("")
+    setClientId("")
+    setSecret("")
+    setErrors({})
+    add.reset()
+  }
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -62,10 +71,7 @@ function AddConnection({ onAdded }: { onAdded: (c: Connection) => void }) {
       {
         onSuccess: (c) => {
           setOpen(false)
-          setName("")
-          setIssuer("")
-          setClientId("")
-          setSecret("") // never kept in the page
+          clear()
           if (c) onAdded(c)
         },
       },
@@ -77,7 +83,7 @@ function AddConnection({ onAdded }: { onAdded: (c: Connection) => void }) {
       open={open}
       onOpenChange={(next) => {
         setOpen(next)
-        if (!next) add.reset()
+        if (!next) clear()
       }}
     >
       <DialogTrigger render={<Button />}>Add company sign-in</DialogTrigger>
