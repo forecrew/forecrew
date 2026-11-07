@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"slices"
+	"sync"
 
 	"github.com/forecrew/forecrew/internal/images"
 
@@ -50,6 +51,42 @@ func ResolveAllow(ctx context.Context, r *net.Resolver, entries []string) ([]net
 		}
 	}
 	return out, nil
+}
+
+// ResolveAvailable is ResolveAllow for a long list a location does not own,
+// such as an organization's egress: names are looked up at once, and one that
+// does not resolve opens nothing. It is returned in missed, and the rest still
+// apply, so a registry that is down does not stop every machine.
+func ResolveAvailable(ctx context.Context, r *net.Resolver, entries []string) (nets []netip.Prefix, missed []string) {
+	found := make([][]netip.Addr, len(entries))
+	failed := make([]bool, len(entries))
+	var wg sync.WaitGroup
+	for i, e := range entries {
+		if _, err := netip.ParsePrefix(e); err == nil {
+			continue
+		}
+		wg.Go(func() {
+			addrs, err := Lookup4(ctx, r, e)
+			found[i], failed[i] = addrs, err != nil
+		})
+	}
+	wg.Wait()
+	for i, e := range entries {
+		if p, err := netip.ParsePrefix(e); err == nil {
+			if p.Addr().Is4() {
+				nets = append(nets, p.Masked())
+			}
+			continue
+		}
+		if failed[i] {
+			missed = append(missed, e)
+			continue
+		}
+		for _, a := range found[i] {
+			nets = append(nets, netip.PrefixFrom(a, 32))
+		}
+	}
+	return nets, missed
 }
 
 // Lookup4 returns the IPv4 addresses of a host or address, sorted.

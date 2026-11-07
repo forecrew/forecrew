@@ -250,7 +250,6 @@ func TestCreateFailuresLeaveNothing(t *testing.T) {
 		"ipv6 only":     func(_ *testEnv, req *fleet.CreateRequest) { req.Bootstrap.ServerURL = "http://[2001:db8::1]:8080" },
 		"unknown key":   func(_ *testEnv, req *fleet.CreateRequest) { req.Shape.ProviderConfig = map[string]any{"x": 1} },
 		"qcow2":         func(_ *testEnv, req *fleet.CreateRequest) { req.Image.Format = domain.ImageQCOW2 },
-		"bad allowlist": func(_ *testEnv, req *fleet.CreateRequest) { req.NetworkAllow = []string{"no-such-host.invalid"} },
 		"nft fails": func(e *testEnv, _ *fleet.CreateRequest) {
 			e.runErr = func(cmd string) error {
 				if strings.HasPrefix(cmd, "ip tuntap") {
@@ -323,8 +322,12 @@ func TestUpdate(t *testing.T) {
 	if !strings.Contains(e.commands(), "ct original ip daddr 10.1.0.0/16 accept") {
 		t.Error("the allowlist was not applied")
 	}
-	if err := e.p.Update(t.Context(), id, fleet.UpdateRequest{NetworkAllow: []string{"bad.invalid"}}); err == nil {
-		t.Error("an allowlist that does not resolve was accepted")
+	// A name that does not resolve opens nothing; the rest still applies.
+	if err := e.p.Update(t.Context(), id, fleet.UpdateRequest{NetworkAllow: []string{"bad.invalid", "10.2.0.0/16"}}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(e.commands(), "ct original ip daddr 10.2.0.0/16 accept") {
+		t.Error("the allowlist was not applied")
 	}
 	if err := e.p.Update(t.Context(), uuid.New().String(), fleet.UpdateRequest{}); err == nil {
 		t.Error("an unknown machine was updated")
