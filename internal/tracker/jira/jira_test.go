@@ -303,7 +303,6 @@ func TestPollingAcrossTimeZones(t *testing.T) {
 		{"America/Los_Angeles", "2026-03-08T10:10:00Z", "2026/03/08 03:05"}, // after the change
 		{"Asia/Tokyo", "2026-11-06T15:02:00Z", "2026/11/06 23:57"},          // the day before in Tokyo
 		{"Asia/Tokyo", "2026-11-06T15:20:00Z", "2026/11/07 00:15"},          // the next day
-		{"", "2026-11-06T15:20:00Z", "2026/11/06 15:15"},                    // no zone: UTC
 	}
 	for _, c := range cases {
 		w := newWorld(t, false)
@@ -313,9 +312,6 @@ func TestPollingAcrossTimeZones(t *testing.T) {
 		must(t, err)
 		w.f.now = cursor.Add(time.Minute)
 		key := w.f.create("OPS", "edited across the boundary", "")
-		if c.tz == "" {
-			w.f.tz = "UTC"
-		}
 		events, next, err := ad.Changes(t.Context(), c.cursor)
 		if err != nil {
 			t.Fatal(err)
@@ -325,6 +321,16 @@ func TestPollingAcrossTimeZones(t *testing.T) {
 		}
 		if len(events) != 1 || events[0].Key != key || next != w.f.now.Format(time.RFC3339Nano) {
 			t.Errorf("%s: events = %+v, next %s", c.tz, events, next)
+		}
+	}
+}
+
+func TestPollingNeedsAKnownZone(t *testing.T) {
+	for _, zone := range []string{"", "Mars/Olympus"} {
+		w := newWorld(t, false)
+		w.f.tz = zone
+		if _, _, err := w.prepared(t).Changes(t.Context(), "2026-11-06T15:20:00Z"); err == nil || !strings.Contains(err.Error(), "time zone") {
+			t.Errorf("zone %q: %v", zone, err)
 		}
 	}
 }
