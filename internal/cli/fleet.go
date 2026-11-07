@@ -164,7 +164,7 @@ func printJoinCodes(w io.Writer, items []mcp.JoinCodeInfo) {
 func printMachines(w io.Writer, items []mcp.MachineInfo) {
 	rows := [][]string{{"NAME", "STATE", "LOCATION", "SHAPE", "JOB", "ERROR"}}
 	for _, m := range items {
-		rows = append(rows, []string{m.Name, string(m.State), m.Provider, m.Shape, dash(m.JobRef), dash(m.Error)})
+		rows = append(rows, []string{m.Name, string(m.State), m.Provider, m.Shape, dash(m.JobRef), dash(safeText(m.Error))})
 	}
 	table(w, rows)
 }

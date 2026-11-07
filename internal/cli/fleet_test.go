@@ -40,7 +40,7 @@ func TestShapesAndProvidersCommands(t *testing.T) {
 	e.svc.ListShapesFunc = func(context.Context, domain.Actor, any) ([]mcp.ShapeInfo, error) {
 		return []mcp.ShapeInfo{{Name: "small", OS: domain.OSLinux, Arch: domain.ArchAMD64, CPU: 2, MemoryMB: 4096, Pool: "build", PricePerMinute: 0.04, Max: 3, Provider: "home"}}, nil
 	}
-	e.svc.ListProvidersFunc = func(context.Context, domain.Actor, any) ([]mcp.ProviderInfo, error) {
+	e.svc.ListProvidersFunc = func(context.Context, domain.Actor, mcp.ListProvidersInput) ([]mcp.ProviderInfo, error) {
 		return []mcp.ProviderInfo{{Name: "home", Kind: domain.ProviderProxmox, Mode: domain.ProviderModeAgent, Status: domain.ProviderActive, Online: true, Ownership: domain.OwnershipOwn}}, nil
 	}
 	out, _, code := e.run(t, "shapes")
