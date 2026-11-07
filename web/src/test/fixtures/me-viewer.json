@@ -29,6 +29,7 @@
     }
   ],
   "permissions": [
+    "config.read",
     "gate.read",
     "goal.read",
     "job.read",

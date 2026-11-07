@@ -146,3 +146,34 @@ func TestCLILogin(t *testing.T) {
 		t.Errorf("without a session = %d", resp.StatusCode)
 	}
 }
+
+// Sessions and sign-ins belong to the browser the person is in: a token, of
+// any scope, can neither list nor end them.
+func TestTokensDoNotManageSessions(t *testing.T) {
+	e := newSessionEnv(t)
+	for scope, name := range map[domain.Scope]string{domain.ScopeRead: "reader", domain.ScopeWrite: "writer", domain.ScopeAdmin: "admin"} {
+		secret := "fcm_" + name
+		must(t, e.st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: e.org.ID, Name: name, TokenHash: mcp.HashToken(secret),
+			OwnerKind: domain.SubjectUser, OwnerID: e.user.ID, Scopes: []domain.Scope{scope}}))
+		bearer := map[string]string{"Authorization": "Bearer " + secret}
+		other := e.session(t, e.org)
+		_, body := e.do(t, "GET", "/api/v1/sessions", "", e.cookie, nil)
+		var list []struct{ ID string }
+		must(t, json.Unmarshal([]byte(body), &list))
+		for _, c := range []struct{ method, path, body string }{
+			{"GET", "/api/v1/sessions", ""},
+			{"DELETE", "/api/v1/sessions/" + list[0].ID, ""},
+			{"DELETE", "/api/v1/sessions", ""},
+			{"GET", "/api/v1/identities", ""},
+			{"POST", "/api/v1/cli/authorize", `{"redirect_uri":"http://127.0.0.1:1/x","code_challenge":"` + strings.Repeat("a", 43) + `"}`},
+		} {
+			if resp, out := e.do(t, c.method, c.path, c.body, "", bearer); resp.StatusCode != 403 {
+				t.Errorf("%s token: %s %s = %d %s", name, c.method, c.path, resp.StatusCode, out)
+			}
+		}
+		// Nothing was ended.
+		if resp, _ := e.do(t, "GET", "/api/v1/me", "", other, nil); resp.StatusCode != 200 {
+			t.Errorf("%s token ended a session", name)
+		}
+	}
+}

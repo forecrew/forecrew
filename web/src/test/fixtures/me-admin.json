@@ -31,6 +31,8 @@
   "permissions": [
     "assumption.resolve",
     "audit.read",
+    "config.apply",
+    "config.read",
     "connection.manage",
     "council.start",
     "gate.approve.access_request",

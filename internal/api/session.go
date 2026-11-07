@@ -212,6 +212,11 @@ func (s *Server) signOutEverywhere(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, errors.New("only a person has sessions"), http.StatusBadRequest, "invalid_input")
 		return
 	}
+	// A token, of any scope, does not end the person's sessions.
+	if by.Credential.Kind != domain.CredentialSession {
+		s.fail(w, r, errors.New("sessions are ended from a browser session, not with a token"), http.StatusForbidden, "forbidden")
+		return
+	}
 	if err := s.cfg.Auth.SignOutEverywhere(r.Context(), id); err != nil {
 		s.failTool(w, r, by, err)
 		return
