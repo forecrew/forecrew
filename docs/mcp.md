@@ -122,7 +122,16 @@ Rules a client may meet:
   ignored when asked for.
 - Registration, the token endpoint and the reading of metadata documents are
   rate limited by address (`429`). Clients nobody used for 30 days and that
-  hold no grant are deleted; a dynamic client then registers again.
+  hold no grant are deleted; a dynamic client then registers again. At most
+  1000 registered apps may wait for their first consent; past that,
+  registration answers `503` `temporarily_unavailable` until one is used or
+  swept.
+- Refresh one connection at a time. Two refreshes with the same refresh
+  token race: one gets the new tokens, the other is a reuse and ends the whole
+  connection, the winner's new tokens included. A client must serialize its
+  refreshes, store the new refresh token before using the new access token,
+  and treat a lost answer to a refresh as a lost connection: sign in again
+  rather than retry with the old refresh token.
 - A bad authorization request (no PKCE, an unknown scope, another
   `resource`) goes back to the app as an OAuth error only if you connected
   that app before; otherwise Forecrew shows the error itself and sends the

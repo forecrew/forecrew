@@ -37,6 +37,11 @@ const (
 // UnusedClientTTL is how long a client nobody uses stays registered.
 const UnusedClientTTL = 30 * 24 * time.Hour
 
+// MaxUnusedClients caps the registrations nobody has authorized yet: past it,
+// a new one waits until the sweep or a consent makes room. Rate limits bound
+// how fast they come, this bounds how many rows they leave.
+const MaxUnusedClients = 1000
+
 // SweepEvery is how often expired grants and unused clients are deleted.
 const SweepEvery = time.Hour
 
@@ -70,6 +75,8 @@ type Config struct {
 	// HTTP fetches client ID metadata documents; by default it reaches public
 	// addresses only and follows no redirect. Tests replace it.
 	HTTP *http.Client
+	// MaxUnusedClients defaults to the constant; tests lower it.
+	MaxUnusedClients int
 }
 
 // Server is the authorization server.
@@ -89,6 +96,9 @@ func New(cfg Config) *Server {
 	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
+	}
+	if cfg.MaxUnusedClients == 0 {
+		cfg.MaxUnusedClients = MaxUnusedClients
 	}
 	if cfg.HTTP == nil {
 		cfg.HTTP = &http.Client{

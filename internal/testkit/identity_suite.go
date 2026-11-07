@@ -50,10 +50,15 @@ func (s *identitySuite) oauthClient() domain.OAuthClient {
 	ctx := s.t.Context()
 	r := s.st.OAuth()
 	s.n++
+	before, err := r.CountUnusedClients(ctx)
+	s.must(err)
 	client := domain.OAuthClient{ClientID: "client-" + strconv.Itoa(s.n), Name: "Tool", RedirectURIs: []string{"https://tool.example/cb"}}
 	s.must(r.CreateClient(ctx, &client))
+	if n, err := r.CountUnusedClients(ctx); err != nil || n != before+1 {
+		s.t.Fatalf("CountUnusedClients = %d, %v; want %d", n, err, before+1)
+	}
 	s.wantErr(r.CreateClient(ctx, &domain.OAuthClient{ClientID: client.ClientID, Name: "Twin", RedirectURIs: client.RedirectURIs}), store.ErrConflict)
-	_, err := r.GetClient(ctx, "nobody")
+	_, err = r.GetClient(ctx, "nobody")
 	s.wantErr(err, store.ErrNotFound)
 	client.Name, client.RedirectURIs = "Renamed", []string{"https://tool.example/other"}
 	s.must(r.UpdateClient(ctx, &client))
@@ -64,6 +69,9 @@ func (s *identitySuite) oauthClient() domain.OAuthClient {
 	s.must(err)
 	if got.Name != "Renamed" || len(got.RedirectURIs) != 1 || got.LastUsedAt.IsZero() || byID.ClientID != client.ClientID {
 		s.t.Fatalf("client = %+v, by ID %+v", got, byID)
+	}
+	if n, err := r.CountUnusedClients(ctx); err != nil || n != before {
+		s.t.Fatalf("a used client counts as unused: %d, %v", n, err)
 	}
 	return client
 }

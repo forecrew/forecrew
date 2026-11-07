@@ -56,6 +56,13 @@ func (r oauthRepo) DeleteUnusedClients(ctx context.Context, t time.Time) (int, e
 	return int(tag.RowsAffected()), nil
 }
 
+func (r oauthRepo) CountUnusedClients(ctx context.Context) (int, error) {
+	var n int
+	err := r.db.QueryRow(ctx, `SELECT count(*) FROM oauth_clients c WHERE c.last_used_at IS NULL
+		AND NOT EXISTS (SELECT 1 FROM oauth_grants g WHERE g.client_id = c.id)`).Scan(&n)
+	return n, mapErr(err)
+}
+
 var oauthGrantCols = `id, kind, token_hash, family_id, client_id, user_id, account_id, scopes, resource, redirect_uri, code_challenge, expires_at, ` +
 	ctime("used_at") + `, ` + ctime("revoked_at") + `, created_at`
 
