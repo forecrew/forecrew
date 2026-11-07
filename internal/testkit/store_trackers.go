@@ -219,7 +219,7 @@ func (r routeRepo) Update(_ context.Context, t *domain.TrackerRoute) error {
 		if t.States == nil {
 			t.States = map[domain.TicketState]string{}
 		}
-		t.ConnectionID, t.Position, t.Warning, t.CreatedAt, t.UpdatedAt = old.ConnectionID, old.Position, old.Warning, old.CreatedAt, now
+		t.ConnectionID, t.Position, t.Warning, t.CreatedAt, t.UpdatedAt = old.ConnectionID, old.Position, "", old.CreatedAt, now
 		*old = *t
 		return nil
 	})
