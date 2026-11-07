@@ -70,6 +70,12 @@ export function whereText(c: Connection, provider?: ModelProvider): string {
   return countryName(provider.country)
 }
 
+/**
+ * A model's name as its connection's agent takes it: opencode names models provider/model, so a
+ * name the provider listed gets the connection's vendor in front.
+ */
+export const qualifiedModel = (c: Connection, model: string) => (c.spec.adapter === "opencode" && !model.includes("/") ? `${c.spec.vendor}/${model}` : model)
+
 /** The last key check of a connection. */
 export const keyCheckOf = (checks: ModelCheck[] | undefined, connection: string) => checks?.find((c) => c.connection === connection && !c.model)
 

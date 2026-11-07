@@ -44,7 +44,9 @@ function ChangeRole({
   const [model, setModel] = useState<string>()
   const conn = connection ?? current?.connection ?? usable[0]?.name ?? ""
   const tierNow = tier ?? current?.tier ?? roles.find((r) => r.name === role)?.tier ?? "strong"
-  const vendor = connections.find((c) => c.name === conn)?.spec.vendor ?? ""
+  const chosen = connections.find((c) => c.name === conn)
+  const vendor = chosen?.spec.vendor ?? ""
+  const [error, setError] = useState("")
   const modelNow = model ?? assignment.tiers?.[tierNow]?.[vendor] ?? ""
   const tested = testsOf(checks, conn).find((t) => t.model === modelNow)
   const level = levelText(tested)
@@ -58,6 +60,11 @@ function ChangeRole({
   }
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (chosen?.spec.adapter === "opencode" && !modelNow.includes("/")) {
+      setError(`Name it provider/model on this provider, such as ${vendor}/${modelNow.trim() || "model"}.`)
+      return
+    }
+    setError("")
     const tiers = { ...assignment.tiers, [tierNow]: { ...assignment.tiers?.[tierNow], [vendor]: modelNow.trim() } }
     const spec: ModelAssignmentSpec = { ...assignment, tiers, roles: { ...assignment.roles, [role]: { connection: conn, tier: tierNow } } }
     if (await draft.make(`Use ${modelNow.trim()} for ${humanName(role)}`, [{ kind: "model_assignment", name: "organization", spec }])) close(false)
@@ -101,7 +108,7 @@ function ChangeRole({
               </NativeSelect>
             )}
           </Field>
-          <Field label="Model" hint={`Every role of the ${tierNow} tier on this provider uses it.`}>
+          <Field label="Model" error={error} hint={`Every role of the ${tierNow} tier on this provider uses it.`}>
             {(p) => <Input {...p} className="font-mono" value={modelNow} onChange={(e) => setModel(e.target.value)} />}
           </Field>
           <p className="flex flex-wrap items-center gap-2 text-sm">

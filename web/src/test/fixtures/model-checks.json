@@ -23,7 +23,7 @@
     "account_id": "018f0000-0000-7000-8000-000000000001",
     "connection_id": "018f0000-0000-7000-8000-000000000901",
     "connection": "deepseek",
-    "model": "deepseek-chat",
+    "model": "deepseek/deepseek-chat",
     "job_id": "018f0000-0000-7000-8000-000000001001",
     "status": "done",
     "test": {
@@ -50,7 +50,7 @@
     "account_id": "018f0000-0000-7000-8000-000000000001",
     "connection_id": "018f0000-0000-7000-8000-000000000902",
     "connection": "deepseek",
-    "model": "deepseek-reasoner",
+    "model": "deepseek/deepseek-reasoner",
     "job_id": "018f0000-0000-7000-8000-000000001002",
     "status": "done",
     "test": {
@@ -90,7 +90,7 @@
     "account_id": "018f0000-0000-7000-8000-000000000001",
     "connection_id": "018f0000-0000-7000-8000-000000000904",
     "connection": "home-ollama",
-    "model": "llama3-3",
+    "model": "ollama/llama3-3",
     "job_id": "018f0000-0000-7000-8000-000000001004",
     "status": "done",
     "test": {
