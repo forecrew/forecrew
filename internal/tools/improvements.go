@@ -8,6 +8,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
@@ -89,8 +90,50 @@ func (s *Service) ListProposals(ctx context.Context, by domain.Actor, in mcp.Lis
 		if out[i], err = s.improvementInfo(ctx, by, x); err != nil {
 			return nil, err
 		}
+		if in.WrapUntrusted {
+			out[i] = markUntrusted(out[i])
+		}
 	}
 	return out, nil
+}
+
+// markUntrusted marks everything the advisor, agents and repos wrote in p as
+// data, for a reader that is itself a model.
+func markUntrusted(p mcp.ProposalInfo) mcp.ProposalInfo {
+	wrap := func(what string, text *string) {
+		if *text != "" {
+			*text = contextpack.WrapUntrusted(p.Ref+" "+what, *text)
+		}
+	}
+	wrap("title", &p.Title)
+	wrap("rationale", &p.Rationale)
+	wrap("benefit", &p.Benefit)
+	wrap("reason", &p.Reason)
+	p.Evidence = slices.Clone(p.Evidence)
+	for i := range p.Evidence {
+		wrap("evidence", &p.Evidence[i].Detail)
+		wrap("evidence ref", &p.Evidence[i].Ref)
+	}
+	if a := p.Action.Goal; a != nil {
+		c := *a
+		wrap("goal title", &c.Title)
+		wrap("goal body", &c.Body)
+		p.Action.Goal = &c
+	}
+	if a := p.Action.Setup; a != nil {
+		c := *a
+		wrap("instructions", &c.Instructions)
+		wrap("issue", &c.Issue)
+		p.Action.Setup = &c
+	}
+	if a := p.Action.ConfigPR; a != nil {
+		files := slices.Clone(a.Files)
+		for i := range files {
+			wrap("file", &files[i].Content)
+		}
+		p.Action.ConfigPR = &domain.ConfigPRAction{Files: files}
+	}
+	return p
 }
 
 // DecideProposal implements mcp.ToolService. Accepting and rejecting resolve
@@ -122,7 +165,11 @@ func (s *Service) DecideProposal(ctx context.Context, by domain.Actor, in mcp.De
 	if p, err = s.cfg.Store.Proposals().Get(ctx, by.AccountID, p.ID); err != nil {
 		return mcp.ProposalInfo{}, err
 	}
-	return s.improvementInfo(ctx, by, p)
+	info, err := s.improvementInfo(ctx, by, p)
+	if in.WrapUntrusted {
+		info = markUntrusted(info)
+	}
+	return info, err
 }
 
 func (s *Service) resolveProposal(ctx context.Context, by domain.Actor, p domain.Proposal, tool, reason string) error {

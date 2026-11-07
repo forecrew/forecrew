@@ -503,7 +503,8 @@ schedule and by `advise.start` at the end of `learn`: `advise.prepare`, an
 `advise.file`. Each new proposal then has a run of
 `packs/playbooks/proposal.yaml` (inputs `repo` and `proposal_id`, the run's ID
 being the proposal's) that waits on its gate, has the advisor revise it after a
-request for changes (at most three times), carries out the action and, for a
+request for changes (in four rounds at most; a proposal still unsettled then is
+superseded), carries out the action and, for a
 PR, waits for it. `goal.close` makes the proposal of a goal `done` and
 `goal.settle` `superseded`. A proposal with a `measure` is measured by the
 first `advise.prepare` 14 days after it is done: the weight of its signal then,

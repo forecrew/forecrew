@@ -16,9 +16,9 @@ func TestProposalsCommand(t *testing.T) {
 	e.svc.ListProposalsFunc = func(_ context.Context, _ domain.Actor, in mcp.ListProposalsInput) ([]mcp.ProposalInfo, error) {
 		got = in
 		return []mcp.ProposalInfo{
-			{Ref: "PROP-1", Proposal: domain.Proposal{Status: domain.ProposalProposed, Category: domain.CategoryCI, Effort: domain.EffortS, Risk: domain.LevelLow, Title: "Add  CI"}},
-			{Ref: "PROP-2", Proposal: domain.Proposal{Status: domain.ProposalDone, Category: domain.CategoryWorkers, Effort: domain.EffortM, Risk: domain.LevelHigh, Title: "Add a worker",
-				Outcome: &domain.ProposalOutcome{Before: 4, After: 0.5, MeasuredAt: time.Unix(0, 0)}}},
+			{Ref: "PROP-1", Status: domain.ProposalProposed, Category: domain.CategoryCI, Effort: domain.EffortS, Risk: domain.LevelLow, Title: "Add  CI"},
+			{Ref: "PROP-2", Status: domain.ProposalDone, Category: domain.CategoryWorkers, Effort: domain.EffortM, Risk: domain.LevelHigh, Title: "Add a worker",
+				Outcome: &domain.ProposalOutcome{Before: 4, After: 0.5, MeasuredAt: time.Unix(0, 0)}},
 		}, nil
 	}
 	out, errOut, code := e.run(t, "proposals", "app", "--status", "done", "--category", "ci")
@@ -43,7 +43,7 @@ func TestProposalsDecideCommand(t *testing.T) {
 	var got mcp.DecideProposalInput
 	e.svc.DecideProposalFunc = func(_ context.Context, _ domain.Actor, in mcp.DecideProposalInput) (mcp.ProposalInfo, error) {
 		got = in
-		return mcp.ProposalInfo{Ref: "PROP-3", Proposal: domain.Proposal{Status: domain.ProposalSnoozed}}, nil
+		return mcp.ProposalInfo{Ref: "PROP-3", Status: domain.ProposalSnoozed}, nil
 	}
 	out, _, code := e.run(t, "proposals", "decide", "PROP-3", "snooze", "--reason", "later", "--until", "2030-01-02T03:04:05Z")
 	if code != 0 || strings.TrimSpace(out) != "PROP-3 is snoozed" {

@@ -1166,6 +1166,9 @@ type ListProposalsInput struct {
 	Project  string                  `json:"project"`            // name or repo
 	Status   domain.ProposalStatus   `json:"status,omitempty"`   // proposed, accepted, rejected, snoozed, done or superseded
 	Category domain.ProposalCategory `json:"category,omitempty"` // observability, testing, ci, security, docs, knowledge, tooling, workers, roles or cost
+	// WrapUntrusted marks the text of the proposals as data, for MCP
+	// clients; the web UI shows it as text.
+	WrapUntrusted bool `json:"-"`
 }
 
 // ProposalInfo is an improvement proposal with its refs. Its text comes from
@@ -1185,6 +1188,9 @@ type DecideProposalInput struct {
 	Decision domain.ProposalDecision `json:"decision"`         // accept, reject, snooze or done
 	Reason   string                  `json:"reason,omitempty"` // required to reject
 	Until    string                  `json:"until,omitempty"`  // RFC 3339, required to snooze
+	// WrapUntrusted marks the text of the result as data, like
+	// ListProposalsInput.WrapUntrusted.
+	WrapUntrusted bool `json:"-"`
 }
 
 // ListAssumptionsInput is the input of list_assumptions.
