@@ -135,6 +135,17 @@ func (s *Server) Handler() http.Handler {
 	}
 	route("GET /api/v1/workers", serve(s, http.StatusOK, noInput, list(noArg(t.ListWorkers))))
 	route("GET /api/v1/machines", serve(s, http.StatusOK, listMachinesInput, list(t.ListMachines)))
+	route("GET /api/v1/tracker-connections", serve(s, http.StatusOK, noInput, list(noArg(t.ListTrackerConnections))))
+	route("POST /api/v1/tracker-connections", serve(s, http.StatusCreated, bodyOf[mcp.CreateTrackerConnectionInput], t.CreateTrackerConnection))
+	route("GET /api/v1/tracker-routes", serve(s, http.StatusOK, trackerFilterInput, list(t.ListTrackerRoutes)))
+	route("POST /api/v1/tracker-routes", serve(s, http.StatusCreated, bodyOf[mcp.CreateTrackerRouteInput], t.CreateTrackerRoute))
+	route("DELETE /api/v1/tracker-routes/{route}", serve(s, http.StatusOK, trackerRouteInput, t.DeleteTrackerRoute))
+	route("GET /api/v1/tracker-identities", serve(s, http.StatusOK, trackerFilterInput, list(t.ListTrackerIdentities)))
+	route("POST /api/v1/tracker-identities", serve(s, http.StatusCreated, bodyOf[mcp.MapTrackerIdentityInput], t.MapTrackerIdentity))
+	route("DELETE /api/v1/tracker-identities/{identity}", serve(s, http.StatusOK, trackerIdentityInput, t.UnmapTrackerIdentity))
+	route("GET /api/v1/tickets/waiting", serve(s, http.StatusOK, ticketsWaitingInput, list(t.ListTicketsWaiting)))
+	route("POST /api/v1/tickets/{ticket}/accept", serve(s, http.StatusOK, acceptTicketInput, t.AcceptTicket))
+	route("POST /api/v1/tickets/{ticket}/dismiss", serve(s, http.StatusOK, dismissTicketInput, t.DismissTicket))
 	route("GET /api/v1/shapes", serve(s, http.StatusOK, noInput, list(noArg(t.ListShapes))))
 	route("GET /api/v1/providers", serve(s, http.StatusOK, listProvidersInput, list(t.ListProviders)))
 	route("GET /api/v1/fleet", serve(s, http.StatusOK, noInput, noArg(t.FleetOverview)))
@@ -249,6 +260,18 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/changes/{change}/verification": tool[mcp.ToolVerificationReport],
 		"GET /api/v1/quality":                       tool[mcp.ToolProjectQuality],
 		"GET /api/v1/trace":                         tool[mcp.ToolGetTrace],
+
+		"GET /api/v1/tracker-connections":              tool[mcp.ToolListTrackerConnections],
+		"POST /api/v1/tracker-connections":             tool[mcp.ToolCreateTrackerConnection],
+		"GET /api/v1/tracker-routes":                   tool[mcp.ToolListTrackerRoutes],
+		"POST /api/v1/tracker-routes":                  tool[mcp.ToolCreateTrackerRoute],
+		"DELETE /api/v1/tracker-routes/{route}":        tool[mcp.ToolDeleteTrackerRoute],
+		"GET /api/v1/tracker-identities":               tool[mcp.ToolListTrackerIdentities],
+		"POST /api/v1/tracker-identities":              tool[mcp.ToolMapTrackerIdentity],
+		"DELETE /api/v1/tracker-identities/{identity}": tool[mcp.ToolUnmapTrackerIdentity],
+		"GET /api/v1/tickets/waiting":                  tool[mcp.ToolListTicketsWaiting],
+		"POST /api/v1/tickets/{ticket}/accept":         tool[mcp.ToolAcceptTicket],
+		"POST /api/v1/tickets/{ticket}/dismiss":        tool[mcp.ToolDismissTicket],
 
 		"GET /api/v1/workers":   tool[mcp.ToolListWorkers],
 		"GET /api/v1/machines":  tool[mcp.ToolListMachines],
@@ -410,6 +433,15 @@ func confirmJoinInput(r *http.Request) (mcp.ConfirmJoinInput, error) {
 	return in, err
 }
 
+// optionalBody is bodyOf for a body that may be left out.
+func optionalBody[In any](r *http.Request) (In, error) {
+	in, err := bodyOf[In](r)
+	if errors.Is(err, io.EOF) {
+		err = nil
+	}
+	return in, err
+}
+
 func projectInput(r *http.Request) (mcp.ProjectInput, error) {
 	return mcp.ProjectInput{Project: r.PathValue("project")}, nil
 }
@@ -559,6 +591,34 @@ func listJobsInput(r *http.Request) (mcp.ListJobsInput, error) {
 	return mcp.ListJobsInput{
 		Project: q.Get("project"), Goal: q.Get("goal"), Status: domain.JobStatus(q.Get("status")), Limit: int(limit),
 	}, err
+}
+
+func trackerFilterInput(r *http.Request) (mcp.TrackerConnectionFilterInput, error) {
+	return mcp.TrackerConnectionFilterInput{Connection: r.URL.Query().Get("connection")}, nil
+}
+
+func trackerRouteInput(r *http.Request) (mcp.TrackerRouteRefInput, error) {
+	return mcp.TrackerRouteRefInput{Route: r.PathValue("route")}, nil
+}
+
+func trackerIdentityInput(r *http.Request) (mcp.TrackerIdentityRefInput, error) {
+	return mcp.TrackerIdentityRefInput{Identity: r.PathValue("identity")}, nil
+}
+
+func ticketsWaitingInput(r *http.Request) (mcp.ListTicketsWaitingInput, error) {
+	return mcp.ListTicketsWaitingInput{Project: r.URL.Query().Get("project")}, nil
+}
+
+func acceptTicketInput(r *http.Request) (mcp.AcceptTicketInput, error) {
+	in, err := optionalBody[mcp.AcceptTicketInput](r)
+	in.Ticket = r.PathValue("ticket")
+	return in, err
+}
+
+func dismissTicketInput(r *http.Request) (mcp.DismissTicketInput, error) {
+	in, err := optionalBody[mcp.DismissTicketInput](r)
+	in.Ticket = r.PathValue("ticket")
+	return in, err
 }
 
 func listMachinesInput(r *http.Request) (mcp.ListMachinesInput, error) {

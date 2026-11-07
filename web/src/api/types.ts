@@ -7,6 +7,7 @@ export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancele
 export type GateKind =
   | "profile_approval" | "spec_approval" | "merge_approval" | "test_plan_approval" | "needs_you"
   | "assumption_review" | "council_decision" | "knowledge_proposal" | "access_request" | "improvement_proposal"
+  | "ticket_intake"
 /** What opened a gate: a playbook step, or a job asking a human (`ask_human`). Absent means a playbook. */
 export type GateOrigin = "playbook" | "ask_human"
 export type GateStatus = "pending" | "approved" | "changes_requested" | "rejected"
@@ -135,11 +136,19 @@ export interface GateInfo extends Gate {
   url?: string
 }
 
+export interface GoalTicket {
+  key: string
+  url?: string
+  connection: string
+  status: string
+}
+
 export interface GoalDetail {
   goal: Goal
   ref: string
   project: string
   url?: string
+  ticket?: GoalTicket
   spec?: Spec
   tasks: Task[]
   gates: GateInfo[]

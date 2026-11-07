@@ -32,6 +32,7 @@ import (
 	"github.com/forecrew/forecrew/internal/roles"
 	"github.com/forecrew/forecrew/internal/secrets"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/tracker"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -113,8 +114,10 @@ type Config struct {
 	// Proposals serves propose_knowledge; nil answers unavailable.
 	Proposals *proposals.Service
 	// Fleet serves fleet_overview; nil answers unavailable.
-	Fleet  FleetService
-	Logger *slog.Logger // defaults to discarding
+	Fleet FleetService
+	// Trackers serves the tracker tools; nil answers unavailable.
+	Trackers *tracker.Service
+	Logger   *slog.Logger // defaults to discarding
 	// GitHubUserID turns a GitHub login into its stable ID, wrapping
 	// auth.ErrNoGitHubUser for an unknown login; invitations by login answer
 	// unavailable without it.

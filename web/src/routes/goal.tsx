@@ -157,6 +157,7 @@ export function GoalPage() {
             </Link>
             {d.goal.platforms?.length ? <span>Platforms: {d.goal.platforms.join(", ")}</span> : null}
             {d.url ? <ExternalLink href={d.url}>Goal issue</ExternalLink> : null}
+            {d.ticket?.url ? <ExternalLink href={d.ticket.url}>Ticket {d.ticket.key}</ExternalLink> : null}
             <Link to="/knowledge" search={{ project: d.project, tab: "notes", goal: d.ref }} className="text-primary underline underline-offset-2">
               Agent notes
             </Link>

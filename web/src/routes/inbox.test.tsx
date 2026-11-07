@@ -151,6 +151,19 @@ test("a needs-you gate offers retry and reject, not request changes", async () =
   expect(within(gate).queryByLabelText("What should change?")).not.toBeInTheDocument()
 })
 
+test("a ticket gate offers approve and reject, not request changes", async () => {
+  const ticket = { ...fx.gates[0], kind: "ticket_intake", title: "Accept ticket ENG-7 from jira" }
+  server.use(http.get("/api/v1/gates", () => HttpResponse.json([ticket])))
+  const { user } = await renderApp("/inbox")
+  const gate = await screen.findByRole("article", { name: /GATE-9/ })
+  expect(within(gate).getByText("Ticket")).toBeInTheDocument()
+  expect(within(gate).getByRole("button", { name: "Approve" })).toBeInTheDocument()
+  expect(within(gate).getByRole("button", { name: "Reject" })).toBeInTheDocument()
+  expect(within(gate).queryByRole("button", { name: "Request changes" })).not.toBeInTheDocument()
+  await user.keyboard("r")
+  expect(within(gate).queryByLabelText("What should change?")).not.toBeInTheDocument()
+})
+
 test("a refused decision shows the error on the card", async () => {
   server.use(http.post("/api/v1/gates/:ref/approve", errors.conflict))
   const { user } = await renderApp("/inbox")

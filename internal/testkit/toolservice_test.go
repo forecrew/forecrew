@@ -75,6 +75,23 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.ListShapes(ctx, by); return err },
 		func() error { _, err := s.ListProviders(ctx, by, mcp.ListProvidersInput{}); return err },
 		func() error { _, err := s.FleetOverview(ctx, by); return err },
+		func() error { _, err := s.ListTrackerConnections(ctx, by); return err },
+		func() error {
+			_, err := s.CreateTrackerConnection(ctx, by, mcp.CreateTrackerConnectionInput{})
+			return err
+		},
+		func() error { _, err := s.ListTrackerRoutes(ctx, by, mcp.TrackerConnectionFilterInput{}); return err },
+		func() error { _, err := s.CreateTrackerRoute(ctx, by, mcp.CreateTrackerRouteInput{}); return err },
+		func() error { _, err := s.DeleteTrackerRoute(ctx, by, mcp.TrackerRouteRefInput{}); return err },
+		func() error {
+			_, err := s.ListTrackerIdentities(ctx, by, mcp.TrackerConnectionFilterInput{})
+			return err
+		},
+		func() error { _, err := s.MapTrackerIdentity(ctx, by, mcp.MapTrackerIdentityInput{}); return err },
+		func() error { _, err := s.UnmapTrackerIdentity(ctx, by, mcp.TrackerIdentityRefInput{}); return err },
+		func() error { _, err := s.ListTicketsWaiting(ctx, by, mcp.ListTicketsWaitingInput{}); return err },
+		func() error { _, err := s.AcceptTicket(ctx, by, mcp.AcceptTicketInput{}); return err },
+		func() error { _, err := s.DismissTicket(ctx, by, mcp.DismissTicketInput{}); return err },
 		func() error { _, err := s.GetTrace(ctx, by, mcp.GetTraceInput{}); return err },
 		func() error {
 			_, err := s.ListKnowledgeProposals(ctx, by, mcp.ListKnowledgeProposalsInput{})

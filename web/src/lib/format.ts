@@ -77,6 +77,7 @@ const GATE_KINDS: Record<GateKind, string> = {
   knowledge_proposal: "Knowledge proposal",
   access_request: "Access request",
   improvement_proposal: "Improvement proposal",
+  ticket_intake: "Ticket",
 }
 export const gateKindLabel = (k: GateKind) => GATE_KINDS[k]
 

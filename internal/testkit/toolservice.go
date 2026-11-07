@@ -77,6 +77,18 @@ type ToolService struct {
 	ListJoinCodesFunc          func(context.Context, domain.Actor, mcp.ListJoinCodesInput) ([]mcp.JoinCodeInfo, error)
 	ConfirmJoinFunc            func(context.Context, domain.Actor, mcp.ConfirmJoinInput) (mcp.ProviderInfo, error)
 
+	ListTrackerConnectionsFunc  func(context.Context, domain.Actor, any) ([]domain.TrackerConnection, error)
+	CreateTrackerConnectionFunc func(context.Context, domain.Actor, mcp.CreateTrackerConnectionInput) (domain.TrackerConnection, error)
+	ListTrackerRoutesFunc       func(context.Context, domain.Actor, mcp.TrackerConnectionFilterInput) ([]mcp.TrackerRouteInfo, error)
+	CreateTrackerRouteFunc      func(context.Context, domain.Actor, mcp.CreateTrackerRouteInput) (mcp.TrackerRouteInfo, error)
+	DeleteTrackerRouteFunc      func(context.Context, domain.Actor, mcp.TrackerRouteRefInput) (domain.TrackerRoute, error)
+	ListTrackerIdentitiesFunc   func(context.Context, domain.Actor, mcp.TrackerConnectionFilterInput) ([]domain.TrackerIdentity, error)
+	MapTrackerIdentityFunc      func(context.Context, domain.Actor, mcp.MapTrackerIdentityInput) (domain.TrackerIdentity, error)
+	UnmapTrackerIdentityFunc    func(context.Context, domain.Actor, mcp.TrackerIdentityRefInput) (domain.TrackerIdentity, error)
+	ListTicketsWaitingFunc      func(context.Context, domain.Actor, mcp.ListTicketsWaitingInput) ([]mcp.TicketInfo, error)
+	AcceptTicketFunc            func(context.Context, domain.Actor, mcp.AcceptTicketInput) (mcp.TicketInfo, error)
+	DismissTicketFunc           func(context.Context, domain.Actor, mcp.DismissTicketInput) (mcp.TicketInfo, error)
+
 	ListAssumptionsFunc   func(context.Context, domain.Actor, mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error)
 	ResolveAssumptionFunc func(context.Context, domain.Actor, mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error)
 	ListDecisionsFunc     func(context.Context, domain.Actor, mcp.ListDecisionsInput) ([]mcp.DecisionInfo, error)
@@ -478,6 +490,61 @@ func (s *ToolService) OpenArtifact(ctx context.Context, by domain.Actor, id stri
 		return domain.Artifact{}, nil, mcp.ErrNotFound
 	}
 	return s.OpenArtifactFunc(ctx, by, id)
+}
+
+// ListTrackerConnections implements mcp.ToolService.
+func (s *ToolService) ListTrackerConnections(ctx context.Context, by domain.Actor) ([]domain.TrackerConnection, error) {
+	return invoke[any](ctx, s, mcp.ToolListTrackerConnections, by, nil, s.ListTrackerConnectionsFunc)
+}
+
+// ListTrackerRoutes implements mcp.ToolService.
+func (s *ToolService) ListTrackerRoutes(ctx context.Context, by domain.Actor, in mcp.TrackerConnectionFilterInput) ([]mcp.TrackerRouteInfo, error) {
+	return invoke(ctx, s, mcp.ToolListTrackerRoutes, by, in, s.ListTrackerRoutesFunc)
+}
+
+// CreateTrackerConnection implements mcp.ToolService.
+func (s *ToolService) CreateTrackerConnection(ctx context.Context, by domain.Actor, in mcp.CreateTrackerConnectionInput) (domain.TrackerConnection, error) {
+	return invoke(ctx, s, mcp.ToolCreateTrackerConnection, by, in, s.CreateTrackerConnectionFunc)
+}
+
+// CreateTrackerRoute implements mcp.ToolService.
+func (s *ToolService) CreateTrackerRoute(ctx context.Context, by domain.Actor, in mcp.CreateTrackerRouteInput) (mcp.TrackerRouteInfo, error) {
+	return invoke(ctx, s, mcp.ToolCreateTrackerRoute, by, in, s.CreateTrackerRouteFunc)
+}
+
+// DeleteTrackerRoute implements mcp.ToolService.
+func (s *ToolService) DeleteTrackerRoute(ctx context.Context, by domain.Actor, in mcp.TrackerRouteRefInput) (domain.TrackerRoute, error) {
+	return invoke(ctx, s, mcp.ToolDeleteTrackerRoute, by, in, s.DeleteTrackerRouteFunc)
+}
+
+// ListTrackerIdentities implements mcp.ToolService.
+func (s *ToolService) ListTrackerIdentities(ctx context.Context, by domain.Actor, in mcp.TrackerConnectionFilterInput) ([]domain.TrackerIdentity, error) {
+	return invoke(ctx, s, mcp.ToolListTrackerIdentities, by, in, s.ListTrackerIdentitiesFunc)
+}
+
+// MapTrackerIdentity implements mcp.ToolService.
+func (s *ToolService) MapTrackerIdentity(ctx context.Context, by domain.Actor, in mcp.MapTrackerIdentityInput) (domain.TrackerIdentity, error) {
+	return invoke(ctx, s, mcp.ToolMapTrackerIdentity, by, in, s.MapTrackerIdentityFunc)
+}
+
+// UnmapTrackerIdentity implements mcp.ToolService.
+func (s *ToolService) UnmapTrackerIdentity(ctx context.Context, by domain.Actor, in mcp.TrackerIdentityRefInput) (domain.TrackerIdentity, error) {
+	return invoke(ctx, s, mcp.ToolUnmapTrackerIdentity, by, in, s.UnmapTrackerIdentityFunc)
+}
+
+// ListTicketsWaiting implements mcp.ToolService.
+func (s *ToolService) ListTicketsWaiting(ctx context.Context, by domain.Actor, in mcp.ListTicketsWaitingInput) ([]mcp.TicketInfo, error) {
+	return invoke(ctx, s, mcp.ToolListTicketsWaiting, by, in, s.ListTicketsWaitingFunc)
+}
+
+// AcceptTicket implements mcp.ToolService.
+func (s *ToolService) AcceptTicket(ctx context.Context, by domain.Actor, in mcp.AcceptTicketInput) (mcp.TicketInfo, error) {
+	return invoke(ctx, s, mcp.ToolAcceptTicket, by, in, s.AcceptTicketFunc)
+}
+
+// DismissTicket implements mcp.ToolService.
+func (s *ToolService) DismissTicket(ctx context.Context, by domain.Actor, in mcp.DismissTicketInput) (mcp.TicketInfo, error) {
+	return invoke(ctx, s, mcp.ToolDismissTicket, by, in, s.DismissTicketFunc)
 }
 
 // ConfigSchema implements mcp.ToolService.

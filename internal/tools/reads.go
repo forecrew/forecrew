@@ -187,7 +187,15 @@ func (s *Service) ListGoals(ctx context.Context, by domain.Actor, in mcp.ListGoa
 	if err != nil {
 		return nil, err
 	}
-	return slices.DeleteFunc(goals, func(g domain.Goal) bool { return !visible.Has(g.ProjectID) }), nil
+	goals = slices.DeleteFunc(goals, func(g domain.Goal) bool { return !visible.Has(g.ProjectID) })
+	if in.WrapUntrusted {
+		for i := range goals {
+			if err := s.markTicketText(ctx, &goals[i]); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return goals, nil
 }
 
 // ListJobs implements mcp.ToolService.
@@ -237,7 +245,15 @@ func (s *Service) GetGoal(ctx context.Context, by domain.Actor, in mcp.GoalRefIn
 	if err != nil {
 		return mcp.GoalDetail{}, fmt.Errorf("project of %s: %w", g.Ref(), err)
 	}
+	if in.WrapUntrusted {
+		if err := s.markTicketText(ctx, &g); err != nil {
+			return mcp.GoalDetail{}, err
+		}
+	}
 	d := mcp.GoalDetail{Goal: g, Ref: g.Ref(), Project: p.Name, URL: issueURL(p.Repo, g.IssueNumber)}
+	if d.Ticket, err = s.goalTicket(ctx, by.AccountID, g); err != nil {
+		return mcp.GoalDetail{}, err
+	}
 	switch spec, err := st.Specs().Latest(ctx, by.AccountID, g.ID); {
 	case err == nil:
 		d.Spec = &spec

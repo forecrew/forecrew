@@ -121,6 +121,18 @@ const (
 	ToolGetTrace               = "get_trace"
 	ToolListImages             = "list_images"
 
+	ToolListTrackerConnections  = "list_tracker_connections"
+	ToolCreateTrackerConnection = "create_tracker_connection"
+	ToolListTrackerRoutes       = "list_tracker_routes"
+	ToolCreateTrackerRoute      = "create_tracker_route"
+	ToolDeleteTrackerRoute      = "delete_tracker_route"
+	ToolListTrackerIdentities   = "list_tracker_identities"
+	ToolMapTrackerIdentity      = "map_tracker_identity"
+	ToolUnmapTrackerIdentity    = "unmap_tracker_identity"
+	ToolListTicketsWaiting      = "list_tickets_waiting"
+	ToolAcceptTicket            = "accept_ticket"
+	ToolDismissTicket           = "dismiss_ticket"
+
 	ToolConfigSchema   = "config_schema"
 	ToolConfigGet      = "config_get"
 	ToolConfigPlan     = "config_plan"
@@ -156,6 +168,8 @@ func Tools() []string {
 		ToolListRoleBindings, ToolCreateRoleBinding, ToolDeleteRoleBinding,
 		ToolListServiceAccounts, ToolCreateServiceAccount, ToolUpdateServiceAccount, ToolSetServiceAccount,
 		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview,
+		ToolListTrackerConnections, ToolCreateTrackerConnection, ToolListTrackerRoutes, ToolCreateTrackerRoute, ToolDeleteTrackerRoute,
+		ToolListTrackerIdentities, ToolMapTrackerIdentity, ToolUnmapTrackerIdentity, ToolListTicketsWaiting, ToolAcceptTicket, ToolDismissTicket,
 		ToolGetTrace, ToolListKnowledgeProposals, ToolListKnowledge,
 		ToolListImages,
 		ToolConfigSchema, ToolConfigGet, ToolConfigPlan, ToolConfigApply, ToolConfigRevert, ToolConfigExport, ToolConfigImport,
@@ -202,6 +216,28 @@ type ToolService interface {
 	JobStatus(ctx context.Context, by domain.Actor, in JobRefInput) (JobInfo, error)
 	JobLogs(ctx context.Context, by domain.Actor, in JobLogsInput) (JobLogsOutput, error)
 	ListWorkers(ctx context.Context, by domain.Actor) ([]WorkerInfo, error)
+	// ListTrackerConnections lists the organization's tracker connections.
+	ListTrackerConnections(ctx context.Context, by domain.Actor) ([]domain.TrackerConnection, error)
+	// CreateTrackerConnection connects a tracker, once its adapter says the
+	// connection can work.
+	CreateTrackerConnection(ctx context.Context, by domain.Actor, in CreateTrackerConnectionInput) (domain.TrackerConnection, error)
+	// ListTrackerRoutes lists routes in the order they are tried.
+	ListTrackerRoutes(ctx context.Context, by domain.Actor, in TrackerConnectionFilterInput) ([]TrackerRouteInfo, error)
+	CreateTrackerRoute(ctx context.Context, by domain.Actor, in CreateTrackerRouteInput) (TrackerRouteInfo, error)
+	DeleteTrackerRoute(ctx context.Context, by domain.Actor, in TrackerRouteRefInput) (domain.TrackerRoute, error)
+	// ListTrackerIdentities lists who is who on the trackers.
+	ListTrackerIdentities(ctx context.Context, by domain.Actor, in TrackerConnectionFilterInput) ([]domain.TrackerIdentity, error)
+	// MapTrackerIdentity maps a person on a tracker to a user, who must not
+	// hold more than the caller (No escalation).
+	MapTrackerIdentity(ctx context.Context, by domain.Actor, in MapTrackerIdentityInput) (domain.TrackerIdentity, error)
+	UnmapTrackerIdentity(ctx context.Context, by domain.Actor, in TrackerIdentityRefInput) (domain.TrackerIdentity, error)
+	// ListTicketsWaiting lists the tickets in the Inbox.
+	ListTicketsWaiting(ctx context.Context, by domain.Actor, in ListTicketsWaitingInput) ([]TicketInfo, error)
+	// AcceptTicket starts a waiting ticket's goal as the caller, or queues it
+	// under the project's limit.
+	AcceptTicket(ctx context.Context, by domain.Actor, in AcceptTicketInput) (TicketInfo, error)
+	// DismissTicket turns down a waiting ticket.
+	DismissTicket(ctx context.Context, by domain.Actor, in DismissTicketInput) (TicketInfo, error)
 	// ListMachines lists the organization's machines: those that exist, or
 	// those of one state.
 	ListMachines(ctx context.Context, by domain.Actor, in ListMachinesInput) ([]MachineInfo, error)
@@ -996,11 +1032,17 @@ type ProjectInput struct {
 type ListGoalsInput struct {
 	Project string            `json:"project,omitempty"`
 	Status  domain.GoalStatus `json:"status,omitempty"`
+	// WrapUntrusted marks the text of goals from tickets, as in
+	// SearchKnowledgeInput.
+	WrapUntrusted bool `json:"-"`
 }
 
 // GoalRefInput is the input of get_goal.
 type GoalRefInput struct {
 	Goal string `json:"goal"` // GOAL-3 or UUID
+	// WrapUntrusted marks the text of a goal from a ticket, as in
+	// SearchKnowledgeInput.
+	WrapUntrusted bool `json:"-"`
 }
 
 // GoalDetail is a goal with its latest spec, tasks and gates.
@@ -1009,9 +1051,11 @@ type GoalDetail struct {
 	Ref     string      `json:"ref"`     // GOAL-3
 	Project string      `json:"project"` // project name
 	// URL is the GitHub issue mirroring the goal, if any.
-	URL   string       `json:"url,omitempty"`
-	Spec  *domain.Spec `json:"spec,omitempty"` // latest revision
-	Tasks []TaskDetail `json:"tasks"`
+	URL string `json:"url,omitempty"`
+	// Ticket is the ticket the goal came from, if any.
+	Ticket *TicketInfo  `json:"ticket,omitempty"`
+	Spec   *domain.Spec `json:"spec,omitempty"` // latest revision
+	Tasks  []TaskDetail `json:"tasks"`
 	// Gates holds every gate of the goal, pending and decided.
 	Gates []GateInfo `json:"gates"`
 	// Assumptions holds the goal's register, by number: medium-impact ones
@@ -1101,6 +1145,85 @@ type DecisionInfo struct {
 	Ref string `json:"ref"` // DEC-9
 	// Assumptions are the refs of the assumptions the decision rests on.
 	Assumptions []string `json:"assumptions"`
+}
+
+// CreateTrackerConnectionInput is the input of create_tracker_connection.
+type CreateTrackerConnectionInput struct {
+	Name     string                 `json:"name"`
+	Kind     string                 `json:"kind"`             // the adapter, for example github
+	Config   map[string]any         `json:"config,omitempty"` // the adapter's settings, never a secret
+	Triggers domain.TrackerTriggers `json:"triggers"`
+}
+
+// TrackerConnectionFilterInput narrows a list to one connection.
+type TrackerConnectionFilterInput struct {
+	Connection string `json:"connection,omitempty"` // name or UUID
+}
+
+// CreateTrackerRouteInput is the input of create_tracker_route.
+type CreateTrackerRouteInput struct {
+	Connection string              `json:"connection"` // name or UUID
+	Project    string              `json:"project"`    // name or repo
+	Position   int                 `json:"position,omitempty"`
+	Match      domain.TrackerMatch `json:"match,omitzero"`
+	GoalKind   domain.GoalKind     `json:"goal_kind,omitempty"` // default: by the ticket's type
+	Playbook   string              `json:"playbook,omitempty"`  // default: the project's goal playbook
+	// States maps logical states to the tracker's.
+	States map[domain.TicketState]string `json:"states,omitempty"`
+}
+
+// TrackerRouteRefInput names a route.
+type TrackerRouteRefInput struct {
+	Route string `json:"route"` // UUID
+}
+
+// TrackerRouteInfo is a route with the names of what it joins.
+type TrackerRouteInfo struct {
+	domain.TrackerRoute
+	Connection string `json:"connection"`
+	Project    string `json:"project"`
+}
+
+// MapTrackerIdentityInput is the input of map_tracker_identity.
+type MapTrackerIdentityInput struct {
+	Connection   string `json:"connection"`  // name or UUID
+	ExternalID   string `json:"external_id"` // the tracker's stable user ID
+	ExternalName string `json:"external_name,omitempty"`
+	User         string `json:"user"` // UUID of a member
+}
+
+// TrackerIdentityRefInput names a mapping.
+type TrackerIdentityRefInput struct {
+	Identity string `json:"identity"` // UUID
+}
+
+// ListTicketsWaitingInput is the input of list_tickets_waiting.
+type ListTicketsWaitingInput struct {
+	Project string `json:"project,omitempty"` // name or repo
+	// WrapUntrusted marks ticket titles, as in SearchKnowledgeInput.
+	WrapUntrusted bool `json:"-"`
+}
+
+// AcceptTicketInput is the input of accept_ticket.
+type AcceptTicketInput struct {
+	Ticket  string `json:"ticket"`            // UUID, from list_tickets_waiting
+	Project string `json:"project,omitempty"` // required when no route gave one
+}
+
+// DismissTicketInput is the input of dismiss_ticket.
+type DismissTicketInput struct {
+	Ticket string `json:"ticket"` // UUID, from list_tickets_waiting
+	Reason string `json:"reason,omitempty"`
+}
+
+// TicketInfo is a ticket Forecrew was handed, with its refs. Title is ticket
+// text.
+type TicketInfo struct {
+	domain.TicketLink
+	Connection string `json:"connection"`
+	Project    string `json:"project,omitempty"`
+	GateRef    string `json:"gate_ref,omitempty"` // GATE-7: its ticket_intake gate
+	GoalRef    string `json:"goal_ref,omitempty"` // GOAL-3
 }
 
 // GetTraceInput is the input of get_trace.
