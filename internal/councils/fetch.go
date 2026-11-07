@@ -78,8 +78,10 @@ type Page struct {
 	ContentType string
 }
 
-// guard refuses a connection to an address that is not public.
-func guard(_, address string, _ syscall.RawConn) error {
+// GuardDial refuses a connection to an address that is not public: the
+// Control of a net.Dialer, so a name that changes its address after it was
+// checked reaches nothing private.
+func GuardDial(_, address string, _ syscall.RawConn) error {
 	ap, err := netip.ParseAddrPort(address)
 	if err != nil {
 		return fmt.Errorf("%w: address %s: %w", ErrRefused, address, err)
@@ -102,7 +104,7 @@ func (f *Fetcher) transport() http.RoundTripper {
 // see the proxy's address and not the target's.
 func PublicTransport() http.RoundTripper {
 	return &http.Transport{
-		DialContext:       (&net.Dialer{Control: guard}).DialContext,
+		DialContext:       (&net.Dialer{Control: GuardDial}).DialContext,
 		DisableKeepAlives: true,
 	}
 }
@@ -120,15 +122,25 @@ func (f *Fetcher) allow(ctx context.Context, u *url.URL) error {
 	if (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.Hostname() == "" {
 		return fmt.Errorf("%w: only plain http(s) URLs are fetched", ErrRefused)
 	}
+	return AllowHost(ctx, f.lookup, u.Hostname())
+}
+
+// AllowHost fails with ErrRefused unless every address of host, an IP or a
+// name that lookup resolves, is public. A host that does not resolve is
+// another error.
+func AllowHost(ctx context.Context, lookup func(ctx context.Context, host string) ([]netip.Addr, error), host string) error {
 	addrs := []netip.Addr{}
-	if a, err := netip.ParseAddr(u.Hostname()); err == nil {
+	if a, err := netip.ParseAddr(host); err == nil {
 		addrs = append(addrs, a)
-	} else if addrs, err = f.lookup(ctx, u.Hostname()); err != nil {
-		return fmt.Errorf("resolve %s: %w", u.Hostname(), err)
+	} else if addrs, err = lookup(ctx, host); err != nil {
+		return fmt.Errorf("resolve %s: %w", host, err)
+	}
+	if len(addrs) == 0 {
+		return fmt.Errorf("resolve %s: no address", host)
 	}
 	for _, a := range addrs {
 		if !Public(a) {
-			return fmt.Errorf("%w: %s is not a public address", ErrRefused, a.Unmap())
+			return fmt.Errorf("%w: %s is %s, not a public address", ErrRefused, host, a.Unmap())
 		}
 	}
 	return nil
