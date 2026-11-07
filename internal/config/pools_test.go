@@ -60,8 +60,12 @@ func TestParseFleet(t *testing.T) {
 		t.Fatalf("fleet = %+v, %v", c.Fleet, err)
 	}
 	c, err = Parse([]byte(validYAML), env(nil))
-	if err != nil || c.Fleet.Currency != DefaultFleetCurrency {
+	if err != nil || c.Fleet.Currency != DefaultFleetCurrency || c.Fleet.Hosted {
 		t.Fatalf("default = %+v, %v", c.Fleet, err)
+	}
+	c, err = Parse([]byte(validYAML+"fleet:\n  hosted: true\n"), env(nil))
+	if err != nil || !c.Fleet.Hosted {
+		t.Fatalf("hosted = %+v, %v", c.Fleet, err)
 	}
 }
 
