@@ -68,6 +68,11 @@ var (
 	ErrNoProject = errors.New("no project")
 	// ErrUnknownConnection means the organization has no such connection.
 	ErrUnknownConnection = errors.New("unknown connection")
+	// ErrInvalidModel means a model's name is not one a connection lists.
+	ErrInvalidModel = errors.New("invalid model name")
+	// ErrTestRunning means the model is being tested on the connection
+	// already: one test at a time.
+	ErrTestRunning = errors.New("a test is running")
 )
 
 // JobCreator creates jobs, in the transaction of st; *jobs.Service is one.
@@ -225,6 +230,16 @@ func (c *Checker) test(ctx context.Context, tx store.Store, by domain.Actor, con
 	if !conn.Enabled {
 		return domain.ModelCheck{}, fmt.Errorf("connection %s is turned off: %w", conn.Name, ErrUnknownConnection)
 	}
+	if !ValidModelName(model) {
+		return domain.ModelCheck{}, fmt.Errorf("model %q: %w", model, ErrInvalidModel)
+	}
+	// Two callers at once must not both find the model idle.
+	if err := tx.ModelChecks().Lock(ctx, conn.AccountID, conn.ID, model); err != nil {
+		return domain.ModelCheck{}, err
+	}
+	if err := c.idle(ctx, tx, conn, model); err != nil {
+		return domain.ModelCheck{}, err
+	}
 	p, err := home(ctx, tx, by.AccountID)
 	if err != nil {
 		return domain.ModelCheck{}, err
@@ -239,6 +254,28 @@ func (c *Checker) test(ctx context.Context, tx store.Store, by domain.Actor, con
 	}
 	row := domain.ModelCheck{AccountID: by.AccountID, ConnectionID: conn.ID, Connection: conn.Name, Model: model, JobID: j.ID, Status: domain.SuitabilityQueued, CreatedBy: by.String()}
 	return row, tx.ModelChecks().Put(ctx, &row)
+}
+
+// idle fails with ErrTestRunning while a test of model on conn has a job
+// that has not ended.
+func (c *Checker) idle(ctx context.Context, tx store.Store, conn domain.ModelConnection, model string) error {
+	rows, err := tx.ModelChecks().List(ctx, conn.AccountID)
+	if err != nil {
+		return err
+	}
+	for _, r := range rows {
+		if r.ConnectionID != conn.ID || r.Model != model || r.Status != domain.SuitabilityQueued {
+			continue
+		}
+		j, err := tx.Jobs().Get(ctx, conn.AccountID, r.JobID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		if err == nil && !j.Status.Terminal() {
+			return fmt.Errorf("model %s on %s is being tested (%s): %w", model, conn.Name, j.Ref(), ErrTestRunning)
+		}
+	}
+	return nil
 }
 
 // nonce is the code word of a test.
@@ -306,7 +343,7 @@ func keyResult(j domain.Job) *domain.ModelCheckResult {
 	if j.Status != domain.JobSucceeded || json.Unmarshal(j.Output, &r) != nil || !slices.Contains(keyStatuses, r.Status) {
 		return failed
 	}
-	r.Models = slices.DeleteFunc(r.Models, func(m string) bool { return len(m) > maxModelName || !modelName.MatchString(m) })
+	r.Models = slices.DeleteFunc(r.Models, func(m string) bool { return !ValidModelName(m) })
 	if len(r.Models) > maxProbeModels {
 		r.Models = r.Models[:maxProbeModels]
 	}

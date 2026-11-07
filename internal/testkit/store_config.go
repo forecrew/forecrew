@@ -413,6 +413,10 @@ func (r modelCheckRepo) Put(_ context.Context, c *domain.ModelCheck) error {
 	})
 }
 
+// Lock implements store.ModelCheckRepo: the fake's transactions already
+// run one at a time.
+func (modelCheckRepo) Lock(context.Context, uuid.UUID, uuid.UUID, string) error { return nil }
+
 func (r modelCheckRepo) GetByJob(_ context.Context, accountID, jobID uuid.UUID) (domain.ModelCheck, error) {
 	return read(r.s, func(d *storeData) (domain.ModelCheck, error) {
 		row, err := d.modelChecks.find(func(x domain.ModelCheck) bool { return x.AccountID == accountID && x.JobID == jobID })

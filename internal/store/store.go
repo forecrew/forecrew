@@ -1560,6 +1560,10 @@ type ModelCheckRepo interface {
 	// GetByJob returns the row of a job; ErrNotFound when a newer check
 	// replaced it.
 	GetByJob(ctx context.Context, accountID, jobID uuid.UUID) (domain.ModelCheck, error)
+	// Lock holds, until the transaction ends, the lock of the checks of
+	// model on a connection, so two callers never both find it idle. Call it
+	// in a transaction.
+	Lock(ctx context.Context, accountID, connectionID uuid.UUID, model string) error
 }
 
 // SecretRepo stores encrypted secrets; internal/secrets holds the key. The

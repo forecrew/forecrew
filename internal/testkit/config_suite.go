@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -365,6 +366,9 @@ func configChecks(t *testing.T, st store.Store, accountID uuid.UUID, c domain.Mo
 		rows[1].Test == nil || !rows[1].Test.Abilities[domain.AbilityRead] || !rows[1].Stale || rows[1].CreatedAt.IsZero() {
 		t.Fatalf("checks = %+v, %v", rows, err)
 	}
+	must(st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		return tx.ModelChecks().Lock(ctx, accountID, c.ID, "glm-4.6")
+	}))
 	got, err := st.ModelChecks().GetByJob(ctx, accountID, jobID)
 	if err != nil || got.JobID != jobID {
 		t.Fatalf("by job = %+v, %v", got, err)

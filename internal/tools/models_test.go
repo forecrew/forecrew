@@ -71,10 +71,13 @@ func TestModelsCheckAndTest(t *testing.T) {
 	if run.Test == nil || run.Test.Status != domain.SuitabilityQueued {
 		t.Fatalf("run = %+v", run)
 	}
-	for _, in := range []mcp.ModelsTestInput{{Connection: "cloud"}, {Connection: "nope", Model: "m"}} {
+	for _, in := range []mcp.ModelsTestInput{{Connection: "cloud"}, {Connection: "cloud", Model: "bad name"}, {Connection: "nope", Model: "m"}} {
 		if _, err := f.svc.ModelsTest(ctx, by, in); err == nil {
 			t.Errorf("%+v: no error", in)
 		}
+	}
+	if _, err := f.svc.ModelsTest(ctx, by, mcp.ModelsTestInput{Connection: "cloud", Model: "claude-sonnet-4-5", Run: true}); !errors.Is(err, mcp.ErrConflict) {
+		t.Errorf("a second run = %v", err)
 	}
 }
 

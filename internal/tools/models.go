@@ -32,6 +32,10 @@ func checkError(err error) error {
 		return fmt.Errorf("%v: %w", err, mcp.ErrNotFound)
 	case errors.Is(err, models.ErrNoProject), errors.Is(err, jobs.ErrInvalid), errors.Is(err, config.ErrNotAllowed):
 		return fmt.Errorf("%v: %w", err, mcp.ErrUnavailable)
+	case errors.Is(err, models.ErrTestRunning):
+		return fmt.Errorf("%v: %w", err, mcp.ErrConflict)
+	case errors.Is(err, models.ErrInvalidModel):
+		return fmt.Errorf("%v: %w", err, mcp.ErrInvalidInput)
 	}
 	return err
 }
@@ -83,8 +87,8 @@ func (s *Service) ModelsTest(ctx context.Context, by domain.Actor, in mcp.Models
 	if err != nil {
 		return mcp.ModelsTestOutput{}, err
 	}
-	if strings.TrimSpace(in.Model) == "" {
-		return mcp.ModelsTestOutput{}, fmt.Errorf("model is required: %w", mcp.ErrInvalidInput)
+	if !models.ValidModelName(in.Model) {
+		return mcp.ModelsTestOutput{}, fmt.Errorf("model %q is not a model name: letters, digits and . _ : / @ + -, at most 200: %w", in.Model, mcp.ErrInvalidInput)
 	}
 	conn, err := s.modelConnection(ctx, by.AccountID, in.Connection)
 	if err != nil {

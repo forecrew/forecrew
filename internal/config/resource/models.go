@@ -142,20 +142,18 @@ func modelConnectionValidate(_ context.Context, _ *Env, old *Resource, want Reso
 // Limits of what people enter of models.
 const maxModelInfo = 200
 
-var (
-	modelNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,199}$`)
-	makerRE     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
-)
+// makerRE is the form of a maker's name.
+var makerRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 
 // checkModelInfo checks the models entered on a connection.
-func checkModelInfo(models map[string]domain.ModelInfo) error {
-	if len(models) > maxModelInfo {
+func checkModelInfo(entered map[string]domain.ModelInfo) error {
+	if len(entered) > maxModelInfo {
 		return invalid("models: at most %d", maxModelInfo)
 	}
-	for _, name := range slices.Sorted(maps.Keys(models)) {
-		m := models[name]
+	for _, name := range slices.Sorted(maps.Keys(entered)) {
+		m := entered[name]
 		switch {
-		case !modelNameRE.MatchString(name):
+		case !models.ValidModelName(name):
 			return invalid("models: %q is not a model name", name)
 		case m.Maker != "" && !makerRE.MatchString(m.Maker):
 			return invalid("models.%s.maker must be lowercase letters, digits and -", name)
