@@ -37,6 +37,7 @@ const (
 	PrefixInvitation = "fci_"
 	PrefixCode       = "fco_"
 	PrefixRefresh    = "fcr_"
+	PrefixSCIM       = "fcscim_"
 )
 
 // CookieName is the cookie of a browser session.
@@ -60,6 +61,29 @@ var ErrNoSession = errors.New("not signed in")
 // active member of.
 var ErrNotMember = errors.New("not an active member of that organization")
 
+// ErrSSORequired means the organization takes the user only through the
+// connection it enforces.
+var ErrSSORequired = errors.New("this organization requires its single sign-on")
+
+// Policy is the enterprise side of a sign-in (ee/). Its methods run inside
+// the sign-in's transaction, so a refused sign-in keeps nothing.
+type Policy interface {
+	// Provisions says whether conn may bring in someone nobody invited.
+	Provisions(conn domain.Connection) bool
+	// Admit runs once the user is known: just-in-time membership and group
+	// mapping. An error stops the sign-in.
+	Admit(ctx context.Context, tx store.Store, conn domain.Connection, c Claims, user domain.User) error
+}
+
+// noPolicy is the open-core build: invitations only, no groups.
+type noPolicy struct{}
+
+func (noPolicy) Provisions(domain.Connection) bool { return false }
+
+func (noPolicy) Admit(context.Context, store.Store, domain.Connection, Claims, domain.User) error {
+	return nil
+}
+
 // Config holds the dependencies of a Service.
 type Config struct {
 	Store store.Store
@@ -80,6 +104,8 @@ type Config struct {
 	ReadFile func(string) ([]byte, error)
 	// Secrets resolves store: references; nil refuses them.
 	Secrets secrets.Store
+	// Policy is registered by the enterprise build; nil is open core.
+	Policy Policy
 }
 
 // Service signs people in and resolves sessions.
@@ -127,6 +153,9 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Auth.SessionAbsolute == 0 {
 		cfg.Auth.SessionAbsolute = config.DefaultSessionAbsolute
+	}
+	if cfg.Policy == nil {
+		cfg.Policy = noPolicy{}
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
 	return &Service{cfg: cfg, authz: authz.New(cfg.Store, cfg.Logger), oidc: map[string]*oidc.Provider{}, cliCodes: map[[32]byte]cliCode{}, tests: map[[32]byte]pendingTest{}}

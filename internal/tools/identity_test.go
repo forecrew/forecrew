@@ -1,6 +1,7 @@
 package tools_test
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -347,4 +348,37 @@ func TestInvitationRefused(t *testing.T) {
 	noLookup := tools.New(tools.Config{Store: f.st})
 	_, err = noLookup.CreateInvitation(ctx, owner, mcp.CreateInvitationInput{GitHubLogin: "bea", Roles: roles})
 	wantErr(t, err, mcp.ErrUnavailable)
+}
+
+func TestTokenCapUnderEnforcement(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	by := f.person(t, "ana@acme.example", domain.RoleAdmin)
+	d := domain.VerifiedDomain{AccountID: f.account.ID, Domain: "acme.example", VerificationToken: "t"}
+	must(t, f.st.VerifiedDomains().Create(ctx, &d))
+	must(t, f.st.VerifiedDomains().SetVerified(ctx, f.account.ID, d.ID, true))
+	conn := domain.Connection{AccountID: f.account.ID, Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://idp.example", ClientID: "c", ClientSecretRef: "env:FORECREW_CONN_X", Enabled: true}
+	must(t, f.st.Connections().Create(ctx, &conn))
+	must(t, f.st.VerifiedDomains().SetEnforcement(ctx, f.account.ID, d.ID, true, conn.ID))
+	must(t, f.st.Accounts().SetMaxTokenTTL(ctx, f.account.ID, domain.DefaultSSOTokenTTL))
+
+	out, err := f.svc.CreateToken(ctx, by, mcp.CreateTokenInput{Name: "default", Scopes: scopes(domain.ScopeRead)})
+	must(t, err)
+	if left := time.Until(out.Token.ExpiresAt); left > domain.DefaultSSOTokenTTL {
+		t.Errorf("a default token lasts %s", left)
+	}
+	if _, err := f.svc.CreateToken(ctx, by, mcp.CreateTokenInput{Name: "long", Scopes: scopes(domain.ScopeRead), TTL: "720h"}); !errors.Is(err, mcp.ErrInvalidInput) {
+		t.Errorf("above the cap: %v", err)
+	}
+	if _, err := f.svc.CreateToken(ctx, by, mcp.CreateTokenInput{Name: "short", Scopes: scopes(domain.ScopeRead), TTL: "24h"}); err != nil {
+		t.Errorf("within the cap: %v", err)
+	}
+	sa := domain.ServiceAccount{AccountID: f.account.ID, Name: "ci", CreatedBy: "user:x"}
+	must(t, f.st.ServiceAccounts().Create(ctx, &sa))
+	viewer, err := f.st.Roles().GetByName(ctx, f.account.ID, domain.RoleScopeOrganization, domain.RoleViewer)
+	must(t, err)
+	must(t, f.st.RoleBindings().Create(ctx, &domain.RoleBinding{AccountID: f.account.ID, SubjectKind: domain.SubjectServiceAccount, SubjectID: sa.ID, RoleID: viewer.ID, CreatedBy: "user:x"}))
+	if _, err := f.svc.CreateToken(ctx, by, mcp.CreateTokenInput{Name: "bot", ServiceAccount: "ci", Scopes: scopes(domain.ScopeRead), TTL: "720h"}); err != nil {
+		t.Errorf("a service account is not capped: %v", err)
+	}
 }

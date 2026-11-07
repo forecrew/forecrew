@@ -57,9 +57,10 @@ type Config struct {
 
 // Server is the /api/v1 handler.
 type Server struct {
-	cfg    Config
-	auth   func(http.Handler) http.Handler
-	routes []string // patterns registered by Handler
+	cfg      Config
+	auth     func(http.Handler) http.Handler
+	routes   []string // patterns registered by Handler
+	discover ipLimit  // of the public sign-in discovery
 }
 
 // New returns the API, to be mounted at /api/v1/.
@@ -67,7 +68,10 @@ func New(cfg Config) *Server {
 	if cfg.SessionMaxAge == 0 {
 		cfg.SessionMaxAge = config.DefaultSessionAbsolute
 	}
-	return &Server{cfg: cfg, auth: mcp.Authenticate(cfg.Store, cfg.Now, cfg.Logger)}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	return &Server{cfg: cfg, auth: mcp.Authenticate(cfg.Store, cfg.Now, cfg.Logger), discover: ipLimit{now: cfg.Now, calls: map[string]int{}}}
 }
 
 // Handler returns the routes under /api/v1/.
@@ -82,7 +86,7 @@ func (s *Server) Handler() http.Handler {
 
 	handle("POST /api/v1/session", http.HandlerFunc(s.login))
 	handle("DELETE /api/v1/session", http.HandlerFunc(s.logout))
-	handle("POST /api/v1/auth/discover", http.HandlerFunc(s.discover))
+	handle("POST /api/v1/auth/discover", s.limited(http.HandlerFunc(s.signInOptions)))
 	signedIn := func(pattern string, h http.Handler) { handle(pattern, s.protect(s.guard(pattern, h))) }
 	signedIn("GET /api/v1/me", http.HandlerFunc(s.me))
 	signedIn("PUT /api/v1/session/organization", http.HandlerFunc(s.switchOrganization))

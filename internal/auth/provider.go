@@ -29,6 +29,10 @@ type Claims struct {
 	Email         string
 	EmailVerified bool
 	Name          string
+	// Groups are the groups of the connection's group claim: empty when the
+	// provider names none, nil when it did not say, so group mapping leaves
+	// the teams as they are.
+	Groups []string
 }
 
 // provider is the sign-in protocol of a connection.
@@ -73,7 +77,7 @@ func (s *Service) provider(ctx context.Context, c domain.Connection) (provider, 
 	}
 	conf.Endpoint = p.Endpoint()
 	conf.Scopes = []string{oidc.ScopeOpenID, "email", "profile"}
-	return oidcProvider{conf: conf, client: s.client(c), verifier: p.Verifier(&oidc.Config{ClientID: c.ClientID, Now: s.cfg.Now}), microsoft: c.Kind == domain.ConnectionMicrosoft}, nil
+	return oidcProvider{conf: conf, client: s.client(c), verifier: p.Verifier(&oidc.Config{ClientID: c.ClientID, Now: s.cfg.Now}), microsoft: c.Kind == domain.ConnectionMicrosoft, groupClaim: c.GroupClaim}, nil
 }
 
 // discover returns the cached discovery of issuer. The provider keeps its
@@ -99,6 +103,8 @@ type oidcProvider struct {
 	// microsoft goes by xms_edov: Entra's email claim is not verified by
 	// default and a tenant admin can set it to anything.
 	microsoft bool
+	// groupClaim is the ID token claim with the user's groups; empty for none.
+	groupClaim string
 }
 
 func (p oidcProvider) authURL(state, nonce, verifier string) string {
@@ -146,7 +152,39 @@ func (p oidcProvider) exchange(ctx context.Context, code, nonce, verifier string
 	if p.microsoft {
 		verified = bool(c.DomainOwnerProof)
 	}
-	return Claims{Subject: id.Subject, Login: c.PreferredUsername, Email: c.Email, EmailVerified: verified, Name: c.Name}, nil
+	claims := Claims{Subject: id.Subject, Login: c.PreferredUsername, Email: c.Email, EmailVerified: verified, Name: c.Name}
+	if p.groupClaim != "" {
+		var all map[string]json.RawMessage
+		if err := id.Claims(&all); err != nil {
+			return Claims{}, fmt.Errorf("read id token claims: %w", err)
+		}
+		claims.Groups = groupsOf(all, p.groupClaim)
+	}
+	return claims, nil
+}
+
+// groupsOf reads a group claim, a list or one string. A provider leaves the
+// claim out for someone in no group, so that is an empty list. Entra ID leaves
+// it out too when there are too many groups for a token, and says so in
+// _claim_names: then the groups are unknown, which is nil.
+func groupsOf(claims map[string]json.RawMessage, claim string) []string {
+	raw, ok := claims[claim]
+	if !ok {
+		var names map[string]json.RawMessage
+		if json.Unmarshal(claims["_claim_names"], &names) == nil && names[claim] != nil {
+			return nil
+		}
+		return []string{}
+	}
+	var list []string
+	if json.Unmarshal(raw, &list) == nil {
+		return append([]string{}, list...)
+	}
+	var one string
+	if json.Unmarshal(raw, &one) == nil && one != "" {
+		return []string{one}
+	}
+	return nil
 }
 
 // exchangeError drops what a provider answered: only its status is logged.
