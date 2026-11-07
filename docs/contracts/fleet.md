@@ -390,6 +390,19 @@ machines egress is narrower, model APIs, GitHub and package registries, and
 `fleet_policy.egress` adds to it (T65). A desired machine's `network_allow` is
 the sum of what applies.
 
+On a hosted machine that sum is `fleet.HostedEgress` (model APIs, GitHub, the
+usual package registries), the hosts of the organization's enabled model
+connections to custom endpoints, and its `egress`, with the location's own
+`network_allow` first; a warm machine, which has no organization, gets
+`fleet.HostedEgress` alone, and the rest with its organization on assignment
+(`Provider.Update`). The location keeps a hosted machine to that list
+(microVM `egress: allowlist`, docs/fleet.md): a name that does not resolve
+opens nothing, and no entry opens a private or link-local network, the host, a
+network of the host or another machine, whatever an organization writes. Every
+machine has its own network (a tap and a table of rules of its own, no bridge),
+so machines of one organization are apart from each other as much as from
+another's.
+
 ## Images
 
 `images` (`domain.Image`): `name`, `version`, `os`, `arch`, `format` (`rootfs`,
@@ -434,11 +447,24 @@ organization registers its own builds under its ID. The manifest of a build is
 `usage_records` (`domain.UsageRecord`), one per assigned machine, written when
 it is destroyed (T65): organization, machine, shape, `ownership`, `minutes`,
 `cost`, `started_at`, `ended_at`. A composite key ties the organization and shape
-to the machine's own, so a machine's cost cannot land on another organization. A machine is metered from `assigned_at` to
-`destroyed_at`, so the time a warm machine waits costs nobody; `cost` is
-`minutes` × the shape's `price_per_minute` then. An unassigned machine has no
-record. `UsageRepo.Create` refuses a second record for a machine, so metering
-can be retried.
+to the machine's own, so a machine's cost cannot land on another organization. A machine is metered from the later of
+`assigned_at` and `booting_at` to `destroyed_at` (`fleet.MeterStart`), so the
+time a warm machine waits costs nobody, and a machine kept `requested` by a
+location with no room costs nothing (one that never started has a record of 0
+minutes); `cost` is `minutes` × the shape's `price_per_minute` then, minutes to
+the thousandth and cost to the millionth, as the columns keep them. An
+unassigned machine has no record. `UsageRepo.Create` refuses a second record
+for a machine, so metering can be retried.
+
+The record is written in the transaction that moves the machine to
+`destroyed`, so a machine never ends without one and never gets two; the
+`machine.destroyed` audit entry carries its `minutes` and `cost`. Once an hour
+the controller also meters any destroyed machine left without a record
+(`UsageRepo.Unmetered`), with a `machine.metered` audit entry, so a record that
+was missed is late, never lost and never silent. Budgets and quotas count the
+month the same way (`MeterStart`). `fleet_usage` (`GET /api/v1/usage`, `forecrew
+usage`) reports an organization's month by shape and ownership, the input of
+billing.
 
 ## Permissions
 
