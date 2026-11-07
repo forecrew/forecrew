@@ -6,6 +6,7 @@ import type {
   JobLogs, JobStatus, KnowledgeKind, KnowledgeListing, KnowledgeProposal, KnowledgeProposalStatus, KnowledgeResult, Level,
   ConnectedApp, OnboardInput, OnboardResult, Project, ProposeKnowledgeInput, ProposeKnowledgeResult, QualityInfo, RevokeResult, Session, Token,
   Trace, VerificationInfo, Worker,
+  TicketInfo, TrackerConnection, TrackerIdentity, TrackerRoute, TrackerTest, UnmappedPeople,
   Proposal, ProposalCategory, ProposalDecision, ProposalStatus,
 } from "./types"
 
@@ -217,6 +218,17 @@ export const api = {
   registerImage: (manifest: ImageManifest) => request<{ name: string; version: string }>("POST", "/api/v1/images", manifest),
 
   listConnections: () => request<Connection[]>("GET", "/api/v1/connections"),
+
+  listTrackerConnections: () => request<TrackerConnection[]>("GET", "/api/v1/tracker-connections"),
+  testTrackerConnection: (name: string) => request<TrackerTest>("POST", `/api/v1/tracker-connections/${seg(name)}/test`),
+  listTrackerRoutes: () => request<TrackerRoute[]>("GET", "/api/v1/tracker-routes"),
+  listTrackerIdentities: () => request<TrackerIdentity[]>("GET", "/api/v1/tracker-identities"),
+  mapTrackerIdentity: (input: { connection: string; external_id: string; external_name?: string; user: string }) =>
+    request<TrackerIdentity>("POST", "/api/v1/tracker-identities", input),
+  listUnmappedPeople: () => request<UnmappedPeople>("GET", "/api/v1/tracker-people/unmapped"),
+  listWaitingTickets: () => request<TicketInfo[]>("GET", "/api/v1/tickets/waiting?queued=true"),
+  acceptTicket: (id: string, project?: string) => request<TicketInfo>("POST", `/api/v1/tickets/${seg(id)}/accept`, project ? { project } : {}),
+  dismissTicket: (id: string, reason?: string) => request<TicketInfo>("POST", `/api/v1/tickets/${seg(id)}/dismiss`, reason ? { reason } : {}),
   createConnection: (input: CreateConnectionInput) => request<Connection>("POST", "/api/v1/connections", input),
   setConnectionEnabled: (name: string, enabled: boolean) =>
     request<Connection>("POST", `/api/v1/connections/${seg(name)}/${enabled ? "enable" : "disable"}`),

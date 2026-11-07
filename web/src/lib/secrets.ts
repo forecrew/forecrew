@@ -10,6 +10,7 @@ const SECRET = new RegExp(
     "gh[pousr]_[A-Za-z0-9]{20,}",
     "github_pat_[A-Za-z0-9_]{20,}",
     "fc[wmpb]_[A-Za-z0-9_-]{20,}",
+    "lin_(api|oauth)_[A-Za-z0-9]{20,}",
     "A[KS]IA[A-Z0-9]{16}",
     "bearer\\s+[A-Za-z0-9._~+/=-]{16,}",
     "-----BEGIN [A-Z ]*PRIVATE KEY-----",

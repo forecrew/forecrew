@@ -207,6 +207,8 @@ export interface GoalTicket {
   url?: string
   connection: string
   status: string
+  /** The last logical state written to the ticket. */
+  state?: string
 }
 
 export interface GoalDetail {
@@ -1250,4 +1252,119 @@ export interface ImageManifest {
   signature: string
   built_at: string
   contents: Record<string, unknown>
+}
+
+// Trackers (docs/contracts/tracker.md).
+
+export type TicketState = "queued" | "in_progress" | "in_review" | "done" | "canceled"
+export const TICKET_STATES: TicketState[] = ["queued", "in_progress", "in_review", "done", "canceled"]
+export type TicketLinkStatus = "waiting" | "queued" | "active" | "done" | "canceled" | "dismissed"
+export type TicketWaitReason = "no_route" | "many_projects" | "unknown_person" | "not_permitted"
+
+export interface TrackerTriggers {
+  assignee?: string
+  label?: string
+  state?: string
+}
+
+/** A connection to a tracker; config never holds a secret, only store: references. */
+export interface TrackerConnection {
+  id: string
+  name: string
+  kind: string
+  config: Record<string, unknown>
+  triggers: TrackerTriggers
+  created_at: string
+  updated_at: string
+}
+
+export interface TrackerMatch {
+  project?: string
+  types?: string[]
+  labels?: string[]
+  components?: string[]
+}
+
+/** A route with the names of what it joins. warning is the tracker's own words: untrusted. */
+export interface TrackerRoute {
+  id: string
+  connection_id: string
+  position: number
+  match: TrackerMatch
+  project_id: string
+  goal_kind?: string
+  playbook?: string
+  states: Partial<Record<TicketState, string>> | null
+  warning?: string
+  connection: string
+  project: string
+}
+
+export interface TrackerIdentity {
+  id: string
+  connection_id: string
+  external_id: string
+  external_name?: string
+  user_id: string
+  created_at: string
+}
+
+export interface TrackerCheck {
+  name: string
+  ok: boolean
+  detail?: string
+}
+
+export interface TrackerState {
+  name: string
+  closed?: boolean
+}
+
+export interface TrackerTest {
+  connection: string
+  ok: boolean
+  checks: TrackerCheck[]
+  states?: TrackerState[]
+}
+
+/** A ticket Forecrew was handed. title, handed_by and key are ticket text: untrusted. */
+export interface TicketInfo {
+  id: string
+  connection_id: string
+  key: string
+  title: string
+  url?: string
+  status: TicketLinkStatus
+  reason?: TicketWaitReason
+  project_id?: string
+  goal_id?: string
+  handed_by?: string
+  state?: TicketState
+  created_at: string
+  updated_at: string
+  connection: string
+  project?: string
+  gate_ref?: string
+  goal_ref?: string
+  /** trackers.max_active_goals, on a queued ticket. */
+  limit?: number
+}
+
+export interface PersonSuggestion {
+  user: string
+  name: string
+  reason: string
+}
+
+export interface UnmappedPerson {
+  connection: string
+  external_id: string
+  external_name?: string
+  tickets: string[]
+  suggestions: PersonSuggestion[]
+}
+
+export interface UnmappedPeople {
+  people: UnmappedPerson[]
+  problems?: string[]
 }

@@ -28,6 +28,7 @@ import { SetupPage } from "@/routes/setup"
 import { TracePage } from "@/routes/trace"
 import { GeneralPage } from "@/routes/settings/general"
 import { HistoryPage } from "@/routes/settings/history"
+import { IntegrationsPage } from "@/routes/settings/integrations"
 import { SettingsLayout } from "@/routes/settings/layout"
 import { PeoplePage } from "@/routes/settings/people"
 import { PoliciesPage } from "@/routes/settings/policies"
@@ -70,11 +71,14 @@ interface Search {
   code_challenge?: string
   organization?: string
   host?: string
+  /** Integrations: the tracker a discovered tool leads to, and its address. */
+  connect?: string
+  instance?: string
 }
 
 const search = (s: Record<string, unknown>): Search => {
   const out: Search = {}
-  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question", "impact", "category", "tab", "redirect_uri", "state", "code_challenge", "organization", "host", "q", "section", "kind", "provider", "goal", "title", "plan"] as const) {
+  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question", "impact", "category", "tab", "redirect_uri", "state", "code_challenge", "organization", "host", "q", "section", "kind", "provider", "goal", "title", "plan", "connect", "instance"] as const) {
     const v = s[k]
     if (typeof v === "string" && v) out[k] = v
   }
@@ -149,6 +153,7 @@ const routeTree = root.addChildren([
       createRoute({ getParentRoute: () => settings, path: "/", validateSearch: search, component: GeneralPage }),
       createRoute({ getParentRoute: () => settings, path: "/people", validateSearch: search, component: PeoplePage }),
       createRoute({ getParentRoute: () => settings, path: "/sign-in", validateSearch: search, component: SignInPage }),
+      createRoute({ getParentRoute: () => settings, path: "/integrations", validateSearch: search, component: IntegrationsPage }),
       createRoute({ getParentRoute: () => settings, path: "/policies", validateSearch: search, component: PoliciesPage }),
       createRoute({ getParentRoute: () => settings, path: "/history", validateSearch: search, component: HistoryPage }),
     ]),

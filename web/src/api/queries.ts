@@ -58,6 +58,11 @@ export const keys = {
   audit: (f: AuditFilter) => ["audit", f] as const,
   sessions: ["sessions"] as const,
   identities: ["identities"] as const,
+  trackerConnections: ["tracker-connections"] as const,
+  trackerRoutes: ["tracker-routes"] as const,
+  trackerIdentities: ["tracker-identities"] as const,
+  trackerUnmapped: ["tracker-unmapped"] as const,
+  tickets: ["tickets"] as const,
 }
 
 const poll = { refetchInterval: POLL_MS, refetchIntervalInBackground: false }
@@ -402,5 +407,12 @@ export const useJoinCodes = (enabled = true) => useQuery({ queryKey: keys.joinCo
 export const usePlans = (inbox = false, enabled = true) => useQuery({ queryKey: keys.plans(inbox), queryFn: () => api.listPlans({ inbox }), enabled, ...poll })
 export const useResources = (kind: string, enabled = true) => useQuery({ queryKey: keys.resources(kind), queryFn: () => api.getResources(kind), enabled })
 
+export const useTrackerConnections = (enabled = true) => useQuery({ queryKey: keys.trackerConnections, queryFn: api.listTrackerConnections, enabled, ...poll })
+export const useTrackerRoutes = (enabled = true) => useQuery({ queryKey: keys.trackerRoutes, queryFn: api.listTrackerRoutes, enabled, ...poll })
+export const useTrackerIdentities = (enabled = true) => useQuery({ queryKey: keys.trackerIdentities, queryFn: api.listTrackerIdentities, enabled })
+/** Reads the waiting tickets from their trackers, so it does not poll. */
+export const useUnmappedPeople = (enabled = true) => useQuery({ queryKey: keys.trackerUnmapped, queryFn: api.listUnmappedPeople, enabled })
+export const useWaitingTickets = (enabled = true) => useQuery({ queryKey: keys.tickets, queryFn: api.listWaitingTickets, enabled, ...poll })
+
 /** Everything a confirmed plan can change: refresh what shows it. */
-export const CONFIG_KEYS = [keys.fleet, keys.providers, keys.shapes, keys.machines, ["plans"], ["resources"], ["plan"], keys.joinCodes, keys.me] as const
+export const CONFIG_KEYS = [keys.fleet, keys.providers, keys.shapes, keys.machines, ["plans"], ["resources"], ["plan"], keys.joinCodes, keys.me, keys.trackerConnections, keys.trackerRoutes, keys.trackerUnmapped] as const
