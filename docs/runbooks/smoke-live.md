@@ -100,6 +100,39 @@ the first runs and note the result next to the report:
    other answer, or a refusal with "the knowledge policy of the project is
    unknown", means the mapping is wrong.
 
+## Jira
+
+`make smoke-live-jira` runs the tracker contract (`trackertest`) against a real
+Jira, which no offline test can prove: the fixtures are recorded answers, and
+a company's workflow, certificates and proxy are its own. Run it against a
+**Data Center** and a **Cloud** site before teams rely on the Jira tracker,
+and after an Atlassian release changes the REST API. It creates issues and
+moves one to a closed status, so give it a sandbox project.
+
+| Variable | Data Center | Cloud |
+|----------|-------------|-------|
+| `FORECREW_SMOKE_JIRA_DC_URL`, `..._CLOUD_URL` | `https://jira.acme.local/jira`, with the context path | `https://acme.atlassian.net` |
+| `..._TOKEN` | a personal access token | an API token |
+| `..._EMAIL` | | the token's Atlassian account |
+| `..._PROJECT` | the sandbox project's key | the same |
+| `..._CA_FILE` | PEM of a private CA, if the server has one | |
+| `..._ISSUE_TYPE` | an issue type of the project, default `Task` | the same |
+
+Each check of the connection test is logged first. Then look with your own
+eyes at what the run cannot judge:
+
+1. The issues it made read right in Jira: the comment `hello` and the
+   description's emphasis, in wiki markup on Data Center and ADF on Cloud.
+2. On a customized workflow, the move to a closed status either went through
+   or failed with "no transition ... reaches" or "needs ... which Forecrew does
+   not fill", and nothing was forced.
+3. On Data Center, rename a user who commented and read the issue again
+   (`forecrew tracker test` then a ticket of theirs): the person keeps the same
+   ID, the user key.
+4. A webhook from Jira (Data Center 10.3 or later, and Cloud) with a secret
+   reaches `POST /webhooks/tracker/{connection}` with a valid
+   `X-Hub-Signature`; an automation rule with the secret URL does too.
+
 ## opencode
 
 The opencode adapter was written from the docs and the source of 1.19.5, with
