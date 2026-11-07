@@ -730,12 +730,12 @@ func TestFleetJSONHidesHashes(t *testing.T) {
 }
 
 func TestSecretPatterns(t *testing.T) {
-	for _, s := range []string{"fcp_abcdefghijklmnopqrstuvwxyz", "fcb_abcdefghijklmnopqrstuvwxyz", "ASIAIOSFODNN7EXAMPLE", "postgres://u:p@db/x"} {
+	for _, s := range []string{"fcp_abcdefghijklmnopqrstuvwxyz", "fcb_abcdefghijklmnopqrstuvwxyz", "ASIAIOSFODNN7EXAMPLE", "postgres://u:p@db/x", "lin_api_abcdefghijklmnopqrstuvwx", "lin_oauth_abcdefghijklmnopqrstuvwx"} {
 		if !SecretPatterns.MatchString(s) {
 			t.Errorf("%s does not match", s)
 		}
 	}
-	for _, s := range []string{"subnet-0abc", "https://example.com/a", "c7g.large"} {
+	for _, s := range []string{"subnet-0abc", "https://example.com/a", "c7g.large", "lin_api_short", "lin_other_abcdefghijklmnopqrstuvwx"} {
 		if SecretPatterns.MatchString(s) {
 			t.Errorf("%s matches", s)
 		}
