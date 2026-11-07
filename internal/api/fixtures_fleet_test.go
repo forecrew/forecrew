@@ -132,7 +132,7 @@ func fleetFixtureCases() []fixtureCase {
 	conversation := mcp.AssistantView{
 		ID: fid(740), AccountID: fid(1), ProjectID: fid(10), Owner: "user:" + fid(300).String(), Title: "Add my Linux server", CreatedAt: at(-3), UpdatedAt: at(-1),
 		Messages: []domain.AssistantMessage{
-			{ID: fid(741), AccountID: fid(1), ConversationID: fid(740), Author: domain.AssistantUser, Body: "Add my Linux server", CreatedAt: at(-3)},
+			{ID: fid(741), AccountID: fid(1), ConversationID: fid(740), Author: domain.AssistantUser, Body: "Add my Linux server", JobID: fid(150), CreatedAt: at(-3)},
 			{ID: fid(742), AccountID: fid(1), ConversationID: fid(740), Author: domain.AssistantReply, Body: "I suggest **two sizes** and at most 3 machines at once.\n\n<script>alert(1)</script>", JobID: fid(150), CreatedAt: at(-1)},
 		},
 		Plans: []mcp.ConfigPlanView{secret},
