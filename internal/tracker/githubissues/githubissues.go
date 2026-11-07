@@ -17,6 +17,7 @@ import (
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/tracker"
+	"github.com/forecrew/forecrew/internal/tracker/ghidentity"
 )
 
 // Kind is the kind of the connections of this adapter.
@@ -27,9 +28,6 @@ const (
 	stateOpen   = "open"
 	stateClosed = "closed"
 )
-
-// Labels on the issues Forecrew opens, which are never tickets.
-var ownLabels = []string{"forecrew:goal", "forecrew:task", "forecrew:bug"}
 
 // Client is the part of GitHub the adapter uses; github.Tracker implements it.
 type Client interface {
@@ -190,12 +188,7 @@ func (a *Adapter) Changes(ctx context.Context, cursor string) ([]tracker.Event, 
 	return events, newest.Format(time.RFC3339Nano), nil
 }
 
-func user(u github.User) tracker.User {
-	if u.ID == 0 {
-		return tracker.User{Name: u.Login, Bot: u.Bot}
-	}
-	return tracker.User{ID: strconv.FormatInt(u.ID, 10), Name: u.Login, Bot: u.Bot}
-}
+func user(u github.User) tracker.User { return ghidentity.User(u) }
 
 // assignee is the assignee a ticket shows: the trigger's if the issue has it.
 func (a *Adapter) assignee(i github.Issue) tracker.User {
@@ -208,18 +201,9 @@ func (a *Adapter) assignee(i github.Issue) tracker.User {
 	return user(i.Assignees[0])
 }
 
-func hasLabel(i github.Issue, want string) bool {
-	return slices.ContainsFunc(i.Labels, func(l string) bool { return strings.EqualFold(l, want) })
-}
-
 // ticketType is the issue's type, or bug for the label of that name on a repo
 // without issue types.
-func ticketType(i github.Issue) string {
-	if i.Type == "" && hasLabel(i, "bug") {
-		return "bug"
-	}
-	return i.Type
-}
+func ticketType(i github.Issue) string { return ghidentity.TicketType(i.Type, i.Labels) }
 
 func handovers(events []github.IssueEvent) []tracker.Handover {
 	out := make([]tracker.Handover, 0, len(events))
@@ -261,7 +245,7 @@ func (a *Adapter) Get(ctx context.Context, k string) (tracker.Ticket, error) {
 			ID: strconv.FormatInt(c.ID, 10), Author: user(github.User{ID: c.AuthorID, Login: c.Author, Bot: c.Bot}), Body: c.Body, At: c.CreatedAt,
 		})
 	}
-	if slices.ContainsFunc(ownLabels, func(l string) bool { return hasLabel(i, l) }) {
+	if ghidentity.IsOwn(i.Labels) {
 		return t, nil // nobody can hand over an issue Forecrew opened
 	}
 	events, err := a.d.GitHub.ListIssueEvents(ctx, repo, n)
@@ -309,19 +293,7 @@ func (a *Adapter) States(context.Context) ([]tracker.State, error) {
 	return []tracker.State{{Name: stateOpen}, {Name: stateClosed, Closed: true}}, nil
 }
 
-// LinkedUser implements tracker.Linker: the member linked to the GitHub
-// account by its stable ID, when there is exactly one.
+// LinkedUser implements tracker.Linker.
 func (a *Adapter) LinkedUser(ctx context.Context, accountID uuid.UUID, u tracker.User) (uuid.UUID, bool, error) {
-	id, err := strconv.ParseInt(u.ID, 10, 64)
-	if err != nil || id <= 0 {
-		return uuid.Nil(), false, nil
-	}
-	users, err := a.d.Store.Directory().GitHubMembers(ctx, accountID, id, "")
-	if err != nil {
-		return uuid.Nil(), false, fmt.Errorf("find the user of %s: %w", u.Name, err)
-	}
-	if len(users) != 1 {
-		return uuid.Nil(), false, nil
-	}
-	return users[0], true, nil
+	return ghidentity.LinkedUser(ctx, a.d.Store, accountID, u)
 }
