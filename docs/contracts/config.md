@@ -193,6 +193,7 @@ custom endpoint receives the repo code in the prompts and the runtime's key.
 | `actions.max_in_flight` | integer ≥ 1 | no | `10` | Most workflow runs the GitHub Actions provider (pool `actions`) keeps running at once; further jobs of the pool stay queued. It bounds the Actions minutes forecrewd can spend (actions.md). |
 | `fleet.currency` | ISO 4217 code | no | `USD` | Currency of every fleet amount: shape prices, budgets and usage costs (fleet.md). |
 | `trackers.max_active_goals` | integer ≥ 1 | no | `3` | Goals from tickets a project works on at once; other tickets queue in order (tracker.md). |
+| `trackers.private_addresses` | bool | no | `false` | Lets tracker connections reach private and loopback addresses: a self-hosted forecrewd in the same network as its Jira. Off, a connection whose address is or redirects to one is refused, so it cannot reach forecrewd's own network (trackers/jira.md). |
 | `evidence` | object | no | absent | S3-compatible object storage for artifacts (test reports, logs, screenshots, verification reports). Absent: artifact uploads answer `503` (worker-api.md). |
 | `evidence.endpoint` | URL | yes | | S3 endpoint, `https://` (or `http://` on a private network such as Docker Compose). |
 | `evidence.bucket` | string | yes | | Bucket; must exist. |
