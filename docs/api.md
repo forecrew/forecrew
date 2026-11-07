@@ -105,7 +105,7 @@ Non-2xx responses have this body:
 | 400 | `invalid_input` | The tool refused the input: a field is missing or malformed, a bad ref, a decision the gate does not allow (`request-changes` on a `needs_you` gate, or without `feedback`). |
 | 401 | `unauthorized` | Missing, unknown, expired or revoked token, or a session that ended. |
 | 403 | `forbidden` | The caller lacks the permission, on the project the call is about or at all; the message names it. See [contracts/permissions.md](contracts/permissions.md). |
-| 403 | `bad_origin`, `no_organization`, `token_login_disabled` | See [Authentication](#authentication). |
+| 403 | `bad_origin`, `no_organization`, `token_login_disabled`, `sso_required` | See [Authentication](#authentication). |
 | 404 | `not_found` | Unknown project, goal, job, gate or active token, or one of another account; unknown endpoint. |
 | 409 | `conflict` | The state does not allow it, for example a gate that is already decided, a job that is not queued or running (`cancel`), a name that is taken, a binding that exists or the last Owner. |
 | 413 | `too_large` | Body over 1 MiB. |
@@ -172,7 +172,7 @@ structs in `internal/domain` and `internal/mcp`.
 | `GET /api/v1/invitations` | `list_invitations` | | `200` invitations, newest first |
 | `POST /api/v1/invitations/{invitation}/revoke` | `revoke_invitation` | `{invitation}` is its ID; body optional | `200` the invitation |
 | `POST /api/v1/auth/discover` | | `{"org", "email", "invite"}`, all optional | `200` `{"connections": [{"id", "kind", "name", "login_url"}], "redirect": "optional", "token_login": false}` |
-| `POST /api/v1/session` | | `{"token": "fcm_..."}`; needs `auth.token_login` | `200` `me`, sets the cookie |
+| `POST /api/v1/session` | | `{"token": "fcm_..."}`; needs `auth.token_login` | `200` `me`, sets the cookie; `403` `sso_required` for a user under SSO enforcement |
 | `DELETE /api/v1/session` | | | `204`, ends the session and clears the cookie |
 | `DELETE /api/v1/sessions` | | | `204`, ends every session of the caller (`403` for a token) |
 | `GET /api/v1/sessions` | | | `200` the active sessions of the calling person, newest first: `id`, `created_at`, `last_seen_at`, `expires_at`, `user_agent`, `ip`, `organization` (slug), `connection` (name) and `current`. A browser session only: a token of any scope gets `403` |

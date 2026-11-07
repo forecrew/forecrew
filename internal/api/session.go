@@ -23,6 +23,7 @@ const CookieName = auth.CookieName
 // cross-site form cannot send, and come from our own origin.
 func (s *Server) protect(next http.Handler) http.Handler {
 	bearer := s.auth(next)
+	tokenCookie := s.auth(s.tokenCookie(next))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(CookieName)
 		if r.Header.Get("Authorization") != "" || err != nil || c.Value == "" {
@@ -36,10 +37,27 @@ func (s *Server) protect(next http.Handler) http.Handler {
 		if s.cfg.TokenLogin && strings.HasPrefix(c.Value, auth.PrefixToken) {
 			r = r.Clone(r.Context())
 			r.Header.Set("Authorization", "Bearer "+c.Value)
-			bearer.ServeHTTP(w, r)
+			tokenCookie.ServeHTTP(w, r)
 			return
 		}
 		s.session(next, c.Value).ServeHTTP(w, r)
+	})
+}
+
+// tokenCookie ends a token login once its user's organization requires a
+// connection, as it ends a session from another connection.
+func (s *Server) tokenCookie(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		by, _ := mcp.ActorFromContext(r.Context())
+		err := auth.CheckTokenLogin(r.Context(), s.cfg.Store, by, false)
+		switch {
+		case errors.Is(err, auth.ErrSSORequired):
+			s.fail(w, r, errNotAuthenticated, http.StatusUnauthorized, "unauthorized")
+		case err != nil:
+			s.failTool(w, r, by, err)
+		default:
+			next.ServeHTTP(w, r)
+		}
 	})
 }
 
@@ -180,6 +198,14 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	r = r.Clone(r.Context())
 	r.Header.Set("Authorization", "Bearer "+body.Token)
 	s.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		by, _ := mcp.ActorFromContext(r.Context())
+		if err := auth.CheckTokenLogin(r.Context(), s.cfg.Store, by, true); errors.Is(err, auth.ErrSSORequired) {
+			s.fail(w, r, err, http.StatusForbidden, "sso_required")
+			return
+		} else if err != nil {
+			s.failTool(w, r, by, err)
+			return
+		}
 		http.SetCookie(w, auth.Cookie(body.Token, int(s.cfg.SessionMaxAge.Seconds())))
 		s.me(w, r)
 	})).ServeHTTP(w, r)

@@ -72,6 +72,8 @@ or the email of one of their identities, is in the domain:
   switch into the organization.
 - `@forecrew` commands from their linked GitHub account stop acting as them
   there, unless the enforced connection is GitHub.
+- Legacy token login (`auth.token_login`) is refused with `403` `sso_required`,
+  and a cookie from an earlier one stops working: a token proves no connection.
 - Their personal tokens last `max_token_ttl`, from when they were created, so
   older tokens are limited too. Turning enforcement on sets it to 7 days when
   there is no cap; an Owner allows longer with `forecrew domains token-ttl
