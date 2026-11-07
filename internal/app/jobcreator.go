@@ -109,6 +109,14 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	if err != nil {
 		return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
 	}
+	for _, w := range req.WritePaths {
+		if strings.HasPrefix(w, "!") || !domain.RelativePath(w) || strings.ContainsFunc(w, func(r rune) bool { return unicode.IsControl(r) || r == '`' }) {
+			return uuid.Nil(), fmt.Errorf("create %s job: write_paths: %q must be a glob relative to the repo root, without !, control characters or backticks: %w", req.Role, w, jobs.ErrInvalid)
+		}
+	}
+	// The added paths are the job's, and the role's prompt and the curated
+	// knowledge rules see them.
+	role.WritePaths = slices.Concat(role.WritePaths, req.WritePaths)
 	// The lease mints a token for the job's repo: it must be the project's.
 	if req.Repo != "" && !strings.EqualFold(req.Repo, project.Repo) {
 		return uuid.Nil(), fmt.Errorf("create %s job: repo %s is not the repo of project %s: %w", req.Role, req.Repo, project.Name, jobs.ErrInvalid)
@@ -239,8 +247,8 @@ func (c *jobCreator) createCommand(ctx context.Context, req workflow.JobRequest)
 	if req.Repo != "" && !strings.EqualFold(req.Repo, project.Repo) {
 		return uuid.Nil(), fmt.Errorf("create command job: repo %s is not the repo of project %s: %w", req.Repo, project.Name, jobs.ErrInvalid)
 	}
-	if req.Role != "" || req.Pool != "" || req.Prompt != "" || req.Feedback != "" || len(req.LockedPaths) > 0 || req.Council != nil || req.Task != "" {
-		return uuid.Nil(), fmt.Errorf("create command job: role, pool, prompt, feedback, locked_paths and council are not for command jobs: %w", jobs.ErrInvalid)
+	if req.Role != "" || req.Pool != "" || req.Prompt != "" || req.Feedback != "" || len(req.LockedPaths) > 0 || len(req.WritePaths) > 0 || req.Council != nil || req.Task != "" {
+		return uuid.Nil(), fmt.Errorf("create command job: role, pool, prompt, feedback, locked_paths, write_paths and council are not for command jobs: %w", jobs.ErrInvalid)
 	}
 	if req.BaseRef == "" {
 		req.BaseRef = project.DefaultBranch
