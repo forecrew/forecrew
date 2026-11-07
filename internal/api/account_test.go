@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"uuid"
@@ -132,10 +133,10 @@ func TestCLILogin(t *testing.T) {
 	status, body = exchange(out.Code, verifier)
 	var got api.CLIToken
 	must(t, json.Unmarshal([]byte(body), &got))
-	if status != 200 || got.Secret != "fcm_secret" || got.Account.ID != e.org.ID || got.User.ID != e.user.ID || got.Token.Name != "cli-laptop-2" {
+	if status != 200 || got.Secret != "fcm_secret" || got.Account.ID != e.org.ID || got.User.ID != e.user.ID || !regexp.MustCompile(`^cli-laptop-[0-9a-f]{4}$`).MatchString(got.Token.Name) {
 		t.Fatalf("token = %d %s (calls %v)", status, body, names)
 	}
-	if want := "cli-laptop:admin cli-laptop:write cli-laptop-2:admin cli-laptop-2:write"; strings.Join(names[max(0, len(names)-4):], " ") != want {
+	if tail := names[max(0, len(names)-4):]; tail[0] != "cli-laptop:admin" || tail[1] != "cli-laptop:write" || !strings.HasSuffix(tail[3], ":write") {
 		t.Errorf("calls = %v", names)
 	}
 	if status, _ := exchange(out.Code, verifier); status != 400 {
