@@ -82,6 +82,8 @@ type Controller struct {
 	// applied holds what each direct machine last got from Update. After a
 	// restart it is empty, and Update allows applying the same values again.
 	applied map[uuid.UUID]string
+	// lastBackfill is when backfill last found every machine metered.
+	lastBackfill time.Time
 }
 
 // New returns a controller.
@@ -157,6 +159,7 @@ func (c *Controller) Reconcile(ctx context.Context) error {
 			errs = append(errs, c.actuate(ctx, s.providers[p.ID], d)...)
 		}
 	}
+	errs = append(errs, c.backfill(ctx))
 	return errors.Join(errs...)
 }
 
@@ -517,13 +520,23 @@ func (c *Controller) finish(ctx context.Context, m domain.Machine, from domain.M
 }
 
 // finishRow is finish for a machine of an agent, which has no entry in applied
-// and whose reports do not hold the controller's lock.
+// and whose reports do not hold the controller's lock. The machine's usage
+// record is written in the same transaction, so no machine ends unbilled and
+// none is billed twice.
 func (c *Controller) finishRow(ctx context.Context, m domain.Machine, from domain.MachineState, why string) error {
 	return c.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := tx.Machines().UpdateState(ctx, m.ID, from, domain.MachineDestroyed, ""); err != nil {
 			return fmt.Errorf("finish machine %s: %w", m.ID, err)
 		}
-		return c.audit(ctx, tx, m, ActionDestroyed, map[string]any{"why": why, "jobs_taken": m.JobsTaken})
+		u, err := meter(ctx, tx, m.ID)
+		if err != nil {
+			return err
+		}
+		data := map[string]any{"why": why, "jobs_taken": m.JobsTaken}
+		if u != nil {
+			data["minutes"], data["cost"] = u.Minutes, u.Cost
+		}
+		return c.audit(ctx, tx, m, ActionDestroyed, data)
 	})
 }
 
