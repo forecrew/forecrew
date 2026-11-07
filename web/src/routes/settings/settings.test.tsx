@@ -424,6 +424,88 @@ describe("roles", () => {
   })
 })
 
+describe("custom roles (enterprise)", () => {
+  const asOwner = () => asMe(fx.meOwnerEnterprise)
+  const withCustom = () => server.use(http.get("/api/v1/roles", () => HttpResponse.json(fx.rolesCustom)))
+
+  test("creates a role from the catalog of its scope", async () => {
+    asOwner()
+    withCustom()
+    let body: unknown
+    server.use(
+      http.post("/api/v1/roles", async ({ request }) => {
+        body = await request.json()
+        return HttpResponse.json(fx.roleCreate, { status: 201 })
+      }),
+    )
+    const { user } = await renderApp("/settings/people?tab=roles")
+    await user.click(await screen.findByRole("button", { name: "New custom role" }))
+    const dialog = await screen.findByRole("dialog", { name: "New custom role" })
+    // A project role offers project permissions only.
+    expect(within(dialog).queryByRole("checkbox", { name: "billing.manage" })).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole("button", { name: "Create role" }))
+    expect(within(dialog).getByText(/Use lowercase letters/)).toBeInTheDocument()
+    await user.type(within(dialog).getByLabelText("Role name"), "release-manager")
+    await user.click(within(dialog).getByRole("button", { name: "Create role" }))
+    expect(within(dialog).getByText("Choose at least one permission.")).toBeInTheDocument()
+    await user.type(within(dialog).getByLabelText("Description"), "Merges and cancels")
+    await user.click(within(dialog).getByRole("checkbox", { name: "job.cancel" }))
+    await user.click(within(dialog).getByRole("checkbox", { name: "gate.approve.merge" }))
+    await user.click(within(dialog).getByRole("button", { name: "Create role" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    expect(body).toEqual({ name: "release-manager", scope: "project", description: "Merges and cancels", permissions: ["gate.approve.merge", "job.cancel"] })
+  })
+
+  test("an organization role offers organization permissions, and switching back drops them", async () => {
+    asOwner()
+    const { user } = await renderApp("/settings/people?tab=roles")
+    await user.click(await screen.findByRole("button", { name: "New custom role" }))
+    const dialog = await screen.findByRole("dialog", { name: "New custom role" })
+    await user.selectOptions(within(dialog).getByLabelText("Where it applies"), "organization")
+    await user.click(within(dialog).getByRole("checkbox", { name: "billing.manage" }))
+    await user.selectOptions(within(dialog).getByLabelText("Where it applies"), "project")
+    expect(within(dialog).queryByRole("checkbox", { name: "billing.manage" })).not.toBeInTheDocument()
+  })
+
+  test("edits a custom role and shows what the server refuses", async () => {
+    asOwner()
+    withCustom()
+    let body: unknown
+    server.use(
+      http.patch("/api/v1/roles/:role", async ({ request, params }) => {
+        body = { role: params.role, ...((await request.json()) as object) }
+        return HttpResponse.json(fx.roleUpdate)
+      }),
+      http.delete("/api/v1/roles/:role", () => HttpResponse.json(fx.roleDeleteInUse, { status: 409 })),
+    )
+    const { user } = await renderApp("/settings/people?tab=roles")
+    const card = await screen.findByRole("region", { name: "Role release-manager" })
+    expect(within(card).getByText("Custom")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Edit role owner" })).not.toBeInTheDocument()
+    await user.click(within(card).getByRole("button", { name: "Edit role release-manager" }))
+    const dialog = await screen.findByRole("dialog", { name: "Edit release-manager" })
+    expect(within(dialog).queryByLabelText("Where it applies")).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole("checkbox", { name: "job.cancel" }))
+    await user.click(within(dialog).getByRole("button", { name: "Save role" }))
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    expect(body).toEqual({ role: fx.rolesCustom.at(-1)!.id, name: "release-manager", description: "Merges and cancels", permissions: ["gate.approve.merge"] })
+
+    await user.click(within(card).getByRole("button", { name: "Delete role release-manager" }))
+    await user.click(await screen.findByRole("button", { name: "Delete release-manager" }))
+    expect(await screen.findByText(/used by connection okta/)).toBeInTheDocument()
+  })
+
+  test("without role.manage the editor is named, not offered", async () => {
+    asMe({ ...fx.meViewer, enterprise: true })
+    withCustom()
+    await renderApp("/settings/people?tab=roles")
+    const card = await screen.findByRole("region", { name: "Role release-manager" })
+    expect(within(card).queryByRole("button", { name: /Edit|Delete/ })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /New custom role/ })).toBeDisabled()
+    expect(screen.getByText(/Custom roles hold permissions you choose/)).toBeInTheDocument()
+  })
+})
+
 describe("service accounts", () => {
   test("lists accounts with their tokens, scopes and expiry and creates a token shown once", async () => {
     asAdmin()

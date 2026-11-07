@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, test } from "@playwright/test"
 import { mockApi } from "./api"
 
-const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: boolean; gates?: string; me?: string }[] = [
+const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: boolean; gates?: string; me?: string; roles?: string }[] = [
   { name: "login", path: "/login", ready: "Log in to Forecrew", loggedIn: false },
   { name: "home", path: "/", ready: "Home" },
   { name: "inbox", path: "/inbox", ready: "Inbox" },
@@ -37,6 +37,7 @@ const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: bo
   { name: "settings members", path: "/settings/people", ready: "People", me: "me-admin" },
   { name: "settings teams", path: "/settings/people?tab=teams", ready: "People", me: "me-admin" },
   { name: "settings roles", path: "/settings/people?tab=roles", ready: "People", me: "me-admin" },
+  { name: "settings custom roles", path: "/settings/people?tab=roles", ready: "People", me: "me-owner-enterprise", roles: "roles-custom" },
   { name: "settings service accounts", path: "/settings/people?tab=service-accounts", ready: "People", me: "me-admin" },
   { name: "settings members for a viewer", path: "/settings/people", ready: "People", me: "me-viewer" },
   { name: "settings sign-in", path: "/settings/sign-in", ready: "Sign-in", me: "me-admin" },
@@ -53,7 +54,7 @@ for (const size of sizes) {
   for (const p of pages) {
     test(`${p.name} has no serious accessibility violations on ${size.name}`, async ({ page }) => {
       await page.setViewportSize({ width: size.width, height: size.height })
-      await mockApi(page, { loggedIn: p.loggedIn ?? true, gates: p.gates, me: p.me })
+      await mockApi(page, { loggedIn: p.loggedIn ?? true, gates: p.gates, me: p.me, roles: p.roles })
       await page.goto(p.path)
       await expect(page.getByRole("heading", { level: 1, name: p.ready })).toBeVisible()
       // wait for the data of the page
@@ -82,3 +83,13 @@ for (const size of sizes) {
     expect(bad.map((v) => `${v.id}: ${v.help}`)).toEqual([])
   })
 }
+
+test("the custom role editor has no serious accessibility violations", async ({ page }) => {
+  await mockApi(page, { me: "me-owner-enterprise", roles: "roles-custom" })
+  await page.goto("/settings/people?tab=roles")
+  await page.getByRole("button", { name: "New custom role" }).click()
+  await expect(page.getByRole("dialog", { name: "New custom role" })).toBeVisible()
+  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()
+  const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical")
+  expect(bad.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`)).toEqual([])
+})

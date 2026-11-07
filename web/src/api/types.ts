@@ -59,6 +59,8 @@ export interface Session {
   permissions?: Permission[]
   /** By project ID: the project-scoped permissions on each project where the caller has any. */
   projects?: Record<string, Permission[]>
+  /** True in the enterprise build: custom roles can be edited. */
+  enterprise?: boolean
 }
 
 /** A way to sign in, from POST /auth/discover. */
@@ -784,6 +786,7 @@ export interface TeamMember {
 }
 
 export interface Role {
+  id?: string
   name: string
   description?: string
   scope: "organization" | "project"

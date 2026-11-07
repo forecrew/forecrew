@@ -79,6 +79,7 @@ import invitationRevoke from "./fixtures/invitation-revoke.json"
 import invitations from "./fixtures/invitations.json"
 import meAdmin from "./fixtures/me-admin.json"
 import meContributor from "./fixtures/me-contributor.json"
+import meOwnerEnterprise from "./fixtures/me-owner-enterprise.json"
 import meViewer from "./fixtures/me-viewer.json"
 import memberLastOwner from "./fixtures/member-last-owner.json"
 import memberSuspend from "./fixtures/member-suspend.json"
@@ -87,7 +88,11 @@ import organization from "./fixtures/organization.json"
 import roleBindingCreate from "./fixtures/role-binding-create.json"
 import roleBindingDelete from "./fixtures/role-binding-delete.json"
 import roleBindings from "./fixtures/role-bindings.json"
+import roleCreate from "./fixtures/role-create.json"
+import roleDeleteInUse from "./fixtures/role-delete-in-use.json"
+import roleUpdate from "./fixtures/role-update.json"
 import roles from "./fixtures/roles.json"
+import rolesCustom from "./fixtures/roles-custom.json"
 import serviceAccountCreate from "./fixtures/service-account-create.json"
 import serviceAccounts from "./fixtures/service-accounts.json"
 import sessions from "./fixtures/sessions.json"
@@ -220,7 +225,7 @@ export const fx = {
   trace, assumptionRegister, assumptionRegisterEmpty, assumptionRegisterResolve, knowledgeEntries, knowledgeEntriesEmpty, knowledgeNotes,
   knowledgeNoteDelete, knowledgeProposals, knowledgeProposalsEmpty, knowledgePropose, knowledgeSearch, knowledgeSearchEmpty,
   audit, auditEmpty, configPlanApply, configPlanCancel, configPlanConnection, configPlanSecret, connectionCreate, connectionEnable, connectionEnableUntested, connections, identities, invitationCreate, invitationRevoke, invitations,
-  meAdmin, meContributor, meViewer, memberLastOwner, memberSuspend, members, organization, roleBindingCreate, roleBindingDelete, roleBindings, roles,
+  meAdmin, meContributor, meOwnerEnterprise, meViewer, roleCreate, roleDeleteInUse, roleUpdate, rolesCustom, memberLastOwner, memberSuspend, members, organization, roleBindingCreate, roleBindingDelete, roleBindings, roles,
   serviceAccountCreate, serviceAccounts, sessions, teamCreate, teamMembers, teamsEmpty, teams, tokenCreate, tokensScopes,
 }
 
