@@ -26,6 +26,12 @@ for cli in claude codex opencode; do
 	case $cli in claude) labels="$labels runtime:claude-code" ;; *) labels="$labels runtime:$cli" ;; esac
 done
 
+# The Xcode of the base VM, if it has one, is a label jobs route by: xcode:16.
+# The command line tools alone leave xcodebuild a stub that fails, and no label.
+if xcode=$(xcodebuild -version 2>/dev/null | awk '/^Xcode /{print $2; exit}') && [ -n "$xcode" ]; then
+	labels="$labels xcode:${xcode%%.*}"
+fi
+
 sudo install -m 0755 /tmp/forecrew-worker /opt/forecrew/forecrew-worker
 sudo install -m 0755 /tmp/forecrew-guest/forecrew-start /opt/forecrew/forecrew-start
 sudo install -m 0644 -o root -g wheel /tmp/forecrew-guest/com.forecrew.worker.plist /Library/LaunchDaemons/com.forecrew.worker.plist
