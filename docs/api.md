@@ -256,7 +256,7 @@ never touched.
 | `GET /api/v1/assumptions?project=&goal=&task=&status=&impact=&verify_by=` | `list_assumptions` | `project` required | `200` assumptions, by number |
 | `POST /api/v1/assumptions/{assumption}/resolve` | `resolve_assumption` | `{"status", "evidence"}` | `200` assumption |
 | `GET /api/v1/decisions?project=&goal=&council=` | `list_decisions` | `project` required | `200` decisions, by number |
-| `GET /api/v1/proposals?project=&status=&category=` | `list_proposals` | `project` required; without `status`, what is snoozed until later is left out | `200` improvement proposals, by number, as in [mcp.md](mcp.md) |
+| `GET /api/v1/proposals?project=&status=&category=` | `list_proposals` | `project` required; without `status`, what is snoozed until later is left out | `200` improvement proposals, by number, as in [mcp.md](mcp.md), not wrapped: show the text as text. `GET /api/v1/gates` carries the `proposal` of an `improvement_proposal` gate and leaves out a snoozed one until its date |
 | `POST /api/v1/proposals/{proposal}/decide` | `decide_proposal` | `{"decision", "reason", "until"}`; `decision` is `accept`, `reject`, `snooze` or `done`; `{proposal}` is `PROP-3` or a UUID | `200` proposal; `400` without the reason of a rejection or the date of a snooze; `409` when its state does not allow the decision |
 | `GET /api/v1/trace?ref=` | `get_trace` | `ref` required: a goal, spec, task, council, assumption or decision ref, or a change as `owner/name#12` (URL-encode the `#`) or its UUID | `200` `{"focus", "goal", "nodes", "edges"}`; `404` for an unknown ref or a change tied to no task |
 
