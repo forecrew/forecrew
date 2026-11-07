@@ -1395,6 +1395,50 @@ CREATE INDEX tracker_outbox_due ON tracker_outbox (account_id, next_attempt_at) 
 CREATE INDEX tracker_outbox_sent ON tracker_outbox (link_id, external_id) WHERE external_id <> '';
 ```
 
+### Model connections (migration 00012)
+
+See [config-resources.md](config-resources.md#model-connections). The
+migration also gives `models.read`, `models.manage` and `models.assign` to the
+built-in roles (permissions.md).
+
+```sql
+CREATE TABLE model_connections (
+  id         uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id uuid NOT NULL REFERENCES accounts(id),
+  name       text NOT NULL CHECK (name ~ '^[a-z0-9][a-z0-9-]*$'),
+  vendor     text NOT NULL CHECK (vendor <> ''),
+  adapter    text NOT NULL CHECK (adapter IN ('claude-code','codex','opencode')),
+  base_url   text NOT NULL DEFAULT '',
+  key_env    text NOT NULL DEFAULT '',
+  secret_ref text NOT NULL CHECK (secret_ref ~ '^store:models/.'),
+  enabled    boolean NOT NULL DEFAULT true,
+  updated_by text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, name)
+);
+
+-- project_id NULL: the organization's row, the only one with the policy.
+CREATE TABLE model_assignments (
+  id                uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id        uuid NOT NULL REFERENCES accounts(id),
+  project_id        uuid REFERENCES projects(id),
+  tiers             jsonb NOT NULL DEFAULT '{}',   -- tier -> vendor -> model
+  roles             jsonb NOT NULL DEFAULT '{}',   -- role -> {connection, tier}
+  project_overrides boolean,
+  updated_by        text NOT NULL,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE NULLS NOT DISTINCT (account_id, project_id),
+  CHECK (project_id IS NULL OR project_overrides IS NULL)
+);
+```
+
+`jobs.runtime` is `none` for a queued agent job with no usable model
+connection; `Jobs.QueuedClasses` and `Jobs.Retarget` move queued jobs between
+runtimes by (project, pool, role, runtime, `spec.pinned_runtime`,
+`spec.model`).
+
 ### Configuration (migration 00010)
 
 See [config-resources.md](config-resources.md).
