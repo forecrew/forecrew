@@ -16,7 +16,22 @@ import { cn } from "cn"
 import { buttonVariants } from "@/components/ui/button"
 import { VerificationSection } from "@/components/Verification"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { safeUrl, stateWords } from "@/lib/trackers"
 import { cost, gateKindLabel, goalTone, jobRef, jobTone, stageOf, taskTone, verificationTone, words, type Tone } from "@/lib/format"
+
+/** The ticket a goal came from: a link to it on its tracker, and where the goal stands on it. Ticket text is plain text. */
+function TicketLine({ t }: { t: NonNullable<GoalDetail["ticket"]> }) {
+  const url = safeUrl(t.url)
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      {url ? <ExternalLink href={url}>Ticket {t.key}</ExternalLink> : <span>Ticket {t.key}</span>}
+      <span className="text-muted-foreground">
+        on {t.connection}
+        {t.state ? `, marked ${stateWords[t.state as keyof typeof stateWords] ?? t.state}` : ""}
+      </span>
+    </span>
+  )
+}
 
 const CHECKS: Record<string, { label: string; tone: Tone }> = {
   success: { label: "checks passing", tone: "good" },
@@ -157,7 +172,7 @@ export function GoalPage() {
             </Link>
             {d.goal.platforms?.length ? <span>Platforms: {d.goal.platforms.join(", ")}</span> : null}
             {d.url ? <ExternalLink href={d.url}>Goal issue</ExternalLink> : null}
-            {d.ticket?.url ? <ExternalLink href={d.ticket.url}>Ticket {d.ticket.key}</ExternalLink> : null}
+            {d.ticket ? <TicketLine t={d.ticket} /> : null}
             <Link to="/knowledge" search={{ project: d.project, tab: "notes", goal: d.ref }} className="text-primary underline underline-offset-2">
               Agent notes
             </Link>

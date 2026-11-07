@@ -90,6 +90,14 @@ describe("new goal form", () => {
 })
 
 describe("goal page", () => {
+  test("a ticket whose address is not a web address is shown, not linked", async () => {
+    server.use(http.get("/api/v1/goals/:ref", () => HttpResponse.json({ ...fx.goal, ticket: { ...fx.goal.ticket, url: "javascript:alert(1)", state: undefined } })))
+    await renderApp("/goals/GOAL-3")
+    expect(await screen.findByText("Ticket ENG-7")).toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: /Ticket ENG-7/ })).toBeNull()
+    expect(screen.getByText("on jira")).toBeInTheDocument()
+  })
+
   test("shows status, stage, spec, tasks, gates and cost", async () => {
     await renderApp("/goals/GOAL-3")
     expect(await screen.findByRole("heading", { name: "GOAL-3 · Sign in with an email link" })).toBeInTheDocument()
@@ -97,6 +105,7 @@ describe("goal page", () => {
     expect(screen.getByText("Total cost $1.75")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: /Goal issue/ })).toHaveAttribute("href", "https://github.com/acme/app/issues/5")
     expect(screen.getByRole("link", { name: /Ticket ENG-7/ })).toHaveAttribute("href", "https://jira.example.com/browse/ENG-7")
+    expect(screen.getByText("on jira, marked in progress")).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "app" })).toHaveAttribute("href", "/projects/app")
     expect(screen.getByText("Platforms: web")).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "Description" })).toBeInTheDocument()

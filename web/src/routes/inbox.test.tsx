@@ -151,17 +151,23 @@ test("a needs-you gate offers retry and reject, not request changes", async () =
   expect(within(gate).queryByLabelText("What should change?")).not.toBeInTheDocument()
 })
 
-test("a ticket gate offers approve and reject, not request changes", async () => {
-  const ticket = { ...fx.gates[0], kind: "ticket_intake", title: "Accept ticket ENG-7 from jira" }
+test("a ticket gate offers accept and dismiss, not request changes, and says what the ticket is and why it waits", async () => {
+  const ticket = { ...fx.gates[0], kind: "ticket_intake", ref: "GATE-15", title: "Accept ticket ENG-21 from jira" }
   server.use(http.get("/api/v1/gates", () => HttpResponse.json([ticket])))
   const { user } = await renderApp("/inbox")
-  const gate = await screen.findByRole("article", { name: /GATE-9/ })
+  const gate = await screen.findByRole("article", { name: /GATE-15/ })
   expect(within(gate).getByText("Ticket")).toBeInTheDocument()
-  expect(within(gate).getByRole("button", { name: "Approve" })).toBeInTheDocument()
-  expect(within(gate).getByRole("button", { name: "Reject" })).toBeInTheDocument()
+  expect(within(gate).getByRole("button", { name: "Accept ticket" })).toBeInTheDocument()
+  expect(within(gate).getByRole("button", { name: "Dismiss ticket" })).toBeInTheDocument()
   expect(within(gate).queryByRole("button", { name: "Request changes" })).not.toBeInTheDocument()
+  // The ticket behind the gate: its link, and why it waits, in words. Its title is text, not markup.
+  expect(await within(gate).findByText("Marta Rossi isn't in Forecrew. Start this anyway?")).toBeInTheDocument()
+  expect(within(gate).getByRole("link", { name: /ENG-21/ })).toHaveAttribute("href", "https://jira.acme.local/jira/browse/ENG-21")
+  expect(within(gate).getByText("Export the audit log <b>as CSV</b>")).toBeInTheDocument()
   await user.keyboard("r")
   expect(within(gate).queryByLabelText("What should change?")).not.toBeInTheDocument()
+  await user.click(within(gate).getByRole("button", { name: "Dismiss ticket" }))
+  expect(await within(gate).findByLabelText("Why dismiss it? (optional)")).toBeInTheDocument()
 })
 
 test("a refused decision shows the error on the card", async () => {
