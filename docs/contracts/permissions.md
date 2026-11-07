@@ -71,7 +71,9 @@ repository does not.
 
 - **Granting or removing a role** (a binding, an invitation, JIT default
   roles): `member.manage`, `team.manage` or `service_account.manage` for the
-  subject, `project.manage` for a project binding.
+  subject, `project.manage` for a project binding. An invitation is checked
+  again when it is accepted: whoever sent it must still hold every permission
+  of its roles, or it can no longer be used.
 - **Acting on a member who holds a role** (suspending, removing, changing
   their roles): `member.manage`. The roles concerned are all those the member
   holds, directly or through a team. So only an Owner acts on an Owner, and

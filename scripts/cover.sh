@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Fails if any package under internal/ has less than MIN_COVERAGE percent
-# statement coverage. Packages without statements (interfaces only) are skipped.
+# Fails if any package under internal/ or ee/ has less than MIN_COVERAGE percent
+# statement coverage, in the open-core build and in the enterprise build.
+# Packages without statements (interfaces only) are skipped.
 # Set FORECREW_TEST_DATABASE_URL to include the Postgres integration tests.
 set -euo pipefail
 
@@ -16,6 +17,12 @@ if [ -n "${FORECREW_TEST_DATABASE_URL:-}" ]; then tags="-tags integration"; fi
 # shellcheck disable=SC2086
 out="$(go test $tags -cover ./internal/... 2>&1)" || { echo "$out"; exit 1; }
 echo "$out"
+enterprise="enterprise"
+if [ -n "$tags" ]; then enterprise="integration,enterprise"; fi
+ee="$(go test -tags "$enterprise" -cover ./internal/... ./ee/... 2>&1)" || { echo "$ee"; exit 1; }
+echo "$ee"
+out="$out
+$ee"
 
 echo "$out" | awk -v min="$min" '
   /coverage: \[no statements\]/ { next }
