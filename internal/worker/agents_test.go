@@ -8,6 +8,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/runtime"
@@ -117,6 +120,24 @@ func TestDefaultAgentManifest(t *testing.T) {
 		a, ok := m.Agents[cli.adapter]
 		if !ok || len(a.Platforms) < 4 {
 			t.Errorf("%s: %+v, want every desktop platform", cli.adapter, a)
+		}
+	}
+}
+
+// TestManifestMatchesTheToolboxBase: an installed agent is the version the
+// toolbox base image pins, so a job runs the same CLI either way.
+func TestManifestMatchesTheToolboxBase(t *testing.T) {
+	m, err := DefaultAgentManifest()
+	must(t, err)
+	data, err := fs.ReadFile(forecrew.Files, "packs/toolboxes/base/package.json")
+	must(t, err)
+	var pkg struct {
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	must(t, json.Unmarshal(data, &pkg))
+	for adapter, npm := range map[string]string{"claude-code": "@anthropic-ai/claude-code", "codex": "@openai/codex"} {
+		if got, want := m.Agents[adapter].Version, pkg.Dependencies[npm]; got != want {
+			t.Errorf("%s: manifest %s, toolbox base %s", adapter, got, want)
 		}
 	}
 }
