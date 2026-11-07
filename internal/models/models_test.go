@@ -1,4 +1,4 @@
-package models
+package models_test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/models"
 	"github.com/forecrew/forecrew/internal/secrets"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
@@ -60,15 +61,15 @@ func TestResolutionOrder(t *testing.T) {
 		source   string
 		model    string
 	}{
-		{"project override first", []domain.ModelAssignment{org("developer", "org-conn"), over}, "developer", "project-conn", SourceOrganization, "project-model"},
-		{"organization next", []domain.ModelAssignment{org("developer", "org-conn")}, "developer", "org-conn", SourceOrganization, "org-model"},
-		{"server file last", []domain.ModelAssignment{org("architect", "org-conn")}, "developer", "claude", SourceServer, "file-claude"},
-		{"policy turns overrides off", []domain.ModelAssignment{closed, over}, "developer", "org-conn", SourceOrganization, "org-model"},
-		{"another project's role stays", []domain.ModelAssignment{org("developer", "org-conn"), over}, "reviewer", "codex", SourceServer, "file-gpt"},
+		{"project override first", []domain.ModelAssignment{org("developer", "org-conn"), over}, "developer", "project-conn", models.SourceOrganization, "project-model"},
+		{"organization next", []domain.ModelAssignment{org("developer", "org-conn")}, "developer", "org-conn", models.SourceOrganization, "org-model"},
+		{"server file last", []domain.ModelAssignment{org("architect", "org-conn")}, "developer", "claude", models.SourceServer, "file-claude"},
+		{"policy turns overrides off", []domain.ModelAssignment{closed, over}, "developer", "org-conn", models.SourceOrganization, "org-model"},
+		{"another project's role stays", []domain.ModelAssignment{org("developer", "org-conn"), over}, "reviewer", "codex", models.SourceServer, "file-gpt"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := NewState(conns, tt.rows).Decide(fileConfig(), Request{ProjectID: project, Role: tt.role})
+			d := models.NewState(conns, tt.rows).Decide(fileConfig(), models.Request{ProjectID: project, Role: tt.role})
 			if d.Waiting != "" || d.Connection != tt.wantConn || d.Source != tt.source || d.Model != tt.model {
 				t.Fatalf("decision = %+v", d)
 			}
@@ -86,19 +87,19 @@ func TestDecideWaits(t *testing.T) {
 	tests := []struct {
 		name string
 		cfg  *config.Config
-		st   State
-		r    Request
+		st   models.State
+		r    models.Request
 		want string
 	}{
-		{"hosted, nothing connected", hosted(fileConfig()), NewState(nil, nil), Request{Role: "developer"}, "does not lend its keys"},
-		{"assignment to nothing", fileConfig(), NewState(nil, []domain.ModelAssignment{org("developer", "gone")}), Request{Role: "developer"}, "does not exist"},
-		{"hosted does not reach a file runtime", hosted(fileConfig()), NewState(nil, []domain.ModelAssignment{org("developer", "claude")}), Request{Role: "developer"}, "does not exist"},
-		{"turned off", fileConfig(), NewState([]domain.ModelConnection{off}, []domain.ModelAssignment{org("developer", "acme")}), Request{Role: "developer"}, "turned off"},
-		{"a bad override does not fall back", fileConfig(), NewState([]domain.ModelConnection{conn("acme", config.AdapterClaudeCode, "acme")}, []domain.ModelAssignment{org("developer", "acme"), over}), Request{ProjectID: project, Role: "developer"}, "does not exist"},
-		{"no model", fileConfig(), NewState([]domain.ModelConnection{conn("acme", config.AdapterClaudeCode, "other")}, []domain.ModelAssignment{org("developer", "acme")}), Request{Role: "developer"}, "no strong model"},
-		{"opencode form", fileConfig(), NewState([]domain.ModelConnection{plain}, []domain.ModelAssignment{org("developer", "oc")}), Request{Role: "developer"}, "provider/model"},
-		{"pool rule on connection names", poolsOnly(fileConfig(), "other"), NewState([]domain.ModelConnection{unlisted}, []domain.ModelAssignment{org("developer", "private")}), Request{Role: "developer", Pool: "build"}, "may not receive"},
-		{"role of an organization with settings", fileConfig(), NewState([]domain.ModelConnection{off}, nil), Request{Role: "architect"}, "has no model connection"},
+		{"hosted, nothing connected", hosted(fileConfig()), models.NewState(nil, nil), models.Request{Role: "developer"}, "does not lend its keys"},
+		{"assignment to nothing", fileConfig(), models.NewState(nil, []domain.ModelAssignment{org("developer", "gone")}), models.Request{Role: "developer"}, "does not exist"},
+		{"hosted does not reach a file runtime", hosted(fileConfig()), models.NewState(nil, []domain.ModelAssignment{org("developer", "claude")}), models.Request{Role: "developer"}, "does not exist"},
+		{"turned off", fileConfig(), models.NewState([]domain.ModelConnection{off}, []domain.ModelAssignment{org("developer", "acme")}), models.Request{Role: "developer"}, "turned off"},
+		{"a bad override does not fall back", fileConfig(), models.NewState([]domain.ModelConnection{conn("acme", config.AdapterClaudeCode, "acme")}, []domain.ModelAssignment{org("developer", "acme"), over}), models.Request{ProjectID: project, Role: "developer"}, "does not exist"},
+		{"no model", fileConfig(), models.NewState([]domain.ModelConnection{conn("acme", config.AdapterClaudeCode, "other")}, []domain.ModelAssignment{org("developer", "acme")}), models.Request{Role: "developer"}, "no strong model"},
+		{"opencode form", fileConfig(), models.NewState([]domain.ModelConnection{plain}, []domain.ModelAssignment{org("developer", "oc")}), models.Request{Role: "developer"}, "provider/model"},
+		{"pool rule on connection names", poolsOnly(fileConfig(), "other"), models.NewState([]domain.ModelConnection{unlisted}, []domain.ModelAssignment{org("developer", "private")}), models.Request{Role: "developer", Pool: "build"}, "may not receive"},
+		{"role of an organization with settings", fileConfig(), models.NewState([]domain.ModelConnection{off}, nil), models.Request{Role: "architect"}, "has no model connection"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -108,7 +109,7 @@ func TestDecideWaits(t *testing.T) {
 			}
 		})
 	}
-	if d := NewState(nil, nil).Decide(fileConfig(), Request{Role: "architect"}); !d.Unset {
+	if d := models.NewState(nil, nil).Decide(fileConfig(), models.Request{Role: "architect"}); !d.Unset {
 		t.Fatalf("a role nobody configured = %+v", d)
 	}
 }
@@ -126,18 +127,18 @@ func TestFileRuntimes(t *testing.T) {
 	c.Roles["architect"] = config.Role{Runtime: "claude-b", Tier: config.TierStrong}
 	tests := []struct {
 		name string
-		r    Request
+		r    models.Request
 		want string
 	}{
-		{"role's runtime", Request{Role: "architect", Adapter: config.AdapterClaudeCode}, "claude-b"},
-		{"first of the adapter for a role of another", Request{Role: "reviewer", Adapter: config.AdapterClaudeCode}, "claude"},
-		{"first of the adapter for an unknown role", Request{Role: "other", Adapter: config.AdapterClaudeCode}, "claude"},
-		{"seat", Request{Role: "developer", Pinned: config.AdapterCodex}, "codex"},
-		{"adapter gone: back to the role's", Request{Role: "developer", Adapter: "gone"}, "claude"},
+		{"role's runtime", models.Request{Role: "architect", Adapter: config.AdapterClaudeCode}, "claude-b"},
+		{"first of the adapter for a role of another", models.Request{Role: "reviewer", Adapter: config.AdapterClaudeCode}, "claude"},
+		{"first of the adapter for an unknown role", models.Request{Role: "other", Adapter: config.AdapterClaudeCode}, "claude"},
+		{"seat", models.Request{Role: "developer", Pinned: config.AdapterCodex}, "codex"},
+		{"adapter gone: back to the role's", models.Request{Role: "developer", Adapter: "gone"}, "claude"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if d := NewState(nil, nil).Decide(c, tt.r); d.Connection != tt.want || d.Source != SourceServer {
+			if d := models.NewState(nil, nil).Decide(c, tt.r); d.Connection != tt.want || d.Source != models.SourceServer {
 				t.Fatalf("decision = %+v", d)
 			}
 		})
@@ -146,26 +147,26 @@ func TestFileRuntimes(t *testing.T) {
 
 func TestSeats(t *testing.T) {
 	a, b := conn("a", config.AdapterClaudeCode, "acme"), conn("b", config.AdapterCodex, "acme")
-	st := NewState([]domain.ModelConnection{a, b}, []domain.ModelAssignment{org("developer", "a")})
-	if d := st.Decide(fileConfig(), Request{Role: "developer", Pinned: config.AdapterCodex}); d.Connection != "b" {
+	st := models.NewState([]domain.ModelConnection{a, b}, []domain.ModelAssignment{org("developer", "a")})
+	if d := st.Decide(fileConfig(), models.Request{Role: "developer", Pinned: config.AdapterCodex}); d.Connection != "b" {
 		t.Fatalf("seat on the organization's connection = %+v", d)
 	}
-	if d := st.Decide(fileConfig(), Request{Role: "developer", Pinned: config.AdapterOpencode}); d.Waiting == "" {
+	if d := st.Decide(fileConfig(), models.Request{Role: "developer", Pinned: config.AdapterOpencode}); d.Waiting == "" {
 		t.Fatalf("no connection of the adapter = %+v", d)
 	}
 	// A project that keeps a role on one connection keeps its seats there.
 	over := org("developer", "a")
 	over.ProjectID = project
-	st = NewState([]domain.ModelConnection{a, b}, []domain.ModelAssignment{org("developer", "a"), over})
-	if d := st.Decide(fileConfig(), Request{ProjectID: project, Role: "developer", Pinned: config.AdapterCodex}); !strings.Contains(d.Waiting, "override") {
+	st = models.NewState([]domain.ModelConnection{a, b}, []domain.ModelAssignment{org("developer", "a"), over})
+	if d := st.Decide(fileConfig(), models.Request{ProjectID: project, Role: "developer", Pinned: config.AdapterCodex}); !strings.Contains(d.Waiting, "override") {
 		t.Fatalf("seat against an override = %+v", d)
 	}
 	// With no connection of it, the server's serves, when it may.
-	st = NewState([]domain.ModelConnection{a}, []domain.ModelAssignment{org("developer", "a")})
-	if d := st.Decide(fileConfig(), Request{Role: "developer", Pinned: config.AdapterCodex}); d.Source != SourceServer || d.Connection != "codex" {
+	st = models.NewState([]domain.ModelConnection{a}, []domain.ModelAssignment{org("developer", "a")})
+	if d := st.Decide(fileConfig(), models.Request{Role: "developer", Pinned: config.AdapterCodex}); d.Source != models.SourceServer || d.Connection != "codex" {
 		t.Fatalf("seat on the server's runtime = %+v", d)
 	}
-	if d := st.Decide(hosted(fileConfig()), Request{Role: "developer", Pinned: config.AdapterCodex}); d.Waiting == "" {
+	if d := st.Decide(hosted(fileConfig()), models.Request{Role: "developer", Pinned: config.AdapterCodex}); d.Waiting == "" {
 		t.Fatalf("hosted seat = %+v", d)
 	}
 }
@@ -233,7 +234,7 @@ func TestGrantOfAConnection(t *testing.T) {
 	if err := w.st.ModelAssignments().Put(t.Context(), &a); err != nil {
 		t.Fatal(err)
 	}
-	s := New(w.st, fileConfig(), w.vault, nil)
+	s := models.New(w.st, fileConfig(), w.vault, nil)
 	g, err := s.Grant(t.Context(), w.job(t, "developer", config.AdapterOpencode))
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +248,7 @@ func TestGrantOfAConnection(t *testing.T) {
 func TestGrantKeyEnvOfTheAdapter(t *testing.T) {
 	w := newWorld(t)
 	w.connect(t, conn("acme", config.AdapterClaudeCode, "acme"), "sk-org", "developer")
-	g, err := New(w.st, fileConfig(), w.vault, nil).Grant(t.Context(), w.job(t, "developer", config.AdapterClaudeCode))
+	g, err := models.New(w.st, fileConfig(), w.vault, nil).Grant(t.Context(), w.job(t, "developer", config.AdapterClaudeCode))
 	if err != nil || g.Endpoint != nil || !maps.Equal(g.Env, map[string]string{"ANTHROPIC_API_KEY": "sk-org"}) {
 		t.Fatalf("grant = %+v, %v", g, err)
 	}
@@ -256,7 +257,7 @@ func TestGrantKeyEnvOfTheAdapter(t *testing.T) {
 func TestGrantOfTheServerFile(t *testing.T) {
 	w := newWorld(t)
 	c := fileConfig()
-	s := New(w.st, c, nil, nil)
+	s := models.New(w.st, c, nil, nil)
 	g, err := s.Grant(t.Context(), w.job(t, "developer", config.AdapterClaudeCode))
 	if err != nil || g.Connection != "claude" || g.Model != "file-claude" || g.Env["ANTHROPIC_API_KEY"] != "server" {
 		t.Fatalf("grant = %+v, %v", g, err)
@@ -277,10 +278,10 @@ func TestGrantWaits(t *testing.T) {
 	w := newWorld(t)
 	w.connect(t, conn("acme", config.AdapterClaudeCode, "acme"), "", "developer")
 	j := w.job(t, "developer", config.AdapterClaudeCode)
-	if g, err := New(w.st, fileConfig(), w.vault, nil).Grant(t.Context(), j); err != nil || !strings.Contains(g.Waiting, "no saved key") || g.Env != nil {
+	if g, err := models.New(w.st, fileConfig(), w.vault, nil).Grant(t.Context(), j); err != nil || !strings.Contains(g.Waiting, "no saved key") || g.Env != nil {
 		t.Fatalf("no key = %+v, %v", g, err)
 	}
-	if g, err := New(w.st, fileConfig(), nil, nil).Grant(t.Context(), j); err != nil || !strings.Contains(g.Waiting, config.EnvSecretKey) {
+	if g, err := models.New(w.st, fileConfig(), nil, nil).Grant(t.Context(), j); err != nil || !strings.Contains(g.Waiting, config.EnvSecretKey) {
 		t.Fatalf("no store = %+v, %v", g, err)
 	}
 	other, err := secrets.New(w.st.Secrets(), append(make([]byte, secrets.KeySize-1), 1))
@@ -290,10 +291,10 @@ func TestGrantWaits(t *testing.T) {
 	if err := w.vault.Put(t.Context(), domain.Actor{}, w.account, "models/acme", []byte("v")); err != nil {
 		t.Fatal(err)
 	}
-	if g, err := New(w.st, fileConfig(), other, nil).Grant(t.Context(), j); err != nil || !strings.Contains(g.Waiting, "does not read") {
+	if g, err := models.New(w.st, fileConfig(), other, nil).Grant(t.Context(), j); err != nil || !strings.Contains(g.Waiting, "does not read") {
 		t.Fatalf("other key = %+v, %v", g, err)
 	}
-	if g, err := New(w.st, fileConfig(), w.vault, nil).Grant(t.Context(), w.job(t, "developer", config.AdapterCodex)); err != nil || !strings.Contains(g.Waiting, "moved") {
+	if g, err := models.New(w.st, fileConfig(), w.vault, nil).Grant(t.Context(), w.job(t, "developer", config.AdapterCodex)); err != nil || !strings.Contains(g.Waiting, "moved") {
 		t.Fatalf("job on another adapter = %+v, %v", g, err)
 	}
 }
@@ -308,7 +309,7 @@ func TestErrorsArePassedOn(t *testing.T) {
 	w := newWorld(t)
 	w.connect(t, conn("acme", config.AdapterClaudeCode, "acme"), "k", "developer")
 	j := w.job(t, "developer", config.AdapterClaudeCode)
-	s := New(w.st, fileConfig(), brokenVault{w.vault}, nil)
+	s := models.New(w.st, fileConfig(), brokenVault{w.vault}, nil)
 	if _, err := s.Grant(t.Context(), j); !errors.Is(err, errVault) {
 		t.Fatalf("grant = %v", err)
 	}
@@ -323,7 +324,7 @@ func TestErrorsArePassedOn(t *testing.T) {
 func TestRotationAppliesToTheNextGrant(t *testing.T) {
 	w := newWorld(t)
 	w.connect(t, conn("acme", config.AdapterClaudeCode, "acme"), "old", "developer")
-	s := New(w.st, fileConfig(), w.vault, nil)
+	s := models.New(w.st, fileConfig(), w.vault, nil)
 	j := w.job(t, "developer", config.AdapterClaudeCode)
 	c := conn("acme", config.AdapterClaudeCode, "acme")
 	c.SecretRef = "store:models/acme-2"
@@ -335,7 +336,7 @@ func TestRotationAppliesToTheNextGrant(t *testing.T) {
 
 func TestSettle(t *testing.T) {
 	w := newWorld(t)
-	s := New(w.st, hosted(fileConfig()), w.vault, nil)
+	s := models.New(w.st, hosted(fileConfig()), w.vault, nil)
 	ctx := t.Context()
 	j := w.job(t, "developer", config.AdapterClaudeCode)
 	get := func() domain.Job {
@@ -353,7 +354,7 @@ func TestSettle(t *testing.T) {
 		t.Fatalf("no connection: job = %+v", got)
 	}
 	code, sentence, ok, err := s.WaitReason(ctx, get())
-	if err != nil || !ok || code != ReasonNoConnection || !strings.Contains(sentence, "developer") {
+	if err != nil || !ok || code != models.ReasonNoConnection || !strings.Contains(sentence, "developer") {
 		t.Fatalf("reason = %q %q %v %v", code, sentence, ok, err)
 	}
 
@@ -375,7 +376,7 @@ func TestSettle(t *testing.T) {
 func TestSettleLeavesAnUnconfiguredRole(t *testing.T) {
 	w := newWorld(t)
 	j := w.job(t, "architect", "other")
-	s := New(w.st, fileConfig(), w.vault, nil)
+	s := models.New(w.st, fileConfig(), w.vault, nil)
 	if err := s.Settle(t.Context(), w.account); err != nil {
 		t.Fatal(err)
 	}
@@ -390,7 +391,7 @@ func TestSettleLeavesAnUnconfiguredRole(t *testing.T) {
 
 func TestSeatKeepsItsAdapterThroughAWait(t *testing.T) {
 	w := newWorld(t)
-	s := New(w.st, hosted(fileConfig()), w.vault, nil)
+	s := models.New(w.st, hosted(fileConfig()), w.vault, nil)
 	ctx := t.Context()
 	j := domain.Job{AccountID: w.account, ProjectID: w.project.ID, Role: "developer", Runtime: config.AdapterCodex, Pool: domain.PoolBuild, Kind: domain.JobKindAgent,
 		Spec: domain.JobSpec{Repo: "acme/app", Runtime: config.AdapterCodex, PinnedRuntime: config.AdapterCodex}}
@@ -429,9 +430,9 @@ func (fixedWaiter) WaitReason(context.Context, domain.Job) (string, string, bool
 
 func TestBefore(t *testing.T) {
 	w := newWorld(t)
-	s := New(w.st, hosted(fileConfig()), w.vault, nil)
+	s := models.New(w.st, hosted(fileConfig()), w.vault, nil)
 	waiter := s.Before(fixedWaiter{})
-	if code, _, ok, err := waiter.WaitReason(t.Context(), w.job(t, "developer", domain.RuntimeNone)); err != nil || !ok || code != ReasonNoConnection {
+	if code, _, ok, err := waiter.WaitReason(t.Context(), w.job(t, "developer", domain.RuntimeNone)); err != nil || !ok || code != models.ReasonNoConnection {
 		t.Fatalf("connection first: %q %v %v", code, ok, err)
 	}
 	if code, _, ok, err := waiter.WaitReason(t.Context(), domain.Job{Kind: domain.JobKindCommand}); err != nil || !ok || code != "queue" {
@@ -442,18 +443,18 @@ func TestBefore(t *testing.T) {
 func TestModelOnAndUsual(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
-	s := New(w.st, fileConfig(), w.vault, nil)
+	s := models.New(w.st, fileConfig(), w.vault, nil)
 	if m, err := s.ModelOn(ctx, w.account, w.project.ID, "developer", config.AdapterCodex); err != nil || m != "file-gpt" {
 		t.Fatalf("file seat = %q, %v", m, err)
 	}
-	if _, err := s.ModelOn(ctx, w.account, w.project.ID, "developer", config.AdapterOpencode); !errors.Is(err, ErrNoModel) {
+	if _, err := s.ModelOn(ctx, w.account, w.project.ID, "developer", config.AdapterOpencode); !errors.Is(err, models.ErrNoModel) {
 		t.Fatalf("no such adapter = %v", err)
 	}
 	if a, err := s.Usual(ctx, w.account, w.project.ID, "developer"); err != nil || a != config.AdapterClaudeCode {
 		t.Fatalf("usual = %q, %v", a, err)
 	}
-	h := New(w.st, hosted(fileConfig()), w.vault, nil)
-	if _, err := h.ModelOn(ctx, w.account, w.project.ID, "developer", config.AdapterCodex); !errors.Is(err, ErrNoModel) {
+	h := models.New(w.st, hosted(fileConfig()), w.vault, nil)
+	if _, err := h.ModelOn(ctx, w.account, w.project.ID, "developer", config.AdapterCodex); !errors.Is(err, models.ErrNoModel) {
 		t.Fatalf("hosted = %v", err)
 	}
 	if a, err := h.Usual(ctx, w.account, w.project.ID, "developer"); err != nil || a != "" {
@@ -478,8 +479,8 @@ func (f failingStore) ModelConnections() store.ModelConnectionRepo {
 func TestStoreErrors(t *testing.T) {
 	w := newWorld(t)
 	w.job(t, "developer", config.AdapterClaudeCode)
-	s := New(failingStore{w.st}, fileConfig(), nil, nil)
-	if _, err := s.Decide(t.Context(), w.account, Request{Role: "developer"}); !errors.Is(err, errStore) {
+	s := models.New(failingStore{w.st}, fileConfig(), nil, nil)
+	if _, err := s.Decide(t.Context(), w.account, models.Request{Role: "developer"}); !errors.Is(err, errStore) {
 		t.Fatalf("decide = %v", err)
 	}
 	if _, err := s.Grant(t.Context(), domain.Job{}); !errors.Is(err, errStore) {

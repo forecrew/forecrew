@@ -39,7 +39,7 @@ type jobCreator struct {
 	// councils and models make a council turn's job: the step's prompt and
 	// schema, on the runtime its member is pinned to.
 	councils *councils.Set
-	models   func(role, adapter string) (string, error)
+	models   func(ctx context.Context, accountID, projectID uuid.UUID, role, adapter string) (string, error)
 }
 
 // pathSource says what a role may do to the repo files of a project's
@@ -139,6 +139,10 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 		}
 	}
 	needs, allowed := toolboxJob(role, req.Needs)
+	pinned := ""
+	if req.Council != nil {
+		pinned = req.Council.Runtime // a seat stays on its agent
+	}
 	j, err := c.jobs.Create(ctx, domain.SystemActor(req.AccountID, domain.ForecrewdName), domain.Job{
 		ID: req.ID, AccountID: req.AccountID, ProjectID: req.ProjectID, Pool: pool, Role: role.Name, Runtime: role.Runtime, Needs: needs, Resources: role.Resources,
 		GoalID: req.GoalID, SpecID: req.SpecID, TaskID: req.TaskID, ContextManifest: pack.Manifest,
@@ -146,7 +150,7 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, WritePaths: writePaths, Model: role.Model,
 			Prompt: pack.Prompt, OutputSchema: role.OutputSchema, AllowedTools: allowed, MaxTurns: role.MaxTurns,
 			Timeout: domain.Duration(role.Timeout), IncludeRepoFacts: req.IncludeRepoFacts, LockedPaths: req.LockedPaths,
-			Toolbox: role.Toolbox,
+			Toolbox: role.Toolbox, PinnedRuntime: pinned,
 		},
 	})
 	if err != nil {
@@ -232,7 +236,7 @@ func (c *jobCreator) councilRole(ctx context.Context, req workflow.JobRequest, r
 		return roles.Role{}, fmt.Errorf("%s is not a council of this project: %w", council.Ref(), jobs.ErrInvalid)
 	}
 	if t.Runtime != "" && t.Runtime != role.Runtime {
-		if role.Model, err = c.models(role.Name, t.Runtime); err != nil {
+		if role.Model, err = c.models(ctx, req.AccountID, req.ProjectID, role.Name, t.Runtime); err != nil {
 			return roles.Role{}, err
 		}
 		role.Runtime = t.Runtime
