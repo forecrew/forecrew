@@ -63,6 +63,36 @@ import tokensEmpty from "./fixtures/tokens-empty.json"
 import tokenRevoke from "./fixtures/token-revoke.json"
 import tokenRevokeSelf from "./fixtures/token-revoke-self.json"
 import workers from "./fixtures/workers.json"
+import audit from "./fixtures/audit.json"
+import auditEmpty from "./fixtures/audit-empty.json"
+import connectionCreate from "./fixtures/connection-create.json"
+import connectionEnable from "./fixtures/connection-enable.json"
+import connectionEnableUntested from "./fixtures/connection-enable-untested.json"
+import connections from "./fixtures/connections.json"
+import identities from "./fixtures/identities.json"
+import invitationCreate from "./fixtures/invitation-create.json"
+import invitationRevoke from "./fixtures/invitation-revoke.json"
+import invitations from "./fixtures/invitations.json"
+import meAdmin from "./fixtures/me-admin.json"
+import meContributor from "./fixtures/me-contributor.json"
+import meViewer from "./fixtures/me-viewer.json"
+import memberLastOwner from "./fixtures/member-last-owner.json"
+import memberSuspend from "./fixtures/member-suspend.json"
+import members from "./fixtures/members.json"
+import organization from "./fixtures/organization.json"
+import roleBindingCreate from "./fixtures/role-binding-create.json"
+import roleBindingDelete from "./fixtures/role-binding-delete.json"
+import roleBindings from "./fixtures/role-bindings.json"
+import roles from "./fixtures/roles.json"
+import serviceAccountCreate from "./fixtures/service-account-create.json"
+import serviceAccounts from "./fixtures/service-accounts.json"
+import sessions from "./fixtures/sessions.json"
+import teamCreate from "./fixtures/team-create.json"
+import teamMembers from "./fixtures/team-members.json"
+import teamsEmpty from "./fixtures/teams-empty.json"
+import teams from "./fixtures/teams.json"
+import tokenCreate from "./fixtures/token-create.json"
+import tokensScopes from "./fixtures/tokens-scopes.json"
 import errorConflict from "./fixtures/error-conflict.json"
 import errorInvalidInput from "./fixtures/error-invalid-input.json"
 import errorNotFound from "./fixtures/error-not-found.json"
@@ -99,6 +129,42 @@ export const handlers = [
   http.get("/api/v1/quality", () => HttpResponse.json(quality)),
   http.get("/api/v1/changes/:change/verification", () => HttpResponse.json(verification)),
   http.get("/api/v1/workers", () => HttpResponse.json(workers)),
+  http.put("/api/v1/session/organization", () => HttpResponse.json(me)),
+  http.delete("/api/v1/sessions", () => new HttpResponse(null, { status: 204 })),
+  http.get("/api/v1/sessions", () => HttpResponse.json(sessions)),
+  http.delete("/api/v1/sessions/:id", () => new HttpResponse(null, { status: 204 })),
+  http.get("/api/v1/identities", () => HttpResponse.json(identities)),
+  http.post("/api/v1/cli/authorize", () => HttpResponse.json({ redirect: "http://127.0.0.1:5555/callback?code=fcl_abc&state=st", code: "fcl_abc" })),
+  http.post("/api/v1/tokens", () => HttpResponse.json(tokenCreate, { status: 201 })),
+  http.get("/api/v1/members", () => HttpResponse.json(members)),
+  http.post("/api/v1/members/:id/suspend", () => HttpResponse.json(memberSuspend)),
+  http.post("/api/v1/members/:id/resume", () => HttpResponse.json(members[1])),
+  http.delete("/api/v1/members/:id", () => HttpResponse.json(members[1])),
+  http.patch("/api/v1/organization", () => HttpResponse.json(organization)),
+  http.get("/api/v1/invitations", () => HttpResponse.json(invitations)),
+  http.post("/api/v1/invitations", () => HttpResponse.json(invitationCreate, { status: 201 })),
+  http.post("/api/v1/invitations/:id/revoke", () => HttpResponse.json(invitationRevoke)),
+  http.get("/api/v1/teams", () => HttpResponse.json(teams)),
+  http.post("/api/v1/teams", () => HttpResponse.json(teamCreate, { status: 201 })),
+  http.delete("/api/v1/teams/:slug", () => HttpResponse.json(teams[0])),
+  http.get("/api/v1/teams/:slug/members", () => HttpResponse.json(teamMembers)),
+  http.post("/api/v1/teams/:slug/members", () => HttpResponse.json(teamMembers[0], { status: 201 })),
+  http.delete("/api/v1/teams/:slug/members/:user", () => HttpResponse.json(teamMembers[0])),
+  http.get("/api/v1/roles", () => HttpResponse.json(roles)),
+  http.get("/api/v1/role-bindings", ({ request }) => {
+    const project = new URL(request.url).searchParams.get("project")
+    return HttpResponse.json(project ? roleBindings.filter((b) => b.project === project) : roleBindings)
+  }),
+  http.post("/api/v1/role-bindings", () => HttpResponse.json(roleBindingCreate, { status: 201 })),
+  http.delete("/api/v1/role-bindings/:id", () => HttpResponse.json(roleBindingDelete)),
+  http.get("/api/v1/service-accounts", () => HttpResponse.json(serviceAccounts)),
+  http.post("/api/v1/service-accounts", () => HttpResponse.json(serviceAccountCreate, { status: 201 })),
+  http.post("/api/v1/service-accounts/:name/:action", () => HttpResponse.json(serviceAccounts[0])),
+  http.get("/api/v1/connections", () => HttpResponse.json(connections)),
+  http.post("/api/v1/connections", () => HttpResponse.json(connectionCreate, { status: 201 })),
+  http.post("/api/v1/connections/:name/enable", () => HttpResponse.json(connectionEnable)),
+  http.post("/api/v1/connections/:name/disable", () => HttpResponse.json(connections[1])),
+  http.get("/api/v1/audit", () => HttpResponse.json(audit)),
   http.get("/api/v1/tokens", () => HttpResponse.json(tokens)),
   http.post("/api/v1/tokens/:id/revoke", ({ params }) =>
     HttpResponse.json(params.id === tokens.find((t) => t.current)?.id ? tokenRevokeSelf : tokenRevoke),
@@ -145,6 +211,9 @@ export const fx = {
   assumptions, assumptionResolve, decisions, decisionsEmpty, gatesCouncil,
   trace, assumptionRegister, assumptionRegisterEmpty, assumptionRegisterResolve, knowledgeEntries, knowledgeEntriesEmpty, knowledgeNotes,
   knowledgeNoteDelete, knowledgeProposals, knowledgeProposalsEmpty, knowledgePropose, knowledgeSearch, knowledgeSearchEmpty,
+  audit, auditEmpty, connectionCreate, connectionEnable, connectionEnableUntested, connections, identities, invitationCreate, invitationRevoke, invitations,
+  meAdmin, meContributor, meViewer, memberLastOwner, memberSuspend, members, organization, roleBindingCreate, roleBindingDelete, roleBindings, roles,
+  serviceAccountCreate, serviceAccounts, sessions, teamCreate, teamMembers, teamsEmpty, teams, tokenCreate, tokensScopes,
 }
 
 /** The recorded error answers. */
@@ -153,6 +222,8 @@ export const errors = {
   notFound: () => HttpResponse.json(errorNotFound, { status: 404 }),
   invalidInput: () => HttpResponse.json(errorInvalidInput, { status: 400 }),
   conflict: () => HttpResponse.json(errorConflict, { status: 409 }),
+  lastOwner: () => HttpResponse.json(memberLastOwner, { status: 409 }),
+  untestedConnection: () => HttpResponse.json(connectionEnableUntested, { status: 409 }),
   councilEnded: () => HttpResponse.json(councilConstraintConflict, { status: 409 }),
   cancelConflict: () => HttpResponse.json(jobCancelConflict, { status: 409 }),
 }

@@ -7,11 +7,60 @@ review code; the UI links to it.
 
 Screens: Home (what needs me, is everything healthy), Inbox (decide gates,
 filtered by project; a goal page decides its own pending gates with the same
-cards), Goals, Councils, Decisions, Projects, Jobs, Quality, Workers and Tokens (dig into detail; a queued or
+cards), Goals, Councils, Decisions, Projects, Jobs, Quality, Workers, Settings and Your account (dig into detail; a queued or
 running job can be canceled from the job page and from the job tables),
 Assumptions, Knowledge and the trace ("why does this exist?"), and a
 command menu (Ctrl+K or Cmd+K) to jump anywhere or start a goal, a council or
 an onboarding.
+
+## Organizations and access
+
+The screens follow `2 - UI design/Configuration and fleet UI.md`.
+
+- **Sign-in** (`/login`). An email field first (`POST /auth/discover` with the
+  email: a company whose domain requires its own sign-in leads straight to it),
+  then one button per way to sign in: the server's, and those of the
+  organization of `?org=` or of the invitation. `?redirect=` is carried through
+  the sign-in (paths of this site only). The pasted token shows only where the
+  server sets `auth.token_login`. Refusals (not invited, the domain requires
+  SSO, provider error) are the plain pages of the server.
+- **Permission-aware.** Everything is driven by `/me` (`permissions` on the
+  organization, `projects` for project roles). A section or action the caller
+  cannot even read is left out; one they can read but not use is disabled and
+  names the permission it needs (`PermButton`). Decisions the caller may not
+  resolve (`can_resolve`) show no buttons and ignore the keyboard shortcuts.
+- **Settings** (`/settings`, a section only for the permission that reads
+  it): General (name and slug, `org.manage` changes them), People (tabs
+  Members, Teams, Roles, Service accounts; `org.read`), Sign-in
+  (`connection.manage`) and Change history (the audit log, `audit.read`, with
+  filters by person, action, what it was done to and dates; what was recorded
+  is shown as text).
+  - Members: role, direct access and teams ("direct", "through team Mobile"),
+    status. Suspend (after confirming), resume and remove need
+    `member.manage`; the last Owner's actions are disabled and say why;
+    members provisioned by SCIM show "Managed by your identity provider" and
+    no controls. Invitations (by email or GitHub login, roles, expiry, revoke):
+    the link is shown once with Copy.
+  - Teams: members, and the roles each team holds on the organization and on
+    projects. Roles lists the built-in roles read-only as capabilities by area.
+  - Sign-in: the server's connections are read-only ("Managed by server file").
+    Adding a company sign-in takes a client ID and the name of the secret
+    (`env:FORECREW_CONN_NAME` or `secret:conn-name`; the secret is never
+    typed), starts turned off, shows the redirect address to allow at the
+    provider, and can be turned on only after Test sign-in worked.
+- **Your account** (`/account`; `/tokens` leads here): linked sign-ins,
+  personal tokens (create with name, scope and expiry, shown once with Copy;
+  scopes and expiry shown when the server sends them; revoke) and browser
+  sessions (end one, or sign out everywhere). Connected apps wait for the
+  OAuth screen (T55).
+- **Project access** (a section of the project page): who has which role,
+  directly or through a team; Owners and Admins show "through organization
+  role", read-only. Adding and removing needs `project.manage` on the project;
+  choosing people needs `org.read`.
+- **Allow the command line** (`/cli-login`): where `forecrew login` sends the
+  browser; the person confirms, the page asks the server for a one-time code
+  and sends the browser to the CLI's loopback address (the code is also shown
+  for a machine without a browser).
 
 ## Look
 
@@ -26,9 +75,12 @@ Layout follows the design screens in `2 - UI design/Screens` (structure and
 placement only; colors and fonts are stock). What the MVP has no data for is
 left out, not faked:
 
-- **Shell.** A left sidebar with the app name, a project switcher, the nav, and
-  Tokens, who is signed in and Log out at the bottom (there is no Settings page
-  yet). The switcher stays on the current page and sets the `project` filter in
+- **Shell.** A left sidebar with the app name, the organization (a switcher
+  when `/me` lists two or more: it moves the session with
+  `PUT /session/organization`; a session from an organization's own connection
+  lists only that one), a project switcher, the nav, and at the bottom Settings
+  (only when the caller may read a section) and the account menu: Your account,
+  Sign out and Sign out everywhere. The switcher stays on the current page and sets the `project` filter in
   the address; Inbox, Goals and Jobs filter by it and their sidebar links keep
   it. It is the only project filter (the lists have no project select of their
   own). On a phone the sidebar becomes a bottom bar (Home, Inbox, Jobs, Menu).
@@ -183,12 +235,11 @@ web/src
   returns to where you were. State-changing calls are sent as
   `application/json`, which the API requires for cookie sessions.
 - **Cancel and revoke.** "Cancel job" (job page, jobs page, goal jobs table) and
-  "Revoke" (Tokens page) always ask in a dialog first. A running job stops on
+  "Revoke" (Your account) always ask in a dialog first. A running job stops on
   its worker within about 30 s and its playbook takes its failure path; the
-  job, job lists and gates refresh after it. The Tokens page lists the account's
-  tokens (the one you are using is badged "this session"); revoking that one
-  logs you out and goes to the login page. Tokens are created with the API, the
-  CLI or `forecrew token create` on the server, not in the UI yet.
+  job, job lists and gates refresh after it. Your account lists your tokens
+  (the one you are using is badged "this session"); revoking that one logs you
+  out and goes to the login page. Tokens are created there too, or with the CLI.
 - **Live data.** Lists poll every 5 s with TanStack Query; a running job's log
   polls every 2 s and asks only for events after the last one it has
   (`after_seq`). Polling pauses while the tab is hidden.
