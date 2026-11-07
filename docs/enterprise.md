@@ -40,6 +40,15 @@ build must not lift it silently. Turn it off first.
 
 `GET /api/v1/me` says `"enterprise": true` in the enterprise build, for the UI.
 
+**Sign-in discovery is public.** `POST /api/v1/auth/discover` answers for any
+email, so it shows anyone that a domain is verified by an organization (its
+connections appear) and whether it is enforced (`redirect` is set). This is
+what email-first sign-in needs; it is limited to 120 calls a minute per
+address. forecrewd counts the address of the connection it receives: behind a
+reverse proxy every caller has the proxy's address and shares one limit, so a
+busy instance behind a proxy may see `429` on its sign-in page. Rate-limit at
+the proxy as well, or serve forecrewd directly.
+
 ## Verified domains
 
 `forecrew domains add acme.com` shows a TXT record:
@@ -53,11 +62,16 @@ several organizations and verified in one. The token is public, not a secret.
 
 Forecrew looks every verified domain up at startup and every day after. When
 the DNS answers that the record is gone, the domain is unverified, which ends
-its enforcement. That is audited as `domain.verification_lost`, logged as an
-error, and the Owners are told through a `needs_you` gate on one of the
-organization's projects, the one thing Forecrew puts in front of people; an
-organization without a project has only the audit log. A lookup that fails says nothing
-about the record, so a DNS outage changes nothing.
+its enforcement. That is audited as `domain.verification_lost` and logged as an
+error. A lookup that fails says nothing about the record, so a DNS outage
+changes nothing.
+
+**Who is told, and who is not.** Forecrew has no channel that reaches only the
+Owners yet. It opens a `needs_you` gate on one of the organization's projects,
+which **every reader of that project sees** in the inbox, not only the Owners,
+and which anyone allowed to resolve such gates there can close. An
+organization **without projects gets only the audit log entry and the server
+log line**: nobody is told in the app. Check the domains after a DNS change.
 
 ## SSO enforcement
 
@@ -89,9 +103,14 @@ Each such entry is audited as `sso.exempted`.
 sets both on an organization's own connection.
 
 **JIT:** a sign-in through the connection by someone who is not a member
-creates the membership (source `jit`) with the default roles. The provider
-decides who that is, so a member removed by hand comes back at their next
-sign-in unless the provider stops them too; suspending them keeps them out.
+creates the membership (source `jit`) with the default roles. Only an `oidc`
+or `microsoft` connection of the organization can have JIT: on a `github` or
+`google` connection anyone with an account can sign in, so it is refused.
+
+> **To keep someone out under JIT, suspend them; do not remove them.** The
+> provider decides who signs in, so a member removed by hand gets a new
+> membership at their next sign-in. A suspended member stays out until an
+> Owner lets them back in.
 
 **Group mapping:** `forecrew group-mappings add okta devs core` maps a group to
 a team. At every sign-in, for each team mapped through that connection, the
@@ -139,6 +158,15 @@ Attributes Forecrew does not keep are ignored. Quirks handled: `op` in either
 case (Okta lowercase, Entra ID capitalised), `active` as the string `"False"`,
 `PATCH` without a path and with an object as value, `members[value eq "..."]`
 paths and `"$ref": null`. `PATCH` on a group answers `204`.
+
+## Not built yet
+
+- **The role editor in the web UI** (criterion 7 of T56) waits for T54's
+  organization settings; custom roles are managed through MCP, REST and the
+  CLI until then.
+- **OAuth grants:** SCIM revokes a member's grants through a narrow
+  `store.OAuthGrants()` until T55's `OAuthRepo` joins `Store`; it then
+  replaces it, in the same transaction as the suspension.
 
 ## Custom roles
 

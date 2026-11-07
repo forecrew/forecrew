@@ -175,6 +175,13 @@ func TestLostRecordWithoutProjectIsAudited(t *testing.T) {
 	if !e.audited("domain.verification_lost") {
 		t.Error("not audited")
 	}
+	// Without a project there is nowhere to open a gate: nobody is told in
+	// the app (docs/enterprise.md).
+	gates, err := e.st.Gates().List(ctx, e.org.ID, store.GateFilter{})
+	must(t, err)
+	if len(gates) != 0 {
+		t.Errorf("gates = %+v", gates)
+	}
 }
 
 func TestRunChecksAtOnceAndStops(t *testing.T) {
