@@ -127,7 +127,7 @@ test("the command menu opens with Ctrl+K and jumps to a goal", async ({ page }) 
   await page.goto("/")
   await page.keyboard.press("Control+k")
   await page.getByPlaceholder(/Search pages/).fill("GOAL-3")
-  await page.getByRole("option", { name: /GOAL-3/ }).click()
+  await page.getByRole("option", { name: /^GOAL-3 / }).click()
   await expect(page).toHaveURL(/\/goals\/GOAL-3$/)
 })
 
