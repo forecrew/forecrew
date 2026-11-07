@@ -269,6 +269,7 @@ const (
 	reasonDisabled          = "user_disabled"
 	reasonSuspended         = "membership_suspended"
 	reasonTestDenied        = "test_denied"
+	reasonTestChanged       = "test_changed"
 	reasonSSORequired       = "sso_required"
 )
 
@@ -290,6 +291,7 @@ var reasons = map[string]struct {
 	reasonDisabled:        {http.StatusForbidden, "This account is disabled", "Ask your administrator."},
 	reasonSuspended:       {http.StatusForbidden, "Your membership is suspended", "Ask an owner of your organization."},
 	reasonTestDenied:      {http.StatusForbidden, "You cannot test this sign-in", "Sign in as an administrator of the organization that owns it, then start the test again from its settings."},
+	reasonTestChanged:     {http.StatusConflict, "The connection changed during the test", "Its settings changed while you were signing in, so the test does not count. Test again from its settings."},
 	reasonSSORequired:     {http.StatusForbidden, "Your organization requires its single sign-on", "Sign in with your work account: enter your work email on the sign-in page."},
 }
 
@@ -336,6 +338,10 @@ func (s *Service) testResult(w http.ResponseWriter, r *http.Request, conn domain
 		return
 	}
 	if err := signintest.Record(r.Context(), s.cfg.Store, by, conn); err != nil {
+		if errors.Is(err, signintest.ErrChanged) {
+			s.refuse(w, r, refusal(reasonTestChanged), err)
+			return
+		}
 		s.refuse(w, r, nil, err)
 		return
 	}

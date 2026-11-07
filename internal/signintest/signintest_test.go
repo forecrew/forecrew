@@ -119,7 +119,7 @@ func TestTestOfGoneValuesIsRefused(t *testing.T) {
 	if err := st.Connections().Update(ctx, &moved); err != nil {
 		t.Fatal(err)
 	}
-	if err := signintest.Record(ctx, st, by, c); !errors.Is(err, store.ErrConflict) {
+	if err := signintest.Record(ctx, st, by, c); !errors.Is(err, store.ErrConflict) || !errors.Is(err, signintest.ErrChanged) {
 		t.Fatalf("record of old values: %v", err)
 	}
 	if err := signintest.Clear(ctx, st, by, c); err != nil {

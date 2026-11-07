@@ -10,6 +10,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/auth"
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
@@ -118,9 +119,9 @@ func (s *Service) defaultRole(ctx context.Context, accountID uuid.UUID, name str
 
 // coversConnection is No escalation for what a connection trusts: the roles
 // of its JIT defaults and of the teams mapped to it.
-func (s *Service) coversConnection(ctx context.Context, by domain.Actor, c domain.Connection) error {
+func (s *Service) coversConnection(ctx context.Context, st store.Store, by domain.Actor, c domain.Connection) error {
 	for _, id := range c.JIT.DefaultRoles {
-		r, err := s.st.Roles().Get(ctx, by.AccountID, id)
+		r, err := st.Roles().Get(ctx, by.AccountID, id)
 		if err != nil {
 			return err
 		}
@@ -128,7 +129,7 @@ func (s *Service) coversConnection(ctx context.Context, by domain.Actor, c domai
 			return err
 		}
 	}
-	mappings, err := s.st.Connections().GroupMappings(ctx, c.ID)
+	mappings, err := st.Connections().GroupMappings(ctx, c.ID)
 	if err != nil {
 		return err
 	}
@@ -136,15 +137,72 @@ func (s *Service) coversConnection(ctx context.Context, by domain.Actor, c domai
 		if m.AccountID != by.AccountID {
 			continue
 		}
-		if err := s.authz.CoversBindingsOf(ctx, by, domain.SubjectTeam, m.TeamID); err != nil {
+		if err := s.authz.CoversBindingsFrom(ctx, st, by, domain.SubjectTeam, m.TeamID); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// provisioningRoles resolves the default roles of in, nil when it has none,
+// and checks that by covers each (No escalation).
+func (s *Service) provisioningRoles(ctx context.Context, by domain.Actor, in mcp.SetProvisioningInput) ([]uuid.UUID, error) {
+	if in.DefaultRoles == nil {
+		return nil, nil
+	}
+	roles := []uuid.UUID{}
+	for _, name := range *in.DefaultRoles {
+		r, err := s.defaultRole(ctx, by.AccountID, name)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.covers(ctx, by, r); err != nil {
+			return nil, err
+		}
+		roles = append(roles, r.ID)
+	}
+	return roles, nil
+}
+
+// applyProvisioning writes the edits of in onto the connection as it is under
+// the lock, not onto the row read before: Update writes the whole row, so a
+// stale one would put back an issuer or a setting that changed meanwhile. No
+// escalation is checked against that same row, since a plan that ran
+// meanwhile may have added a role or a team the caller lacks. denied reports
+// that refusal, whose audit is left to the caller.
+func (s *Service) applyProvisioning(ctx context.Context, tx store.Store, by domain.Actor, c *domain.Connection, in mcp.SetProvisioningInput, roles []uuid.UUID) (denied bool, err error) {
+	if err := tx.Connections().Lock(ctx, c.ID); err != nil {
+		return false, err
+	}
+	if *c, err = tx.Connections().Get(ctx, c.ID); err != nil {
+		return false, err
+	}
+	if err := s.coversConnection(authz.WithoutDenialAudit(ctx), tx, by, *c); err != nil {
+		return true, err
+	}
+	if in.JITEnabled != nil {
+		c.JIT.Enabled = *in.JITEnabled
+	}
+	if in.GroupClaim != nil {
+		c.GroupClaim = *in.GroupClaim
+	}
+	if roles != nil {
+		c.JIT.DefaultRoles = roles
+	}
+	if err := c.Validate(); err != nil {
+		return false, wrap(err.Error(), mcp.ErrInvalidInput)
+	}
+	if err := tx.Connections().Update(ctx, c); err != nil {
+		return false, err
+	}
+	return false, audit(ctx, tx, by, "connection.provisioning_changed", "connection", c.ID, map[string]any{"jit": c.JIT, "group_claim": c.GroupClaim})
+}
+
 // SetConnectionProvisioning implements mcp.EnterpriseTools.
 func (s *Service) SetConnectionProvisioning(ctx context.Context, by domain.Actor, in mcp.SetProvisioningInput) (mcp.ProvisioningInfo, error) {
+	// The caller's own bindings are read once, before the transaction, so the
+	// checks inside it do not read them through another connection.
+	ctx = s.authz.Request(ctx)
 	if err := s.allow(ctx, by, domain.PermConnectionManage); err != nil {
 		return mcp.ProvisioningInfo{}, err
 	}
@@ -155,37 +213,26 @@ func (s *Service) SetConnectionProvisioning(ctx context.Context, by domain.Actor
 	if c.AccountID != by.AccountID {
 		return mcp.ProvisioningInfo{}, wrap("connection "+c.Name+" comes from the server file", mcp.ErrInvalidInput)
 	}
-	if err := s.coversConnection(ctx, by, c); err != nil {
+	if err := s.coversConnection(ctx, s.st, by, c); err != nil {
 		return mcp.ProvisioningInfo{}, err
 	}
-	if in.JITEnabled != nil {
-		c.JIT.Enabled = *in.JITEnabled
+	roles, err := s.provisioningRoles(ctx, by, in)
+	if err != nil {
+		return mcp.ProvisioningInfo{}, err
 	}
-	if in.GroupClaim != nil {
-		c.GroupClaim = *in.GroupClaim
-	}
-	if in.DefaultRoles != nil {
-		c.JIT.DefaultRoles = []uuid.UUID{}
-		for _, name := range *in.DefaultRoles {
-			r, err := s.defaultRole(ctx, by.AccountID, name)
-			if err != nil {
-				return mcp.ProvisioningInfo{}, err
-			}
-			if err := s.covers(ctx, by, r); err != nil {
-				return mcp.ProvisioningInfo{}, err
-			}
-			c.JIT.DefaultRoles = append(c.JIT.DefaultRoles, r.ID)
-		}
-	}
-	if err := c.Validate(); err != nil {
-		return mcp.ProvisioningInfo{}, wrap(err.Error(), mcp.ErrInvalidInput)
-	}
+	var stale bool
 	err = s.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
-		if err := tx.Connections().Update(ctx, &c); err != nil {
-			return err
-		}
-		return audit(ctx, tx, by, "connection.provisioning_changed", "connection", c.ID, map[string]any{"jit": c.JIT, "group_claim": c.GroupClaim})
+		var err error
+		stale, err = s.applyProvisioning(ctx, tx, by, &c, in, roles)
+		return err
 	})
+	if stale && errors.Is(err, authz.ErrDenied) {
+		// The denial inside the transaction was not audited: audit it here,
+		// against the row that was refused.
+		if derr := s.coversConnection(ctx, s.st, by, c); derr != nil {
+			err = derr
+		}
+	}
 	return mcp.ProvisioningInfo{ConnectionID: c.ID, Name: c.Name, JIT: c.JIT, GroupClaim: c.GroupClaim}, storeErr(err, "connection "+c.Name)
 }
 

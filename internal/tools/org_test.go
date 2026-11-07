@@ -316,7 +316,7 @@ func TestConnectionTools(t *testing.T) {
 		t.Fatalf("disabled = %+v", off)
 	}
 
-	// A test vouches for the issuer and client ID it worked for.
+	// A test vouches for the kind, issuer, client ID and secret reference it worked for.
 	moved := c.Connection
 	moved.Issuer = "https://other.okta.com"
 	must(t, f.st.Connections().Update(ctx, &moved))

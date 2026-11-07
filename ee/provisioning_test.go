@@ -3,6 +3,7 @@
 package ee
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -380,5 +381,87 @@ func TestStoreErrorsPassThrough(t *testing.T) {
 	}
 	if err := scimStoreErr(store.ErrConflict); err == nil {
 		t.Error("no error")
+	}
+}
+
+// staleStore changes a connection right after the first time it is listed, as
+// another request would between the read and the write of provisioning.
+type staleStore struct {
+	store.Store
+	after func()
+}
+
+func (s *staleStore) Connections() store.ConnectionRepo {
+	return &staleConnections{ConnectionRepo: s.Store.Connections(), s: s}
+}
+
+type staleConnections struct {
+	store.ConnectionRepo
+	s *staleStore
+}
+
+func (r *staleConnections) List(ctx context.Context, accountID uuid.UUID) ([]domain.Connection, error) {
+	rows, err := r.ConnectionRepo.List(ctx, accountID)
+	if after := r.s.after; after != nil {
+		r.s.after = nil
+		after()
+	}
+	return rows, err
+}
+
+// A provisioning change goes onto the connection as it is when written: a
+// change of the issuer, and the test that went with it, made after the read
+// is not put back.
+func TestProvisioningKeepsConcurrentChange(t *testing.T) {
+	ctx := t.Context()
+	clock := testkit.NewClock(t0)
+	inner := testkit.NewStore(clock.Now)
+	ws := &staleStore{Store: inner}
+	e := newEnvOn(t, ws, clock)
+	c := e.connection("okta") // on, at https://idp.example
+	ws.after = func() {
+		moved := c
+		moved.Issuer, moved.Enabled = "https://other.example", false
+		must(t, inner.Connections().Update(ctx, &moved))
+	}
+	on := true
+	claim := "groups"
+	_, err := e.svc.SetConnectionProvisioning(ctx, e.owner, mcp.SetProvisioningInput{Connection: c.Name, JITEnabled: &on, GroupClaim: &claim})
+	must(t, err)
+	rows, err := inner.Connections().List(ctx, e.org.ID)
+	must(t, err)
+	if got := rows[0]; got.Issuer != "https://other.example" || got.Enabled || !got.JIT.Enabled || got.GroupClaim != claim {
+		t.Fatalf("connection = %+v: a stale write put back the old issuer or switch, or lost the edit", got)
+	}
+}
+
+// No escalation is checked against the connection as it is under the lock: a
+// role added after the read, one the caller does not hold, refuses the change.
+func TestProvisioningNoEscalationOnConcurrentRole(t *testing.T) {
+	ctx := t.Context()
+	clock := testkit.NewClock(t0)
+	inner := testkit.NewStore(clock.Now)
+	ws := &staleStore{Store: inner}
+	e := newEnvOn(t, ws, clock)
+	c := e.connection("okta")
+	admin := e.person("admin@example.com", domain.RoleAdmin)
+	billing, err := inner.Roles().GetByName(ctx, e.org.ID, domain.RoleScopeOrganization, domain.RoleBilling)
+	must(t, err)
+	ws.after = func() {
+		moved := c
+		moved.JIT.DefaultRoles = []uuid.UUID{billing.ID}
+		must(t, inner.Connections().Update(ctx, &moved))
+	}
+	on := true
+	if _, err := e.svc.SetConnectionProvisioning(ctx, admin, mcp.SetProvisioningInput{Connection: c.Name, JITEnabled: &on}); !isDenied(err) {
+		t.Fatalf("err = %v, want denied: the check ran against the row read before the lock", err)
+	}
+	rows, err := inner.Connections().List(ctx, e.org.ID)
+	must(t, err)
+	if rows[0].JIT.Enabled {
+		t.Fatal("the refused change was written")
+	}
+	if !e.audited("access.denied") {
+		t.Error("the denial was not audited")
 	}
 }

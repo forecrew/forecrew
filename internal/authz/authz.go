@@ -157,6 +157,16 @@ func WithBreakGlass(ctx context.Context) context.Context {
 
 type cacheKey struct{}
 
+type quietKey struct{}
+
+// WithoutDenialAudit returns a context under which a denial is returned but
+// not audited. It is for a check inside a transaction, where the audit would
+// go through another connection; the caller audits the denial once the
+// transaction is over.
+func WithoutDenialAudit(ctx context.Context) context.Context {
+	return context.WithValue(ctx, quietKey{}, true)
+}
+
 // cache holds the callers of one request.
 type cache struct {
 	mu      sync.Mutex
@@ -313,6 +323,9 @@ func (e *Engine) deny(ctx context.Context, by domain.Actor, p domain.Permission,
 
 // record audits a denial on res. A failure is logged: the denial stands.
 func (e *Engine) record(ctx context.Context, by domain.Actor, res Resource, detail map[string]string) {
+	if quiet, _ := ctx.Value(quietKey{}).(bool); quiet {
+		return
+	}
 	data, err := json.Marshal(detail)
 	if err == nil {
 		kind := "organization"
@@ -504,12 +517,19 @@ func (e *Engine) Covers(ctx context.Context, by domain.Actor, role domain.Role, 
 // CoversBindingsOf checks that by holds every permission of a subject's own
 // bindings, each at its scope (No escalation).
 func (e *Engine) CoversBindingsOf(ctx context.Context, by domain.Actor, kind domain.SubjectKind, id uuid.UUID) error {
-	bindings, err := e.st.RoleBindings().List(ctx, by.AccountID, store.RoleBindingFilter{SubjectKind: kind, SubjectID: id})
+	return e.CoversBindingsFrom(ctx, e.st, by, kind, id)
+}
+
+// CoversBindingsFrom is CoversBindingsOf reading the subject's bindings and
+// their roles from st, so that a check inside a transaction sees what the
+// transaction sees. The caller's own bindings still come from the engine.
+func (e *Engine) CoversBindingsFrom(ctx context.Context, st store.Store, by domain.Actor, kind domain.SubjectKind, id uuid.UUID) error {
+	bindings, err := st.RoleBindings().List(ctx, by.AccountID, store.RoleBindingFilter{SubjectKind: kind, SubjectID: id})
 	if err != nil {
 		return err
 	}
 	for _, b := range bindings {
-		role, err := e.st.Roles().Get(ctx, b.AccountID, b.RoleID)
+		role, err := st.Roles().Get(ctx, b.AccountID, b.RoleID)
 		if err != nil {
 			return err
 		}
