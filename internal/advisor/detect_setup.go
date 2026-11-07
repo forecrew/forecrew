@@ -41,7 +41,7 @@ func detectObservability(d Data) []Signal {
 		}) {
 			continue
 		}
-		out = append(out, Signal{Key: "observability:" + c.Path, Category: domain.CategoryObservability, Subject: c.Path, Weight: 1,
+		out = append(out, Signal{Key: signalKey(DetectorObservability, c.Path), Category: domain.CategoryObservability, Subject: c.Path, Weight: 1,
 			Summary:  fmt.Sprintf("Component %s has no metrics, tracing or error-tracking library.", c.Path),
 			Evidence: []domain.ProposalEvidence{{Kind: DetectorObservability, Ref: c.Path, Detail: fmt.Sprintf("%d direct dependencies, none known for %s", len(deps), c.Stack)}}})
 	}
@@ -103,7 +103,7 @@ func detectCI(d Data) []Signal {
 		if len(words) == 0 || slices.ContainsFunc(words, func(w string) bool { return strings.Contains(runners, w) }) {
 			continue
 		}
-		out = append(out, Signal{Key: "ci:platform:" + strings.ToLower(p), Category: domain.CategoryCI, Subject: p, Weight: 1,
+		out = append(out, Signal{Key: signalKey("ci:platform", strings.ToLower(p)), Category: domain.CategoryCI, Subject: p, Weight: 1,
 			Summary:  "The test matrix has " + p + ", but CI never builds it.",
 			Evidence: []domain.ProposalEvidence{{Kind: DetectorCI, Ref: "ci", Detail: "runners: " + detail(strings.Join(d.Profile.CI.Runners, ", "))}}})
 	}
@@ -131,7 +131,7 @@ func detectIntegrations(d Data) []Signal {
 		if i.Status != "approved" {
 			continue
 		}
-		groups[i.Tool] = &Signal{Key: "integrations:" + i.Tool, Category: domain.CategoryTooling, Subject: i.Tool, Weight: float64(d.Now.Sub(approved) / integrationWait),
+		groups[i.Tool] = &Signal{Key: signalKey(DetectorIntegrations, i.Tool), Category: domain.CategoryTooling, Subject: i.Tool, Weight: float64(d.Now.Sub(approved) / integrationWait),
 			Summary:  i.Tool + " is approved in the profile and not connected.",
 			Evidence: []domain.ProposalEvidence{{Kind: DetectorIntegrations, Ref: i.Tool, Detail: "approved on " + approved.Format(time.DateOnly)}}}
 	}

@@ -53,11 +53,11 @@ func detectWorkers(d Data) []Signal {
 		if slices.ContainsFunc(d.Workers, func(w domain.Worker) bool { return canRun(w, j.Pool, labels, d.Now) }) {
 			continue
 		}
-		key := "workers:" + poolOf(j.Pool) + ":" + strings.Join(labels, ",")
+		key := signalKey(DetectorWorkers, poolOf(j.Pool)+":"+strings.Join(labels, ","))
 		s := groups[key]
 		if s == nil {
 			s = &Signal{Key: key, Category: domain.CategoryWorkers, Subject: poolOf(j.Pool),
-				Summary: fmt.Sprintf("Jobs wait for a worker in pool %s with labels [%s]; none is online.", poolOf(j.Pool), strings.Join(labels, ", "))}
+				Summary: fmt.Sprintf("Jobs wait for a worker in pool %s with labels [%s]; none is online.", poolOf(j.Pool), detail(strings.Join(labels, ", ")))}
 			groups[key] = s
 		}
 		s.Weight++
@@ -149,7 +149,7 @@ func detectTooling(d Data) []Signal {
 		for _, tool := range missingTools(g.Title + "\n" + g.Summary) {
 			s := groups[tool]
 			if s == nil {
-				s = &Signal{Key: "tooling:" + tool, Category: domain.CategoryTooling, Subject: tool, Summary: "Agents keep lacking " + tool + "."}
+				s = &Signal{Key: signalKey(DetectorTooling, tool), Category: domain.CategoryTooling, Subject: tool, Summary: "Agents keep lacking " + tool + "."}
 				groups[tool] = s
 			}
 			s.Weight++
@@ -250,7 +250,10 @@ next:
 			continue
 		}
 		topic := topicOf(c)
-		s := Signal{Key: "knowledge:" + topic, Category: domain.CategoryKnowledge, Subject: topic, Weight: float64(len(goals)),
+		if topic == "" {
+			continue // questions with no word in common name no topic
+		}
+		s := Signal{Key: signalKey(DetectorKnowledge, topic), Category: domain.CategoryKnowledge, Subject: topic, Weight: float64(len(goals)),
 			Summary: fmt.Sprintf("The same question came up in %d goals: the answer is missing from the knowledge base.", len(goals))}
 		for _, q := range c {
 			s.Evidence = bounded(append(s.Evidence, domain.ProposalEvidence{Kind: string(domain.GateFromAskHuman), Ref: q.gate.Ref(), Detail: detail(q.gate.Summary)}))
@@ -306,7 +309,7 @@ func flakySignals(reports []Report) []Signal {
 		for _, f := range r.Report.Flaky {
 			s := flaky[f.Test]
 			if s == nil {
-				s = &Signal{Key: "testing:flaky:" + f.Test, Category: domain.CategoryTesting, Subject: f.Test, Summary: "A test keeps being flaky."}
+				s = &Signal{Key: signalKey("testing:flaky", f.Test), Category: domain.CategoryTesting, Subject: f.Test, Summary: "A test keeps being flaky."}
 				flaky[f.Test] = s
 			}
 			s.Weight++
@@ -333,7 +336,7 @@ func incompleteSignals(reports []Report) []Signal {
 				continue
 			}
 			if groups[key] == nil {
-				groups[key] = &Signal{Key: "testing:incomplete:" + key, Category: domain.CategoryTesting, Subject: key, Summary: "A required cell often has no result."}
+				groups[key] = &Signal{Key: signalKey("testing:incomplete", key), Category: domain.CategoryTesting, Subject: key, Summary: "A required cell often has no result."}
 			}
 			groups[key].Weight++
 			groups[key].Evidence = bounded(append(groups[key].Evidence, domain.ProposalEvidence{Kind: DetectorTesting, Ref: r.Ref, Detail: "no result for " + detail(key)}))
@@ -395,7 +398,7 @@ func detectRework(d Data) []Signal {
 			}
 			if prs[theme] == nil {
 				prs[theme] = map[uuid.UUID]bool{}
-				groups[theme] = &Signal{Key: "rework:" + theme, Category: domain.CategoryDocs, Subject: theme, Summary: "Reviews keep asking for the same thing: " + theme + "."}
+				groups[theme] = &Signal{Key: signalKey(DetectorRework, theme), Category: domain.CategoryDocs, Subject: theme, Summary: "Reviews keep asking for the same thing: " + theme + "."}
 			}
 			prs[theme][j.TaskID] = true
 			groups[theme].Evidence = bounded(append(groups[theme].Evidence, domain.ProposalEvidence{Kind: DetectorRework, Ref: j.Ref(), Detail: detail(c.Body)}))
@@ -451,7 +454,7 @@ func detectCost(d Data) []Signal {
 		if t.jobs < costMinJobs || cost <= costRatio*mid {
 			continue
 		}
-		out = append(out, Signal{Key: "cost:" + role, Category: domain.CategoryCost, Subject: role, Weight: cost / mid,
+		out = append(out, Signal{Key: signalKey(DetectorCost, role), Category: domain.CategoryCost, Subject: role, Weight: cost / mid,
 			Summary:  fmt.Sprintf("Role %s costs $%.2f per merged PR, the project's median is $%.2f: a cheaper tier or runtime may do.", role, cost, mid),
 			Evidence: []domain.ProposalEvidence{{Kind: DetectorCost, Ref: role, Detail: fmt.Sprintf("%d jobs over %d merged PRs, $%.2f", t.jobs, len(merged), t.cost)}}})
 	}
