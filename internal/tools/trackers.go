@@ -121,7 +121,41 @@ func (s *Service) DeleteTrackerConnection(ctx context.Context, by domain.Actor, 
 		}
 		return s.audit(ctx, tx, by, uuid.Nil(), "tracker.disconnected", "tracker_connection", c.ID, map[string]any{"name": c.Name, "kind": c.Kind})
 	})
-	return c, conflict(err, "tickets of "+c.Name+" are waiting, queued or at work, or writes to it are not sent yet: finish or dismiss them, and let the writes go out first")
+	return c, conflict(err, "tickets of "+c.Name+" are waiting, queued or at work, or writes to it are not sent yet: finish or dismiss the tickets, and let the writes go out or discard those of ended tickets (discard_tracker_writes)")
+}
+
+// DiscardTrackerWrites implements mcp.ToolService. Only the writes of links
+// that are over go: a ticket at work still needs its status.
+func (s *Service) DiscardTrackerWrites(ctx context.Context, by domain.Actor, in mcp.TrackerConnectionRefInput) (mcp.DiscardedWrites, error) {
+	out := mcp.DiscardedWrites{Writes: []mcp.DiscardedWrite{}}
+	if err := s.allowOrg(ctx, by, domain.PermTrackersManage); err != nil {
+		return out, err
+	}
+	c, err := s.connection(ctx, by.AccountID, in.Connection)
+	if err != nil {
+		return out, err
+	}
+	out.Connection = c.Name
+	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		writes, err := tx.TrackerOutbox().DiscardEnded(ctx, by.AccountID, c.ID)
+		if err != nil {
+			return err
+		}
+		if len(writes) == 0 {
+			return nil
+		}
+		dropped := make([]map[string]any, len(writes))
+		for i, w := range writes {
+			shown := w.LastError
+			if in.WrapUntrusted && shown != "" {
+				shown = contextpack.WrapUntrusted("tracker error", shown)
+			}
+			out.Writes = append(out.Writes, mcp.DiscardedWrite{Key: w.Key, Kind: string(w.Kind), Attempts: w.Attempts, LastError: shown})
+			dropped[i] = map[string]any{"key": w.Key, "kind": w.Kind, "attempts": w.Attempts, "last_error": w.LastError}
+		}
+		return s.audit(ctx, tx, by, uuid.Nil(), "tracker.writes_discarded", "tracker_connection", c.ID, map[string]any{"name": c.Name, "writes": dropped})
+	})
+	return out, err
 }
 
 func (s *Service) routeInfo(ctx context.Context, r domain.TrackerRoute) (mcp.TrackerRouteInfo, error) {

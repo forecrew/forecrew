@@ -384,6 +384,26 @@ func (r outboxRepo) DropTransitions(_ context.Context, accountID, linkID uuid.UU
 	})
 }
 
+func (r outboxRepo) DiscardEnded(_ context.Context, accountID, connectionID uuid.UUID) ([]domain.TrackerWrite, error) {
+	var out []domain.TrackerWrite
+	err := r.s.do(func(d *storeData, _ time.Time) error {
+		t := &d.trackers
+		t.outbox.rows = slices.DeleteFunc(t.outbox.rows, func(w domain.TrackerWrite) bool {
+			if w.AccountID != accountID || w.ConnectionID != connectionID || !w.SentAt.IsZero() {
+				return false
+			}
+			l, err := t.links.get(accountID, w.LinkID)
+			if err != nil || l.Status.Live() {
+				return false
+			}
+			out = append(out, w)
+			return true
+		})
+		return nil
+	})
+	return out, err
+}
+
 func (r outboxRepo) Due(_ context.Context, accountID uuid.UUID, now time.Time, limit int) ([]domain.TrackerWrite, error) {
 	return listRows(r.s, outboxT, limit, func(w domain.TrackerWrite) bool {
 		return w.AccountID == accountID && w.SentAt.IsZero() && !w.NextAttempt.After(now)

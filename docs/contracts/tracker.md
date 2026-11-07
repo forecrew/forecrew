@@ -12,7 +12,10 @@ keeps the core from importing an adapter.
 
 Deleting a connection takes its routes, identities, cursor and outbox with it,
 and is refused while it has a live ticket or a write that is not sent yet:
-an ended link's unsent comment would be lost with the outbox. Ended links stay, with no connection:
+an ended link's unsent comment would be lost with the outbox. A person with
+`trackers.manage` can drop those writes with `discard_tracker_writes`, which
+leaves the writes of live links alone and is audited, so a connection can
+always be deleted. Ended links stay, with no connection:
 they are how a context pack knows a goal's text came from a ticket.
 
 ## Tickets
@@ -312,4 +315,5 @@ columns anyway, so a card in the handover column means a person is waiting.
   with an error naming the board's columns and moves nothing. The write is
   retried with the usual backoff until the column exists again: a newer state of
   the same link replaces it, but one of an ended link stays, and the connection
-  cannot be deleted while it does. Fix the route's `states` before the goal ends.
+  cannot be deleted until it is sent or discarded (`discard_tracker_writes`). Fix
+  the route's `states` before the goal ends.
