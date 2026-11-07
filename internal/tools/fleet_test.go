@@ -11,6 +11,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/authz"
+	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/mcp"
@@ -296,6 +297,37 @@ func TestCreateProvider(t *testing.T) {
 	}
 	if _, err := f.svc.CreateProvider(ctx, f.by, mcp.CreateProviderInput{Name: "x", Kind: "vmware"}); !errors.Is(err, mcp.ErrInvalidInput) {
 		t.Errorf("bad kind: %v", err)
+	}
+}
+
+// On a hosted instance an own cloud needs the paid plan, which is a stub until
+// billing: a flag in the organization's fleet policy. Other kinds, and a server
+// that is not hosted, are not gated.
+func TestOwnCloudNeedsThePaidPlanOnAHostedInstance(t *testing.T) {
+	hosted := func(c *tools.Config) { c.Server = &config.Config{Fleet: config.Fleet{Hosted: true}} }
+	f := newFixture(t, hosted)
+	ctx := t.Context()
+	aws := mcp.CreateProviderInput{Name: "own-aws", Kind: domain.ProviderAWS}
+	if _, err := f.svc.CreateProvider(ctx, f.by, aws); !errors.Is(err, authz.ErrDenied) || !strings.Contains(err.Error(), "paid plan") {
+		t.Fatalf("free plan: %v", err)
+	}
+	if ps, _ := f.st.CapacityProviders().ListAll(ctx); len(ps) != 0 {
+		t.Fatalf("a refused provider was stored: %+v", ps)
+	}
+	if _, err := f.svc.CreateProvider(ctx, f.by, mcp.CreateProviderInput{Name: "home", Kind: domain.ProviderMicroVM}); err != nil {
+		t.Fatalf("a home server is not an own cloud: %v", err)
+	}
+	policy := domain.DefaultFleetPolicy(f.account.ID)
+	policy.Plan = domain.PlanPaid
+	must(t, f.st.FleetPolicies().Put(ctx, &policy))
+	if _, err := f.svc.CreateProvider(ctx, f.by, aws); err != nil {
+		t.Fatalf("paid plan: %v", err)
+	}
+
+	// Not hosted: no gate, whatever the plan.
+	g := newFixture(t)
+	if _, err := g.svc.CreateProvider(ctx, g.by, aws); err != nil {
+		t.Fatalf("self-hosted: %v", err)
 	}
 }
 

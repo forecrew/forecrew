@@ -308,10 +308,34 @@ func (s *Service) CreateProvider(ctx context.Context, by domain.Actor, in mcp.Cr
 	return mcp.CreateProviderOutput{Provider: providerInfo(p, s.cfg.Now()), Token: token}, nil
 }
 
+// ownClouds are the kinds of location that put machines in the organization's
+// own cloud account.
+var ownClouds = []domain.ProviderKind{domain.ProviderAWS}
+
+// requirePaidPlan is the gate of an own cloud on a hosted instance (config
+// fleet.hosted): the organization's fleet policy must say paid (fleet.md). The
+// plan is a stub until billing exists, and only instance admins set it.
+func (s *Service) requirePaidPlan(ctx context.Context, p domain.CapacityProvider) error {
+	if s.cfg.Server == nil || !s.cfg.Server.Fleet.Hosted || p.AccountID == uuid.Nil() || !slices.Contains(ownClouds, p.Kind) {
+		return nil
+	}
+	policy, err := s.cfg.Store.FleetPolicies().Get(ctx, p.AccountID)
+	if err != nil {
+		return err
+	}
+	if policy.Plan != domain.PlanPaid {
+		return fmt.Errorf("a location in your own cloud needs the paid plan: %w", authz.ErrDenied)
+	}
+	return nil
+}
+
 // addProvider stores p and audits it, with then in the same transaction.
 func (s *Service) addProvider(ctx context.Context, by domain.Actor, p *domain.CapacityProvider, action string, then func(ctx context.Context, tx store.Store) error) error {
 	if err := p.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
+	}
+	if err := s.requirePaidPlan(ctx, *p); err != nil {
+		return err
 	}
 	err := s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := tx.CapacityProviders().Create(ctx, p); err != nil {

@@ -58,6 +58,10 @@ type Fleet struct {
 	// Currency is the ISO 4217 code of every fleet amount: prices, budgets
 	// and usage costs.
 	Currency string `yaml:"currency"`
+	// Hosted marks the instance as a hosted service: attaching an own cloud
+	// location (kind aws) to an organization needs its fleet policy's paid
+	// plan, a stub until billing exists.
+	Hosted bool `yaml:"hosted"`
 }
 
 var currencyRE = regexp.MustCompile(`^[A-Z]{3}$`)
