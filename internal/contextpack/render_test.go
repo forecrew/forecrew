@@ -87,6 +87,7 @@ func catalog(t *testing.T) *roles.Catalog {
 			"test-engineer":        {Runtime: "claude", Tier: config.TierStrong},
 			"triage":               {Runtime: "claude", Tier: config.TierFast},
 			"assistant":            {Runtime: "claude", Tier: config.TierStrong},
+			"advisor":              {Runtime: "claude", Tier: config.TierBest},
 			"knowledge-curator":    {Runtime: "claude", Tier: config.TierStrong},
 		},
 	}
@@ -114,6 +115,7 @@ func TestRenderGolden(t *testing.T) {
 		"onboarding-analyst": {Repo: "acme/app", BaseRef: "main", Branch: "agent/onboarding"},
 		"triage":             {Repo: "acme/app", BaseRef: "main", Profile: profile, Goal: goal},
 		"assistant":          {Repo: "acme/app", BaseRef: "main", Profile: profile},
+		"advisor":            {Repo: "acme/app", BaseRef: "main", Profile: profile, Feedback: Text{Heading: "Feedback to address", Body: "## Limit\n\nWrite at most 3 proposals."}},
 		"knowledge-curator":  {Repo: "acme/app", BaseRef: "main", Branch: "agent/kb-seed", Profile: profile, Feedback: Text{Heading: "Feedback to address", Body: "## Sections to fill\n\ntesting, glossary"}},
 		"product-owner":      {Repo: "acme/app", BaseRef: "main", Profile: profile, Goal: untrustedGoal, Feedback: feedback},
 		"architect":          {Repo: "acme/app", BaseRef: "main", Profile: profile, Goal: goal, Spec: spec},

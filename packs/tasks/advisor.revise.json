@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Revised proposal",
+  "description": "Output of the advisor's revision of one proposal after a human asked for changes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "summary",
+    "proposal",
+    "assumptions"
+  ],
+  "properties": {
+    "summary": {
+      "$ref": "../schemas/common.json#/$defs/text",
+      "description": "What you changed and why."
+    },
+    "proposal": {
+      "$ref": "../schemas/proposals.json#/$defs/proposal"
+    },
+    "assumptions": {
+      "$ref": "../schemas/common.json#/$defs/assumptions"
+    }
+  }
+}
