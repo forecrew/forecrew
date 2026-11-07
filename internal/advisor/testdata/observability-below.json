@@ -1,0 +1,38 @@
+{
+ "now": "2026-11-07T12:00:00Z",
+ "profile": {
+  "version": 1,
+  "name": "app",
+  "summary": "s",
+  "components": [
+   {
+    "path": ".",
+    "stack": "go"
+   },
+   {
+    "path": "web",
+    "stack": "node"
+   },
+   {
+    "path": "tools",
+    "stack": "python"
+   }
+  ],
+  "integrations": [
+   {
+    "tool": "datadog",
+    "uses": [
+     "monitoring"
+    ],
+    "evidence": [],
+    "confidence": "high",
+    "status": "connected"
+   }
+  ]
+ },
+ "dependencies": {
+  ".": [
+   "github.com/jackc/pgx/v5"
+  ]
+ }
+}

@@ -93,6 +93,7 @@ func TestEverySettingHasAResource(t *testing.T) {
 		"goal_v3":   "the projects on the councils and learning playbook, a rollout switch",
 		"knowledge": "how old knowledge may get, a tuning value of the server",
 		"trackers":  "a limit of the server; connections and routes are resources from T74",
+		"advisor":   "how many proposals a week, a tuning value of the server",
 	}
 	for _, key := range fieldNames(config.Config{}, "yaml") {
 		_, isBootstrap := bootstrap[key]

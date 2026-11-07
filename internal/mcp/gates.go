@@ -15,6 +15,7 @@ import (
 //   - request_changes is not allowed on needs_you gates, which are approved
 //     (retry) or rejected (stop), or on ticket_intake gates, which are approved
 //     (accept) or rejected (dismiss);
+//   - reject needs feedback on improvement_proposal gates: it is the reason;
 //   - save_as_lesson is for approve and request_changes, and needs feedback:
 //     the feedback is the lesson.
 func GateDecision(tool string, kind domain.GateKind, in GateDecisionInput) (domain.GateStatus, error) {
@@ -29,6 +30,9 @@ func GateDecision(tool string, kind domain.GateKind, in GateDecisionInput) (doma
 	case ToolApprove:
 		decision = domain.GateApproved
 	case ToolReject:
+		if kind == domain.GateImprovementProposal && strings.TrimSpace(in.Feedback) == "" {
+			return "", fmt.Errorf("%s: an improvement proposal is rejected with a reason in feedback: %w", tool, ErrInvalidInput)
+		}
 		decision = domain.GateRejected
 	case ToolRequestChanges:
 		if in.Feedback == "" {

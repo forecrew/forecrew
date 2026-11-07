@@ -32,11 +32,24 @@ type Schedule struct {
 	Cron string `yaml:"cron"`
 }
 
+// DefaultMaxProposalsPerWeek is how many new improvement proposals a project
+// gets in seven days.
+const DefaultMaxProposalsPerWeek = 3
+
+// Advisor holds the settings of the improvement advisor.
+type Advisor struct {
+	// MaxPerWeek is how many new proposals a project gets in seven days;
+	// zero means DefaultMaxProposalsPerWeek.
+	MaxPerWeek int `yaml:"max_per_week"`
+}
+
 // DefaultSchedules are the schedules of a forecrew.yaml that has no
-// schedules key: the curator's upkeep, weekly, for every onboarded project.
-// An explicit empty list, schedules: [], turns it off.
+// schedules key: the curator's upkeep and the advisor, weekly, for every
+// onboarded project. An explicit empty list, schedules: [], turns them off.
 func DefaultSchedules() []Schedule {
-	return []Schedule{{Playbook: "curate", Project: AllProjects, Cron: "0 3 * * 1"}}
+	return []Schedule{
+		{Playbook: "curate", Project: AllProjects, Cron: "0 3 * * 1"},
+	}
 }
 
 // AllProjects as a schedule's project means every onboarded project.
@@ -49,11 +62,17 @@ func (c *Config) applyKnowledgeDefaults() {
 	if c.Knowledge.VerifyWindow == 0 {
 		c.Knowledge.VerifyWindow = DefaultVerifyWindow
 	}
+	if c.Advisor.MaxPerWeek == 0 {
+		c.Advisor.MaxPerWeek = DefaultMaxProposalsPerWeek
+	}
 }
 
 func (c *Config) validateSchedules(p *problems) {
 	if c.Knowledge.VerifyWindow < 0 {
 		p.addf("knowledge.verify_window must be positive")
+	}
+	if c.Advisor.MaxPerWeek < 0 {
+		p.addf("advisor.max_per_week must be positive")
 	}
 	for i, s := range c.Schedules {
 		if !domain.ValidName(s.Playbook) {

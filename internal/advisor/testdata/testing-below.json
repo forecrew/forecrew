@@ -1,0 +1,171 @@
+{
+ "now": "2026-11-07T12:00:00Z",
+ "reports": [
+  {
+   "ref": "PR #1",
+   "report": {
+    "version": 1,
+    "sha": "abc",
+    "status": "passed",
+    "results": [
+     {
+      "environment": "linux",
+      "cell": {},
+      "suite": "e2e",
+      "required": true,
+      "status": "missing",
+      "attempts": 1
+     }
+    ],
+    "criteria": {
+     "AC-1": {
+      "status": "untested",
+      "tests": {}
+     }
+    },
+    "flaky": [
+     {
+      "test": "TestLogin",
+      "environments": [
+       "linux"
+      ]
+     }
+    ],
+    "blocking": []
+   }
+  },
+  {
+   "ref": "PR #2",
+   "report": {
+    "version": 1,
+    "sha": "abc",
+    "status": "passed",
+    "results": [
+     {
+      "environment": "linux",
+      "cell": {},
+      "suite": "e2e",
+      "required": true,
+      "status": "missing",
+      "attempts": 1
+     }
+    ],
+    "criteria": {},
+    "flaky": [
+     {
+      "test": "TestLogin",
+      "environments": [
+       "linux"
+      ]
+     }
+    ],
+    "blocking": []
+   }
+  },
+  {
+   "ref": "PR #3",
+   "report": {
+    "version": 1,
+    "sha": "abc",
+    "status": "passed",
+    "results": [
+     {
+      "environment": "linux",
+      "cell": {},
+      "suite": "e2e",
+      "required": true,
+      "status": "missing",
+      "attempts": 1
+     }
+    ],
+    "criteria": {},
+    "flaky": [],
+    "blocking": []
+   }
+  },
+  {
+   "ref": "PR #4",
+   "report": {
+    "version": 1,
+    "sha": "abc",
+    "status": "passed",
+    "results": [
+     {
+      "environment": "linux",
+      "cell": {},
+      "suite": "e2e",
+      "required": true,
+      "status": "passed",
+      "attempts": 1
+     }
+    ],
+    "criteria": {},
+    "flaky": [],
+    "blocking": []
+   }
+  },
+  {
+   "ref": "PR #5",
+   "report": {
+    "version": 1,
+    "sha": "abc",
+    "status": "passed",
+    "results": [
+     {
+      "environment": "linux",
+      "cell": {},
+      "suite": "e2e",
+      "required": true,
+      "status": "passed",
+      "attempts": 1
+     }
+    ],
+    "criteria": {},
+    "flaky": [],
+    "blocking": []
+   }
+  },
+  {
+   "ref": "PR #6",
+   "report": {
+    "version": 1,
+    "sha": "abc",
+    "status": "passed",
+    "results": [
+     {
+      "environment": "linux",
+      "cell": {},
+      "suite": "e2e",
+      "required": true,
+      "status": "passed",
+      "attempts": 1
+     }
+    ],
+    "criteria": {},
+    "flaky": [],
+    "blocking": []
+   }
+  },
+  {
+   "ref": "PR #7",
+   "report": {
+    "version": 1,
+    "sha": "abc",
+    "status": "passed",
+    "results": [
+     {
+      "environment": "linux",
+      "cell": {},
+      "suite": "e2e",
+      "required": true,
+      "status": "passed",
+      "attempts": 1
+     }
+    ],
+    "criteria": {},
+    "flaky": [],
+    "blocking": []
+   }
+  }
+ ]
+}

@@ -108,6 +108,8 @@ type Config struct {
 	GoalV3 GoalV3 `yaml:"goal_v3"`
 	// Knowledge holds the settings of the knowledge base's upkeep.
 	Knowledge Knowledge `yaml:"knowledge"`
+	// Advisor holds the settings of the improvement advisor.
+	Advisor Advisor `yaml:"advisor"`
 	// Schedules start playbooks on a cron schedule.
 	Schedules []Schedule `yaml:"schedules"`
 	// Trackers limits the work that comes from tickets.
