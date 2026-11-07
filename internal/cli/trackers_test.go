@@ -38,6 +38,8 @@ func TestTrackerCommands(t *testing.T) {
 	e.check(t, []string{"tracker", "connections"}, "forecrew", mcp.ToolListTrackerConnections, nil)
 	e.check(t, []string{"tracker", "connect", "gh", "--repo", "acme/app", "--bot-login", "app[bot]", "--label", "forecrew"}, "github", mcp.ToolCreateTrackerConnection,
 		mcp.CreateTrackerConnectionInput{Name: "gh", Kind: "github", Config: map[string]any{"bot_login": "app[bot]", "repos": []any{"acme/app"}}, Triggers: domain.TrackerTriggers{Label: "forecrew"}})
+	e.check(t, []string{"tracker", "connect", "board", "--kind", "github_project", "--owner", "acme", "--project", "7", "--field", "Stage", "--closed", "Shipped", "--state", "Forecrew"}, "github", mcp.ToolCreateTrackerConnection,
+		mcp.CreateTrackerConnectionInput{Name: "board", Kind: "github_project", Config: map[string]any{"owner": "acme", "project": float64(7), "field": "Stage", "closed": []any{"Shipped"}}, Triggers: domain.TrackerTriggers{State: "Forecrew"}})
 	e.check(t, []string{"tracker", "disconnect", "gh"}, "connection deleted", mcp.ToolDeleteTrackerConnection, mcp.TrackerConnectionRefInput{Connection: "gh"})
 	e.check(t, []string{"tracker", "routes", "--connection", "gh"}, "app", mcp.ToolListTrackerRoutes, mcp.TrackerConnectionFilterInput{Connection: "gh"})
 	e.check(t, []string{"tracker", "route-add", "gh", "app", "--match-label", "x", "--state-map", "done=closed", "--goal-kind", "bug"}, "app", mcp.ToolCreateTrackerRoute,

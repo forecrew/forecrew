@@ -37,7 +37,9 @@ func connectTrackerCommand(r *remote) *cobra.Command {
 	var kind string
 	var in mcp.CreateTrackerConnectionInput
 	var repos []string
-	var bot string
+	var bot, owner, field string
+	var project int
+	var closed []string
 	cmd := &cobra.Command{
 		Use:   "connect <name>",
 		Short: "Connect a tracker",
@@ -50,6 +52,18 @@ func connectTrackerCommand(r *remote) *cobra.Command {
 			if bot != "" {
 				in.Config["bot_login"] = bot
 			}
+			if owner != "" {
+				in.Config["owner"] = owner
+			}
+			if project != 0 {
+				in.Config["project"] = project
+			}
+			if field != "" {
+				in.Config["field"] = field
+			}
+			if len(closed) > 0 {
+				in.Config["closed"] = closed
+			}
 			var c domain.TrackerConnection
 			if err := r.call(cmd.Context(), http.MethodPost, "/tracker-connections", in, &c); err != nil {
 				return err
@@ -59,9 +73,13 @@ func connectTrackerCommand(r *remote) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&kind, "kind", "github", "the tracker's adapter")
+	f.StringVar(&kind, "kind", "github", "the tracker's adapter: github or github_project")
 	f.StringSliceVar(&repos, "repo", nil, "github: a repo of a project (repeatable)")
 	f.StringVar(&bot, "bot-login", "", "github: the App's user, whose events are Forecrew's own")
+	f.StringVar(&owner, "owner", "", "github_project: the organization that owns the board")
+	f.IntVar(&project, "project", 0, "github_project: the board's number")
+	f.StringVar(&field, "field", "", "github_project: the single-select field of the columns (default Status)")
+	f.StringSliceVar(&closed, "closed", nil, "github_project: a column that counts as finished (default Done; repeatable)")
 	f.StringVar(&in.Triggers.Assignee, "assignee", "", "hand over by assigning to this tracker user")
 	f.StringVar(&in.Triggers.Label, "label", "", "hand over by adding this label")
 	f.StringVar(&in.Triggers.State, "state", "", "hand over by moving to this state or column")

@@ -17,7 +17,7 @@ func registerTrackers(r registrar, svc ToolService, project string) {
 			return list("connections", c, "%d tracker connections.", len(c)), err
 		})
 	register(r, ToolCreateTrackerConnection, "Connect a tracker. Its adapter checks the connection first; triggers say how a person hands a ticket over: assignee, label or state.",
-		fieldDocs{"name": "Name of the connection.", "kind": "Adapter, for example github.", "config": "The adapter's settings; never a secret. For github: repos and bot_login.",
+		fieldDocs{"name": "Name of the connection.", "kind": "Adapter: github (issues) or github_project (a board's columns).", "config": "The adapter's settings; never a secret. For github: repos and bot_login. For github_project: owner (an organization), project (the board's number), optional field, closed and bot_login.",
 			"triggers": "The handovers it listens for; at least one of assignee, label and state."},
 		func(ctx context.Context, by domain.Actor, in CreateTrackerConnectionInput) (toolResult, error) {
 			c, err := svc.CreateTrackerConnection(ctx, by, in)
