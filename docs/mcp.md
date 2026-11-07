@@ -128,7 +128,9 @@ Rules a client may meet:
   that app before; otherwise Forecrew shows the error itself and sends the
   browser nowhere.
 - The consent screen says when you have not connected an app before. An
-  app's name is what it says about itself; the host it returns to is the fact.
+  app's name is what it says about itself, without control or invisible
+  format characters; the host it returns to is the fact, shown in its ASCII
+  (punycode) form so a look-alike in another script stands out.
 
 A missing, unknown, expired or revoked credential gets `401`.
 

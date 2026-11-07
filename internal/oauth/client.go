@@ -87,7 +87,9 @@ func checkRedirectURIs(uris []string) error {
 // cleanName keeps a client's name to one short printable line.
 func cleanName(name string) string {
 	name = strings.TrimSpace(strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+		// Control and format characters (bidirectional overrides, zero-width
+		// joiners) could make a name read as another.
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 			return -1
 		}
 		return r
