@@ -40,6 +40,18 @@
     "subject_name": "Mobile"
   },
   {
+    "id": "018f0000-0000-7000-8000-000000000375",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "subject_kind": "user",
+    "subject_id": "018f0000-0000-7000-8000-000000000301",
+    "role_id": "00000000-0000-0000-0000-000000000000",
+    "created_by": "user:x",
+    "created_at": "2026-02-26T09:00:00Z",
+    "role": "member",
+    "role_scope": "organization",
+    "subject_name": "Marta Rossi"
+  },
+  {
     "id": "018f0000-0000-7000-8000-000000000373",
     "account_id": "018f0000-0000-7000-8000-000000000001",
     "subject_kind": "team",
