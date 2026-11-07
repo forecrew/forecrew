@@ -89,6 +89,8 @@ type Config struct {
 	// PollWait and PollRecheck default to the constants of the same name.
 	PollWait    time.Duration
 	PollRecheck time.Duration
+	// Now is the clock of who is online; nil means time.Now.
+	Now func() time.Time
 }
 
 // Server is the worker API.
@@ -123,6 +125,9 @@ func New(cfg Config) *Server {
 	}
 	if cfg.Pools == nil {
 		cfg.Pools = config.DefaultPools()
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
 	}
 	return &Server{cfg: cfg}
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -163,6 +164,19 @@ func TestWorkers(t *testing.T) {
 		t.Fatalf("seen = %+v", got)
 	}
 	wantErr(t, repo.Seen(ctx, f.account, domain.NewID(), nil, ""), store.ErrNotFound)
+	if got.Agents != nil {
+		t.Errorf("agents = %+v, want none reported", got.Agents)
+	}
+	agents := []domain.WorkerAgent{{Adapter: "claude-code", Source: domain.AgentSourceInstalled, Version: "2.1.306"}, {Adapter: "codex", Error: domain.AgentInstallChecksum}}
+	must(t, repo.SetAgents(ctx, f.account, w.ID, agents))
+	if got, _ = repo.Get(ctx, f.account, w.ID); !slices.Equal(got.Agents, agents) {
+		t.Errorf("agents = %+v", got.Agents)
+	}
+	must(t, repo.SetAgents(ctx, f.account, w.ID, nil))
+	if got, _ = repo.Get(ctx, f.account, w.ID); got.Agents != nil {
+		t.Errorf("agents = %+v, want none", got.Agents)
+	}
+	wantErr(t, repo.SetAgents(ctx, f.account, domain.NewID(), agents), store.ErrNotFound)
 
 	must(t, repo.Revoke(ctx, f.account, w.ID))
 	first, _ := repo.Get(ctx, f.account, w.ID)

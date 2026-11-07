@@ -212,10 +212,13 @@ func (r signalRepo) ListByKey(ctx context.Context, accountID uuid.UUID, key stri
 
 type workerRepo struct{ db dbtx }
 
-var workerCols = `id, account_id, name, pool, ephemeral, token_hash, labels, version, max_jobs, ` + ctime("last_seen_at") + `, ` + ctime("revoked_at") + `, created_at`
+var workerCols = `id, account_id, name, pool, ephemeral, token_hash, labels, version, max_jobs, ` + ctime("last_seen_at") + `, ` + ctime("revoked_at") + `, created_at, agents`
 
 func scanWorker(row pgx.Row) (w domain.Worker, err error) {
-	err = row.Scan(&w.ID, &w.AccountID, &w.Name, &w.Pool, &w.Ephemeral, &w.TokenHash, &w.Labels, &w.Version, &w.MaxJobs, &w.LastSeenAt, &w.RevokedAt, &w.CreatedAt)
+	err = row.Scan(&w.ID, &w.AccountID, &w.Name, &w.Pool, &w.Ephemeral, &w.TokenHash, &w.Labels, &w.Version, &w.MaxJobs, &w.LastSeenAt, &w.RevokedAt, &w.CreatedAt, &w.Agents)
+	if len(w.Agents) == 0 {
+		w.Agents = nil
+	}
 	utc(&w.LastSeenAt, &w.RevokedAt, &w.CreatedAt)
 	return w, err
 }
@@ -247,6 +250,13 @@ func (r workerRepo) List(ctx context.Context, accountID uuid.UUID) ([]domain.Wor
 func (r workerRepo) Seen(ctx context.Context, accountID, id uuid.UUID, labels []string, version string) error {
 	return mustUpdate(ctx, r.db, `UPDATE workers SET last_seen_at = now(), labels = $3, version = $4 WHERE account_id = $1 AND id = $2`,
 		accountID, id, domain.NormalizeLabels(labels), version)
+}
+
+func (r workerRepo) SetAgents(ctx context.Context, accountID, id uuid.UUID, agents []domain.WorkerAgent) error {
+	if agents == nil {
+		agents = []domain.WorkerAgent{}
+	}
+	return mustUpdate(ctx, r.db, `UPDATE workers SET agents = $3 WHERE account_id = $1 AND id = $2`, accountID, id, agents)
 }
 
 func (r workerRepo) SetPool(ctx context.Context, accountID, id uuid.UUID, pool string) error {

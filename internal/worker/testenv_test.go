@@ -147,7 +147,7 @@ func (a *fakeAPI) poll(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 		}
 		if install != "" {
-			w.Header().Set(InstallHeader, install)
+			w.Header().Set(domain.AgentInstallHeader, install)
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return

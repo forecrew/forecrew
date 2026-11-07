@@ -28,6 +28,8 @@ type pollRequest struct {
 	Capabilities []string `json:"capabilities"`
 	FreeSlots    int      `json:"free_slots"`
 	Version      string   `json:"version"`
+	// Agents are the agent CLIs the worker has; nil from an older worker.
+	Agents []domain.WorkerAgent `json:"agents"`
 }
 
 type pollResponse struct {
@@ -56,7 +58,15 @@ func (s *Server) poll(rw http.ResponseWriter, r *http.Request) {
 		fail(ctx, rw, logger, "record worker seen", err)
 		return
 	}
+	if req.Agents != nil {
+		w.Agents = s.recordAgents(ctx, w, req.Agents, logger)
+	}
 	if req.FreeSlots == 0 {
+		rw.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if adapter := s.installRequest(ctx, w, labels, logger); adapter != "" {
+		rw.Header().Set(domain.AgentInstallHeader, adapter)
 		rw.WriteHeader(http.StatusNoContent)
 		return
 	}
@@ -154,13 +164,16 @@ func (s *Server) lease(ctx context.Context, w domain.Worker, labels []string) (d
 // agent keys of its own, so those jobs wait for another.
 func serverLabels(req pollRequest) []string {
 	labels := slices.DeleteFunc(domain.NormalizeLabels(req.Labels), func(l string) bool {
-		return l == domain.RuntimeLabel(domain.RuntimeNone) || l == domain.OrganizationModelLabel || l == domain.ModelCheckLabel
+		return l == domain.RuntimeLabel(domain.RuntimeNone) || l == domain.OrganizationModelLabel || l == domain.ModelCheckLabel || l == domain.AgentInstallLabel
 	})
 	if slices.Contains(req.Capabilities, domain.OrganizationModelCapability) {
 		labels = domain.NormalizeLabels(append(labels, domain.OrganizationModelLabel))
 	}
 	if slices.Contains(req.Capabilities, domain.ModelCheckCapability) {
 		labels = domain.NormalizeLabels(append(labels, domain.ModelCheckLabel))
+	}
+	if slices.Contains(req.Capabilities, domain.AgentInstallCapability) {
+		labels = domain.NormalizeLabels(append(labels, domain.AgentInstallLabel))
 	}
 	return labels
 }

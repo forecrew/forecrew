@@ -105,7 +105,12 @@ Request:
   "labels": ["go", "node", "linux", "runtime:claude-code"],
   "free_slots": 1,
   "version": "v0.1.0",
-  "capabilities": ["organization_models", "model_checks"]
+  "capabilities": ["organization_models", "model_checks", "agent_install"],
+  "agents": [
+    {"adapter": "claude-code", "source": "installed", "version": "2.1.306"},
+    {"adapter": "codex", "source": "system"},
+    {"adapter": "opencode", "error": "checksum"}
+  ]
 }
 ```
 
@@ -114,7 +119,8 @@ Request:
 | `labels` | string[] | Every label of the worker, including the os and runtime labels it adds. Normalized (trimmed, lowercased, deduplicated) by the server. |
 | `free_slots` | int ≥ 0 | `max_jobs` minus running jobs. |
 | `version` | string | forecrew-worker version. |
-| `capabilities` | string[] | What the worker can do beyond its labels; absent from an older worker. `organization_models`: it gives an agent on an organization's model connection nothing of its own (job-spec.md, `organization_model`). forecrewd then adds the label `models:organization`, which jobs on such a connection require; a worker never sets that label itself, and the server drops it from `labels`. `model_checks`: it runs key checks (`model_check` jobs) and suitability tests (job-spec.md, `model_check`, `suitability`); forecrewd adds the label `models:checks`, which they require, the same way. |
+| `capabilities` | string[] | What the worker can do beyond its labels; absent from an older worker. `organization_models`: it gives an agent on an organization's model connection nothing of its own (job-spec.md, `organization_model`). forecrewd then adds the label `models:organization`, which jobs on such a connection require; a worker never sets that label itself, and the server drops it from `labels`. `model_checks`: it runs key checks (`model_check` jobs) and suitability tests (job-spec.md, `model_check`, `suitability`); forecrewd adds the label `models:checks`, which they require, the same way. `agent_install`: it installs a missing agent CLI when asked (below); forecrewd adds the label `agents:install` the same way. |
+| `agents` | object[] | The agent CLIs of the worker, one per adapter it knows: `source` `image` (a fleet machine's image), `installed` (by the worker, from its release's manifest) or `system` (found on `PATH`), empty while missing; `version` of an installed one; `error`, the code of the last failed install: `unsupported`, `download`, `checksum`, `archive` or `write`. Stored on the worker when it changes (`workers.agents`); entries that are not well formed are dropped. Absent from an older worker, which leaves the stored value. |
 
 Behavior:
 
@@ -162,7 +168,22 @@ Response `200`:
 }
 ```
 
-Response `204`: no body, no job.
+Response `204`: no body, no job. It may carry the header
+`Forecrew-Install-Agent: <adapter>`.
+
+### Agent install
+
+Before waiting for a job, forecrewd asks a worker with the capability
+`agent_install` to install an agent when the oldest queued agent job **of the
+worker's own pool** that the worker cannot run needs only `runtime:<adapter>`
+of it, no online worker of the pool can run the job, and the worker did not
+report a failed install of it. It answers `204` at once with
+`Forecrew-Install-Agent: <adapter>`. Only the adapter name crosses the wire:
+the worker takes version, address and SHA-256 from the manifest of its own
+release, and ignores a value that is not an adapter of that manifest (one
+naming a version or an address included). A worker of a fleet machine never
+installs. The worker reports the result in `agents` at its next poll, with
+the new `runtime:<adapter>` label (docs/worker.md, Agent install).
 
 ## POST /worker/v1/jobs/{job_id}/heartbeat
 

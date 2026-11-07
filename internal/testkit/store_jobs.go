@@ -339,6 +339,16 @@ func (r workerRepo) Seen(_ context.Context, accountID, id uuid.UUID, labels []st
 	})
 }
 
+func (r workerRepo) SetAgents(_ context.Context, accountID, id uuid.UUID, agents []domain.WorkerAgent) error {
+	return update(r.s, workersT, accountID, id, func(w *domain.Worker, _ time.Time) error {
+		w.Agents = slices.Clone(agents)
+		if len(w.Agents) == 0 {
+			w.Agents = nil
+		}
+		return nil
+	})
+}
+
 func (r workerRepo) SetPool(_ context.Context, accountID, id uuid.UUID, pool string) error {
 	return update(r.s, workersT, accountID, id, func(w *domain.Worker, _ time.Time) error {
 		w.Pool = domain.OrDefaultPool(pool)

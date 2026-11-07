@@ -396,6 +396,8 @@ type WorkerRepo interface {
 	// Seen records a poll or heartbeat: LastSeenAt = now, and labels and
 	// version as reported.
 	Seen(ctx context.Context, accountID, id uuid.UUID, labels []string, version string) error
+	// SetAgents records the agent CLIs a worker reported (Worker.Agents).
+	SetAgents(ctx context.Context, accountID, id uuid.UUID, agents []domain.WorkerAgent) error
 	// SetPool moves a worker to pool (empty is PoolBuild). Only admins call
 	// it; the worker leases from the new pool at its next lease attempt and
 	// its running jobs finish.

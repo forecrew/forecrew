@@ -108,10 +108,6 @@ type PollRequest struct {
 	Install bool
 }
 
-// InstallHeader is the header of a 204 poll answer that asks the worker to
-// install an agent: its value is an adapter name and nothing else.
-const InstallHeader = "Forecrew-Install-Agent"
-
 // PollFor asks for a job like Poll, and also answers the agent forecrewd
 // asks the worker to install ("" for none) when no job came.
 func (c *Client) PollFor(ctx context.Context, p PollRequest) (*Lease, string, error) {
@@ -133,7 +129,7 @@ func (c *Client) PollFor(ctx context.Context, p PollRequest) (*Lease, string, er
 		return nil, "", err
 	}
 	if status == http.StatusNoContent {
-		return nil, header.Get(InstallHeader), nil
+		return nil, header.Get(domain.AgentInstallHeader), nil
 	}
 	lease.SentAt = sent
 	return &lease, "", nil
