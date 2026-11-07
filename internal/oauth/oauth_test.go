@@ -687,6 +687,21 @@ func TestLostMembershipEndsRefresh(t *testing.T) {
 	}
 }
 
+// TestSuspensionEndsAppsForGood is a member suspended and reinstated
+// without using the app in between: the app stays disconnected.
+func TestSuspensionEndsAppsForGood(t *testing.T) {
+	e := newEnv(t)
+	client := e.register(t, callback)
+	out := e.tokens(t, client)
+	must(t, e.st.Memberships().SetStatus(t.Context(), e.a.ID, e.user.ID, domain.MembershipSuspended))
+	must(t, e.st.Memberships().SetStatus(t.Context(), e.a.ID, e.user.ID, domain.MembershipActive))
+	if s, _ := e.status(t, out["access_token"].(string)); s != http.StatusUnauthorized {
+		t.Errorf("access token after reinstatement = %d", s)
+	}
+	status, res := e.refresh(t, client, out["refresh_token"].(string))
+	wantError(t, status, res, http.StatusBadRequest, "invalid_grant")
+}
+
 func TestRevokedAppStopsAtOnce(t *testing.T) {
 	e := newEnv(t)
 	client := e.register(t, callback)

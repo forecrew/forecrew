@@ -55,7 +55,10 @@ flowchart LR
   and user. Removing a member deletes, in one transaction, their team
   memberships, their role bindings in the organization and the membership.
   Their sessions, personal tokens and OAuth grants in the organization end
-  in the same transaction, through separate calls inside `Store.WithTx`.
+  in the same transaction: the store's suspend and remove revoke the OAuth
+  grants themselves, so no path forgets them and reinstating the member
+  brings none back; sessions and tokens are separate calls inside
+  `Store.WithTx`.
 - **Invitation.** An email or a GitHub login (exactly one; a login is
   resolved to its stable GitHub user ID at creation, and acceptance compares the
   ID, because a login can be renamed and then taken), the roles to

@@ -152,8 +152,23 @@ func (r membershipRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]dom
 	return many(ctx, r.db, scanMembership, `SELECT `+membershipCols+` FROM memberships WHERE user_id = $1 ORDER BY created_at, id`, userID)
 }
 
+// revokeGrants ends the user's OAuth grants in the organization: a member who
+// leaves it, even for a while, loses the apps they connected there.
+func revokeGrants(ctx context.Context, tx dbtx, accountID, userID uuid.UUID) error {
+	_, err := tx.Exec(ctx, `UPDATE oauth_grants SET revoked_at = now() WHERE account_id = $1 AND user_id = $2 AND revoked_at IS NULL`, accountID, userID)
+	return mapErr(err)
+}
+
 func (r membershipRepo) SetStatus(ctx context.Context, accountID, userID uuid.UUID, status domain.MembershipStatus) error {
-	return mustUpdate(ctx, r.db, `UPDATE memberships SET status = $3, updated_at = now() WHERE account_id = $1 AND user_id = $2`, accountID, userID, status)
+	return inTx(ctx, r.db, func(tx dbtx) error {
+		if err := mustUpdate(ctx, tx, `UPDATE memberships SET status = $3, updated_at = now() WHERE account_id = $1 AND user_id = $2`, accountID, userID, status); err != nil {
+			return err
+		}
+		if status == domain.MembershipActive {
+			return nil
+		}
+		return revokeGrants(ctx, tx, accountID, userID)
+	})
 }
 
 func (r membershipRepo) SetExternalID(ctx context.Context, accountID, userID uuid.UUID, externalID string) error {
@@ -168,7 +183,10 @@ func (r membershipRepo) Remove(ctx context.Context, accountID, userID uuid.UUID)
 		if _, err := tx.Exec(ctx, `DELETE FROM role_bindings WHERE account_id = $1 AND subject_kind = 'user' AND subject_id = $2`, accountID, userID); err != nil {
 			return mapErr(err)
 		}
-		return mustUpdate(ctx, tx, `DELETE FROM memberships WHERE account_id = $1 AND user_id = $2`, accountID, userID)
+		if err := mustUpdate(ctx, tx, `DELETE FROM memberships WHERE account_id = $1 AND user_id = $2`, accountID, userID); err != nil {
+			return err
+		}
+		return revokeGrants(ctx, tx, accountID, userID)
 	})
 }
 
