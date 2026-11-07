@@ -1,9 +1,10 @@
 import { useNavigate } from "@tanstack/react-router"
-import { createContext, useContext, useEffect } from "react"
+import { createContext, useContext, useEffect, useState } from "react"
 import { useGoals, useJobs, useProjects } from "@/api/queries"
 import {
   Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command"
+import { useAssistant } from "@/components/assistant/AssistantContext"
 import { goalRef, jobRef } from "@/lib/format"
 
 /** Lets a page open the command menu that the app shell owns. */
@@ -36,12 +37,12 @@ const PAGES = [
   { label: "Assumptions", to: "/assumptions" },
   { label: "Proposals", to: "/proposals" },
   { label: "Knowledge", to: "/knowledge" },
-  { label: "Workers", to: "/workers" },
+  { label: "Machines", to: "/machines" },
   { label: "Your account", to: "/account" },
   { label: "Settings", to: "/settings" },
 ] as const
 
-function Results({ go }: { go: (to: string, params?: Record<string, string>) => void }) {
+function Results({ go, text, ask }: { go: (to: string, params?: Record<string, string>) => void; text: string; ask: () => void }) {
   const goals = useGoals()
   const projects = useProjects()
   const jobs = useJobs()
@@ -54,6 +55,12 @@ function Results({ go }: { go: (to: string, params?: Record<string, string>) => 
         </CommandItem>
         <CommandItem value="onboard repository add project" onSelect={() => go("/projects/new")}>
           Onboard repository
+        </CommandItem>
+        <CommandItem value="add machines connect server" onSelect={() => go("/machines/add")}>
+          Add machines
+        </CommandItem>
+        <CommandItem value="invite people team" onSelect={() => go("/settings/people")}>
+          Invite people
         </CommandItem>
         <CommandItem value="start council debate decision question" onSelect={() => go("/councils/new")}>
           Start a council
@@ -93,6 +100,11 @@ function Results({ go }: { go: (to: string, params?: Record<string, string>) => 
           ))}
         </CommandGroup>
       ) : null}
+      <CommandGroup forceMount>
+        <CommandItem forceMount value="ask the assistant" onSelect={ask}>
+          Ask the assistant{text.trim() ? <>: “{text.trim()}”</> : null}
+        </CommandItem>
+      </CommandGroup>
     </CommandList>
   )
 }
@@ -100,6 +112,13 @@ function Results({ go }: { go: (to: string, params?: Record<string, string>) => 
 /** Jump to any page, goal, project or job, or start a goal or an onboarding. */
 export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const navigate = useNavigate()
+  const assistant = useAssistant()
+  const [text, setText] = useState("")
+  const ask = () => {
+    onOpenChange(false)
+    assistant.ask(text.trim() || undefined)
+    setText("")
+  }
   const go = (to: string, params?: Record<string, string>) => {
     onOpenChange(false)
     void navigate({ to, params } as never)
@@ -107,8 +126,8 @@ export function CommandMenu({ open, onOpenChange }: { open: boolean; onOpenChang
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} title="Command menu" description="Jump to a page, goal, project or job">
       <Command>
-        <CommandInput placeholder="Search pages, goals, projects, jobs…" />
-        <Results go={go} />
+        <CommandInput placeholder="Search pages, goals, projects, jobs…" value={text} onValueChange={setText} />
+        <Results go={go} text={text} ask={ask} />
       </Command>
     </CommandDialog>
   )

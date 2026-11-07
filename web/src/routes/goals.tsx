@@ -97,7 +97,7 @@ export function GoalsPage() {
 export function NewGoalPage() {
   const navigate = useNavigate()
   const [project, setProject] = useState("")
-  const [title, setTitle] = useState("")
+  const [title, setTitle] = useState((useSearch({ strict: false }) as { title?: string }).title ?? "")
   const [body, setBody] = useState("")
   const [platforms, setPlatforms] = useState("")
   const [errors, setErrors] = useState<{ project?: string; title?: string; form?: string }>({})

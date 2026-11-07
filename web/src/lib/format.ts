@@ -159,3 +159,9 @@ export function countsText(c: { passed: number; failed: number; skipped: number;
   if (c.skipped) parts.push(`${count(c.skipped)} skipped`)
   return parts.join(", ")
 }
+
+/** "home-server" as "Home Server": a technical name as people read it. */
+export const humanName = (name: string) => name.split(/[-_.]/).filter(Boolean).map((w) => w[0]!.toUpperCase() + w.slice(1)).join(" ")
+
+/** 4096 MB as "4 GB". */
+export const gigabytes = (mb: number) => `${Math.round((mb / 1024) * 10) / 10} GB`
