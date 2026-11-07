@@ -272,3 +272,33 @@ func TestOnlyPeopleSnoozeOrFinish(t *testing.T) {
 		}
 	}
 }
+
+// Accepting a proposal with a goal action creates a goal, so it needs
+// goal.create too, from decide_proposal and from approve on its gate alike.
+func TestAcceptingAGoalNeedsGoalCreate(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	p := f.newImprovement(t, domain.ProposalAction{Goal: &domain.GoalAction{Title: "Scan"}})
+	q := f.newImprovement(t, setup)
+	by := f.memberWith(t, f.project.ID, domain.PermProposalDecide, domain.PermProjectRead, domain.PermGateApproveImprovement, domain.PermGateRead)
+	_, err := f.svc.DecideProposal(ctx, by, mcp.DecideProposalInput{Proposal: p.Ref(), Decision: domain.ProposalAccept})
+	wantErr(t, err, authz.ErrDenied)
+	g, err := f.st.Gates().Get(ctx, f.account.ID, p.GateID)
+	must(t, err)
+	_, err = f.svc.Approve(ctx, by, mcp.GateDecisionInput{Gate: g.Ref()})
+	wantErr(t, err, authz.ErrDenied)
+	got, err := f.svc.ListProposals(ctx, by, mcp.ListProposalsInput{Project: "app"})
+	must(t, err)
+	if len(got) != 2 || got[0].CanDecide || !got[1].CanDecide {
+		t.Fatalf("can decide: %+v", got)
+	}
+	// Rejecting creates nothing, and a setup action needs no goal.create.
+	_, err = f.svc.DecideProposal(ctx, by, mcp.DecideProposalInput{Proposal: p.Ref(), Decision: domain.ProposalReject, Reason: "no"})
+	must(t, err)
+	_, err = f.svc.DecideProposal(ctx, by, mcp.DecideProposalInput{Proposal: q.Ref(), Decision: domain.ProposalAccept})
+	must(t, err)
+	with := f.memberWith(t, f.project.ID, domain.PermProposalDecide, domain.PermProjectRead, domain.PermGateApproveImprovement, domain.PermGoalCreate)
+	r := f.newImprovement(t, domain.ProposalAction{Goal: &domain.GoalAction{Title: "Trace"}})
+	_, err = f.svc.DecideProposal(ctx, with, mcp.DecideProposalInput{Proposal: r.Ref(), Decision: domain.ProposalAccept})
+	must(t, err)
+}
