@@ -313,6 +313,7 @@ and `revoke` ([fleet.md](fleet.md)).
 | `budget` | This month's limit of CHF 200 is used up | A monthly budget or minutes quota of the organization, shape or location |
 | `policy` | Cloud could run this, but your policy keeps jobs on your machines | Routing or `allowed_shapes` rule out the only shape that fits |
 | `trust_zone` | No machine in the Reasoning zone is online | Nothing of its pool exists or is online |
+| `agent_install` | Installing Codex on Home Server | An online computer of its pool could run it but lacks its agent CLI: it is installing it, the install failed (the sentence says why and what to do), or it does not install agents ([worker.md](worker.md#agent-install)) |
 | `no_connection` | Role developer has no model connection: connect a provider and assign it to the role in Organization settings, AI models | No usable model connection serves its role: none assigned, turned off, without a key or a model, or its pool may not receive the key ([config-resources.md](contracts/config-resources.md#model-connections)) |
 | `private_code` | The code of acme/app is private, and connection cloud is not authorized for project app: confirm a plan with model_authorization cloud@app in Organization settings, AI models | Its repo is private and its connection was not authorized for the project ([config-resources.md](contracts/config-resources.md#private-code)) |
 

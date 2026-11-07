@@ -25,6 +25,7 @@ const (
 	ReasonBudget  ReasonCode = "budget"           // a monthly limit is used up
 	ReasonPolicy  ReasonCode = "policy"           // something could run it, but the policy says no
 	ReasonZone    ReasonCode = "trust_zone"       // nothing of its pool is online
+	ReasonAgent   ReasonCode = "agent_install"    // a computer could run it but lacks its agent CLI
 )
 
 // Reason is why a job waits: a code to act on and the sentence people read.
@@ -184,4 +185,48 @@ func policyReason(location string, routing domain.FleetRouting) Reason {
 		rest = "your policy keeps jobs on your machines"
 	}
 	return Reason{Code: ReasonPolicy, Sentence: location + " could run this, but " + rest}
+}
+
+// agentName is what people call an agent CLI.
+func agentName(adapter string) string {
+	switch adapter {
+	case "claude-code":
+		return "Claude Code"
+	case "codex":
+		return "Codex"
+	}
+	return adapter
+}
+
+// agentProblem says why a computer has no agent and what to do, from the
+// code of a failed install the worker reported; "" when it has not failed.
+func agentProblem(computer string, a domain.WorkerAgent) string {
+	name := agentName(a.Adapter)
+	switch a.Error {
+	case "":
+		return ""
+	case domain.AgentInstallUnsupported:
+		return name + " has no standalone build for " + computer + "'s system: install it there yourself"
+	case domain.AgentInstallDownload:
+		return name + " could not be downloaded on " + computer + ": check that it reaches the internet; it tries again within the hour"
+	case domain.AgentInstallChecksum:
+		return name + " was downloaded on " + computer + " but did not match its checksum, so it was deleted: check for a proxy that changes downloads; it tries again within the hour"
+	}
+	return name + " could not be installed on " + computer + ": run forecrew-worker status there to see why"
+}
+
+// agentReason explains a job that a computer could run but for its agent:
+// it is being installed, the install failed, or the computer does not
+// install agents.
+func agentReason(w domain.Worker, adapter string) Reason {
+	computer := displayName(w.Name)
+	a, _ := w.Agent(adapter)
+	a.Adapter = adapter
+	if p := agentProblem(computer, a); p != "" {
+		return Reason{Code: ReasonAgent, Sentence: p}
+	}
+	if slices.Contains(w.Labels, domain.AgentInstallLabel) {
+		return Reason{Code: ReasonAgent, Sentence: "Installing " + agentName(adapter) + " on " + computer}
+	}
+	return Reason{Code: ReasonAgent, Sentence: agentName(adapter) + " is not on " + computer + ": install it there, or turn on auto_install_agents in its worker.yaml"}
 }
