@@ -89,6 +89,11 @@ export function Overview({ fleet }: { fleet: FleetOverview }) {
                       ) : (
                         l.name
                       )}
+                      {l.problems?.map((p) => (
+                        <p key={p} className="mt-1 text-sm font-normal text-destructive">
+                          {p}
+                        </p>
+                      ))}
                     </TableCell>
                     <TableCell>{l.runs}</TableCell>
                     <TableCell>

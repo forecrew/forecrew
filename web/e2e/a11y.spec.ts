@@ -55,6 +55,9 @@ const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: bo
   { name: "settings policies for a viewer", path: "/settings/policies", ready: "Policies", me: "me-viewer" },
   { name: "settings integrations", path: "/settings/integrations", ready: "Integrations", me: "me-admin" },
   { name: "settings integrations for a viewer", path: "/settings/integrations", ready: "Integrations", me: "me-viewer" },
+  { name: "settings AI models", path: "/settings/models", ready: "AI models", me: "me-admin" },
+  { name: "settings AI models for a viewer", path: "/settings/models", ready: "AI models", me: "me-viewer" },
+  { name: "job waiting for a model connection", path: "/jobs/JOB-43", ready: /JOB-43/, me: "me-admin" },
   { name: "project access", path: "/projects/app", ready: "app", me: "me-admin" },
 ]
 
@@ -122,6 +125,19 @@ for (const size of sizes) {
       // a plan that lowers protection is not confirmed from a phone
       await expect(plan.getByText(/cannot be confirmed from a phone/)).toBeVisible()
     }
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`adding an AI provider has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page, { me: "me-admin" })
+    await page.goto("/settings/models")
+    await page.getByRole("button", { name: "Add provider" }).click()
+    const dialog = page.getByRole("dialog", { name: "Add an AI provider" })
+    await dialog.getByRole("radio", { name: /DeepSeek API/ }).check()
+    await expectNoSeriousViolations(page)
+    await dialog.getByRole("button", { name: "Review the change" }).click()
+    await expect(dialog.getByRole("form", { name: /Secure field/ })).toBeVisible()
     await expectNoSeriousViolations(page)
   })
 

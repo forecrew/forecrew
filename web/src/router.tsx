@@ -29,6 +29,7 @@ import { TracePage } from "@/routes/trace"
 import { GeneralPage } from "@/routes/settings/general"
 import { HistoryPage } from "@/routes/settings/history"
 import { IntegrationsPage } from "@/routes/settings/integrations"
+import { ModelsPage } from "@/routes/settings/models"
 import { SettingsLayout } from "@/routes/settings/layout"
 import { PeoplePage } from "@/routes/settings/people"
 import { PoliciesPage } from "@/routes/settings/policies"
@@ -153,6 +154,7 @@ const routeTree = root.addChildren([
       createRoute({ getParentRoute: () => settings, path: "/", validateSearch: search, component: GeneralPage }),
       createRoute({ getParentRoute: () => settings, path: "/people", validateSearch: search, component: PeoplePage }),
       createRoute({ getParentRoute: () => settings, path: "/sign-in", validateSearch: search, component: SignInPage }),
+      createRoute({ getParentRoute: () => settings, path: "/models", validateSearch: search, component: ModelsPage }),
       createRoute({ getParentRoute: () => settings, path: "/integrations", validateSearch: search, component: IntegrationsPage }),
       createRoute({ getParentRoute: () => settings, path: "/policies", validateSearch: search, component: PoliciesPage }),
       createRoute({ getParentRoute: () => settings, path: "/history", validateSearch: search, component: HistoryPage }),
