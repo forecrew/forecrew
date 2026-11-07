@@ -55,7 +55,7 @@ func (a *actions) closeGoal(ctx context.Context, call workflow.ActionCall) (any,
 		total += j.CostUSD
 	}
 	if g.Status == domain.GoalDone {
-		return closeOutput{Tasks: len(tasks), CostUSD: total}, nil
+		return closeOutput{Tasks: len(tasks), CostUSD: total}, a.goalEnded(ctx, g)
 	}
 	p, err := a.Store.Projects().Get(ctx, g.AccountID, g.ProjectID)
 	if err != nil {
@@ -75,7 +75,16 @@ func (a *actions) closeGoal(ctx context.Context, call workflow.ActionCall) (any,
 	if err := a.Store.Goals().UpdateStatus(ctx, g.AccountID, g.ID, g.Status, domain.GoalDone); err != nil {
 		return nil, fmt.Errorf("move %s to done: %w", g.Ref(), err)
 	}
-	return closeOutput{Tasks: len(tasks), CostUSD: total}, nil
+	g.Status = domain.GoalDone
+	return closeOutput{Tasks: len(tasks), CostUSD: total}, a.goalEnded(ctx, g)
+}
+
+// goalEnded tells the advisor g ended: a proposal it carries out is settled.
+func (a *actions) goalEnded(ctx context.Context, g domain.Goal) error {
+	if a.Advisor == nil {
+		return nil
+	}
+	return a.Advisor.GoalEnded(ctx, g)
 }
 
 // goalSummary is the closing comment: a line per task with its PR, the
@@ -168,6 +177,10 @@ func (a *actions) settleGoal(ctx context.Context, call workflow.ActionCall) (any
 		if err := a.Store.Goals().UpdateStatus(ctx, g.AccountID, g.ID, g.Status, domain.GoalCanceled); err != nil {
 			return nil, fmt.Errorf("cancel %s: %w", g.Ref(), err)
 		}
+	}
+	g.Status = domain.GoalCanceled
+	if err := a.goalEnded(ctx, g); err != nil {
+		return nil, err
 	}
 	for _, n := range issues {
 		if err := a.closeIssue(ctx, p.Repo, n, "", ""); err != nil {

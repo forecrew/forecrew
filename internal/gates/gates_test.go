@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 	"uuid"
@@ -367,5 +369,43 @@ func TestDecideRefusesLessonsWithoutASaver(t *testing.T) {
 	wantErr(t, err, mcp.ErrInvalidInput)
 	if cur, _ := f.svc.Get(t.Context(), f.account, g.ID); cur.Status != domain.GatePending {
 		t.Errorf("gate = %s, want pending", cur.Status)
+	}
+}
+
+type fakeRecorder struct {
+	calls *[]string
+	name  string
+	err   error
+	then  error
+}
+
+func (r fakeRecorder) GateResolved(context.Context, store.Store, domain.Actor, domain.Gate) (func(context.Context) error, error) {
+	*r.calls = append(*r.calls, r.name)
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.name == "silent" {
+		return nil, nil
+	}
+	return func(context.Context) error { *r.calls = append(*r.calls, r.name+" then"); return r.then }, nil
+}
+
+func TestRecorders(t *testing.T) {
+	var calls []string
+	boom := errors.New("boom")
+	rs := gates.Recorders{fakeRecorder{calls: &calls, name: "a", then: boom}, fakeRecorder{calls: &calls, name: "silent"}, fakeRecorder{calls: &calls, name: "b"}}
+	then, err := rs.GateResolved(t.Context(), nil, domain.Actor{}, domain.Gate{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := then(t.Context()); !errors.Is(err, boom) {
+		t.Fatalf("then: %v", err)
+	}
+	if got := strings.Join(calls, ","); got != "a,silent,b,a then,b then" {
+		t.Fatalf("calls %s", got)
+	}
+	failing := gates.Recorders{fakeRecorder{calls: &calls, name: "x", err: boom}, fakeRecorder{calls: &calls, name: "never"}}
+	if _, err := failing.GateResolved(t.Context(), nil, domain.Actor{}, domain.Gate{}); !errors.Is(err, boom) || slices.Contains(calls, "never") {
+		t.Fatalf("failing: %v, %v", err, calls)
 	}
 }
