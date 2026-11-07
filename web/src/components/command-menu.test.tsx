@@ -9,8 +9,8 @@ async function openMenu({ user }: App) {
   await user.keyboard("{Control>}k{/Control}")
   const input = await screen.findByPlaceholderText(/Search pages/)
   await screen.findByRole("option", { name: /GOAL-3/ })
-  await screen.findByRole("option", { name: /JOB-41/ })
-  await screen.findByRole("option", { name: /docs/ })
+  await screen.findByRole("option", { name: /^JOB-41/ })
+  await screen.findByRole("option", { name: /^docs/ })
   return input
 }
 
@@ -43,22 +43,22 @@ describe("command menu", () => {
   test("jumps to a job", async () => {
     const app = await renderApp("/")
     await search(app, await openMenu(app), "JOB-41")
-    await app.user.click(await screen.findByRole("option", { name: /JOB-41/ }))
+    await app.user.click(await screen.findByRole("option", { name: /^JOB-41/ }))
     await waitFor(() => expect(app.router.state.location.pathname).toBe("/jobs/JOB-41"))
   })
 
   test("jumps to a project", async () => {
     const app = await renderApp("/")
     await search(app, await openMenu(app), "acme/docs")
-    await app.user.click(await screen.findByRole("option", { name: /docs/ }))
+    await app.user.click(await screen.findByRole("option", { name: /^docs/ }))
     await waitFor(() => expect(app.router.state.location.pathname).toBe("/projects/docs"))
   })
 
   test("jumps to a page", async () => {
     const app = await renderApp("/")
-    await search(app, await openMenu(app), "workers")
-    await app.user.click(await screen.findByRole("option", { name: "Workers" }))
-    await waitFor(() => expect(app.router.state.location.pathname).toBe("/workers"))
+    await search(app, await openMenu(app), "machines")
+    await app.user.click(await screen.findByRole("option", { name: "Machines" }))
+    await waitFor(() => expect(app.router.state.location.pathname).toBe("/machines"))
   })
 
   test("starts New goal", async () => {
@@ -85,5 +85,23 @@ describe("command menu", () => {
     const { user } = await renderApp("/")
     await user.click(await screen.findByRole("button", { name: "Open command menu" }))
     expect(await screen.findByRole("dialog")).toBeInTheDocument()
+  })
+})
+
+describe("ask the assistant", () => {
+  test("the list always ends with an Ask row that opens the panel with the text", async () => {
+    const app = await renderApp("/")
+    await search(app, await openMenu(app), "zebra stripes")
+    await app.user.click(await screen.findByRole("option", { name: /Ask the assistant/ }))
+    expect(await screen.findByRole("region", { name: "Assistant" })).toBeInTheDocument()
+    expect(screen.getByLabelText("Say what you want")).toHaveValue("zebra stripes")
+  })
+
+  test("without text it just opens the panel", async () => {
+    const app = await renderApp("/")
+    await openMenu(app)
+    await app.user.click(await screen.findByRole("option", { name: "Ask the assistant" }))
+    expect(await screen.findByRole("region", { name: "Assistant" })).toBeInTheDocument()
+    expect(screen.getByLabelText("Say what you want")).toHaveValue("")
   })
 })

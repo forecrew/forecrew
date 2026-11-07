@@ -142,12 +142,12 @@ describe("login and session", () => {
   })
 
   test("any 401 later goes back to the login page", async () => {
-    const { router, queryClient } = await renderApp("/workers")
-    await screen.findByRole("heading", { name: "Workers" })
-    server.use(http.get("/api/v1/workers", errors.unauthorized))
-    await queryClient.invalidateQueries({ queryKey: ["workers"] })
+    const { router, queryClient } = await renderApp("/machines")
+    await screen.findByRole("heading", { name: "Machines" })
+    server.use(http.get("/api/v1/fleet", errors.unauthorized))
+    await queryClient.invalidateQueries({ queryKey: ["fleet"] })
     await waitFor(() => expect(router.state.location.pathname).toBe("/login"))
-    expect(router.state.location.search).toEqual({ redirect: "/workers" })
+    expect(router.state.location.search).toEqual({ redirect: "/machines" })
   })
 
   test("sign out clears the session and shows the login page", async () => {

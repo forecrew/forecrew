@@ -29,7 +29,9 @@ import { HistoryPage } from "@/routes/settings/history"
 import { SettingsLayout } from "@/routes/settings/layout"
 import { PeoplePage } from "@/routes/settings/people"
 import { SignInPage } from "@/routes/settings/sign-in"
-import { WorkersPage } from "@/routes/workers"
+import { AddMachinesPage } from "@/routes/machines/add"
+import { MachinesPage } from "@/routes/machines"
+import { LocationPage } from "@/routes/machines/location"
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({ component: Outlet })
 
@@ -55,6 +57,8 @@ interface Search {
   kind?: string
   provider?: string
   goal?: string
+  /** The title a new goal starts with. */
+  title?: string
   /** What forecrew login asks the browser to allow. */
   redirect_uri?: string
   state?: string
@@ -65,7 +69,7 @@ interface Search {
 
 const search = (s: Record<string, unknown>): Search => {
   const out: Search = {}
-  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question", "impact", "category", "tab", "redirect_uri", "state", "code_challenge", "organization", "host", "q", "section", "kind", "provider", "goal"] as const) {
+  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question", "impact", "category", "tab", "redirect_uri", "state", "code_challenge", "organization", "host", "q", "section", "kind", "provider", "goal", "title"] as const) {
     const v = s[k]
     if (typeof v === "string" && v) out[k] = v
   }
@@ -106,7 +110,7 @@ const routeTree = root.addChildren([
     child("/", HomePage),
     createRoute({ getParentRoute: () => app, path: "/inbox", validateSearch: search, component: InboxPage }),
     createRoute({ getParentRoute: () => app, path: "/goals", validateSearch: search, component: GoalsPage }),
-    child("/goals/new", NewGoalPage),
+    createRoute({ getParentRoute: () => app, path: "/goals/new", validateSearch: search, component: NewGoalPage }),
     createRoute({ getParentRoute: () => app, path: "/councils", validateSearch: search, component: CouncilsPage }),
     child("/councils/new", NewCouncilPage),
     child("/councils/$ref", CouncilPage),
@@ -121,7 +125,11 @@ const routeTree = root.addChildren([
     createRoute({ getParentRoute: () => app, path: "/jobs", validateSearch: search, component: JobsPage }),
     child("/jobs/$ref", JobPage),
     child("/quality", QualityPage),
-    child("/workers", WorkersPage),
+    createRoute({ getParentRoute: () => app, path: "/machines", validateSearch: search, component: MachinesPage }),
+    createRoute({ getParentRoute: () => app, path: "/machines/add", validateSearch: search, component: AddMachinesPage }),
+    child("/machines/$id", LocationPage),
+    // Workers became Machines.
+    createRoute({ getParentRoute: () => app, path: "/workers", validateSearch: search, beforeLoad: () => { throw redirect({ to: "/machines" }) } }),
     child("/trace/$ref", TracePage),
     // Tokens moved into the account page.
     createRoute({ getParentRoute: () => app, path: "/tokens", validateSearch: search, beforeLoad: () => { throw redirect({ to: "/account" }) } }),

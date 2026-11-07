@@ -3,9 +3,11 @@ import { Link, Outlet, useNavigate, useSearch } from "@tanstack/react-router"
 import {
   BookOpenIcon, BriefcaseIcon, ChevronsUpDownIcon, CommandIcon, FlaskConicalIcon, GavelIcon, UsersIcon, FolderGitIcon, InboxIcon, LayoutDashboardIcon, LightbulbIcon, MenuIcon, ScaleIcon, ServerIcon, SettingsIcon, TargetIcon,
 } from "lucide-react"
-import { useCallback, useState } from "react"
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react"
 import { api } from "@/api/client"
 import { useGates, useMe } from "@/api/queries"
+import { AssistantContext } from "@/components/assistant/AssistantContext"
+import { AssistantPanel } from "@/components/assistant/AssistantPanel"
 import { CommandMenu, CommandMenuContext, useCommandMenuShortcut } from "@/components/CommandMenu"
 import { ProjectSelect } from "@/components/ProjectSelect"
 import { Button } from "@/components/ui/button"
@@ -27,7 +29,7 @@ const NAV = [
   { to: "/assumptions", label: "Assumptions", icon: ScaleIcon },
   { to: "/proposals", label: "Proposals", icon: LightbulbIcon },
   { to: "/knowledge", label: "Knowledge", icon: BookOpenIcon },
-  { to: "/workers", label: "Workers", icon: ServerIcon },
+  { to: "/machines", label: "Machines", icon: ServerIcon },
 ] as const
 
 // Pages that list things for one project; their sidebar links keep the chosen project.
@@ -189,6 +191,19 @@ function AccountBlock({ onNavigate }: { onNavigate?: () => void }) {
   )
 }
 
+/** Whether the window is as wide as a desktop (the assistant docks beside the page there). Desktop where nothing can tell. */
+function useDesktop() {
+  const query = "(min-width: 768px)"
+  return useSyncExternalStore(
+    (notify) => {
+      const m = typeof window.matchMedia === "function" ? window.matchMedia(query) : undefined
+      m?.addEventListener?.("change", notify)
+      return () => m?.removeEventListener?.("change", notify)
+    },
+    () => (typeof window.matchMedia === "function" ? window.matchMedia(query).matches : true),
+  )
+}
+
 /** The sidebar (a menu on narrow screens), the command menu and the page. */
 export function AppShell() {
   const project = useProjectFilter()
@@ -196,9 +211,28 @@ export function AppShell() {
   const [commands, setCommands] = useState(false)
   const toggleCommands = useCallback(() => setCommands((o) => !o), [])
   useCommandMenuShortcut(toggleCommands)
+  const desktop = useDesktop()
+  const [assistant, setAssistant] = useState(false)
+  const [conversation, setConversation] = useState<string>()
+  const [seed, setSeed] = useState<string>()
+  const control = useMemo(
+    () => ({
+      open: assistant,
+      ask: (message?: string) => {
+        setSeed(message)
+        setAssistant(true)
+      },
+      close: () => setAssistant(false),
+    }),
+    [assistant],
+  )
+  const panel = assistant ? (
+    <AssistantPanel conversation={conversation} onConversation={setConversation} initial={seed} onClose={() => setAssistant(false)} />
+  ) : null
 
   return (
-    <div className="min-h-screen md:grid md:grid-cols-[15rem_1fr]">
+    <AssistantContext value={control}>
+    <div className={`min-h-screen md:grid ${assistant && desktop ? "md:grid-cols-[15rem_1fr_26rem]" : "md:grid-cols-[15rem_1fr]"}`}>
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-card focus:p-3">
         Skip to content
       </a>
@@ -243,7 +277,20 @@ export function AppShell() {
           </Sheet>
         </nav>
       </div>
+      {assistant && desktop ? (
+        <aside aria-label="Assistant panel" className="sticky top-0 hidden h-screen border-l bg-card md:block" onKeyDown={(e) => e.key === "Escape" && setAssistant(false)}>
+          {panel}
+        </aside>
+      ) : null}
+      <Sheet open={assistant && !desktop} onOpenChange={setAssistant}>
+        <SheetContent showCloseButton={false} className="p-0 sm:max-w-md">
+          <SheetTitle className="sr-only">Assistant</SheetTitle>
+          <SheetDescription className="sr-only">Say what you want and confirm the plan</SheetDescription>
+          {assistant && !desktop ? panel : null}
+        </SheetContent>
+      </Sheet>
       <CommandMenu open={commands} onOpenChange={setCommands} />
     </div>
+    </AssistantContext>
   )
 }
