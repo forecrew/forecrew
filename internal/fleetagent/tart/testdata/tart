@@ -14,7 +14,7 @@ cmd=${1:-}
 
 pass=none
 [ -n "${TART_REGISTRY_PASSWORD:-}" ] && pass="set"
-echo "$cmd $* | registry-password=$pass home=$HOME agent-secret=${FORECREW_PROVIDER_TOKEN:-unset}" >>"$home/calls.log"
+echo "$cmd $* | registry-password=$pass registry-host=${TART_REGISTRY_HOSTNAME:-none} home=$HOME agent-secret=${FORECREW_PROVIDER_TOKEN:-unset}" >>"$home/calls.log"
 
 if [ -f "$home/fail-$cmd" ]; then
 	cat "$home/fail-$cmd" >&2

@@ -3,6 +3,7 @@ package tart
 import (
 	"context"
 	"crypto/ed25519"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -40,6 +41,8 @@ type testEnv struct {
 	// extraVMs are VMs running on the Mac outside the agent's Tart home: the
 	// operator's own.
 	extraVMs int
+	// cache is the directory of the test image in Tart's cache.
+	cache string
 }
 
 func newEnv(t *testing.T, edit func(*Config)) *testEnv {
@@ -95,8 +98,8 @@ func newEnv(t *testing.T, edit func(*Config)) *testEnv {
 		return "System-wide power settings:\n sleep                0\n displaysleep         10\n", nil
 	}
 	e.img = domain.Image{Name: "macos", Version: "2026.11.1", OS: domain.OSMacOS, Arch: domain.ArchARM64, Format: domain.ImageTart,
-		URI: "oci://registry.example.com/forecrew/macos:2026.11.1", Digest: testDigest, BuiltAt: time.Unix(1700000000, 0).UTC()}
-	e.img.Signature = images.Sign(key, e.img)
+		URI: "oci://" + testRepo + ":2026.11.1", BuiltAt: time.Unix(1700000000, 0).UTC()}
+	e.writeImage(t)
 	t.Cleanup(func() {
 		e.killAll()
 		for _, r := range func() []*record { rs, _ := e.p.records(); return rs }() {
@@ -104,6 +107,41 @@ func newEnv(t *testing.T, edit func(*Config)) *testEnv {
 		}
 	})
 	return e
+}
+
+const testRepo = "registry.example.com/forecrew/macos"
+
+// writeImage puts in Tart's cache what a pull of the test image leaves there,
+// and signs the image with the digest of its manifest. The fake's pull leaves a
+// cache it finds alone.
+func (e *testEnv) writeImage(t *testing.T) {
+	t.Helper()
+	config, nvram := []byte("{config}"), []byte("nvram")
+	chunks := [][]byte{[]byte("AAAA"), []byte("BBBBBB")}
+	sum := func(b []byte) string { d, _ := images.Digest(strings.NewReader(string(b))); return d }
+	layers := []map[string]any{
+		{"mediaType": mediaConfig, "digest": sum(config), "size": len(config)},
+		{"mediaType": mediaNVRAM, "digest": sum(nvram), "size": len(nvram)},
+	}
+	for _, c := range chunks {
+		layers = append(layers, map[string]any{"mediaType": mediaDisk, "digest": "sha256:" + strings.Repeat("0", 64), "size": 3,
+			"annotations": map[string]string{annLayerSize: strconv.Itoa(len(c)), annLayerDigest: sum(c)}})
+	}
+	manifest, err := json.Marshal(map[string]any{"schemaVersion": 2, "layers": layers})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.img.Digest = sum(manifest)
+	e.cache = e.p.cacheDir(testRepo, e.img.Digest)
+	if err := os.MkdirAll(e.cache, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string][]byte{fileManifest: manifest, fileConfig: config, fileNVRAM: nvram, fileDisk: append(chunks[0], chunks[1]...)} {
+		if err := os.WriteFile(filepath.Join(e.cache, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.img.Signature = images.Sign(e.key, e.img)
 }
 
 // killAll ends every VM process of the fake.
@@ -161,7 +199,9 @@ func (e *testEnv) create(t *testing.T) fleet.CreateRequest {
 
 func TestCreateListDestroy(t *testing.T) {
 	t.Setenv("FORECREW_PROVIDER_TOKEN", "fcp_agents-own-secret")
-	e := newEnv(t, func(c *Config) { c.RegistryUsername, c.RegistryPassword = "env:REG_USER", "env:REG_PASS" })
+	e := newEnv(t, func(c *Config) {
+		c.RegistryUsername, c.RegistryPassword, c.RegistryHosts = "env:REG_USER", "env:REG_PASS", []string{"registry.example.com"}
+	})
 	req := e.request()
 	req.NetworkAllow = []string{"10.1.0.0/16"}
 	inst, err := e.p.Create(t.Context(), req)
@@ -176,7 +216,7 @@ func TestCreateListDestroy(t *testing.T) {
 		t.Errorf("vms = %v", e.vms(t))
 	}
 	// The image is pulled by the digest the signature covers, and cloned from it.
-	ref := "registry.example.com/forecrew/macos@" + testDigest
+	ref := testRepo + "@" + e.img.Digest
 	if pulled := e.file(t, "cache", "pulled"); !strings.Contains(pulled, ref+"\n") {
 		t.Errorf("pulled = %q", pulled)
 	}
@@ -380,7 +420,9 @@ func TestCreateFailuresLeaveNothing(t *testing.T) {
 		{"delivery", "fail-exec-deliver", "", "deliver"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			e := newEnv(t, func(c *Config) { c.RegistryUsername, c.RegistryPassword = "env:REG_USER", "env:REG_PASS" })
+			e := newEnv(t, func(c *Config) {
+				c.RegistryUsername, c.RegistryPassword, c.RegistryHosts = "env:REG_USER", "env:REG_PASS", []string{"registry.example.com"}
+			})
 			e.p.cfg.BootWaitSeconds = 1
 			e.inject(t, c.file, c.content)
 			_, err := e.p.Create(t.Context(), e.request())
@@ -510,7 +552,7 @@ func TestLocalBaseVM(t *testing.T) {
 	e := newEnv(t, func(c *Config) { c.AllowLocalBase = true })
 	req := e.request()
 	req.Shape.ProviderConfig = map[string]any{"base_vm": "mine"}
-	if _, err := e.p.Create(t.Context(), req); err == nil || !strings.Contains(err.Error(), "not on this Mac") {
+	if _, err := e.p.Create(t.Context(), req); err == nil || !strings.Contains(err.Error(), "not in the agent's Tart home") {
 		t.Errorf("a VM that is not there: %v", err)
 	}
 	_ = os.MkdirAll(filepath.Join(e.home, "vms", "mine"), 0o700)
@@ -613,6 +655,158 @@ func TestNoSoftnet(t *testing.T) {
 	}
 	if exec := e.file(t, "vms", name, "exec"); strings.Contains(exec, "1.1.1.1") {
 		t.Errorf("resolvers were set without softnet: %q", exec)
+	}
+}
+
+func TestImageIntegrity(t *testing.T) {
+	flip := func(file string) func(e *testEnv) {
+		return func(e *testEnv) {
+			path := filepath.Join(e.cache, file)
+			raw, _ := os.ReadFile(path) // #nosec G304 -- a test
+			raw[0] ^= 0xff
+			_ = os.WriteFile(path, raw, 0o600)
+		}
+	}
+	rewrite := func(edit func(m map[string]any)) func(e *testEnv) {
+		return func(e *testEnv) {
+			path := filepath.Join(e.cache, fileManifest)
+			raw, _ := os.ReadFile(path) // #nosec G304 -- a test
+			var m map[string]any
+			_ = json.Unmarshal(raw, &m)
+			edit(m)
+			raw, _ = json.Marshal(m)
+			_ = os.WriteFile(path, raw, 0o600)
+		}
+	}
+	layer := func(m map[string]any, i int) map[string]any { return m["layers"].([]any)[i].(map[string]any) }
+	for _, c := range []struct {
+		name, want string
+		tamper     func(e *testEnv)
+	}{
+		{"a manifest that is not the signed one", "not the signed", func(e *testEnv) {
+			f, _ := os.OpenFile(filepath.Join(e.cache, fileManifest), os.O_APPEND|os.O_WRONLY, 0o600) // #nosec G304 -- a test
+			_, _ = f.WriteString(" ")
+			_ = f.Close()
+		}},
+		{"a disk layer that is not what the manifest names", "disk layer 0", flip(fileDisk)},
+		{"a disk with a second chunk changed", "disk layer 1", func(e *testEnv) {
+			path := filepath.Join(e.cache, fileDisk)
+			raw, _ := os.ReadFile(path) // #nosec G304 -- a test
+			raw[len(raw)-1] ^= 1
+			_ = os.WriteFile(path, raw, 0o600)
+		}},
+		{"a disk with more than its layers cover", "layers cover", func(e *testEnv) {
+			f, _ := os.OpenFile(filepath.Join(e.cache, fileDisk), os.O_APPEND|os.O_WRONLY, 0o600) // #nosec G304 -- a test
+			_, _ = f.WriteString("extra")
+			_ = f.Close()
+		}},
+		{"a disk shorter than its layers", "disk layer 1", func(e *testEnv) { _ = os.Truncate(filepath.Join(e.cache, fileDisk), 5) }},
+		{"a changed config", "config.json", flip(fileConfig)},
+		{"a changed NVRAM", "nvram.bin", flip(fileNVRAM)},
+		{"no disk file", "no such file", func(e *testEnv) { _ = os.Remove(filepath.Join(e.cache, fileDisk)) }},
+		{"no manifest in the cache", "has no manifest.json", func(e *testEnv) { _ = os.Remove(filepath.Join(e.cache, fileManifest)) }},
+		{"a manifest that is no JSON", "the manifest", func(e *testEnv) { _ = os.WriteFile(filepath.Join(e.cache, fileManifest), []byte("{"), 0o600) }},
+		{"a manifest too large", "larger than", func(e *testEnv) {
+			_ = os.WriteFile(filepath.Join(e.cache, fileManifest), []byte(strings.Repeat(" ", maxManifest+1)), 0o600)
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t, nil)
+			c.tamper(e)
+			_, err := e.p.Create(t.Context(), e.request())
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("error = %v, want %q", err, c.want)
+			}
+			if len(e.vms(t)) != 0 {
+				t.Errorf("a VM was cloned from an image that failed its check: %v", e.vms(t))
+			}
+		})
+	}
+	// A manifest that is the signed one, with layers that cannot be checked or
+	// contradict themselves: the signed digest must be of the edited manifest, so
+	// the test signs it again.
+	for _, c := range []struct {
+		name, want string
+		edit       func(m map[string]any)
+	}{
+		{"an unknown layer", "cannot be checked", func(m map[string]any) {
+			m["layers"] = append(m["layers"].([]any), map[string]any{"mediaType": "application/vnd.example.other", "digest": "sha256:" + strings.Repeat("1", 64)})
+		}},
+		{"a stacked disk", "stacked", func(m map[string]any) { layer(m, 2)["annotations"].(map[string]any)[annBlockSize] = "4096" }},
+		{"a disk layer with no digest", "no usable", func(m map[string]any) { delete(layer(m, 2)["annotations"].(map[string]any), annLayerDigest) }},
+		{"a disk layer with no size", "no usable", func(m map[string]any) { delete(layer(m, 3)["annotations"].(map[string]any), annLayerSize) }},
+		{"a disk layer with a bad size", "no usable", func(m map[string]any) { layer(m, 3)["annotations"].(map[string]any)[annLayerSize] = "-4" }},
+		{"two config layers", "more than one config", func(m map[string]any) { layer(m, 1)["mediaType"] = mediaConfig }},
+		{"two NVRAM layers", "more than one NVRAM", func(m map[string]any) { layer(m, 0)["mediaType"] = mediaNVRAM }},
+		{"no disk layers", "lacks", func(m map[string]any) { m["layers"] = m["layers"].([]any)[:2] }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t, nil)
+			rewrite(c.edit)(e)
+			raw, _ := os.ReadFile(filepath.Join(e.cache, fileManifest)) // #nosec G304 -- a test
+			d, _ := images.Digest(strings.NewReader(string(raw)))
+			newDir := e.p.cacheDir(testRepo, d)
+			_ = os.Rename(e.cache, newDir)
+			e.img.Digest, e.cache = d, newDir
+			e.img.Signature = images.Sign(e.key, e.img)
+			_, err := e.p.Create(t.Context(), e.request())
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("error = %v, want %q", err, c.want)
+			}
+		})
+	}
+}
+
+func TestVerifiedImageIsCheckedAgainWhenItChanges(t *testing.T) {
+	e := newEnv(t, nil)
+	e.create(t)
+	if len(e.p.verified) != 1 {
+		t.Fatalf("verified = %v", e.p.verified)
+	}
+	// A second machine takes the checked image as it is: damaging the file in a
+	// way the fingerprint cannot see is out of scope, a changed file is not.
+	path := filepath.Join(e.cache, fileDisk)
+	raw, _ := os.ReadFile(path) // #nosec G304 -- a test
+	raw[0] ^= 0xff
+	_ = os.WriteFile(path, raw, 0o600)
+	later := time.Now().Add(time.Minute)
+	_ = os.Chtimes(path, later, later)
+	if _, err := e.p.Create(t.Context(), e.request()); err == nil || !strings.Contains(err.Error(), "disk layer 0") {
+		t.Errorf("a changed disk: %v", err)
+	}
+	// Pruning forgets what was checked.
+	e.p.lastGC = time.Time{}
+	_, _ = e.p.List(t.Context())
+	if len(e.p.verified) != 0 {
+		t.Errorf("verified after a prune = %v", e.p.verified)
+	}
+}
+
+func TestRegistryHosts(t *testing.T) {
+	e := newEnv(t, func(c *Config) {
+		c.RegistryUsername, c.RegistryPassword = "env:REG_USER", "env:REG_PASS"
+		c.RegistryHosts = []string{"registry.example.com"}
+	})
+	req := e.create(t)
+	calls := e.file(t, "calls.log")
+	if !strings.Contains(calls, "pull "+testRepo+"@"+e.img.Digest+" | registry-password=set registry-host=registry.example.com") {
+		t.Errorf("credentials did not go to the image's host:\n%s", calls)
+	}
+	_ = req
+	// An image of another host is refused, with nothing sent there.
+	other := e.request()
+	other.Image.URI = "oci://evil.example.net/forecrew/macos:1"
+	other.Image.Signature = images.Sign(e.key, other.Image)
+	if _, err := e.p.Create(t.Context(), other); err == nil || !strings.Contains(err.Error(), "not in registry_hosts") {
+		t.Errorf("an image of another registry: %v", err)
+	}
+	if strings.Contains(e.file(t, "calls.log"), "evil.example.net") {
+		t.Error("tart was asked to pull from a host that is not allowed")
+	}
+	// The host is compared as written in lower case, port included.
+	e.p.cfg.RegistryHosts = []string{"registry.example.com:5000"}
+	if _, err := e.p.Create(t.Context(), e.request()); err == nil {
+		t.Error("a port that is not listed was accepted")
 	}
 }
 
