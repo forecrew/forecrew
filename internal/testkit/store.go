@@ -74,6 +74,7 @@ type storeData struct {
 	policies      table[domain.FleetPolicy]
 	trackers      trackerData
 	images        table[domain.Image]
+	usage         table[domain.UsageRecord]
 	configPlans   table[domain.ConfigPlan]
 	settings      table[domain.ConfigSetting]
 	secrets       table[domain.StoredSecret]
@@ -138,6 +139,7 @@ func NewStore(now func() time.Time) *Store {
 		policies:      table[domain.FleetPolicy]{key: func(r domain.FleetPolicy) (uuid.UUID, uuid.UUID) { return r.AccountID, r.AccountID }},
 		trackers:      newTrackerData(),
 		images:        table[domain.Image]{key: func(r domain.Image) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		usage:         table[domain.UsageRecord]{key: func(r domain.UsageRecord) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		configPlans:   table[domain.ConfigPlan]{key: func(r domain.ConfigPlan) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		settings:      table[domain.ConfigSetting]{key: func(r domain.ConfigSetting) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		secrets:       table[domain.StoredSecret]{key: func(r domain.StoredSecret) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
@@ -192,6 +194,7 @@ func (d *storeData) clone() *storeData {
 	c.identity = d.identity.clone()
 	c.access = d.access.clone()
 	c.images = d.images.clone()
+	c.usage = d.usage.clone()
 	c.configPlans = d.configPlans.clone()
 	c.settings = d.settings.clone()
 	c.secrets = d.secrets.clone()
