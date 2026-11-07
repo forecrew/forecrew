@@ -85,6 +85,8 @@ type Provider struct {
 	// localNets are the networks the host is on; hasDevice says whether a
 	// network device exists.
 	localNets func(subnet netip.Prefix) []netip.Prefix
+	// freeBytes is the room left on a file system.
+	freeBytes func(path string) (int64, error)
 	hasDevice func(name string) bool
 
 	// mu guards slots and the records of machines being changed.
@@ -115,7 +117,7 @@ func New(cfg Config, log *slog.Logger) (*Provider, error) {
 			vmmCloudHypervisor: cloudHypervisor{bin: lookPath(cfg.CloudHypervisor), base: base},
 		},
 		http: &http.Client{Timeout: fetchTimeout}, resolver: net.DefaultResolver,
-		run: runCommand, chown: os.Chown, memoryMB: fleetagent.MemoryMB, localNets: localNets,
+		run: runCommand, chown: os.Chown, memoryMB: fleetagent.MemoryMB, localNets: localNets, freeBytes: freeBytes,
 		hasDevice: func(name string) bool { _, err := net.InterfaceByName(name); return err == nil },
 		timers:    map[string]*time.Timer{}, verified: map[string]bool{},
 	}
@@ -183,10 +185,14 @@ func (p *Provider) arm(r *record) {
 	})
 }
 
-// kill ends r's VMM and waits until it is gone.
+// kill ends r's VMM, and everything in its session, and waits until it is
+// gone. The VMM leads its own session (spawn), so its group is the jail.
 func kill(r *record) error {
 	if !running(r) {
 		return nil
+	}
+	if err := syscall.Kill(-r.PID, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("kill: %w", err)
 	}
 	if err := syscall.Kill(r.PID, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return fmt.Errorf("kill: %w", err)
@@ -221,10 +227,10 @@ func (p *Provider) slots() int {
 }
 
 // Capabilities implements fleet.Provider.
-func (p *Provider) Capabilities(ctx context.Context) (domain.ProviderCapabilities, error) {
+func (p *Provider) Capabilities(context.Context) (domain.ProviderCapabilities, error) {
 	c := domain.ProviderCapabilities{
 		OS: []domain.MachineOS{domain.OSLinux}, ImageFormats: []domain.ImageFormat{domain.ImageRootfs},
-		MaxMachines: p.maxMachines(), MaxCPU: runtime.NumCPU(), Checks: p.checks(ctx),
+		MaxMachines: p.maxMachines(), MaxCPU: runtime.NumCPU(), Checks: p.checks(),
 	}
 	if memory, err := p.memoryMB(); err == nil {
 		c.MaxMemoryMB = max(memory-hostReserveMB, 0)
@@ -382,12 +388,15 @@ func (p *Provider) reserve(id, vmmName string, req fleet.CreateRequest, server [
 	if req.Shape.GPU > len(free) {
 		return nil, fleet.ErrCapacity
 	}
+	if !p.diskRoom(all, req.Shape.DiskGB) {
+		return nil, fleet.ErrCapacity
+	}
 	slot := 0
 	for slices.ContainsFunc(all, func(r *record) bool { return r.Slot == slot }) {
 		slot++
 	}
 	r := &record{
-		ID: id, VMM: vmmName, Slot: slot, MemoryMB: req.Shape.MemoryMB, GPUs: free[:req.Shape.GPU],
+		ID: id, VMM: vmmName, Slot: slot, MemoryMB: req.Shape.MemoryMB, DiskGB: req.Shape.DiskGB, GPUs: free[:req.Shape.GPU],
 		Tags: req.Tags, Allow: req.NetworkAllow, Server: server, Port: port, Deadline: req.Deadline, CreatedAt: time.Now().UTC(),
 	}
 	if err := p.save(r); err != nil {
@@ -395,6 +404,34 @@ func (p *Provider) reserve(id, vmmName string, req fleet.CreateRequest, server [
 	}
 	p.arm(r)
 	return r, nil
+}
+
+// diskRoom reports that the state directory holds a new disk of diskGB as well
+// as what the machines it has may still write: their disks are sparse, and a
+// full host file system would fail them all at once.
+func (p *Provider) diskRoom(all []*record, diskGB int) bool {
+	free, err := p.freeBytes(p.cfg.StateDir)
+	if err != nil {
+		return false
+	}
+	need := int64(diskGB) << 30
+	for _, r := range all {
+		var st syscall.Stat_t
+		allocated := int64(0)
+		if syscall.Stat(filepath.Join(p.vmms[r.VMM].jailDir(r.ID), fileRoot), &st) == nil {
+			allocated = st.Blocks * 512
+		}
+		need += max(int64(r.DiskGB)<<30-allocated, 0)
+	}
+	return need <= free
+}
+
+func freeBytes(path string) (int64, error) {
+	var s syscall.Statfs_t
+	if err := syscall.Statfs(path, &s); err != nil {
+		return 0, err
+	}
+	return int64(s.Bavail) * s.Bsize, nil // #nosec G115 -- a size that fits
 }
 
 // start makes everything r names and starts its VMM.
@@ -424,6 +461,10 @@ func (p *Provider) start(ctx context.Context, r *record, shape domain.Shape, roo
 	_, statErr := os.Stat(cache)
 	hasCache := statErr == nil
 	if hasCache {
+		// Shared by every machine through a hard link: nobody may write it.
+		if err := os.Chmod(cache, 0o444); err != nil { // #nosec G302 -- read-only for all
+			return fmt.Errorf("cache disk: %w", err)
+		}
 		if err := link(cache, filepath.Join(dir, fileCache)); err != nil {
 			return fmt.Errorf("cache disk: %w", err)
 		}
@@ -591,7 +632,9 @@ func (p *Provider) pruneCache() {
 		return
 	}
 	if !p.fetching.TryLock() {
+		p.mu.Lock()
 		p.lastGC = time.Time{} // a slow fetch must not hold up a reconcile: next time
+		p.mu.Unlock()
 		return
 	}
 	defer p.fetching.Unlock()

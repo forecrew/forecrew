@@ -482,16 +482,6 @@ func checkMke2fs(ctx context.Context, bin string) ([3]int, error) {
 	return v, probeTar(ctx, bin)
 }
 
-// CheckMke2fs fails unless bin (mke2fs when empty) can build a root filesystem:
-// version 1.47.1 or newer, with libarchive. What the fleet agent's doctor asks.
-func CheckMke2fs(ctx context.Context, bin string) error {
-	if bin == "" {
-		bin = "mke2fs"
-	}
-	_, err := checkMke2fs(ctx, bin)
-	return err
-}
-
 // probeTar makes a file system from a one-file tar, to find out that mke2fs
 // can read a tar at all.
 func probeTar(ctx context.Context, bin string) error {

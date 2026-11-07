@@ -13,8 +13,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 	"uuid"
@@ -422,7 +424,7 @@ func TestCapabilities(t *testing.T) {
 	for _, ch := range c.Checks {
 		names[ch.Name] = ch.Status
 	}
-	for _, want := range []string{"kvm access", "root", "firecracker", "network tools", "ip forwarding", "image keys", "reflinks", "mke2fs", "cloud-hypervisor"} {
+	for _, want := range []string{"kvm access", "root", "firecracker", "network tools", "ip forwarding", "image keys", "reflinks", "cloud-hypervisor"} {
 		if names[want] == "" {
 			t.Errorf("no check %q in %v", want, names)
 		}
@@ -491,14 +493,103 @@ func TestFetch(t *testing.T) {
 	}
 }
 
-// An operator may put a file the agent cannot fetch; it is checked all the same.
-func TestPlacedImageIsChecked(t *testing.T) {
+// A cached file that is not the one signed is fetched again; one that cannot be
+// fetched refuses the machine.
+func TestWrongCachedFileIsFetchedAgain(t *testing.T) {
 	e := newEnv(t, nil)
 	_ = e.p.prepareDirs()
 	root, _ := e.p.cachePath(e.img.Digest)
 	_ = os.WriteFile(root, []byte("not the image"), 0o600)
-	if _, err := e.p.Create(t.Context(), e.request()); !errors.Is(err, images.ErrDigest) {
-		t.Errorf("a placed file that is not the image: %v", err)
+	if _, err := e.p.Create(t.Context(), e.request()); err != nil {
+		t.Fatalf("a damaged cached file: %v", err)
+	}
+	if got, _ := os.ReadFile(root); string(got) != "root file system" {
+		t.Errorf("cached file = %q", got)
+	}
+
+	e2 := newEnv(t, nil)
+	_ = e2.p.prepareDirs()
+	kernel, _ := e2.p.cachePath(e2.img.Contents.Kernel.Digest)
+	_ = os.WriteFile(kernel, []byte("not the kernel"), 0o600)
+	req := e2.request()
+	req.Image.Contents.Kernel.URI = "s3://bucket/kernel"
+	req.Image.Signature = images.Sign(e2.key, req.Image)
+	if _, err := e2.p.Create(t.Context(), req); err == nil || !strings.Contains(err.Error(), "only http and https") {
+		t.Errorf("a wrong placed file that cannot be fetched: %v", err)
+	}
+	if _, err := os.Stat(kernel); err == nil {
+		t.Error("the wrong file was kept")
+	}
+}
+
+func TestDiskRoom(t *testing.T) {
+	e := newEnv(t, nil)
+	e.p.freeBytes = func(string) (int64, error) { return 5 << 29, nil }
+	if _, err := e.p.Create(t.Context(), e.request()); err != nil {
+		t.Fatal(err)
+	}
+	// The first machine may still write about 1 GB of its disk, so a 2 GB disk
+	// does not fit in 2.5 GB.
+	req := e.request()
+	req.Shape.DiskGB = 2
+	if _, err := e.p.Create(t.Context(), req); !errors.Is(err, fleet.ErrCapacity) {
+		t.Errorf("a disk with no room: %v", err)
+	}
+	e.p.freeBytes = func(string) (int64, error) { return 0, errors.New("no") }
+	if _, err := e.p.Create(t.Context(), e.request()); !errors.Is(err, fleet.ErrCapacity) {
+		t.Errorf("unknown room: %v", err)
+	}
+	if free, err := freeBytes(e.dir); err != nil || free <= 0 {
+		t.Errorf("freeBytes = %d, %v", free, err)
+	}
+}
+
+// The deadline ends the VMM and whatever it started.
+func TestKillEndsTheSession(t *testing.T) {
+	dir := t.TempDir()
+	id := uuid.New().String()
+	pidFile := filepath.Join(dir, "child")
+	cmd := exec.Command("sh", "-c", `sleep 300 & echo $! >"$1"; while :; do sleep 1; done`, id, pidFile) // #nosec G204 -- a test
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = cmd.Wait() }()
+	var child int
+	for end := time.Now().Add(5 * time.Second); child == 0 && time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		raw, _ := os.ReadFile(pidFile)
+		child, _ = strconv.Atoi(strings.TrimSpace(string(raw)))
+	}
+	if err := kill(&record{ID: id, PID: cmd.Process.Pid}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if err := syscall.Kill(child, 0); err == nil {
+		raw, _ := os.ReadFile(filepath.Join("/proc", strconv.Itoa(child), "stat"))
+		if !strings.Contains(string(raw), ") Z") {
+			t.Errorf("a process of the jail lives on: %s", raw)
+		}
+	}
+}
+
+// The shared cache disk is attached read-only, and nobody may write it.
+func TestCacheDisk(t *testing.T) {
+	e := newEnv(t, nil)
+	_ = e.p.prepareDirs()
+	cache := filepath.Join(e.p.cfg.StateDir, fileCache)
+	if err := os.WriteFile(cache, []byte("cache"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req := e.request()
+	if _, err := e.p.Create(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := os.Stat(cache); st.Mode().Perm() != 0o444 {
+		t.Errorf("cache disk mode = %v", st.Mode())
+	}
+	raw, _ := os.ReadFile(filepath.Join(e.p.vmms[vmmFirecracker].jailDir(req.MachineID.String()), fileVM))
+	if !strings.Contains(string(raw), `"drive_id":"cache"`) || !strings.Contains(string(raw), "forecrew.cache=/dev/vdc") {
+		t.Errorf("vm.json = %s", raw)
 	}
 }
 

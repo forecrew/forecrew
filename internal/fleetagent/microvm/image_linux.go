@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,7 +67,7 @@ func (p *Provider) ensureImage(ctx context.Context, img domain.Image) (root, ker
 		return "", "", fmt.Errorf("image %s@%s kernel: %w", img.Name, img.Version, err)
 	}
 	if !p.verified[img.Signature] {
-		if err := images.VerifyFile(img, root, kernel, keys); err != nil {
+		if err := p.verifyFiles(ctx, img, root, kernel, keys); err != nil {
 			return "", "", err
 		}
 		p.verified[img.Signature] = true
@@ -78,6 +79,30 @@ func (p *Provider) ensureImage(ctx context.Context, img domain.Image) (root, ker
 	// The jail's user reads the kernel through a hard link, also when an
 	// operator put the file there.
 	return root, kernel, os.Chmod(kernel, 0o444) // #nosec G302 -- a kernel is no secret
+}
+
+// verifyFiles checks the files of img and, when a cached one is not what was
+// signed (damaged, or placed by mistake), removes it and fetches it once more.
+func (p *Provider) verifyFiles(ctx context.Context, img domain.Image, root, kernel string, keys []ed25519Key) error {
+	err := images.VerifyFile(img, root, kernel, keys)
+	if !errors.Is(err, images.ErrDigest) {
+		return err
+	}
+	for path, want := range map[string]string{root: img.Digest, kernel: img.Contents.Kernel.Digest} {
+		if got, derr := images.FileDigest(path); derr != nil || got != want {
+			p.log.Warn("a cached image file is not the one signed: fetching it again", "file", filepath.Base(path))
+			if rerr := os.Remove(path); rerr != nil {
+				return errors.Join(err, rerr)
+			}
+		}
+	}
+	if err := p.fetch(ctx, img.URI, img.Digest, root); err != nil {
+		return fmt.Errorf("image %s@%s: %w", img.Name, img.Version, err)
+	}
+	if err := p.fetch(ctx, img.Contents.Kernel.URI, img.Contents.Kernel.Digest, kernel); err != nil {
+		return fmt.Errorf("image %s@%s kernel: %w", img.Name, img.Version, err)
+	}
+	return images.VerifyFile(img, root, kernel, keys)
 }
 
 func (p *Provider) trustedKeys() ([]ed25519Key, error) {

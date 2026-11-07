@@ -558,19 +558,6 @@ func TestCacheHitIsAUse(t *testing.T) {
 	}
 }
 
-func TestCheckMke2fs(t *testing.T) {
-	if err := CheckMke2fs(t.Context(), stubMke2fs(t, "1.47.4", false)); err != nil {
-		t.Error(err)
-	}
-	if err := CheckMke2fs(t.Context(), stubMke2fs(t, "1.47.0", false)); err == nil {
-		t.Error("an old mke2fs passed")
-	}
-	t.Setenv("PATH", t.TempDir())
-	if err := CheckMke2fs(t.Context(), ""); err == nil {
-		t.Error("no mke2fs passed")
-	}
-}
-
 // toolboxBaseTar is the layout of packs/toolboxes/base: Node's slim Debian
 // image with git and CA certificates, and the agent CLIs under
 // /opt/forecrew-cli/node_modules/.bin, which its PATH names. It has no ip.

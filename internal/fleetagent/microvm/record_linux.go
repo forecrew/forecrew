@@ -22,6 +22,7 @@ type record struct {
 	Slot      int               `json:"slot"`
 	PID       int               `json:"pid,omitempty"`
 	MemoryMB  int               `json:"memory_mb"`
+	DiskGB    int               `json:"disk_gb"`
 	GPUs      []string          `json:"gpus,omitempty"`
 	Tags      map[string]string `json:"tags,omitempty"`
 	Allow     []string          `json:"allow,omitempty"`
