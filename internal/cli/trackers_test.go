@@ -53,6 +53,8 @@ func TestTrackerCommands(t *testing.T) {
 			"base_url": "https://jira.acme.local/jira", "projects": []any{"OPS"}, "auth": "pat", "token_ref": "store:jira", "ca_bundle": "PEM",
 			"webhook_secret_ref": "store:hook", "webhook_signing": "url",
 		}, Triggers: domain.TrackerTriggers{State: "Ready"}})
+	e.check(t, []string{"tracker", "connect", "lin", "--kind", "linear", "--team", "ENG", "--team", "OPS", "--token-ref", "store:linear", "--label", "forecrew"}, "gh", mcp.ToolCreateTrackerConnection,
+		mcp.CreateTrackerConnectionInput{Name: "lin", Kind: "linear", Config: map[string]any{"teams": []any{"ENG", "OPS"}, "token_ref": "store:linear"}, Triggers: domain.TrackerTriggers{Label: "forecrew"}})
 	if _, errOut, code := e.run(t, "tracker", "connect", "jira", "--kind", "jira", "--ca-file", "/nonexistent/ca.pem"); code == 0 || !strings.Contains(errOut, "CA file") {
 		t.Errorf("a missing CA file: %d %s", code, errOut)
 	}

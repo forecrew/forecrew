@@ -34,21 +34,23 @@ func trackerCommand(r *remote) *cobra.Command {
 	return cmd
 }
 
-// jiraFlags are the settings of a Jira connection (docs/trackers/jira.md).
+// jiraFlags are the settings of a Jira connection (docs/trackers/jira.md) and
+// the ones Linear shares with it (docs/trackers/linear.md).
 type jiraFlags struct {
 	baseURL, auth, email, tokenRef, caFile, hookRef, signing string
-	projects                                                 []string
+	projects, teams                                          []string
 }
 
 func (j jiraFlags) add(cmd *cobra.Command) *jiraFlags {
 	f := cmd.Flags()
 	f.StringVar(&j.baseURL, "base-url", "", "jira: the site, with its context path")
 	f.StringSliceVar(&j.projects, "jira-project", nil, "jira: a project key (repeatable)")
-	f.StringVar(&j.auth, "auth", "", "jira: pat (Data Center), api_token or scoped_token (Cloud)")
+	f.StringSliceVar(&j.teams, "team", nil, "linear: a team key (repeatable)")
+	f.StringVar(&j.auth, "auth", "", "jira: pat (Data Center), api_token or scoped_token (Cloud); linear: api_key (default) or oauth_token")
 	f.StringVar(&j.email, "email", "", "jira: the Atlassian account of a Cloud token")
-	f.StringVar(&j.tokenRef, "token-ref", "", "jira: store:<name> of the token")
+	f.StringVar(&j.tokenRef, "token-ref", "", "jira, linear: store:<name> of the token")
 	f.StringVar(&j.caFile, "ca-file", "", "jira: PEM certificates of a private CA to trust")
-	f.StringVar(&j.hookRef, "webhook-secret-ref", "", "jira: store:<name> of the webhook secret; without it, polling only")
+	f.StringVar(&j.hookRef, "webhook-secret-ref", "", "jira, linear: store:<name> of the webhook secret; without it, polling only")
 	f.StringVar(&j.signing, "webhook-signing", "", "jira: hmac (default) or url")
 	return &j
 }
@@ -63,6 +65,9 @@ func (j *jiraFlags) config(cfg map[string]any) error {
 	}
 	if len(j.projects) > 0 {
 		cfg["projects"] = j.projects
+	}
+	if len(j.teams) > 0 {
+		cfg["teams"] = j.teams
 	}
 	if j.caFile != "" {
 		pem, err := os.ReadFile(j.caFile)
@@ -118,7 +123,7 @@ func connectTrackerCommand(r *remote) *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&kind, "kind", "github", "the tracker's adapter: github or github_project")
+	f.StringVar(&kind, "kind", "github", "the tracker's adapter: github, github_project, jira or linear")
 	f.StringSliceVar(&repos, "repo", nil, "github: a repo of a project (repeatable)")
 	f.StringVar(&bot, "bot-login", "", "github: the App's user, whose events are Forecrew's own")
 	f.StringVar(&owner, "owner", "", "github_project: the organization that owns the board")
