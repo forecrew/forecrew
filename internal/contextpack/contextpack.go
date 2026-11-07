@@ -165,6 +165,9 @@ func (b *StoreBuilder) council(ctx context.Context, acc uuid.UUID, t workflow.Co
 		fmt.Fprintf(&body, "- %s\n", OneLine(s))
 	}
 	in.Council = Text{Heading: "Council " + c.Ref(), Body: body.String()}
+	if err := b.councilSpec(ctx, acc, c, in); err != nil {
+		return err
+	}
 	if len(t.Framing) == 0 || string(t.Framing) == "null" {
 		return nil
 	}
@@ -173,6 +176,25 @@ func (b *StoreBuilder) council(ctx context.Context, acc uuid.UUID, t workflow.Co
 		return fmt.Errorf("framing of %s: %w", c.Ref(), err)
 	}
 	in.Framing = Text{Heading: "The facilitator's framing", Body: fenced("json", framing.String()), Untrusted: true, Source: "facilitator of " + c.Ref()}
+	return nil
+}
+
+// councilSpec gives the technical council of a goal the goal's latest spec,
+// the approved revision it designs for; the goal itself comes with every
+// job of the goal. Other councils see no spec.
+func (b *StoreBuilder) councilSpec(ctx context.Context, acc uuid.UUID, c domain.Council, in *Input) error {
+	if c.Kind != domain.CouncilTechnical || c.GoalID == uuid.Nil() {
+		return nil
+	}
+	specs, err := b.store.Specs().ListByGoal(ctx, acc, c.GoalID)
+	if err != nil {
+		return fmt.Errorf("list the specs of %s: %w", c.Ref(), err)
+	}
+	if len(specs) == 0 {
+		return nil
+	}
+	spec := specs[len(specs)-1]
+	in.Spec = Text{Heading: fmt.Sprintf("Spec %s, revision %d", spec.Ref(), spec.Revision), Body: spec.Body, Untrusted: in.Goal.Untrusted, Source: in.Goal.Source}
 	return nil
 }
 
