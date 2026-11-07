@@ -173,6 +173,12 @@ func (p *Provider) prepare(ctx context.Context, req fleet.CreateRequest) (plan, 
 	if req.Bootstrap == nil {
 		return pl, errors.New("no bootstrap settings")
 	}
+	// An AWS location is an organization's own cloud (fleet.OwnClouds): its
+	// machines reach what the security group lets them, so no organization's
+	// egress list could hold them, and a hosted machine never runs here.
+	if req.Shape.Ownership() == domain.OwnershipHosted {
+		return pl, errors.New("an AWS location is an organization's own cloud and runs no hosted machines: an instance-wide shape belongs on a microVM location, which keeps machines to their organization's egress list")
+	}
 	if req.Shape.OS != domain.OSLinux {
 		return pl, fmt.Errorf("an AWS location starts Linux machines, not %s: macOS runs on a Mac host through tart (docs/runbooks/byoc-aws.md)", req.Shape.OS)
 	}

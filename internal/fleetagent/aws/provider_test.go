@@ -416,6 +416,7 @@ func TestCreateRefusals(t *testing.T) {
 		"macos":         {func(_ *env, r *fleet.CreateRequest) { r.Shape.OS = domain.OSMacOS }, "tart"},
 		"network allow": {func(_ *env, r *fleet.CreateRequest) { r.NetworkAllow = []string{"10.1.0.0/16"} }, "network_allow"},
 		"no bootstrap":  {func(_ *env, r *fleet.CreateRequest) { r.Bootstrap = nil }, "bootstrap"},
+		"hosted shape":  {func(_ *env, r *fleet.CreateRequest) { r.Shape.AccountID = uuid.Nil() }, "runs no hosted machines"},
 		"huge disk":     {func(_ *env, r *fleet.CreateRequest) { r.Shape.DiskGB = 20000 }, "disk_gb"},
 		"unknown key":   {func(_ *env, r *fleet.CreateRequest) { r.Shape.ProviderConfig["ebs_optimised"] = true }, "unknown key"},
 		"other type":    {func(_ *env, r *fleet.CreateRequest) { r.Shape.ProviderConfig["instance_type"] = "p5.48xlarge" }, "instance_types"},
