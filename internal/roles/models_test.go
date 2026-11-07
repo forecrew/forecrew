@@ -80,3 +80,22 @@ func TestCatalogToolbox(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogWritesAndModelNeeds(t *testing.T) {
+	c, err := New(forecrew.Files, testConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Writes("developer") || c.Writes("reviewer") || !c.Writes("ghost") {
+		t.Fatal("writes")
+	}
+	needs := c.ModelNeeds()
+	if len(needs) != len(c.Names()) {
+		t.Fatalf("needs = %v", needs)
+	}
+	for _, n := range needs {
+		if n.Writes != c.Writes(n.Name) || !n.Tier.Valid() {
+			t.Errorf("need %+v", n)
+		}
+	}
+}

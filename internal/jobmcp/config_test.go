@@ -18,6 +18,7 @@ type fakeAssistant struct {
 	readErr error
 	planErr error
 	planned jobmcp.ConfigPlanInput
+	preset  string
 }
 
 func (f *fakeAssistant) ConfigRead(_ context.Context, _ domain.Job, in jobmcp.ConfigReadInput) (jobmcp.ConfigReadOutput, error) {
@@ -31,7 +32,12 @@ func (f *fakeAssistant) ConfigPlanFor(_ context.Context, _ domain.Job, in jobmcp
 		LowersProtection: []string{"x"}}, f.planErr
 }
 
-var configTools = []string{runtime.JobMCPTool("config_read"), runtime.JobMCPTool("config_plan")}
+func (f *fakeAssistant) ModelsSuggestFor(_ context.Context, _ domain.Job, in jobmcp.ModelsSuggestInput) (jobmcp.ModelsSuggestOutput, error) {
+	f.preset = in.Preset
+	return jobmcp.ModelsSuggestOutput{Plan: "p1", Roles: map[string]string{"developer": "cloud/strong"}, Notes: []string{}}, f.planErr
+}
+
+var configTools = []string{runtime.JobMCPTool("config_read"), runtime.JobMCPTool("config_plan"), runtime.JobMCPTool("models_suggest")}
 
 func TestConfigTools(t *testing.T) {
 	fake := &fakeAssistant{}
@@ -53,7 +59,17 @@ func TestConfigTools(t *testing.T) {
 	if fake.planned.BasedOn != "README.md" || len(fake.planned.Changes) != 1 {
 		t.Errorf("planned = %+v", fake.planned)
 	}
+	res, out = call(t, cs, "models_suggest", map[string]any{"preset": "low_cost"})
+	if res.IsError || out["plan"] != "p1" || fake.preset != "low_cost" {
+		t.Fatalf("models_suggest = %+v", out)
+	}
+	if res, _ := call(t, cs, "models_suggest", map[string]any{"preset": "fastest"}); !res.IsError {
+		t.Fatal("an unknown preset was taken")
+	}
 	fake.planErr = jobmcp.Errorf(jobmcp.CodeInvalidInput, "fix it")
+	if res, out := call(t, cs, "models_suggest", map[string]any{}); !res.IsError || errorCode(out) != jobmcp.CodeInvalidInput {
+		t.Fatalf("a refused suggestion = %+v", out)
+	}
 	res, out = call(t, cs, "config_plan", map[string]any{"title": "Add", "changes": []any{map[string]any{"kind": "team", "name": "core"}}})
 	if !res.IsError || errorCode(out) != jobmcp.CodeInvalidInput {
 		t.Fatalf("an invalid plan = %+v", out)
@@ -79,6 +95,9 @@ func TestConfigToolsNeedTheRoleAndTheBackend(t *testing.T) {
 	}
 	if res, out := call(t, cs, "config_plan", map[string]any{"title": "t", "changes": []any{map[string]any{"kind": "a", "name": "b"}}}); !res.IsError || errorCode(out) != jobmcp.CodeUnavailable {
 		t.Errorf("config_plan without a backend = %+v", out)
+	}
+	if res, out := call(t, cs, "models_suggest", map[string]any{}); !res.IsError || errorCode(out) != jobmcp.CodeUnavailable {
+		t.Errorf("models_suggest without a backend = %+v", out)
 	}
 	_, other := e.lease(t, e.w2, allTools...)
 	list, err := e.connect(t, other, nil).ListTools(t.Context(), nil)

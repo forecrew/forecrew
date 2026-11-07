@@ -210,6 +210,12 @@ private images fail to pull. Set `registry_auth: true` in `worker.yaml` to use
 the worker user's logins, only on a worker whose repos you trust with every
 registry that user is logged in to.
 
+A model connection's key check runs on a control worker, from where the
+model runs. By default it only reaches public addresses; set
+`local_model_endpoints: true` in `worker.yaml` on the worker that reaches a
+self-hosted model (Ollama, LM Studio) on `localhost` or a private address.
+Link-local addresses, where cloud metadata lives, are never reached.
+
 **Pruning.** The worker records each image it builds (`forecrew-env:*`) or
 pulls (the `image`, the images the FROM lines of a Dockerfile name, service
 images) in `<work_dir>/env-images`, with the time of its last use. At start

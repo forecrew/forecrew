@@ -159,6 +159,11 @@ const (
 	ToolConfirmJoin        = "confirm_join"
 	ToolListConnectedApps  = "list_connected_apps"
 	ToolRevokeConnectedApp = "revoke_connected_app"
+
+	ToolModelsCheck   = "models_check"
+	ToolModelsTest    = "models_test"
+	ToolModelsResults = "models_results"
+	ToolModelsSuggest = "models_suggest"
 )
 
 // Tools returns every MCP tool name.
@@ -190,6 +195,7 @@ func Tools() []string {
 		ToolListDomains, ToolAddDomain, ToolVerifyDomain, ToolDeleteDomain, ToolSetSSOEnforcement, ToolSetMaxTokenTTL,
 		ToolSetProvisioning, ToolListGroupMappings, ToolAddGroupMapping, ToolRemoveGroupMapping,
 		ToolListSCIMTokens, ToolCreateSCIMToken, ToolRevokeSCIMToken, ToolCreateRole, ToolUpdateRole, ToolDeleteRole,
+		ToolModelsCheck, ToolModelsTest, ToolModelsResults, ToolModelsSuggest,
 	}
 }
 
@@ -220,6 +226,16 @@ type ToolService interface {
 	AssistantSend(ctx context.Context, by domain.Actor, in AssistantSendInput) (AssistantView, error)
 	AssistantGet(ctx context.Context, by domain.Actor, in AssistantRefInput) (AssistantView, error)
 	AssistantList(ctx context.Context, by domain.Actor, in AssistantListInput) ([]domain.AssistantConversation, error)
+
+	// ModelsCheck starts the key check of a model connection.
+	ModelsCheck(ctx context.Context, by domain.Actor, in ModelConnectionRefInput) (ModelCheckView, error)
+	// ModelsTest estimates the suitability test of a model and, with Run,
+	// starts it.
+	ModelsTest(ctx context.Context, by domain.Actor, in ModelsTestInput) (ModelsTestOutput, error)
+	// ModelsResults lists the key checks and tests of the organization.
+	ModelsResults(ctx context.Context, by domain.Actor, in ModelsResultsInput) ([]ModelCheckView, error)
+	// ModelsSuggest makes the plan of a suggestion.
+	ModelsSuggest(ctx context.Context, by domain.Actor, in ModelsSuggestInput) (ModelsSuggestion, error)
 
 	// OnboardProject registers the repo as a project if needed and starts
 	// the onboarding playbook.

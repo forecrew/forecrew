@@ -306,6 +306,10 @@ func TestCallEachTool(t *testing.T) {
 			mcp.CreateRoleInput{Name: "auditor", Scope: domain.RoleScopeOrganization, Permissions: []domain.Permission{domain.PermAuditRead}}},
 		{mcp.ToolUpdateRole, map[string]any{"role": "auditor", "name": "reader"}, mcp.UpdateRoleInput{Role: "auditor", Name: "reader"}},
 		{mcp.ToolDeleteRole, map[string]any{"role": "auditor"}, mcp.RoleRefInput{Role: "auditor"}},
+		{mcp.ToolModelsCheck, map[string]any{"connection": "cloud"}, mcp.ModelConnectionRefInput{Connection: "cloud", WrapUntrusted: true}},
+		{mcp.ToolModelsTest, map[string]any{"connection": "cloud", "model": "m", "run": true}, mcp.ModelsTestInput{Connection: "cloud", Model: "m", Run: true, WrapUntrusted: true}},
+		{mcp.ToolModelsResults, map[string]any{"connection": "cloud"}, mcp.ModelsResultsInput{Connection: "cloud", WrapUntrusted: true}},
+		{mcp.ToolModelsSuggest, map[string]any{"preset": "low_cost"}, mcp.ModelsSuggestInput{Preset: "low_cost", Source: domain.ConfigFromMCP}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))
@@ -608,7 +612,7 @@ func TestEveryToolChecksItsPermission(t *testing.T) {
 		mcp.ToolProjectQuality:     {"project": "p"},
 		mcp.ToolMapTrackerIdentity: {"connection": "c", "external_id": "1", "user": "u"}, mcp.ToolUnmapTrackerIdentity: {"identity": "i"},
 		mcp.ToolCreateTrackerConnection: {"name": "c", "kind": "k", "triggers": map[string]any{"label": "l"}}, mcp.ToolCreateTrackerRoute: {"connection": "c", "project": "p"},
-		mcp.ToolDeleteTrackerRoute: {"route": "r"}, mcp.ToolDeleteTrackerConnection: {"connection": "c"}, mcp.ToolDiscardTrackerWrites: {"connection": "c"}, mcp.ToolTestTrackerConnection: {"connection": "c"}, mcp.ToolAcceptTicket: {"ticket": "t"}, mcp.ToolDismissTicket: {"ticket": "t"},
+		mcp.ToolDeleteTrackerRoute: {"route": "r"}, mcp.ToolDeleteTrackerConnection: {"connection": "c"}, mcp.ToolDiscardTrackerWrites: {"connection": "c"}, mcp.ToolTestTrackerConnection: {"connection": "c"}, mcp.ToolModelsCheck: {"connection": "c"}, mcp.ToolModelsTest: {"connection": "c", "model": "m"}, mcp.ToolAcceptTicket: {"ticket": "t"}, mcp.ToolDismissTicket: {"ticket": "t"},
 		mcp.ToolListProposals:    {"project": "p"},
 		mcp.ToolDecideProposal:   {"proposal": "p", "decision": "accept"},
 		mcp.ToolProposeKnowledge: {"project": "p", "section": "s", "path": "x", "body": "b", "reason": "r"},

@@ -85,7 +85,7 @@ every job of the organization gets its own organization's key and model. The
 code is `internal/models`; nothing else decides a job's connection.
 
 - **`model_connection`** is a runtime owned by an organization:
-  `{vendor, adapter, base_url, key_env, secret_ref, enabled}`. `adapter` is
+  `{vendor, adapter, base_url, key_env, secret_ref, enabled, models}`. `adapter` is
   `claude-code`, `codex` or `opencode`; `base_url` follows the rules of
   `runtimes.<name>.base_url` (config.md). The key goes in the variable of the
   adapter (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`); `opencode` names its own in
@@ -95,7 +95,10 @@ code is `internal/models`; nothing else decides a job's connection.
   connection cannot send a sign-in secret to their endpoint, nor the other
   way round. `enabled` defaults to true. Deleting a connection deletes the
   row; its key stays in the store for a revert. A key is changed by naming a
-  new secret, as everywhere.
+  new secret, as everywhere. `models` holds, by model, what people enter of a
+  model the model catalog does not know: `maker`, `tier` and `price`
+  (`input`, `output`, in US dollars per million tokens); changing it lowers
+  no protection.
 - **`model_assignment`** says which model serves what: `tiers` (tier →
   vendor → model), `roles` (role → `{connection, tier}`) and, on
   `organization` only, `project_overrides` (the policy
@@ -146,6 +149,53 @@ code is `internal/models`; nothing else decides a job's connection.
 - **Audit:** `model_connection.created`, `.rotated`, `.disabled`, `.enabled`,
   `.changed`, `.deleted` and `model_assignment.changed`, `.deleted`, with
   references, never a value. Export shows references.
+
+## Model checks
+
+Plan decision 35. "Add a key" is enough: Forecrew checks the key, finds the
+models, tests what each can do and proposes which serves each role. The
+model catalog is `packs/catalog/models.yaml` (model-catalog.schema.json): per
+provider its adapter, default `base_url`, key variable, how its models are
+listed, homepage and country; per model its maker, suggested tier, context
+size and price. It ships with each release and is never fetched.
+
+- **Key check.** Applying a plan that creates a connection, or changes one and
+  leaves it on, starts a `model_check` job (`models_check` starts one too). It
+  runs on a control worker, which may reach a model the server cannot: the
+  worker lists the models at the connection's `base_url` (or the catalog's)
+  with the key, follows no redirect, reaches a private address only with
+  `local_model_endpoints` in worker.yaml and a link-local one never. The
+  result, stored with the connection in `model_checks`, is `reachable` with
+  the models, `refused`, `unreachable`, `wrong_address` or `unsupported` (no
+  list: enter the models by hand), and the version of the agent there.
+- **Suitability test** (`models_test`): for a chosen model, a short agent job
+  on the fixture `packs/fixtures/model-test`, never a project's repo, on that
+  connection and model: read a file, edit one, run a command, call the job
+  MCP tool `report_progress` and answer JSON matching a schema, in at most 15
+  turns and 5 minutes. The estimated tokens and cost come first, and running
+  it is a second step. The stored result lists each ability, tokens, duration
+  and the agent's version, and a level: `read` roles need reading, MCP and
+  JSON; roles that write code need every ability. A key check that finds
+  another agent version runs the tests of the connection again.
+- **Guard.** A plan that puts a role on a model that was never tested, was
+  tested with another agent version, or did not pass the role's level says
+  why in `lowers_protection`, so it needs the browser and the second
+  confirmation.
+
+## Suggestions
+
+`models_suggest` fills tiers and roles, deterministically and with no model
+involved, from the connections whose key check passed and their models whose
+test passed, with the catalog's makers, tiers and prices (or what people
+entered). Presets: `balanced` (the default: the tier each role is written for,
+then the price), `low_cost` (the cheapest model that passed the role's level)
+and `local_only` (only connections on your own network, as `balanced`). The
+reviewer never gets a model of the developer's maker when another maker
+passed; when none did, it is left as it is and a note says so, unless
+`policy.allow_same_vendor_review`. Roles it fills replace their assignment;
+the others keep theirs. The result is a plan of the organization's
+`model_assignment` that a person confirms, and the assistant gets the same
+plan through its job tool `models_suggest`.
 
 ## Private code
 
@@ -238,7 +288,9 @@ the token cap, changing a runtime's `base_url` or `credential_env`, changing an
 instance connection, creating a model connection, changing its `base_url`,
 `adapter`, `key_env` or `secret_ref`, or turning it on again, moving a role of
 a `model_assignment` to another connection (adding a role, changing its
-connection, taking it off, deleting a project's overrides). A revert with one of those effects counts too, because it is a
+connection, taking it off, deleting a project's overrides), authorizing a
+model connection for private code (`model_authorization`), or putting a role
+on a model that did not pass its test (Model checks). A revert with one of those effects counts too, because it is a
 plan like any other.
 
 ### Permissions

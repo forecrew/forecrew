@@ -73,6 +73,7 @@ of the other role tools.
 | `report_progress` | `report_progress` | A `message` job event, shown live on the job page. |
 | `config_read` | `config.read` | The configuration, with `schema` the JSON Schemas of the specs and with `waiting` the jobs that wait and why, as the person of the job's conversation may read them (their permissions and credential, no more). Only turns of a conversation can call it; the text comes back as untrusted data. |
 | `config_plan` | `config.plan` | Stores a change plan of the conversation, by its person, with source `assistant`. It returns the plan's ID and its lines. No tool of a job confirms or applies a plan (config-resources.md). |
+| `models_suggest` | `models.suggest` | Makes the plan of a suggestion of models (config-resources.md, Suggestions), by the same function as MCP `models_suggest`, as a plan of the conversation by its person with source `assistant`. It returns the plan's ID, the roles it fills and notes on what it could not fill. |
 | `council_read` | `council.read` | The contributions of the job's council that its stage may see: nothing at `proposal` (members write independently), every proposal at `critique`, proposals, critiques and earlier revisions at `revision`, everything at `synthesis`. Each carries its `evidence_check` (the checked sources, null until checked). Only council jobs (T33) can call it; forecrewd knows each council job's council, stage and round. |
 
 ### Question gates
