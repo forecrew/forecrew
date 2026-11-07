@@ -394,7 +394,7 @@ export const useRevokeInvitation = () => useChange((id: string) => api.revokeInv
 /** The Machines overview: refreshed like the other lists. */
 export const useFleet = () => useQuery({ queryKey: keys.fleet, queryFn: api.getFleet, ...poll })
 export const useProviders = () => useQuery({ queryKey: keys.providers, queryFn: api.listProviders, ...poll })
-export const useShapes = () => useQuery({ queryKey: keys.shapes, queryFn: api.listShapes, ...poll })
+export const useShapes = (enabled = true) => useQuery({ queryKey: keys.shapes, queryFn: api.listShapes, enabled, ...poll })
 export const useMachines = () => useQuery({ queryKey: keys.machines, queryFn: api.listMachines, ...poll })
 /** Join codes, faster than the lists: a person waits for the machine to report. */
 export const useJoinCodes = (enabled = true) => useQuery({ queryKey: keys.joinCodes, queryFn: api.listJoinCodes, enabled, refetchInterval: 2000, refetchIntervalInBackground: false })

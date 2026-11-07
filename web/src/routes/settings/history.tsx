@@ -11,7 +11,7 @@ import { Field } from "@/components/Field"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { allowed } from "@/lib/permissions"
+import { PermButton, allowed, useCan } from "@/lib/permissions"
 import { sourceText, planYaml } from "@/lib/config"
 import { toYaml } from "@/lib/yaml"
 import { TableWrap } from "@/components/TableWrap"
@@ -296,55 +296,68 @@ function PlanDetails({ plan, who, onClose }: { plan?: ConfigPlan; who: (a: strin
 
 /** Everything as YAML, except secrets, and a place to paste YAML that becomes a plan like any other. */
 function ExportImport() {
+  const can = useCan()
   const [yaml, setYaml] = useState("")
   const [imported, setImported] = useState<ConfigPlan>()
   const [text, setText] = useState("")
   const [error, setError] = useState("")
   return (
     <div className="flex gap-2">
-      <Dialog onOpenChange={(o) => o && api.exportConfig().then((r) => setYaml(r.yaml), (e: Error) => setYaml(`# ${e.message}`))}>
-        <DialogTrigger render={<Button variant="outline" />}>Export YAML</DialogTrigger>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Export YAML</DialogTitle>
-            <DialogDescription>Everything except secrets, which are only ever references.</DialogDescription>
-          </DialogHeader>
-          <pre tabIndex={0} className="max-h-96 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs">
-            {yaml || "Loading…"}
-          </pre>
-        </DialogContent>
-      </Dialog>
-      <Dialog onOpenChange={(o) => !o && (setImported(undefined), setError(""), setText(""))}>
-        <DialogTrigger render={<Button variant="outline" />}>Import</DialogTrigger>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Import YAML</DialogTitle>
-            <DialogDescription>It makes a plan to confirm, like any other change.</DialogDescription>
-          </DialogHeader>
-          {imported ? (
-            <PlanCard plan={imported} onChange={setImported} />
-          ) : (
-            <form
-              className="space-y-2"
-              onSubmit={(e) => {
-                e.preventDefault()
-                setError("")
-                api.importConfig(text).then(setImported, (err: Error) => setError(err.message))
-              }}
-            >
-              <Field label="YAML">{(p) => <Textarea {...p} rows={8} className="font-mono text-xs" value={text} onChange={(e) => setText(e.target.value)} />}</Field>
-              {error ? (
-                <p role="alert" className="text-sm text-destructive">
-                  {error}
-                </p>
-              ) : null}
-              <Button type="submit" disabled={!text.trim()}>
-                Make a plan
-              </Button>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
+      {can("config.read") ? (
+        <Dialog onOpenChange={(o) => o && api.exportConfig().then((r) => setYaml(r.yaml), (e: Error) => setYaml(`# ${e.message}`))}>
+          <DialogTrigger render={<Button variant="outline" />}>Export YAML</DialogTrigger>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Export YAML</DialogTitle>
+              <DialogDescription>Everything except secrets, which are only ever references.</DialogDescription>
+            </DialogHeader>
+            <pre tabIndex={0} className="max-h-96 overflow-auto rounded-lg bg-muted p-3 font-mono text-xs">
+              {yaml || "Loading…"}
+            </pre>
+          </DialogContent>
+        </Dialog>
+      ) : (
+        <PermButton permission="config.read" variant="outline">
+          Export YAML
+        </PermButton>
+      )}
+      {can("config.apply") ? (
+        <Dialog onOpenChange={(o) => !o && (setImported(undefined), setError(""), setText(""))}>
+          <DialogTrigger render={<Button variant="outline" />}>Import</DialogTrigger>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Import YAML</DialogTitle>
+              <DialogDescription>It makes a plan to confirm, like any other change.</DialogDescription>
+            </DialogHeader>
+            {imported ? (
+              <PlanCard plan={imported} onChange={setImported} />
+            ) : (
+              <form
+                className="space-y-2"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  setError("")
+                  api.importConfig(text).then(setImported, (err: Error) => setError(err.message))
+                }}
+              >
+                <Field label="YAML">{(p) => <Textarea {...p} rows={8} className="font-mono text-xs" value={text} onChange={(e) => setText(e.target.value)} />}</Field>
+                {error ? (
+                  <p role="alert" className="text-sm text-destructive">
+                    {error}
+                  </p>
+                ) : null}
+                <Button type="submit" disabled={!text.trim()}>
+                  Make a plan
+                </Button>
+              </form>
+            )}
+          </DialogContent>
+        </Dialog>
+      ) : (
+        <PermButton permission="config.apply" variant="outline">
+          Import
+        </PermButton>
+      )}
     </div>
   )
 }
