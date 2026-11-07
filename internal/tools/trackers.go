@@ -192,7 +192,13 @@ func (s *Service) TestTrackerConnection(ctx context.Context, by domain.Actor, in
 		return mcp.TrackerConnectionTest{}, trackerError(err)
 	}
 	out := mcp.TrackerConnectionTest{Connection: c.Name, OK: true, Checks: []mcp.TrackerCheck{}}
-	for _, check := range tracker.Test(ctx, ad) {
+	checks := tracker.Test(ctx, ad)
+	routes, err := s.cfg.Store.TrackerRoutes().List(ctx, by.AccountID, c.ID)
+	if err != nil {
+		return mcp.TrackerConnectionTest{}, err
+	}
+	checks = append(checks, routeStates(ctx, ad, routes, tracker.Failed(checks) == nil))
+	for _, check := range checks {
 		out.Checks = append(out.Checks, mcp.TrackerCheck(check))
 		out.OK = out.OK && check.OK
 	}
@@ -207,6 +213,24 @@ func (s *Service) TestTrackerConnection(ctx context.Context, by domain.Actor, in
 		return out, nil
 	}
 	return out, s.cfg.Store.TrackerConnections().Update(ctx, &c)
+}
+
+// routeStates checks the states of a connection's routes against the
+// tracker's: a plan cannot, before the connection's token is in place.
+func routeStates(ctx context.Context, ad tracker.Adapter, routes []domain.TrackerRoute, ready bool) tracker.Check {
+	if !ready {
+		return tracker.Check{Name: "routes", Detail: "not checked: an earlier check failed"}
+	}
+	var errs []error
+	for _, r := range routes {
+		if err := checkStates(ctx, ad, r.States); err != nil {
+			errs = append(errs, fmt.Errorf("route %d: %w", r.Position, err))
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return tracker.Check{Name: "routes", Detail: err.Error()}
+	}
+	return tracker.Check{Name: "routes", OK: true, Detail: fmt.Sprintf("%d routes map to states the tracker has", len(routes))}
 }
 
 // DeleteTrackerConnection implements mcp.ToolService.
