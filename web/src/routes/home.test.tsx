@@ -28,9 +28,9 @@ test("shows the three status tiles", async () => {
   expect(await within(agents).findByText("1")).toBeInTheDocument()
   expect(within(agents).getByText("jobs running")).toBeInTheDocument()
 
-  const workers = await panel("Workers online")
-  expect(await within(workers).findByText("1 of 2")).toBeInTheDocument()
-  expect(within(workers).getByText("Some offline")).toBeInTheDocument()
+  const machines = await panel("Machines")
+  expect(await within(machines).findByText("2 working, 2 waiting")).toBeInTheDocument()
+  expect(within(machines).getByText("Jobs are waiting")).toBeInTheDocument()
 })
 
 test("lists what needs you with Review or Decide", async () => {
@@ -63,10 +63,12 @@ test("shows live activity and the fleet", async () => {
   expect(await within(live).findByRole("link", { name: /JOB-41 developer/ })).toBeInTheDocument()
   expect(within(live).getByRole("link", { name: "Watch" })).toHaveAttribute("href", "/jobs?status=running")
   const fleet = await panel("Fleet")
-  expect(await within(fleet).findByText("build-box-1")).toBeInTheDocument()
-  expect(within(fleet).getByText("1 of 1 jobs")).toBeInTheDocument()
-  expect(within(fleet).getByText("mac-mini")).toBeInTheDocument()
+  // locations, not one row per short-lived machine
+  expect(await within(fleet).findByText("Home Server")).toBeInTheDocument()
+  expect(within(fleet).getByText("2 of 3 machines")).toBeInTheDocument()
+  expect(within(fleet).getByText("Mac Mini")).toBeInTheDocument()
   expect(within(fleet).getByText("offline")).toBeInTheDocument()
+  expect(within(fleet).getByRole("link", { name: "See machines" })).toHaveAttribute("href", "/machines")
 })
 
 test("shows calm states when there is nothing to do", async () => {
@@ -74,35 +76,57 @@ test("shows calm states when there is nothing to do", async () => {
     http.get("/api/v1/gates", () => HttpResponse.json(fx.gatesEmpty)),
     http.get("/api/v1/goals", () => HttpResponse.json(fx.goalsEmpty)),
     http.get("/api/v1/jobs", () => HttpResponse.json(fx.jobsEmpty)),
-    http.get("/api/v1/workers", () => HttpResponse.json(fx.workersEmpty)),
+    http.get("/api/v1/fleet", () => HttpResponse.json(fx.fleetEmpty)),
   )
   await renderApp("/")
   expect((await screen.findAllByText("Nothing needs you")).length).toBe(2)
   expect(screen.getByText("All clear")).toBeInTheDocument()
   expect(screen.getByText("No active goals")).toBeInTheDocument()
   expect(screen.getAllByText("No jobs running")).toHaveLength(2)
-  expect(screen.getByText("0 of 0")).toBeInTheDocument()
-  expect(screen.getAllByText("No workers")).toHaveLength(2)
+  expect(screen.getByText("0 working, 0 waiting")).toBeInTheDocument()
+  expect(screen.getByText("No machines yet", { selector: "span" })).toBeInTheDocument()
+  expect(screen.getByText("No machines yet", { selector: "p" })).toBeInTheDocument()
 })
 
-test("says so when all workers are healthy or all offline, and when one decision waits", async () => {
+test("says so when nothing waits, and when one decision waits", async () => {
   server.use(
     http.get("/api/v1/gates", () => HttpResponse.json(fx.gates.slice(0, 1))),
-    http.get("/api/v1/workers", () => HttpResponse.json(fx.workers.map((w) => ({ ...w, online: true })))),
+    http.get("/api/v1/fleet", () => HttpResponse.json({ ...fx.fleet, queue: [], waiting: 0 })),
   )
-  const { unmount } = await renderApp("/")
-  expect(await screen.findByText("1 decision needs you")).toBeInTheDocument()
-  expect(await screen.findByText("Healthy")).toBeInTheDocument()
-  unmount()
-  server.use(http.get("/api/v1/workers", () => HttpResponse.json(fx.workers.map((w) => ({ ...w, online: false })))))
   await renderApp("/")
-  expect(await screen.findByText("All offline")).toBeInTheDocument()
+  expect(await screen.findByText("1 decision needs you")).toBeInTheDocument()
+  expect(await screen.findByText("Nothing waits")).toBeInTheDocument()
+})
+
+test("Finish setting up lists what applies, keeps it when dismissed and is gone once empty", async () => {
+  localStorage.clear()
+  server.use(http.get("/api/v1/members", () => HttpResponse.json(fx.members.slice(0, 1))), http.get("/api/v1/connections", () => HttpResponse.json(fx.connections.filter((c) => c.instance))))
+  const { user } = await renderApp("/")
+  const list = await screen.findByRole("region", { name: "Finish setting up" })
+  expect(within(list).getByRole("link", { name: "Invite your team" })).toHaveAttribute("href", "/settings/people")
+  expect(within(list).getByRole("link", { name: "Connect company sign-in" })).toBeInTheDocument()
+  // a Mac already runs jobs, so that item is done
+  expect(within(list).queryByRole("link", { name: "Add a Windows or Mac machine" })).toBeNull()
+  await user.click(within(list).getByRole("button", { name: "Dismiss: Invite your team" }))
+  expect(within(list).queryByRole("link", { name: "Invite your team" })).toBeNull()
+  expect(localStorage.getItem("forecrew.setup.dismissed")).toBe('["team"]')
+  for (const t of ["Connect company sign-in"]) await user.click(within(list).getByRole("button", { name: `Dismiss: ${t}` }))
+  expect(screen.queryByRole("region", { name: "Finish setting up" })).toBeNull()
+  localStorage.clear()
+})
+
+test("Finish setting up shows nothing to someone who can do none of it", async () => {
+  localStorage.clear()
+  server.use(http.get("/api/v1/me", () => HttpResponse.json(fx.meViewer)))
+  await renderApp("/")
+  await screen.findByRole("heading", { name: "Home", hidden: true })
+  expect(screen.queryByRole("region", { name: "Finish setting up" })).toBeNull()
 })
 
 test("each panel shows its own error", async () => {
-  server.use(http.get("/api/v1/workers", errors.invalidInput), http.get("/api/v1/gates", errors.invalidInput), http.get("/api/v1/goals", errors.invalidInput), http.get("/api/v1/jobs", errors.invalidInput))
+  server.use(http.get("/api/v1/fleet", errors.invalidInput), http.get("/api/v1/gates", errors.invalidInput), http.get("/api/v1/goals", errors.invalidInput), http.get("/api/v1/jobs", errors.invalidInput))
   await renderApp("/")
-  await waitFor(() => expect(screen.getAllByText(/Could not load: feedback is required/)).toHaveLength(7))
+  await waitFor(() => expect(screen.getAllByText(/Could not load: feedback is required/)).toHaveLength(7)) // the same as before: the fleet feeds two panels, the gates three, jobs two
 })
 
 test("panels show a loading state first", async () => {

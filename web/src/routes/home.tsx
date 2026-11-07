@@ -1,7 +1,8 @@
 import { Link } from "@tanstack/react-router"
 import { cn } from "cn"
 import { SearchIcon } from "lucide-react"
-import { useGates, useGoals, useJobs, useWorkers } from "@/api/queries"
+import { useState } from "react"
+import { useConnections, useFleet, useGates, useGoals, useJobs, useMembers } from "@/api/queries"
 import type { GoalStatus } from "@/api/types"
 import { Age } from "@/components/Age"
 import { useOpenCommandMenu } from "@/components/CommandMenu"
@@ -9,7 +10,7 @@ import { StatusBadge } from "@/components/StatusBadge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { gateKindLabel, goalRef, jobRef, stageOf } from "@/lib/format"
-import { useCanAnywhere } from "@/lib/permissions"
+import { useCan, useCanAnywhere } from "@/lib/permissions"
 
 function LoadError({ message }: { message: string }) {
   return <p className="text-sm text-destructive">Could not load: {message}</p>
@@ -96,24 +97,22 @@ function AgentsStat() {
   )
 }
 
-function WorkersStat() {
-  const workers = useWorkers()
-  if (workers.isError) return <LoadError message={workers.error.message} />
-  if (!workers.data) return <Loading />
-  const online = workers.data.filter((w) => w.online).length
-  const total = workers.data.length
-  const offline = workers.data.filter((w) => !w.online)
+function MachinesStat() {
+  const fleet = useFleet()
+  if (fleet.isError) return <LoadError message={fleet.error.message} />
+  if (!fleet.data) return <Loading />
+  const { working, waiting, locations } = fleet.data
   return (
     <>
       <p className="text-3xl font-semibold">
-        {online} of {total}
+        {working} working, {waiting} waiting
       </p>
-      {total === 0 ? (
-        <StatusBadge tone="attention">No workers</StatusBadge>
-      ) : offline.length === 0 ? (
-        <StatusBadge tone="good">Healthy</StatusBadge>
+      {locations.length === 0 ? (
+        <StatusBadge tone="attention">No machines yet</StatusBadge>
+      ) : waiting > 0 ? (
+        <StatusBadge tone="attention">Jobs are waiting</StatusBadge>
       ) : (
-        <StatusBadge tone={online === 0 ? "bad" : "attention"}>{online === 0 ? "All offline" : "Some offline"}</StatusBadge>
+        <StatusBadge tone="good">Nothing waits</StatusBadge>
       )}
     </>
   )
@@ -225,33 +224,87 @@ function LiveActivity() {
   )
 }
 
+/** The locations, not one row per short-lived machine. */
 function Fleet() {
-  const workers = useWorkers()
+  const fleet = useFleet()
   return (
-    <Panel title="Fleet" to="/workers" linkLabel="See workers">
-      {workers.isError ? (
-        <LoadError message={workers.error.message} />
-      ) : !workers.data ? (
+    <Panel title="Fleet" to="/machines" linkLabel="See machines">
+      {fleet.isError ? (
+        <LoadError message={fleet.error.message} />
+      ) : !fleet.data ? (
         <Loading />
-      ) : workers.data.length === 0 ? (
-        <p className="text-muted-foreground">No workers</p>
+      ) : fleet.data.locations.length === 0 ? (
+        <p className="text-muted-foreground">No machines yet</p>
       ) : (
         <ul className="divide-y">
-          {workers.data.map((w) => (
-            <li key={w.id} className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0 text-sm">
-              <span className="font-mono">{w.name}</span>
-              {w.online ? (
-                <span className="text-muted-foreground">
-                  {w.running_jobs.length} of {w.max_jobs} jobs
-                </span>
+          {fleet.data.locations.map((l) => (
+            <li key={l.id} className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0 text-sm">
+              <span>{l.name}</span>
+              {l.status === "online" ? (
+                <span className="text-muted-foreground">{l.kind === "computer" ? l.in_use : l.capacity > 0 ? `${l.in_use} of ${l.capacity}` : l.in_use} {l.kind === "computer" ? "directly" : "machines"}</span>
               ) : (
-                <StatusBadge tone="bad">offline</StatusBadge>
+                <StatusBadge tone="bad">{l.status}</StatusBadge>
               )}
             </li>
           ))}
         </ul>
       )}
     </Panel>
+  )
+}
+
+const DISMISSED = "forecrew.setup.dismissed"
+const dismissedItems = (): string[] => {
+  try {
+    return JSON.parse(localStorage.getItem(DISMISSED) ?? "[]") as string[]
+  } catch {
+    return []
+  }
+}
+
+/** A short list of what to set up next. It shows only what applies to the person, and is gone for good once empty. */
+function FinishSetup() {
+  const can = useCan()
+  const fleet = useFleet()
+  const members = useMembers(can("member.manage"))
+  const connections = useConnections(can("connection.manage"))
+  const [dismissed, setDismissed] = useState(dismissedItems)
+  const dismiss = (id: string) => {
+    const next = [...dismissed, id]
+    setDismissed(next)
+    try {
+      localStorage.setItem(DISMISSED, JSON.stringify(next))
+    } catch {
+      // the list comes back next time: nothing is lost
+    }
+  }
+  const items = [
+    { id: "team", text: "Invite your team", to: "/settings/people", show: can("member.manage") && members.data !== undefined && members.data.length < 2 },
+    {
+      id: "machine",
+      text: "Add a Windows or Mac machine",
+      to: "/machines/add",
+      show: can("worker.manage") && fleet.data !== undefined && fleet.data.locations.length > 0 && !fleet.data.locations.some((l) => /windows|macos/i.test(l.runs)),
+    },
+    { id: "signin", text: "Connect company sign-in", to: "/settings/sign-in", show: can("connection.manage") && connections.data !== undefined && !connections.data.some((c) => !c.instance) },
+  ].filter((i) => i.show && !dismissed.includes(i.id))
+  if (items.length === 0) return null
+  return (
+    <section aria-label="Finish setting up" className="mb-6 rounded-xl border bg-card p-4">
+      <h2 className="mb-2 font-medium">Finish setting up</h2>
+      <ul className="space-y-1">
+        {items.map((i) => (
+          <li key={i.id} className="flex items-center justify-between gap-2 text-sm">
+            <Link to={i.to} className="underline underline-offset-2">
+              {i.text}
+            </Link>
+            <Button variant="ghost" size="sm" aria-label={`Dismiss: ${i.text}`} onClick={() => dismiss(i.id)}>
+              Not now
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 
@@ -273,6 +326,7 @@ export function HomePage() {
         ) : null}
       </div>
       <Headline />
+      <FinishSetup />
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <Stat title="Decisions waiting">
           <NeedsYouStat />
@@ -280,8 +334,8 @@ export function HomePage() {
         <Stat title="Agents working">
           <AgentsStat />
         </Stat>
-        <Stat title="Workers online">
-          <WorkersStat />
+        <Stat title="Machines">
+          <MachinesStat />
         </Stat>
       </div>
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[2fr_1fr]">
