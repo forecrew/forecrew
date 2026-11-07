@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata" // the zone of the token's user, on a server without zoneinfo
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/secrets"
@@ -571,7 +572,11 @@ func (a *Adapter) Changes(ctx context.Context, cursor string) ([]tracker.Event, 
 	if err != nil {
 		return nil, "", err
 	}
-	jql := fmt.Sprintf(`project in (%s) AND updated >= "%s" ORDER BY updated ASC`, quoted(a.cfg.Projects), jqlTime(since.Add(-overlap), m.TimeZone))
+	from, err := jqlTime(since.Add(-overlap), m.TimeZone)
+	if err != nil {
+		return nil, "", err
+	}
+	jql := fmt.Sprintf(`project in (%s) AND updated >= "%s" ORDER BY updated ASC`, quoted(a.cfg.Projects), from)
 	var events []tracker.Event
 	newest := since
 	err = a.search(ctx, jql, func(i issue) error {
@@ -597,14 +602,17 @@ func quoted(keys []string) string {
 	return strings.Join(out, ", ")
 }
 
-// jqlTime formats t as JQL reads it: minutes, in the user's time zone. An
-// unknown zone is UTC, and the overlap covers the rest.
-func jqlTime(t time.Time, zone string) string {
-	loc, err := time.LoadLocation(zone)
-	if err != nil || zone == "" {
-		loc = time.UTC
+// jqlTime formats t as JQL reads it: minutes, in the user's time zone. A
+// zone it does not know is an error: guessing one could skip changes.
+func jqlTime(t time.Time, zone string) (string, error) {
+	if zone == "" {
+		return "", errors.New("jira gave the token's user no time zone, which polling needs")
 	}
-	return t.In(loc).Format(jqlLayout)
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return "", fmt.Errorf("the time zone %q of the token's user: %w", zone, err)
+	}
+	return t.In(loc).Format(jqlLayout), nil
 }
 
 // ---- tickets
