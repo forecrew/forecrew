@@ -1,0 +1,36 @@
+{
+  "expand": "renderedFields,names,schema,operations,editmeta,changelog,versionedRepresentations",
+  "id": "20017",
+  "self": "https://jira.acme.local/jira/rest/api/2/issue/20017",
+  "key": "OPS-17",
+  "fields": {
+    "summary": "Rotate the backup keys",
+    "issuetype": {"self": "https://jira.acme.local/jira/rest/api/2/issuetype/10002", "id": "10002", "name": "Task", "subtask": false},
+    "project": {"self": "https://jira.acme.local/jira/rest/api/2/project/10200", "id": "10200", "key": "OPS", "name": "Operations"},
+    "labels": ["forecrew"],
+    "components": [],
+    "assignee": null,
+    "reporter": {"self": "https://jira.acme.local/jira/rest/api/2/user?username=ann.lee", "name": "ann.lee", "key": "JIRAUSER10100", "emailAddress": "ann@acme.example", "displayName": "Ann Lee", "active": true, "timeZone": "Europe/Berlin"},
+    "status": {"self": "https://jira.acme.local/jira/rest/api/2/status/1", "name": "Open", "id": "1",
+               "statusCategory": {"self": "https://jira.acme.local/jira/rest/api/2/statuscategory/2", "id": 2, "key": "new", "colorName": "default", "name": "To Do"}},
+    "updated": "2026-11-06T17:05:44.000+0100",
+    "description": "h3. Why\nThe keys are *two years* old. See [the runbook|https://wiki.acme.local/backups].\n\n* list the buckets\n* rotate {{kms}} keys\n\n{code:bash}\nbackup rotate --all\n{code}",
+    "comment": {
+      "comments": [
+        {"self": "https://jira.acme.local/jira/rest/api/2/issue/20017/comment/30001", "id": "30001",
+         "author": {"self": "https://jira.acme.local/jira/rest/api/2/user?username=ann", "name": "ann", "key": "JIRAUSER10100", "displayName": "Ann Lee", "active": true},
+         "body": "Ping [~ann] when it is done.", "created": "2026-11-06T17:10:00.000+0100", "updated": "2026-11-06T17:10:00.000+0100"}
+      ],
+      "maxResults": 1, "total": 1, "startAt": 0
+    }
+  },
+  "changelog": {
+    "startAt": 0, "maxResults": 1, "total": 1,
+    "histories": [
+      {"id": "40100",
+       "author": {"self": "https://jira.acme.local/jira/rest/api/2/user?username=ann.lee", "name": "ann.lee", "key": "JIRAUSER10100", "displayName": "Ann Lee", "active": true},
+       "created": "2026-11-06T17:05:44.000+0100",
+       "items": [{"field": "labels", "fieldtype": "jira", "from": null, "fromString": "", "to": null, "toString": "forecrew"}]}
+    ]
+  }
+}

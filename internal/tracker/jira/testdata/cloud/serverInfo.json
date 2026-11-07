@@ -1,0 +1,14 @@
+{
+  "baseUrl": "https://acme.atlassian.net",
+  "displayUrl": "https://acme.atlassian.net",
+  "version": "1001.0.0-SNAPSHOT",
+  "versionNumbers": [1001, 0, 0],
+  "deploymentType": "Cloud",
+  "buildNumber": 100285,
+  "buildDate": "2026-10-30T09:12:44.000+0000",
+  "serverTime": "2026-11-07T10:02:13.218+0000",
+  "scmInfo": "5b3e7a0c0e7a3c2d1e5f4b9a8c7d6e5f4a3b2c1d",
+  "serverTitle": "Jira",
+  "defaultLocale": {"locale": "en_US"},
+  "serverTimeZone": "Etc/UTC"
+}

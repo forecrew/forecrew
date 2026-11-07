@@ -119,6 +119,11 @@ type Trackers struct {
 	// MaxActiveGoals is how many goals from tickets a project works on at
 	// once; the other tickets queue. Zero means tracker.DefaultMaxActiveGoals.
 	MaxActiveGoals int `yaml:"max_active_goals"`
+	// PrivateAddresses lets tracker connections reach private and loopback
+	// addresses: a self-hosted forecrewd in the same network as its Jira.
+	// Off, the default, a connection whose address is or redirects to one
+	// is refused, so it cannot be used to reach forecrewd's own network.
+	PrivateAddresses bool `yaml:"private_addresses"`
 }
 
 // Actions configures the provider that runs the command jobs of pool
