@@ -44,7 +44,8 @@ func fixed(t *testing.T) []models.Candidate {
 		test(off, "gpt-5", domain.LevelCode),
 	}
 	c, notes := models.Candidates(cat, []domain.ModelConnection{anthropic, deepseek, local, off}, checks)
-	if len(notes) != 1 || !strings.Contains(notes[0], "no-tier") {
+	// The maker entered by hand does not count; the vendor does.
+	if len(notes) != 2 || !strings.Contains(notes[0], "maker entered for my-coder") || !strings.Contains(notes[1], "no-tier") {
 		t.Fatalf("notes = %v", notes)
 	}
 	return c
@@ -84,7 +85,7 @@ func TestSuggestionPresets(t *testing.T) {
 		if !maps.Equal(roles(again), roles(s)) {
 			t.Errorf("%s is not deterministic", preset)
 		}
-		if preset == models.PresetLocalOnly && (len(s.Notes) != 1 || !strings.Contains(s.Notes[0], "acme")) {
+		if preset == models.PresetLocalOnly && (len(s.Notes) != 1 || !strings.Contains(s.Notes[0], "ollama")) {
 			t.Errorf("local only notes = %v", s.Notes)
 		}
 	}

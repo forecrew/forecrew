@@ -91,7 +91,13 @@ func Candidates(cat *Catalog, conns []domain.ModelConnection, checks []domain.Mo
 		if local {
 			price = 0
 		}
-		out = append(out, Candidate{Connection: c.Name, Vendor: c.Vendor, Model: t.Model, Maker: cmp.Or(cat.MakerOf(t.Model), info.Maker, c.Vendor),
+		// A maker entered by hand is not trusted to keep the reviewer apart,
+		// as in plans (config-resources.md): the vendor counts instead.
+		maker := cat.MakerOf(t.Model)
+		if maker == "" && info.Maker != "" && info.Maker != c.Vendor {
+			notes = append(notes, fmt.Sprintf("The maker entered for %s on %s is not used to keep the reviewer apart: its vendor %s counts, as in plans.", t.Model, c.Name, c.Vendor))
+		}
+		out = append(out, Candidate{Connection: c.Name, Vendor: c.Vendor, Model: t.Model, Maker: cmp.Or(maker, c.Vendor),
 			Tier: tier, Level: t.Test.Level, Local: local, Price: price})
 	}
 	slices.SortFunc(out, func(a, b Candidate) int {
