@@ -104,6 +104,8 @@ type Config struct {
 	Actions Actions `yaml:"actions"`
 	// Testing lists the projects whose goals run the testing system.
 	Testing Testing `yaml:"testing"`
+	// GoalV3 lists the projects whose goals run councils and learning.
+	GoalV3 GoalV3 `yaml:"goal_v3"`
 	// Knowledge holds the settings of the knowledge base's upkeep.
 	Knowledge Knowledge `yaml:"knowledge"`
 	// Schedules start playbooks on a cron schedule.
