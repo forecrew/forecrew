@@ -166,7 +166,21 @@ What to check by hand:
    minute old when it arrives.
 5. A rate-limited answer is HTTP 429 with `Retry-After`, `errors[].extensions.code`
    `RATELIMITED`.
-6. Assigning an issue to the dedicated user shows `toAssigneeId` equal to the
+6. `issue(id: "ENG-7")` accepts the identifier (`ENG-7`) as well as the issue's
+   UUID, for reads and for the `id` of `issueUpdate`, and a missing issue is an
+   error answer whose message says "not found" (the adapter reads that text).
+7. The shape of error answers: `errors[].message` and `errors[].extensions.code`
+   (`AUTHENTICATION_ERROR`, `FORBIDDEN`, `RATELIMITED`), with the HTTP status
+   Linear sends for each, including a 200 that carries errors next to data.
+8. TLS and the proxy against the real host: with and without `HTTPS_PROXY`, the
+   certificate of `api.linear.app` is verified, and a host the proxy refuses fails
+   the call with its error.
+9. Webhook timing against the real host: a delivery reaches forecrewd within a
+   minute of its `webhookTimestamp` (the adapter refuses an older one). Note
+   whether Linear's retries of a failed delivery (after one minute, one hour and
+   six hours) carry the original timestamp: if they do, they are refused as
+   replays and polling picks the change up instead.
+10. Assigning an issue to the dedicated user shows `toAssigneeId` equal to the
    `id` the login detail printed.
 
 ## opencode
