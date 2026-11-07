@@ -150,3 +150,18 @@ func TestMergeKeepsWhatTheSuggestionDidNotFill(t *testing.T) {
 		t.Fatalf("notes = %v", notes)
 	}
 }
+
+// TestAStaleKeyCheckKeepsAConnectionOut: a connection that moved since its
+// key check is no candidate until it is checked again.
+func TestAStaleKeyCheckKeepsAConnectionOut(t *testing.T) {
+	c := domain.ModelConnection{ID: domain.NewID(), Name: "cloud", Vendor: "anthropic", Enabled: true}
+	key := domain.ModelCheck{ConnectionID: c.ID, Status: domain.ModelCheckReachable}
+	test := domain.ModelCheck{ConnectionID: c.ID, Model: "claude-sonnet-4-5", Status: domain.SuitabilityDone, Test: &domain.SuitabilityResult{Level: domain.LevelCode}}
+	if got, _ := models.Candidates(catalog(t), []domain.ModelConnection{c}, []domain.ModelCheck{key, test}); len(got) != 1 {
+		t.Fatalf("fresh = %+v", got)
+	}
+	key.Stale = true
+	if got, _ := models.Candidates(catalog(t), []domain.ModelConnection{c}, []domain.ModelCheck{key, test}); len(got) != 0 {
+		t.Fatalf("stale = %+v", got)
+	}
+}

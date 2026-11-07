@@ -309,15 +309,17 @@ func configAuthorizations(t *testing.T, st store.Store, accountID, projectID uui
 			t.Fatal(err)
 		}
 	}
-	all := domain.ModelAuthorization{AccountID: accountID, ConnectionID: c.ID, Connection: c.Name, Adapter: c.Adapter, AuthorizedBy: "user:ana"}
+	all := domain.AuthorizationOf(c, uuid.Nil(), "user:ana")
 	must(st.ModelAuthorizations().Put(ctx, &all))
-	one := domain.ModelAuthorization{AccountID: accountID, ProjectID: projectID, ConnectionID: c.ID, Connection: c.Name, Adapter: c.Adapter, BaseURL: "https://x.example", AuthorizedBy: "user:ana"}
+	one := domain.AuthorizationOf(c, projectID, "user:ana")
+	one.BaseURL = "https://x.example"
 	must(st.ModelAuthorizations().Put(ctx, &one))
 	one.ID, one.AuthorizedBy = uuid.Nil(), "user:bo"
 	must(st.ModelAuthorizations().Put(ctx, &one))
 	rows, err := st.ModelAuthorizations().List(ctx, accountID)
 	if err != nil || len(rows) != 2 || rows[0].ProjectID != uuid.Nil() || rows[1].ProjectID != projectID || rows[1].AuthorizedBy != "user:bo" ||
-		rows[1].BaseURL != "https://x.example" || rows[1].CreatedAt.IsZero() || rows[1].Covers(projectID, c) {
+		rows[1].BaseURL != "https://x.example" || rows[1].CreatedAt.IsZero() || rows[1].Covers(projectID, c) ||
+		rows[0].Vendor != c.Vendor || rows[0].KeyEnv != c.KeyEnv {
 		t.Fatalf("authorizations = %+v, %v", rows, err)
 	}
 	if !rows[0].Covers(projectID, c) || !rows[0].Covers(domain.NewID(), c) {

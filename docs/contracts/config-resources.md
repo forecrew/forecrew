@@ -206,9 +206,12 @@ are settled and again at lease, so no screen or client can skip it.
 
 - **`model_authorization`** `<connection>@<project>` (or `@*`, every project)
   has an empty spec: who and when are those of the plan that applies it
-  (`model_authorizations`). It holds the connection's `adapter` and `base_url`
-  as they were, and counts only while the connection keeps them: a plan that
-  sends a connection to another endpoint ends its authorizations, and says so.
+  (`model_authorizations`). It holds the connection's `adapter`, `base_url`,
+  `vendor` and `key_env` as they were, and counts only while the connection
+  keeps them: with opencode, the vendor, the key variable and the model's
+  provider part decide where code goes. A plan that changes any of them ends
+  the connection's authorizations and marks its key check and model tests
+  stale, and says so; suggestions leave it out until it is checked again.
   Deleting it revokes: the next job of the project waits.
 - **Exempt:** a connection whose `base_url` is `localhost` or a loopback or
   private address, because the code stays on your own network; the runtimes of

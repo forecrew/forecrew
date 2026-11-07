@@ -26,6 +26,8 @@ CREATE TABLE model_authorizations (
   connection    text NOT NULL,
   adapter       text NOT NULL,
   base_url      text NOT NULL DEFAULT '',
+  vendor        text NOT NULL,
+  key_env       text NOT NULL DEFAULT '',
   authorized_by text NOT NULL,
   created_at    timestamptz NOT NULL DEFAULT now(),
   UNIQUE NULLS NOT DISTINCT (account_id, connection_id, project_id)
