@@ -16,7 +16,7 @@ import (
 	"github.com/forecrew/forecrew/internal/store"
 )
 
-// signIn resolves claims to a user, accepts the invitation of the link, and
+// signIn resolves claims to a user, accepts the invitation or setup link, and
 // creates a session; it returns the session token. Nothing is kept when it
 // fails: a refused sign-in links no identity.
 func (s *Service) signIn(ctx context.Context, conn domain.Connection, c Claims, f flow, userAgent, ip string) (string, error) {
@@ -25,39 +25,66 @@ func (s *Service) signIn(ctx context.Context, conn domain.Connection, c Claims, 
 		return "", err
 	}
 	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
-		proven, err := emailProven(ctx, tx, conn, c)
-		if err != nil {
-			return err
-		}
-		inv, err := s.invitation(ctx, tx, conn, c, proven, f.Invite)
-		if err != nil {
-			return err
-		}
-		user, err := resolveUser(ctx, tx, conn, c, proven, inv)
-		if err != nil {
-			return err
-		}
-		if !user.DisabledAt.IsZero() {
-			return refusal(reasonDisabled)
-		}
-		if inv != nil {
-			if err := accept(ctx, tx, *inv, user.ID); err != nil {
-				return err
-			}
-		}
-		if user, err = s.syncAdmin(ctx, tx, user, conn, c, proven); err != nil {
-			return err
-		}
-		account, err := organization(ctx, tx, user, conn, f.Org, inv)
-		if err != nil {
-			return err
-		}
-		if err := tx.Users().Seen(ctx, user.ID); err != nil {
-			return err
-		}
-		return s.newSession(ctx, tx, token, user, account, conn.ID, userAgent, ip)
+		return s.signInTx(ctx, tx, conn, c, f, token, userAgent, ip)
 	})
+	if err == nil {
+		s.afterSetup(ctx, f)
+	}
 	return token, err
+}
+
+// signInTx is the part of a sign-in that is all or nothing.
+func (s *Service) signInTx(ctx context.Context, tx store.Store, conn domain.Connection, c Claims, f flow, token, userAgent, ip string) error {
+	proven, err := emailProven(ctx, tx, conn, c)
+	if err != nil {
+		return err
+	}
+	inv, err := s.invitation(ctx, tx, conn, c, proven, f.Invite)
+	if err != nil {
+		return err
+	}
+	link, err := s.linkOfSignIn(ctx, tx, inv, f)
+	if err != nil {
+		return err
+	}
+	user, err := resolveUser(ctx, tx, conn, c, proven, inv != nil || link != nil)
+	if err != nil {
+		return err
+	}
+	if !user.DisabledAt.IsZero() {
+		return refusal(reasonDisabled)
+	}
+	if inv != nil {
+		if err := accept(ctx, tx, *inv, user.ID); err != nil {
+			return err
+		}
+	}
+	if err := claimSetupLink(ctx, tx, conn, link, user.ID); err != nil {
+		return err
+	}
+	if user, err = s.syncAdmin(ctx, tx, user, conn, c, proven); err != nil {
+		return err
+	}
+	account, err := organization(ctx, tx, user, conn, f.Org, invitedAccount(inv, link))
+	if err != nil {
+		return err
+	}
+	if err := tx.Users().Seen(ctx, user.ID); err != nil {
+		return err
+	}
+	return s.newSession(ctx, tx, token, user, account, conn.ID, userAgent, ip)
+}
+
+// invitedAccount is the organization an invitation or a setup link opens,
+// zero for neither.
+func invitedAccount(inv *domain.Invitation, link *store.SetupLink) uuid.UUID {
+	switch {
+	case inv != nil:
+		return inv.AccountID
+	case link != nil:
+		return link.AccountID
+	}
+	return uuid.Nil()
 }
 
 // emailDomain returns the domain of an email address, lowercase.
@@ -120,9 +147,10 @@ func invited(inv domain.Invitation, conn domain.Connection, c Claims, proven boo
 }
 
 // resolveUser finds the user of a sign-in by identity, then by proven email
-// (linking the identity), then creates one for an invitation. Anyone else is
+// (linking the identity), then creates one for an invitation or a setup link.
+// Anyone else is
 // refused.
-func resolveUser(ctx context.Context, tx store.Store, conn domain.Connection, c Claims, proven bool, inv *domain.Invitation) (domain.User, error) {
+func resolveUser(ctx context.Context, tx store.Store, conn domain.Connection, c Claims, proven, create bool) (domain.User, error) {
 	id, err := tx.Identities().GetBySubject(ctx, conn.ID, c.Subject)
 	if err == nil {
 		if err := tx.Identities().Seen(ctx, id.ID, c.Login, c.Email); err != nil {
@@ -147,7 +175,7 @@ func resolveUser(ctx context.Context, tx store.Store, conn domain.Connection, c 
 	}
 	switch {
 	case user.ID != uuid.Nil():
-	case inv == nil:
+	case !create:
 		return domain.User{}, refusal(reasonNoMembership)
 	default:
 		user = domain.User{Name: displayName(c), Email: c.Email, EmailVerified: proven}
@@ -190,6 +218,15 @@ func accept(ctx context.Context, tx store.Store, inv domain.Invitation, userID u
 // A suspended member stays out: only whoever suspended them can undo it.
 // Every change is audited as by.
 func Join(ctx context.Context, tx store.Store, accountID, userID uuid.UUID, source domain.Source, grants []domain.Grant, by domain.Actor) error {
+	// One join at a time per organization, so a setup link, which only makes
+	// the first Owner, can check that nobody joined (claimSetupLink).
+	if err := tx.Accounts().Lock(ctx, accountID); err != nil {
+		return err
+	}
+	return join(ctx, tx, accountID, userID, source, grants, by)
+}
+
+func join(ctx context.Context, tx store.Store, accountID, userID uuid.UUID, source domain.Source, grants []domain.Grant, by domain.Actor) error {
 	m, err := tx.Memberships().Get(ctx, accountID, userID)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
@@ -289,7 +326,7 @@ func (s *Service) listedAdmin(ctx context.Context, st store.Store, u domain.User
 // instance admins sign in without a membership; they enter an organization
 // through a switch, which is audited. An organization's connection opens that
 // organization and no other: its provider vouches for nothing else.
-func organization(ctx context.Context, tx store.Store, u domain.User, conn domain.Connection, slug string, inv *domain.Invitation) (uuid.UUID, error) {
+func organization(ctx context.Context, tx store.Store, u domain.User, conn domain.Connection, slug string, invited uuid.UUID) (uuid.UUID, error) {
 	memberships, err := tx.Memberships().ListByUser(ctx, u.ID)
 	if err != nil {
 		return uuid.Nil(), err
@@ -304,8 +341,8 @@ func organization(ctx context.Context, tx store.Store, u domain.User, conn domai
 		return uuid.Nil(), refusal(reasonNoMembership)
 	}
 	want := conn.AccountID
-	if inv != nil {
-		want = inv.AccountID
+	if invited != uuid.Nil() {
+		want = invited
 	} else if slug != "" {
 		a, err := tx.Accounts().GetBySlug(ctx, slug)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {

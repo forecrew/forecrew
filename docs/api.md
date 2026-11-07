@@ -36,6 +36,12 @@ OAuth access tokens (`fca_...`, docs/mcp.md) are for `/mcp` and get `401` here.
   this site to return to) sends the browser
   to the provider; `GET /auth/<connection>/callback` finishes the sign-in and
   redirects to `/`. These are outside `/api/v1`, and a refusal is an HTML page.
+- `POST /auth/setup` (public) takes `{"token": "fcu_..."}`, the token of the
+  setup link `forecrew setup-link` printed (in the part of the link after `#`),
+  and answers `{"organization": "<name>"}` with the `HttpOnly` cookie `fc_setup`
+  (15 minutes, path `/auth/`) that the next sign-in spends to make its person an
+  Owner of that organization. A token that is wrong, expired or used gets the same
+  `404` with `{"error": "..."}`. It does not use the link up: only the sign-in does.
 - A sign-in resolves to a user by identity, then by verified email (only
   through an instance connection or an organization's connection for a domain
   it verified), then by the invitation of the link. Anyone else is refused.
