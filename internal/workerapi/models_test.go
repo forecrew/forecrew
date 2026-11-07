@@ -1,6 +1,7 @@
 package workerapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -53,11 +54,28 @@ func newModelsEnv(t *testing.T, hosted bool) *modelsEnv {
 	return m
 }
 
-// connect gives role developer of account a connection called main with key.
+// connect gives role developer of account a connection called main with key,
+// authorized for the code of every project.
 func (m *modelsEnv) connect(t *testing.T, account uuid.UUID, ref, key string) {
 	t.Helper()
+	c := m.connectTo(t, account, ref, key, "")
+	m.authorize(t, c, uuid.Nil())
+}
+
+// authorize lets c receive the private code of project, or of every project.
+func (m *modelsEnv) authorize(t *testing.T, c domain.ModelConnection, project uuid.UUID) {
+	t.Helper()
+	a := domain.ModelAuthorization{AccountID: c.AccountID, ProjectID: project, ConnectionID: c.ID, Connection: c.Name, Adapter: c.Adapter, BaseURL: c.BaseURL, AuthorizedBy: "user:ana"}
+	if err := m.st.ModelAuthorizations().Put(t.Context(), &a); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// connectTo is connect without the authorization, to baseURL.
+func (m *modelsEnv) connectTo(t *testing.T, account uuid.UUID, ref, key, baseURL string) domain.ModelConnection {
+	t.Helper()
 	ctx := t.Context()
-	c := domain.ModelConnection{AccountID: account, Name: "main", Vendor: "acme", Adapter: config.AdapterClaudeCode, SecretRef: "store:models/" + ref, Enabled: true, UpdatedBy: "user:ana"}
+	c := domain.ModelConnection{AccountID: account, Name: "main", Vendor: "acme", Adapter: config.AdapterClaudeCode, BaseURL: baseURL, SecretRef: "store:models/" + ref, Enabled: true, UpdatedBy: "user:ana"}
 	if err := m.st.ModelConnections().Put(ctx, &c); err != nil {
 		t.Fatal(err)
 	}
@@ -69,6 +87,7 @@ func (m *modelsEnv) connect(t *testing.T, account uuid.UUID, ref, key string) {
 	if err := m.st.ModelAssignments().Put(ctx, &a); err != nil {
 		t.Fatal(err)
 	}
+	return c
 }
 
 // organization adds another account with a project and a worker.
@@ -254,5 +273,96 @@ func TestALeaseRaceDoesNotReachAnOlderWorker(t *testing.T) {
 	j := m.developerJob(t, m.account, m.project)
 	if _, err := m.server.withSecrets(t.Context(), w, j); !errors.Is(err, errNoConnection) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// waitsForPrivateCode checks that a job of the project waits for an
+// authorization: no worker gets it, and job_status says why.
+func (m *modelsEnv) waitsForPrivateCode(t *testing.T, token string, j domain.Job) {
+	t.Helper()
+	if status, _ := m.poll(t, token); status != http.StatusNoContent {
+		t.Fatalf("poll: status %d", status)
+	}
+	v, err := m.jobs.Status(t.Context(), m.account, j.ID)
+	if err != nil || v.Status != domain.JobQueued || v.Runtime != domain.RuntimeNone || v.ReasonCode != models.ReasonPrivateCode || !strings.Contains(v.Reason, "main@app") {
+		t.Fatalf("job = %+v, %v", v, err)
+	}
+}
+
+// TestPrivateCodeNeedsAnAuthorization: a private repo's job does not run on
+// an organization's connection that is not authorized for its project, at
+// creation and at lease, and never falls back to the server's key; an
+// authorization lets it run, and revoking it stops the next job.
+func TestPrivateCodeNeedsAnAuthorization(t *testing.T) {
+	m := newModelsEnv(t, false)
+	ctx := t.Context()
+	_, token := m.addWorker(t, "a")
+	c := m.connectTo(t, m.account, "main", "key-org", "")
+
+	// At creation, the decision of the job creator waits.
+	d, err := m.svc.Decide(ctx, m.account, models.Request{ProjectID: m.project.ID, Role: "developer"})
+	if err != nil || d.Waiting == "" || d.Code != models.ReasonPrivateCode || d.Adapter != "" {
+		t.Fatalf("decide = %+v, %v", d, err)
+	}
+	j := m.developerJob(t, m.account, m.project)
+	// At lease, the grant refuses whatever the job's runtime says.
+	if g, err := m.svc.Grant(ctx, j); err != nil || g.Waiting == "" || g.Env != nil {
+		t.Fatalf("grant = %+v, %v", g, err)
+	}
+	m.waitsForPrivateCode(t, token, j)
+
+	// Another project's authorization does not count.
+	other := domain.Project{AccountID: m.account, Name: "web", Repo: "acme/web", DefaultBranch: "main", Status: domain.ProjectOnboarded}
+	if err := m.st.Projects().Create(ctx, &other); err != nil {
+		t.Fatal(err)
+	}
+	m.authorize(t, c, other.ID)
+	m.waitsForPrivateCode(t, token, j)
+
+	m.authorize(t, c, m.project.ID)
+	if got := m.lease(t, token).Job; got.JobID != j.ID || got.Env["ANTHROPIC_API_KEY"] != "key-org" {
+		t.Fatalf("lease = %+v", got)
+	}
+
+	// Revoking stops new jobs.
+	if err := m.st.ModelAuthorizations().Delete(ctx, m.account, c.ID, m.project.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, token2 := m.addWorker(t, "b")
+	next := m.developerJob(t, m.account, m.project)
+	m.waitsForPrivateCode(t, token2, next)
+
+	// An authorization of another endpoint does not count either.
+	m.authorize(t, c, m.project.ID)
+	m.connectTo(t, m.account, "main", "key-org", "https://elsewhere.example.com")
+	m.waitsForPrivateCode(t, token2, next)
+}
+
+// TestALocalConnectionNeedsNoAuthorization: code that stays on your own
+// network needs no authorization.
+func TestALocalConnectionNeedsNoAuthorization(t *testing.T) {
+	m := newModelsEnv(t, false)
+	_, token := m.addWorker(t, "a")
+	m.connectTo(t, m.account, "main", "key-org", "http://10.1.2.3:8080")
+	j := m.developerJob(t, m.account, m.project)
+	if got := m.lease(t, token).Job; got.JobID != j.ID || got.Endpoint == nil || got.Endpoint.BaseURL != "http://10.1.2.3:8080" {
+		t.Fatalf("lease = %+v", got)
+	}
+}
+
+// TestAPublicRepoIsNotBlocked: GitHub says the repo is public, so its code
+// goes anywhere; when GitHub does not answer, the repo counts as private.
+func TestAPublicRepoIsNotBlocked(t *testing.T) {
+	m := newModelsEnv(t, false)
+	_, token := m.addWorker(t, "a")
+	m.connectTo(t, m.account, "main", "key-org", "")
+	down := errors.New("github down")
+	answer := down
+	m.svc.WithPublicRepo(func(_ context.Context, r string) (bool, error) { return r == repo, answer }, m.clock.Now)
+	j := m.developerJob(t, m.account, m.project)
+	m.waitsForPrivateCode(t, token, j)
+	answer = nil
+	if got := m.lease(t, token).Job; got.JobID != j.ID {
+		t.Fatalf("lease = %+v", got)
 	}
 }

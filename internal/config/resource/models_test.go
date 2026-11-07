@@ -451,7 +451,9 @@ func TestMovingARoleNeedsTheBrowser(t *testing.T) {
 	for name, change := range moves {
 		t.Run(name, func(t *testing.T) {
 			p := w.plan(w.owner, change)
-			if len(p.LowersProtection) != 1 || p.ConfirmWord != "acme" {
+			// A project's new connection also needs its private code
+			// authorized, which the plan says too.
+			if len(p.LowersProtection) < 1 || p.ConfirmWord != "acme" {
 				t.Fatalf("plan = %+v", p)
 			}
 			_, err := w.engine.Apply(ctx, w.owner, resource.Confirmation{Plan: p.ID, Word: p.ConfirmWord})
