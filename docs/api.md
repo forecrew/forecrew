@@ -191,7 +191,7 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/service-accounts/{service_account}/disable`, `.../enable` | `set_service_account_disabled` | body optional | `200` service account |
 | `GET /api/v1/tracker-connections` | `list_tracker_connections` | | `200` connections |
 | `POST /api/v1/tracker-connections` | `create_tracker_connection` | `{"name", "kind", "config", "triggers": {"assignee", "label", "state"}}` | `201` connection; `400` when the adapter refuses it; `409` when the name is taken |
-| `DELETE /api/v1/tracker-connections/{connection}` | `delete_tracker_connection` | `{connection}` is a name or UUID | `200` the connection; `409` while it has live tickets |
+| `DELETE /api/v1/tracker-connections/{connection}` | `delete_tracker_connection` | `{connection}` is a name or UUID | `200` the connection; `409` while it has live tickets or unsent writes |
 | `GET /api/v1/tracker-routes?connection=` | `list_tracker_routes` | optional | `200` routes in order, with `connection` and `project` |
 | `POST /api/v1/tracker-routes` | `create_tracker_route` | `{"connection", "project", "position", "match": {"project", "types", "labels", "components"}, "goal_kind", "playbook", "states"}` | `201` route |
 | `DELETE /api/v1/tracker-routes/{route}` | `delete_tracker_route` | | `200` the route |
