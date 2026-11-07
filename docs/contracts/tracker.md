@@ -216,7 +216,8 @@ comment says so. A queued or waiting ticket that closes leaves.
 Approvals stay in Forecrew: a comment never resolves a gate. A mapped user may
 answer an agent's `ask_human` question with `@forecrew reply <text>`; the
 answer reaches the agent marked untrusted, and needs
-`gate.approve.needs_you`. Anyone else's reply is ignored and audited.
+`gate.approve.needs_you`. A comment counts once: read again after a failure it
+answers nothing, and an answer that did not go through says so on the ticket. Anyone else's reply is ignored and audited.
 
 ## GitHub Issues
 
