@@ -13,7 +13,7 @@ cmd=${1:-}
 [ $# -gt 0 ] && shift
 
 pass=none
-[ -n "${TART_REGISTRY_PASSWORD:-}" ] && pass=set
+[ -n "${TART_REGISTRY_PASSWORD:-}" ] && pass="set"
 echo "$cmd $* | registry-password=$pass home=$HOME agent-secret=${FORECREW_PROVIDER_TOKEN:-unset}" >>"$home/calls.log"
 
 if [ -f "$home/fail-$cmd" ]; then
@@ -58,7 +58,9 @@ get)
 	n=$1
 	exists "$n" || die "the VM \"$n\" does not exist"
 	if alive "$n"; then r=true s=running; else r=false s=stopped; fi
-	printf '{"OS":"darwin","CPU":4,"Memory":8192,"Disk":%s,"DiskFormat":"raw","Size":20,"Display":"1024x768px","MACAddress":"aa:bb","Running":%s,"State":"%s"}\n' "$(cat "$home/vms/$n/disk")" "$r" "$s"
+	disk=$(cat "$home/vms/$n/disk")
+	[ -f "$home/disk-null" ] && disk=null
+	printf '{"OS":"darwin","CPU":4,"Memory":8192,"Disk":%s,"DiskFormat":"raw","Size":20,"Display":"1024x768px","MACAddress":"aa:bb","Running":%s,"State":"%s"}\n' "$disk" "$r" "$s"
 	;;
 pull)
 	mkdir -p "$home/cache"

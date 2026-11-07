@@ -30,9 +30,10 @@ type cli struct {
 
 // vmInfo is a line of `tart list --format json`.
 type vmInfo struct {
-	Source  string `json:"Source"`
-	Name    string `json:"Name"`
-	Disk    int    `json:"Disk"`
+	Source string `json:"Source"`
+	Name   string `json:"Name"`
+	// Disk is null while a running VM holds its disk open: unknown.
+	Disk    *int   `json:"Disk"`
 	Running bool   `json:"Running"`
 	State   string `json:"State"`
 }
@@ -74,13 +75,31 @@ func (c cli) do(ctx context.Context, withRegistry bool, stdin string, args ...st
 	cmd := exec.CommandContext(ctx, c.bin, args...) // #nosec G204 -- the operator's command with arguments of this package
 	cmd.Env = env
 	cmd.Stdin = strings.NewReader(stdin)
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
+	out, errb := &capBuffer{}, &capBuffer{}
+	cmd.Stdout, cmd.Stderr = out, errb
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("tart %s: %w: %s", args[0], err, snippet(append(errb.Bytes(), out.Bytes()...), secret))
 	}
 	return out.String(), nil
 }
+
+// maxOutput bounds what is kept of a command's output: a guest chooses what
+// `tart exec` prints, and must not fill the agent's memory with it.
+const maxOutput = 1 << 20
+
+// capBuffer keeps the first maxOutput bytes written to it and drops the rest,
+// still reading it all so the command is never blocked.
+type capBuffer struct{ buf bytes.Buffer }
+
+func (c *capBuffer) Write(p []byte) (int, error) {
+	if room := maxOutput - c.buf.Len(); room > 0 {
+		c.buf.Write(p[:min(len(p), room)])
+	}
+	return len(p), nil
+}
+
+func (c *capBuffer) Bytes() []byte  { return c.buf.Bytes() }
+func (c *capBuffer) String() string { return c.buf.String() }
 
 func (c cli) version(ctx context.Context) (string, error) {
 	out, err := c.do(ctx, false, "", "--version")

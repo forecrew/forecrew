@@ -167,3 +167,24 @@ func TestConfig(t *testing.T) {
 		t.Error("bad references named a variable")
 	}
 }
+
+func TestOutputIsCapped(t *testing.T) {
+	var c capBuffer
+	chunk := strings.Repeat("x", 1<<19)
+	for range 5 {
+		if n, err := c.Write([]byte(chunk)); n != len(chunk) || err != nil {
+			t.Fatalf("write = %d, %v", n, err)
+		}
+	}
+	if len(c.Bytes()) != maxOutput || len(c.String()) != maxOutput {
+		t.Errorf("kept %d bytes", len(c.Bytes()))
+	}
+	// A command that prints a lot is neither blocked nor kept whole.
+	dir := t.TempDir()
+	script := filepath.Join(dir, "tart")
+	_ = os.WriteFile(script, []byte("#!/bin/sh\nyes | head -c 5000000\nexit 1\n"), 0o700) // #nosec G306 -- a test
+	err := (cli{bin: script, home: dir}).exec(t.Context(), "", "vm", "true")
+	if err == nil || len(err.Error()) > 1000 {
+		t.Errorf("error = %v", err)
+	}
+}
