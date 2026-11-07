@@ -52,6 +52,13 @@ func (c *Catalog) Toolbox(name string) (toolbox, known bool) {
 	return ok && d.Toolbox != nil, ok
 }
 
+// Writes reports whether a role writes code: it has write paths. An unknown
+// role counts as writing.
+func (c *Catalog) Writes(name string) bool {
+	d, ok := c.defs[name]
+	return !ok || len(d.WritePaths) > 0
+}
+
 // New loads the role files from fsys (see Load) and checks them against cfg:
 // every role cfg configures must exist, and separation of duties must hold
 // (config.Config.SameVendorReview): the reviewer uses a model of another

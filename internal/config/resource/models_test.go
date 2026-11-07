@@ -2,6 +2,7 @@ package resource_test
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"uuid"
@@ -460,7 +461,8 @@ func TestMovingARoleNeedsTheBrowser(t *testing.T) {
 			wantErr(t, err, mcp.ErrConflict)
 		})
 	}
-	// Tiers alone move no code.
+	// Tiers alone move no code, on a model that passed its test.
+	w.tested("acme", "m3", domain.LevelCode)
 	tiers := assignment("acme")
 	tiers["tiers"] = map[string]any{"strong": map[string]any{"acme": "m3", "zeta": "m2"}}
 	if p := w.plan(w.owner, wanted(t, "model_assignment", "organization", tiers)); len(p.LowersProtection) != 0 {
@@ -471,4 +473,15 @@ func TestMovingARoleNeedsTheBrowser(t *testing.T) {
 	if p := w.plan(w.owner, mcp.ConfigWanted{Kind: "model_assignment", Name: "project:app", Delete: true}); len(p.LowersProtection) != 1 {
 		t.Fatalf("delete = %v", p.LowersProtection)
 	}
+}
+
+// tested records a test of model on connection that ended at level.
+func (w *world) tested(connection, model, level string) {
+	w.t.Helper()
+	rows, err := w.st.ModelConnections().List(w.t.Context(), w.account.ID)
+	check(w.t, err)
+	i := slices.IndexFunc(rows, func(c domain.ModelConnection) bool { return c.Name == connection })
+	c := domain.ModelCheck{AccountID: w.account.ID, ConnectionID: rows[i].ID, Connection: connection, Model: model, JobID: domain.NewID(), Status: domain.SuitabilityDone,
+		CreatedBy: "user:ana", Test: &domain.SuitabilityResult{Level: level}}
+	check(w.t, w.st.ModelChecks().Put(w.t.Context(), &c))
 }

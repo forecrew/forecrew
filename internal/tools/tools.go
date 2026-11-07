@@ -150,6 +150,9 @@ type Config struct {
 	// Roles says whether a role runs in a toolbox and whether it exists, for
 	// plans that assign models; nil checks nothing.
 	RoleToolbox func(role string) (toolbox, known bool)
+	// RoleWrites says whether a role writes code, for plans that assign a
+	// model its test did not pass; nil counts every role as writing.
+	RoleWrites func(role string) bool
 }
 
 // Service is the mcp.ToolService.
@@ -185,7 +188,7 @@ func New(cfg Config) *Service {
 	s := &Service{EnterpriseTools: cfg.Enterprise, cfg: cfg, authz: engine, people: &peopleCache{}}
 	s.config = cfgres.NewEngine(cfgres.Config{
 		Store: cfg.Store, Access: func(st store.Store) cfgres.Access { return s.in(st) }, Server: cfg.Server, Getenv: cfg.Getenv, CheckSchedule: cfg.CheckSchedule,
-		Repo: cfg.Repo, Secrets: cfg.Secrets, Roles: cfg.RoleToolbox, Logger: cfg.Logger, Now: cfg.Now,
+		Repo: cfg.Repo, Secrets: cfg.Secrets, Roles: cfg.RoleToolbox, RoleWrites: cfg.RoleWrites, Logger: cfg.Logger, Now: cfg.Now,
 	})
 	return s
 }
