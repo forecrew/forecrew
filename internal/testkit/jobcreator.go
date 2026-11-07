@@ -43,7 +43,7 @@ func (c *JobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 		Spec: domain.JobSpec{
 			Repo: req.Repo, BaseRef: req.BaseRef, Branch: req.Branch, Role: req.Role, IncludeRepoFacts: req.IncludeRepoFacts,
 			Command: req.Command, Environment: req.Environment, Cell: req.Cell, Suite: req.Suite, Overlay: req.Overlay,
-			LockedPaths: req.LockedPaths,
+			LockedPaths: req.LockedPaths, WritePaths: req.WritePaths,
 		},
 	}
 	if req.Kind == domain.JobKindCommand {

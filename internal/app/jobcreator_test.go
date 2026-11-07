@@ -138,6 +138,34 @@ func TestJobCreatorLockedPaths(t *testing.T) {
 	}
 }
 
+// A read-only role writes the paths a request adds, in a pool that gives a
+// write token; the paths are checked like the locked ones.
+func TestJobCreatorWritePaths(t *testing.T) {
+	f := newFixture(t)
+	req := f.request("architect")
+	req.Branch, req.Pool, req.WritePaths = "agent/adr-GOAL-1", domain.PoolBuild, []string{"docs/adr/**"}
+	id, err := f.creator.Create(t.Context(), req)
+	must(t, err)
+	j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+	must(t, err)
+	if !slices.Contains(j.Spec.WritePaths, "docs/adr/**") {
+		t.Errorf("write_paths = %v", j.Spec.WritePaths)
+	}
+	// Without them the role stays read-only.
+	req.WritePaths = nil
+	id, err = f.creator.Create(t.Context(), req)
+	must(t, err)
+	if j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id); err != nil || len(j.Spec.WritePaths) != 0 {
+		t.Errorf("job = %+v, %v", j.Spec.WritePaths, err)
+	}
+	for _, bad := range []string{"!docs/**", "/etc/**", "a\n# injected", "a`b"} {
+		req.WritePaths = []string{bad}
+		if _, err := f.creator.Create(t.Context(), req); !errors.Is(err, jobs.ErrInvalid) {
+			t.Errorf("%q: err = %v, want ErrInvalid", bad, err)
+		}
+	}
+}
+
 func TestJobCreatorReadOnlyBranchAndOverrides(t *testing.T) {
 	f := newFixture(t)
 	req := f.request("reviewer")
@@ -356,6 +384,7 @@ func TestJobCreatorCommandErrors(t *testing.T) {
 		"role":           func(r *workflow.JobRequest) { r.Role = "developer" },
 		"pool":           func(r *workflow.JobRequest) { r.Pool = domain.PoolControl },
 		"locked paths":   func(r *workflow.JobRequest) { r.LockedPaths = []string{"a_test.go"} },
+		"write paths":    func(r *workflow.JobRequest) { r.WritePaths = []string{"docs/**"} },
 		"another repo":   func(r *workflow.JobRequest) { r.Repo = "acme/other" },
 		"secret env":     func(r *workflow.JobRequest) { r.Command.Env = map[string]string{"API_TOKEN": "x"} },
 	}
