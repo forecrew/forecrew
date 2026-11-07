@@ -419,6 +419,13 @@ func (r connectionRepo) Create(_ context.Context, c *domain.Connection) error {
 	})
 }
 
+// Lock only checks that the row exists: a transaction of the fake store
+// already excludes every other one.
+func (r connectionRepo) Lock(ctx context.Context, id uuid.UUID) error {
+	_, err := r.Get(ctx, id)
+	return err
+}
+
 func (r connectionRepo) Get(_ context.Context, id uuid.UUID) (domain.Connection, error) {
 	return getRow(r.s, connectionsT, uuid.Nil(), id)
 }

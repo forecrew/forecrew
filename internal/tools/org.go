@@ -403,6 +403,44 @@ func (s *Service) CreateConnection(ctx context.Context, by domain.Actor, in mcp.
 	return s.connectionInfo(c, nil), nil
 }
 
+// setEnabledLocked is SetConnectionEnabled in the transaction tx. The row of c
+// is locked, so a test is not recorded or cleared between the check and the
+// write, and read again as it is under the lock. It returns the connection as
+// it is then and whether it is tested.
+func (s *Service) setEnabledLocked(ctx context.Context, tx store.Store, by domain.Actor, c domain.Connection, in mcp.SetConnectionInput) (domain.Connection, map[uuid.UUID]bool, error) {
+	if err := tx.Connections().Lock(ctx, c.ID); err != nil {
+		return c, nil, err
+	}
+	rows, err := tx.Connections().List(ctx, by.AccountID)
+	if err != nil {
+		return c, nil, err
+	}
+	j := slices.IndexFunc(rows, func(x domain.Connection) bool { return x.ID == c.ID })
+	if j < 0 {
+		return c, nil, fmt.Errorf("connection %s: %w", in.Connection, mcp.ErrNotFound)
+	}
+	c = rows[j]
+	tested, err := signintest.Tested(ctx, tx, by.AccountID, []domain.Connection{c})
+	if err != nil {
+		return c, nil, err
+	}
+	if c.Enabled == in.Enabled { // already so: nothing to change or to audit
+		return c, tested, nil
+	}
+	if in.Enabled && !tested[c.ID] {
+		return c, nil, fmt.Errorf("connection %s has no test sign-in that worked yet for its current kind, issuer, client ID and secret reference: open its test_url and sign in once: %w", c.Name, mcp.ErrConflict)
+	}
+	c.Enabled = in.Enabled
+	action := "connection.disabled"
+	if in.Enabled {
+		action = "connection.enabled"
+	}
+	if err := tx.Connections().Update(ctx, &c); err != nil {
+		return c, nil, err
+	}
+	return c, tested, s.audit(ctx, tx, by, uuid.Nil(), action, "connection", c.ID, map[string]any{"name": c.Name})
+}
+
 // SetConnectionEnabled implements mcp.ToolService.
 func (s *Service) SetConnectionEnabled(ctx context.Context, by domain.Actor, in mcp.SetConnectionInput) (mcp.ConnectionInfo, error) {
 	if err := s.allowOrg(ctx, by, domain.PermConnectionManage); err != nil {
@@ -427,23 +465,11 @@ func (s *Service) SetConnectionEnabled(ctx context.Context, by domain.Actor, in 
 		return mcp.ConnectionInfo{}, fmt.Errorf("connection %s: %w", in.Connection, mcp.ErrNotFound)
 	}
 	c := own[i]
-	tested, err := signintest.Tested(ctx, s.cfg.Store, by.AccountID, []domain.Connection{c})
-	if err != nil {
-		return mcp.ConnectionInfo{}, err
-	}
-	if in.Enabled && !tested[c.ID] {
-		return mcp.ConnectionInfo{}, fmt.Errorf("connection %s has no test sign-in that worked yet: open its test_url and sign in once: %w", c.Name, mcp.ErrConflict)
-	}
-	c.Enabled = in.Enabled
-	action := "connection.disabled"
-	if in.Enabled {
-		action = "connection.enabled"
-	}
+	var tested map[uuid.UUID]bool
 	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
-		if err := tx.Connections().Update(ctx, &c); err != nil {
-			return err
-		}
-		return s.audit(ctx, tx, by, uuid.Nil(), action, "connection", c.ID, map[string]any{"name": c.Name})
+		var err error
+		c, tested, err = s.setEnabledLocked(ctx, tx, by, c, in)
+		return err
 	})
 	if err != nil {
 		return mcp.ConnectionInfo{}, err

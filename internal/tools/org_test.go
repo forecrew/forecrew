@@ -298,6 +298,18 @@ func TestConnectionTools(t *testing.T) {
 	if !on.Enabled || !on.Tested {
 		t.Fatalf("enabled = %+v", on)
 	}
+	// Turning on what is on is no change, and no audit entry.
+	audited := func() int {
+		entries, err := f.st.Audit().List(ctx, admin.AccountID, store.AuditFilter{SubjectID: c.ID, Action: "connection.enabled"})
+		must(t, err)
+		return len(entries)
+	}
+	before := audited()
+	again, err := f.svc.SetConnectionEnabled(ctx, admin, mcp.SetConnectionInput{Connection: "okta", Enabled: true})
+	must(t, err)
+	if !again.Enabled || !again.Tested || audited() != before {
+		t.Fatalf("enabled again = %+v, entries %d, was %d", again, audited(), before)
+	}
 	off, err := f.svc.SetConnectionEnabled(ctx, admin, mcp.SetConnectionInput{Connection: "okta"})
 	must(t, err)
 	if off.Enabled {

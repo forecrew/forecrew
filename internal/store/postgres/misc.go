@@ -444,13 +444,17 @@ func scanAudit(row pgx.Row) (e domain.AuditEntry, err error) {
 	return e, err
 }
 
+// Append stamps the entry with the time of the write, not of the start of the
+// transaction (clock_timestamp, not now): entries written one after the other
+// under a row lock, as a connection's test and its clearing are, then sort in
+// that order however early each transaction began.
 func (r auditRepo) Append(ctx context.Context, e *domain.AuditEntry) error {
 	e.ID = newID(e.ID)
 	if err := owned(ctx, r.db, e.AccountID, ref{"projects", e.ProjectID}); err != nil {
 		return err
 	}
-	return mapErr(r.db.QueryRow(ctx, `INSERT INTO audit_log (id, account_id, project_id, actor, credential, action, subject_type, subject_id, data)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING created_at`,
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO audit_log (id, account_id, project_id, actor, credential, action, subject_type, subject_id, data, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, clock_timestamp()) RETURNING created_at`,
 		e.ID, e.AccountID, opt(e.ProjectID), e.Actor, opt(e.Credential), e.Action, e.SubjectType, opt(e.SubjectID), optJSON(e.Data)).Scan(&e.CreatedAt))
 }
 

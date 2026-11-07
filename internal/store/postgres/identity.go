@@ -350,6 +350,11 @@ func (r connectionRepo) Create(ctx context.Context, c *domain.Connection) error 
 		c.ID, opt(c.AccountID), c.Kind, c.Name, c.Issuer, c.ClientID, c.ClientSecretRef, jit, c.GroupClaim, c.Enabled).Scan(&c.CreatedAt, &c.UpdatedAt))
 }
 
+func (r connectionRepo) Lock(ctx context.Context, id uuid.UUID) error {
+	var locked int
+	return mapErr(r.db.QueryRow(ctx, `SELECT 1 FROM connections WHERE id = $1 FOR UPDATE`, id).Scan(&locked))
+}
+
 func (r connectionRepo) Get(ctx context.Context, id uuid.UUID) (domain.Connection, error) {
 	return one(ctx, r.db, scanConnection, `SELECT `+connectionCols+` FROM connections WHERE id = $1`, id)
 }

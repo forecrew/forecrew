@@ -13,6 +13,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/signintest"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
@@ -542,5 +543,74 @@ func TestIdentityRepos(t *testing.T) {
 	list, err := f.st.Audit().List(ctx, f.account, store.AuditFilter{Limit: 1})
 	if err != nil || len(list) != 1 || list[0].Credential != "token:"+tok.ID.String() || list[0].Actor != "user:"+owner.String() {
 		t.Fatalf("audit = %+v, %v", list, err)
+	}
+}
+
+// TestConnectionTestOrder: what records a connection's test and what clears
+// it run one after the other, in the order of the lock, and the entries sort
+// in that order however early each transaction began.
+func TestConnectionTestOrder(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	by := domain.SystemActor(f.account, domain.ForecrewdName)
+	c := domain.Connection{AccountID: f.account, Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://a.example.com", ClientID: "c1", ClientSecretRef: "env:FORECREW_CONN_OKTA"}
+	must(t, f.st.Connections().Create(ctx, &c))
+	valid := func() bool {
+		t.Helper()
+		ok, err := signintest.Valid(ctx, f.st, c)
+		must(t, err)
+		return ok
+	}
+
+	// A transaction that begins first but takes the lock last, as a plan
+	// being applied while a test sign-in ends, clears a test that was
+	// recorded after the transaction began.
+	started, proceed, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		done <- f.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+			close(started)
+			<-proceed
+			if err := tx.Connections().Lock(ctx, c.ID); err != nil {
+				return err
+			}
+			return signintest.Clear(ctx, tx, by, c)
+		})
+	}()
+	<-started
+	must(t, signintest.Record(ctx, f.st, by, c))
+	close(proceed)
+	must(t, <-done)
+	if valid() {
+		t.Fatal("a test recorded before the clearing is valid: the entries sort by the start of the transaction")
+	}
+
+	// The lock holds a test back until the transaction that has it ends.
+	locked, release, held := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		held <- f.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+			if err := tx.Connections().Lock(ctx, c.ID); err != nil {
+				return err
+			}
+			close(locked)
+			<-release
+			return nil
+		})
+	}()
+	<-locked
+	recorded := make(chan error, 1)
+	go func() { recorded <- signintest.Record(ctx, f.st, by, c) }()
+	select {
+	case err := <-recorded:
+		t.Fatalf("a test was recorded under the lock of another transaction: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(release)
+	must(t, <-held)
+	must(t, <-recorded)
+	if !valid() {
+		t.Fatal("test recorded after the lock ended is not valid")
+	}
+	if err := f.st.Connections().Lock(ctx, uuid.New()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("lock of no row: %v", err)
 	}
 }

@@ -1,9 +1,12 @@
 // Package signintest is the rule that a sign-in connection is turned on only
-// after a test sign-in worked (identity.md, Connections). A worked test is an
-// audit entry that names what it vouches for: the kind, issuer, client ID and
-// client secret reference the provider answered to. A connection is tested
-// only while those are still what the newest entry names, so changing any of
-// them, through any path, takes the test away, and a later test is needed.
+// after a test sign-in worked (contracts/identity.md, Connections: a test
+// sign-in vouches for the connection's kind, issuer, client ID and secret
+// reference). A worked test is an audit entry that names what it vouches for:
+// those four fields, as a fingerprint. A connection is tested only while they
+// are still what the newest entry names, so changing any of them, through any
+// path including config plans, takes the test away, and a later test is
+// needed. Whatever records or clears a test holds the lock of the connection
+// row (store.ConnectionRepo.Lock), so the two cannot interleave.
 package signintest
 
 import (
@@ -39,14 +42,31 @@ type data struct {
 	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
-// Record audits that a test sign-in of c worked, as by.
+// Record audits that a test sign-in of c worked, as by. It holds the lock of
+// the connection's row and refuses (store.ErrConflict) when the row no longer
+// has the values c was tested with, as a test of values that are gone vouches
+// for nothing and must not come back when they do.
 func Record(ctx context.Context, st store.Store, by domain.Actor, c domain.Connection) error {
-	return append1(ctx, st, by, ActionTested, c, data{Fingerprint: Fingerprint(c)})
+	return st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		if err := tx.Connections().Lock(ctx, c.ID); err != nil {
+			return err
+		}
+		stored, err := tx.Connections().Get(ctx, c.ID)
+		if err != nil {
+			return err
+		}
+		if Fingerprint(stored) != Fingerprint(c) {
+			return fmt.Errorf("connection %s changed while it was tested: %w", c.Name, store.ErrConflict)
+		}
+		return append1(ctx, tx, by, ActionTested, c, data{Fingerprint: Fingerprint(c)})
+	})
 }
 
 // Clear audits that the test of c no longer holds, because what it vouches
-// for changed. Without it, changing back to the tested values would bring the
-// old test back. It does nothing for a connection that was never tested.
+// for (kind, issuer, client ID, secret reference) changed. Without it,
+// changing back to the tested values would bring the old test back. It does
+// nothing for a connection that was never tested. The caller holds the lock
+// of the connection's row.
 func Clear(ctx context.Context, st store.Store, by domain.Actor, c domain.Connection) error {
 	ok, err := Valid(ctx, st, c)
 	if err != nil || !ok {
@@ -65,7 +85,7 @@ func append1(ctx context.Context, st store.Store, by domain.Actor, action string
 }
 
 // Valid reports whether c has a test sign-in that worked for its current
-// issuer and client ID.
+// kind, issuer, client ID and secret reference.
 func Valid(ctx context.Context, st store.Store, c domain.Connection) (bool, error) {
 	m, err := Tested(ctx, st, c.AccountID, []domain.Connection{c})
 	return m[c.ID], err
@@ -75,30 +95,24 @@ func Valid(ctx context.Context, st store.Store, c domain.Connection) (bool, erro
 // it has such a test.
 func Tested(ctx context.Context, st store.Store, accountID uuid.UUID, conns []domain.Connection) (map[uuid.UUID]bool, error) {
 	out := map[uuid.UUID]bool{}
-	if len(conns) == 0 {
-		return out, nil
-	}
-	entries, err := st.Audit().List(ctx, accountID, store.AuditFilter{SubjectType: "connection"})
-	if err != nil {
-		return nil, err
-	}
-	want := map[uuid.UUID]string{}
 	for _, c := range conns {
-		want[c.ID] = Fingerprint(c)
-	}
-	seen := map[uuid.UUID]bool{}
-	for _, e := range entries { // newest first: the first of either action decides
-		fp, ok := want[e.SubjectID]
-		if !ok || seen[e.SubjectID] || (e.Action != ActionTested && e.Action != ActionCleared) {
-			continue
+		// By subject, so the index on it serves; newest first, the first
+		// entry of either action decides.
+		entries, err := st.Audit().List(ctx, accountID, store.AuditFilter{SubjectType: "connection", SubjectID: c.ID})
+		if err != nil {
+			return nil, err
 		}
-		seen[e.SubjectID] = true
-		if e.Action != ActionTested {
-			continue
+		for _, e := range entries {
+			if e.Action != ActionTested && e.Action != ActionCleared {
+				continue
+			}
+			if e.Action == ActionTested {
+				var d data
+				_ = json.Unmarshal(e.Data, &d) // an entry from before fingerprints vouches for nothing
+				out[c.ID] = d.Fingerprint == Fingerprint(c)
+			}
+			break
 		}
-		var d data
-		_ = json.Unmarshal(e.Data, &d) // an entry from before fingerprints vouches for nothing
-		out[e.SubjectID] = d.Fingerprint == fp
 	}
 	return out, nil
 }
