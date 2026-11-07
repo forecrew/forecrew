@@ -115,6 +115,9 @@ func (r trackerConnRepo) Delete(_ context.Context, accountID, id uuid.UUID) erro
 		if t.links.exists(func(l domain.TicketLink) bool { return l.ConnectionID == id && l.Status.Live() }) {
 			return store.ErrConflict
 		}
+		if t.outbox.exists(func(w domain.TrackerWrite) bool { return w.ConnectionID == id && w.SentAt.IsZero() }) {
+			return store.ErrConflict
+		}
 		t.connections.rows = slices.DeleteFunc(t.connections.rows, func(c domain.TrackerConnection) bool { return c.ID == id })
 		t.identities.rows = slices.DeleteFunc(t.identities.rows, func(i domain.TrackerIdentity) bool { return i.ConnectionID == id })
 		t.outbox.rows = slices.DeleteFunc(t.outbox.rows, func(w domain.TrackerWrite) bool { return w.ConnectionID == id })

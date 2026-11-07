@@ -111,14 +111,20 @@ func (r trackerConnectionRepo) ListByKind(ctx context.Context, kind string) ([]d
 func (r trackerConnectionRepo) Delete(ctx context.Context, accountID, id uuid.UUID) error {
 	return inTx(ctx, r.db, func(tx dbtx) error {
 		// The row lock waits for a link being made and keeps new ones out.
-		var live bool
-		err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ticket_links WHERE connection_id = c.id AND status IN ('waiting', 'queued', 'active'))
-			FROM tracker_connections c WHERE c.account_id = $1 AND c.id = $2 FOR UPDATE`, accountID, id).Scan(&live)
+		// Unsent writes of ended links count too: deleting the connection
+		// would drop them.
+		var live, unsent bool
+		err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ticket_links WHERE connection_id = c.id AND status IN ('waiting', 'queued', 'active')),
+				EXISTS (SELECT 1 FROM tracker_outbox WHERE connection_id = c.id AND sent_at IS NULL)
+			FROM tracker_connections c WHERE c.account_id = $1 AND c.id = $2 FOR UPDATE`, accountID, id).Scan(&live, &unsent)
 		if err != nil {
 			return mapErr(err)
 		}
 		if live {
 			return fmt.Errorf("tracker connection %s has live tickets: %w", id, store.ErrConflict)
+		}
+		if unsent {
+			return fmt.Errorf("tracker connection %s has writes not sent yet: %w", id, store.ErrConflict)
 		}
 		return exactlyOne(tx.Exec(ctx, `DELETE FROM tracker_connections WHERE account_id = $1 AND id = $2`, accountID, id))
 	})
