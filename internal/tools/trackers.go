@@ -208,6 +208,15 @@ func (s *Service) TestTrackerConnection(ctx context.Context, by domain.Actor, in
 	if !out.OK {
 		return out, nil
 	}
+	if states, err := ad.States(ctx); err == nil {
+		for _, st := range states {
+			name := st.Name
+			if in.WrapUntrusted {
+				name = contextpack.WrapUntrusted("tracker "+c.Name, name)
+			}
+			out.States = append(out.States, mcp.TrackerState{Name: name, Closed: st.Closed})
+		}
+	}
 	before := c.Config
 	if _, err := prepare(ctx, core, &c, ad); err != nil {
 		return out, trackerError(err)
@@ -596,6 +605,13 @@ func (s *Service) ListTicketsWaiting(ctx context.Context, by domain.Actor, in mc
 	if err != nil {
 		return nil, err
 	}
+	if in.Queued {
+		queued, err := s.cfg.Store.TicketLinks().List(ctx, by.AccountID, store.TicketLinkFilter{ProjectID: project, Status: domain.LinkQueued})
+		if err != nil {
+			return nil, err
+		}
+		links = append(links, queued...)
+	}
 	out := make([]mcp.TicketInfo, 0, len(links))
 	for _, l := range links {
 		if (l.ProjectID == uuid.Nil() && !visible.All) || (l.ProjectID != uuid.Nil() && !visible.Has(l.ProjectID)) {
@@ -608,9 +624,68 @@ func (s *Service) ListTicketsWaiting(ctx context.Context, by domain.Actor, in mc
 		if in.WrapUntrusted {
 			info.Title = contextpack.WrapUntrusted("ticket "+l.Key, l.Title)
 		}
+		if l.Status == domain.LinkQueued {
+			core, err := s.trackers()
+			if err != nil {
+				return nil, err
+			}
+			info.Limit = core.MaxActiveGoals()
+		}
 		out = append(out, info)
 	}
 	return out, nil
+}
+
+// ListUnmappedTrackerPeople implements mcp.ToolService: the people tickets
+// wait for, with the members whose name is the same. It reads the waiting
+// tickets from their trackers, so it needs trackers.manage, which mapping
+// needs too.
+func (s *Service) ListUnmappedTrackerPeople(ctx context.Context, by domain.Actor, in mcp.TrackerConnectionFilterInput) (mcp.UnmappedTrackerPeople, error) {
+	if err := s.allowOrg(ctx, by, domain.PermTrackersManage); err != nil {
+		return mcp.UnmappedTrackerPeople{}, err
+	}
+	core, err := s.trackers()
+	if err != nil {
+		return mcp.UnmappedTrackerPeople{}, err
+	}
+	only, err := s.optionalConnection(ctx, by.AccountID, in.Connection)
+	if err != nil {
+		return mcp.UnmappedTrackerPeople{}, err
+	}
+	found, readErr := core.Unmapped(ctx, by.AccountID, only)
+	members, err := s.members(ctx, by, uuid.Nil())
+	if err != nil {
+		return mcp.UnmappedTrackerPeople{}, err
+	}
+	out := mcp.UnmappedTrackerPeople{}
+	if readErr != nil {
+		out.Problems = []string{readErr.Error()}
+		if in.WrapUntrusted {
+			out.Problems[0] = contextpack.WrapUntrusted("trackers", out.Problems[0])
+		}
+	}
+	for _, u := range found {
+		p := mcp.UnmappedTrackerPerson{Connection: u.Connection.Name, ExternalID: u.User.ID, ExternalName: u.User.Name, Tickets: u.Tickets, Suggestions: []mcp.PersonSuggestion{}}
+		for _, m := range members {
+			if sameName(m.Name, u.User.Name) && m.Status == domain.MembershipActive {
+				p.Suggestions = append(p.Suggestions, mcp.PersonSuggestion{User: m.UserID, Name: m.Name, Reason: "same name"})
+			}
+		}
+		if in.WrapUntrusted {
+			p.ExternalName = contextpack.WrapUntrusted("tracker "+u.Connection.Name, p.ExternalName)
+		}
+		out.People = append(out.People, p)
+	}
+	return out, nil
+}
+
+// sameName reports whether two names are the same person's by their words, in
+// any order and case: "Marta Rossi" and "rossi marta".
+func sameName(a, b string) bool {
+	x, y := strings.Fields(strings.ToLower(a)), strings.Fields(strings.ToLower(b))
+	slices.Sort(x)
+	slices.Sort(y)
+	return len(x) > 0 && slices.Equal(x, y)
 }
 
 // waitingTicket finds a ticket by its UUID.

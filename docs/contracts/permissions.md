@@ -353,6 +353,7 @@ object up and checks the permission on the object's project.
 | `list_tracker_identities` | `GET /api/v1/tracker-identities` | `trackers.read` on the organization |
 | `map_tracker_identity` | `POST /api/v1/tracker-identities` | `trackers.manage`, No escalation |
 | `unmap_tracker_identity` | `DELETE /api/v1/tracker-identities/{identity}` | `trackers.manage` |
+| `list_unmapped_tracker_people` | `GET /api/v1/tracker-people/unmapped` | `trackers.manage`: it reads the waiting tickets from their trackers |
 | `list_tickets_waiting` | `GET /api/v1/tickets/waiting` | `trackers.read`: on the ticket's project, or on the organization for a ticket without one |
 | `accept_ticket` | `POST /api/v1/tickets/{ticket}/accept` | `goal.create` on the project, and only a person: the goal starts as them |
 | `dismiss_ticket` | `POST /api/v1/tickets/{ticket}/dismiss` | `goal.create` on the ticket's project, or on the organization for a ticket without one; with a gate, the gate's |

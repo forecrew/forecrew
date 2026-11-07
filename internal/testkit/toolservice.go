@@ -79,22 +79,23 @@ type ToolService struct {
 	ListJoinCodesFunc          func(context.Context, domain.Actor, mcp.ListJoinCodesInput) ([]mcp.JoinCodeInfo, error)
 	ConfirmJoinFunc            func(context.Context, domain.Actor, mcp.ConfirmJoinInput) (mcp.ProviderInfo, error)
 
-	ListProposalsFunc           func(context.Context, domain.Actor, mcp.ListProposalsInput) ([]mcp.ProposalInfo, error)
-	DecideProposalFunc          func(context.Context, domain.Actor, mcp.DecideProposalInput) (mcp.ProposalInfo, error)
-	ListTrackerConnectionsFunc  func(context.Context, domain.Actor, any) ([]domain.TrackerConnection, error)
-	CreateTrackerConnectionFunc func(context.Context, domain.Actor, mcp.CreateTrackerConnectionInput) (domain.TrackerConnection, error)
-	DiscardTrackerWritesFunc    func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (mcp.DiscardedWrites, error)
-	DeleteTrackerConnectionFunc func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (domain.TrackerConnection, error)
-	TestTrackerConnectionFunc   func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (mcp.TrackerConnectionTest, error)
-	ListTrackerRoutesFunc       func(context.Context, domain.Actor, mcp.TrackerConnectionFilterInput) ([]mcp.TrackerRouteInfo, error)
-	CreateTrackerRouteFunc      func(context.Context, domain.Actor, mcp.CreateTrackerRouteInput) (mcp.TrackerRouteInfo, error)
-	DeleteTrackerRouteFunc      func(context.Context, domain.Actor, mcp.TrackerRouteRefInput) (domain.TrackerRoute, error)
-	ListTrackerIdentitiesFunc   func(context.Context, domain.Actor, mcp.TrackerConnectionFilterInput) ([]domain.TrackerIdentity, error)
-	MapTrackerIdentityFunc      func(context.Context, domain.Actor, mcp.MapTrackerIdentityInput) (domain.TrackerIdentity, error)
-	UnmapTrackerIdentityFunc    func(context.Context, domain.Actor, mcp.TrackerIdentityRefInput) (domain.TrackerIdentity, error)
-	ListTicketsWaitingFunc      func(context.Context, domain.Actor, mcp.ListTicketsWaitingInput) ([]mcp.TicketInfo, error)
-	AcceptTicketFunc            func(context.Context, domain.Actor, mcp.AcceptTicketInput) (mcp.TicketInfo, error)
-	DismissTicketFunc           func(context.Context, domain.Actor, mcp.DismissTicketInput) (mcp.TicketInfo, error)
+	ListProposalsFunc             func(context.Context, domain.Actor, mcp.ListProposalsInput) ([]mcp.ProposalInfo, error)
+	DecideProposalFunc            func(context.Context, domain.Actor, mcp.DecideProposalInput) (mcp.ProposalInfo, error)
+	ListTrackerConnectionsFunc    func(context.Context, domain.Actor, any) ([]domain.TrackerConnection, error)
+	CreateTrackerConnectionFunc   func(context.Context, domain.Actor, mcp.CreateTrackerConnectionInput) (domain.TrackerConnection, error)
+	DiscardTrackerWritesFunc      func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (mcp.DiscardedWrites, error)
+	DeleteTrackerConnectionFunc   func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (domain.TrackerConnection, error)
+	TestTrackerConnectionFunc     func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (mcp.TrackerConnectionTest, error)
+	ListTrackerRoutesFunc         func(context.Context, domain.Actor, mcp.TrackerConnectionFilterInput) ([]mcp.TrackerRouteInfo, error)
+	CreateTrackerRouteFunc        func(context.Context, domain.Actor, mcp.CreateTrackerRouteInput) (mcp.TrackerRouteInfo, error)
+	DeleteTrackerRouteFunc        func(context.Context, domain.Actor, mcp.TrackerRouteRefInput) (domain.TrackerRoute, error)
+	ListTrackerIdentitiesFunc     func(context.Context, domain.Actor, mcp.TrackerConnectionFilterInput) ([]domain.TrackerIdentity, error)
+	MapTrackerIdentityFunc        func(context.Context, domain.Actor, mcp.MapTrackerIdentityInput) (domain.TrackerIdentity, error)
+	UnmapTrackerIdentityFunc      func(context.Context, domain.Actor, mcp.TrackerIdentityRefInput) (domain.TrackerIdentity, error)
+	ListUnmappedTrackerPeopleFunc func(context.Context, domain.Actor, mcp.TrackerConnectionFilterInput) (mcp.UnmappedTrackerPeople, error)
+	ListTicketsWaitingFunc        func(context.Context, domain.Actor, mcp.ListTicketsWaitingInput) ([]mcp.TicketInfo, error)
+	AcceptTicketFunc              func(context.Context, domain.Actor, mcp.AcceptTicketInput) (mcp.TicketInfo, error)
+	DismissTicketFunc             func(context.Context, domain.Actor, mcp.DismissTicketInput) (mcp.TicketInfo, error)
 
 	ListAssumptionsFunc   func(context.Context, domain.Actor, mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error)
 	ResolveAssumptionFunc func(context.Context, domain.Actor, mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error)
@@ -597,6 +598,11 @@ func (s *ToolService) MapTrackerIdentity(ctx context.Context, by domain.Actor, i
 // UnmapTrackerIdentity implements mcp.ToolService.
 func (s *ToolService) UnmapTrackerIdentity(ctx context.Context, by domain.Actor, in mcp.TrackerIdentityRefInput) (domain.TrackerIdentity, error) {
 	return invoke(ctx, s, mcp.ToolUnmapTrackerIdentity, by, in, s.UnmapTrackerIdentityFunc)
+}
+
+// ListUnmappedTrackerPeople implements mcp.ToolService.
+func (s *ToolService) ListUnmappedTrackerPeople(ctx context.Context, by domain.Actor, in mcp.TrackerConnectionFilterInput) (mcp.UnmappedTrackerPeople, error) {
+	return invoke(ctx, s, mcp.ToolListUnmappedTrackerPeople, by, in, s.ListUnmappedTrackerPeopleFunc)
 }
 
 // ListTicketsWaiting implements mcp.ToolService.

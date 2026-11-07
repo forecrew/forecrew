@@ -29,7 +29,7 @@ func trackerCommand(r *remote) *cobra.Command {
 		listCommand(r, "connections", "List the tracker connections", "/tracker-connections", printTrackerConnections),
 		connectTrackerCommand(r), disconnectTrackerCommand(r), discardTrackerWritesCommand(r), testTrackerCommand(r),
 		trackerRoutesCommand(r), addRouteCommand(r), deleteRouteCommand(r),
-		trackerPeopleCommand(r), mapPersonCommand(r), unmapPersonCommand(r),
+		trackerPeopleCommand(r), unmappedPeopleCommand(r), mapPersonCommand(r), unmapPersonCommand(r),
 	)
 	return cmd
 }
@@ -281,6 +281,36 @@ func deleteRouteCommand(r *remote) *cobra.Command {
 	}
 }
 
+func unmappedPeopleCommand(r *remote) *cobra.Command {
+	var connection string
+	cmd := &cobra.Command{
+		Use:   "unmapped",
+		Short: "List the people on trackers whom tickets wait for, with the members they may be",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var out mcp.UnmappedTrackerPeople
+			if err := r.call(cmd.Context(), http.MethodGet, withConnection("/tracker-people/unmapped", connection), nil, &out); err != nil {
+				return err
+			}
+			rows := [][]string{{"CONNECTION", "EXTERNAL ID", "NAME", "TICKETS", "MAY BE"}}
+			for _, p := range out.People {
+				var maybe []string
+				for _, s := range p.Suggestions {
+					maybe = append(maybe, s.User.String()+" ("+s.Name+")")
+				}
+				rows = append(rows, []string{p.Connection, p.ExternalID, dash(p.ExternalName), strings.Join(p.Tickets, ","), dash(strings.Join(maybe, ", "))})
+			}
+			table(cmd.OutOrStdout(), rows)
+			for _, p := range out.Problems {
+				fmt.Fprintln(cmd.ErrOrStderr(), "could not read:", p)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&connection, "connection", "", "only this connection")
+	return cmd
+}
+
 func trackerPeopleCommand(r *remote) *cobra.Command {
 	var connection string
 	cmd := &cobra.Command{
@@ -342,14 +372,22 @@ func unmapPersonCommand(r *remote) *cobra.Command {
 
 func ticketsCommand(r *remote) *cobra.Command {
 	var project string
+	var queued bool
 	cmd := &cobra.Command{
 		Use:   "tickets",
 		Short: "List the tickets waiting in the Inbox",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			path := "/tickets/waiting"
+			q := url.Values{}
 			if project != "" {
-				path += "?" + url.Values{"project": {project}}.Encode()
+				q.Set("project", project)
+			}
+			if queued {
+				q.Set("queued", "true")
+			}
+			path := "/tickets/waiting"
+			if len(q) > 0 {
+				path += "?" + q.Encode()
 			}
 			var items []mcp.TicketInfo
 			if err := r.call(cmd.Context(), http.MethodGet, path, nil, &items); err != nil {
@@ -357,13 +395,18 @@ func ticketsCommand(r *remote) *cobra.Command {
 			}
 			rows := [][]string{{"ID", "CONNECTION", "KEY", "PROJECT", "WHY", "GATE", "HANDED BY"}}
 			for _, t := range items {
-				rows = append(rows, []string{t.ID.String(), t.Connection, t.Key, dash(t.Project), string(t.Reason), dash(t.GateRef), dash(t.HandedBy)})
+				why := string(t.Reason)
+				if t.Status == domain.LinkQueued {
+					why = fmt.Sprintf("queued: %d goals at most", t.Limit)
+				}
+				rows = append(rows, []string{t.ID.String(), t.Connection, t.Key, dash(t.Project), why, dash(t.GateRef), dash(t.HandedBy)})
 			}
 			table(cmd.OutOrStdout(), rows)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&project, "project", "", "only this project")
+	cmd.Flags().BoolVar(&queued, "queued", false, "also the tickets queued under the limit of goals")
 	var into string
 	accept := &cobra.Command{
 		Use:   "accept <ticket>",

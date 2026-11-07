@@ -652,11 +652,15 @@ func TestPreparedConnections(t *testing.T) {
 	if !got.OK || len(got.Checks) != 2 || got.Checks[0].Name != "connection" || got.Checks[1].Name != "routes" {
 		t.Errorf("test of the fake = %+v", got)
 	}
+	// A test that passed hands on the tracker's states, for a route's mapping.
+	if len(got.States) != 5 || got.States[4] != (mcp.TrackerState{Name: "closed", Closed: true}) {
+		t.Errorf("states = %+v", got.States)
+	}
 	r := domain.TrackerRoute{AccountID: w.account.ID, ConnectionID: w.conn.ID, ProjectID: w.project.ID, States: map[domain.TicketState]string{domain.TicketDone: "Shipped"}}
 	must(t, w.st.TrackerRoutes().Create(ctx, &r))
 	got, err = w.svc.TestTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board"})
 	must(t, err)
-	if got.OK || !strings.Contains(got.Checks[1].Detail, "Shipped") {
+	if got.OK || !strings.Contains(got.Checks[1].Detail, "Shipped") || len(got.States) != 0 {
 		t.Errorf("a route to a state the tracker lacks = %+v", got)
 	}
 	// For an MCP client the tracker's words are data.
@@ -685,5 +689,74 @@ func TestPreparedConnections(t *testing.T) {
 	wantErr(t, err, mcp.ErrNotFound)
 	member, _ := w.member(t, orgScope, domain.RoleMember, uuid.Nil())
 	_, err = w.svc.TestTrackerConnection(ctx, member, mcp.TrackerConnectionRefInput{Connection: "jira"})
+	wantErr(t, err, authz.ErrDenied)
+}
+
+func TestListQueuedTicketsWithTheLimit(t *testing.T) {
+	w := newTicketWorld(t)
+	ctx := t.Context()
+	w.route(t)
+	waiting := w.waiting(t, "T-1")
+	queued := domain.TicketLink{AccountID: w.account.ID, ConnectionID: w.conn.ID, ProjectID: w.project.ID, Key: "T-2", Title: "later", Status: domain.LinkQueued}
+	must(t, w.st.TicketLinks().Create(ctx, &queued))
+	got, err := w.svc.ListTicketsWaiting(ctx, w.owner, mcp.ListTicketsWaitingInput{})
+	must(t, err)
+	if len(got) != 1 || got[0].ID != waiting.ID || got[0].Limit != 0 {
+		t.Errorf("waiting only: %+v", got)
+	}
+	got, err = w.svc.ListTicketsWaiting(ctx, w.owner, mcp.ListTicketsWaitingInput{Queued: true})
+	must(t, err)
+	if len(got) != 2 || got[1].ID != queued.ID || got[1].Status != domain.LinkQueued || got[1].Limit != tracker.DefaultMaxActiveGoals || got[0].Limit != 0 {
+		t.Errorf("with the queued: %+v", got)
+	}
+}
+
+func TestListUnmappedTrackerPeople(t *testing.T) {
+	w := newTicketWorld(t)
+	ctx := t.Context()
+	w.route(t)
+	w.fake.Put(tracker.Ticket{
+		Ref: tracker.Ref{Key: "P-1"}, Title: "t", Labels: []string{"forecrew"}, URL: "https://t.test/P-1",
+		Handovers: []tracker.Handover{{Trigger: tracker.TriggerLabel, Value: "forecrew", By: tracker.User{ID: "u-77", Name: "Rossi  marta"}, At: w.clock.Now()}},
+	})
+	must(t, w.core.Hint(ctx, w.conn, tracker.Event{Key: "P-1"}))
+	w.waiting(t, "P-2") // a stranger with no match
+	marta := w.st.AddMember(w.account.ID, domain.User{Name: "Marta Rossi"}, "")
+	w.st.AddMember(w.account.ID, domain.User{Name: "Marta Bianchi"}, "")
+	got, err := w.svc.ListUnmappedTrackerPeople(ctx, w.owner, mcp.TrackerConnectionFilterInput{})
+	must(t, err)
+	if len(got.People) != 2 || len(got.Problems) != 0 {
+		t.Fatalf("people = %+v", got)
+	}
+	byID := map[string]mcp.UnmappedTrackerPerson{}
+	for _, p := range got.People {
+		byID[p.ExternalID] = p
+	}
+	rossi := byID["u-77"]
+	if rossi.Connection != "board" || rossi.ExternalName != "Rossi  marta" || len(rossi.Suggestions) != 1 || rossi.Suggestions[0].User != marta.ID || rossi.Suggestions[0].Reason != "same name" {
+		t.Errorf("Rossi = %+v", rossi)
+	}
+	if s := byID["99"]; len(s.Suggestions) != 0 || s.Suggestions == nil || len(s.Tickets) != 1 {
+		t.Errorf("stranger = %+v", s)
+	}
+	// For an MCP client the tracker's name is data; one connection can be asked for.
+	got, err = w.svc.ListUnmappedTrackerPeople(ctx, w.owner, mcp.TrackerConnectionFilterInput{Connection: "board", WrapUntrusted: true})
+	must(t, err)
+	if !strings.Contains(got.People[0].ExternalName, "<untrusted-data source=\"tracker board\"") {
+		t.Errorf("name = %q", got.People[0].ExternalName)
+	}
+	// A connection that cannot be read is a problem, not a failure.
+	bad := domain.TrackerConnection{AccountID: w.account.ID, Name: "gone", Kind: "gone", Triggers: domain.TrackerTriggers{Label: "x"}}
+	must(t, w.st.TrackerConnections().Create(ctx, &bad))
+	must(t, w.st.TicketLinks().Create(ctx, &domain.TicketLink{AccountID: w.account.ID, ConnectionID: bad.ID, Key: "G-1", Status: domain.LinkWaiting, Reason: domain.WaitUnknownPerson}))
+	got, err = w.svc.ListUnmappedTrackerPeople(ctx, w.owner, mcp.TrackerConnectionFilterInput{WrapUntrusted: true})
+	must(t, err)
+	if len(got.People) != 2 || len(got.Problems) != 1 || !strings.Contains(got.Problems[0], "<untrusted-data") {
+		t.Errorf("with a connection that fails: %+v", got)
+	}
+	_, err = w.svc.ListUnmappedTrackerPeople(ctx, w.owner, mcp.TrackerConnectionFilterInput{Connection: "nope"})
+	wantErr(t, err, mcp.ErrNotFound)
+	member, _ := w.member(t, orgScope, domain.RoleMember, uuid.Nil())
+	_, err = w.svc.ListUnmappedTrackerPeople(ctx, member, mcp.TrackerConnectionFilterInput{})
 	wantErr(t, err, authz.ErrDenied)
 }

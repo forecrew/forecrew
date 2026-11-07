@@ -103,6 +103,10 @@ func TestToolServiceDefaults(t *testing.T) {
 		},
 		func() error { _, err := s.MapTrackerIdentity(ctx, by, mcp.MapTrackerIdentityInput{}); return err },
 		func() error { _, err := s.UnmapTrackerIdentity(ctx, by, mcp.TrackerIdentityRefInput{}); return err },
+		func() error {
+			_, err := s.ListUnmappedTrackerPeople(ctx, by, mcp.TrackerConnectionFilterInput{})
+			return err
+		},
 		func() error { _, err := s.ListTicketsWaiting(ctx, by, mcp.ListTicketsWaitingInput{}); return err },
 		func() error { _, err := s.AcceptTicket(ctx, by, mcp.AcceptTicketInput{}); return err },
 		func() error { _, err := s.DismissTicket(ctx, by, mcp.DismissTicketInput{}); return err },

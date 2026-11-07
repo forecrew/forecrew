@@ -103,6 +103,19 @@ func TestTicketCommands(t *testing.T) {
 		return ticket, nil
 	}
 	e.check(t, []string{"tickets", "--project", "app"}, "no_route", mcp.ToolListTicketsWaiting, mcp.ListTicketsWaitingInput{Project: "app"})
+	queuedTicket := ticket
+	queuedTicket.Status, queuedTicket.Reason, queuedTicket.Limit = domain.LinkQueued, "", 3
+	e.svc.ListTicketsWaitingFunc = func(context.Context, domain.Actor, mcp.ListTicketsWaitingInput) ([]mcp.TicketInfo, error) {
+		return []mcp.TicketInfo{queuedTicket}, nil
+	}
+	e.check(t, []string{"tickets", "--queued"}, "queued: 3 goals at most", mcp.ToolListTicketsWaiting, mcp.ListTicketsWaitingInput{Queued: true})
+	e.svc.ListUnmappedTrackerPeopleFunc = func(context.Context, domain.Actor, mcp.TrackerConnectionFilterInput) (mcp.UnmappedTrackerPeople, error) {
+		return mcp.UnmappedTrackerPeople{
+			People:   []mcp.UnmappedTrackerPerson{{Connection: "gh", ExternalID: "77", ExternalName: "Marta Rossi", Tickets: []string{"T-1", "T-2"}, Suggestions: []mcp.PersonSuggestion{{Name: "Marta Rossi", Reason: "same name"}}}},
+			Problems: []string{"connection jira: down"},
+		}, nil
+	}
+	e.check(t, []string{"tracker", "unmapped", "--connection", "gh"}, "T-1,T-2", mcp.ToolListUnmappedTrackerPeople, mcp.TrackerConnectionFilterInput{Connection: "gh"})
 	e.check(t, []string{"tickets", "accept", "t1", "--project", "app"}, "GOAL-3", mcp.ToolAcceptTicket, mcp.AcceptTicketInput{Ticket: "t1", Project: "app"})
 	e.check(t, []string{"tickets", "dismiss", "t1", "--reason", "no"}, "dismissed", mcp.ToolDismissTicket, mcp.DismissTicketInput{Ticket: "t1", Reason: "no"})
 }

@@ -156,6 +156,8 @@ func TestEndpoints(t *testing.T) {
 		{"GET", "/api/v1/tracker-identities", "", 200, mcp.ToolListTrackerIdentities, mcp.TrackerConnectionFilterInput{}},
 		{"POST", "/api/v1/tracker-identities", `{"connection":"gh","external_id":"11","user":"u1"}`, 201, mcp.ToolMapTrackerIdentity, mcp.MapTrackerIdentityInput{Connection: "gh", ExternalID: "11", User: "u1"}},
 		{"DELETE", "/api/v1/tracker-identities/i1", "", 200, mcp.ToolUnmapTrackerIdentity, mcp.TrackerIdentityRefInput{Identity: "i1"}},
+		{"GET", "/api/v1/tracker-people/unmapped?connection=gh", "", 200, mcp.ToolListUnmappedTrackerPeople, mcp.TrackerConnectionFilterInput{Connection: "gh"}},
+		{"GET", "/api/v1/tickets/waiting?project=app&queued=true", "", 200, mcp.ToolListTicketsWaiting, mcp.ListTicketsWaitingInput{Project: "app", Queued: true}},
 		{"GET", "/api/v1/tickets/waiting?project=app", "", 200, mcp.ToolListTicketsWaiting, mcp.ListTicketsWaitingInput{Project: "app"}},
 		{"POST", "/api/v1/tickets/t1/accept", `{"project":"app"}`, 200, mcp.ToolAcceptTicket, mcp.AcceptTicketInput{Ticket: "t1", Project: "app"}},
 		{"POST", "/api/v1/tickets/t1/accept", "", 200, mcp.ToolAcceptTicket, mcp.AcceptTicketInput{Ticket: "t1"}},
