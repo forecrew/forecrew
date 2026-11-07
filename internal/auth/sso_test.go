@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -221,9 +222,7 @@ func TestPolicySeesTheGroupClaim(t *testing.T) {
 			conn.GroupClaim = "groups"
 			must(t, f.st.Connections().Update(t.Context(), &conn))
 			f.claims("sub-1", "ana@example.com", true)
-			for k, v := range tt.claims {
-				f.oidc.Claims[k] = v
-			}
+			maps.Copy(f.oidc.Claims, tt.claims)
 			if status, body := f.signIn(conn, ""); status != http.StatusOK {
 				t.Fatalf("sign-in = %d %s", status, body)
 			}
