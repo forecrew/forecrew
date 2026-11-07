@@ -59,6 +59,7 @@ function RoleEditor({ roles, role }: { roles: Role[]; role?: Role }) {
         : api.createRole({ name: name.trim(), scope, description, permissions: [...chosen].sort() }),
     keys.roles,
   )
+  const held = new Set(useMe().data?.permissions ?? [])
   const title = role ? `Edit ${role.name}` : "New custom role"
   const available = catalog(roles, scope)
   const toggle = (p: string, on: boolean) => {
@@ -130,15 +131,23 @@ function RoleEditor({ roles, role }: { roles: Role[]; role?: Role }) {
           <Field label="Description">{(p) => <Textarea {...p} value={description} onChange={(e) => setDescription(e.target.value)} />}</Field>
           <fieldset className="space-y-3">
             <legend className="text-sm font-medium">Permissions</legend>
+            <p className="text-xs text-muted-foreground">You can only give permissions you hold yourself; the others are shown but cannot be chosen.</p>
             {groups.map(([area, perms]) => (
               <div key={area} className="space-y-1">
                 <p className="text-sm text-muted-foreground">{area}</p>
                 <ul className="grid gap-1 sm:grid-cols-2">
                   {perms.map((perm) => (
                     <li key={perm}>
-                      <label className="flex min-h-8 items-center gap-2 font-mono text-xs">
-                        <input type="checkbox" className="size-5" checked={chosen.has(perm)} onChange={(e) => toggle(perm, e.target.checked)} />
+                      <label className={`flex min-h-8 items-center gap-2 font-mono text-xs ${held.has(perm) ? "" : "text-muted-foreground"}`}>
+                        <input
+                          type="checkbox"
+                          className="size-5"
+                          checked={chosen.has(perm)}
+                          disabled={!held.has(perm)}
+                          onChange={(e) => toggle(perm, e.target.checked)}
+                        />
                         {perm}
+                        {held.has(perm) ? null : <span className="font-sans"> (you do not hold it)</span>}
                       </label>
                     </li>
                   ))}
