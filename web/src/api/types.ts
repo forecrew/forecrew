@@ -1078,6 +1078,8 @@ export interface AssistantMessage {
   conversation_id: string
   author: "user" | "assistant"
   body: string
+  /** The job of the turn a person's message started; Stop cancels it. */
+  job_id?: string
   created_at: string
 }
 

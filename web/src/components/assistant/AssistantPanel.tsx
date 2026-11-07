@@ -114,7 +114,7 @@ export function AssistantPanel({ conversation, onConversation, initial, onClose 
   const stop = async () => {
     setStopped(true)
     const turn = [...(view.data?.messages ?? [])].reverse().find((m) => m.author === "user")
-    const job = (turn as { job_id?: string } | undefined)?.job_id
+    const job = turn?.job_id
     if (job) await api.cancelJob(job).catch(() => {})
   }
 

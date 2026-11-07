@@ -69,9 +69,11 @@ test("something that looks like a key is not sent, and says why", async () => {
 
 test("while it works it says so, polls, and can be stopped", async () => {
   let gets = 0
+  const cancelled: string[] = []
   server.use(
     http.post("/api/v1/assistant/messages", () => HttpResponse.json(fx.assistantSend, { status: 202 })),
     http.get("/api/v1/assistant/conversations/:id", () => (gets++, HttpResponse.json(fx.assistantThinking))),
+    http.post("/api/v1/jobs/:job/cancel", ({ params }) => (cancelled.push(String(params.job)), HttpResponse.json(fx.job))),
   )
   const { user, panel } = await open()
   await user.type(within(panel).getByLabelText("Say what you want"), "Add my Linux server{Enter}")
@@ -79,6 +81,8 @@ test("while it works it says so, polls, and can be stopped", async () => {
   await user.click(within(panel).getByRole("button", { name: "Stop" }))
   await waitFor(() => expect(within(panel).queryByText(/Thinking/)).toBeNull())
   expect(gets).toBeGreaterThan(0)
+  // Stop cancels the job of the person's last message, not only the spinner.
+  expect(cancelled).toEqual(["018f0000-0000-7000-8000-000000000150"])
 })
 
 test("without a reasoning machine it says the assistant is down and that forms still work", async () => {
