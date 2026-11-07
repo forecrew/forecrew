@@ -47,7 +47,7 @@ The body is the worker API's: `{"error": {"code": "...", "message": "..."}}`.
 
 | Status | `code` | When |
 |--------|--------|------|
-| 400 | `bad_request` | Malformed JSON, unknown field values, a state the agent may not report. |
+| 400 | `bad_request` | Malformed JSON, unknown field values, a state the agent may not report, more than 1000 entries in `have` or `instances`. |
 | 401 | `unauthorized` | Missing, unknown or revoked token; on `join`, an unknown, used or expired code. |
 | 404 | `not_found` | The machine is not this provider's. |
 | 409 | `conflict` | A transition the machine cannot make; on `join`, a code claimed by another agent. |
@@ -184,7 +184,9 @@ Response `200`:
 replaces the machine's old one; nothing else does. A `Create` that takes 20 s
 therefore keeps its token through every poll on the way, because the agent lists
 the machine in `have` from the moment it receives it. When `Create` fails the
-agent drops it from `have`, and the next poll delivers a new token. That is why
+agent drops it from `have` and reports `failed`, which ends the machine: demand
+makes a new one. Only if that report is lost, and the machine is still
+`requested`, does the next poll deliver it again with a new token. That is why
 `Create` restarts a machine that exists: a retry must boot with the token just
 given. `deadline` is absent until the machine has a job. A `paused` provider
 gets no `requested` machines.

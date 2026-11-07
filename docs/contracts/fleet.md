@@ -37,7 +37,9 @@ instance admins. Everything else belongs to one organization.
   instance-wide provider are `hosted` (`domain.Ownership`). Usage records keep
   which it was.
 - `forecrew provider add` without `--org` uses the server's organization when
-  it has only one, so a home server is the organization's own.
+  it has only one, so a home server is the organization's own. On a server with
+  several `--org` is required: a slug, or `instance` for an instance-wide
+  provider, so nobody makes one by accident.
 
 Every amount (`price_per_minute`, budgets, `usage_records.cost`) is in the one
 currency of the instance, config.md `fleet.currency`. A price of 0 is free.
@@ -245,8 +247,9 @@ hash only:
 - minted when it is delivered to the provider, because only the hash is kept.
   It is delivered, and so replaced, only for a machine that is `requested` and
   that the agent does not list as having (fleet-agent-api.md, poll), so a slow
-  `Create` keeps its token. A failed `Create` is delivered again, which is why
-  `Provider.Create` restarts a machine that exists;
+  `Create` keeps its token. A failed `Create` is reported `failed`; when that
+  report is lost the machine is delivered again, which is why `Provider.Create`
+  restarts a machine that exists;
 - on an unassigned machine, without organization and expiry: such a token only
   gets `202`, which never moves the machine out of `requested` or `booting`.
   Assigning sets both, in one transaction with the machine's, and the waiting
