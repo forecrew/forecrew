@@ -3,12 +3,15 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/store"
 )
 
 // fleetPolicyName is the name of the one fleet policy resource.
@@ -361,9 +364,12 @@ func fleetPolicyRead(ctx context.Context, e *Env) ([]Resource, error) {
 	return []Resource{{Kind: KindFleetPolicy, Name: fleetPolicyName, Spec: encode(fleetPolicySpec{p.Routing, p.AllowedShapes, p.Quotas, p.Egress, p.Plan})}}, nil
 }
 
-func fleetPolicyValidate(_ context.Context, e *Env, _ *Resource, want Resource) error {
+func fleetPolicyValidate(ctx context.Context, e *Env, old *Resource, want Resource) error {
 	s, err := decode[fleetPolicySpec](want.Spec)
 	if err != nil {
+		return err
+	}
+	if err := planChange(ctx, e, old, s); err != nil {
 		return err
 	}
 	if want.Name != fleetPolicyName {
@@ -376,9 +382,12 @@ func fleetPolicyValidate(_ context.Context, e *Env, _ *Resource, want Resource) 
 	return nil
 }
 
-func fleetPolicyApply(ctx context.Context, e *Env, _, want *Resource) error {
+func fleetPolicyApply(ctx context.Context, e *Env, old, want *Resource) error {
 	s, err := decode[fleetPolicySpec](want.Spec)
 	if err != nil {
+		return err
+	}
+	if err := planChange(ctx, e, old, s); err != nil {
 		return err
 	}
 	p := policyRow(e, s)
@@ -399,6 +408,39 @@ func fleetPolicyProtection(_ context.Context, _ *Env, old, want *Resource) []str
 		out = append(out, "Adds Forecrew Cloud as a fallback: your code may leave your machines")
 	}
 	return out
+}
+
+// planChange refuses a change of the plan unless the actor is a person flagged
+// as an instance admin, acting by their own session and not a grant: the plan
+// is what the instance sells, and no role of an organization, billing.manage
+// included, sets its own. On a hosted instance an organization's configuration
+// never changes it at all.
+func planChange(ctx context.Context, e *Env, old *Resource, want fleetPolicySpec) error {
+	was := domain.DefaultFleetPolicy(e.Actor.AccountID).Plan
+	if old != nil {
+		o, err := decode[fleetPolicySpec](old.Spec)
+		if err != nil {
+			return err
+		}
+		was = o.Plan
+	}
+	if want.Plan == was {
+		return nil
+	}
+	if e.Server != nil && e.Server.Fleet.Hosted {
+		return fmt.Errorf("the plan of an organization of a hosted instance is not set in its configuration: %w", authz.ErrDenied)
+	}
+	id, ok := e.Actor.SubjectID()
+	if ok && e.Actor.Kind == domain.ActorUser && !authz.Delegated(e.Actor) {
+		u, err := e.Store.Users().Get(ctx, id)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+		if err == nil && u.InstanceAdmin {
+			return nil
+		}
+	}
+	return fmt.Errorf("only an instance admin changes an organization's plan: %w", authz.ErrDenied)
 }
 
 func policyRow(e *Env, s fleetPolicySpec) domain.FleetPolicy {

@@ -60,7 +60,8 @@ type Fleet struct {
 	Currency string `yaml:"currency"`
 	// Hosted marks the instance as a hosted service: attaching an own cloud
 	// location (kind aws) to an organization needs its fleet policy's paid
-	// plan, a stub until billing exists.
+	// plan, a stub until billing exists, and an organization's plan is never
+	// set in its own configuration.
 	Hosted bool `yaml:"hosted"`
 	// FreePlan limits organizations on the free plan on instance-wide
 	// machines; zero fields mean no limit.

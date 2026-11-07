@@ -205,6 +205,11 @@ These fields say what the organization may spend or use, so they need
 A change to a provider, shape or policy that touches one of them needs
 `billing.manage` for that field, on top of `worker.manage` for any other field it
 changes. Creating a row counts as changing its budget fields when they are set.
+
+`fleet_policy.plan` is no budget field: it is what the instance sells, and no
+permission of an organization changes it, `billing.manage` included. Only a
+person flagged as an instance admin, not through an OAuth grant, changes it in a
+plan, and on a hosted instance (`fleet.hosted`) a plan never does (fleet.md).
 `billing.manage` alone changes these fields and nothing else of the row, and
 reads them without `worker.read`. Instance-wide rows stay with instance admins.
 
