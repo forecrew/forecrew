@@ -44,6 +44,8 @@ const (
 	KindIntegration     = "integration"
 	KindKnowledgePolicy = "knowledge_policy"
 	KindRepoFile        = "repo_file"
+	KindModelConnection = "model_connection"
+	KindModelAssignment = "model_assignment"
 )
 
 // Scope and origin of a resource.
@@ -113,6 +115,9 @@ type Env struct {
 	Repo   Repo
 	// CheckSchedule refuses a schedule forecrewd would not start.
 	CheckSchedule func(config.Schedule) error
+	// Roles says whether a role runs in a toolbox and whether it exists; nil
+	// checks nothing.
+	Roles func(role string) (toolbox, known bool)
 	// repo collects the files of a repo plan while applying.
 	files   []FileChange
 	project *domain.Project
@@ -207,6 +212,7 @@ func base[S any](kind, title, scope string, read domain.Permission) Area {
 // refer to comes first.
 var areas = []Area{
 	organizationArea(), runtimeArea(), poolArea(), authArea(), scheduleArea(),
+	modelConnectionArea(), modelAssignmentArea(),
 	connectionArea(), domainArea(), memberArea(), teamArea(), roleBindingArea(),
 	providerArea(), shapeArea(), fleetPolicyArea(),
 	integrationArea(), knowledgePolicyArea(), repoFileArea(),

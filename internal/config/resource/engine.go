@@ -48,6 +48,9 @@ type Config struct {
 	// CheckSchedule refuses a schedule forecrewd would not start; nil
 	// accepts every playbook.
 	CheckSchedule func(config.Schedule) error
+	// Roles says whether a role runs in a toolbox and whether it exists; nil
+	// checks nothing.
+	Roles func(role string) (toolbox, known bool)
 	// Repo reads repos and opens pull requests; nil leaves repo files out.
 	Repo Repo
 	// Secrets is the secret store; nil refuses secure fields.
@@ -80,7 +83,7 @@ func NewEngine(cfg Config) *Engine {
 }
 
 func (g *Engine) env(st store.Store, by domain.Actor) *Env {
-	e := &Env{Store: st, Actor: by, Authz: authz.New(st, g.cfg.Logger), Server: g.cfg.Server, Getenv: g.cfg.Getenv, Repo: g.cfg.Repo, CheckSchedule: g.cfg.CheckSchedule}
+	e := &Env{Store: st, Actor: by, Authz: authz.New(st, g.cfg.Logger), Server: g.cfg.Server, Getenv: g.cfg.Getenv, Repo: g.cfg.Repo, CheckSchedule: g.cfg.CheckSchedule, Roles: g.cfg.Roles}
 	if g.cfg.Access != nil {
 		e.Access = g.cfg.Access(st)
 	}
@@ -274,6 +277,12 @@ func (g *Engine) Plan(ctx context.Context, by domain.Actor, req PlanRequest) (do
 	if d.repo && d.other {
 		d.problems = append(d.problems, "repo files open a pull request and apply apart from other settings: make two plans")
 	}
+	problems, affects, err := reviewModels(ctx, e, p.Changes)
+	if err != nil {
+		return domain.ConfigPlan{}, err
+	}
+	d.problems = append(d.problems, problems...)
+	d.affects = appendText(d.affects, affects)
 	if len(d.problems) > 0 {
 		return domain.ConfigPlan{}, fmt.Errorf("%s: %w", strings.Join(d.problems, "; "), mcp.ErrInvalidInput)
 	}
@@ -288,7 +297,6 @@ func (g *Engine) Plan(ctx context.Context, by domain.Actor, req PlanRequest) (do
 		}
 		p.ConfirmWord = acc.Slug
 	}
-	var err error
 	if p.BaseDigest, err = digest(ctx, e, cur, p.Changes); err != nil {
 		return domain.ConfigPlan{}, err
 	}
@@ -416,7 +424,9 @@ func wantedResource(a Area, old *Resource, w Wanted) (*Resource, error) {
 }
 
 // refuseStaged keeps a plan off the values other plans staged, whatever the
-// area's own check says: they are not confirmed, and not this plan's.
+// area's own check says: they are not confirmed, and not this plan's. It keeps
+// model keys to model connections the same way: anything else that names one
+// would send it where its own settings say.
 func refuseStaged(a Area, want Resource) error {
 	if a.Secrets == nil {
 		return nil
@@ -424,6 +434,9 @@ func refuseStaged(a Area, want Resource) error {
 	for _, s := range a.Secrets(want) {
 		if strings.HasPrefix(s.Ref, domain.SecretRefStore+domain.StagedSecretPrefix) {
 			return invalid("%s is a reserved name of the secret store", s.Ref)
+		}
+		if domain.IsModelSecretRef(s.Ref) && a.Kind != KindModelConnection {
+			return invalid("%s is a model key, and only a model connection reads those", s.Ref)
 		}
 	}
 	return nil
@@ -997,6 +1010,9 @@ func (g *Engine) applyIn(ctx context.Context, tx store.Store, by domain.Actor, p
 		if err := a.Apply(ctx, te, old, want); err != nil {
 			return nil, fmt.Errorf("%s/%s: %w", ch.Kind, ch.Name, err)
 		}
+	}
+	if err := recheckModels(ctx, te, ordered); err != nil {
+		return nil, err
 	}
 	if te.project != nil {
 		if g.cfg.Repo == nil {

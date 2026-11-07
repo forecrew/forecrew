@@ -25,6 +25,7 @@ type world struct {
 	account domain.Account
 	project domain.Project
 	engine  *resource.Engine
+	server  *config.Config
 	tracker *testkit.Tracker
 	vault   secrets.Store
 	now     time.Time
@@ -67,6 +68,7 @@ func newWorld(t *testing.T) *world {
 	check(t, w.tracker.SetHeadOfBranch("acme/app", "main", strings.Repeat("a", 40)))
 	server, err := config.Parse([]byte(serverYAML), env)
 	check(t, err)
+	w.server = server
 	vault, err := secrets.New(w.st.Secrets(), make([]byte, secrets.KeySize))
 	check(t, err)
 	w.vault = vault

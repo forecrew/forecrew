@@ -262,11 +262,11 @@ type JobSpec struct {
 	Role      string    `json:"role"`
 	// WritePaths are doublestar globs relative to the repo root; a pattern
 	// starting with "!" excludes. Empty means read-only.
-	WritePaths       []string        `json:"write_paths"`
-	Runtime          string          `json:"runtime"` // runtime adapter: claude-code, codex or opencode
+	WritePaths []string `json:"write_paths"`
+	Runtime    string   `json:"runtime"` // runtime adapter: claude-code, codex or opencode
 	// PinnedRuntime is the adapter of a council seat, which stays on it when
 	// the role moves to a connection of another adapter.
-	PinnedRuntime string `json:"pinned_runtime,omitempty"`
+	PinnedRuntime    string          `json:"pinned_runtime,omitempty"`
 	Model            string          `json:"model"`
 	Prompt           string          `json:"prompt"`
 	OutputSchema     json.RawMessage `json:"output_schema,omitempty"` // inline JSON Schema, no $ref
