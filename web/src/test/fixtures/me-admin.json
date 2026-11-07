@@ -64,6 +64,8 @@
     "service_account.manage",
     "team.manage",
     "token.manage",
+    "trackers.manage",
+    "trackers.read",
     "worker.manage",
     "worker.read"
   ],
