@@ -32,6 +32,7 @@ import (
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/enterprise"
 	"github.com/forecrew/forecrew/internal/evidence"
 	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/fleetapi"
@@ -126,9 +127,11 @@ type App struct {
 	creator *jobCreator
 	tools   *tools.Service
 	// vault is the secret store; nil without a key.
-	vault  *secrets.Encrypted
-	auth   *auth.Service
-	engine *workflow.Engine
+	vault *secrets.Encrypted
+	auth  *auth.Service
+	// features are those of the enterprise build; empty in open core.
+	features enterprise.Features
+	engine   *workflow.Engine
 	// retention deletes expired artifacts and orphan objects; nil without
 	// evidence storage.
 	retention *evidence.Retention
@@ -341,11 +344,12 @@ func New(d Deps) (*App, error) {
 	if encrypted != nil {
 		vault = encrypted
 	}
-	authSvc := auth.New(auth.Config{Store: st, Auth: cfg.Auth, BaseURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now, GitHubURL: d.GitHubURL, GitHubAPIURL: d.GitHubAPIURL, Secrets: vault})
+	features := enterprise.Load(enterprise.Deps{Store: st, Authz: access, Gates: gateSvc, PublicURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now})
+	authSvc := auth.New(auth.Config{Policy: features.SignIn, Store: st, Auth: cfg.Auth, BaseURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now, GitHubURL: d.GitHubURL, GitHubAPIURL: d.GitHubAPIURL, Secrets: vault})
 	toolSvc := tools.New(tools.Config{
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes, Proposals: kbProposals,
 		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, GoalV3Projects: cfg.GoalV3.Projects, Fleet: machines, Logger: log, PublicURL: cfg.Server.PublicBaseURL, TokenTTL: cfg.Auth.TokenDefaultTTL, Now: d.Now,
-		GitHubUserID: authSvc.GitHubUserID, Server: d.File, Getenv: d.Getenv, Repo: d.GitHub, Secrets: vault, Trackers: tickets,
+		GitHubUserID: authSvc.GitHubUserID, Enterprise: features.Tools, Server: d.File, Getenv: d.Getenv, Repo: d.GitHub, Secrets: vault, Trackers: tickets,
 		CheckSchedule: func(sc config.Schedule) error { return checkSchedule(books, sc) },
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
@@ -379,6 +383,7 @@ func New(d Deps) (*App, error) {
 	warnDeprecated(cfg, log)
 	a := &App{
 		auth:      authSvc,
+		features:  features,
 		schedules: schedules, syncs: syncs, tickets: tickets, provider: provider, d: d, jobs: jobSvc, fleet: machines, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
 		webhooks: webhook.NewHandler([]byte(cfg.GitHub.WebhookSecret), hooks),
 		poller:   webhook.NewPoller(hooks),
@@ -394,7 +399,7 @@ func New(d Deps) (*App, error) {
 		mcp.NewHandler(toolSvc, st, access, d.Version, log),
 		api.New(api.Config{
 			Tools: toolSvc, Artifacts: toolSvc, Images: toolSvc, Store: st, Authz: access, Auth: a.auth, Logger: log, PublicURL: cfg.Server.PublicBaseURL,
-			TokenLogin: cfg.Auth.TokenLogin, SessionMaxAge: cfg.Auth.SessionAbsolute, Now: d.Now,
+			TokenLogin: cfg.Auth.TokenLogin, SessionMaxAge: cfg.Auth.SessionAbsolute, Now: d.Now, Enterprise: features.Tools != nil,
 		}).Handler())
 	return a, nil
 }
@@ -486,6 +491,9 @@ func (a *App) routes(workers, agents, jobMCP, mcpHandler, apiHandler http.Handle
 	mux.Handle("/fleet/v1/", agents)
 	mux.Handle("/auth/", a.auth.Handler())
 	mux.Handle("/api/v1/", apiHandler)
+	if a.features.SCIM != nil {
+		mux.Handle("/scim/v2/", a.features.SCIM)
+	}
 	mux.Handle("/mcp", mcpHandler)
 	mux.Handle("/mcp/", mcpHandler)
 	// The job MCP gateway: agents of running jobs, with job tokens.
@@ -526,6 +534,9 @@ func (a *App) Run(ctx context.Context) error {
 	wg.Go(func() { a.syncs.Run(runCtx) })
 	wg.Go(func() { a.auth.RunSweep(runCtx, auth.SweepEvery) })
 	wg.Go(func() { a.schedules.Run(runCtx) })
+	if a.features.Run != nil {
+		wg.Go(func() { a.features.Run(runCtx) })
+	}
 	wg.Go(func() { a.tools.RunConfigSweep(runCtx) })
 	if a.retention != nil {
 		wg.Go(func() { a.retention.Run(runCtx, a.d.RetainEvery) })

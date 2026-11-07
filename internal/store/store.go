@@ -863,7 +863,8 @@ type TeamRepo interface {
 	List(ctx context.Context, accountID uuid.UUID) ([]domain.Team, error)
 	// Update writes Name, Slug and ExternalID.
 	Update(ctx context.Context, t *domain.Team) error
-	// Delete removes the team with its members and role bindings.
+	// Delete removes the team with its members, role bindings and group
+	// mappings.
 	Delete(ctx context.Context, accountID, id uuid.UUID) error
 	// AddMember adds or, for an existing member, keeps the member; the user
 	// must be a member of the organization (ErrNotFound otherwise).

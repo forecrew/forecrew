@@ -25,6 +25,7 @@ type identityData struct {
 	sessions    table[domain.Session]
 	grants      table[domain.OAuthGrant]
 	scimTokens  table[domain.SCIMToken]
+	mappings    table[domain.GroupMapping]
 }
 
 func newIdentityData() identityData {
@@ -38,6 +39,7 @@ func newIdentityData() identityData {
 		sessions:    table[domain.Session]{key: func(r domain.Session) (uuid.UUID, uuid.UUID) { return r.UserID, r.ID }},
 		grants:      table[domain.OAuthGrant]{key: func(r domain.OAuthGrant) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		scimTokens:  table[domain.SCIMToken]{key: func(r domain.SCIMToken) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		mappings:    table[domain.GroupMapping]{key: func(r domain.GroupMapping) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 	}
 }
 
@@ -51,6 +53,7 @@ func (i identityData) clone() identityData {
 	i.sessions = i.sessions.clone()
 	i.grants = i.grants.clone()
 	i.scimTokens = i.scimTokens.clone()
+	i.mappings = i.mappings.clone()
 	return i
 }
 
@@ -63,6 +66,7 @@ func domainsT(d *storeData) *table[domain.VerifiedDomain] { return &d.identity.d
 func sessionsT(d *storeData) *table[domain.Session]       { return &d.identity.sessions }
 func grantsT(d *storeData) *table[domain.OAuthGrant]      { return &d.identity.grants }
 func scimTokensT(d *storeData) *table[domain.SCIMToken]   { return &d.identity.scimTokens }
+func mappingsT(d *storeData) *table[domain.GroupMapping]  { return &d.identity.mappings }
 
 // Users implements store.Store.
 func (s *Store) Users() store.UserRepo { return userRepo{s} }
@@ -375,16 +379,45 @@ func (r connectionRepo) Update(_ context.Context, c *domain.Connection) error {
 	})
 }
 
-// AddGroupMapping implements store.ConnectionRepo. Group mapping is T56's;
-// the fake keeps nothing.
-func (r connectionRepo) AddGroupMapping(context.Context, *domain.GroupMapping) error { return nil }
+// AddGroupMapping implements store.ConnectionRepo.
+func (r connectionRepo) AddGroupMapping(_ context.Context, m *domain.GroupMapping) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		c, err := d.identity.connections.get(uuid.Nil(), m.ConnectionID)
+		if err != nil {
+			return err
+		}
+		if c.AccountID != uuid.Nil() && c.AccountID != m.AccountID {
+			return fmt.Errorf("connection %s: %w", c.Name, store.ErrNotFound)
+		}
+		if _, err := d.access.teams.get(m.AccountID, m.TeamID); err != nil {
+			return err
+		}
+		if d.identity.mappings.exists(func(x domain.GroupMapping) bool {
+			return x.AccountID == m.AccountID && x.ConnectionID == m.ConnectionID && x.ExternalGroup == m.ExternalGroup && x.TeamID == m.TeamID
+		}) {
+			return fmt.Errorf("group mapping: %w", store.ErrConflict)
+		}
+		m.ID = newID(m.ID)
+		m.CreatedAt = now
+		d.identity.mappings.insert(*m)
+		return nil
+	})
+}
 
 // RemoveGroupMapping implements store.ConnectionRepo.
-func (r connectionRepo) RemoveGroupMapping(context.Context, uuid.UUID, uuid.UUID) error { return nil }
+func (r connectionRepo) RemoveGroupMapping(_ context.Context, accountID, id uuid.UUID) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		if _, err := d.identity.mappings.get(accountID, id); err != nil {
+			return err
+		}
+		d.identity.mappings.rows = slices.DeleteFunc(slices.Clone(d.identity.mappings.rows), func(m domain.GroupMapping) bool { return m.ID == id })
+		return nil
+	})
+}
 
 // GroupMappings implements store.ConnectionRepo.
-func (r connectionRepo) GroupMappings(context.Context, uuid.UUID) ([]domain.GroupMapping, error) {
-	return []domain.GroupMapping{}, nil
+func (r connectionRepo) GroupMappings(_ context.Context, connectionID uuid.UUID) ([]domain.GroupMapping, error) {
+	return listRows(r.s, mappingsT, 0, func(m domain.GroupMapping) bool { return m.ConnectionID == connectionID })
 }
 
 // VerifiedDomains implements store.Store.

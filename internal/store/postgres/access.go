@@ -60,6 +60,9 @@ func (r teamRepo) Delete(ctx context.Context, accountID, id uuid.UUID) error {
 		if _, err := tx.Exec(ctx, `DELETE FROM team_members WHERE account_id = $1 AND team_id = $2`, accountID, id); err != nil {
 			return mapErr(err)
 		}
+		if _, err := tx.Exec(ctx, `DELETE FROM group_mappings WHERE account_id = $1 AND team_id = $2`, accountID, id); err != nil {
+			return mapErr(err)
+		}
 		return mustUpdate(ctx, tx, `DELETE FROM teams WHERE account_id = $1 AND id = $2`, accountID, id)
 	})
 }
