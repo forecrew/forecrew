@@ -161,9 +161,6 @@ paths and `"$ref": null`. `PATCH` on a group answers `204`.
 
 ## Not built yet
 
-- **The role editor in the web UI** (criterion 7 of T56) waits for T54's
-  organization settings; custom roles are managed through MCP, REST and the
-  CLI until then.
 - **OAuth grants:** SCIM revokes a member's grants through a narrow
   `store.OAuthGrants()` until T55's `OAuthRepo` joins `Store`; it then
   replaces it, in the same transaction as the suspension.
@@ -171,7 +168,9 @@ paths and `"$ref": null`. `PATCH` on a group answers `204`.
 ## Custom roles
 
 `forecrew roles create auditor --scope organization --permission audit.read`
-makes a role from the permission catalog. Whoever creates, changes or deletes
+makes a role from the permission catalog, as does the roles page of the
+organization settings (People, Roles), which offers the editor in the
+enterprise build to whoever holds `role.manage`. Whoever creates, changes or deletes
 one needs `role.manage` and every permission involved, on the organization: a
 change reaches everyone bound to the role. A role in use cannot be deleted:
 bound, given by a pending invitation, or a JIT default of a connection.

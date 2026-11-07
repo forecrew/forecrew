@@ -26,7 +26,7 @@ export interface Calls {
  * protection (the second confirmation); `inboxPlans` puts plans in the Inbox.
  * A join code reports as soon as it is made. JOB-42 is a waiting job.
  */
-export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: string; me?: string; lowering?: boolean; inboxPlans?: boolean } = {}): Promise<Calls> {
+export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: string; me?: string; lowering?: boolean; inboxPlans?: boolean; roles?: string } = {}): Promise<Calls> {
   let loggedIn = opts.loggedIn ?? true
   let gates = fixture(opts.gates ?? "gates") as { ref: string }[]
   let canceled = false
@@ -98,7 +98,7 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
       "GET /me": opts.me ?? "me",
       "GET /members": "members",
       "GET /teams": "teams",
-      "GET /roles": "roles",
+      "GET /roles": opts.roles ?? "roles",
       "GET /role-bindings": "role-bindings",
       "GET /service-accounts": "service-accounts",
       "GET /invitations": "invitations",

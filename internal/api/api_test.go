@@ -37,6 +37,7 @@ type env struct {
 	logs    *bytes.Buffer
 	account domain.Account
 	actor   domain.Actor
+	cfg     api.Config // of server
 }
 
 func newEnv(t *testing.T) *env {
@@ -54,17 +55,26 @@ func newEnvFor(t *testing.T, now func() time.Time, account domain.Account) *env 
 	must(t, st.MCPTokens().Create(t.Context(), &laptop))
 	must(t, st.MCPTokens().Create(t.Context(), &domain.MCPToken{AccountID: e.account.ID, Name: "old", TokenHash: mcp.HashToken("fcm_old"), RevokedAt: testkit.NewClock(t0).Now()}))
 	e.actor = domain.Actor{AccountID: e.account.ID, Kind: domain.ActorMCP, Name: "laptop", Credential: domain.Credential{Kind: domain.CredentialToken, ID: laptop.ID}}
-	srv := api.New(api.Config{
+	e.cfg = api.Config{
 		Tools: e.svc, Artifacts: e.svc, Images: e.images, Store: st, Authz: authz.New(st, nil), Logger: slog.New(slog.NewJSONHandler(e.logs, nil)), TokenLogin: true,
 		Auth: auth.New(auth.Config{Store: st, Auth: config.Auth{TokenLogin: true}}),
-	})
-	e.server = httptest.NewTLSServer(srv.Handler())
+	}
+	e.start(t)
+	return e
+}
+
+// start serves e.cfg; a test that changes it starts again.
+func (e *env) start(t *testing.T) {
+	t.Helper()
+	if e.server != nil {
+		e.server.Close()
+	}
+	e.server = httptest.NewTLSServer(api.New(e.cfg).Handler())
 	t.Cleanup(e.server.Close)
 	jar, err := cookiejar.New(nil)
 	must(t, err)
 	e.client = e.server.Client()
 	e.client.Jar = jar
-	return e
 }
 
 func must(t *testing.T, err error) {

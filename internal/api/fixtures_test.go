@@ -847,6 +847,9 @@ func TestFixtures(t *testing.T) {
 			if c.prepare != nil {
 				c.prepare(e)
 			}
+			if e.cfg.Enterprise {
+				e.start(t) // the enterprise build, which a case asks for
+			}
 			r := e.do(t, c.method, c.path, c.body, c.auth)
 			if r.status != c.status {
 				t.Fatalf("status %d, want %d: %s", r.status, c.status, r.body)
