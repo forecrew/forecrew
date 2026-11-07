@@ -30,6 +30,17 @@ func newToken(prefix string) (token string, hash []byte) {
 	return token, h[:]
 }
 
+// JobsPerMachine is how many jobs a machine of s takes in its life: the
+// shape's max_jobs, but one on an instance-wide shape. A hosted machine serves
+// paying organizations, so nothing of one job, on disk or in memory, is ever
+// left for the next: every job gets a fresh machine.
+func JobsPerMachine(s domain.Shape) int {
+	if s.Ownership() == domain.OwnershipHosted {
+		return 1
+	}
+	return s.MaxJobs
+}
+
 // RecordLease records on its machine that the ephemeral worker w leased j,
 // in the lease's own transaction tx. A machine that took its last job or
 // stopped taking jobs since the query looked gives store.ErrConflict: the
@@ -43,6 +54,13 @@ func RecordLease(ctx context.Context, tx store.Store, w domain.Worker, j domain.
 	m, err = tx.Machines().TakeJob(ctx, m.ID, j.ID, deadline)
 	if err != nil {
 		return err
+	}
+	shape, err := tx.Shapes().Get(ctx, m.ShapeID)
+	if err != nil {
+		return fmt.Errorf("shape of machine %s: %w", m.ID, err)
+	}
+	if m.JobsTaken > JobsPerMachine(shape) {
+		return fmt.Errorf("machine %s took its jobs: %w", m.ID, store.ErrConflict)
 	}
 	switch m.State {
 	case domain.MachineBusy:
@@ -105,7 +123,7 @@ func Exchange(ctx context.Context, st store.Store, hash []byte, version string) 
 		token, tokenHash := newToken(prefixWorkerToken)
 		w := domain.Worker{
 			AccountID: m.AccountID, Name: workerName(m), Pool: shape.Pool, Ephemeral: true, TokenHash: tokenHash,
-			Labels: shape.OfferedLabels(), Version: version, MaxJobs: shape.MaxJobs,
+			Labels: shape.OfferedLabels(), Version: version, MaxJobs: JobsPerMachine(shape),
 		}
 		if err := tx.Workers().Create(ctx, &w); err != nil {
 			return fmt.Errorf("create worker: %w", err)
