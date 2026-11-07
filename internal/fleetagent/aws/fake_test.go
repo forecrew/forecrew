@@ -135,62 +135,9 @@ func (f *fakeEC2) RunInstances(_ context.Context, in *ec2.RunInstancesInput, _ .
 		return nil, apiError("InvalidGroup.NotFound", "no such group")
 	}
 	id := fmt.Sprintf("i-%017x", f.seq+1)
-	vol := fmt.Sprintf("vol-%017x", f.seq+1)
-	eni := fmt.Sprintf("eni-%017x", f.seq+1)
-	subnetARN := f.arn("subnet", awssdk.ToString(nic.SubnetId))
-
-	instCtx := map[string][]string{"ec2:InstanceType": {string(in.InstanceType)}}
-	tagContext("aws:RequestTag/", f.tagsOf(in, types.ResourceTypeInstance), instCtx)
-	if m := in.MetadataOptions; m != nil {
-		instCtx["ec2:MetadataHttpTokens"] = []string{string(m.HttpTokens)}
-		if m.HttpPutResponseHopLimit != nil {
-			instCtx["ec2:MetadataHttpPutResponseHopLimit"] = []string{strconv.Itoa(int(*m.HttpPutResponseHopLimit))}
-		}
-	}
-	if in.IamInstanceProfile != nil {
-		instCtx["ec2:IamInstanceProfile"] = []string{"arn:aws:iam::" + f.account + ":instance-profile/x"}
-	}
-	volCtx := map[string][]string{}
-	tagContext("aws:RequestTag/", f.tagsOf(in, types.ResourceTypeVolume), volCtx)
-	for _, b := range in.BlockDeviceMappings {
-		if b.Ebs != nil && awssdk.ToBool(b.Ebs.Encrypted) {
-			volCtx["ec2:Encrypted"] = []string{"true"}
-		}
-	}
-	eniCtx := map[string][]string{"ec2:Subnet": {subnetARN}}
-	tagContext("aws:RequestTag/", f.tagsOf(in, types.ResourceTypeNetworkInterface), eniCtx)
-	owner := map[string][]string{"ec2:Owner": {awssdk.ToString(img.OwnerId)}}
-	reqs := []request{
-		{action: "ec2:RunInstances", resource: f.arn("instance", id), context: instCtx},
-		{action: "ec2:RunInstances", resource: f.arn("volume", vol), context: volCtx},
-		{action: "ec2:RunInstances", resource: f.arn("network-interface", eni), context: eniCtx},
-		{action: "ec2:RunInstances", resource: subnetARN},
-		{action: "ec2:RunInstances", resource: f.arn("security-group", nic.Groups[0])},
-		{action: "ec2:RunInstances", resource: "arn:aws:ec2:" + f.region + "::image/" + awssdk.ToString(in.ImageId), context: owner},
-		{action: "ec2:RunInstances", resource: "arn:aws:ec2:" + f.region + "::snapshot/snap-0123456789abcdef0", context: owner},
-	}
-	kinds := map[types.ResourceType]string{
-		types.ResourceTypeInstance: id, types.ResourceTypeVolume: vol, types.ResourceTypeNetworkInterface: eni,
-	}
-	spot := in.InstanceMarketOptions != nil && in.InstanceMarketOptions.MarketType == types.MarketTypeSpot
-	if spot {
-		sir := "sir-" + id
-		kinds[types.ResourceTypeSpotInstancesRequest] = sir
-		spotCtx := map[string][]string{}
-		tagContext("aws:RequestTag/", f.tagsOf(in, types.ResourceTypeSpotInstancesRequest), spotCtx)
-		reqs = append(reqs, request{action: "ec2:RunInstances", resource: f.arn("spot-instances-request", sir), context: spotCtx})
-	}
-	for _, s := range in.TagSpecifications {
-		rid, ok := kinds[s.ResourceType]
-		if !ok {
-			return nil, apiError("InvalidParameterValue", "tags for a resource that is not created: "+string(s.ResourceType))
-		}
-		c := map[string][]string{"ec2:CreateAction": {"RunInstances"}}
-		tagContext("aws:RequestTag/", s.Tags, c)
-		reqs = append(reqs, request{action: "ec2:CreateTags", resource: f.arn(map[types.ResourceType]string{
-			types.ResourceTypeInstance: "instance", types.ResourceTypeVolume: "volume",
-			types.ResourceTypeNetworkInterface: "network-interface", types.ResourceTypeSpotInstancesRequest: "spot-instances-request",
-		}[s.ResourceType], rid), context: c})
+	reqs, err := f.launchRequests(in, id, img, nic)
+	if err != nil {
+		return nil, err
 	}
 	if err := f.authorize("RunInstances", reqs...); err != nil {
 		return nil, err
@@ -207,7 +154,7 @@ func (f *fakeEC2) RunInstances(_ context.Context, in *ec2.RunInstancesInput, _ .
 		State: &types.InstanceState{Name: types.InstanceStateNameRunning}, Tags: slices.Clone(f.tagsOf(in, types.ResourceTypeInstance)),
 		SubnetId: nic.SubnetId,
 	}
-	if spot {
+	if in.InstanceMarketOptions != nil && in.InstanceMarketOptions.MarketType == types.MarketTypeSpot {
 		inst.InstanceLifecycle = types.InstanceLifecycleTypeSpot
 	}
 	f.instances[id] = inst
@@ -235,28 +182,9 @@ func (f *fakeEC2) DescribeInstances(_ context.Context, in *ec2.DescribeInstances
 	if f.describeE != nil {
 		return nil, f.describeE
 	}
-	var match []*types.Instance
-	for _, id := range in.InstanceIds {
-		if _, ok := f.instances[id]; !ok {
-			return nil, apiError("InvalidInstanceID.NotFound", "The instance ID '"+id+"' does not exist")
-		}
-	}
-	for _, id := range f.order {
-		i := f.instances[id]
-		if len(in.InstanceIds) > 0 && !slices.Contains(in.InstanceIds, id) {
-			continue
-		}
-		if f.hidden[id] > 0 && len(in.InstanceIds) == 0 {
-			continue
-		}
-		if f.filtered(i, in.Filters) {
-			match = append(match, i)
-		}
-	}
-	for id := range f.hidden {
-		if f.hidden[id] > 0 && len(in.InstanceIds) == 0 {
-			f.hidden[id]--
-		}
+	match, err := f.matching(in)
+	if err != nil {
+		return nil, err
 	}
 	start := 0
 	if in.NextToken != nil {
@@ -502,4 +430,93 @@ func (s *fakeSTS) GetCallerIdentity(context.Context, *sts.GetCallerIdentityInput
 		return nil, s.err
 	}
 	return &sts.GetCallerIdentityOutput{Account: awssdk.String(s.account), Arn: awssdk.String("arn:aws:sts::" + s.account + ":assumed-role/forecrew-agent/i-0")}, nil
+}
+
+// launchRequests are the authorizations a RunInstances needs: one per resource it
+// creates or reads, with the context keys IAM builds for each.
+func (f *fakeEC2) launchRequests(in *ec2.RunInstancesInput, id string, img types.Image, nic types.InstanceNetworkInterfaceSpecification) ([]request, error) {
+	vol := fmt.Sprintf("vol-%017x", f.seq+1)
+	eni := fmt.Sprintf("eni-%017x", f.seq+1)
+	subnetARN := f.arn("subnet", awssdk.ToString(nic.SubnetId))
+
+	instCtx := map[string][]string{"ec2:InstanceType": {string(in.InstanceType)}}
+	tagContext("aws:RequestTag/", f.tagsOf(in, types.ResourceTypeInstance), instCtx)
+	if m := in.MetadataOptions; m != nil {
+		instCtx["ec2:MetadataHttpTokens"] = []string{string(m.HttpTokens)}
+		if m.HttpPutResponseHopLimit != nil {
+			instCtx["ec2:MetadataHttpPutResponseHopLimit"] = []string{strconv.Itoa(int(*m.HttpPutResponseHopLimit))}
+		}
+	}
+	if in.IamInstanceProfile != nil {
+		instCtx["ec2:IamInstanceProfile"] = []string{"arn:aws:iam::" + f.account + ":instance-profile/x"}
+	}
+	volCtx := map[string][]string{}
+	tagContext("aws:RequestTag/", f.tagsOf(in, types.ResourceTypeVolume), volCtx)
+	for _, b := range in.BlockDeviceMappings {
+		if b.Ebs != nil && awssdk.ToBool(b.Ebs.Encrypted) {
+			volCtx["ec2:Encrypted"] = []string{"true"}
+		}
+	}
+	eniCtx := map[string][]string{"ec2:Subnet": {subnetARN}}
+	tagContext("aws:RequestTag/", f.tagsOf(in, types.ResourceTypeNetworkInterface), eniCtx)
+	owner := map[string][]string{"ec2:Owner": {awssdk.ToString(img.OwnerId)}}
+	reqs := []request{
+		{action: "ec2:RunInstances", resource: f.arn("instance", id), context: instCtx},
+		{action: "ec2:RunInstances", resource: f.arn("volume", vol), context: volCtx},
+		{action: "ec2:RunInstances", resource: f.arn("network-interface", eni), context: eniCtx},
+		{action: "ec2:RunInstances", resource: subnetARN},
+		{action: "ec2:RunInstances", resource: f.arn("security-group", nic.Groups[0])},
+		{action: "ec2:RunInstances", resource: "arn:aws:ec2:" + f.region + "::image/" + awssdk.ToString(in.ImageId), context: owner},
+		{action: "ec2:RunInstances", resource: "arn:aws:ec2:" + f.region + "::snapshot/snap-0123456789abcdef0", context: owner},
+	}
+	kinds := map[types.ResourceType]string{
+		types.ResourceTypeInstance: id, types.ResourceTypeVolume: vol, types.ResourceTypeNetworkInterface: eni,
+	}
+	spot := in.InstanceMarketOptions != nil && in.InstanceMarketOptions.MarketType == types.MarketTypeSpot
+	if spot {
+		sir := "sir-" + id
+		kinds[types.ResourceTypeSpotInstancesRequest] = sir
+		spotCtx := map[string][]string{}
+		tagContext("aws:RequestTag/", f.tagsOf(in, types.ResourceTypeSpotInstancesRequest), spotCtx)
+		reqs = append(reqs, request{action: "ec2:RunInstances", resource: f.arn("spot-instances-request", sir), context: spotCtx})
+	}
+	for _, s := range in.TagSpecifications {
+		rid, ok := kinds[s.ResourceType]
+		if !ok {
+			return nil, apiError("InvalidParameterValue", "tags for a resource that is not created: "+string(s.ResourceType))
+		}
+		c := map[string][]string{"ec2:CreateAction": {"RunInstances"}}
+		tagContext("aws:RequestTag/", s.Tags, c)
+		reqs = append(reqs, request{action: "ec2:CreateTags", resource: f.arn(map[types.ResourceType]string{
+			types.ResourceTypeInstance: "instance", types.ResourceTypeVolume: "volume",
+			types.ResourceTypeNetworkInterface: "network-interface", types.ResourceTypeSpotInstancesRequest: "spot-instances-request",
+		}[s.ResourceType], rid), context: c})
+	}
+	return reqs, nil
+}
+
+// matching returns the instances a DescribeInstances asks for.
+func (f *fakeEC2) matching(in *ec2.DescribeInstancesInput) ([]*types.Instance, error) {
+	var match []*types.Instance
+	for _, id := range in.InstanceIds {
+		if _, ok := f.instances[id]; !ok {
+			return nil, apiError("InvalidInstanceID.NotFound", "The instance ID '"+id+"' does not exist")
+		}
+	}
+	listing := len(in.InstanceIds) == 0
+	for _, id := range f.order {
+		i := f.instances[id]
+		if (!listing && !slices.Contains(in.InstanceIds, id)) || (listing && f.hidden[id] > 0) {
+			continue
+		}
+		if f.filtered(i, in.Filters) {
+			match = append(match, i)
+		}
+	}
+	if listing {
+		for id := range f.hidden {
+			f.hidden[id] = max(f.hidden[id]-1, 0)
+		}
+	}
+	return match, nil
 }

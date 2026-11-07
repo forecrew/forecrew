@@ -98,6 +98,11 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func (c Config) validate() error {
+	return errors.Join(c.validateNetwork(), c.validateLimits())
+}
+
+// validateNetwork checks where machines start and what they may be.
+func (c Config) validateNetwork() error {
 	var bad []error
 	add := func(format string, args ...any) { bad = append(bad, fmt.Errorf(format, args...)) }
 	if !regionRE.MatchString(c.Region) {
@@ -118,7 +123,7 @@ func (c Config) validate() error {
 		add("security_group must be a security group ID, got %q", c.SecurityGroup)
 	}
 	if len(c.InstanceTypes) == 0 {
-		add("instance_types must list at least one instance type or pattern, such as c7i.* ")
+		add("instance_types must list at least one instance type or pattern, such as c7i.*")
 	}
 	for _, t := range c.InstanceTypes {
 		if !typeRE.MatchString(t) {
@@ -130,6 +135,13 @@ func (c Config) validate() error {
 			add("trusted_ami_owners: %q is not an account ID", o)
 		}
 	}
+	return errors.Join(bad...)
+}
+
+// validateLimits checks the brakes and where the agent keeps its state.
+func (c Config) validateLimits() error {
+	var bad []error
+	add := func(format string, args ...any) { bad = append(bad, fmt.Errorf(format, args...)) }
 	if c.MaxMachines < 1 || c.MaxMachines > 1000 {
 		add("max_machines must be between 1 and 1000, got %d", c.MaxMachines)
 	}

@@ -11,6 +11,7 @@ import (
 	"uuid"
 
 	awssdk "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/smithy-go"
 
@@ -38,32 +39,7 @@ func TestCreateTagsEverythingAndClosesTheMachine(t *testing.T) {
 		t.Fatalf("%d RunInstances calls", len(e.ec2.runs))
 	}
 	in := e.ec2.runs[0]
-	for _, kind := range []types.ResourceType{types.ResourceTypeInstance, types.ResourceTypeVolume, types.ResourceTypeNetworkInterface} {
-		tags := tagMap(e.ec2.tagsOf(in, kind))
-		for k, v := range map[string]string{TagFleet: testFleet, fleet.TagMachine: req.MachineID.String(), fleet.TagOrg: testOrg, "team": "platform"} {
-			if tags[k] != v {
-				t.Errorf("%s tags: %s = %q, want %q", kind, k, tags[k], v)
-			}
-		}
-	}
-	if m := in.MetadataOptions; m == nil || m.HttpTokens != types.HttpTokensStateRequired || awssdk.ToInt32(m.HttpPutResponseHopLimit) != 1 {
-		t.Errorf("metadata options = %+v", m)
-	}
-	if in.IamInstanceProfile != nil {
-		t.Error("a machine must not hold an instance profile")
-	}
-	if in.InstanceInitiatedShutdownBehavior != types.ShutdownBehaviorTerminate {
-		t.Errorf("shutdown behavior = %s", in.InstanceInitiatedShutdownBehavior)
-	}
-	if b := in.BlockDeviceMappings[0]; awssdk.ToInt32(b.Ebs.VolumeSize) != 30 || !awssdk.ToBool(b.Ebs.Encrypted) || !awssdk.ToBool(b.Ebs.DeleteOnTermination) || awssdk.ToString(b.DeviceName) != "/dev/xvda" {
-		t.Errorf("block device = %+v", b)
-	}
-	if n := in.NetworkInterfaces[0]; awssdk.ToString(n.SubnetId) != testSubnet || !awssdk.ToBool(n.DeleteOnTermination) || awssdk.ToBool(n.AssociatePublicIpAddress) {
-		t.Errorf("network interface = %+v", n)
-	}
-	if in.InstanceMarketOptions != nil || in.CreditSpecification != nil {
-		t.Error("an on-demand c7i machine has neither market options nor credits")
-	}
+	checkLaunchSafety(t, e, in, req)
 	raw, err := base64.StdEncoding.DecodeString(awssdk.ToString(in.UserData))
 	must(t, err)
 	if !strings.Contains(string(raw), "FORECREW_BOOTSTRAP_TOKEN="+testToken) || !strings.Contains(string(raw), "shutdown, -P, '+120'") {
@@ -571,5 +547,38 @@ func TestConcurrentCreatesRespectTheLimit(t *testing.T) {
 	}
 	if made != 2 || len(e.ec2.live()) != 2 {
 		t.Fatalf("made %d, live %d", made, len(e.ec2.live()))
+	}
+}
+
+// checkLaunchSafety checks what a RunInstances must say whatever the shape: the
+// tags on everything, no role, IMDSv2 with one hop, an encrypted disk that goes
+// with the machine, and a machine that ends when it shuts down.
+func checkLaunchSafety(t *testing.T, e *env, in *ec2.RunInstancesInput, req fleet.CreateRequest) {
+	t.Helper()
+	for _, kind := range []types.ResourceType{types.ResourceTypeInstance, types.ResourceTypeVolume, types.ResourceTypeNetworkInterface} {
+		tags := tagMap(e.ec2.tagsOf(in, kind))
+		for k, v := range map[string]string{TagFleet: testFleet, fleet.TagMachine: req.MachineID.String(), fleet.TagOrg: testOrg, "team": "platform"} {
+			if tags[k] != v {
+				t.Errorf("%s tags: %s = %q, want %q", kind, k, tags[k], v)
+			}
+		}
+	}
+	if m := in.MetadataOptions; m == nil || m.HttpTokens != types.HttpTokensStateRequired || awssdk.ToInt32(m.HttpPutResponseHopLimit) != 1 {
+		t.Errorf("metadata options = %+v", m)
+	}
+	if in.IamInstanceProfile != nil {
+		t.Error("a machine must not hold an instance profile")
+	}
+	if in.InstanceInitiatedShutdownBehavior != types.ShutdownBehaviorTerminate {
+		t.Errorf("shutdown behavior = %s", in.InstanceInitiatedShutdownBehavior)
+	}
+	if b := in.BlockDeviceMappings[0]; awssdk.ToInt32(b.Ebs.VolumeSize) != 30 || !awssdk.ToBool(b.Ebs.Encrypted) || !awssdk.ToBool(b.Ebs.DeleteOnTermination) || awssdk.ToString(b.DeviceName) != "/dev/xvda" {
+		t.Errorf("block device = %+v", b)
+	}
+	if n := in.NetworkInterfaces[0]; awssdk.ToString(n.SubnetId) != testSubnet || !awssdk.ToBool(n.DeleteOnTermination) || awssdk.ToBool(n.AssociatePublicIpAddress) {
+		t.Errorf("network interface = %+v", n)
+	}
+	if in.InstanceMarketOptions != nil || in.CreditSpecification != nil {
+		t.Error("an on-demand c7i machine has neither market options nor credits")
 	}
 }

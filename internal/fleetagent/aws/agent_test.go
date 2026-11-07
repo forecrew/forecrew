@@ -56,7 +56,12 @@ func TestAgentStartsAndLosesASpotMachine(t *testing.T) {
 		ReconcileEvery: 5 * time.Millisecond, BackoffMin: time.Millisecond, BackoffMax: 5 * time.Millisecond, NoRoomWait: 20 * time.Millisecond,
 	})
 	go func() { done <- agent.Run(runCtx) }()
-	t.Cleanup(func() { cancel(); <-done })
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	})
 
 	m := domain.Machine{AccountID: account.ID, ProviderID: provider.ID, ShapeID: shape.ID}
 	must(t, st.Machines().Create(ctx, &m))
