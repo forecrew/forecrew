@@ -240,9 +240,16 @@ func TestBootRefusedToken(t *testing.T) {
 
 func TestBootStopsEarly(t *testing.T) {
 	for name, breakIt := range map[string]func(g *testGuest, t *testing.T){
-		"mount":      func(g *testGuest, _ *testing.T) { g.sys.mountErr = errors.New("no") },
-		"proc":       func(g *testGuest, _ *testing.T) { g.sys.procErr = errors.New("no") },
-		"no loader":  func(g *testGuest, _ *testing.T) { _ = os.Remove(filepath.Join(g.dir, "proc/sys/kernel/modprobe")) },
+		"mount": func(g *testGuest, _ *testing.T) { g.sys.mountErr = errors.New("no") },
+		"proc":  func(g *testGuest, _ *testing.T) { g.sys.procErr = errors.New("no") },
+		"loader not writable": func(g *testGuest, t *testing.T) {
+			if os.Geteuid() == 0 {
+				t.Skip("root writes anyway")
+			}
+			if err := os.Chmod(filepath.Join(g.dir, "proc/sys/kernel/modprobe"), 0o400); err != nil {
+				t.Fatal(err)
+			}
+		},
 		"network":    func(g *testGuest, _ *testing.T) { g.sys.networkErr = errors.New("no") },
 		"no cmdline": func(g *testGuest, _ *testing.T) { _ = os.Remove(filepath.Join(g.dir, "proc/cmdline")) },
 		"no disk":    func(g *testGuest, _ *testing.T) { _ = os.Remove(filepath.Join(g.dir, "dev/vdb")) },
@@ -271,6 +278,24 @@ func TestBootStopsEarly(t *testing.T) {
 				t.Errorf("the token was used: %q", g.seen)
 			}
 		})
+	}
+}
+
+// A kernel built without modules has no loader to turn off, and boots.
+func TestBootWithoutModules(t *testing.T) {
+	g := newGuest(t, "")
+	if err := os.Remove(filepath.Join(g.dir, "proc/sys/kernel/modprobe")); err != nil {
+		t.Fatal(err)
+	}
+	g.boot(bootContext(t))
+	if len(g.seen) != 1 || g.seen[0] != "/worker/v1/bootstrap Bearer fcb_good" {
+		t.Fatalf("requests = %q\n%s", g.seen, g.logs)
+	}
+	if _, err := os.Stat(filepath.Join(g.dir, "opt/forecrew/worker.env")); err != nil {
+		t.Errorf("the worker did not start: %v\n%s", err, g.logs)
+	}
+	if _, err := os.Stat(filepath.Join(g.dir, "proc/sys/kernel/modprobe")); err == nil {
+		t.Error("a loader file was made")
 	}
 }
 
