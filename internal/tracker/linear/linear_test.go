@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/forecrew/forecrew/internal/councils"
+	"github.com/forecrew/forecrew/internal/netguard"
 	"github.com/forecrew/forecrew/internal/tracker"
 	"github.com/forecrew/forecrew/internal/tracker/trackertest"
 )
@@ -380,7 +380,7 @@ func TestPrivateAddressesAreRefusedByDefault(t *testing.T) {
 	w := newWorld(t)
 	w.deps.PrivateAddresses = false
 	_, err := w.adapter(t).Get(t.Context(), "ENG-1")
-	if !errors.Is(err, councils.ErrRefused) {
+	if !errors.Is(err, netguard.ErrRefused) {
 		t.Errorf("a loopback endpoint: %v", err)
 	}
 }

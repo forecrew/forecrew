@@ -15,6 +15,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/evidence"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/netguard"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -163,7 +164,7 @@ func (s *sourceChecker) url(ctx context.Context, out *domain.SourceCheck) {
 	defer func() { s.seen[out.Source] = *out }()
 	page, err := s.a.Fetcher.Fetch(ctx, out.Source)
 	switch {
-	case errors.Is(err, councils.ErrRefused):
+	case errors.Is(err, netguard.ErrRefused):
 		// Not the error: members must not learn what a name resolves to here.
 		out.Status, out.Detail = domain.SourceRefused, "only public http(s) addresses are fetched"
 		return

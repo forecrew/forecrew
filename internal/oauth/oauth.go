@@ -21,9 +21,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 
 	"github.com/forecrew/forecrew/internal/auth"
-	"github.com/forecrew/forecrew/internal/councils"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/netguard"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
@@ -108,7 +108,7 @@ func New(cfg Config) *Server {
 	}
 	if cfg.HTTP == nil {
 		cfg.HTTP = &http.Client{
-			Timeout: fetchTimeout, Transport: councils.PublicTransport(),
+			Timeout: fetchTimeout, Transport: netguard.PublicTransport(),
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		}
 	}

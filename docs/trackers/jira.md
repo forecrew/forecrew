@@ -144,8 +144,14 @@ directly when the token is already in the secret store; they test it first.
   private, loopback or link-local address is refused, checked before every
   request and again when the connection is made: on a hosted server, a
   connection cannot be used to reach Forecrew's own network. A **self-hosted**
-  forecrewd in the same network as its Jira sets
-  `trackers.private_addresses: true` in `forecrew.yaml`.
+  forecrewd in the same network as its Jira, or on the same tailnet, sets
+  `trackers.private_addresses: true` in `forecrew.yaml`. It then also reaches
+  loopback, private (10/8, 172.16/12, 192.168/16, fc00::/7), carrier-grade NAT
+  (100.64.0.0/10, Tailscale's), 192.0.0.0/24, 198.18.0.0/15 and 240.0.0.0/4
+  addresses. Link-local addresses (169.254.0.0/16, fe80::/10), the cloud
+  metadata addresses 100.100.100.200 and fd00:ec2::254, multicast, 0.0.0.0,
+  `::` and 255.255.255.255 are refused either way, at the connection; through
+  a proxy the proxy decides.
 - **Through a proxy, only the check before the request applies.** The proxy
   resolves the name and makes the connection, so forecrewd cannot check the
   address it reaches. Egress control is then the proxy's job: a server admin
