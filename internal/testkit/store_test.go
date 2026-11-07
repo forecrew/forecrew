@@ -1056,6 +1056,7 @@ func TestKnowledgeStore(t *testing.T) {
 	must(t, st.Projects().Create(t.Context(), &p))
 	KnowledgeStoreSuite(t, st, acc.ID, p.ID, true)
 	KnowledgeProposalStoreSuite(t, st, acc.ID, p.ID)
+	ProposalStoreSuite(t, st, acc.ID, p.ID)
 }
 
 func TestTrackerStore(t *testing.T) {

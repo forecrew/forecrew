@@ -78,6 +78,7 @@ type Store interface {
 	Decisions() DecisionRepo
 	Knowledge() KnowledgeRepo
 	KnowledgeProposals() KnowledgeProposalRepo
+	Proposals() ProposalRepo
 	Councils() CouncilRepo
 	Teams() TeamRepo
 	ServiceAccounts() ServiceAccountRepo
@@ -530,9 +531,8 @@ type VerificationReportRepo interface {
 // The repositories below belong to the team (councils, registers,
 // knowledge, proposals; docs/contracts/data-model.md, migration 00004).
 // Like the testing system's, they are contracts only until they join Store
-// (AssumptionRepo, DecisionRepo, CouncilRepo, KnowledgeRepo and
-// KnowledgeProposalRepo are in it): ProposalRepo by T50, with the
-// Postgres implementation and the testkit fake. goals.kind and goals.size
+// (AssumptionRepo, DecisionRepo, CouncilRepo, KnowledgeRepo,
+// KnowledgeProposalRepo and ProposalRepo are in it). goals.kind and goals.size
 // are read and written by GoalRepo from T35 (Size) and T41 (Kind); until
 // then they keep their defaults (feature, NULL). jobs.context_manifest is
 // read and written by JobRepo (T38). gates.origin and jobs.job_mcp_token_hash are
@@ -753,6 +753,9 @@ type ProposalFilter struct {
 	ProjectID uuid.UUID
 	Status    domain.ProposalStatus
 	Category  domain.ProposalCategory
+	DedupeKey string
+	GateID    uuid.UUID
+	GoalID    uuid.UUID
 	Limit     int
 }
 
@@ -768,7 +771,9 @@ type ProposalRepo interface {
 	GetOpen(ctx context.Context, accountID, projectID uuid.UUID, dedupeKey string) (domain.Proposal, error)
 	List(ctx context.Context, accountID uuid.UUID, f ProposalFilter) ([]domain.Proposal, error)
 	// Update writes everything but the IDs, Number and CreatedAt, as a
-	// compare-and-set of the status from from.
+	// compare-and-set of the status from from: ErrConflict when it moved,
+	// domain.ErrInvalidTransition for a move the domain refuses. A proposal
+	// that keeps its status, final or not, is simply written.
 	Update(ctx context.Context, p *domain.Proposal, from domain.ProposalStatus) error
 }
 

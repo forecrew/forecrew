@@ -57,6 +57,7 @@ type storeData struct {
 	assumptions   table[domain.Assumption]
 	decisions     table[domain.Decision]
 	councils      table[domain.Council]
+	proposals     table[domain.Proposal]
 	council       table[domain.CouncilContribution] // contributions
 	deliveries    map[string]domain.WebhookDelivery
 	counters      map[counterKey]int64
@@ -118,6 +119,7 @@ func NewStore(now func() time.Time) *Store {
 		testRuns:      table[domain.TestRun]{key: func(r domain.TestRun) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		testResult:    table[domain.TestResult]{key: func(r domain.TestResult) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		councils:      table[domain.Council]{key: func(r domain.Council) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		proposals:     table[domain.Proposal]{key: func(r domain.Proposal) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		council:       table[domain.CouncilContribution]{key: func(r domain.CouncilContribution) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		deliveries:    map[string]domain.WebhookDelivery{},
 		counters:      map[counterKey]int64{},
@@ -172,6 +174,7 @@ func (d *storeData) clone() *storeData {
 	c.kbProposals = d.kbProposals.clone()
 	c.embeddings = maps.Clone(d.embeddings)
 	c.councils = d.councils.clone()
+	c.proposals = d.proposals.clone()
 	c.council = d.council.clone()
 	c.providers = d.providers.clone()
 	c.shapes = d.shapes.clone()
