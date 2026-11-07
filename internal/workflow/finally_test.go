@@ -183,3 +183,53 @@ func TestFinallySeesHowTheRunEnds(t *testing.T) {
 		})
 	}
 }
+
+// CancelRun ends a run from outside: the job in flight is canceled and the
+// finally steps run.
+func TestCancelRunStopsAJob(t *testing.T) {
+	v := newEnv(t)
+	e, r := v.engine(t, withFinally, map[string]any{"repo": "acme/app"})
+	build, _ := v.waitJob(t, r.ID, "build", 1)
+	must(t, e.CancelRun(t.Context(), v.account, r.ID, "the ticket was closed"))
+	got := v.waitRun(t, r.ID, domain.RunCanceled)
+	if got.Error != "the ticket was closed" {
+		t.Errorf("run error = %q", got.Error)
+	}
+	j, err := v.st.Jobs().Get(t.Context(), v.account, build.JobID)
+	must(t, err)
+	if j.Status != domain.JobCanceled {
+		t.Errorf("job = %s", j.Status)
+	}
+	if n := len(v.actionCalls()); n != 1 {
+		t.Errorf("finally calls = %d, want 1", n)
+	}
+}
+
+// A gate the canceled run waits on leaves the Inbox.
+func TestCancelRunRejectsTheGateItWaitsOn(t *testing.T) {
+	v := newEnv(t)
+	e, r := v.engine(t, withFinally, map[string]any{"repo": "acme/app"})
+	build, _ := v.waitJob(t, r.ID, "build", 1)
+	v.finishJob(t, build.JobID, domain.JobSucceeded, `{}`, "")
+	s := v.waitStep(t, r.ID, "review", 1, domain.StepWaiting)
+	must(t, e.CancelRun(t.Context(), v.account, r.ID, "the ticket was closed"))
+	v.waitRun(t, r.ID, domain.RunCanceled)
+	g, err := v.st.Gates().Get(t.Context(), v.account, s.GateID)
+	must(t, err)
+	if g.Status != domain.GateRejected || g.ResolvedBy != "system:"+domain.ForecrewdName || g.Feedback != "the ticket was closed" {
+		t.Errorf("gate = %+v", g)
+	}
+}
+
+// A run that has ended stays as it was.
+func TestCancelRunAfterTheEnd(t *testing.T) {
+	v := newEnv(t)
+	e, r := v.engine(t, withFinally, map[string]any{"repo": "acme/app"})
+	build, _ := v.waitJob(t, r.ID, "build", 1)
+	v.finishJob(t, build.JobID, domain.JobFailed, "", "")
+	v.waitRun(t, r.ID, domain.RunFailed)
+	must(t, e.CancelRun(t.Context(), v.account, r.ID, "too late"))
+	if got, _ := v.st.WorkflowRuns().Get(t.Context(), v.account, r.ID); got.Status != domain.RunFailed || got.CancelReason != "" {
+		t.Errorf("run = %+v", got)
+	}
+}

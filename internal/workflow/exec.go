@@ -127,6 +127,23 @@ func (x *exec) stopJobs(ctx context.Context) error {
 	return nil
 }
 
+// closeGates rejects the gates the run waits on as forecrewd, so nobody is
+// asked about a run that is being canceled. A gate that was resolved meanwhile
+// stays as it is.
+func (x *exec) closeGates(ctx context.Context, reason string) error {
+	by := domain.SystemActor(x.run.AccountID, domain.ForecrewdName)
+	for _, sr := range x.steps {
+		if sr.Status != domain.StepWaiting || sr.GateID == uuid.Nil() {
+			continue
+		}
+		_, err := x.e.cfg.Gates.Resolve(ctx, by, sr.GateID, domain.GateRejected, reason)
+		if err != nil && !errors.Is(err, domain.ErrInvalidTransition) && !errors.Is(err, store.ErrConflict) {
+			return fmt.Errorf("reject gate of step %s: %w", sr.StepID, err)
+		}
+	}
+	return nil
+}
+
 // recordFinished records the outcome of a job step whose job has finished.
 func (x *exec) recordFinished(ctx context.Context, sr *domain.StepRun) error {
 	job, err := x.e.cfg.Store.Jobs().Get(ctx, x.run.AccountID, sr.ID)

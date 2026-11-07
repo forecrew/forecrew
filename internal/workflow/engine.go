@@ -157,6 +157,18 @@ func (e *Engine) Start(ctx context.Context, playbook string, req StartRequest) (
 	return run, nil
 }
 
+// CancelRun cancels a run from outside it: the engine stops its jobs, rejects
+// the gates it waits on and runs its finally steps, as for a rejected gate. The
+// request is stored, so it survives a restart; a run that has ended stays as
+// it is.
+func (e *Engine) CancelRun(ctx context.Context, accountID, runID uuid.UUID, reason string) error {
+	if err := e.cfg.Store.WorkflowRuns().RequestCancel(ctx, accountID, runID, reason); err != nil {
+		return fmt.Errorf("cancel run %s: %w", runID, err)
+	}
+	e.q.push(runKey{accountID, runID})
+	return nil
+}
+
 // Run advances runs with a pool of workers until ctx is done. It resumes
 // every active run first, wakes runs waiting on each published signal and
 // sweeps the active runs periodically.
@@ -244,7 +256,14 @@ func (e *Engine) advance(ctx context.Context, k runKey) error {
 	if err != nil {
 		return err
 	}
-	err = x.replay(ctx)
+	if run.CancelReason != "" {
+		if err := x.closeGates(ctx, run.CancelReason); err != nil {
+			return err
+		}
+		err = &runEnd{domain.RunCanceled, run.CancelReason}
+	} else {
+		err = x.replay(ctx)
+	}
 	var end *runEnd
 	if errors.As(err, &end) && end.status != domain.RunSucceeded {
 		if err := x.stopJobs(ctx); err != nil {
