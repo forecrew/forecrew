@@ -209,6 +209,7 @@ func trackerRouteArea() Area {
 	a.Read = trackerRouteRead
 	a.Validate = trackerRouteValidate
 	a.Apply = trackerRouteApply
+	a.Steps = trackerRouteSteps
 	return a
 }
 
@@ -267,10 +268,9 @@ func routeInput(want Resource) (mcp.CreateTrackerRouteInput, error) {
 	return mcp.CreateTrackerRouteInput{Connection: conn, Project: s.Project, Position: pos, Match: s.Match, GoalKind: s.GoalKind, Playbook: s.Playbook, States: s.States}, nil
 }
 
-// trackerRouteValidate checks a route as create_tracker_route does. A route
-// of a connection the same plan creates is checked against the tracker's
-// states only by the person testing the connection: its token is not in
-// place yet.
+// trackerRouteValidate checks a route as create_tracker_route does, short of
+// asking the tracker: a plan never reaches it. The route's states are
+// checked by the connection's test, which its step asks for.
 func trackerRouteValidate(ctx context.Context, e *Env, _ *Resource, want Resource) error {
 	in, err := routeInput(want)
 	if err != nil {
@@ -286,7 +286,7 @@ func trackerRouteValidate(ctx context.Context, e *Env, _ *Resource, want Resourc
 	case err != nil:
 		return err
 	}
-	_, err = e.Access.TrackerRouteRow(ctx, e.Actor, in, true)
+	_, err = e.Access.TrackerRouteRow(ctx, e.Actor, in, false)
 	return asInvalid(err)
 }
 
@@ -309,6 +309,23 @@ func checkRouteSpec(ctx context.Context, e *Env, in mcp.CreateTrackerRouteInput)
 		return missing(err, "project "+in.Project)
 	}
 	return nil
+}
+
+// trackerRouteSteps asks for a test of the connection of a route that maps
+// states, which checks them against the tracker.
+func trackerRouteSteps(_, want *Resource) []domain.ConfigStep {
+	if want == nil {
+		return nil
+	}
+	s, err := decode[trackerRouteSpec](want.Spec)
+	conn, _, nerr := parseRouteName(want.Name)
+	if err != nil || nerr != nil || len(s.States) == 0 {
+		return nil
+	}
+	return []domain.ConfigStep{{
+		Kind: domain.ConfigStepConnect, Resource: want.Ref(), Title: "Test the connection of the route",
+		Detail: "Run forecrew tracker test " + conn + " once the plan is applied: it checks the route's states against the tracker's.",
+	}}
 }
 
 func trackerRouteApply(ctx context.Context, e *Env, old, want *Resource) error {

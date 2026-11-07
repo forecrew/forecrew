@@ -143,10 +143,16 @@ func TestTrackerRouteResource(t *testing.T) {
 	if !strings.Contains(got, `"project":"app"`) || !strings.Contains(got, `"done":"closed"`) || !strings.Contains(got, `"backend"`) {
 		t.Fatalf("route = %s", got)
 	}
-	// Against a connection that exists, the states are the tracker's.
+	// A plan never reaches the tracker: the connection's test checks the
+	// states, and the plan says to run it.
+	p = w.plan(w.owner, wanted(t, "tracker_route", "board/2", route("app", map[string]string{"done": "Shipped"})))
+	if len(p.Steps) != 1 || p.Steps[0].Kind != domain.ConfigStepConnect || !strings.Contains(p.Steps[0].Detail, "forecrew tracker test board") {
+		t.Errorf("steps = %+v", p.Steps)
+	}
+	if p = w.plan(w.owner, wanted(t, "tracker_route", "board/2", route("app", nil))); len(p.Steps) != 0 {
+		t.Errorf("a route without states asks for a test: %+v", p.Steps)
+	}
 	for name, w2 := range map[string]mcp.ConfigWanted{
-		"unknown state":         wanted(t, "tracker_route", "board/2", route("app", map[string]string{"done": "Shipped"})),
-		"closed for work":       wanted(t, "tracker_route", "board/2", route("app", map[string]string{"in_progress": "closed"})),
 		"unknown project":       wanted(t, "tracker_route", "board/2", route("nope", nil)),
 		"bad name":              wanted(t, "tracker_route", "board", route("app", nil)),
 		"position 0":            wanted(t, "tracker_route", "board/0", route("app", nil)),

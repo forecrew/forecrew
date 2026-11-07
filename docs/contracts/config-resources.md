@@ -68,7 +68,8 @@ setting: it is left out of the spec, kept while the rest of the config stays,
 and read again by the connection test. A plan does not reach the tracker, whose
 token it has not put in place yet: a new or changed connection gets a `connect`
 step, `forecrew tracker test <name>`. A route's states are checked against the
-tracker when its connection exists before the plan. Routes are named by their
+tracker by that test too, never by the plan: a route that maps states gets the
+same step. Routes are named by their
 connection and position (`jira/1`); a route's `warning` is the tracker's to
 set and no setting.
 
