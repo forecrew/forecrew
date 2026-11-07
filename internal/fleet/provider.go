@@ -6,11 +6,15 @@ package fleet
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/store"
 )
 
 // Tags every provider puts on everything it creates, where it has tags; a
@@ -99,4 +103,26 @@ type Provider interface {
 	// List returns everything of Forecrew's the provider holds, running or
 	// not, and nothing else.
 	List(ctx context.Context) ([]Instance, error)
+}
+
+// OwnClouds are the kinds of location that put machines in the organization's
+// own cloud account.
+var OwnClouds = []domain.ProviderKind{domain.ProviderAWS}
+
+// RequirePaidPlan is the gate of an own cloud on a hosted instance (config
+// fleet.hosted): the organization's fleet policy must say paid (fleet.md). The
+// plan is a stub until billing exists, and only instance admins set it. Every way
+// of adding a location goes through it.
+func RequirePaidPlan(ctx context.Context, st store.Store, hosted bool, p domain.CapacityProvider) error {
+	if !hosted || p.AccountID == uuid.Nil() || !slices.Contains(OwnClouds, p.Kind) {
+		return nil
+	}
+	policy, err := st.FleetPolicies().Get(ctx, p.AccountID)
+	if err != nil {
+		return err
+	}
+	if policy.Plan != domain.PlanPaid {
+		return fmt.Errorf("a location in your own cloud needs the paid plan: %w", authz.ErrDenied)
+	}
+	return nil
 }
