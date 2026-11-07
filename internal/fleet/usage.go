@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -109,4 +110,97 @@ func (c *Controller) backfill(ctx context.Context) error {
 	}
 	c.lastBackfill = now
 	return nil
+}
+
+// UsageTotals adds up minutes and cost.
+type UsageTotals struct {
+	Machines int     `json:"machines"`
+	Minutes  float64 `json:"minutes"`
+	Cost     float64 `json:"cost"`
+}
+
+func (t *UsageTotals) add(minutes, cost float64) {
+	t.Machines++
+	t.Minutes = roundTo(t.Minutes+minutes, 3)
+	t.Cost = roundTo(t.Cost+cost, 6)
+}
+
+// ShapeUsage is what the machines of one shape cost.
+type ShapeUsage struct {
+	Shape     string           `json:"shape"`
+	Ownership domain.Ownership `json:"ownership"`
+	UsageTotals
+}
+
+// UsageReport is what an organization's machines cost over [From, To): the
+// usage records of machines that ended then, by shape and ownership, and an
+// estimate of the machines still running, which are billed when they end. It
+// is the input of billing (S.3).
+type UsageReport struct {
+	From     time.Time    `json:"from"`
+	To       time.Time    `json:"to"`
+	Currency string       `json:"currency"`
+	Total    UsageTotals  `json:"total"`
+	Hosted   UsageTotals  `json:"hosted"`
+	Own      UsageTotals  `json:"own"`
+	Shapes   []ShapeUsage `json:"shapes"`
+	// Running is what the machines up now cost so far, not billed yet.
+	Running UsageTotals `json:"running"`
+	// Records are the usage records themselves, when asked for.
+	Records []domain.UsageRecord `json:"records,omitempty"`
+}
+
+// Usage reports what an organization's machines cost over [from, to).
+func (c *Controller) Usage(ctx context.Context, accountID uuid.UUID, from, to time.Time, records bool) (UsageReport, error) {
+	st := c.cfg.Store
+	out := UsageReport{From: from.UTC(), To: to.UTC(), Currency: c.cfg.Currency, Shapes: []ShapeUsage{}}
+	list, err := st.Usage().List(ctx, accountID, store.UsageFilter{From: from, To: to})
+	if err != nil {
+		return out, fmt.Errorf("usage records: %w", err)
+	}
+	shapes, err := st.Shapes().ListAvailable(ctx, accountID)
+	if err != nil {
+		return out, fmt.Errorf("shapes: %w", err)
+	}
+	byID := map[uuid.UUID]domain.Shape{}
+	for _, s := range shapes {
+		byID[s.ID] = s
+	}
+	at := map[uuid.UUID]int{}
+	for _, u := range list {
+		i, ok := at[u.ShapeID]
+		if !ok {
+			i = len(out.Shapes)
+			at[u.ShapeID] = i
+			out.Shapes = append(out.Shapes, ShapeUsage{Shape: cmp.Or(byID[u.ShapeID].Name, u.ShapeID.String()), Ownership: u.Ownership})
+		}
+		out.Shapes[i].add(u.Minutes, u.Cost)
+		out.Total.add(u.Minutes, u.Cost)
+		if u.Ownership == domain.OwnershipHosted {
+			out.Hosted.add(u.Minutes, u.Cost)
+		} else {
+			out.Own.add(u.Minutes, u.Cost)
+		}
+	}
+	if records {
+		out.Records = list
+	}
+	now := c.cfg.Now()
+	if now.Before(from) || !now.Before(to) {
+		return out, nil
+	}
+	up, err := st.Machines().List(ctx, store.MachineFilter{AccountID: accountID, Active: true})
+	if err != nil {
+		return out, fmt.Errorf("machines: %w", err)
+	}
+	for _, m := range up {
+		if s, ok := byID[m.ShapeID]; ok {
+			if _, started := MeterStart(m); !started {
+				continue
+			}
+			u := Meter(m, s, now)
+			out.Running.add(u.Minutes, u.Cost)
+		}
+	}
+	return out, nil
 }

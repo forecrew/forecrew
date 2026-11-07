@@ -116,6 +116,12 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 			o, err := svc.FleetOverview(ctx, by)
 			return result(o, "%d jobs running, %d waiting.", o.Working, o.Waiting), err
 		})
+	register(r, ToolFleetUsage, "Report what the organization's machines cost in a month: usage records of the machines that ended in it, by machine type and ownership, and what the machines up now cost so far, which is billed when they end.",
+		fieldDocs{"month": "The month, YYYY-MM in UTC; by default the current one.", "records": "Include every usage record."},
+		func(ctx context.Context, by domain.Actor, in FleetUsageInput) (toolResult, error) {
+			u, err := svc.FleetUsage(ctx, by, in)
+			return result(u, "%.3f minutes, %s %.2f.", u.Total.Minutes, u.Currency, u.Total.Cost), err
+		})
 	registerProviderTools(r, svc)
 	register(r, ToolListPendingGates, "List gates waiting for a human decision (profile, spec and merge approvals, and jobs that need you) with the GitHub link of what each is about, optionally for one project.",
 		fieldDocs{"project": project}, func(ctx context.Context, by domain.Actor, in ProjectFilterInput) (toolResult, error) {

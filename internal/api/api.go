@@ -170,6 +170,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/shapes", serve(s, http.StatusOK, noInput, list(noArg(t.ListShapes))))
 	route("GET /api/v1/providers", serve(s, http.StatusOK, listProvidersInput, list(t.ListProviders)))
 	route("GET /api/v1/fleet", serve(s, http.StatusOK, noInput, noArg(t.FleetOverview)))
+	route("GET /api/v1/usage", serve(s, http.StatusOK, fleetUsageInput, t.FleetUsage))
 	route("POST /api/v1/providers", serve(s, http.StatusCreated, bodyOf[mcp.CreateProviderInput], t.CreateProvider))
 	route("POST /api/v1/providers/{provider}/revoke", serve(s, http.StatusOK, providerInput, t.RevokeProvider))
 	route("POST /api/v1/join-codes", serve(s, http.StatusCreated, bodyOf[mcp.CreateJoinCodeInput], t.CreateJoinCode))
@@ -343,6 +344,7 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/shapes":    tool[mcp.ToolListShapes],
 		"GET /api/v1/providers": tool[mcp.ToolListProviders],
 		"GET /api/v1/fleet":     tool[mcp.ToolFleetOverview],
+		"GET /api/v1/usage":     tool[mcp.ToolFleetUsage],
 
 		"GET /api/v1/images":                       tool[mcp.ToolListImages],
 		"POST /api/v1/images":                      {Permission: domain.PermWorkerManage},
@@ -792,6 +794,11 @@ func dismissTicketInput(r *http.Request) (mcp.DismissTicketInput, error) {
 	in, err := optionalBody[mcp.DismissTicketInput](r)
 	in.Ticket = r.PathValue("ticket")
 	return in, err
+}
+
+func fleetUsageInput(r *http.Request) (mcp.FleetUsageInput, error) {
+	q := r.URL.Query()
+	return mcp.FleetUsageInput{Month: q.Get("month"), Records: q.Get("records") == "true"}, nil
 }
 
 func listMachinesInput(r *http.Request) (mcp.ListMachinesInput, error) {

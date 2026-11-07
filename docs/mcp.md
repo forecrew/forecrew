@@ -166,6 +166,7 @@ GitHub links of issues, pull requests and gates.
 | `list_shapes` | Machine types offered to the organization: its own and the instance-wide ones, with `provider` and `ownership`. Instance-wide shapes show when the organization's policy allows them, without `provider_config` and `monthly_budget` |
 | `list_providers` | Locations machines come from: the organization's own and the instance-wide ones, with `online` and `ownership`. What an agent reports in words (host, cloud account, region, agent version, checks) is unchecked, so here it comes as `untrusted`, marked as data, in place of those fields; OS, architecture and sizes stay. Instance-wide ones show when the policy allows one of their shapes, without host, cloud account, region, agent version, checks, tags, network and limits |
 | `fleet_overview` | Whether jobs have somewhere to run: `headline`, `working`, `waiting`, `spend` (absent while everything is free), `routing`, `locations` (providers and static workers in one list: `kind` `location` or `computer`, `name`, `runs`, `status`, `in_use`, `capacity`, `cost`), `queue` (`ref`, `role`, `code`, `sentence`) and `running` (`ref`, `role`, `machine`, `location`, `minutes`). Jobs, and the counts and headline made from them, are of the projects where the caller holds `job.read` |
+| `fleet_usage` | What the organization's machines cost in a month (`month` `YYYY-MM` in UTC, by default the current one): the usage records of the machines that ended in it, written when each machine is destroyed, summed as `total`, `hosted` and `own` and by machine type in `shapes` (`shape`, `ownership`, `machines`, `minutes`, `cost`), in `currency`; `running` is what the machines up now cost so far, billed when they end; `records: true` adds every record (`machine_id`, `minutes`, `cost`, `started_at`, `ended_at`). A machine is billed from the later of its assignment and its start at its location until it is destroyed |
 | `list_images` | The machine images the organization can use, its own and the instance's: `name`, `version`, `os`, `arch`, `format`, `digest`, `contents` and `scope` (`organization` or `instance`), optionally filtered by `name`, `os`, `arch`, `format`, `limit` (default 100, at most 500). Registering an image is not a tool: a person does it through `POST /api/v1/images` or `forecrew image add`, see [images.md](images.md). CLI: `forecrew image list` |
 | `create_provider` | Add a location served by a fleet agent (`name`, `kind`: `microvm`, `proxmox`, `hyperv`, `tart` or `aws`, `org`, a slug, or `instance` for an instance-wide location, for instance admins; required on a server with several organizations, otherwise left out means its only one). `{provider, token}`; the `fcp_` token is shown this once. Not through an OAuth client. For scripts and air-gapped sites: a join code shows no token to anyone |
 | `revoke_provider` | Revoke a location (`provider`, name or UUID): its token stops working at once and for good, a waiting poll included. The answer marks the reported words as `list_providers` does. Rows of its machines end: a requested one is withdrawn, any other fails, and its job is requeued. Another organization's is not found |
@@ -295,8 +296,9 @@ and dissent are the brief's. A merge decision rests on the assumptions of its ta
 The server writes every sentence, so the job page, the Machines page and the
 CLI show the same one. A job never fails for want of a machine. On the command
 line: `forecrew fleet`, `forecrew machines [--state]`, `forecrew shapes` and
-`forecrew providers`. Locations are connected with `forecrew provider add`,
-`join`, `joins`, `confirm` and `revoke` ([fleet.md](fleet.md)).
+`forecrew providers`; what machines cost, `forecrew usage [--month] [--records]`.
+Locations are connected with `forecrew provider add`, `join`, `joins`, `confirm`
+and `revoke` ([fleet.md](fleet.md)).
 
 | `reason_code` | Example sentence | Means |
 |---------------|------------------|-------|

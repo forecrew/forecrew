@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -129,5 +130,38 @@ func TestProviderCommands(t *testing.T) {
 	}
 	if _, _, code := e.run(t, "provider", "confirm", joinID.String(), "--name", "home"); code == 0 {
 		t.Error("confirm without --facts passed")
+	}
+}
+
+func TestUsageCommand(t *testing.T) {
+	e := newRemoteEnv(t)
+	var got mcp.FleetUsageInput
+	t0 := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	e.svc.FleetUsageFunc = func(_ context.Context, _ domain.Actor, in mcp.FleetUsageInput) (fleet.UsageReport, error) {
+		got = in
+		u := fleet.UsageReport{From: t0, To: t0.AddDate(0, 1, 0), Currency: "CHF",
+			Shapes:  []fleet.ShapeUsage{{Shape: "cloud-small", Ownership: domain.OwnershipHosted, Machines: 2, Minutes: 12.5, Cost: 0.125}},
+			Total:   fleet.UsageTotals{Machines: 2, Minutes: 12.5, Cost: 0.125},
+			Running: fleet.UsageTotals{Machines: 1, Minutes: 3, Cost: 0.03}}
+		if in.Records {
+			u.Records = []domain.UsageRecord{{MachineID: uuid.New(), Ownership: domain.OwnershipHosted, Minutes: 12.5, Cost: 0.125, StartedAt: t0, EndedAt: t0.Add(time.Hour)}}
+		}
+		return u, nil
+	}
+	out, errOut, code := e.run(t, "usage", "--month", "2026-03", "--records")
+	if code != 0 || errOut != "" {
+		t.Fatalf("code %d: %s", code, errOut)
+	}
+	if got != (mcp.FleetUsageInput{Month: "2026-03", Records: true}) {
+		t.Fatalf("input = %+v", got)
+	}
+	for _, want := range []string{"2026-03-01 to 2026-04-01", "cloud-small", "hosted", "12.500", "CHF 0.125", "Running now", "0.125000"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("%q not in %q", want, out)
+		}
+	}
+	out, _, code = e.run(t, "usage")
+	if code != 0 || got != (mcp.FleetUsageInput{}) || strings.Contains(out, "STARTED") {
+		t.Fatalf("code %d, input %+v: %q", code, got, out)
 	}
 }

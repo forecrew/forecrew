@@ -55,6 +55,62 @@ func fleetCommand(r *remote) *cobra.Command {
 	}
 }
 
+func usageCommand(r *remote) *cobra.Command {
+	var month string
+	var records bool
+	cmd := &cobra.Command{
+		Use:   "usage",
+		Short: "Show what the organization's machines cost in a month, by machine type",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			q := url.Values{}
+			if month != "" {
+				q.Set("month", month)
+			}
+			if records {
+				q.Set("records", "true")
+			}
+			path := "/usage"
+			if len(q) > 0 {
+				path += "?" + q.Encode()
+			}
+			var u fleet.UsageReport
+			if err := r.call(cmd.Context(), http.MethodGet, path, nil, &u); err != nil {
+				return err
+			}
+			printUsage(cmd.OutOrStdout(), u)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&month, "month", "", "the month, YYYY-MM in UTC; by default the current one")
+	cmd.Flags().BoolVar(&records, "records", false, "list every machine's usage record too")
+	return cmd
+}
+
+func printUsage(w io.Writer, u fleet.UsageReport) {
+	amount := func(t fleet.UsageTotals) string { return u.Currency + " " + strconv.FormatFloat(t.Cost, 'f', -1, 64) }
+	minutes := func(v float64) string { return strconv.FormatFloat(v, 'f', 3, 64) }
+	fmt.Fprintf(w, "%s to %s\n\n", u.From.Format(time.DateOnly), u.To.Format(time.DateOnly))
+	rows := [][]string{{"MACHINE TYPE", "OWNERSHIP", "MACHINES", "MINUTES", "COST"}}
+	for _, s := range u.Shapes {
+		rows = append(rows, []string{s.Shape, string(s.Ownership), strconv.Itoa(s.Machines), minutes(s.Minutes), amount(s.UsageTotals)})
+	}
+	rows = append(rows, []string{"total", "", strconv.Itoa(u.Total.Machines), minutes(u.Total.Minutes), amount(u.Total)})
+	table(w, rows)
+	if u.Running.Machines > 0 {
+		fmt.Fprintf(w, "\nRunning now, billed when they end: %d machines, %s minutes, %s\n", u.Running.Machines, minutes(u.Running.Minutes), amount(u.Running))
+	}
+	if len(u.Records) > 0 {
+		rows := [][]string{{"MACHINE", "OWNERSHIP", "STARTED", "ENDED", "MINUTES", "COST"}}
+		for _, r := range u.Records {
+			rows = append(rows, []string{r.MachineID.String(), string(r.Ownership), r.StartedAt.Format(time.RFC3339), r.EndedAt.Format(time.RFC3339),
+				minutes(r.Minutes), strconv.FormatFloat(r.Cost, 'f', 6, 64)})
+		}
+		fmt.Fprintln(w)
+		table(w, rows)
+	}
+}
+
 // providerCommand connects locations. Providers are listed by `forecrew
 // providers`.
 func providerCommand(r *remote) *cobra.Command {

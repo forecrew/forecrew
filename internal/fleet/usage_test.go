@@ -154,3 +154,37 @@ func TestBackfillMetersMissedMachines(t *testing.T) {
 		t.Fatalf("%d metered entries after another pass", n)
 	}
 }
+
+// The report sums the month's records by shape and ownership, and estimates
+// what runs now apart.
+func TestUsageReport(t *testing.T) {
+	e := newEnv(t)
+	e.shape(e.prov, "small", func(s *domain.Shape) { s.PricePerMinute = 0.5 })
+	a := e.runOne(e.account, e.project, 30*time.Second, 4*time.Minute)
+	b := e.runOne(e.account, e.project, 30*time.Second, 6*time.Minute)
+	e.job(e.account, e.project, nil)
+	e.reconcile() // a machine starts and keeps running
+	e.clock.Advance(2 * time.Minute)
+
+	month := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	u, err := e.c.Usage(e.ctx, e.account, month, month.AddDate(0, 1, 0), true)
+	must(t, err)
+	want := fleet.UsageTotals{Machines: 2, Minutes: 11, Cost: 5.5} // boot time is billed too
+	if u.Total != want || u.Own != want || u.Hosted != (fleet.UsageTotals{}) || u.Currency != "CHF" {
+		t.Fatalf("report = %+v", u)
+	}
+	if len(u.Shapes) != 1 || u.Shapes[0].Shape != "small" || u.Shapes[0].UsageTotals != want || u.Shapes[0].Ownership != domain.OwnershipOwn {
+		t.Fatalf("shapes = %+v", u.Shapes)
+	}
+	if len(u.Records) != 2 || u.Records[0].MachineID != a.ID || u.Records[1].MachineID != b.ID {
+		t.Fatalf("records = %+v", u.Records)
+	}
+	if u.Running != (fleet.UsageTotals{Machines: 1, Minutes: 2, Cost: 1}) {
+		t.Fatalf("running = %+v", u.Running)
+	}
+	before, err := e.c.Usage(e.ctx, e.account, month.AddDate(0, -1, 0), month, false)
+	must(t, err)
+	if before.Total != (fleet.UsageTotals{}) || before.Running != (fleet.UsageTotals{}) || before.Records != nil {
+		t.Fatalf("last month = %+v", before)
+	}
+}
