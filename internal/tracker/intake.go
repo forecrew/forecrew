@@ -111,6 +111,9 @@ func (s *Service) intake(ctx context.Context, c domain.TrackerConnection, ad Ada
 	if v.reason != "" {
 		l.Status = domain.LinkWaiting
 	}
+	if l.IssueNumber, err = s.issueNumber(ctx, l.AccountID, l.ProjectID, t); err != nil {
+		return err
+	}
 	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := tx.TicketLinks().Create(ctx, &l); err != nil {
 			return err
@@ -130,6 +133,23 @@ func (s *Service) intake(ctx context.Context, c domain.TrackerConnection, ad Ada
 		return err
 	}
 	return s.ensureGate(ctx, c, &l, t)
+}
+
+// issueNumber is the number of the GitHub issue a ticket is, when that issue
+// is in the repo of the project: from then on the issue is taken, and neither
+// a bug report nor another ticket gets a goal on it. Zero otherwise.
+func (s *Service) issueNumber(ctx context.Context, accountID, project uuid.UUID, t Ticket) (int, error) {
+	if t.Issue == nil || project == uuid.Nil() {
+		return 0, nil
+	}
+	p, err := s.cfg.Store.Projects().Get(ctx, accountID, project)
+	if err != nil {
+		return 0, fmt.Errorf("get project: %w", err)
+	}
+	if !strings.EqualFold(t.Issue.Repo, p.Repo) {
+		return 0, nil
+	}
+	return t.Issue.Number, nil
 }
 
 // ticketText quotes a ticket, marked as data.
@@ -198,6 +218,9 @@ func (s *Service) reconsider(ctx context.Context, c domain.TrackerConnection, ad
 	}
 	v, handed, err := s.judge(ctx, c, ad, t)
 	if err != nil || !handed {
+		return err
+	}
+	if l.IssueNumber, err = s.issueNumber(ctx, l.AccountID, v.project, t); err != nil {
 		return err
 	}
 	if v.reason != "" {
@@ -385,8 +408,14 @@ func (s *Service) launch(ctx context.Context, l domain.TicketLink, t Ticket, by 
 		AccountID: l.AccountID, ProjectID: p.ID, Kind: kind, Title: title, Status: domain.GoalDraft, CreatedBy: by.String(),
 		Body: fmt.Sprintf("From ticket %s: %s\n\n%s", l.Key, t.URL, t.Body),
 	}
-	if t.Issue != nil && strings.EqualFold(t.Issue.Repo, p.Repo) {
-		g.IssueNumber, l.IssueNumber = t.Issue.Number, t.Issue.Number
+	if g.IssueNumber, err = s.issueNumber(ctx, l.AccountID, p.ID, t); err != nil {
+		return false, err
+	}
+	l.IssueNumber = g.IssueNumber
+	if holder, ok, err := s.issueHolder(ctx, p, g.IssueNumber); err != nil {
+		return false, err
+	} else if ok {
+		return false, s.refuseDuplicate(ctx, l, holder)
 	}
 	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := tx.Goals().Create(ctx, &g); err != nil {
@@ -406,6 +435,36 @@ func (s *Service) launch(ctx context.Context, l domain.TicketLink, t Ticket, by 
 		return false, fmt.Errorf("start the goal of %s: %w", l.Key, err)
 	}
 	return true, s.startRun(ctx, l, g, p, playbook)
+}
+
+// issueHolder returns the goal at work on an issue of p. A ticket routed only
+// now cannot have reserved the issue, and "@forecrew bug" can have got there
+// first.
+func (s *Service) issueHolder(ctx context.Context, p domain.Project, number int) (domain.Goal, bool, error) {
+	if number == 0 {
+		return domain.Goal{}, false, nil
+	}
+	goals, err := s.cfg.Store.Goals().List(ctx, p.AccountID, store.GoalFilter{ProjectID: p.ID})
+	if err != nil {
+		return domain.Goal{}, false, fmt.Errorf("list the goals of %s: %w", p.Name, err)
+	}
+	i := slices.IndexFunc(goals, func(g domain.Goal) bool { return g.IssueNumber == number && !g.Status.Terminal() })
+	if i < 0 {
+		return domain.Goal{}, false, nil
+	}
+	return goals[i], true, nil
+}
+
+// refuseDuplicate ends a ticket whose issue another goal works on: one issue
+// has one goal.
+func (s *Service) refuseDuplicate(ctx context.Context, l domain.TicketLink, holder domain.Goal) error {
+	return s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+		l.Status, l.Reason = domain.LinkCanceled, ""
+		if err := tx.TicketLinks().Update(ctx, &l); err != nil {
+			return fmt.Errorf("update the link of %s: %w", l.Key, err)
+		}
+		return s.say(ctx, tx, l, "duplicate", fmt.Sprintf("%s works on this issue already: %s", holder.Ref(), s.goalURL(holder)))
+	})
 }
 
 func (s *Service) startRun(ctx context.Context, l domain.TicketLink, g domain.Goal, p domain.Project, playbook string) error {

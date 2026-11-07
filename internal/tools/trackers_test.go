@@ -9,7 +9,9 @@ import (
 
 	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/tools"
 	"github.com/forecrew/forecrew/internal/tracker"
@@ -73,6 +75,74 @@ func (w *ticketWorld) route(t *testing.T) mcp.TrackerRouteInfo {
 	r, err := w.svc.CreateTrackerRoute(t.Context(), w.owner, mcp.CreateTrackerRouteInput{Connection: "board", Project: "app"})
 	must(t, err)
 	return r
+}
+
+// issueTicket hands over a stranger's ticket that is issue 7 of the project.
+func (w *ticketWorld) issueTicket(t *testing.T, key string) domain.TicketLink {
+	t.Helper()
+	w.fake.Put(tracker.Ticket{
+		Ref: tracker.Ref{Key: key}, Title: "crash", Body: "Body", Labels: []string{"forecrew"}, URL: "https://t.test/" + key,
+		Issue:     &tracker.RepoIssue{Repo: w.project.Repo, Number: 7},
+		Handovers: []tracker.Handover{{Trigger: tracker.TriggerLabel, Value: "forecrew", By: tracker.User{ID: "99", Name: "stranger"}, At: w.clock.Now()}},
+	})
+	must(t, w.core.Hint(t.Context(), w.conn, tracker.Event{Key: key}))
+	l, err := w.st.TicketLinks().GetLive(t.Context(), w.account.ID, w.conn.ID, key)
+	must(t, err)
+	return l
+}
+
+func (w *ticketWorld) goalsOnIssue(t *testing.T, number int) int {
+	t.Helper()
+	goals, err := w.st.Goals().List(t.Context(), w.account.ID, store.GoalFilter{ProjectID: w.project.ID})
+	must(t, err)
+	n := 0
+	for _, g := range goals {
+		if g.IssueNumber == number {
+			n++
+		}
+	}
+	return n
+}
+
+// A waiting ticket holds its issue against @forecrew bug.
+func TestAWaitingTicketKeepsItsIssueFromABugReport(t *testing.T) {
+	w := newTicketWorld(t)
+	w.route(t)
+	l := w.issueTicket(t, "T-1")
+	if l.Status != domain.LinkWaiting || l.IssueNumber != 7 {
+		t.Fatalf("link = %+v", l)
+	}
+	_, err := w.svc.ReportIssueAsBug(t.Context(), w.owner, w.project, github.Issue{Number: 7, Title: "crash", Body: "b"})
+	wantErr(t, err, mcp.ErrInvalidInput)
+	_, err = w.svc.AcceptTicket(t.Context(), w.owner, mcp.AcceptTicketInput{Ticket: l.ID.String()})
+	must(t, err)
+	if n := w.goalsOnIssue(t, 7); n != 1 {
+		t.Errorf("goals on the issue = %d, want 1", n)
+	}
+}
+
+// Without a route a ticket cannot know its repo, so the bug report gets there
+// first, and accepting the ticket later makes no second goal.
+func TestAcceptingATicketWhoseIssueHasAGoalMakesNoSecond(t *testing.T) {
+	w := newTicketWorld(t)
+	l := w.issueTicket(t, "T-1")
+	if l.ProjectID != uuid.Nil() {
+		t.Fatalf("link = %+v", l)
+	}
+	g, err := w.svc.ReportIssueAsBug(t.Context(), w.owner, w.project, github.Issue{Number: 7, Title: "crash", Body: "b"})
+	must(t, err)
+	got, err := w.svc.AcceptTicket(t.Context(), w.owner, mcp.AcceptTicketInput{Ticket: l.ID.String(), Project: "app"})
+	must(t, err)
+	if got.Status != domain.LinkCanceled || got.GoalID != uuid.Nil() {
+		t.Errorf("accepted = %+v", got)
+	}
+	if n := w.goalsOnIssue(t, 7); n != 1 {
+		t.Errorf("goals on the issue = %d, want 1", n)
+	}
+	must(t, w.core.Sync(t.Context()))
+	if text := w.fake.Ticket("T-1").Comments; len(text) == 0 || !strings.Contains(text[len(text)-1].Body, g.Ref()) {
+		t.Errorf("comments = %+v", text)
+	}
 }
 
 func TestTrackerToolsNeedTheService(t *testing.T) {
