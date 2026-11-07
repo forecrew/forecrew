@@ -89,6 +89,14 @@ type startOutput struct {
 	Commit      string            `json:"commit"`
 }
 
+// models is what council.start asks which model a role runs with.
+func (a *actions) models() CouncilModels {
+	if a.Models != nil {
+		return a.Models
+	}
+	return fileModels{a.Config}
+}
+
 // councilStart is the action council.start, the first step of the council
 // playbook: it pins the members to runtimes and takes the commit of the
 // default branch, which every job checks out and every path is checked at.
@@ -123,7 +131,7 @@ func (a *actions) councilStart(ctx context.Context, call workflow.ActionCall) (a
 	}
 	now := a.Now()
 	offered := func(s councils.Seat, runtime string) bool {
-		if _, err := a.Config.ModelOn(s.Role, runtime); err != nil {
+		if _, err := a.models().ModelOn(ctx, c.AccountID, c.ProjectID, s.Role, runtime); err != nil {
 			return false
 		}
 		pool := domain.OrDefaultPool(a.Councils.Pool(s.Role))
@@ -132,7 +140,7 @@ func (a *actions) councilStart(ctx context.Context, call workflow.ActionCall) (a
 		})
 	}
 	usual := func(role string) string {
-		adapter, _, err := a.Config.Model(role)
+		adapter, err := a.models().Usual(ctx, c.AccountID, c.ProjectID, role)
 		if err != nil {
 			return ""
 		}

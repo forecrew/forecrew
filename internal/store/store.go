@@ -100,6 +100,8 @@ type Store interface {
 	Images() ImageRepo
 	ConfigPlans() ConfigPlanRepo
 	ConfigSettings() ConfigSettingRepo
+	ModelConnections() ModelConnectionRepo
+	ModelAssignments() ModelAssignmentRepo
 	Secrets() SecretRepo
 	Conversations() ConversationRepo
 	ProviderJoinCodes() ProviderJoinCodeRepo
@@ -273,6 +275,12 @@ type JobRepo interface {
 	// shape's max_jobs; its caller records the lease with MachineRepo.TakeJob
 	// in the same transaction.
 	LeaseNext(ctx context.Context, accountID, workerID uuid.UUID, labels []string, leaseFor time.Duration) (domain.Job, error)
+	// QueuedClasses returns the distinct classes of the account's queued
+	// agent jobs: what internal/models decides on.
+	QueuedClasses(ctx context.Context, accountID uuid.UUID) ([]JobClass, error)
+	// Retarget gives every queued agent job of class c the runtime, model
+	// and organization marker of to, in its row and in its spec.
+	Retarget(ctx context.Context, accountID uuid.UUID, c, to JobClass) error
 	// ExtendLease moves the lease expiry to now+leaseFor. It returns
 	// ErrLeaseLost unless the job is running under workerID; the returned job
 	// is current either way when it exists (Status canceled means stop).
@@ -307,6 +315,19 @@ type JobRepo interface {
 	// returns the job whose current lease holds the token, ErrNotFound when
 	// none does. Callers still check the lease expiry.
 	GetByJobMCPTokenHash(ctx context.Context, hash []byte) (domain.Job, error)
+}
+
+// JobClass is what queued agent jobs have in common when they get the same
+// model connection.
+type JobClass struct {
+	ProjectID uuid.UUID
+	Pool      string
+	Role      string
+	Runtime   string
+	Pinned    string // JobSpec.PinnedRuntime
+	Model     string // JobSpec.Model
+	// Organization is JobSpec.OrganizationModel.
+	Organization bool
 }
 
 // JobEventRepo stores job logs.
@@ -1425,6 +1446,26 @@ type ConfigSettingRepo interface {
 	// Put creates or replaces the setting of (account, kind, name).
 	Put(ctx context.Context, s *domain.ConfigSetting) error
 	Delete(ctx context.Context, accountID uuid.UUID, kind, name string) error
+}
+
+// ModelConnectionRepo stores organizations' model connections.
+type ModelConnectionRepo interface {
+	// List returns the connections of the account by name.
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.ModelConnection, error)
+	// Put creates or replaces the connection of (account, name).
+	Put(ctx context.Context, c *domain.ModelConnection) error
+	Delete(ctx context.Context, accountID uuid.UUID, name string) error
+}
+
+// ModelAssignmentRepo stores which model serves what. The zero project ID is
+// the organization's row.
+type ModelAssignmentRepo interface {
+	// List returns the rows of the account, the organization's first.
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.ModelAssignment, error)
+	// Put creates or replaces the row of (account, project). A project of
+	// another account is ErrNotFound.
+	Put(ctx context.Context, a *domain.ModelAssignment) error
+	Delete(ctx context.Context, accountID, projectID uuid.UUID) error
 }
 
 // SecretRepo stores encrypted secrets; internal/secrets holds the key. The

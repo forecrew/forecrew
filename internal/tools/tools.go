@@ -145,6 +145,9 @@ type Config struct {
 	Repo cfgres.Repo
 	// Secrets is the secret store; nil refuses secure fields.
 	Secrets secrets.Store
+	// Roles says whether a role runs in a toolbox and whether it exists, for
+	// plans that assign models; nil checks nothing.
+	RoleToolbox func(role string) (toolbox, known bool)
 }
 
 // Service is the mcp.ToolService.
@@ -174,7 +177,7 @@ func New(cfg Config) *Service {
 	s := &Service{cfg: cfg, authz: engine}
 	s.config = cfgres.NewEngine(cfgres.Config{
 		Store: cfg.Store, Access: func(st store.Store) cfgres.Access { return s.in(st) }, Server: cfg.Server, Getenv: cfg.Getenv, CheckSchedule: cfg.CheckSchedule,
-		Repo: cfg.Repo, Secrets: cfg.Secrets, Logger: cfg.Logger, Now: cfg.Now,
+		Repo: cfg.Repo, Secrets: cfg.Secrets, Roles: cfg.RoleToolbox, Logger: cfg.Logger, Now: cfg.Now,
 	})
 	return s
 }

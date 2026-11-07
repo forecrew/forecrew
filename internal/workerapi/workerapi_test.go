@@ -61,7 +61,7 @@ func happyPoll(t *testing.T, e *env, w domain.Worker, token string, j domain.Job
 		t.Fatalf("stored = %+v", stored)
 	}
 	seen, err := e.st.Workers().Get(t.Context(), e.account, w.ID)
-	if err != nil || seen.Version != "v0.1.0" || !slices.Equal(seen.Labels, []string{"go", "linux", "runtime:claude-code"}) || seen.LastSeenAt.IsZero() {
+	if err != nil || seen.Version != "v0.1.0" || !slices.Equal(seen.Labels, []string{"go", "linux", domain.OrganizationModelLabel, "runtime:claude-code"}) || seen.LastSeenAt.IsZero() {
 		t.Fatalf("worker = %+v, %v", seen, err)
 	}
 	return spec

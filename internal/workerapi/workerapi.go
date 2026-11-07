@@ -24,6 +24,7 @@ import (
 	"github.com/forecrew/forecrew/internal/jobmcp"
 	"github.com/forecrew/forecrew/internal/jobs"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/models"
 	"github.com/forecrew/forecrew/internal/store"
 )
 
@@ -53,12 +54,14 @@ type Config struct {
 	Store  store.Store
 	Jobs   *jobs.Service
 	Tokens TokenSource
-	// Env returns the runtime (a key of runtimes) and its secrets for a
-	// leased job; see RuntimeEnv.
-	Env func(j domain.Job) (runtime string, env map[string]string)
-	// Endpoint returns the custom model endpoint for a leased job, nil for
-	// the vendor's own; see RuntimeEndpoint.
-	Endpoint func(j domain.Job) *domain.Endpoint
+	// Grant decides, for a leased job of its own organization, its
+	// connection, key, endpoint and model, all from one decision; see
+	// models.Service.Grant. Nil grants nothing.
+	Grant func(ctx context.Context, j domain.Job) (models.Grant, error)
+	// Settle gives the queued jobs of an organization the runtime of their
+	// connection before a poll leases, or domain.RuntimeNone while they have
+	// none; see models.Service.Settle. Nil settles nothing.
+	Settle func(ctx context.Context, accountID uuid.UUID) error
 	// Pools is the pool policy that limits the credentials of leased jobs
 	// (config.Config.Pools); nil means config.DefaultPools.
 	Pools  map[string]config.Pool
@@ -103,11 +106,11 @@ func New(cfg Config) *Server {
 	if cfg.MaxArtifactSize <= 0 {
 		cfg.MaxArtifactSize = config.DefaultMaxArtifactSize
 	}
-	if cfg.Endpoint == nil {
-		cfg.Endpoint = func(domain.Job) *domain.Endpoint { return nil }
+	if cfg.Grant == nil {
+		cfg.Grant = func(context.Context, domain.Job) (models.Grant, error) { return models.Grant{}, nil }
 	}
-	if cfg.Env == nil {
-		cfg.Env = func(domain.Job) (string, map[string]string) { return "", nil }
+	if cfg.Settle == nil {
+		cfg.Settle = func(context.Context, uuid.UUID) error { return nil }
 	}
 	if cfg.Pools == nil {
 		cfg.Pools = config.DefaultPools()

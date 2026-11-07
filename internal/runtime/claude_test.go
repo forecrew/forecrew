@@ -496,3 +496,80 @@ func TestClaudeEndpoint(t *testing.T) {
 		t.Fatalf("ANTHROPIC_BASE_URL = %q", got)
 	}
 }
+
+// TestOrganizationConnectionGetsNoWorkerCredential: a run on an
+// organization's connection, with or without a custom endpoint, keeps only
+// the worker variables a CLI needs to start: none of its keys, tokens (OAuth
+// ones included), secrets, and nothing that sends the key or code elsewhere.
+// The fake CLI's switches travel in the job's env, which is kept.
+func TestOrganizationConnectionGetsNoWorkerCredential(t *testing.T) {
+	dropped := []string{"ANTHROPIC_API_KEY=worker-key", "ANTHROPIC_AUTH_TOKEN=worker-token", "CLAUDE_CODE_OAUTH_TOKEN=worker-oauth",
+		"DEEPSEEK_API_KEY=worker-other", "AWS_SECRET_ACCESS_KEY=worker-aws", "MY_SECRET=worker-secret", "ANTHROPIC_BASE_URL=https://worker.example.com",
+		"OPENAI_API_BASE=https://worker.example.com", "OPENAI_BASE_URL=https://worker.example.com", "AZURE_OPENAI_ENDPOINT=https://worker.example.com",
+		"OLLAMA_HOST=10.0.0.9", "CLAUDE_CODE_USE_BEDROCK=1", "CLAUDE_CODE_USE_VERTEX=1", "ANTHROPIC_BEDROCK_BASE_URL=https://b.example.com",
+		"ANTHROPIC_VERTEX_PROJECT_ID=p", "MODEL_ENDPOINT=https://e.example.com", "HTTPS_PROXY=http://user:pass@proxy.example.com:3128", "KEEP=me"}
+	kept := []string{"LANG=C.UTF-8", "LC_ALL=C.UTF-8", "TZ=UTC", "SSL_CERT_FILE=/etc/ssl/cert.pem", "HTTP_PROXY=http://proxy.example.com:3128", "NO_PROXY=localhost"}
+	for name, edit := range map[string]func(*RunSpec){
+		"endpoint": func(s *RunSpec) {
+			s.Endpoint = &domain.Endpoint{BaseURL: "https://proxy.example.com", KeyEnv: "ANTHROPIC_API_KEY", Organization: true}
+		},
+		"no endpoint": func(s *RunSpec) { s.OrganizationModel = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := filepath.Join(t.TempDir(), "rec.json")
+			a := NewClaudeCode(Config{Binary: os.Args[0], Env: append(append(os.Environ(), dropped...), kept...)})
+			spec := claudeSpec()
+			spec.Env = map[string]string{"ANTHROPIC_API_KEY": "org-key", "FORECREW_FAKE_CLI": "1", "FAKE_STREAM": stream("claude_success.jsonl"), "FAKE_RECORD": rec}
+			edit(&spec)
+			if _, _, err := collect(t, a, spec); err != nil {
+				t.Fatal(err)
+			}
+			env := readRecord(t, rec).Env
+			checkEnv(t, env, dropped, kept)
+			if env["ANTHROPIC_API_KEY"] != "org-key" || env["PATH"] == "" || env["HOME"] == "" {
+				t.Fatalf("env = %v", env)
+			}
+		})
+	}
+}
+
+// checkEnv fails for each of dropped that is in env and each of kept that
+// is not.
+func checkEnv(t *testing.T, env map[string]string, dropped, kept []string) {
+	t.Helper()
+	for _, kv := range dropped {
+		if k, v, _ := strings.Cut(kv, "="); env[k] == v {
+			t.Errorf("%s reached the run", k)
+		}
+	}
+	for _, kv := range kept {
+		if k, v, _ := strings.Cut(kv, "="); env[k] != v {
+			t.Errorf("%s = %q, want %q", k, env[k], v)
+		}
+	}
+}
+
+func TestKeptForOrganization(t *testing.T) {
+	for kv, want := range map[string]bool{
+		"PATH=/bin": true, "lc_ctype=C": true, "Path=C:\\bin": true, "XDG_CACHE_HOME=/c": true, "NO_PROXY=x": true,
+		"https_proxy=http://p:1": true, "https_proxy=http://u:p@p:1": false, "ALL_PROXY=%zz": false,
+		"OPENCODE_API_KEY=k": false, "GOOGLE_APPLICATION_CREDENTIALS=/k.json": false, "OLLAMA_HOST=h": false,
+	} {
+		if got := keptForOrganization(kv); got != want {
+			t.Errorf("%s: %v, want %v", kv, got, want)
+		}
+	}
+}
+
+// TestWorkerConnectionKeepsItsEnvironment: without the marker the worker's
+// own variables stay, as before.
+func TestWorkerConnectionKeepsItsEnvironment(t *testing.T) {
+	rec := filepath.Join(t.TempDir(), "rec.json")
+	a := newFakeClaude("FAKE_STREAM="+stream("claude_success.jsonl"), "FAKE_RECORD="+rec, "CLAUDE_CODE_OAUTH_TOKEN=worker-oauth")
+	if _, _, err := collect(t, a, claudeSpec()); err != nil {
+		t.Fatal(err)
+	}
+	if env := readRecord(t, rec).Env; env["CLAUDE_CODE_OAUTH_TOKEN"] != "worker-oauth" {
+		t.Fatalf("env = %v", env)
+	}
+}

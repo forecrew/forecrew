@@ -227,3 +227,84 @@ func (r conversationRepo) Messages(_ context.Context, accountID, conversationID 
 		}), nil
 	})
 }
+
+// ModelConnections implements store.Store.
+func (s *Store) ModelConnections() store.ModelConnectionRepo { return modelConnectionRepo{s} }
+
+type modelConnectionRepo struct{ s *Store }
+
+func (r modelConnectionRepo) List(_ context.Context, accountID uuid.UUID) ([]domain.ModelConnection, error) {
+	return read(r.s, func(d *storeData) ([]domain.ModelConnection, error) {
+		rows := d.modelConns.filter(0, func(c domain.ModelConnection) bool { return c.AccountID == accountID })
+		slices.SortFunc(rows, func(a, b domain.ModelConnection) int { return strings.Compare(a.Name, b.Name) })
+		return rows, nil
+	})
+}
+
+func (r modelConnectionRepo) Put(_ context.Context, c *domain.ModelConnection) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		c.ID, c.CreatedAt, c.UpdatedAt = newID(c.ID), now, now
+		rows := d.modelConns.rows
+		if i := slices.IndexFunc(rows, func(x domain.ModelConnection) bool { return x.AccountID == c.AccountID && x.Name == c.Name }); i >= 0 {
+			c.ID, c.CreatedAt = rows[i].ID, rows[i].CreatedAt
+			d.modelConns.rows = slices.Delete(rows, i, i+1)
+		}
+		d.modelConns.insert(*c)
+		return nil
+	})
+}
+
+func (r modelConnectionRepo) Delete(_ context.Context, accountID uuid.UUID, name string) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		i := slices.IndexFunc(d.modelConns.rows, func(x domain.ModelConnection) bool { return x.AccountID == accountID && x.Name == name })
+		if i < 0 {
+			return fmt.Errorf("model connection %s: %w", name, store.ErrNotFound)
+		}
+		d.modelConns.rows = slices.Delete(d.modelConns.rows, i, i+1)
+		return nil
+	})
+}
+
+// ModelAssignments implements store.Store.
+func (s *Store) ModelAssignments() store.ModelAssignmentRepo { return modelAssignmentRepo{s} }
+
+type modelAssignmentRepo struct{ s *Store }
+
+func (r modelAssignmentRepo) List(_ context.Context, accountID uuid.UUID) ([]domain.ModelAssignment, error) {
+	return read(r.s, func(d *storeData) ([]domain.ModelAssignment, error) {
+		rows := d.modelAssigns.filter(0, func(a domain.ModelAssignment) bool { return a.AccountID == accountID })
+		slices.SortFunc(rows, func(a, b domain.ModelAssignment) int {
+			return strings.Compare(a.ProjectID.String(), b.ProjectID.String())
+		})
+		return rows, nil
+	})
+}
+
+func (r modelAssignmentRepo) Put(_ context.Context, a *domain.ModelAssignment) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		if err := foreign(&d.projects, a.AccountID, a.ProjectID); err != nil {
+			return err
+		}
+		row, err := d.modelAssigns.find(func(x domain.ModelAssignment) bool { return x.AccountID == a.AccountID && x.ProjectID == a.ProjectID })
+		if err != nil {
+			a.ID = newID(a.ID)
+			a.CreatedAt, a.UpdatedAt = now, now
+			d.modelAssigns.insert(*a)
+			return nil
+		}
+		a.ID, a.CreatedAt, a.UpdatedAt = row.ID, row.CreatedAt, now
+		*row = *a
+		return nil
+	})
+}
+
+func (r modelAssignmentRepo) Delete(_ context.Context, accountID, projectID uuid.UUID) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		i := slices.IndexFunc(d.modelAssigns.rows, func(x domain.ModelAssignment) bool { return x.AccountID == accountID && x.ProjectID == projectID })
+		if i < 0 {
+			return fmt.Errorf("model assignment: %w", store.ErrNotFound)
+		}
+		d.modelAssigns.rows = slices.Delete(d.modelAssigns.rows, i, i+1)
+		return nil
+	})
+}

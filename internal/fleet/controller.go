@@ -55,6 +55,17 @@ type Config struct {
 	ServerURL string
 	// Currency is config.md fleet.currency.
 	Currency string
+	// Models settles queued jobs on their model connections and says why a
+	// job without one waits; *models.Service is one. Nil leaves jobs as they
+	// are.
+	Models Models
+}
+
+// Models is what the controller asks of internal/models. A job with no usable
+// connection has runtime domain.RuntimeNone: no machine starts for it.
+type Models interface {
+	Settle(ctx context.Context, accountID uuid.UUID) error
+	WaitReason(ctx context.Context, j domain.Job) (code, sentence string, ok bool, err error)
 }
 
 // Controller makes machines follow queue demand (fleet.md). Everything it
@@ -359,6 +370,13 @@ func (c *Controller) loadMachines(ctx context.Context, s *snapshot) error {
 func (c *Controller) loadOrg(ctx context.Context, id uuid.UUID) (organization, error) {
 	st := c.cfg.Store
 	o := organization{id: id}
+	if c.cfg.Models != nil {
+		// Jobs that moved to a connection need their machine; a failure
+		// only leaves them where they were until the next pass.
+		if err := c.cfg.Models.Settle(ctx, id); err != nil {
+			c.cfg.Logger.ErrorContext(ctx, "settle queued jobs", "account_id", id, "error", err)
+		}
+	}
 	var err error
 	if o.policy, err = st.FleetPolicies().Get(ctx, id); err != nil {
 		return o, fmt.Errorf("policy: %w", err)
@@ -370,6 +388,12 @@ func (c *Controller) loadOrg(ctx context.Context, id uuid.UUID) (organization, e
 		return o, fmt.Errorf("queued jobs: %w", err)
 	}
 	slices.Reverse(o.queued) // List is newest first
+	for _, j := range o.queued {
+		if j.Runtime == domain.RuntimeNone {
+			o.held = append(o.held, j)
+		}
+	}
+	o.queued = slices.DeleteFunc(o.queued, func(j domain.Job) bool { return j.Runtime == domain.RuntimeNone })
 	if o.running, err = st.Jobs().List(ctx, id, store.JobFilter{Status: domain.JobRunning}); err != nil {
 		return o, fmt.Errorf("running jobs: %w", err)
 	}

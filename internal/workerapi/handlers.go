@@ -22,9 +22,12 @@ import (
 )
 
 type pollRequest struct {
-	Labels    []string `json:"labels"`
-	FreeSlots int      `json:"free_slots"`
-	Version   string   `json:"version"`
+	Labels []string `json:"labels"`
+	// Capabilities lists what the worker can do beyond its labels; a
+	// worker from before a capability sends none.
+	Capabilities []string `json:"capabilities"`
+	FreeSlots    int      `json:"free_slots"`
+	Version      string   `json:"version"`
 }
 
 type pollResponse struct {
@@ -44,7 +47,7 @@ func (s *Server) poll(rw http.ResponseWriter, r *http.Request) {
 		writeError(rw, http.StatusBadRequest, "bad_request", "free_slots must not be negative")
 		return
 	}
-	labels := domain.NormalizeLabels(req.Labels)
+	labels := serverLabels(req)
 	if err := s.cfg.Store.Workers().Seen(ctx, w.AccountID, w.ID, labels, req.Version); err != nil {
 		if clientGone(ctx, err) {
 			rw.WriteHeader(http.StatusNoContent)
@@ -75,6 +78,10 @@ func (s *Server) poll(rw http.ResponseWriter, r *http.Request) {
 		s.giveBack(ctx, w, j, "worker went away before receiving the job", logger)
 		rw.WriteHeader(http.StatusNoContent)
 		return
+	case errors.Is(err, errNoConnection):
+		s.giveBack(ctx, w, j, err.Error(), logger)
+		rw.WriteHeader(http.StatusNoContent)
+		return
 	case errors.Is(err, errRevoked):
 		s.giveBack(ctx, w, j, "worker revoked", logger)
 		writeError(rw, http.StatusUnauthorized, "unauthorized", "unknown or revoked worker token")
@@ -99,6 +106,11 @@ func (s *Server) waitForJob(ctx context.Context, w domain.Worker, labels []strin
 	defer recheck.Stop()
 	for {
 		wake := s.cfg.Jobs.Wait() // before leasing, so no new job is missed
+		if err := s.cfg.Settle(ctx, w.AccountID); err != nil && ctx.Err() == nil {
+			// The lease checks the connection again: a failure here only
+			// delays jobs that moved.
+			s.cfg.Logger.ErrorContext(ctx, "settle queued jobs", "account_id", w.AccountID, "error", err)
+		}
 		j, err := s.lease(ctx, w, labels)
 		if !errors.Is(err, store.ErrNoJob) {
 			return j, err
@@ -135,8 +147,27 @@ func (s *Server) lease(ctx context.Context, w domain.Worker, labels []string) (d
 	return j, err
 }
 
+// serverLabels returns the labels of a poll. The server decides two of them:
+// no worker runs the runtime of jobs that wait for a model connection, and
+// only a worker that says it keeps its own keys away from them gets the label
+// of jobs on an organization's connection. An older worker would hand the
+// agent keys of its own, so those jobs wait for another.
+func serverLabels(req pollRequest) []string {
+	labels := slices.DeleteFunc(domain.NormalizeLabels(req.Labels), func(l string) bool {
+		return l == domain.RuntimeLabel(domain.RuntimeNone) || l == domain.OrganizationModelLabel
+	})
+	if slices.Contains(req.Capabilities, domain.OrganizationModelCapability) {
+		labels = domain.NormalizeLabels(append(labels, domain.OrganizationModelLabel))
+	}
+	return labels
+}
+
 // errRevoked means the worker was revoked while its poll waited.
 var errRevoked = errors.New("worker revoked")
+
+// errNoConnection means the job's model connection changed between the
+// settling and the lease.
+var errNoConnection = errors.New("no usable model connection")
 
 // handOut checks that the worker may still receive the leased job j and
 // returns its spec with secrets.
@@ -151,7 +182,7 @@ func (s *Server) handOut(ctx context.Context, w domain.Worker, j domain.Job) (do
 	if cur.Revoked() {
 		return domain.JobSpec{}, errRevoked
 	}
-	return s.withSecrets(ctx, j)
+	return s.withSecrets(ctx, cur, j)
 }
 
 // giveBack releases a leased job the worker will not run, so another poll
@@ -169,8 +200,10 @@ func (s *Server) giveBack(ctx context.Context, w domain.Worker, j domain.Job, re
 // (config.md, pools): a fresh repo token (contents write for writing agent
 // jobs, read otherwise, never wider than the pool's repo_token, none for
 // none) and the runtime secrets when the pool lists the runtime. Command
-// jobs get no runtime secrets.
-func (s *Server) withSecrets(ctx context.Context, j domain.Job) (domain.JobSpec, error) {
+// jobs get no runtime secrets. The connection, key, endpoint and model come
+// from one decision on the job's own organization (models.Service.Grant); a
+// job whose connection is gone is not handed out.
+func (s *Server) withSecrets(ctx context.Context, w domain.Worker, j domain.Job) (domain.JobSpec, error) {
 	spec := j.Spec
 	spec.JobID, spec.AccountID = j.ID, j.AccountID
 	pool, ok := s.cfg.Pools[j.Pool]
@@ -185,12 +218,26 @@ func (s *Server) withSecrets(ctx context.Context, j domain.Job) (domain.JobSpec,
 		spec.RepoToken = tok.Value
 	}
 	if !spec.IsCommand() {
-		if runtime, env := s.cfg.Env(j); pool.Credentials.AllowsRuntime(runtime) {
-			spec.Env = env
+		g, err := s.cfg.Grant(ctx, j)
+		if err != nil {
+			return spec, fmt.Errorf("model connection: %w", err)
+		}
+		if g.Waiting != "" {
+			return spec, fmt.Errorf("%w: %s", errNoConnection, g.Waiting)
+		}
+		if g.Organization && !slices.Contains(w.Labels, domain.OrganizationModelLabel) {
+			return spec, fmt.Errorf("%w: worker %s would hand the agent keys of its own: update it", errNoConnection, w.Name)
+		}
+		spec.OrganizationModel = g.Organization
+		if pool.Credentials.AllowsRuntime(g.Connection) {
+			spec.Env = g.Env
 		}
 		// Whatever the pool withholds, the job must not fall back to the
 		// vendor's endpoint with a key of the worker's own.
-		spec.Endpoint = s.cfg.Endpoint(j)
+		spec.Endpoint = g.Endpoint
+		if g.Model != "" {
+			spec.Model = g.Model
+		}
 		// The job MCP token is scoped to this job and lease, so every pool
 		// gets it; pools have no setting to withhold it.
 		token, hash := jobmcp.NewToken()

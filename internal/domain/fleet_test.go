@@ -278,7 +278,7 @@ func TestOSLabels(t *testing.T) {
 		}
 	}
 	s := Shape{OS: OSMacOS, Arch: ArchARM64, Labels: []string{"Xcode:16"}}
-	if got := s.OfferedLabels(); !slices.Equal(got, []string{"arm64", "darwin", "macos", "xcode:16"}) {
+	if got := s.OfferedLabels(); !slices.Equal(got, []string{"arm64", "darwin", "macos", OrganizationModelLabel, "xcode:16"}) {
 		t.Fatalf("offered = %v", got)
 	}
 }
@@ -739,5 +739,23 @@ func TestSecretPatterns(t *testing.T) {
 		if SecretPatterns.MatchString(s) {
 			t.Errorf("%s matches", s)
 		}
+	}
+}
+
+// A job on an organization's model connection needs the label every shape
+// offers: machines run a worker that keeps its own keys away from it.
+func TestShapeServesAnOrganizationModelJob(t *testing.T) {
+	s := Shape{Enabled: true, OS: OSLinux, Arch: ArchAMD64, Labels: []string{"runtime:claude-code"}, CPU: 2, MemoryMB: 4096, DiskGB: 20}
+	j := Job{Kind: JobKindAgent, Runtime: "claude-code", Spec: JobSpec{OrganizationModel: true}}
+	if d := j.ShapeDemand(); !slices.Contains(d.Labels, OrganizationModelLabel) || !s.Serves(d) {
+		t.Fatalf("demand %+v, offered %v", d, s.OfferedLabels())
+	}
+	j.Runtime = "codex"
+	if s.Serves(j.ShapeDemand()) {
+		t.Fatal("a shape without the runtime serves the job")
+	}
+	plain := Job{Kind: JobKindAgent, Runtime: "claude-code"}
+	if slices.Contains(plain.RequiredLabels(), OrganizationModelLabel) || !s.Serves(plain.ShapeDemand()) {
+		t.Fatalf("plain job: %v", plain.RequiredLabels())
 	}
 }

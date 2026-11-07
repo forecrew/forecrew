@@ -158,7 +158,9 @@ func ownershipOf(accountID uuid.UUID) Ownership {
 // Labels, the OS labels and the architecture, normalized.
 func (s Shape) OfferedLabels() []string {
 	out := append(slices.Clone(s.Labels), OSLabels(string(s.OS))...)
-	return NormalizeLabels(append(out, string(s.Arch)))
+	// Machines run the worker of their image, which keeps its keys away
+	// from organizations' connections.
+	return NormalizeLabels(append(out, string(s.Arch), OrganizationModelLabel))
 }
 
 // Validate checks the shape on its own, reporting every problem at once and

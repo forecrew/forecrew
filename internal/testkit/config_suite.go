@@ -3,6 +3,7 @@ package testkit
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 	"uuid"
@@ -22,6 +23,68 @@ func ConfigStoreSuite(t *testing.T, st store.Store, accountID, projectID, jobID 
 		configSecrets(t, st, scope)
 	}
 	configAccounts(t, st, accountID)
+	configModels(t, st, accountID, projectID)
+}
+
+func configModels(t *testing.T, st store.Store, accountID, projectID uuid.UUID) {
+	t.Helper()
+	ctx := t.Context()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := domain.ModelConnection{AccountID: accountID, Name: "zai", Vendor: "zai", Adapter: "opencode", KeyEnv: "ZAI_KEY", SecretRef: "store:models/zai", Enabled: true, UpdatedBy: "user:ana"}
+	must(st.ModelConnections().Put(ctx, &c))
+	c.ID, c.Enabled, c.SecretRef = uuid.Nil(), false, "store:models/zai-2"
+	must(st.ModelConnections().Put(ctx, &c))
+	rows, err := st.ModelConnections().List(ctx, accountID)
+	if err != nil || len(rows) != 1 || rows[0].Enabled || rows[0].SecretRef != "store:models/zai-2" || rows[0].KeyEnv != "ZAI_KEY" {
+		t.Fatalf("connections = %+v, %v", rows, err)
+	}
+	must(st.ModelConnections().Delete(ctx, accountID, "zai"))
+	if err := st.ModelConnections().Delete(ctx, accountID, "zai"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("delete again = %v", err)
+	}
+
+	off := false
+	org := domain.ModelAssignment{AccountID: accountID, Tiers: map[string]map[string]string{"fast": {"zai": "zai/glm"}}, Roles: map[string]domain.ModelRole{"developer": {Connection: "zai", Tier: "fast"}}, ProjectOverrides: &off, UpdatedBy: "user:ana"}
+	must(st.ModelAssignments().Put(ctx, &org))
+	pr := domain.ModelAssignment{AccountID: accountID, ProjectID: projectID, UpdatedBy: "user:ana"}
+	must(st.ModelAssignments().Put(ctx, &pr))
+	pr.ID, pr.Roles = uuid.Nil(), map[string]domain.ModelRole{"reviewer": {Connection: "zai", Tier: "best"}}
+	must(st.ModelAssignments().Put(ctx, &pr))
+	list, err := st.ModelAssignments().List(ctx, accountID)
+	if err != nil || len(list) != 2 || list[0].ProjectID != uuid.Nil() || list[0].OverridesAllowed() || list[0].Tiers["fast"]["zai"] != "zai/glm" ||
+		list[1].ProjectID != projectID || list[1].Roles["reviewer"].Tier != "best" || !list[1].OverridesAllowed() {
+		t.Fatalf("assignments = %+v, %v", list, err)
+	}
+	must(st.ModelAssignments().Delete(ctx, accountID, projectID))
+	must(st.ModelAssignments().Delete(ctx, accountID, uuid.Nil()))
+	if err := st.ModelAssignments().Delete(ctx, accountID, uuid.Nil()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("delete again = %v", err)
+	}
+
+	// Jobs are retargeted by class.
+	classes, err := st.Jobs().QueuedClasses(ctx, accountID)
+	must(err)
+	for _, cl := range classes {
+		moved := cl
+		moved.Runtime, moved.Model, moved.Organization = domain.RuntimeNone, "m", !cl.Organization
+		must(st.Jobs().Retarget(ctx, accountID, cl, moved))
+		now, err := st.Jobs().QueuedClasses(ctx, accountID)
+		must(err)
+		if !slices.Contains(now, moved) || slices.Contains(now, cl) {
+			t.Fatalf("classes = %+v, want %+v", now, moved)
+		}
+		must(st.Jobs().Retarget(ctx, accountID, moved, cl))
+	}
+	again, err := st.Jobs().QueuedClasses(ctx, accountID)
+	must(err)
+	if len(again) != len(classes) {
+		t.Fatalf("classes = %+v, want %+v", again, classes)
+	}
 }
 
 func configConversations(t *testing.T, st store.Store, accountID, projectID, jobID uuid.UUID) uuid.UUID {

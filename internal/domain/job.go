@@ -175,6 +175,9 @@ func (j Job) RequiredLabels() []string {
 	out := append([]string(nil), j.Needs...)
 	if j.Kind.OrDefault() == JobKindAgent {
 		out = append(out, RuntimeLabel(j.Runtime))
+		if j.Spec.OrganizationModel {
+			out = append(out, OrganizationModelLabel)
+		}
 	}
 	return out
 }
@@ -262,15 +265,22 @@ type JobSpec struct {
 	Role      string    `json:"role"`
 	// WritePaths are doublestar globs relative to the repo root; a pattern
 	// starting with "!" excludes. Empty means read-only.
-	WritePaths       []string        `json:"write_paths"`
-	Runtime          string          `json:"runtime"` // runtime adapter: claude-code, codex or opencode
-	Model            string          `json:"model"`
-	Prompt           string          `json:"prompt"`
-	OutputSchema     json.RawMessage `json:"output_schema,omitempty"` // inline JSON Schema, no $ref
-	AllowedTools     []string        `json:"allowed_tools"`
-	MaxTurns         int             `json:"max_turns"`
-	Timeout          Duration        `json:"timeout"`
-	IncludeRepoFacts bool            `json:"include_repo_facts"`
+	WritePaths []string `json:"write_paths"`
+	Runtime    string   `json:"runtime"` // runtime adapter: claude-code, codex or opencode
+	// PinnedRuntime is the adapter of a council seat, which stays on it when
+	// the role moves to a connection of another adapter.
+	PinnedRuntime string `json:"pinned_runtime,omitempty"`
+	// OrganizationModel says the job runs on an organization's model
+	// connection: it needs OrganizationModelLabel, and the worker gives the
+	// agent no key, token or secret of its own.
+	OrganizationModel bool            `json:"organization_model,omitempty"`
+	Model             string          `json:"model"`
+	Prompt            string          `json:"prompt"`
+	OutputSchema      json.RawMessage `json:"output_schema,omitempty"` // inline JSON Schema, no $ref
+	AllowedTools      []string        `json:"allowed_tools"`
+	MaxTurns          int             `json:"max_turns"`
+	Timeout           Duration        `json:"timeout"`
+	IncludeRepoFacts  bool            `json:"include_repo_facts"`
 	// LockedPaths are globs (like WritePaths, without "!") an agent job may
 	// not change even when WritePaths allow it, e.g. tests written before
 	// the developer's job.
@@ -308,6 +318,9 @@ type Endpoint struct {
 	// KeyEnv names the variable holding the endpoint's API key; empty means
 	// the endpoint takes none.
 	KeyEnv string `json:"key_env,omitempty"`
+	// Organization marks the endpoint of an organization's connection:
+	// nothing the worker holds may go there, only the key in the job's env.
+	Organization bool `json:"organization,omitempty"`
 }
 
 // JobMCP is how an agent job reaches the job MCP gateway. Token is a secret,

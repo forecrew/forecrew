@@ -43,6 +43,7 @@ import (
 	"github.com/forecrew/forecrew/internal/knowledge"
 	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/mcp"
+	"github.com/forecrew/forecrew/internal/models"
 	"github.com/forecrew/forecrew/internal/oauth"
 	"github.com/forecrew/forecrew/internal/playbooks"
 	"github.com/forecrew/forecrew/internal/registers"
@@ -274,6 +275,16 @@ func New(d Deps) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load roles: %w", err)
 	}
+	encrypted, err := openSecrets(cfg, st)
+	if err != nil {
+		return nil, err
+	}
+	var vault secrets.Store // a nil *Encrypted must stay a nil interface
+	if encrypted != nil {
+		vault = encrypted
+	}
+	modelSvc := models.New(st, cfg, vault, log)
+	catalog.WithModels(modelSvc)
 	seats, err := councils.Load(d.Files, catalog.Definition)
 	if err != nil {
 		return nil, fmt.Errorf("load councils: %w", err)
@@ -289,8 +300,8 @@ func New(d Deps) (*App, error) {
 	bus := workflow.NewBus(st.Signals())
 	regs := registers.New(st, bus, d.Now)
 	machines := fleet.New(fleet.Config{Store: st, Logger: log, Now: d.Now, Direct: d.FleetDirect, ServerURL: cfg.Server.PublicBaseURL, Currency: cfg.Fleet.Currency,
-		Image: images.Resolver(st.Images())})
-	jobSvc := jobs.New(st, bus, cfg.Pools, log, d.Now).WithRegistrar(regs).WithWaiting(machines)
+		Image: images.Resolver(st.Images()), Models: modelSvc})
+	jobSvc := jobs.New(st, bus, cfg.Pools, log, d.Now).WithRegistrar(regs).WithWaiting(modelSvc.Before(machines))
 	gateSvc := gates.New(st, bus, d.Now).WithRecorder(regs)
 	emb := d.Embedder
 	if emb == nil && os.Getenv(EnvEmbeddingsKey) != "" {
@@ -310,13 +321,13 @@ func New(d Deps) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	creator := &jobCreator{tasks: tasks, store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0).WithKnowledge(search).WithAssumptions(regs), jobs: jobSvc, knowledge: syncer, councils: seats, models: cfg.ModelOn}
+	creator := &jobCreator{tasks: tasks, store: st, roles: catalog, packs: contextpack.New(st, d.GitHub, cfg.GitHub.Allowed, 0).WithKnowledge(search).WithAssumptions(regs), jobs: jobSvc, knowledge: syncer, councils: seats, models: modelSvc.ModelOn}
 
 	actions := workflow.Actions{}
 	var engine *workflow.Engine
 	playbooks.Register(actions, playbooks.Deps{
 		Store: st, Tracker: d.GitHub, Signals: bus, Sizing: cfg.Sizing, Roles: catalog, Knowledge: syncer, Proposals: kbProposals, Now: d.Now, Actions: d.Actions, Packs: d.Files,
-		Config: cfg, Councils: seats, Gates: gateSvc, Evidence: ev, Logger: log,
+		Config: cfg, Models: modelSvc, Councils: seats, Gates: gateSvc, Evidence: ev, Logger: log,
 		Runs: lateStarter(func() *workflow.Engine { return engine }),
 	})
 	engine, err = workflow.New(workflow.Config{
@@ -335,19 +346,11 @@ func New(d Deps) (*App, error) {
 		},
 		PublicURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now,
 	})
-	encrypted, err := openSecrets(cfg, st)
-	if err != nil {
-		return nil, err
-	}
-	var vault secrets.Store // a nil *Encrypted must stay a nil interface
-	if encrypted != nil {
-		vault = encrypted
-	}
 	authSvc := auth.New(auth.Config{Store: st, Auth: cfg.Auth, BaseURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now, GitHubURL: d.GitHubURL, GitHubAPIURL: d.GitHubAPIURL, Secrets: vault})
 	toolSvc := tools.New(tools.Config{
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes, Proposals: kbProposals,
 		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, GoalV3Projects: cfg.GoalV3.Projects, Fleet: machines, Logger: log, PublicURL: cfg.Server.PublicBaseURL, TokenTTL: cfg.Auth.TokenDefaultTTL, Now: d.Now,
-		GitHubUserID: authSvc.GitHubUserID, Server: d.File, Getenv: d.Getenv, Repo: d.GitHub, Secrets: vault, Trackers: tickets,
+		GitHubUserID: authSvc.GitHubUserID, Server: d.File, Getenv: d.Getenv, Repo: d.GitHub, Secrets: vault, Trackers: tickets, RoleToolbox: catalog.Toolbox,
 		CheckSchedule: func(sc config.Schedule) error { return checkSchedule(books, sc) },
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
@@ -356,7 +359,7 @@ func New(d Deps) (*App, error) {
 		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Search: search, Notes: notes, Proposals: kbProposals, Assistant: toolSvc, Logger: log, Version: d.Version, Now: d.Now,
 	})
 	workers := workerapi.New(workerapi.Config{
-		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Env: workerapi.RuntimeEnv(cfg), Endpoint: workerapi.RuntimeEndpoint(cfg), Pools: cfg.Pools, Logger: log,
+		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Grant: modelSvc.Grant, Settle: modelSvc.Settle, Pools: cfg.Pools, Logger: log,
 		Evidence: ev, MaxArtifactSize: evidenceMaxSize(cfg), MaxTestResultsSize: cfg.MaxTestResultsSize,
 		JobMCPURL: jobMCPURL(cfg), Attachments: jobGateway.Attachments(),
 	})

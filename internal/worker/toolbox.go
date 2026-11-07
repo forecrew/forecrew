@@ -155,11 +155,14 @@ func (b *toolboxRun) configure() error {
 	if r.spec.JobMCP != nil {
 		b.secrets[runtime.JobMCPTokenEnv] = true
 	}
-	if k := runtime.KeyEnv(r.spec.Runtime); k != "" {
-		b.secrets[k] = true // the worker's own key, when the spec has none
-	}
-	if e := r.spec.Endpoint; e != nil && e.KeyEnv != "" {
-		b.secrets[e.KeyEnv] = true // the key of a custom endpoint
+	// The endpoint of an organization's connection gets only what spec.Env holds.
+	if !r.organizationModel() {
+		if k := runtime.KeyEnv(r.spec.Runtime); k != "" {
+			b.secrets[k] = true // the worker's own key, when the spec has none
+		}
+		if e := r.spec.Endpoint; e != nil && e.KeyEnv != "" {
+			b.secrets[e.KeyEnv] = true // the key of a custom endpoint
+		}
 	}
 	for _, k := range slices.Sorted(maps.Keys(b.secrets)) {
 		if reservedCredential(k) {

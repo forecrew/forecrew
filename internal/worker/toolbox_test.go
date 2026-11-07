@@ -511,6 +511,46 @@ func TestToolboxRefusesOpencode(t *testing.T) {
 	}
 }
 
+// TestToolboxOrganizationEndpointGetsNoWorkerKey: the worker's own key does not
+// go into the container of a job on an organization's connection, with or
+// without a custom endpoint.
+func TestToolboxOrganizationEndpointGetsNoWorkerKey(t *testing.T) {
+	for name, edit := range map[string]func(*domain.JobSpec){
+		"endpoint": func(s *domain.JobSpec) {
+			s.Endpoint = &domain.Endpoint{BaseURL: "https://models.example.com/v1", KeyEnv: "EP_KEY", Organization: true}
+		},
+		"no endpoint": func(s *domain.JobSpec) { s.OrganizationModel = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			var out []string
+			adapter := named{funcAdapter{func(ctx context.Context, spec runtime.RunSpec, _ func(domain.JobEvent)) (runtime.Result, error) {
+				var err error
+				out, err = inBox(ctx, spec, `echo "key=[$ANTHROPIC_API_KEY][$EP_KEY]"`)
+				return runtime.Result{}, err
+			}}, runtime.ClaudeCode}
+			g := newToolboxEngine(t)
+			e := newEnv(t, adapter)
+			e.cfg.DockerBin, e.cfg.Toolboxes = g.bin, toolboxFiles()
+			e.cfg.Environ = append(os.Environ(), "ANTHROPIC_API_KEY="+testAPIKey, "EP_KEY="+testAPIKey)
+			e.rebuild()
+			s := toolboxSpec(e, securityBox, func(s *domain.JobSpec) {
+				s.Runtime, s.Env = runtime.ClaudeCode, nil
+				edit(s)
+			})
+			if c := e.doComplete(s); c.Status != StatusSucceeded {
+				t.Fatalf("completion = %+v", c)
+			}
+			if len(out) != 1 || out[0] != "key=[][]" {
+				t.Errorf("the job saw %q", out)
+			}
+			got := calls(t, g.log)
+			if hasCall(got, "-e ANTHROPIC_API_KEY ") || hasCall(got, "-e EP_KEY ") {
+				t.Errorf("a key of the worker reached the container: %v", got)
+			}
+		})
+	}
+}
+
 func TestToolboxEndpointKeyIsPassedByName(t *testing.T) {
 	const key = "ep-secret-0123456789abcdef"
 	var out []string

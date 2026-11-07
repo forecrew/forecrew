@@ -492,6 +492,12 @@ func (r *jobRun) withFacts(ctx context.Context, prompt string) (string, error) {
 	return prompt + "\n\n## Repo facts\n\n```json\n" + string(b) + "\n```\n", nil
 }
 
+// organizationModel reports whether the job runs on an organization's model
+// connection, which gets nothing the worker holds.
+func (r *jobRun) organizationModel() bool {
+	return r.spec.OrganizationModel || (r.spec.Endpoint != nil && r.spec.Endpoint.Organization)
+}
+
 // runAgent runs the runtime adapter in the worktree (in the toolbox container
 // box, when there is one) and, when it returns,
 // kills the processes it left behind.
@@ -522,8 +528,9 @@ func (r *jobRun) runAgent(ctx context.Context, prompt string, box *toolboxRun) (
 	if box != nil {
 		container, servers = box, box.toolbox.MCPServers
 		// A key held by the worker itself, not sent in the spec, is handed to
-		// the container by name like the others.
-		if k := runtime.KeyEnv(r.spec.Runtime); k != "" && env[k] == "" {
+		// the container by name like the others; never to a job on an
+		// organization's connection.
+		if k := runtime.KeyEnv(r.spec.Runtime); k != "" && env[k] == "" && !r.organizationModel() {
 			if v := envValue(r.w.cfg.Environ, k); v != "" {
 				env[k] = v
 			}
@@ -534,7 +541,7 @@ func (r *jobRun) runAgent(ctx context.Context, prompt string, box *toolboxRun) (
 		WorkDir: r.dir, Model: r.spec.Model, Prompt: prompt, OutputSchema: r.spec.OutputSchema,
 		AllowedTools: r.spec.AllowedTools, MaxTurns: r.spec.MaxTurns,
 		Timeout: time.Duration(r.spec.Timeout), Env: env, JobMCP: gateway, EvidenceDir: r.scratch,
-		Endpoint:   r.spec.Endpoint,
+		Endpoint: r.spec.Endpoint, OrganizationModel: r.organizationModel(),
 		MCPServers: servers, Container: container,
 	}, r.ev.add)
 	if n := r.w.reaper.agentDone(mark); n > 0 {

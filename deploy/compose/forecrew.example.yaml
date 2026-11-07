@@ -21,6 +21,12 @@ github:
   app_id: 123456
   allowlist: [octocat]
 
+# Organizations may also connect their own providers in Organization
+# settings, AI models. Set false on a server shared by organizations that
+# bring their own keys.
+# models:
+#   server_keys_for_organizations: true
+
 runtimes:
   claude:
     adapter: claude-code

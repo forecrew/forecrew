@@ -124,7 +124,8 @@ func (r jobRepo) LeaseNext(ctx context.Context, accountID, workerID uuid.UUID, l
 			SELECT id FROM jobs
 			WHERE account_id = $1 AND status = 'queued' AND (run_after IS NULL OR run_after <= now())
 			  AND pool = (SELECT w.pool FROM workers w WHERE w.id = $2 AND w.account_id = $1)
-			  AND (needs || CASE WHEN kind = 'agent' THEN ARRAY[lower('runtime:' || runtime)] ELSE '{}'::text[] END) <@ $3::text[]
+			  AND (needs || CASE WHEN kind = 'agent' THEN ARRAY[lower('runtime:' || runtime)] ELSE '{}'::text[] END
+			    || CASE WHEN kind = 'agent' AND spec->>'organization_model' = 'true' THEN ARRAY['models:organization'] ELSE '{}'::text[] END) <@ $3::text[]
 			  AND (NOT (SELECT w.ephemeral FROM workers w WHERE w.id = $2 AND w.account_id = $1) OR EXISTS (
 			    SELECT 1 FROM machines m JOIN shapes s ON s.id = m.shape_id
 			    WHERE m.worker_id = $2 AND m.account_id = $1 AND m.state IN ('ready', 'busy') AND m.jobs_taken < s.max_jobs
@@ -141,6 +142,25 @@ func (r jobRepo) LeaseNext(ctx context.Context, accountID, workerID uuid.UUID, l
 		return j, store.ErrNoJob
 	}
 	return j, mapErr(err)
+}
+
+func (r jobRepo) QueuedClasses(ctx context.Context, accountID uuid.UUID) ([]store.JobClass, error) {
+	return many(ctx, r.db, func(row pgx.Row) (c store.JobClass, err error) {
+		err = row.Scan(&c.ProjectID, &c.Pool, &c.Role, &c.Runtime, &c.Pinned, &c.Model, &c.Organization)
+		return c, err
+	}, `SELECT DISTINCT project_id, pool, role, runtime, COALESCE(spec->>'pinned_runtime', ''), COALESCE(spec->>'model', ''),
+			COALESCE(spec->>'organization_model' = 'true', false)
+		FROM jobs WHERE account_id = $1 AND status = 'queued' AND kind = 'agent'`, accountID)
+}
+
+func (r jobRepo) Retarget(ctx context.Context, accountID uuid.UUID, c store.JobClass, to store.JobClass) error {
+	_, err := r.db.Exec(ctx, `UPDATE jobs SET runtime = $7,
+			spec = spec || jsonb_build_object('runtime', $7::text, 'model', $8::text, 'organization_model', $10::boolean),
+			updated_at = now()
+		WHERE account_id = $1 AND status = 'queued' AND kind = 'agent' AND project_id = $2 AND pool = $3 AND role = $4 AND runtime = $5
+		  AND COALESCE(spec->>'pinned_runtime', '') = $6 AND COALESCE(spec->>'model', '') = $9 AND COALESCE(spec->>'organization_model' = 'true', false) = $11`,
+		accountID, c.ProjectID, c.Pool, c.Role, c.Runtime, c.Pinned, to.Runtime, to.Model, c.Model, to.Organization, c.Organization)
+	return mapErr(err)
 }
 
 func (r jobRepo) ExtendLease(ctx context.Context, accountID, jobID, workerID uuid.UUID, leaseFor time.Duration) (domain.Job, error) {
