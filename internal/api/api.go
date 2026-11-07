@@ -146,6 +146,7 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/tracker-connections", serve(s, http.StatusCreated, bodyOf[mcp.CreateTrackerConnectionInput], t.CreateTrackerConnection))
 	route("DELETE /api/v1/tracker-connections/{connection}", serve(s, http.StatusOK, trackerConnectionInput, t.DeleteTrackerConnection))
 	route("POST /api/v1/tracker-connections/{connection}/discard-writes", serve(s, http.StatusOK, trackerConnectionInput, t.DiscardTrackerWrites))
+	route("POST /api/v1/tracker-connections/{connection}/test", serve(s, http.StatusOK, trackerConnectionInput, t.TestTrackerConnection))
 	route("GET /api/v1/tracker-routes", serve(s, http.StatusOK, trackerFilterInput, list(t.ListTrackerRoutes)))
 	route("POST /api/v1/tracker-routes", serve(s, http.StatusCreated, bodyOf[mcp.CreateTrackerRouteInput], t.CreateTrackerRoute))
 	route("DELETE /api/v1/tracker-routes/{route}", serve(s, http.StatusOK, trackerRouteInput, t.DeleteTrackerRoute))
@@ -294,6 +295,7 @@ func RouteAccess() map[string]mcp.Access {
 		"POST /api/v1/tracker-connections":                             tool[mcp.ToolCreateTrackerConnection],
 		"DELETE /api/v1/tracker-connections/{connection}":              tool[mcp.ToolDeleteTrackerConnection],
 		"POST /api/v1/tracker-connections/{connection}/discard-writes": tool[mcp.ToolDiscardTrackerWrites],
+		"POST /api/v1/tracker-connections/{connection}/test":           tool[mcp.ToolTestTrackerConnection],
 		"GET /api/v1/tracker-routes":                                   tool[mcp.ToolListTrackerRoutes],
 		"POST /api/v1/tracker-routes":                                  tool[mcp.ToolCreateTrackerRoute],
 		"DELETE /api/v1/tracker-routes/{route}":                        tool[mcp.ToolDeleteTrackerRoute],

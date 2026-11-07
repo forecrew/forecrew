@@ -90,6 +90,10 @@ func TestToolServiceDefaults(t *testing.T) {
 			_, err := s.DiscardTrackerWrites(ctx, by, mcp.TrackerConnectionRefInput{})
 			return err
 		},
+		func() error {
+			_, err := s.TestTrackerConnection(ctx, by, mcp.TrackerConnectionRefInput{})
+			return err
+		},
 		func() error { _, err := s.ListTrackerRoutes(ctx, by, mcp.TrackerConnectionFilterInput{}); return err },
 		func() error { _, err := s.CreateTrackerRoute(ctx, by, mcp.CreateTrackerRouteInput{}); return err },
 		func() error { _, err := s.DeleteTrackerRoute(ctx, by, mcp.TrackerRouteRefInput{}); return err },

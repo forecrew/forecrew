@@ -116,6 +116,7 @@ func ToolAccess() map[string]Access {
 		ToolCreateTrackerConnection: {Permission: domain.PermTrackersManage},
 		ToolDeleteTrackerConnection: {Permission: domain.PermTrackersManage},
 		ToolDiscardTrackerWrites:    {Permission: domain.PermTrackersManage},
+		ToolTestTrackerConnection:   {Permission: domain.PermTrackersManage},
 		ToolListTrackerRoutes:       {Permission: domain.PermTrackersRead},
 		ToolCreateTrackerRoute:      {Permission: domain.PermTrackersManage},
 		ToolDeleteTrackerRoute:      {Permission: domain.PermTrackersManage},
