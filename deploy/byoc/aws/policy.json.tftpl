@@ -1,0 +1,168 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RunInstance",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:${region}:${account}:instance/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/forecrew:fleet": "${fleet}",
+          "ec2:MetadataHttpTokens": "required"
+        },
+        "NumericLessThanEquals": {
+          "ec2:MetadataHttpPutResponseHopLimit": "1"
+        },
+        "StringLike": {
+          "ec2:InstanceType": ${instance_types}
+        },
+        "Null": {
+          "ec2:IamInstanceProfile": "true"
+        }
+      }
+    },
+    {
+      "Sid": "RunInstanceVolume",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:${region}:${account}:volume/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/forecrew:fleet": "${fleet}"
+        },
+        "Bool": {
+          "ec2:Encrypted": "true"
+        }
+      }
+    },
+    {
+      "Sid": "RunInstanceNetworkInterface",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:${region}:${account}:network-interface/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/forecrew:fleet": "${fleet}"
+        },
+        "ArnEquals": {
+          "ec2:Subnet": ${subnet_arns}
+        }
+      }
+    },
+    {
+      "Sid": "RunInstanceSpotRequest",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:${region}:${account}:spot-instances-request/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestTag/forecrew:fleet": "${fleet}"
+        }
+      }
+    },
+    {
+      "Sid": "RunInstanceNetwork",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": ${network_arns}
+    },
+    {
+      "Sid": "RunInstanceImage",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": [
+        "arn:aws:ec2:${region}::image/*",
+        "arn:aws:ec2:${region}::snapshot/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "ec2:Owner": "${account}"
+        }
+      }
+    },
+    {
+      "Sid": "TagOnLaunch",
+      "Effect": "Allow",
+      "Action": "ec2:CreateTags",
+      "Resource": [
+        "arn:aws:ec2:${region}:${account}:instance/*",
+        "arn:aws:ec2:${region}:${account}:volume/*",
+        "arn:aws:ec2:${region}:${account}:network-interface/*",
+        "arn:aws:ec2:${region}:${account}:spot-instances-request/*"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "ec2:CreateAction": "RunInstances",
+          "aws:RequestTag/forecrew:fleet": "${fleet}"
+        }
+      }
+    },
+    {
+      "Sid": "ChangeTagsOfOwnMachines",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateTags",
+        "ec2:DeleteTags"
+      ],
+      "Resource": "arn:aws:ec2:${region}:${account}:instance/*",
+      "Condition": {
+        "StringEquals": {
+          "ec2:ResourceTag/forecrew:fleet": "${fleet}"
+        },
+        "ForAllValues:StringNotEquals": {
+          "aws:TagKeys": [
+            "forecrew:fleet",
+            "forecrew:machine",
+            "forecrew:price"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "TerminateOwnMachines",
+      "Effect": "Allow",
+      "Action": "ec2:TerminateInstances",
+      "Resource": "arn:aws:ec2:${region}:${account}:instance/*",
+      "Condition": {
+        "StringEquals": {
+          "ec2:ResourceTag/forecrew:fleet": "${fleet}"
+        }
+      }
+    },
+    {
+      "Sid": "Look",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeInstances",
+        "ec2:DescribeInstanceTypes",
+        "ec2:DescribeImages",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeSecurityGroups"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "${region}"
+        }
+      }
+    },
+    {
+      "Sid": "NeverMoveTheFleetTag",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:CreateTags",
+        "ec2:DeleteTags"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "ForAnyValue:StringEquals": {
+          "aws:TagKeys": "forecrew:fleet"
+        },
+        "Null": {
+          "ec2:CreateAction": "true"
+        }
+      }
+    }
+  ]
+}
