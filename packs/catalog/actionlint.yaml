@@ -1,0 +1,8 @@
+name: actionlint
+kind: cli
+purpose: Checks GitHub Actions workflow files.
+homepage: https://github.com/rhysd/actionlint
+install: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+license: MIT
+roles: [developer, reviewer]
+categories: [ci]

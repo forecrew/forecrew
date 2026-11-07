@@ -1,0 +1,8 @@
+name: syft
+kind: cli
+purpose: Generates a software bill of materials from images and directories.
+homepage: https://github.com/anchore/syft
+install: ghcr.io/anchore/syft:v1.57.0
+license: Apache-2.0
+roles: [security-reviewer]
+categories: [security]

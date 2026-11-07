@@ -1,0 +1,8 @@
+name: osv-scanner
+kind: cli
+purpose: Checks lockfiles against the OSV vulnerability database.
+homepage: https://github.com/google/osv-scanner
+install: ghcr.io/google/osv-scanner:v2.7.0
+license: Apache-2.0
+roles: [security-reviewer]
+categories: [security, ci]
