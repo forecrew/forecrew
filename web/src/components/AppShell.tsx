@@ -172,8 +172,9 @@ function AccountBlock({ onNavigate }: { onNavigate?: () => void }) {
         </Link>
       ) : null}
       <DropdownMenu>
-        <DropdownMenuTrigger render={<Button variant="ghost" className="w-full justify-between gap-2" aria-label="Account menu" />}>
+        <DropdownMenuTrigger render={<Button variant="ghost" className="w-full justify-between gap-2" />}>
           <span className="truncate">{name}</span>
+          <span className="sr-only">account menu</span>
           <ChevronsUpDownIcon aria-hidden="true" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-52">

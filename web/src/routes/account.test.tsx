@@ -126,14 +126,14 @@ describe("your account", () => {
     expect(within(sessions).getByText(/Firefox on Linux/)).toBeInTheDocument()
     expect(within(sessions).getByText("this session")).toBeInTheDocument()
     expect(within(sessions).getAllByRole("button")).toHaveLength(1)
-    await user.click(within(sessions).getByRole("button", { name: "End the session of Safari on iPhone" }))
+    await user.click(within(sessions).getByRole("button", { name: "End session, Safari on iPhone" }))
     await waitFor(() => expect(ended).toEqual([fx.sessions[1]!.id]))
   })
 
   test("a failing end of a session is shown", async () => {
     server.use(http.delete("/api/v1/sessions/:id", errors.notFound))
     const { user } = await renderApp("/account")
-    await user.click((await screen.findAllByRole("button", { name: /End the session of/ }))[0]!)
+    await user.click((await screen.findAllByRole("button", { name: /End session,/ }))[0]!)
     expect(await screen.findByRole("alert")).toHaveTextContent("not found")
   })
 

@@ -19,20 +19,20 @@ describe("navigation", () => {
     await renderApp("/")
     const aside = (await screen.findByText("Forecrew", { selector: "aside p" })).closest("aside") as HTMLElement
     expect(await within(aside).findByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings")
-    expect(within(aside).getByRole("button", { name: "Account menu" })).toHaveTextContent("ana")
+    expect(within(aside).getByRole("button", { name: /account menu/ })).toHaveTextContent("ana")
     expect(within(aside).queryByRole("link", { name: "Tokens" })).not.toBeInTheDocument()
   })
 
   test("a token session shows the token name in the account menu", async () => {
     await renderApp("/")
     const aside = (await screen.findByText("Forecrew", { selector: "aside p" })).closest("aside") as HTMLElement
-    expect(await within(aside).findByRole("button", { name: "Account menu" })).toHaveTextContent("laptop")
+    expect(await within(aside).findByRole("button", { name: /account menu/ })).toHaveTextContent("laptop")
   })
 
   test("the account menu leads to Your account and signs out", async () => {
     server.use(http.get("/api/v1/me", () => HttpResponse.json(fx.meAdmin)))
     const { user, router } = await renderApp("/")
-    await user.click(await screen.findByRole("button", { name: "Account menu" }))
+    await user.click(await screen.findByRole("button", { name: /account menu/ }))
     expect(await screen.findByRole("menuitem", { name: "Sign out everywhere" })).toBeInTheDocument()
     await user.click(screen.getByRole("menuitem", { name: "Your account" }))
     await waitFor(() => expect(router.state.location.pathname).toBe("/account"))
@@ -48,7 +48,7 @@ describe("navigation", () => {
       }),
     )
     const { user, router } = await renderApp("/")
-    await user.click(await screen.findByRole("button", { name: "Account menu" }))
+    await user.click(await screen.findByRole("button", { name: /account menu/ }))
     await user.click(await screen.findByRole("menuitem", { name: "Sign out everywhere" }))
     await waitFor(() => expect(router.state.location.pathname).toBe("/login"))
     expect(everywhere).toBe(true)
@@ -58,7 +58,7 @@ describe("navigation", () => {
     server.use(http.get("/api/v1/me", () => HttpResponse.json(fx.meContributor)))
     await renderApp("/")
     const aside = (await screen.findByText("Forecrew", { selector: "aside p" })).closest("aside") as HTMLElement
-    await within(aside).findByRole("button", { name: "Account menu" })
+    await within(aside).findByRole("button", { name: /account menu/ })
     expect(within(aside).queryByRole("link", { name: "Settings" })).not.toBeInTheDocument()
   })
 
@@ -109,7 +109,7 @@ describe("navigation", () => {
     // /me lists only the organization of that connection.
     server.use(http.get("/api/v1/me", () => HttpResponse.json({ ...fx.meAdmin, organizations: fx.meAdmin.organizations.slice(0, 1) })))
     await renderApp("/")
-    await screen.findByRole("button", { name: "Account menu" })
+    await screen.findByRole("button", { name: /account menu/ })
     expect(screen.queryByLabelText("Switch organization")).not.toBeInTheDocument()
   })
 
