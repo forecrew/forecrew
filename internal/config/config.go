@@ -108,6 +108,15 @@ type Config struct {
 	Knowledge Knowledge `yaml:"knowledge"`
 	// Schedules start playbooks on a cron schedule.
 	Schedules []Schedule `yaml:"schedules"`
+	// Trackers limits the work that comes from tickets.
+	Trackers Trackers `yaml:"trackers"`
+}
+
+// Trackers configures the intake of tickets (docs/contracts/tracker.md).
+type Trackers struct {
+	// MaxActiveGoals is how many goals from tickets a project works on at
+	// once; the other tickets queue. Zero means tracker.DefaultMaxActiveGoals.
+	MaxActiveGoals int `yaml:"max_active_goals"`
 }
 
 // Actions configures the provider that runs the command jobs of pool
@@ -291,6 +300,9 @@ func (c *Config) Validate() error {
 	c.validatePools(&p)
 	c.validateEvidence(&p)
 	c.validateFleet(&p)
+	if c.Trackers.MaxActiveGoals < 0 {
+		p.addf("trackers.max_active_goals must not be negative, got %d", c.Trackers.MaxActiveGoals)
+	}
 	c.validateSizing(&p)
 	c.validateTesting(&p)
 	if c.MaxTestResultsSize < 0 {

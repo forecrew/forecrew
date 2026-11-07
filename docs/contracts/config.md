@@ -185,6 +185,7 @@ custom endpoint receives the repo code in the prompts and the runtime's key.
 | `max_test_results_size` | integer bytes | no | `33554432` (32 MiB) | Largest request body of `complete` (worker-api.md), which carries the test results of a command job; larger bodies get `413`. Every other worker API request is limited to 1 MiB. |
 | `actions.max_in_flight` | integer ≥ 1 | no | `10` | Most workflow runs the GitHub Actions provider (pool `actions`) keeps running at once; further jobs of the pool stay queued. It bounds the Actions minutes forecrewd can spend (actions.md). |
 | `fleet.currency` | ISO 4217 code | no | `USD` | Currency of every fleet amount: shape prices, budgets and usage costs (fleet.md). |
+| `trackers.max_active_goals` | integer ≥ 1 | no | `3` | Goals from tickets a project works on at once; other tickets queue in order (tracker.md). |
 | `evidence` | object | no | absent | S3-compatible object storage for artifacts (test reports, logs, screenshots, verification reports). Absent: artifact uploads answer `503` (worker-api.md). |
 | `evidence.endpoint` | URL | yes | | S3 endpoint, `https://` (or `http://` on a private network such as Docker Compose). |
 | `evidence.bucket` | string | yes | | Bucket; must exist. |

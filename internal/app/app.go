@@ -51,6 +51,8 @@ import (
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/store/postgres"
 	"github.com/forecrew/forecrew/internal/tools"
+	"github.com/forecrew/forecrew/internal/tracker"
+	"github.com/forecrew/forecrew/internal/tracker/githubissues"
 	"github.com/forecrew/forecrew/internal/webhook"
 	"github.com/forecrew/forecrew/internal/webui"
 	"github.com/forecrew/forecrew/internal/workerapi"
@@ -141,7 +143,9 @@ type App struct {
 	// schedules starts the playbooks of forecrew.yaml's schedules.
 	schedules *scheduler.Scheduler
 	// syncs reindexes projects' knowledge off the webhook goroutine.
-	syncs   *knowledge.Scheduler
+	syncs *knowledge.Scheduler
+	// tickets takes work from trackers and sends status back.
+	tickets *tracker.Service
 	certs   *certManager
 	closers []func()
 	// httpAddr is where the ACME challenge and redirect listen when TLS is on.
@@ -319,6 +323,16 @@ func New(d Deps) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("start workflow engine: %w", err)
 	}
+	access := authz.New(st, log).WithProtection(kbProposals)
+	trackers := tracker.NewRegistry()
+	trackers.Register(githubissues.Kind, githubissues.Factory(githubissues.Deps{GitHub: d.GitHub, Store: st, Secret: []byte(cfg.GitHub.WebhookSecret), Now: d.Now}))
+	tickets := tracker.New(tracker.Config{
+		Store: st, Registry: trackers, Gates: gateSvc, Authz: access, Runs: engine, MaxActiveGoals: cfg.Trackers.MaxActiveGoals,
+		Playbook: func(p domain.Project, k domain.GoalKind) string {
+			return tools.GoalPlaybook(cfg.Testing.Projects, p, k)
+		},
+		PublicURL: cfg.Server.PublicBaseURL, Logger: log, Now: d.Now,
+	})
 	encrypted, err := openSecrets(cfg, st)
 	if err != nil {
 		return nil, err
@@ -331,12 +345,11 @@ func New(d Deps) (*App, error) {
 	toolSvc := tools.New(tools.Config{
 		Store: st, Gates: gateSvc, Jobs: jobSvc, Creator: creator, Playbooks: engine, Roles: catalog, GitHub: d.GitHub, Evidence: ev, Search: search, Notes: notes, Proposals: kbProposals,
 		Registers: regs, Councils: seats, TestingProjects: cfg.Testing.Projects, Fleet: machines, Logger: log, PublicURL: cfg.Server.PublicBaseURL, TokenTTL: cfg.Auth.TokenDefaultTTL, Now: d.Now,
-		GitHubUserID: authSvc.GitHubUserID, Server: d.File, Getenv: d.Getenv, Repo: d.GitHub, Secrets: vault,
+		GitHubUserID: authSvc.GitHubUserID, Server: d.File, Getenv: d.Getenv, Repo: d.GitHub, Secrets: vault, Trackers: tickets,
 		CheckSchedule: func(sc config.Schedule) error { return checkSchedule(books, sc) },
 	})
 	syncs := &knowledge.Scheduler{Syncer: syncer, Log: log, Now: d.Now}
-	access := authz.New(st, log).WithProtection(kbProposals)
-	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Authz: access, Tracker: d.GitHub, Knowledge: syncs, Proposals: kbProposals, Bugs: toolSvc, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
+	hooks := webhook.Deps{Store: st, Signals: bus, Gates: gateSvc, Authz: access, Tracker: d.GitHub, Knowledge: syncs, Proposals: kbProposals, Bugs: toolSvc, Tickets: tickets, Allowed: cfg.GitHub.Allowed, Log: log, Now: d.Now}
 	jobGateway := jobmcp.New(jobmcp.Config{
 		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Search: search, Notes: notes, Proposals: kbProposals, Assistant: toolSvc, Logger: log, Version: d.Version, Now: d.Now,
 	})
@@ -366,7 +379,7 @@ func New(d Deps) (*App, error) {
 	warnDeprecated(cfg, log)
 	a := &App{
 		auth:      authSvc,
-		schedules: schedules, syncs: syncs, provider: provider, d: d, jobs: jobSvc, fleet: machines, catalog: catalog, creator: creator, tools: toolSvc, vault: encrypted, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
+		schedules: schedules, syncs: syncs, tickets: tickets, provider: provider, d: d, jobs: jobSvc, fleet: machines, catalog: catalog, creator: creator, tools: toolSvc, engine: engine, runEngine: engine.Run, httpAddr: ":80", notes: notes,
 		webhooks: webhook.NewHandler([]byte(cfg.GitHub.WebhookSecret), hooks),
 		poller:   webhook.NewPoller(hooks),
 	}
@@ -478,6 +491,7 @@ func (a *App) routes(workers, agents, jobMCP, mcpHandler, apiHandler http.Handle
 	// The job MCP gateway: agents of running jobs, with job tokens.
 	mux.Handle(jobmcp.Path, jobMCP)
 	mux.Handle("/webhooks/github", a.webhooks)
+	mux.Handle(tracker.WebhookPath, a.tickets)
 	mux.Handle("/", webui.Handler())
 	return mux
 }
@@ -504,6 +518,7 @@ func (a *App) Run(ctx context.Context) error {
 	wg.Go(func() { a.fleet.Run(runCtx, a.d.FleetEvery, a.jobs.Wait) })
 	wg.Go(func() { a.webhooks.Run(runCtx) })
 	wg.Go(func() { a.poller.Run(runCtx) })
+	wg.Go(func() { a.tickets.Run(runCtx) })
 	if a.provider != nil {
 		wg.Go(func() { a.provider.Run(runCtx) })
 	}
