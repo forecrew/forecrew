@@ -35,31 +35,44 @@ func (s *Service) Resolve(ctx context.Context, token string) (mcp.Caller, error)
 	}
 	c := mcp.Caller{Actor: domain.UserActor(sess.AccountID, user.ID, domain.Credential{Kind: domain.CredentialSession, ID: sess.ID})}
 	if sess.AccountID != uuid.Nil() {
-		m, err := st.Memberships().Get(ctx, sess.AccountID, user.ID)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
+		var err error
+		if c.BreakGlass, err = s.mayStay(ctx, sess, user); err != nil {
 			return mcp.Caller{}, err
-		}
-		if err != nil || m.Status != domain.MembershipActive {
-			if !user.InstanceAdmin {
-				return mcp.Caller{}, s.end(ctx, user.ID, sess.AccountID)
-			}
-			c.BreakGlass = true
-		}
-		ok, _, err := ssoAllows(ctx, st, user, sess.AccountID, sess.ConnectionID)
-		if err != nil {
-			return mcp.Caller{}, err
-		}
-		if !ok {
-			if err := st.Sessions().Revoke(ctx, user.ID, sess.ID); err != nil {
-				return mcp.Caller{}, err
-			}
-			return mcp.Caller{}, ErrNoSession
 		}
 	}
 	if err := st.Sessions().Touch(ctx, sess.ID, earliest(now.Add(s.cfg.Auth.SessionIdle), sess.ExpiresAt)); err != nil {
 		s.cfg.Logger.WarnContext(ctx, "touch session", "user_id", user.ID, "error", err)
 	}
 	return c, nil
+}
+
+// mayStay checks that a session can still be in its organization, and ends
+// it, wrapping ErrNoSession, when it cannot: the user lost the membership, or
+// the organization now requires another connection. breakGlass is an instance
+// admin who is not an active member.
+func (s *Service) mayStay(ctx context.Context, sess domain.Session, user domain.User) (breakGlass bool, err error) {
+	st := s.cfg.Store
+	m, err := st.Memberships().Get(ctx, sess.AccountID, user.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return false, err
+	}
+	if err != nil || m.Status != domain.MembershipActive {
+		if !user.InstanceAdmin {
+			return false, s.end(ctx, user.ID, sess.AccountID)
+		}
+		breakGlass = true
+	}
+	ok, _, err := ssoAllows(ctx, st, user, sess.AccountID, sess.ConnectionID)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		if err := st.Sessions().Revoke(ctx, user.ID, sess.ID); err != nil {
+			return false, err
+		}
+		return false, ErrNoSession
+	}
+	return breakGlass, nil
 }
 
 // end revokes the user's sessions, those in accountID when it is not zero,
