@@ -72,6 +72,21 @@ test("a plan that lowers protection needs the word typed, and says why", async (
   await waitFor(() => expect(body).toEqual({ word: "acme" }))
 })
 
+test("the word typed is gone when the dialog is closed and opened again", async () => {
+  const { user } = await renderPiece(<PlanCard plan={lowers} />)
+  await user.click(screen.getByRole("button", { name: "Confirm" }))
+  await user.type(await screen.findByLabelText(/Type acme to confirm/), "acme")
+  await user.click(screen.getByRole("button", { name: "Keep it as it is" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  await user.click(screen.getByRole("button", { name: "Confirm" }))
+  expect(await screen.findByLabelText(/Type acme to confirm/)).toHaveValue("")
+  await user.type(screen.getByLabelText(/Type acme to confirm/), "acm")
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  await user.click(screen.getByRole("button", { name: "Confirm" }))
+  expect(await screen.findByLabelText(/Type acme to confirm/)).toHaveValue("")
+})
+
 test("a plan that lowers protection is not confirmed from a phone", async () => {
   vi.stubGlobal("matchMedia", () => ({ matches: true }))
   await renderPiece(<PlanCard plan={lowers} />)
