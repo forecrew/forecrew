@@ -29,7 +29,7 @@ import (
 // TestRegistry: every area of the task is there, with all five functions.
 func TestRegistry(t *testing.T) {
 	want := []string{"organization", "member", "team", "role_binding", "connection", "pool", "shape", "provider", "fleet_policy", "integration", "knowledge_policy", "schedule",
-		"runtime", "auth", "domain", "repo_file"}
+		"runtime", "auth", "domain", "repo_file", "model_connection", "model_assignment"}
 	for _, kind := range want {
 		a, ok := resource.Lookup(kind)
 		if !ok {
@@ -88,7 +88,7 @@ func TestEverySettingHasAResource(t *testing.T) {
 	}
 	bootstrap := map[string]string{
 		"server": "where forecrewd listens", "github": "the GitHub App", "evidence": "artifact storage", "fleet": "the instance's currency",
-		"sizing": "moves with roles", "policy": "moves with roles", "model_tiers": "T69", "roles": "T69",
+		"sizing": "moves with roles", "policy": "moves with roles", "model_tiers": "the default of model_assignment", "roles": "the default of model_assignment",
 		"max_test_results_size": "a limit of the server", "actions": "a limit of the server", "testing": "the projects on the testing playbook, a rollout switch",
 		"goal_v3":   "the projects on the councils and learning playbook, a rollout switch",
 		"knowledge": "how old knowledge may get, a tuning value of the server",

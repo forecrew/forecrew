@@ -275,7 +275,9 @@ type modelAssignmentRepo struct{ s *Store }
 func (r modelAssignmentRepo) List(_ context.Context, accountID uuid.UUID) ([]domain.ModelAssignment, error) {
 	return read(r.s, func(d *storeData) ([]domain.ModelAssignment, error) {
 		rows := d.modelAssigns.filter(0, func(a domain.ModelAssignment) bool { return a.AccountID == accountID })
-		slices.SortFunc(rows, func(a, b domain.ModelAssignment) int { return strings.Compare(a.ProjectID.String(), b.ProjectID.String()) })
+		slices.SortFunc(rows, func(a, b domain.ModelAssignment) int {
+			return strings.Compare(a.ProjectID.String(), b.ProjectID.String())
+		})
 		return rows, nil
 	})
 }
