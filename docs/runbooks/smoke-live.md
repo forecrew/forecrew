@@ -134,6 +134,41 @@ eyes at what the run cannot judge:
    tested (note whether its form has a secret field); an automation rule with
    the secret URL does too.
 
+## Linear
+
+`make smoke-live-linear` runs the tracker contract (`trackertest`) against a
+real Linear workspace. The adapter was written from Linear's documentation
+against a fake that follows it, so every field name and behavior in the list
+below is unconfirmed until this runs. It creates issues and moves one to a
+completed state: use a sandbox team.
+
+| Variable | |
+|----------|-|
+| `FORECREW_SMOKE_LINEAR_TOKEN` | a personal API key of the dedicated user |
+| `FORECREW_SMOKE_LINEAR_TEAM` | the sandbox team's key |
+| `FORECREW_SMOKE_LINEAR_OAUTH` | set (to anything) when the token is an OAuth access token |
+
+What to check by hand:
+
+1. `forecrew tracker test <connection>` passes all five checks and the login
+   detail names the dedicated user.
+2. The queries the adapter makes are accepted as written: `history` with
+   `toAssigneeId`, `addedLabels { name }` and `toState { name }`, `comments(last:)`,
+   `issues(orderBy: updatedAt, filter: {updatedAt: {gte: ...}})` and
+   `comments(filter: {updatedAt: ...})`.
+3. An issue's `updatedAt` moves when a person comments (otherwise polling finds
+   a reply only through the comment query).
+4. A webhook (Settings, API, New webhook, resource types Issue and Comment) with
+   the signing secret reaches `POST /webhooks/tracker/{connection}` with a
+   valid `Linear-Signature`; the payload of an Issue and of a Comment carry what
+   `ParseEvent` reads (`data.identifier` or `data.team.key` with `data.number`,
+   and for a comment `data.issueId`), and the delivery is no more than a
+   minute old when it arrives.
+5. A rate-limited answer is HTTP 429 with `Retry-After`, `errors[].extensions.code`
+   `RATELIMITED`.
+6. Assigning an issue to the dedicated user shows `toAssigneeId` equal to the
+   `id` the login detail printed.
+
 ## opencode
 
 The opencode adapter was written from the docs and the source of 1.19.5, with

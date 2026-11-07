@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
 
-.PHONY: byoc-validate build build-enterprise test test-integration test-docker test-toolbox-browser test-kvm test-microvm images-validate lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live smoke-live-jira
+.PHONY: byoc-validate build build-enterprise test test-integration test-docker test-toolbox-browser test-kvm test-microvm images-validate lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live smoke-live-jira smoke-live-linear
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
@@ -124,3 +124,10 @@ smoke-live:
 smoke-live-jira:
 	@test -n "$$FORECREW_SMOKE_JIRA_DC_URL$$FORECREW_SMOKE_JIRA_CLOUD_URL" || { echo "set FORECREW_SMOKE_JIRA_DC_* or FORECREW_SMOKE_JIRA_CLOUD_*; see docs/runbooks/smoke-live.md"; exit 1; }
 	go test -tags smoke -count=1 -timeout 10m -run TestLive -v ./internal/tracker/jira/
+
+# The Linear section of the live smoke test: the tracker contract against a
+# real workspace. It creates issues: use a sandbox team. See
+# docs/runbooks/smoke-live.md.
+smoke-live-linear:
+	@test -n "$$FORECREW_SMOKE_LINEAR_TOKEN" -a -n "$$FORECREW_SMOKE_LINEAR_TEAM" || { echo "set FORECREW_SMOKE_LINEAR_TOKEN and FORECREW_SMOKE_LINEAR_TEAM; see docs/runbooks/smoke-live.md"; exit 1; }
+	go test -tags smoke -count=1 -timeout 10m -run TestLive -v ./internal/tracker/linear/

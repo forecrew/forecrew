@@ -341,3 +341,9 @@ columns anyway, so a card in the handover column means a person is waiting.
 Kind `jira`, package `internal/tracker/jira`: Jira Cloud and Data Center in
 one adapter, set up from `serverInfo`. Config, tokens, permissions, webhooks
 and private CAs are in [trackers/jira.md](../trackers/jira.md).
+
+## Linear
+
+Kind `linear`, package `internal/tracker/linear`: issues of Linear teams, with
+personal API keys or OAuth tokens and signed webhooks. Config, handover and the
+limits of what was verified are in [trackers/linear.md](../trackers/linear.md).
