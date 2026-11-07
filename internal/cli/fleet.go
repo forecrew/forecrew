@@ -111,6 +111,53 @@ func printUsage(w io.Writer, u fleet.UsageReport) {
 	}
 }
 
+// noticesCommand lists and resolves the instance's notices, for instance
+// admins.
+func noticesCommand(r *remote) *cobra.Command {
+	var all bool
+	cmd := &cobra.Command{
+		Use:   "notices",
+		Short: "List what the instance's operator must look at: machines stopped for abuse",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			path := "/fleet/notices"
+			if all {
+				path += "?all=true"
+			}
+			var items []mcp.FleetNoticeInfo
+			if err := r.call(cmd.Context(), http.MethodGet, path, nil, &items); err != nil {
+				return err
+			}
+			rows := [][]string{{"ID", "KIND", "ORGANIZATION", "LOCATION", "MACHINE", "OPENED", "RESOLVED", "DETAIL"}}
+			for _, n := range items {
+				resolved := "-"
+				if !n.ResolvedAt.IsZero() {
+					resolved = n.ResolvedAt.Format(time.RFC3339)
+				}
+				rows = append(rows, []string{n.ID.String(), n.Kind, dash(n.Organization), n.Provider, n.MachineID.String(),
+					n.CreatedAt.Format(time.RFC3339), resolved, dash(safeText(n.Detail))})
+			}
+			table(cmd.OutOrStdout(), rows)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&all, "all", false, "resolved notices too")
+	cmd.AddCommand(&cobra.Command{
+		Use:   "resolve <id>",
+		Short: "Close a notice once it is dealt with",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var n mcp.FleetNoticeInfo
+			if err := r.call(cmd.Context(), http.MethodPost, "/fleet/notices/"+url.PathEscape(args[0])+"/resolve", nil, &n); err != nil {
+				return err
+			}
+			cmd.Printf("notice %s resolved\n", n.ID)
+			return nil
+		},
+	})
+	return cmd
+}
+
 // providerCommand connects locations. Providers are listed by `forecrew
 // providers`.
 func providerCommand(r *remote) *cobra.Command {

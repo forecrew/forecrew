@@ -253,6 +253,89 @@ func (s *Service) FleetUsage(ctx context.Context, by domain.Actor, in mcp.FleetU
 	return s.cfg.Fleet.Usage(ctx, by.AccountID, from, from.AddDate(0, 1, 0), in.Records)
 }
 
+// Sizes of list_fleet_notices.
+const (
+	DefaultNoticeLimit = 100
+	MaxNoticeLimit     = 500
+)
+
+// operator lets by at the instance's notices: an instance admin, with perm in
+// its organization.
+func (s *Service) operator(ctx context.Context, by domain.Actor, perm domain.Permission) error {
+	if err := s.allowOrg(ctx, by, perm); err != nil {
+		return err
+	}
+	admin, err := s.instanceAdmin(ctx, by)
+	if err != nil {
+		return err
+	}
+	if !admin {
+		return fmt.Errorf("notices are for instance admins: %w", authz.ErrDenied)
+	}
+	return nil
+}
+
+// ListFleetNotices implements mcp.ToolService.
+func (s *Service) ListFleetNotices(ctx context.Context, by domain.Actor, in mcp.ListFleetNoticesInput) ([]mcp.FleetNoticeInfo, error) {
+	if err := s.operator(ctx, by, domain.PermWorkerRead); err != nil {
+		return nil, err
+	}
+	if in.Limit < 0 {
+		return nil, fmt.Errorf("limit %d: %w", in.Limit, mcp.ErrInvalidInput)
+	}
+	if in.Limit == 0 {
+		in.Limit = DefaultNoticeLimit
+	}
+	notices, err := s.cfg.Store.FleetNotices().List(ctx, in.All, min(in.Limit, MaxNoticeLimit))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcp.FleetNoticeInfo, len(notices))
+	for i, n := range notices {
+		if out[i], err = s.noticeInfo(ctx, n, in.WrapUntrusted); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// ResolveFleetNotice implements mcp.ToolService.
+func (s *Service) ResolveFleetNotice(ctx context.Context, by domain.Actor, in mcp.FleetNoticeRefInput) (mcp.FleetNoticeInfo, error) {
+	if err := s.operator(ctx, by, domain.PermWorkerManage); err != nil {
+		return mcp.FleetNoticeInfo{}, err
+	}
+	id, err := uuid.Parse(in.Notice)
+	if err != nil {
+		return mcp.FleetNoticeInfo{}, fmt.Errorf("notice %q: %w", in.Notice, mcp.ErrNotFound)
+	}
+	n, err := s.cfg.Store.FleetNotices().Resolve(ctx, id, by.String())
+	if err != nil {
+		return mcp.FleetNoticeInfo{}, notFound(err, "notice "+in.Notice)
+	}
+	return s.noticeInfo(ctx, n, in.WrapUntrusted)
+}
+
+func (s *Service) noticeInfo(ctx context.Context, n domain.FleetNotice, wrap bool) (mcp.FleetNoticeInfo, error) {
+	out := mcp.FleetNoticeInfo{FleetNotice: n}
+	if p, err := s.cfg.Store.CapacityProviders().Get(ctx, n.ProviderID); err == nil {
+		out.Provider = p.Name
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return out, err
+	}
+	if n.AccountID != uuid.Nil() {
+		a, err := s.cfg.Store.Accounts().Get(ctx, n.AccountID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return out, err
+		}
+		out.Organization = a.Slug
+	}
+	if wrap && n.Detail != "" {
+		out.Untrusted = contextpack.WrapUntrusted("abuse check of location "+out.Provider, n.Detail)
+		out.Detail = ""
+	}
+	return out, nil
+}
+
 // instanceAdmin reports whether by is a person flagged as an instance admin:
 // instance-wide rows are theirs alone (fleet.md, Permissions).
 func (s *Service) instanceAdmin(ctx context.Context, by domain.Actor) (bool, error) {
