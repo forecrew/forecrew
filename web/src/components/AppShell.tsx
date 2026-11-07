@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
-import { SETTINGS, sectionAllowed } from "@/lib/permissions"
+import { SETTINGS, sectionAllowed, useCan } from "@/lib/permissions"
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 
 const NAV = [
@@ -212,11 +212,15 @@ export function AppShell() {
   const toggleCommands = useCallback(() => setCommands((o) => !o), [])
   useCommandMenuShortcut(toggleCommands)
   const desktop = useDesktop()
-  const [assistant, setAssistant] = useState(false)
+  const can = useCan()
+  const enabled = can("config.read")
+  const [wanted, setAssistant] = useState(false)
+  const assistant = wanted && enabled
   const [conversation, setConversation] = useState<string>()
   const [seed, setSeed] = useState<string>()
   const control = useMemo(
     () => ({
+      enabled,
       open: assistant,
       ask: (message?: string) => {
         setSeed(message)
@@ -224,7 +228,7 @@ export function AppShell() {
       },
       close: () => setAssistant(false),
     }),
-    [assistant],
+    [assistant, enabled],
   )
   const panel = assistant ? (
     <AssistantPanel conversation={conversation} onConversation={setConversation} initial={seed} onClose={() => setAssistant(false)} />

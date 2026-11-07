@@ -150,3 +150,14 @@ test("on a narrow screen it is a sheet", async () => {
   expect(screen.queryByRole("complementary", { name: "Assistant panel" })).toBeNull()
   vi.unstubAllGlobals()
 })
+
+test("without config.read there is no Ask button, no command menu row and no panel", async () => {
+  server.use(http.get("/api/v1/me", () => HttpResponse.json({ ...fx.meViewer, permissions: fx.meViewer.permissions.filter((p: string) => p !== "config.read") })))
+  const { user } = await renderApp("/machines")
+  await screen.findByRole("heading", { name: "Machines" })
+  expect(screen.queryByRole("button", { name: /^Ask/ })).toBeNull()
+  await user.keyboard("{Control>}k{/Control}")
+  await screen.findByPlaceholderText(/Search pages/)
+  expect(screen.queryByRole("option", { name: /Ask the assistant/ })).toBeNull()
+  expect(screen.queryByRole("region", { name: "Assistant" })).toBeNull()
+})
