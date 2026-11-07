@@ -232,6 +232,11 @@ its own cache of fetched images by the same rule (docs/fleet.md).
   Xcode, the build adds its major version as a label (`xcode:16`): list it in the
   manifest's `--label` and in the shape, and jobs route with `needs: [xcode:16]`.
 
+The fleet agent does not trust Tart's pull: it checks the cached manifest against the
+signed digest, and the cached disk against the manifest ([fleet.md](fleet.md#macos-locations-tart)).
+The signature covers the digest, not the URI, so the agent's `registry_hosts` decides
+which registries it pulls from.
+
 ## Licensing
 
 Forecrew does not distribute Windows or macOS. The Windows result is an unsigned

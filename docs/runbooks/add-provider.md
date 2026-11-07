@@ -95,8 +95,10 @@ organization's own jobs on it, never anyone else's by the minute.
    control, write its manifest with `--format tart`, sign it with your key off the
    Mac and register it (`forecrew image add`). Put your public key in
    `/etc/forecrew-fleet-agent/image-keys.pub` on the Mac.
-3. A private registry: add `registry_username: env:NAME` and
-   `registry_password: env:NAME` to `/etc/forecrew-fleet-agent/tart.yaml` and put
+3. List the registry your images come from in `/etc/forecrew-fleet-agent/tart.yaml`
+   (`registry_hosts: [ghcr.io]`): an image from another host is refused. A
+   private registry: also add `registry_username: env:NAME` and
+   `registry_password: env:NAME` (credentials need `registry_hosts`) and put
    `NAME=value` lines in the agent's `secrets.env` (`/etc/forecrew-fleet-agent`, mode
    0600, which the launchd job reads). Credentials stay on the Mac.
 4. Join as above (`forecrew provider join`, then the install script on the Mac;
@@ -138,14 +140,28 @@ On a real Mac, in this order, and stop at the first failure:
 3. From forecrewd: add the shape, queue a job that needs it, and watch `forecrew machines`: one machine
    reaches `ready`, runs the job, and the VM is gone (`sudo -u ... tart list`).
 4. Queue three jobs at once: only two machines run; the third waits.
-5. From inside a machine, `curl` an address on the LAN and the Mac itself: both must fail; a public address works.
+5. From inside a machine (`tart exec` as the agent's user into a running one), `curl` an address on the LAN, the Mac's LAN
+   address, and the **gateway of the VMs' network** (`192.168.64.1`, or the `softnet_gateway` you set; `ssh` or `curl` to it
+   on any port the Mac serves): every one must fail; a public address works, and so does a name (DNS goes to `dns`, not the gateway).
 6. Kill the agent mid-job (`launchctl kickstart -k system/com.forecrew.fleet-agent`): the machine keeps
    running, and the restarted agent lists it.
 7. Revoke the location while a machine runs, destroy the leftover by hand
    (`tart delete`), and check no `forecrew-*` VM remains.
 
 What none of this has proven yet, and the first run on a Mac must settle:
-`tart pull` and `tart clone` accept `registry/name@sha256:...`; `tart list --format json`
+`tart pull` and `tart clone` accept `registry/name@sha256:...`; Tart caches a pulled
+image at `TART_HOME/cache/OCIs/<registry>/<repository>/<digest>/` with `manifest.json`
+holding the registry's bytes (so it hashes to the digest), `config.json`, `nvram.bin` and
+`disk.img`, and the manifest's disk layers carry the annotations
+`org.cirruslabs.tart.uncompressed-size` and `...uncompressed-content-digest`, in disk
+order, covering `disk.img` exactly (else every pull is refused: look at the error, it says
+which check); the process name of a running VM in `ps -axo comm=` is
+`com.apple.Virtualization.VirtualMachine`, one per VM (the count of the Mac's VMs, and so
+Apple's limit, depends on it); the Mac's address on the VMs' network is `192.168.64.1`
+and `tart ip` answers an address in it; `--net-softnet-block=<gateway>/32` blocks the
+gateway although Softnet allows it by default; a guest whose DNS is set with
+`networksetup -setdnsservers` resolves through it, and the base VM's network services
+are the ones `networksetup -listallnetworkservices` lists; `tart list --format json`
 has the fields the provider reads (`Name`, `Running`, `Disk`); `tart exec` passes
 flags such as `-n` and `-c` to the guest command without a `--`; the admin user of the
 guest has passwordless `sudo` and the guest agent runs in the image; `tart stop` on a
