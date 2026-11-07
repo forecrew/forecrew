@@ -28,6 +28,9 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
   let gates = fixture(opts.gates ?? "gates") as { ref: string }[]
   let canceled = false
   let revoked = false
+  // The fleet starts empty. An assistant plan confirmed in the page adds the location.
+  let asked = false
+  let applied = false
   const calls: Calls = { log: [] }
 
   // The fake GitHub: the server's own sign-in routes are outside /api/v1.
@@ -96,6 +99,12 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
       "GET /goals": "goals",
       "GET /jobs": "jobs",
       "GET /workers": "workers",
+      "GET /providers": "providers",
+      "GET /shapes": "shapes",
+      "GET /machines": "machines",
+      "GET /join-codes": "join-codes",
+      "GET /config/export": "config-export",
+      "GET /assistant/conversations": "assistant-conversations",
       "GET /trace": "trace",
       "GET /assumptions": "assumptions",
     }
@@ -110,6 +119,25 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
     if (req.method() === "GET" && (path === "/councils" || path === "/decisions")) {
       return json(route, url.searchParams.get("project") === "app" ? fixture(path === "/councils" ? "councils" : "decisions") : [])
     }
+    if (req.method() === "POST" && path === "/assistant/messages") {
+      asked = true
+      return json(route, fixture("assistant-send"), 202)
+    }
+    if (req.method() === "GET" && path.startsWith("/assistant/conversations/")) {
+      const view = fixture("assistant-conversation") as { messages: unknown[]; plans: unknown[] }
+      const plan = (applied ? (fixture("config-plan-applied") as { plan: object }).plan : fixture("config-plan")) as object
+      return json(route, { ...view, plans: asked ? [{ ...plan, source: "assistant", conversation_id: "018f0000-0000-7000-8000-000000000740" }] : [] })
+    }
+    if (req.method() === "POST" && /^\/config\/plans\/[^/]+\/apply$/.test(path)) {
+      applied = true
+      return json(route, fixture("config-plan-applied"))
+    }
+    if (req.method() === "GET" && path === "/images") return json(route, [])
+    if (req.method() === "GET" && path === "/fleet") return json(route, fixture(applied ? "fleet" : "fleet-empty"))
+    if (req.method() === "GET" && path === "/config/plans") return json(route, url.searchParams.get("inbox") ? [] : fixture("config-plans"))
+    if (req.method() === "GET" && path === "/config/resources") return json(route, fixture(url.searchParams.get("kind") === "fleet_policy" ? "config-resources-fleet-policy" : "config-resources-provider"))
+    if (req.method() === "POST" && path === "/join-codes") return json(route, fixture("join-code-create"), 201)
+    if (req.method() === "POST" && path === "/config/plans") return json(route, fixture("config-plan"), 201)
     const council = /^\/councils\/COUNCIL-(\d)$/.exec(path)
     if (req.method() === "GET" && council) {
       const names: Record<string, string> = { "2": "running", "3": "decided", "4": "failed", "5": "pending" }
