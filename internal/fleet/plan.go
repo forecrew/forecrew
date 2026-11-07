@@ -203,10 +203,10 @@ func (p *planner) sweep() {
 		case m.State == domain.MachineDraining:
 		case !m.DeadlineAt.IsZero() && !p.s.now.Before(m.DeadlineAt):
 			p.out.drain = append(p.out.drain, transition{*m, "past its deadline", true})
-		case m.State == domain.MachineBusy && p.runningOn[m.WorkerID] == 0 && m.JobsTaken >= shape.MaxJobs:
+		case m.State == domain.MachineBusy && p.runningOn[m.WorkerID] == 0 && m.JobsTaken >= JobsPerMachine(shape):
 			p.out.drain = append(p.out.drain, transition{machine: *m, why: "finished its jobs"})
-		case m.JobsTaken < shape.MaxJobs:
-			p.slots[m.ID] = shape.MaxJobs - m.JobsTaken
+		case m.JobsTaken < JobsPerMachine(shape):
+			p.slots[m.ID] = JobsPerMachine(shape) - m.JobsTaken
 			p.live = append(p.live, m)
 		}
 	}

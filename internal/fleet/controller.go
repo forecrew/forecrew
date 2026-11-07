@@ -698,13 +698,13 @@ func (c *Controller) desired(ctx context.Context, p domain.CapacityProvider, m d
 	network := slices.Clone(p.NetworkAllow)
 	if m.AccountID != uuid.Nil() {
 		tags[TagOrg] = m.AccountID.String()
-		if p.Ownership() == domain.OwnershipHosted {
-			policy, err := c.cfg.Store.FleetPolicies().Get(ctx, m.AccountID)
-			if err != nil {
-				return UpdateRequest{}, fmt.Errorf("machine %s: policy: %w", m.ID, err)
-			}
-			network = append(network, policy.Egress...)
+	}
+	if isHosted(p) {
+		egress, err := c.hostedEgress(ctx, m.AccountID)
+		if err != nil {
+			return UpdateRequest{}, fmt.Errorf("machine %s: %w", m.ID, err)
 		}
+		network = append(network, egress...)
 	}
 	if m.JobID != uuid.Nil() {
 		j, err := c.cfg.Store.Jobs().Get(ctx, m.AccountID, m.JobID)
