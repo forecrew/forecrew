@@ -308,7 +308,7 @@ func ValidOrganizationSecretRef(ref string) bool {
 // Validate checks a connection: kind, name, client ID, a secret reference
 // (never a value, and in the reserved namespace on an organization's own
 // connection), an issuer that fits the kind, and JIT only on an
-// organization's own connection.
+// organization's own connection, never of kind github or google.
 func (c Connection) Validate() error {
 	var p problems
 	checkEnum(&p, "kind", c.Kind, ConnectionKinds())
@@ -338,6 +338,9 @@ func (c Connection) Validate() error {
 	}
 	if c.AccountID == uuid.Nil() && (c.JIT.Enabled || len(c.JIT.DefaultRoles) > 0) {
 		p.addf("jit is only for an organization's own connection")
+	}
+	if c.JIT.Enabled && (c.Kind == ConnectionGitHub || c.Kind == ConnectionGoogle) {
+		p.addf("jit is not for a %s connection: anyone with an account there can sign in", c.Kind)
 	}
 	return p.errOf(ErrInvalidRecord, fmt.Sprintf("connection %s", c.Name))
 }

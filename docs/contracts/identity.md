@@ -111,7 +111,8 @@ A connection is a way to sign in: kind `github`, `google`, `microsoft` or
 `oidc`, a name (`domain.ValidName`), the `issuer` (an `https` URL for `oidc`
 and `microsoft`, empty or `https://accounts.google.com` for `google`, empty
 for `github`), the `client_id`, the client secret **by reference**, `jit`
-`{enabled, default_roles}`, `group_claim` and `enabled`.
+`{enabled, default_roles}`, `group_claim` and `enabled`. JIT is refused on a `github` or `google` connection,
+where anyone with an account can sign in.
 
 - Forecrew is an OpenID Connect relying party only and never parses SAML.
   `github` is the Forecrew GitHub App's user authorization; the others use
