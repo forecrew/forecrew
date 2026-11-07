@@ -857,7 +857,11 @@ type MembershipRepo interface {
 	// back. Ending their sessions and revoking their tokens are separate
 	// calls (SessionRepo, PersonalTokenRepo) the caller makes in the same
 	// WithTx.
+	// It clears SCIMSuspended.
 	SetStatus(ctx context.Context, accountID, userID uuid.UUID, status domain.MembershipStatus) error
+	// SuspendBySCIM is SetStatus to suspended with SCIMSuspended set: SCIM
+	// may let back in only whom it suspended.
+	SuspendBySCIM(ctx context.Context, accountID, userID uuid.UUID) error
 	SetExternalID(ctx context.Context, accountID, userID uuid.UUID, externalID string) error
 	// Remove deletes the membership with the user's team memberships and
 	// role bindings in the organization, in one transaction. Removing a

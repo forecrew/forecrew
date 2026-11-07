@@ -435,3 +435,44 @@ func TestSCIMTokenNoEscalation(t *testing.T) {
 		t.Errorf("revoke unknown: %v", err)
 	}
 }
+
+// SCIM lets back in only whom it suspended: Entra ID sends active: true at
+// every sync, and must not undo an Owner's suspension.
+func TestSCIMDoesNotUndoAnOwnersSuspension(t *testing.T) {
+	ctx := t.Context()
+	e := newEnv(t)
+	e.verified("acme.example")
+	c := e.scim()
+	_, body := c.do(http.MethodPost, "/Users", userBody("ann@acme.example"))
+	id, _ := body["id"].(string)
+	user := uuid.MustParse(id)
+	activate := `{"Operations":[{"op":"Replace","path":"active","value":true}]}`
+
+	must(t, e.st.Memberships().SetStatus(ctx, e.org.ID, user, domain.MembershipSuspended))
+	if status, got := c.do(http.MethodPatch, "/Users/"+id, activate); status != http.StatusOK || got["active"] != false {
+		t.Fatalf("activate after an Owner = %d %v", status, got)
+	}
+	if status, got := c.do(http.MethodPut, "/Users/"+id, `{"userName":"ann@acme.example","active":true}`); status != http.StatusOK || got["active"] != false {
+		t.Fatalf("PUT after an Owner = %d %v", status, got)
+	}
+	if m, err := e.st.Memberships().Get(ctx, e.org.ID, user); err != nil || m.Status != domain.MembershipSuspended {
+		t.Fatalf("membership = %+v, %v", m, err)
+	}
+
+	// Deleted by SCIM while an Owner had it suspended: it comes back suspended.
+	if status, _ := c.do(http.MethodDelete, "/Users/"+id, ""); status != http.StatusNoContent {
+		t.Fatalf("delete = %d", status)
+	}
+	must(t, e.st.Memberships().SetStatus(ctx, e.org.ID, user, domain.MembershipSuspended))
+	if status, got := c.do(http.MethodPost, "/Users", userBody("ann@acme.example")); status != http.StatusCreated || got["active"] != false {
+		t.Fatalf("recreate after an Owner = %d %v", status, got)
+	}
+
+	// What SCIM suspended, SCIM lets back in.
+	c.do(http.MethodPatch, "/Users/"+id, `{"Operations":[{"op":"Replace","path":"active","value":false}]}`)
+	must(t, e.st.Memberships().SetStatus(ctx, e.org.ID, user, domain.MembershipActive))
+	c.do(http.MethodPatch, "/Users/"+id, `{"Operations":[{"op":"Replace","path":"active","value":false}]}`)
+	if status, got := c.do(http.MethodPatch, "/Users/"+id, activate); status != http.StatusOK || got["active"] != true {
+		t.Fatalf("activate after SCIM = %d %v", status, got)
+	}
+}
