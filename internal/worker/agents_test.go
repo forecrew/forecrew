@@ -305,8 +305,12 @@ func TestPrepareDropsAnInstallOfAnotherRelease(t *testing.T) {
 	must(t, a.Install(t.Context(), "codex"))
 	next := m
 	next.Agents = map[string]AgentRelease{"codex": {Version: "1.2.4", Binary: "codex", Platforms: m.Agents["codex"].Platforms}}
+	must(t, os.WriteFile(filepath.Join(a.dir, ".download-123"), []byte("half"), 0o600))
 	b := newAgentInstaller(a.dir, next, "linux", "amd64", d.srv.Client(), nil)
 	must(t, b.prepare())
+	if left := leftovers(t, b); len(left) != 0 {
+		t.Errorf("files left = %v", left)
+	}
 	if _, err := os.Stat(filepath.Join(b.binDir(), "codex")); !os.IsNotExist(err) {
 		t.Errorf("the old version is still there: %v", err)
 	}
