@@ -165,20 +165,27 @@ func (p *Provider) Destroy(ctx context.Context, externalID string) error {
 	if err != nil {
 		return fmt.Errorf("describe %s: %w", externalID, err)
 	}
+	i, found := firstInstance(out)
+	switch {
+	case !found:
+		p.forget(externalID)
+		return nil
+	case i.State != nil && (i.State.Name == types.InstanceStateNameTerminated || i.State.Name == types.InstanceStateNameShuttingDown):
+		p.forget(externalID)
+		return p.endLedger(externalID)
+	case !p.ours(i):
+		return fmt.Errorf("instance %s is not a machine of this agent (fleet %s)", externalID, p.cfg.Fleet)
+	}
+	return p.terminate(ctx, externalID)
+}
+
+func firstInstance(out *ec2.DescribeInstancesOutput) (types.Instance, bool) {
 	for _, r := range out.Reservations {
-		for _, i := range r.Instances {
-			if i.State != nil && (i.State.Name == types.InstanceStateNameTerminated || i.State.Name == types.InstanceStateNameShuttingDown) {
-				p.forget(externalID)
-				return p.endLedger(externalID)
-			}
-			if !p.ours(i) {
-				return fmt.Errorf("instance %s is not a machine of this agent (fleet %s)", externalID, p.cfg.Fleet)
-			}
-			return p.terminate(ctx, externalID)
+		if len(r.Instances) > 0 {
+			return r.Instances[0], true
 		}
 	}
-	p.forget(externalID)
-	return nil
+	return types.Instance{}, false
 }
 
 func (p *Provider) endLedger(id string) error {
@@ -205,34 +212,7 @@ func (p *Provider) Update(ctx context.Context, externalID string, req fleet.Upda
 	if len(found) == 0 || found[0].State == nil || slices.Contains([]types.InstanceStateName{types.InstanceStateNameTerminated, types.InstanceStateNameShuttingDown}, found[0].State.Name) {
 		return fmt.Errorf("no machine %q", externalID)
 	}
-	inst := found[0]
-	want := map[string]string{}
-	maps.Copy(want, req.Tags)
-	if !req.Deadline.IsZero() {
-		want[TagDeadline] = req.Deadline.UTC().Format(time.RFC3339)
-	}
-	for _, k := range []string{fleet.TagMachine, TagFleet, TagPrice} {
-		delete(want, k) // not for a request to change
-	}
-	have := map[string]string{}
-	var drop []types.Tag
-	for _, t := range inst.Tags {
-		k := awssdk.ToString(t.Key)
-		switch {
-		case k == "Name" || strings.HasPrefix(k, "aws:") || k == fleet.TagMachine || k == TagFleet || k == TagPrice:
-		default:
-			have[k] = awssdk.ToString(t.Value)
-			if _, ok := want[k]; !ok {
-				drop = append(drop, types.Tag{Key: awssdk.String(k)})
-			}
-		}
-	}
-	set := map[string]string{}
-	for k, v := range want {
-		if have[k] != v {
-			set[k] = v
-		}
-	}
+	set, drop := tagChanges(found[0], req)
 	if len(set) > 0 {
 		tags, err := tagList(set)
 		if err != nil {
@@ -249,6 +229,44 @@ func (p *Provider) Update(ctx context.Context, externalID string, req fleet.Upda
 	}
 	p.arm(externalID, req.Deadline)
 	return nil
+}
+
+// protectedTag is a tag that a request cannot set or remove: ours, or EC2's.
+func protectedTag(k string) bool {
+	return k == "Name" || strings.HasPrefix(k, "aws:") || k == fleet.TagMachine || k == TagFleet || k == TagPrice
+}
+
+// tagChanges is what Update must set on, and remove from, an instance to leave
+// it with the tags and deadline the request says.
+func tagChanges(inst types.Instance, req fleet.UpdateRequest) (set map[string]string, drop []types.Tag) {
+	want := maps.Clone(req.Tags)
+	if want == nil {
+		want = map[string]string{}
+	}
+	if !req.Deadline.IsZero() {
+		want[TagDeadline] = req.Deadline.UTC().Format(time.RFC3339)
+	}
+	for k := range want {
+		if protectedTag(k) {
+			delete(want, k) // not for a request to change
+		}
+	}
+	have := map[string]string{}
+	for _, t := range inst.Tags {
+		if k := awssdk.ToString(t.Key); !protectedTag(k) {
+			have[k] = awssdk.ToString(t.Value)
+			if _, ok := want[k]; !ok {
+				drop = append(drop, types.Tag{Key: awssdk.String(k)})
+			}
+		}
+	}
+	set = map[string]string{}
+	for k, v := range want {
+		if have[k] != v {
+			set[k] = v
+		}
+	}
+	return set, drop
 }
 
 // List implements fleet.Provider. It is also the cleaner: what outlived its
@@ -339,24 +357,26 @@ func (p *Provider) lost(ctx context.Context, live map[string]bool) {
 	}
 	for id := range live {
 		if _, ok := p.known[id]; !ok {
-			p.known[id] = seen{at: time.Time{}}
+			p.known[id] = seen{}
 		}
 	}
 	p.mu.Unlock()
 	for _, id := range gone {
 		p.forget(id)
-		reason := "unknown"
-		if out, err := p.ec2.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{id}}); err == nil {
-			for _, r := range out.Reservations {
-				for _, i := range r.Instances {
-					if i.StateReason != nil {
-						reason = awssdk.ToString(i.StateReason.Code)
-					}
-				}
-			}
-		}
-		p.log.Warn("a machine is gone from EC2", "instance", id, "reason", reason)
+		p.log.Warn("a machine is gone from EC2", "instance", id, "reason", p.whyGone(ctx, id))
 	}
+}
+
+// whyGone asks EC2 for the reason an instance ended, which it keeps for an hour.
+func (p *Provider) whyGone(ctx context.Context, id string) string {
+	out, err := p.ec2.DescribeInstances(ctx, &ec2.DescribeInstancesInput{InstanceIds: []string{id}})
+	if err != nil {
+		return "unknown"
+	}
+	if i, ok := firstInstance(out); ok && i.StateReason != nil {
+		return awssdk.ToString(i.StateReason.Code)
+	}
+	return "unknown"
 }
 
 // meter makes the ledger agree with what exists: a machine that is gone stops

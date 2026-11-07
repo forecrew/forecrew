@@ -51,35 +51,41 @@ func (p *Provider) instanceTypes(ctx context.Context, c *domain.ProviderCapabili
 		}
 		for _, t := range page.InstanceTypes {
 			found++
-			if t.VCpuInfo != nil {
-				c.MaxCPU = max(c.MaxCPU, int(awssdk.ToInt32(t.VCpuInfo.DefaultVCpus)))
-			}
-			if t.MemoryInfo != nil {
-				c.MaxMemoryMB = max(c.MaxMemoryMB, int(awssdk.ToInt64(t.MemoryInfo.SizeInMiB)))
-			}
-			if t.GpuInfo != nil {
-				n := 0
-				for _, g := range t.GpuInfo.Gpus {
-					n += int(awssdk.ToInt32(g.Count))
-				}
-				c.MaxGPU = max(c.MaxGPU, n)
-			}
-			if t.ProcessorInfo != nil {
-				for _, a := range t.ProcessorInfo.SupportedArchitectures {
-					switch a {
-					case types.ArchitectureTypeX8664:
-						c.Arch = appendOnce(c.Arch, domain.ArchAMD64)
-					case types.ArchitectureTypeArm64:
-						c.Arch = appendOnce(c.Arch, domain.ArchARM64)
-					}
-				}
-			}
+			sizeBy(c, t)
 		}
 	}
 	if found == 0 {
 		return domain.ProviderCheck{Name: "instance_types", Status: statusFail, Detail: "EC2 knows none of " + strings.Join(p.cfg.InstanceTypes, ", ") + " in " + p.cfg.Region}
 	}
 	return domain.ProviderCheck{Name: "instance_types", Status: statusOK, Detail: fmt.Sprintf("%d types, up to %d CPUs and %d MB", found, c.MaxCPU, c.MaxMemoryMB)}
+}
+
+// sizeBy widens the location's per-machine limits to hold instance type t.
+func sizeBy(c *domain.ProviderCapabilities, t types.InstanceTypeInfo) {
+	if t.VCpuInfo != nil {
+		c.MaxCPU = max(c.MaxCPU, int(awssdk.ToInt32(t.VCpuInfo.DefaultVCpus)))
+	}
+	if t.MemoryInfo != nil {
+		c.MaxMemoryMB = max(c.MaxMemoryMB, int(awssdk.ToInt64(t.MemoryInfo.SizeInMiB)))
+	}
+	if t.GpuInfo != nil {
+		n := 0
+		for _, g := range t.GpuInfo.Gpus {
+			n += int(awssdk.ToInt32(g.Count))
+		}
+		c.MaxGPU = max(c.MaxGPU, n)
+	}
+	if t.ProcessorInfo == nil {
+		return
+	}
+	for _, a := range t.ProcessorInfo.SupportedArchitectures {
+		switch a {
+		case types.ArchitectureTypeX8664:
+			c.Arch = appendOnce(c.Arch, domain.ArchAMD64)
+		case types.ArchitectureTypeArm64:
+			c.Arch = appendOnce(c.Arch, domain.ArchARM64)
+		}
+	}
 }
 
 func appendOnce[T comparable](s []T, v T) []T {

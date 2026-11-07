@@ -3,6 +3,7 @@ package aws
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/netip"
 	"os/exec"
 	"reflect"
@@ -125,65 +126,9 @@ func (c *cfn) sub(s string, extra map[string]any) string {
 func (c *cfn) value(n *yaml.Node) any {
 	switch n.Kind {
 	case yaml.ScalarNode:
-		switch n.Tag {
-		case "!Ref":
-			v, ok := c.params[n.Value]
-			if !ok {
-				c.t.Fatalf("no value for !Ref %s", n.Value)
-			}
-			return v
-		case "!Sub":
-			return c.sub(n.Value, nil)
-		case "!GetAtt":
-			return c.attrs[n.Value]
-		case "!Condition":
-			return c.cond(n.Value)
-		}
-		var v any
-		if err := n.Decode(&v); err != nil {
-			c.t.Fatal(err)
-		}
-		if s, ok := v.(string); ok {
-			return s
-		}
-		return fmt.Sprint(v)
+		return c.scalar(n)
 	case yaml.SequenceNode:
-		switch n.Tag {
-		case "!If":
-			if c.cond(n.Content[0].Value) {
-				return c.value(n.Content[1])
-			}
-			return c.value(n.Content[2])
-		case "!Join":
-			var parts []string
-			for _, p := range asList(c.value(n.Content[1])) {
-				parts = append(parts, fmt.Sprint(p))
-			}
-			return strings.Join(parts, c.value(n.Content[0]).(string))
-		case "!Sub":
-			extra := map[string]any{}
-			for k, v := range c.value(n.Content[1]).(map[string]any) {
-				extra[k] = v
-			}
-			return c.sub(c.value(n.Content[0]).(string), extra)
-		case "!Equals", "!Not", "!And":
-			return c.truth(n)
-		}
-		var out []any
-		for _, x := range n.Content {
-			v := c.value(x)
-			if _, drop := v.(noValue); drop {
-				continue
-			}
-			if l, ok := v.([]string); ok { // a list parameter inside a list
-				for _, s := range l {
-					out = append(out, s)
-				}
-				continue
-			}
-			out = append(out, v)
-		}
-		return out
+		return c.sequence(n)
 	case yaml.MappingNode:
 		if len(n.Content) == 2 && n.Content[0].Value == "Fn::Base64" {
 			return c.value(n.Content[1])
@@ -196,6 +141,62 @@ func (c *cfn) value(n *yaml.Node) any {
 	}
 	c.t.Fatalf("unsupported node %v", n.Kind)
 	return nil
+}
+
+func (c *cfn) scalar(n *yaml.Node) any {
+	switch n.Tag {
+	case "!Ref":
+		v, ok := c.params[n.Value]
+		if !ok {
+			c.t.Fatalf("no value for !Ref %s", n.Value)
+		}
+		return v
+	case "!Sub":
+		return c.sub(n.Value, nil)
+	case "!GetAtt":
+		return c.attrs[n.Value]
+	case "!Condition":
+		return c.cond(n.Value)
+	}
+	var v any
+	if err := n.Decode(&v); err != nil {
+		c.t.Fatal(err)
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprint(v)
+}
+
+func (c *cfn) sequence(n *yaml.Node) any {
+	switch n.Tag {
+	case "!If":
+		if c.cond(n.Content[0].Value) {
+			return c.value(n.Content[1])
+		}
+		return c.value(n.Content[2])
+	case "!Join":
+		var parts []string
+		for _, p := range asList(c.value(n.Content[1])) {
+			parts = append(parts, fmt.Sprint(p))
+		}
+		return strings.Join(parts, c.value(n.Content[0]).(string))
+	case "!Sub":
+		extra := map[string]any{}
+		maps.Copy(extra, c.value(n.Content[1]).(map[string]any))
+		return c.sub(c.value(n.Content[0]).(string), extra)
+	case "!Equals", "!Not", "!And":
+		return c.truth(n)
+	}
+	var out []any
+	for _, x := range n.Content {
+		v := c.value(x)
+		if _, drop := v.(noValue); drop {
+			continue
+		}
+		out = append(out, asList(v)...) // a list parameter inside a list
+	}
+	return out
 }
 
 func asList(v any) []any {
@@ -294,37 +295,41 @@ func TestPolicyShape(t *testing.T) {
 			t.Errorf("statement id %s twice", s.Sid)
 		}
 		seen[s.Sid] = true
-		for _, a := range s.Action {
-			if strings.HasSuffix(a, "*") && s.Effect == "Allow" {
-				t.Errorf("%s: wildcard action %s", s.Sid, a)
-			}
-			if !strings.HasPrefix(a, "ec2:") {
-				t.Errorf("%s: %s is not an EC2 action", s.Sid, a)
-			}
-		}
-		if s.Effect != "Allow" {
-			continue
-		}
-		for _, r := range s.Resource {
-			if r == "*" && !slices.ContainsFunc(s.Action, func(a string) bool { return !strings.HasPrefix(a, "ec2:Describe") }) {
-				continue // Describe calls have no resource-level permissions
-			}
-			if r == "*" || strings.Contains(r, ":*:") {
-				t.Errorf("%s: resource %s is not pinned to this account and region", s.Sid, r)
-			}
-		}
-		// Anything that changes something must be conditioned.
-		if len(s.Condition) == 0 && !slices.ContainsFunc(s.Action, func(a string) bool { return strings.HasPrefix(a, "ec2:Describe") }) {
-			// The network resources RunInstances reads are pinned by their ARNs.
-			if s.Sid != "RunInstanceNetwork" {
-				t.Errorf("%s: a change with no condition", s.Sid)
-			}
-		}
+		checkStatement(t, s)
 	}
 	for _, sid := range []string{"RunInstance", "RunInstanceVolume", "RunInstanceNetworkInterface", "TerminateOwnMachines", "TagOnLaunch", "ChangeTagsOfOwnMachines"} {
 		if !seen[sid] {
 			t.Errorf("no statement %s", sid)
 		}
+	}
+}
+
+func describes(a string) bool { return strings.HasPrefix(a, "ec2:Describe") }
+
+func checkStatement(t *testing.T, s statement) {
+	t.Helper()
+	for _, a := range s.Action {
+		if strings.HasSuffix(a, "*") && s.Effect == "Allow" {
+			t.Errorf("%s: wildcard action %s", s.Sid, a)
+		}
+		if !strings.HasPrefix(a, "ec2:") {
+			t.Errorf("%s: %s is not an EC2 action", s.Sid, a)
+		}
+	}
+	if s.Effect != "Allow" {
+		return
+	}
+	onlyDescribes := !slices.ContainsFunc(s.Action, func(a string) bool { return !describes(a) })
+	for _, r := range s.Resource {
+		// Describe calls have no resource-level permissions.
+		if (r == "*" && !onlyDescribes) || strings.Contains(r, ":*:") {
+			t.Errorf("%s: resource %s is not pinned to this account and region", s.Sid, r)
+		}
+	}
+	// Anything that changes something is conditioned, or pinned by its ARNs: the
+	// subnets and group RunInstances reads.
+	if len(s.Condition) == 0 && !onlyDescribes && s.Sid != "RunInstanceNetwork" {
+		t.Errorf("%s: a change with no condition", s.Sid)
 	}
 }
 
@@ -384,19 +389,34 @@ func checkEgress(t *testing.T, rules []rule) {
 		if err != nil {
 			t.Fatalf("rule %+v: %v", r, err)
 		}
-		if r.proto != "-1" {
-			if !p.Addr().IsLinkLocalUnicast() || p.Bits() != 32 {
-				t.Errorf("a rule for %s %s: only DNS and time may name a protocol", r.proto, r.cidr)
-			}
-			continue
+		if r.proto == "-1" {
+			open = append(open, p)
+		} else if !p.Addr().IsLinkLocalUnicast() || p.Bits() != 32 {
+			t.Errorf("a rule for %s %s: only DNS and time may name a protocol", r.proto, r.cidr)
 		}
-		open = append(open, p)
 	}
 	if len(rules) > 60 {
 		t.Errorf("%d rules: a security group holds 60", len(rules))
 	}
+	checkPartition(t, open)
+	for _, ip := range []string{"8.8.8.8", "1.1.1.1", "140.82.112.3", "52.95.110.1", "172.15.255.255", "172.32.0.1", "192.167.1.1", "100.63.255.255", "100.128.0.1", "223.255.255.255"} {
+		if !coveredBy(open, netip.MustParseAddr(ip)) {
+			t.Errorf("%s is public and not open", ip)
+		}
+	}
+	for _, ip := range []string{"10.0.0.5", "172.16.5.5", "172.31.255.255", "192.168.1.1", "169.254.169.254", "169.254.169.253", "127.0.0.1", "100.64.0.1", "224.0.0.1", "255.255.255.255", "0.0.0.0"} {
+		if coveredBy(open, netip.MustParseAddr(ip)) {
+			t.Errorf("%s is private and open", ip)
+		}
+	}
+}
+
+// checkPartition checks that the open ranges and the forbidden ones are disjoint
+// and together are all of IPv4.
+func checkPartition(t *testing.T, open []netip.Prefix) {
+	t.Helper()
 	forbidden := []string{"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/3"}
-	var forbiddenSize uint64
+	var forbiddenSize, openSize uint64
 	for _, f := range forbidden {
 		fp := netip.MustParsePrefix(f)
 		forbiddenSize += 1 << (32 - fp.Bits())
@@ -406,7 +426,6 @@ func checkEgress(t *testing.T, rules []rule) {
 			}
 		}
 	}
-	var openSize uint64
 	for i, o := range open {
 		openSize += 1 << (32 - o.Bits())
 		for _, p := range open[i+1:] {
@@ -417,16 +436,6 @@ func checkEgress(t *testing.T, rules []rule) {
 	}
 	if openSize+forbiddenSize != 1<<32 {
 		t.Errorf("the open rules cover %d addresses and the forbidden ones %d: together they must be all of IPv4", openSize, forbiddenSize)
-	}
-	for _, ip := range []string{"8.8.8.8", "1.1.1.1", "140.82.112.3", "52.95.110.1", "172.15.255.255", "172.32.0.1", "192.167.1.1", "100.63.255.255", "100.128.0.1", "223.255.255.255"} {
-		if !coveredBy(open, netip.MustParseAddr(ip)) {
-			t.Errorf("%s is public and not open", ip)
-		}
-	}
-	for _, ip := range []string{"10.0.0.5", "172.16.5.5", "172.31.255.255", "192.168.1.1", "169.254.169.254", "169.254.169.253", "127.0.0.1", "100.64.0.1", "224.0.0.1", "255.255.255.255", "0.0.0.0"} {
-		if coveredBy(open, netip.MustParseAddr(ip)) {
-			t.Errorf("%s is private and open", ip)
-		}
 	}
 }
 
@@ -524,23 +533,27 @@ func TestUserDataRuns(t *testing.T) {
 			if strings.Count(script, "K7PQ-2M4X") != 1 {
 				t.Error("the join code must appear once, in the environment of the installer")
 			}
-			// aws.yaml is what the agent reads, and it must read it.
 			if mode == "ec2" {
-				body := regexp.MustCompile(`(?s)<<'YAML'\n(.*?)\nYAML`).FindStringSubmatch(script)
-				if body == nil {
-					t.Fatal("no aws.yaml in the script")
-				}
-				var cfg Config
-				cfg = defaults()
-				dec := yaml.NewDecoder(strings.NewReader(body[1]))
-				dec.KnownFields(true)
-				must(t, dec.Decode(&cfg))
-				must(t, cfg.validate())
-				if cfg.SecurityGroup != testGroup || cfg.Fleet != testFleet || !cfg.allowsType("c7i.xlarge") || cfg.allowsType("p5.48xlarge") {
-					t.Errorf("config = %+v", cfg)
-				}
+				checkAWSConfig(t, script)
 			}
 		})
+	}
+}
+
+// checkAWSConfig reads the aws.yaml the script writes the way the agent does.
+func checkAWSConfig(t *testing.T, script string) {
+	t.Helper()
+	body := regexp.MustCompile(`(?s)<<'YAML'\n(.*?)\nYAML`).FindStringSubmatch(script)
+	if body == nil {
+		t.Fatal("no aws.yaml in the script")
+	}
+	cfg := defaults()
+	dec := yaml.NewDecoder(strings.NewReader(body[1]))
+	dec.KnownFields(true)
+	must(t, dec.Decode(&cfg))
+	must(t, cfg.validate())
+	if cfg.SecurityGroup != testGroup || cfg.Fleet != testFleet || !cfg.allowsType("c7i.xlarge") || cfg.allowsType("p5.48xlarge") {
+		t.Errorf("config = %+v", cfg)
 	}
 }
 
@@ -554,6 +567,32 @@ func TestOpenTofuModule(t *testing.T) {
 			t.Errorf("%s holds something shaped like a secret", f)
 		}
 	}
+	checkVariables(t, files)
+	if !regexp.MustCompile(`(?s)variable "join_code" \{.*?sensitive\s*=\s*true`).MatchString(files["variables.tf"]) {
+		t.Error("the join code is not sensitive")
+	}
+	if !strings.Contains(files["main.tf"], `http_tokens                 = "required"`) || !strings.Contains(files["main.tf"], "encrypted             = true") {
+		t.Error("the agent's instance allows IMDSv1 or has an unencrypted disk")
+	}
+	// Every variable of a template is given by the module's templatefile call.
+	for _, tpl := range []string{"user-data.sh.tftpl", "policy.json.tftpl"} {
+		call := tpl + `", {`
+		i := strings.Index(files["main.tf"], call)
+		if i < 0 {
+			t.Fatalf("main.tf does not render %s", tpl)
+		}
+		args := files["main.tf"][i : i+strings.Index(files["main.tf"][i:], "})")]
+		for _, m := range subRE.FindAllStringSubmatch(files[tpl], -1) {
+			if !regexp.MustCompile(`(?m)^\s*` + m[1] + `\s*=`).MatchString(args) {
+				t.Errorf("%s needs %s, which main.tf does not pass", tpl, m[1])
+			}
+		}
+	}
+}
+
+// checkVariables checks that every var.x is declared and every variable is used.
+func checkVariables(t *testing.T, files map[string]string) {
+	t.Helper()
 	declared := map[string]bool{}
 	for _, m := range regexp.MustCompile(`(?m)^variable "([a-z_]+)"`).FindAllStringSubmatch(files["variables.tf"], -1) {
 		declared[m[1]] = true
@@ -570,25 +609,6 @@ func TestOpenTofuModule(t *testing.T) {
 	for v := range declared {
 		if !used[v] {
 			t.Errorf("variable %s is never used", v)
-		}
-	}
-	if !regexp.MustCompile(`(?s)variable "join_code" \{.*?sensitive\s*=\s*true`).MatchString(files["variables.tf"]) {
-		t.Error("the join code is not sensitive")
-	}
-	if !strings.Contains(files["main.tf"], `http_tokens                 = "required"`) || !strings.Contains(files["main.tf"], "encrypted             = true") {
-		t.Error("the agent's instance allows IMDSv1 or has an unencrypted disk")
-	}
-	// Every variable of a template is given by the module's templatefile call.
-	for tpl, call := range map[string]string{"user-data.sh.tftpl": `user-data.sh.tftpl", {`, "policy.json.tftpl": `policy.json.tftpl", {`} {
-		i := strings.Index(files["main.tf"], call)
-		if i < 0 {
-			t.Fatalf("main.tf does not render %s", tpl)
-		}
-		args := files["main.tf"][i : i+strings.Index(files["main.tf"][i:], "})")]
-		for _, m := range subRE.FindAllStringSubmatch(files[tpl], -1) {
-			if !regexp.MustCompile(`(?m)^\s*` + m[1] + `\s*=`).MatchString(args) {
-				t.Errorf("%s needs %s, which main.tf does not pass", tpl, m[1])
-			}
 		}
 	}
 }
