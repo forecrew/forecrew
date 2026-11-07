@@ -107,8 +107,9 @@ code is `internal/models`; nothing else decides a job's connection.
   connection names; an organization's connection whose pool withholds its key
   waits rather than run with a key of the worker. A job on an organization's
   connection carries `organization_model: true`, and its endpoint
-  `organization: true` (job-spec.md): the worker gives the agent no key,
-  token, secret or base URL of its own. Such a job needs the label
+  `organization: true` (job-spec.md): the worker gives the agent only an
+  allowlist of its own variables (job-spec.md), so no key, token or secret of
+  its own and nothing that sends the key or code elsewhere. Such a job needs the label
   `models:organization`, which forecrewd gives only to a worker that polls
   with the capability `organization_models` (worker-api.md) and to machine
   shapes; an older worker never leases it, and the job waits for another.
