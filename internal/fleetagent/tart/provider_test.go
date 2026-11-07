@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -37,6 +36,9 @@ type testEnv struct {
 	home string // the fake's TART_HOME
 	key  ed25519.PrivateKey
 	img  domain.Image
+	// extraVMs are VMs running on the Mac outside the agent's Tart home: the
+	// operator's own.
+	extraVMs int
 }
 
 func newEnv(t *testing.T, edit func(*Config)) *testEnv {
@@ -75,6 +77,16 @@ func newEnv(t *testing.T, edit func(*Config)) *testEnv {
 	e.p.lookPath = func(string) bool { return true }
 	e.p.getenv = func(k string) string { return map[string]string{"REG_USER": "ci", "REG_PASS": "hunter2-registry"}[k] }
 	e.p.cli.getenv = e.p.getenv
+	e.p.vmProcesses = func(ctx context.Context) (int, error) {
+		vms, err := e.p.cli.list(ctx)
+		n := e.extraVMs
+		for _, v := range vms {
+			if v.Running {
+				n++
+			}
+		}
+		return n, err
+	}
 	e.p.pmset = func(context.Context) (string, error) {
 		return "System-wide power settings:\n sleep                0\n displaysleep         10\n", nil
 	}
@@ -275,19 +287,13 @@ func TestTwoVMLimit(t *testing.T) {
 
 func TestOtherRunningVMsCount(t *testing.T) {
 	e := newEnv(t, nil)
-	// A VM of the operator's own, running: Apple's limit is on the Mac.
-	if err := e.p.cli.clone(t.Context(), "some-vm", "mine"); err == nil {
-		t.Fatal("cloned what does not exist")
+	// A VM of the operator's own, running outside the agent's Tart home, where
+	// `tart list` does not show it: Apple's limit is on the Mac.
+	e.extraVMs = 1
+	caps, _ := e.p.Capabilities(t.Context())
+	if caps.MaxMachines != 1 || !slices.ContainsFunc(caps.Checks, func(c domain.ProviderCheck) bool { return c.Name == "other VMs" && c.Status == statusWarn }) {
+		t.Errorf("capabilities with an operator VM = %+v", caps)
 	}
-	_ = os.MkdirAll(filepath.Join(e.home, "vms", "mine"), 0o700)
-	_ = os.WriteFile(filepath.Join(e.home, "vms", "mine", "disk"), []byte("50"), 0o600)
-	own := exec.Command("sleep", "60") // #nosec G204 -- a test
-	if err := own.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = own.Process.Kill(); _ = own.Wait() })
-	_ = os.WriteFile(filepath.Join(e.home, "vms", "mine", "pid"), []byte(strconv.Itoa(own.Process.Pid)), 0o600)
-
 	e.create(t)
 	if _, err := e.p.Create(t.Context(), e.request()); !errors.Is(err, fleet.ErrCapacity) {
 		t.Errorf("a second machine next to an operator's VM: %v", err)
@@ -295,6 +301,41 @@ func TestOtherRunningVMsCount(t *testing.T) {
 	list, _ := e.p.List(t.Context())
 	if len(list) != 1 {
 		t.Errorf("the operator's VM is listed as ours: %+v", list)
+	}
+	// Two of the operator's leave no place at all, and never a limit of 0, which
+	// would mean none.
+	e.extraVMs = 2
+	if caps, _ := e.p.Capabilities(t.Context()); caps.MaxMachines != 1 {
+		t.Errorf("max machines = %d", caps.MaxMachines)
+	}
+	if err := e.p.Destroy(t.Context(), list[0].ExternalID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.p.Create(t.Context(), e.request()); !errors.Is(err, fleet.ErrCapacity) {
+		t.Errorf("a machine beside two operator VMs: %v", err)
+	}
+	// A count that cannot be made is an error, not room.
+	e.p.vmProcesses = func(context.Context) (int, error) { return 0, errors.New("no ps") }
+	if _, err := e.p.Create(t.Context(), e.request()); err == nil || errors.Is(err, fleet.ErrCapacity) {
+		t.Errorf("unknown count: %v", err)
+	}
+	if caps, _ := e.p.Capabilities(t.Context()); caps.MaxMachines != 2 {
+		t.Errorf("max machines with an unknown count = %d", caps.MaxMachines)
+	}
+}
+
+func TestRunLimitExceededIsNoCapacity(t *testing.T) {
+	e := newEnv(t, nil)
+	e.p.cfg.BootWaitSeconds = 5
+	e.inject(t, "limit-run", "")
+	if _, err := e.p.Create(t.Context(), e.request()); !errors.Is(err, fleet.ErrCapacity) {
+		t.Fatalf("error = %v", err)
+	}
+	if len(e.vms(t)) != 0 {
+		t.Errorf("a VM stayed: %v", e.vms(t))
+	}
+	if recs, _ := e.p.records(); len(recs) != 0 {
+		t.Errorf("a record stayed: %v", recs)
 	}
 }
 

@@ -188,3 +188,22 @@ func TestOutputIsCapped(t *testing.T) {
 		t.Errorf("error = %v", err)
 	}
 }
+
+func TestParseVMProcesses(t *testing.T) {
+	ps := `/sbin/launchd
+/System/Library/Frameworks/Virtualization.framework/Versions/A/XPCServices/com.apple.Virtualization.VirtualMachine.xpc/Contents/MacOS/com.apple.Virtualization.VirtualMachine
+/usr/local/bin/tart
+  /System/Library/Frameworks/Virtualization.framework/Versions/A/XPCServices/com.apple.Virtualization.VirtualMachine.xpc/Contents/MacOS/com.apple.Virtualization.VirtualMachine
+
+/System/Library/Frameworks/Virtualization.framework/Versions/A/XPCServices/com.apple.Virtualization.LinuxRosetta.xpc/Contents/MacOS/com.apple.Virtualization.LinuxRosetta
+`
+	if got := parseVMProcesses(ps); got != 2 {
+		t.Errorf("counted %d, want 2", got)
+	}
+	if parseVMProcesses("") != 0 {
+		t.Error("an empty list has VMs")
+	}
+	if _, err := countVMProcesses(t.Context()); err != nil && !os.IsNotExist(err) {
+		t.Logf("ps: %v", err) // the real count needs a ps that takes macOS's flags
+	}
+}

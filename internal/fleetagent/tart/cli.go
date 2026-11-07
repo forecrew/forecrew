@@ -197,14 +197,17 @@ func (c cli) start(name, log string, flags []string) (<-chan error, error) {
 	return done, nil
 }
 
-// tail is the end of a log, as a snippet.
-func tail(path string) string {
+// tailRaw is the last 300 bytes of a log.
+func tailRaw(path string) string {
 	b, err := os.ReadFile(path) // #nosec G304 -- a path of this package
 	if err != nil {
-		return `""`
+		return ""
 	}
 	if len(b) > 300 {
 		b = b[len(b)-300:]
 	}
-	return snippet(b, "")
+	return string(b)
 }
+
+// tail is the end of a log, as a snippet.
+func tail(path string) string { return snippet([]byte(tailRaw(path)), "") }

@@ -64,6 +64,9 @@ type Provider struct {
 	lookPath     func(name string) bool
 	getenv       func(string) string
 	pmset        func(ctx context.Context) (string, error)
+	// vmProcesses counts the virtual machines running on the whole Mac, whoever
+	// started them.
+	vmProcesses func(ctx context.Context) (int, error)
 
 	// mu guards the records of machines being changed and the timers.
 	mu       sync.Mutex
@@ -82,7 +85,7 @@ func New(cfg Config, log *slog.Logger) (*Provider, error) {
 	}
 	p := &Provider{
 		cfg: cfg, log: log, resolver: net.DefaultResolver, poll: pollEvery, goos: runtime.GOOS, goarch: runtime.GOARCH,
-		memoryMB: fleetagent.MemoryMB, freeGB: fleetagent.DiskFreeGB, getenv: os.Getenv, pmset: pmset,
+		memoryMB: fleetagent.MemoryMB, freeGB: fleetagent.DiskFreeGB, getenv: os.Getenv, pmset: pmset, vmProcesses: countVMProcesses,
 		lookPath: func(name string) bool { _, err := exec.LookPath(name); return err == nil },
 		timers:   map[string]*time.Timer{},
 	}
@@ -132,6 +135,12 @@ func (p *Provider) Capabilities(ctx context.Context) (domain.ProviderCapabilitie
 		OS: []domain.MachineOS{domain.OSMacOS}, Arch: []domain.MachineArch{domain.ArchARM64},
 		ImageFormats: []domain.ImageFormat{domain.ImageTart},
 		MaxMachines:  p.cfg.limit(), MaxCPU: runtime.NumCPU(), Checks: p.checks(ctx),
+	}
+	// Apple's two are the Mac's, so a VM of the operator's own takes one.
+	if foreign, err := p.foreignVMs(ctx); err == nil && foreign > 0 {
+		c.MaxMachines = min(c.MaxMachines, max(maxVMs-foreign, 1)) // 0 would mean no limit
+		c.Checks = append(c.Checks, domain.ProviderCheck{Name: "other VMs", Status: statusWarn,
+			Detail: fmt.Sprintf("%d VMs not of Forecrew's run on this Mac, and Apple allows %d", foreign, maxVMs)})
 	}
 	if memory, err := p.memoryMB(); err == nil {
 		c.MaxMemoryMB = max(memory-hostReserveMB, 0)
@@ -243,9 +252,35 @@ func (p *Provider) allowList(ctx context.Context, req fleet.CreateRequest) ([]st
 	return out, nil
 }
 
-// reserve takes a place and writes the record, or answers ErrCapacity. Every
-// running VM of this Mac counts, Forecrew's or not, since Apple's limit is on
-// the Mac.
+// foreignVMs counts the VMs running on this Mac that are not Forecrew's: the
+// operator's own, in another Tart home or another tool. Tart's list shows only
+// the agent's own home, so the count is of the processes Virtualization.framework
+// runs, one per VM, on the whole Mac.
+func (p *Provider) foreignVMs(ctx context.Context) (int, error) {
+	vms, err := p.cli.list(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return p.foreign(ctx, vms)
+}
+
+func (p *Provider) foreign(ctx context.Context, vms []vmInfo) (int, error) {
+	system, err := p.vmProcesses(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("count the VMs of this Mac: %w", err)
+	}
+	own := 0
+	for _, v := range vms {
+		if v.Running {
+			own++
+		}
+	}
+	return max(system-own, 0), nil
+}
+
+// reserve takes a place and writes the record, or answers ErrCapacity. Apple's
+// limit is on the Mac, so it counts every VM running on it, Forecrew's or not, and
+// the machines of the records that Tart does not run yet.
 func (p *Provider) reserve(ctx context.Context, id string, req fleet.CreateRequest) (*record, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -257,13 +292,17 @@ func (p *Provider) reserve(ctx context.Context, id string, req fleet.CreateReque
 	if err != nil {
 		return nil, err
 	}
-	count := len(all)
+	foreign, err := p.foreign(ctx, vms)
+	if err != nil {
+		return nil, err
+	}
+	own := len(all) // a record is a machine, running or being made
 	for _, v := range vms {
 		if mid, ok := machineID(v.Name); v.Running && !(ok && slices.ContainsFunc(all, func(r *record) bool { return r.ID == mid })) {
-			count++ // someone else's, or an orphan that has not been destroyed yet
+			own++ // an orphan not destroyed yet still holds a place
 		}
 	}
-	if count >= p.cfg.limit() {
+	if own >= p.cfg.limit() || own+foreign >= maxVMs {
 		return nil, fleet.ErrCapacity
 	}
 	memory, err := p.memoryMB()
