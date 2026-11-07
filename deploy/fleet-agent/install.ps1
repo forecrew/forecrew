@@ -307,7 +307,7 @@ try {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -User $userName -Password $password -RunLevel Limited -Force | Out-Null
     Start-ScheduledTask -TaskName $taskName
     Write-Info "the $taskName task is running: Get-ScheduledTask -TaskName $taskName"
-    if ($code) { Write-Info 'now confirm it: forecrew provider joins, then forecrew provider confirm <id> --name <name>' }
+    if ($code) { Write-Info 'now confirm it: forecrew provider joins, then forecrew provider confirm <id> --name <name> --facts <hash>' }
 }
 finally {
     Remove-Item -Path $tmp, "$conf.tmp", "$secretFile.tmp" -Recurse -Force -ErrorAction SilentlyContinue

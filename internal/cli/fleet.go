@@ -130,14 +130,14 @@ func providerJoinCommand(r *remote) *cobra.Command {
 }
 
 func providerConfirmCommand(r *remote) *cobra.Command {
-	var name string
+	var name, facts string
 	cmd := &cobra.Command{
 		Use:   "confirm <join-id>",
 		Short: "Confirm what an agent reported: it becomes a location and gets its token over its own connection",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var p mcp.ProviderInfo
-			err := r.call(cmd.Context(), http.MethodPost, "/join-codes/"+url.PathEscape(args[0])+"/confirm", mcp.ConfirmJoinInput{Name: name}, &p)
+			err := r.call(cmd.Context(), http.MethodPost, "/join-codes/"+url.PathEscape(args[0])+"/confirm", mcp.ConfirmJoinInput{Name: name, FactsHash: facts}, &p)
 			if err != nil {
 				return err
 			}
@@ -146,17 +146,19 @@ func providerConfirmCommand(r *remote) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&name, "name", "", "name of the new location (required)")
+	cmd.Flags().StringVar(&facts, "facts", "", "the FACTS value `forecrew provider joins` showed for the report you read (required)")
 	_ = cmd.MarkFlagRequired("name")
+	_ = cmd.MarkFlagRequired("facts")
 	return cmd
 }
 
 // printJoinCodes shows what agents said about themselves, which nobody checked.
 func printJoinCodes(w io.Writer, items []mcp.JoinCodeInfo) {
-	rows := [][]string{{"ID", "STATUS", "KIND", "HOST", "ACCOUNT", "REGION", "CPU", "MEMORY MB", "EXPIRES"}}
+	rows := [][]string{{"ID", "STATUS", "KIND", "HOST", "ACCOUNT", "REGION", "CPU", "MEMORY MB", "EXPIRES", "FACTS"}}
 	for _, c := range items {
 		f := c.Facts
 		rows = append(rows, []string{c.ID.String(), c.Status, dash(safeText(string(c.Kind))), dash(safeText(f.Host)), dash(safeText(f.CloudAccount)), dash(safeText(f.Region)),
-			strconv.Itoa(f.MaxCPU), strconv.Itoa(f.MaxMemoryMB), c.ExpiresAt.Format(time.RFC3339)})
+			strconv.Itoa(f.MaxCPU), strconv.Itoa(f.MaxMemoryMB), c.ExpiresAt.Format(time.RFC3339), dash(c.FactsHash)})
 	}
 	table(w, rows)
 }

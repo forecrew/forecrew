@@ -132,8 +132,8 @@ structs in `internal/domain` and `internal/mcp`.
 | `POST /api/v1/providers` | `create_provider` | `{"name": "home", "kind": "microvm", "org": "optional slug"}` | `201` `{provider, token}`; the token is shown this once |
 | `POST /api/v1/providers/{provider}/revoke` | `revoke_provider` | `{provider}` is a name or UUID | `200` the provider, now `revoked` |
 | `POST /api/v1/join-codes` | `create_join_code` | `{"org": "optional slug", "cloud": false}` | `201` `{join_code, code}`; the code is shown this once |
-| `GET /api/v1/join-codes` | `list_join_codes` | | `200` codes with `status`, `kind`, `facts` and `expires_at`. Facts are what a machine said, unchecked; they are not wrapped here |
-| `POST /api/v1/join-codes/{join}/confirm` | `confirm_join` | `{"name": "home"}` | `200` the new provider; `409` unless the code is `claimed` |
+| `GET /api/v1/join-codes` | `list_join_codes` | | `200` codes with `status`, `kind`, `facts`, `facts_hash` and `expires_at`. Facts are what a machine said, unchecked; they are not wrapped here |
+| `POST /api/v1/join-codes/{join}/confirm` | `confirm_join` | `{"name": "home", "facts_hash": "from list_join_codes"}` | `200` the new provider; `409` unless the code is `claimed` and its report is still the one named |
 | `GET /api/v1/gates?project=` | `list_pending_gates` | `project` optional | `200` pending gates with `ref`, `kind`, `project`, `goal_ref`, `task_ref`, `summary`, `url` (GitHub issue or PR), `can_resolve` (whether the caller may resolve it) and `created_at` |
 | `POST /api/v1/gates/{gate}/approve` | `approve` | `{"feedback": "optional", "save_as_lesson": false}` (body optional; `save_as_lesson` needs `feedback`) | `200` the gate, now `approved` |
 | `POST /api/v1/gates/{gate}/request-changes` | `request_changes` | `{"feedback": "required", "save_as_lesson": false}` | `200` the gate, now `changes_requested` |

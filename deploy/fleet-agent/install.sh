@@ -500,5 +500,5 @@ PLIST
 	;;
 esac
 if [ -n "$code" ]; then
-	say "now confirm it: forecrew provider joins, then forecrew provider confirm <id> --name <name>"
+	say "now confirm it: forecrew provider joins, then forecrew provider confirm <id> --name <name> --facts <hash>"
 fi

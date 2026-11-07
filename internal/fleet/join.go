@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -62,6 +64,15 @@ func HashJoinCode(code string) []byte {
 	code = strings.NewReplacer("-", "", " ", "", "O", "0", "I", "1", "L", "1").Replace(strings.ToUpper(code))
 	h := sha256.Sum256([]byte(code))
 	return h[:]
+}
+
+// FactsHash names what an agent reported, so that a person confirms what they
+// read and not what it says a moment later. 128 bits: the agent picks the text,
+// so it could search for two reports with one short hash.
+func FactsHash(kind domain.ProviderKind, facts domain.ProviderCapabilities) string {
+	raw, _ := json.Marshal(facts) // plain strings and numbers
+	sum := sha256.Sum256(append([]byte(string(kind)+"\x00"), raw...))
+	return hex.EncodeToString(sum[:16])
 }
 
 // JoinRequest is one call of an agent with a join code.

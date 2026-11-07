@@ -111,20 +111,23 @@ func TestProviderCommands(t *testing.T) {
 
 	e.svc.ListJoinCodesFunc = func(context.Context, domain.Actor, mcp.ListJoinCodesInput) ([]mcp.JoinCodeInfo, error) {
 		c := domain.ProviderJoinCode{ID: joinID, Kind: domain.ProviderMicroVM, Facts: domain.ProviderCapabilities{Host: "nas\x1b[2J", MaxCPU: 16}}
-		return []mcp.JoinCodeInfo{{ProviderJoinCode: c, Status: mcp.JoinClaimed}}, nil
+		return []mcp.JoinCodeInfo{{ProviderJoinCode: c, Status: mcp.JoinClaimed, FactsHash: "abc123"}}, nil
 	}
 	out, _, code = e.run(t, "provider", "joins")
-	if code != 0 || !strings.Contains(out, joinID.String()) || !strings.Contains(out, "claimed") || !strings.Contains(out, "nas") || strings.Contains(out, "\x1b") {
+	if code != 0 || !strings.Contains(out, joinID.String()) || !strings.Contains(out, "claimed") || !strings.Contains(out, "nas") || !strings.Contains(out, "abc123") || strings.Contains(out, "\x1b") {
 		t.Errorf("joins: code %d, %q", code, out)
 	}
 
 	e.svc.ConfirmJoinFunc = func(_ context.Context, _ domain.Actor, in mcp.ConfirmJoinInput) (mcp.ProviderInfo, error) {
-		if in.Join != joinID.String() {
+		if in.Join != joinID.String() || in.FactsHash != "abc123" {
 			t.Errorf("confirm input = %+v", in)
 		}
 		return mcp.ProviderInfo{Name: in.Name}, nil
 	}
-	if out, _, code := e.run(t, "provider", "confirm", joinID.String(), "--name", "home"); code != 0 || !strings.Contains(out, "provider home created") {
+	if out, _, code := e.run(t, "provider", "confirm", joinID.String(), "--name", "home", "--facts", "abc123"); code != 0 || !strings.Contains(out, "provider home created") {
 		t.Errorf("confirm: code %d, %q", code, out)
+	}
+	if _, _, code := e.run(t, "provider", "confirm", joinID.String(), "--name", "home"); code == 0 {
+		t.Error("confirm without --facts passed")
 	}
 }

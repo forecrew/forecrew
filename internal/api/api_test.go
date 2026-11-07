@@ -167,7 +167,7 @@ func TestEndpoints(t *testing.T) {
 		{"POST", "/api/v1/providers/home/revoke", "", 200, mcp.ToolRevokeProvider, mcp.ProviderRefInput{Provider: "home"}},
 		{"POST", "/api/v1/join-codes", `{"cloud":true}`, 201, mcp.ToolCreateJoinCode, mcp.CreateJoinCodeInput{Cloud: true}},
 		{"GET", "/api/v1/join-codes", "", 200, mcp.ToolListJoinCodes, mcp.ListJoinCodesInput{}},
-		{"POST", "/api/v1/join-codes/abc/confirm", `{"name":"home"}`, 200, mcp.ToolConfirmJoin, mcp.ConfirmJoinInput{Join: "abc", Name: "home"}},
+		{"POST", "/api/v1/join-codes/abc/confirm", `{"name":"home","facts_hash":"h"}`, 200, mcp.ToolConfirmJoin, mcp.ConfirmJoinInput{Join: "abc", Name: "home", FactsHash: "h"}},
 		{"GET", "/api/v1/gates?project=app", "", 200, mcp.ToolListPendingGates, mcp.ProjectFilterInput{Project: "app"}},
 		{"POST", "/api/v1/gates/GATE-7/approve", `{"feedback":"ok"}`, 200, mcp.ToolApprove, mcp.GateDecisionInput{Gate: "GATE-7", Feedback: "ok"}},
 		{"POST", "/api/v1/gates/GATE-7/approve", "", 200, mcp.ToolApprove, mcp.GateDecisionInput{Gate: "GATE-7"}},

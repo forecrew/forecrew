@@ -400,6 +400,9 @@ func (s *Service) joinInfo(c domain.ProviderJoinCode, wrap bool) mcp.JoinCodeInf
 	default:
 		info.Status = mcp.JoinWaiting
 	}
+	if len(c.ClaimHash) != 0 {
+		info.FactsHash = fleet.FactsHash(c.Kind, c.Facts)
+	}
 	if wrap {
 		info.Facts, info.Untrusted = wrapFacts("fleet agent "+c.ID.String(), c.Facts)
 	}
@@ -436,7 +439,8 @@ func (s *Service) ListJoinCodes(ctx context.Context, by domain.Actor, in mcp.Lis
 
 // ConfirmJoin implements mcp.ToolService. The provider has the code's
 // organization, the kind and facts the agent reported and no token: the agent
-// gets that at its next call.
+// gets that at its next call. The caller names the report it read, and the
+// provider gets those facts, whatever the agent sends meanwhile.
 func (s *Service) ConfirmJoin(ctx context.Context, by domain.Actor, in mcp.ConfirmJoinInput) (mcp.ProviderInfo, error) {
 	if err := s.allowOrg(ctx, by, domain.PermWorkerManage); err != nil {
 		return mcp.ProviderInfo{}, err
@@ -456,8 +460,15 @@ func (s *Service) ConfirmJoin(ctx context.Context, by domain.Actor, in mcp.Confi
 	if !ok {
 		return mcp.ProviderInfo{}, fmt.Errorf("join code %s: %w", in.Join, mcp.ErrNotFound)
 	}
-	if status := s.joinInfo(c, false).Status; status != mcp.JoinClaimed {
-		return mcp.ProviderInfo{}, fmt.Errorf("join code %s is %s; only one an agent claimed can be confirmed: %w", in.Join, status, mcp.ErrConflict)
+	info := s.joinInfo(c, false)
+	if info.Status != mcp.JoinClaimed {
+		return mcp.ProviderInfo{}, fmt.Errorf("join code %s is %s; only one an agent claimed can be confirmed: %w", in.Join, info.Status, mcp.ErrConflict)
+	}
+	if in.FactsHash == "" {
+		return mcp.ProviderInfo{}, fmt.Errorf("facts_hash of the report you read is required: %w", mcp.ErrInvalidInput)
+	}
+	if in.FactsHash != info.FactsHash {
+		return mcp.ProviderInfo{}, fmt.Errorf("the agent's report changed since you read it; read it again: %w", mcp.ErrConflict)
 	}
 	p := domain.CapacityProvider{AccountID: c.AccountID, Name: in.Name, Kind: c.Kind, Mode: domain.ProviderModeAgent, Status: domain.ProviderPending, Capabilities: c.Facts}
 	err = s.addProvider(ctx, by, &p, "provider.confirmed", func(ctx context.Context, tx store.Store) error {

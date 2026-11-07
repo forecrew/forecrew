@@ -384,14 +384,14 @@ func TestRevokeProvider(t *testing.T) {
 }
 
 // assertConfirmRefused tries what must not confirm the claimed code id.
-func assertConfirmRefused(t *testing.T, f *fixture, id string) {
+func assertConfirmRefused(t *testing.T, f *fixture, id, hash string) {
 	t.Helper()
 	ctx := t.Context()
 	other := domain.Account{Name: "other", Slug: "other"}
 	must(t, f.st.Accounts().Create(ctx, &other))
 	stranger := f.by
 	stranger.AccountID = other.ID
-	if _, err := f.svc.ConfirmJoin(ctx, stranger, mcp.ConfirmJoinInput{Join: id, Name: "home"}); !errors.Is(err, mcp.ErrNotFound) && !errors.Is(err, authz.ErrDenied) {
+	if _, err := f.svc.ConfirmJoin(ctx, stranger, mcp.ConfirmJoinInput{Join: id, Name: "home", FactsHash: hash}); !errors.Is(err, mcp.ErrNotFound) && !errors.Is(err, authz.ErrDenied) {
 		t.Errorf("another organization: %v", err)
 	}
 	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: "nope", Name: "home"}); !errors.Is(err, mcp.ErrInvalidInput) {
@@ -400,8 +400,11 @@ func assertConfirmRefused(t *testing.T, f *fixture, id string) {
 	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: uuid.New().String(), Name: "home"}); !errors.Is(err, mcp.ErrNotFound) {
 		t.Errorf("unknown: %v", err)
 	}
-	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "Bad Name"}); !errors.Is(err, mcp.ErrInvalidInput) {
+	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "Bad Name", FactsHash: hash}); !errors.Is(err, mcp.ErrInvalidInput) {
 		t.Errorf("bad name: %v", err)
+	}
+	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "home"}); !errors.Is(err, mcp.ErrInvalidInput) {
+		t.Errorf("no hash: %v", err)
 	}
 }
 
@@ -419,7 +422,7 @@ func TestJoinCodeFlow(t *testing.T) {
 		t.Fatalf("cloud = %+v", cloud)
 	}
 	id := out.JoinCode.ID.String()
-	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "home"}); !errors.Is(err, mcp.ErrConflict) {
+	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "home", FactsHash: "x"}); !errors.Is(err, mcp.ErrConflict) {
 		t.Errorf("nobody claimed it: %v", err)
 	}
 
@@ -443,13 +446,29 @@ func TestJoinCodeFlow(t *testing.T) {
 	}
 	raw, err := json.Marshal(codes)
 	must(t, err)
-	if strings.Contains(string(raw), "hash") {
-		t.Fatalf("hashes in %s", raw)
+	if strings.Contains(string(raw), "code_hash") || strings.Contains(string(raw), "claim_hash") {
+		t.Fatalf("secrets' hashes in %s", raw)
 	}
 
-	assertConfirmRefused(t, f, id)
+	seen := codes[1].FactsHash
+	assertConfirmRefused(t, f, id, seen)
 
-	p, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "home", WrapUntrusted: true})
+	// The person read one report and the agent sends another: no confirmation,
+	// and the provider does not exist.
+	changed := req
+	changed.Facts.Host = "another machine"
+	_, err = fleet.Join(ctx, f.st, f.clock.Now(), changed)
+	must(t, err)
+	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "home", FactsHash: seen}); !errors.Is(err, mcp.ErrConflict) {
+		t.Errorf("a changed report: %v", err)
+	}
+	if _, err := f.st.CapacityProviders().GetByName(ctx, f.account.ID, "home"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a provider from a refused confirmation: %v", err)
+	}
+	_, err = fleet.Join(ctx, f.st, f.clock.Now(), req)
+	must(t, err)
+
+	p, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "home", FactsHash: seen, WrapUntrusted: true})
 	must(t, err)
 	if p.Capabilities.Host != "" || !strings.Contains(p.Untrusted, facts.Host) || !strings.Contains(p.Untrusted, "<untrusted-data") {
 		t.Fatalf("what the agent said reached the caller as it was: %+v", p)
@@ -457,7 +476,7 @@ func TestJoinCodeFlow(t *testing.T) {
 	if p.Status != domain.ProviderPending || p.Kind != domain.ProviderMicroVM || p.Capabilities.MaxCPU != 8 || p.AccountID != f.account.ID {
 		t.Fatalf("provider = %+v", p)
 	}
-	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "again"}); !errors.Is(err, mcp.ErrConflict) {
+	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "again", FactsHash: seen}); !errors.Is(err, mcp.ErrConflict) {
 		t.Errorf("twice: %v", err)
 	}
 
@@ -499,7 +518,7 @@ func TestInstanceWideJoinCodes(t *testing.T) {
 	if len(codes) != 1 {
 		t.Fatalf("admin: %+v", codes)
 	}
-	p, err := f.svc.ConfirmJoin(ctx, root, mcp.ConfirmJoinInput{Join: out.JoinCode.ID.String(), Name: "cloud"})
+	p, err := f.svc.ConfirmJoin(ctx, root, mcp.ConfirmJoinInput{Join: out.JoinCode.ID.String(), Name: "cloud", FactsHash: codes[0].FactsHash})
 	must(t, err)
 	if p.AccountID != uuid.Nil() {
 		t.Fatalf("provider = %+v", p)
