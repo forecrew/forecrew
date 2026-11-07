@@ -10,6 +10,7 @@ import (
 
 const goodConfig = `
 region: eu-west-1
+fleet: forecrew
 subnets: [subnet-0a1b2c3d4e5f60718]
 security_group: sg-0a1b2c3d4e5f60718
 instance_types: ["c7i.*", "m7g.large"]
@@ -46,6 +47,7 @@ func TestLoadConfigRefusals(t *testing.T) {
 		"warn percent":        {goodConfig + "budget_warn_percent: 0\n", "budget_warn_percent"},
 		"lifetime too short":  {goodConfig + "max_lifetime: 1m\n", "max_lifetime"},
 		"relative state dir":  {goodConfig + "state_dir: state\n", "state_dir"},
+		"no fleet":            {strings.Replace(goodConfig, "fleet: forecrew\n", "", 1), "fleet must"},
 		"bad fleet":           {goodConfig + "fleet: 'a b'\n", "fleet"},
 		"not yaml":            {"region: [", "read aws config"},
 	} {

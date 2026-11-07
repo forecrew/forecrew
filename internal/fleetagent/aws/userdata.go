@@ -49,6 +49,6 @@ func userData(b *fleet.Bootstrap, lifetime time.Duration) (string, error) {
 	fmt.Fprintf(&s, "      FORECREW_BOOTSTRAP_TOKEN=%s\n", b.Token)
 	s.WriteString("runcmd:\n")
 	fmt.Fprintf(&s, "  - [shutdown, -P, '+%d']\n", max(int(lifetime.Minutes()), 1))
-	s.WriteString("  - [sh, -c, 'rm -f /var/lib/cloud/instance/user-data.txt* /var/lib/cloud/instance/cloud-config.txt']\n")
+	s.WriteString("  - [sh, -c, 'rm -f /var/lib/cloud/instance/user-data.txt* /var/lib/cloud/instance/cloud-config.txt /var/lib/cloud/instance/obj.pkl']\n")
 	return base64.StdEncoding.EncodeToString([]byte(s.String())), nil
 }

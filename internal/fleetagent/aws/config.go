@@ -37,7 +37,9 @@ type Config struct {
 	// Region is where machines start.
 	Region string `yaml:"region"`
 	// Fleet is the value of the forecrew:fleet tag on everything this agent
-	// creates. The kit's role allows exactly this value.
+	// creates. The kit's role allows exactly this value, and the agent ends every
+	// instance in the region that carries it, so it is required and must be unique
+	// per account and region.
 	Fleet string `yaml:"fleet"`
 	// Subnets are the subnets machines may start in; a shape names one, or gets
 	// the first.
@@ -73,7 +75,7 @@ type Config struct {
 
 func defaults() Config {
 	return Config{
-		Fleet: "forecrew", TrustedKeysFile: "/etc/forecrew-fleet-agent/image-keys.pub", MaxMachines: 10,
+		TrustedKeysFile: "/etc/forecrew-fleet-agent/image-keys.pub", MaxMachines: 10,
 		BudgetWarnPercent: 80, MaxLifetime: 24 * time.Hour, StateDir: "/var/lib/forecrew-fleet-agent/aws",
 	}
 }

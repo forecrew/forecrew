@@ -693,7 +693,7 @@ key is an error: the AWS SDK finds credentials by itself (the instance role, or
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `region` | required | Where machines start |
-| `fleet` | `forecrew` | The `forecrew:fleet` tag; the role allows exactly this |
+| `fleet` | required | The `forecrew:fleet` tag; the role allows exactly this, and the agent terminates every instance in the region with it, so it is unique per account and region |
 | `subnets` | required | Subnets machines may use; a shape names one or gets the first |
 | `security_group` | required | The machines' group: no inbound, public internet out (kit) |
 | `instance_types` | required | Instance types and patterns (`c7i.*`) shapes may use |

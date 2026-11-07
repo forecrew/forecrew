@@ -654,3 +654,39 @@ func mustMarshal(t testing.TB, v any) []byte {
 	must(t, err)
 	return b
 }
+
+// OpenTofu checks its inputs with the patterns CloudFormation does.
+func TestOpenTofuChecksTheSameInputs(t *testing.T) {
+	c := loadCFN(t, cfnParams(testSubnet))
+	vars := string(kitFile(t, "variables.tf"))
+	for cfnName, tfName := range map[string]string{
+		"ServerUrl": "server_url", "JoinCode": "join_code", "ImageSigningKey": "image_signing_key", "AgentVersion": "agent_version",
+		"InstallRef": "install_ref", "AgentInstanceType": "agent_instance_type", "HostAvailabilityZone": "host_availability_zone",
+	} {
+		want := child(child(c.section("Parameters"), cfnName), "AllowedPattern")
+		if want == nil {
+			t.Fatalf("%s has no AllowedPattern", cfnName)
+		}
+		block := regexp.MustCompile(`(?s)variable "` + tfName + `" \{.*?\n\}`).FindString(vars)
+		got := regexp.MustCompile(`regex\("(.*?)", var\.` + tfName + `\)`).FindStringSubmatch(block)
+		if got == nil {
+			t.Errorf("%s has no regex check", tfName)
+			continue
+		}
+		if tf := strings.ReplaceAll(got[1], `\\`, `\`); tf != want.Value {
+			t.Errorf("%s checks %q, %s checks %q", tfName, tf, cfnName, want.Value)
+		}
+	}
+	// A release tag, never a branch; and no fleet name that every account shares.
+	for _, ref := range []string{"main", "master", "v", "v0.2.0/../x"} {
+		if regexp.MustCompile(child(child(c.section("Parameters"), "InstallRef"), "AllowedPattern").Value).MatchString(ref) {
+			t.Errorf("install ref %q is accepted", ref)
+		}
+	}
+	if child(child(c.section("Parameters"), "FleetName"), "Default") != nil || child(child(c.section("Parameters"), "InstallRef"), "Default") != nil {
+		t.Error("FleetName and InstallRef have no default")
+	}
+	if !strings.Contains(string(kitFile(t, "main.tf")), `"forecrew-${substr(sha1(`) {
+		t.Error("an empty fleet_name is not given a generated name")
+	}
+}

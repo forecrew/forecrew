@@ -86,6 +86,7 @@ func must(t testing.TB, err error) {
 func testConfig(dir string) Config {
 	c := defaults()
 	c.Region = testRegion
+	c.Fleet = testFleet
 	c.Subnets = []string{testSubnet, testSubnet2}
 	c.SecurityGroup = testGroup
 	c.InstanceTypes = []string{"c7i.*", "m7g.large"}
