@@ -14,6 +14,7 @@ location, see [runbooks/add-provider.md](runbooks/add-provider.md).
 forecrew-fleet-agent run --config agent.yaml   # connect and keep the machines here as forecrewd asks
 forecrew-fleet-agent doctor [--kind microvm]   # say what is missing for a kind of location
 forecrew-fleet-agent detect                    # print the kind this machine looks like
+forecrew-fleet-agent build-image               # build the Windows image of a Proxmox or Hyper-V location from your ISO
 forecrew-fleet-agent version
 ```
 
@@ -36,8 +37,8 @@ Local credentials are not in this file. Each provider finds its own by the
 machine's own means: files readable by the agent's user, or an instance role.
 Nothing of them is ever sent to forecrewd: capabilities hold facts.
 
-This build has the `microvm` provider and, on a Mac, the `tart` provider (both
-below); the other kinds come with T62 and T64. For a kind it does not have, `run` says so and `doctor` lists it as
+This build has the `microvm`, `proxmox` and `hyperv` providers and, on a Mac, the
+`tart` provider (all below); the other kinds come with T64. For a kind it does not have, `run` says so and `doctor` lists it as
 missing.
 
 ## Connecting
@@ -430,3 +431,212 @@ has a default and a missing file means all defaults. It holds no secrets.
 
 Tested against a fake `tart` only; see [runbooks/add-provider.md](runbooks/add-provider.md)
 for the live checks, and what is not yet verified on a real Mac.
+
+## Proxmox locations
+
+The agent runs on a Linux host next to Proxmox VE (a node is fine) and drives
+its API. Each machine is a VM **linked-cloned from a template** (a full copy when
+the shape names a storage), started, given its bootstrap settings and destroyed
+after its jobs. Linux and Windows guests, `qcow2` images.
+
+- **Credentials.** An API token in `/etc/forecrew-fleet-agent/proxmox-token`
+  (`user@realm!name=secret`), readable by the agent's user alone; the agent
+  refuses a file others can read, and the token is never sent to forecrewd,
+  logged, or put in an error. Give the token a role of its own on `/vms`, the
+  storage and the nodes it uses: `VM.Allocate`, `VM.Clone`, `VM.Config.CPU`,
+  `VM.Config.Memory`, `VM.Config.Disk`, `VM.Config.Network`,
+  `VM.Config.Options`, `VM.PowerMgmt`, `VM.Audit`, `VM.GuestAgent.FileWrite`
+  (`VM.Monitor` on Proxmox VE 8), `VM.GuestAgent.Audit`, `Datastore.AllocateSpace`,
+  `Sys.Audit`, and `Pool.Allocate` for a pool. Privilege names are of Proxmox VE 9.
+  **Scope the token to a resource pool** (`/pool/forecrew`, with `VM.Clone` on the
+  template and the privileges on the storage it needs) and name the pool in the
+  shapes' `provider_config`, so that the token can reach the machines it makes and
+  nothing else of the cluster.
+- **The API's certificate is always checked.** There is no setting to skip it. A
+  self-signed certificate is trusted by naming its CA in `ca_file` (the cluster's
+  is `/etc/pve/pve-root-ca.pem`, which the installer copies), and
+  `tls_server_name` is the name it must carry when the API is reached by an
+  address. `api_url` must be `https`.
+- **Which VMs are Forecrew's.** Every VM the agent makes has notes (the
+  description) that only it writes: the machine's ID, its tags, network allowlist
+  and deadline, never a secret. The agent lists, changes and destroys VMs by
+  those notes and a `forecrew-` name, on the nodes of `proxmox.yaml`, and refuses
+  any other VM even by its ID (a VM whose name is not `forecrew-...` too). What the hypervisor sends back (notes, error
+  texts) is read strictly, shortened and scrubbed of secrets.
+- **Templates and images.** A shape's `provider_config` names the template:
+  `{node, template, storage, pool, disk, bridge, vlan}`. Import the image file
+  into a VM, convert it to a template and give it the tag the agent says when it
+  refuses (`forecrew-image-` and the first 32 hex digits of the image's digest).
+  The agent checks the image's signature against `trusted_keys_file`, and that
+  the template carries that tag: the tag is the operator's statement that the
+  template was made from the signed file (the agent cannot open a template's
+  disk), and it keeps a shape from cloning any other VM. The disk is grown to the
+  shape's `disk_gb`; a template disk bigger than the shape is refused.
+- **Bootstrap token.** Through the QEMU guest agent, once the guest answers: the
+  agent writes `/run/forecrew/bootstrap.env` (Linux) or
+  `C:\ProgramData\Forecrew\run\bootstrap.env` (Windows) into the running guest.
+  The token never reaches a file of the Proxmox host, the VM's configuration or a
+  cloud-init drive. The image needs the guest agent (`qemu-guest-agent` in the
+  Linux image; the virtio-win guest tools in the Windows one, built with
+  `guest_tools_installer`), and the agent's wait for it is the shape's boot
+  timeout.
+- **Network.** The VM's device is on `bridge` (and `vlan`) with the VM firewall
+  on: inbound closed, the MAC filter on, and the output policy **DROP**, so that
+  IPv6, which machines do not have, is closed. (`ipfilter` is not set: without an
+  `ipfilter-net0` set, pve-firewall drops all of a VM's IPv4 traffic, DHCP
+  included.) Outbound is explicit IPv4 rules, in this order: forecrewd's address
+  and port, the resolvers in `dns`, then **never the cluster or the machines'
+  network, whatever `network_allow` says, even `0.0.0.0/0`**: the address of every
+  node in `GET /cluster/status` (so the API on 8006 and SSH), the host of
+  `api_url`, and the network of `bridge` in `GET /nodes/<node>/network` (its
+  `cidr`), which holds the other machines. These come from the API, not from the
+  agent's own interfaces, so they hold when the agent runs off a node. **A machine
+  is not made, and an allowlist not changed, if any of them cannot be read** (the
+  token needs `Sys.Audit`), the API's host does not resolve, or the bridge has no
+  address on the machines' network. With no `dns` listed, port 53 is open to any
+  address, after what is never opened. Then `network_allow`, private,
+  link-local and shared ranges and the node's other networks (the allowlist may
+  open those, as in a microVM), and the internet last. A node that holds forecrewd
+  is reached on forecrewd's port only.
+  **The datacenter firewall must be on** (Datacenter, Firewall, Options): without it
+  the rules do nothing, so `doctor` fails while it is off and **Create refuses to
+  make a machine** until it is on. A template with network devices besides `net0`
+  is refused (a clone would keep them, on whatever bridge they name).
+- **Limits and the kill.** `max_machines` Forecrew VMs in the cluster and the
+  node's free memory; the check and the clone are one step, so parallel starts
+  cannot go over the limit. A machine's deadline is kept in its notes; at the deadline
+  the agent powers the VM off, and the listing at each reconcile arms it again
+  after a restart.
+- **Destroy** stops the VM and removes it with its disks (`purge`,
+  `destroy-unreferenced-disks`).
+
+### proxmox.yaml
+
+`/etc/forecrew-fleet-agent/proxmox.yaml` (`FORECREW_PROXMOX_CONFIG` moves it). The
+installer writes `nodes`, `ca_file` and `tls_server_name`. It holds no secrets.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `api_url` | `https://localhost:8006` | The API, https only |
+| `token_file` | `/etc/forecrew-fleet-agent/proxmox-token` | The API token |
+| `ca_file` | the system's roots | What the API's certificate chains to |
+| `tls_server_name` | the host in `api_url` | The name the certificate must carry |
+| `trusted_keys_file` | `/etc/forecrew-fleet-agent/image-keys.pub` | Public keys images must be signed with |
+| `nodes` | required | The nodes machines may be made on; a shape names one |
+| `bridge`, `vlan` | `vmbr0`, none | The machines' network; a shape may name its own |
+| `dns` | any resolver | Resolvers machines may use |
+| `max_machines` | `8` | Forecrew VMs at once |
+| `poll_interval` | `2s` | Spacing of the polls of a task or the guest agent |
+
+## Hyper-V locations
+
+The agent runs on a Windows host with Hyper-V, as a member of Hyper-V
+Administrators (`install.ps1` does this), and drives it through PowerShell
+scripts embedded in the agent. Each machine is a VM whose OS disk is a
+**differencing disk of a base `vhdx`** (made once per image, read-only) and which
+has a small **config disk** of its own; when its jobs are done the VM, both disks
+and its directory are **deleted**. A differencing disk makes a new machine as
+cheap as restoring a checkpoint, and nothing of the last job survives, so there
+is no checkpoint reset; checkpoints are turned off. Windows guests, `vhdx`
+images. A differencing disk cannot be larger than its parent, so a machine's disk
+is the image's size and `disk_gb` must be at least that.
+
+- **Closed folders.** Before the agent does anything else on the host it closes the
+  state, machine, image and script folders to SYSTEM, Administrators and its own
+  account, and checks the result; **it refuses to run while one is open to anyone
+  else**, because a machine's config disk, which holds its token, is under them
+  (the disk's own folder is checked again before the token is written to it). The
+  default `state_dir` is `C:\ProgramData\forecrew-fleet-agent\state\hyperv`, under
+  the folder `install.ps1` closes. The step runs from the agent's memory, not from
+  a script file, so it cannot be replaced in a folder that was open.
+- **Scripts.** The PowerShell text is fixed; what the provider is given (names,
+  paths, the token) goes in on standard input as JSON, never on a command line or
+  into a script, so no value is run as code. Scripts act on a directory made from a
+  machine's ID, inside `vm_dir`, and on a VM **by its ID**, never its name, which an
+  operator's own VM may share: such a VM is never stopped, changed or removed. A
+  failed start removes only what it made.
+  What a script prints is shortened and scrubbed before it is shown.
+- **Images.** The agent fetches the base image over http(s) into `image_dir`
+  under its digest, and checks the signature against `trusted_keys_file` and the
+  file against the digest before first use (`images.VerifyFile`), as for a
+  microVM, and again whenever the cached file's size or time of change is not what
+  it was when it was checked. An image built on this host (`build-image`, below) is put there
+  already. Images unused for `image_cache_days` are removed.
+- **Bootstrap token.** On a **config disk** made for the machine: a 32 MB virtual
+  disk labelled `FCCONFIG`, formatted for it, holding `bootstrap.env`. It is the
+  machine's own disk, it goes with it, and `forecrew-start.ps1` in the guest copies
+  the file into the guest, overwrites it on the disk and deletes it. The disk is
+  mounted on the host for a moment inside the machine's directory, never on a drive
+  letter. Nothing is written elsewhere on the host, and Hyper-V PowerShell Direct
+  and WinRM are not used (the image has no remote login).
+- **Network.** The device is on `switch` (and `vlan`) with DHCP and router guard
+  on and MAC spoofing off, and extended port ACLs. Outbound, in order: forecrewd's
+  address and port, the resolvers in `dns`, then **never the host or the network of
+  the switch, whatever `network_allow` says, even `0.0.0.0/0`**: every address of
+  the host (its management and RDP included) and the network of the host's
+  `vEthernet` adapter on the switch, which holds the other machines. Then
+  `network_allow`, private, link-local and shared ranges and the host's other
+  networks. Rules for a protocol and port (forecrewd, DNS) are stateful, which lets their answers in
+  from forecrewd and from a resolver on the LAN; an allowlist entry is allowed
+  outbound only, as stateful TCP and UDP. Nothing is allowed inbound by the sender's
+  port, which a sender chooses: the only inbound allow is the DHCP reply, to the
+  client port 68 from port 67. Only the denials are mirrored inbound, so no other private address may start a
+  conversation with a machine. **IPv6 is denied both ways at the lowest weight**:
+  machines have IPv4 only. A switch of its own, with NAT, keeps machines off the
+  LAN best; the ACLs are a second wall.
+- **Worker in the guest.** The image starts the worker from the scheduled task
+  `ForecrewWorker` at boot, as SYSTEM, not as a Windows service: `forecrew-worker`
+  does not implement the service control protocol (docs/worker.md). The task
+  runs `forecrew-start.ps1`, which waits up to 10 minutes for the settings, reads
+  them as data, and powers the machine off when the worker ends. The MVP's limit
+  that made changes necessary was that this script read the settings the moment
+  the file existed: it now waits until nobody holds the file open for writing
+  (the guest agent writes it in place) and also reads the config disk.
+- **The kill.** A deadline is kept in the VM's notes; the agent powers the VM off
+  at it, and arms it again from the listing after a restart.
+
+### hyperv.yaml
+
+`C:\ProgramData\forecrew-fleet-agent\hyperv.yaml` (`FORECREW_HYPERV_CONFIG` moves
+it). It holds no secrets.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `switch` | required | The virtual switch machines connect to |
+| `vlan` | none | The device's VLAN; a shape may name its own |
+| `state_dir` | `C:\ProgramData\forecrew-fleet-agent\state\hyperv` | Scripts, and by default the images and the VMs |
+| `vm_dir`, `image_dir` | under `state_dir` | One directory per machine; the base images |
+| `trusted_keys_file` | `C:\ProgramData\forecrew-fleet-agent\image-keys.pub` | Public keys images must be signed with |
+| `generation` | `1` | 1 boots the BIOS images the template builds |
+| `dns` | any resolver | Resolvers machines may use |
+| `max_machines` | `2` | Machines at once |
+| `image_cache_days` | `14` | How long an unused image stays |
+| `powershell`, `script_timeout` | `powershell.exe`, `10m` | The command and the time of one script |
+
+A shape's `provider_config` may hold `switch` and `vlan`.
+
+## Windows images on a host
+
+Forecrew cannot hand out Windows, so the owner builds the image on the host that
+will run it, from an ISO they are licensed for:
+
+```
+forecrew-fleet-agent build-image --templates <deploy/images of this release> \
+  --iso <abs path> --iso-checksum sha256:<hex> --license-confirmed \
+  --chocolatey-sha256 <hash of the install.ps1 you reviewed> --worker <forecrew-worker.exe> \
+  --version 2026.11.1 --uri-base https://images.example.com --out <abs dir> \
+  [--guest-tools virtio-win-guest-tools.exe --guest-tools-sha256 <hash>]   # Proxmox
+  [--cache-dir <image_dir> --switch <switch>]                              # Hyper-V
+```
+
+It checks the licence statement, the ISO against the checksum you gave (read
+again here), that the worker is a Windows amd64 program and that the disk has 100
+GB, then runs Packer with `deploy/images/windows` (QEMU on Linux, Hyper-V on
+Windows): about an hour. Its variables go in a file only the agent's user reads,
+and it writes `progress.json` (step, state, error) and `build.log` in `--out`. The
+result is an **unsigned manifest**: a person checks it, signs it with a key that
+stays off the host, registers it, and puts the public key in the host's
+`image-keys.pub` (docs/images.md). A host agent never registers an image.
+
+A button for this on the web UI's Add machines page is planned and **not available
+yet**: run the command on the host.

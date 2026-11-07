@@ -9,8 +9,8 @@ runs there and only dials out to forecrewd. It needs:
 | Kind | Runs on | Needs here |
 |------|---------|------------|
 | `microvm` | Linux with KVM | root, `/dev/kvm`, `firecracker` and `jailer` (or `cloud-hypervisor`), `ip`, `nft`, IP forwarding, trusted image keys ([fleet.md](../fleet.md#home-server-setup)) |
-| `proxmox` | Linux next to Proxmox | an API token in a local file; the installer asks for it |
-| `hyperv` | Windows | Hyper-V and `powershell.exe` |
+| `proxmox` | Linux next to Proxmox | an API token in a local file (the installer asks for it), the datacenter firewall on, a template per image ([fleet.md](../fleet.md#proxmox-locations)) |
+| `hyperv` | Windows | Hyper-V, `powershell.exe`, a virtual switch, trusted image keys ([fleet.md](../fleet.md#hyper-v-locations)) |
 | `tart` | Apple silicon | `tart` and `softnet` on PATH, a Mac that never sleeps, trusted image keys ([fleet.md](../fleet.md#macos-locations-tart)) |
 | `aws` | an EC2 instance in your account | its instance role |
 
@@ -216,3 +216,67 @@ none there.
 | `too many join calls` (429) | Too many calls from one address, or too many unknown codes from anywhere. During a flood of wrong codes every join gets this, real codes too; connected locations are not touched. The agent backs off and tries again ([fleet.md](../fleet.md#limits-on-joining)) |
 | `no contact with forecrewd` | Machines keep running and nothing new starts. It reconnects by itself |
 | `this build of the fleet agent has no provider of kind ...` | The release does not serve that kind yet |
+
+## Proxmox and Hyper-V: first machine, and what was tested
+
+Do this once per host, before relying on it. Everything here needs a real
+Proxmox VE or Hyper-V host; **none of it was run on one when the providers were
+written**: they are tested against a fake Proxmox API and a fake PowerShell host
+(`internal/testkit`) built from the documented interfaces.
+
+### Proxmox VE
+
+1. On the node, create a role and an API token for the agent (privileges in
+   [fleet.md](../fleet.md#proxmox-locations)), and run the installer
+   (`FORECREW_PROXMOX_TOKEN` or its prompt). Turn on the datacenter firewall.
+2. Make a Linux template: build the qcow2 image (`deploy/images/build.sh qcow2`),
+   sign and register it, import the file (`qm importdisk <vmid> image.qcow2
+   <storage>`, attach it as `scsi0`, boot order, `agent: 1`), convert it with
+   `qm template <vmid>`, and tag it `forecrew-image-<first 32 hex digits of the
+   digest>` (`qm set <vmid> --tags forecrew-image-...`). A Windows template is the
+   same with the image from `forecrew-fleet-agent build-image --guest-tools ...`,
+   attached as `sata0` with an `e1000` device.
+3. Put the public key you signed with in `/etc/forecrew-fleet-agent/image-keys.pub`
+   and run `forecrew-fleet-agent doctor --kind proxmox`.
+4. Add a shape on the location whose `provider_config` is
+   `{"node": "<node>", "template": <vmid>}` and run a job on it. Then check, in
+   the Proxmox web UI: the VM is named `forecrew-...`, its network device is on the
+   bridge you set with the firewall on, its rules start with forecrewd's address
+   and end with the private ranges, its notes hold the machine's tags and no
+   token, and it is gone, disks included, when the job ends. From inside the VM
+   try the LAN and a metadata address: both must fail.
+
+### Hyper-V
+
+1. On the Windows host run `install.ps1` from an elevated PowerShell, create
+   `C:\ProgramData\forecrew-fleet-agent\hyperv.yaml` with at least `switch`, and
+   put the public key you sign images with in `image-keys.pub` there.
+2. Build the image on the host: `forecrew-fleet-agent build-image ... --cache-dir
+   <image_dir>` (about an hour; follow `progress.json`), check and sign the
+   manifest on another computer, and register it with `forecrew image add`.
+3. `forecrew-fleet-agent doctor --kind hyperv`, add a Windows shape, run a job.
+   Check in Hyper-V Manager and PowerShell: the VM `forecrew-...` has a
+   differencing disk of the base `vhdx`, no checkpoint, a config disk that is empty
+   of `bootstrap.env` once the worker is up, `Get-VMNetworkAdapterExtendedAcl`
+   shows the rules, and VM, disks and directory are gone when the job ends.
+
+### What was not run on a real host
+
+| Not verified live | Why it matters |
+|-------------------|----------------|
+| Every call of the Proxmox API against Proxmox VE | The fake follows the API viewer of Proxmox VE 9 (parameters, privileges, answers); real task logs, error texts and timing may differ |
+| That a new firewall rule goes first, and the rules' effect | The provider reads the order back and corrects it, and fails if it cannot; whether the rules block the LAN is for you to try |
+| The guest agent's `file-write` into `/run/forecrew` and `C:\ProgramData\Forecrew\run`, and the worker starting from `forecrew-worker.path` | Needs a real guest with the agent; the path unit's `PathChanged` on a file written in place |
+| The ACL of the cluster CA file and the API's certificate name | The installer copies `/etc/pve/pve-root-ca.pem` and sets `tls_server_name` to the host name; if the certificate does not carry it `doctor` shows a certificate error and you set `tls_server_name` |
+| Every PowerShell script against Hyper-V (`New-VHD -Differencing`, the config disk, `Add-VMNetworkAdapterExtendedAcl` and its weights and stateful rules, `Set-VM`) | No Windows host; scripts are written from the module's documentation and only their protocol is tested |
+| The Hyper-V network ACLs' effect on DHCP, DNS and replies | Rules are written to let those through; try a machine on your switch |
+| The Windows image build on Hyper-V (`hyperv-iso`, floppy answer file, the plugin version) and the guest-tools silent install | Forecrew's CI has no Windows host; `packer validate` is not run here either |
+| `forecrew-start.ps1` reading the config disk (volume label, **the drive letter Windows gives it**, offline disks) and waiting for a file in use | Same |
+| **IPv6**: Proxmox's output policy DROP, and Hyper-V's `::/0` deny at weight 1 | Try `ping -6` and an IPv6 website from inside a machine: both must fail |
+| **Machine-to-host filtering**: that a machine cannot reach the node or host (Proxmox 8006 and 22, Hyper-V's own addresses), the other machines on the bridge or switch, and the LAN, even with `network_allow: [0.0.0.0/0]` | The rules are written in that order and tested against the fakes; whether the firewalls enforce them as written is for you to try |
+| **Removing `ipfilter`**: that a Proxmox machine without it has IPv4 and DHCP, and nothing of the VM firewall's other defaults lets it spoof an address | Done because an empty `ipfilter-net0` set is said to drop all IPv4 (Firewall.pm); try a machine and read its rules |
+| **`-EncodedCommand` reading standard input**: that the encoded `secure` script gets its JSON from stdin under `powershell.exe -NonInteractive` | Written from the PowerShell documentation; if it fails, no machine is made and the error says the folders were not closed |
+| **`Set-Acl` with the VM accounts**: that the agent can close its folders and that the `NT VIRTUAL MACHINE\<id>` accounts Hyper-V adds to a machine's files pass the check | Seen only as a test of the script text |
+| **The `vEthernet (<switch>)` adapter name** of the host on the machines' switch, which is how the switch's network is found | A switch with no adapter on the host has no network to close; check the name in `Get-NetAdapter` |
+| **Stateful UDP ACLs**: that `-Stateful` on a UDP rule lets a resolver's answer in, and that `Add-VMNetworkAdapterExtendedAcl` takes it for UDP | Documented for TCP; if DNS fails from a machine, say so. The DHCP reply is allowed by its ports (`-LocalPort 68 -RemotePort 67`) because a broadcast request has no tracked answer; if a machine gets no address, say so
+| `build-image` end to end | Tested with a fake Packer |
