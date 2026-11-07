@@ -163,6 +163,18 @@ import ticketsWaitingEmpty from "./fixtures/tickets-waiting-empty.json"
 import trackerUnmapped from "./fixtures/tracker-unmapped.json"
 import projectsEmpty from "./fixtures/projects-empty.json"
 import workersEmpty from "./fixtures/workers-empty.json"
+import configPlanModelAuthorization from "./fixtures/config-plan-model-authorization.json"
+import configPlanModelConnection from "./fixtures/config-plan-model-connection.json"
+import configResourcesModelAssignment from "./fixtures/config-resources-model-assignment.json"
+import configResourcesModelAuthorization from "./fixtures/config-resources-model-authorization.json"
+import configResourcesModelConnection from "./fixtures/config-resources-model-connection.json"
+import jobWaitingPrivateCode from "./fixtures/job-waiting-private-code.json"
+import modelCheck from "./fixtures/model-check.json"
+import modelChecks from "./fixtures/model-checks.json"
+import modelChecksEmpty from "./fixtures/model-checks-empty.json"
+import modelTestEstimate from "./fixtures/model-test-estimate.json"
+import modelsCatalog from "./fixtures/models-catalog.json"
+import modelsSuggest from "./fixtures/models-suggest.json"
 
 // The API as the Go golden test (internal/api) recorded it. Tests only use
 // these files, never hand-written payloads: see docs/ui.md.
@@ -228,9 +240,24 @@ export const handlers = [
   http.post("/api/v1/join-codes/:join/confirm", () => HttpResponse.json(joinConfirm)),
   http.get("/api/v1/images", () => HttpResponse.json([])),
   http.post("/api/v1/images", () => HttpResponse.json(imageRegister, { status: 201 })),
-  http.get("/api/v1/config/resources", ({ request }) =>
-    HttpResponse.json(new URL(request.url).searchParams.get("kind") === "fleet_policy" ? configResourcesFleetPolicy : configResourcesProvider),
-  ),
+  http.get("/api/v1/config/resources", ({ request }) => {
+    const byKind: Record<string, unknown> = {
+      fleet_policy: configResourcesFleetPolicy,
+      model_connection: configResourcesModelConnection,
+      model_assignment: configResourcesModelAssignment,
+      model_authorization: configResourcesModelAuthorization,
+    }
+    return HttpResponse.json(byKind[new URL(request.url).searchParams.get("kind") ?? ""] ?? configResourcesProvider)
+  }),
+  http.get("/api/v1/models/catalog", () => HttpResponse.json(modelsCatalog)),
+  http.get("/api/v1/model-checks", () => HttpResponse.json(modelChecks)),
+  http.post("/api/v1/model-connections/:connection/check", () => HttpResponse.json(modelCheck, { status: 202 })),
+  // With run the test starts: the recorded estimate, and the queued check as its test.
+  http.post("/api/v1/model-connections/:connection/tests", async ({ request }) => {
+    const body = (await request.json()) as { run?: boolean }
+    return HttpResponse.json(body.run ? { ...modelTestEstimate, test: modelCheck } : modelTestEstimate)
+  }),
+  http.post("/api/v1/models/suggest", () => HttpResponse.json(modelsSuggest)),
   http.get("/api/v1/config/export", () => HttpResponse.json(configExport)),
   http.get("/api/v1/config/plans", ({ request }) => HttpResponse.json(new URL(request.url).searchParams.get("inbox") ? configPlansEmpty : configPlans)),
   http.get("/api/v1/config/plans/:plan", () => HttpResponse.json(configPlan)),
@@ -313,6 +340,8 @@ export const fx = {
   serviceAccountCreate, serviceAccounts, sessions, teamCreate, teamMembers, teamsEmpty, teams, tokenCreate, tokensScopes,
   configPlanTracker, configPlanTrackerApply, configPlanTrackerSecret, ticketAccept, ticketDismiss, ticketsWaiting, ticketsWaitingEmpty, trackerConnections, trackerConnectionsEmpty,
   trackerIdentities, trackerIdentityMap, trackerRoutes, trackerTest, trackerTestFailed, trackerUnmapped, trackerUnmappedProblem,
+  configPlanModelAuthorization, configPlanModelConnection, configResourcesModelAssignment, configResourcesModelAuthorization, configResourcesModelConnection,
+  jobWaitingPrivateCode, modelCheck, modelChecks, modelChecksEmpty, modelTestEstimate, modelsCatalog, modelsSuggest,
 }
 
 /** The recorded error answers. */

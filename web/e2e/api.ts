@@ -25,9 +25,11 @@ export interface Calls {
  * `lowering` makes the assistant's and the forms' plan one that lowers
  * protection (the second confirmation); `inboxPlans` puts plans in the Inbox. `trackerFails` makes the test of a tracker connection
  * fail on its certificate. A plan for a tracker connection or rule is the recorded one with its secure field.
- * A join code reports as soon as it is made. JOB-42 is a waiting job.
+ * A join code reports as soon as it is made. JOB-42 is a waiting job, JOB-43 one waiting for a model connection.
+ * `noModels` starts with no AI provider: confirming the DeepSeek plan connects it and its key check passes;
+ * confirming the suggested preset moves the developer to it, and JOB-41 then runs on deepseek-chat.
  */
-export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: string; me?: string; lowering?: boolean; inboxPlans?: boolean; roles?: string; trackerFails?: boolean } = {}): Promise<Calls> {
+export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: string; me?: string; lowering?: boolean; inboxPlans?: boolean; roles?: string; trackerFails?: boolean; noModels?: boolean } = {}): Promise<Calls> {
   let loggedIn = opts.loggedIn ?? true
   let gates = fixture(opts.gates ?? "gates") as { ref: string }[]
   let canceled = false
@@ -36,12 +38,16 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
   let asked = false
   let applied = false
   let joined = false
+  // The AI models flow: no provider, then DeepSeek connected, then the preset applied.
+  let modelsConnected = !opts.noModels
+  let presetApplied = false
+  const modelPlans = () => [fixture("config-plan-model-connection"), fixture("config-plan-model-authorization"), (fixture("models-suggest") as { plan: object }).plan] as { id: string; steps: { filled?: boolean }[] }[]
   const calls: Calls = { log: [] }
   const newPlan = () => fixture(opts.lowering ? "config-plan-lowers" : "config-plan") as { id: string }
   // Every recorded plan, found by its ID.
   const planById = (id: string) => {
     const names = ["config-plan-tracker", "config-plan", "config-plan-lowers", "config-plan-revert", "config-plan-needs-secret", "config-plan-secret", "config-plan-connection", "config-plan-stale", "config-plan-cannot-confirm", "config-plan-approval"]
-    const all = [...names.map((n) => fixture(n)), ...(fixture("config-plans") as unknown[]), ...(fixture("config-plans-inbox") as unknown[])] as { id: string }[]
+    const all = [...modelPlans(), ...names.map((n) => fixture(n)), ...(fixture("config-plans") as unknown[]), ...(fixture("config-plans-inbox") as unknown[])] as { id: string }[]
     return all.find((p) => p.id === id)
   }
 
@@ -131,6 +137,36 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
     const known = routes[`${req.method()} ${path}`]
     if (known) return json(route, fixture(known))
     if (req.method() === "GET" && path === "/gates") return json(route, gates)
+    // AI models.
+    if (req.method() === "GET" && path === "/models/catalog") return json(route, fixture("models-catalog"))
+    if (req.method() === "GET" && path === "/model-checks") return json(route, modelsConnected ? fixture("model-checks") : [])
+    if (req.method() === "POST" && /^\/model-connections\/[^/]+\/check$/.test(path)) return json(route, fixture("model-check"), 202)
+    if (req.method() === "POST" && /^\/model-connections\/[^/]+\/tests$/.test(path)) {
+      const run = (body as { run?: boolean } | undefined)?.run
+      return json(route, run ? { ...(fixture("model-test-estimate") as object), test: fixture("model-check") } : fixture("model-test-estimate"))
+    }
+    if (req.method() === "POST" && path === "/models/suggest") return json(route, fixture("models-suggest"))
+    const modelKind = (body as { changes?: { kind: string }[] } | undefined)?.changes?.[0]?.kind
+    if (req.method() === "POST" && path === "/config/plans" && modelKind === "model_connection") return json(route, fixture("config-plan-model-connection"), 201)
+    if (req.method() === "POST" && path === "/config/plans" && modelKind === "model_authorization") return json(route, fixture("config-plan-model-authorization"), 201)
+    const modelPlan = /^\/config\/plans\/([^/]+)\/(apply|secrets\/.+)$/.exec(path)
+    const ofModels = modelPlan ? modelPlans().find((p) => p.id === modelPlan[1]) : undefined
+    if (modelPlan && ofModels) {
+      if (modelPlan[2] !== "apply") return json(route, { ...ofModels, steps: ofModels.steps.map((st) => ({ ...st, filled: true })) })
+      if (ofModels.id === (fixture("config-plan-model-connection") as { id: string }).id) modelsConnected = true
+      else presetApplied = true
+      return json(route, { plan: { ...ofModels, status: "applied", steps: ofModels.steps.map((st) => ({ ...st, filled: true })) }, show_once: [] })
+    }
+    if (req.method() === "GET" && path === "/config/resources" && url.searchParams.get("kind")?.startsWith("model_")) {
+      const kind = url.searchParams.get("kind")!
+      if (kind === "model_connection") return json(route, modelsConnected ? fixture("config-resources-model-connection") : [])
+      return json(route, modelsConnected ? fixture(`config-resources-${kind.replace("_", "-")}`) : [])
+    }
+    if (req.method() === "GET" && path === "/jobs/JOB-43") return json(route, fixture("job-waiting-private-code"))
+    if (req.method() === "GET" && path === "/jobs/JOB-41" && presetApplied) {
+      const job = fixture("job") as { spec: object }
+      return json(route, { ...job, spec: { ...job.spec, model: "deepseek-chat" } })
+    }
     // Trackers: the test of a connection passes unless the page asks for the failing one.
     if (req.method() === "POST" && /^\/tracker-connections\/[^/]+\/test$/.test(path)) return json(route, fixture(opts.trackerFails ? "tracker-test-failed" : "tracker-test"))
     if (req.method() === "GET" && path === "/tickets/waiting") return json(route, fixture("tickets-waiting"))

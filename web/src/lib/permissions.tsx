@@ -36,6 +36,7 @@ export const SETTINGS = [
   { to: "/settings", label: "General", permission: "org.read", exact: true },
   { to: "/settings/people", label: "People", permission: "org.read" },
   { to: "/settings/sign-in", label: "Sign-in", permission: "connection.manage" },
+  { to: "/settings/models", label: "AI models", permission: "models.read" },
   { to: "/settings/integrations", label: "Integrations", permission: "trackers.read" },
   { to: "/settings/policies", label: "Policies", permission: "worker.read", or: "billing.manage" },
   { to: "/settings/history", label: "Change history", permission: "audit.read", or: "config.apply" },

@@ -4,6 +4,7 @@ import type {
   Artifact, Assumption, AssumptionStatus, Council, CouncilDetail, CouncilStatus, Decision, StartCouncilInput,
   CreateGoalInput, Discovery, DispatchJobInput, ErrorBody, Gate, GateInfo, Goal, GoalDetail, GoalStatus, Job, JobInfo,
   JobLogs, JobStatus, KnowledgeKind, KnowledgeListing, KnowledgeProposal, KnowledgeProposalStatus, KnowledgeResult, Level,
+  ModelCheck, ModelsCatalog, ModelsSuggestion, ModelTest,
   ConnectedApp, OnboardInput, OnboardResult, Project, ProposeKnowledgeInput, ProposeKnowledgeResult, QualityInfo, RevokeResult, Session, Token,
   Trace, VerificationInfo, Worker,
   TicketInfo, TrackerConnection, TrackerIdentity, TrackerRoute, TrackerTest, UnmappedPeople,
@@ -205,6 +206,14 @@ export const api = {
   sendAssistant: (input: { message: string; conversation?: string; page?: string }) => request<AssistantView>("POST", "/api/v1/assistant/messages", input),
   getConversation: (id: string) => request<AssistantView>("GET", `/api/v1/assistant/conversations/${seg(id)}`),
   listConversations: () => request<AssistantConversation[]>("GET", "/api/v1/assistant/conversations"),
+
+  modelsCatalog: () => request<ModelsCatalog>("GET", "/api/v1/models/catalog"),
+  modelChecks: () => request<ModelCheck[]>("GET", "/api/v1/model-checks"),
+  checkModelConnection: (connection: string) => request<ModelCheck>("POST", `/api/v1/model-connections/${seg(connection)}/check`),
+  /** Without run, the estimate a person sees first; with run, the test starts. */
+  testModel: (connection: string, model: string, run = false) =>
+    request<ModelTest>("POST", `/api/v1/model-connections/${seg(connection)}/tests`, run ? { model, run } : { model }),
+  suggestModels: (preset: string) => request<ModelsSuggestion>("POST", "/api/v1/models/suggest", { preset, source: "form" }),
 
   getFleet: () => request<FleetOverview>("GET", "/api/v1/fleet"),
   listProviders: () => request<Provider[]>("GET", "/api/v1/providers"),

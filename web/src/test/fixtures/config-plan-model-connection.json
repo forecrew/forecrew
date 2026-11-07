@@ -38,7 +38,10 @@
   "cost": "",
   "undo": "Can be reverted from Change history.",
   "reversible": true,
-  "lowers_protection": [],
+  "lowers_protection": [
+    "Sends the code of jobs on deepseek to a new provider with a new key"
+  ],
+  "confirm_word": "acme",
   "base_digest": "",
   "created_by": "user:018f0000-0000-7000-8000-000000000300",
   "expires_at": "2026-03-02T12:00:00Z",

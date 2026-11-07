@@ -32,7 +32,7 @@ The screens follow `2 - UI design/Configuration and fleet UI.md`.
 - **Settings** (`/settings`, a section only for the permission that reads
   it): General (name and slug, `org.manage` changes them), People (tabs
   Members, Teams, Roles, Service accounts; `org.read`), Sign-in
-  (`connection.manage`), Integrations (`trackers.read`) and Change history (the audit log, `audit.read`, with
+  (`connection.manage`), AI models (`models.read`), Integrations (`trackers.read`) and Change history (the audit log, `audit.read`, with
   filters by person, action, what it was done to and dates; what was recorded
   is shown as text).
   - Members: role, direct access and teams ("direct", "through team Mobile"),
@@ -54,6 +54,31 @@ The screens follow `2 - UI design/Configuration and fleet UI.md`.
     secure field (a password input that goes through a change plan to the secret
     store, `store:conn-<name>`, and is never shown again), starts turned off, shows the redirect address to allow at the
     provider, and can be turned on only after Test sign-in worked.
+  - AI models (`/settings/models`, `models.read`): the one place for keys.
+    **Connected** lists each model connection (`model_connection`) with its
+    provider's name from the model catalog (`models_catalog`), how many models
+    its key check listed, the check in words (Works, Key refused, Cannot reach
+    it, with what to do), where the provider runs, and who may send it private
+    code (Allowed on 1 project, Local, code stays here, or Managed by server
+    file). Under Models and options: each model and what its test found, in
+    words ("Writes code", "Reading roles only", "Can't call tools reliably"),
+    a model's test (its cost first, `models_test` without `run`, then Run the
+    test), the address, agent and key variable, and Check the key again, Turn
+    off and Remove. **Add provider** lists the catalog and Another endpoint
+    (its address); the plan's secure field takes the key
+    (`store:models/<name>`), and a local endpoint has none. Saving runs the key
+    check; results come from `model_checks`, polled. **Who uses what**: the
+    presets Balanced, Low cost and Local only make the plan of `models_suggest`
+    with its notes; the roles in groups (Writes code, Reviews, Plans, Quick
+    tasks) with the model each uses; **Change a role** puts a role on a
+    connection and model as a plan of the `model_assignment` `organization`,
+    with the model's test result (an untested model is tested first, its cost
+    shown). More options: the tier of each role, reviewer separation, and
+    whether projects may choose their own models. Every change is a plan;
+    controls need `models.manage` and are disabled naming it. What a provider
+    listed and what an agent said are plain text. With no connection: "Add an
+    AI provider key so agents can work. One is enough." First-run setup and
+    Home's Finish setting up link here while no key is set.
   - Integrations (`/settings/integrations`, `trackers.read`): the trackers
     Forecrew reads tickets from. Each connection is a card: its address and how
     a ticket is handed over, a **Test connection** button that shows the check
@@ -90,6 +115,18 @@ The screens follow `2 - UI design/Configuration and fleet UI.md`.
   directly or through a team; Owners and Admins show "through organization
   role", read-only. Adding and removing needs `project.manage` on the project;
   choosing people needs `org.read`.
+- **Setup · AI models** (a section of the project page, `models.read`): the
+  model each agent uses, from the organization or the project's own
+  (`model_assignment` `project:<project>`, Undo puts one back), and which
+  connections may receive its code, with Authorize and Revoke
+  (`model_authorization` `<connection>@<project>`). Each is a plan with no
+  pull request; an authorization lowers protection, so it takes the second
+  confirmation, and its plan says whose code goes where. Changing needs
+  `models.assign` on the project.
+- **Waiting jobs**: a job waiting for a model connection (`no_connection`,
+  `private_code`) links to AI models; one waiting for an agent a computer
+  lacks (`agent_install`) says why, and Machines shows a failed install on the
+  computer's row.
 - **Allow the command line** (`/cli-login`): where `forecrew login` sends the
   browser; the person confirms, the page asks the server for a one-time code
   and sends the browser to the CLI's loopback address (the code is also shown

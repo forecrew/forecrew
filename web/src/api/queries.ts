@@ -63,6 +63,8 @@ export const keys = {
   trackerIdentities: ["tracker-identities"] as const,
   trackerUnmapped: ["tracker-unmapped"] as const,
   tickets: ["tickets"] as const,
+  modelsCatalog: ["models-catalog"] as const,
+  modelChecks: ["model-checks"] as const,
 }
 
 const poll = { refetchInterval: POLL_MS, refetchIntervalInBackground: false }
@@ -419,5 +421,10 @@ export const useUnmappedPeople = (enabled = true) =>
   useQuery({ queryKey: keys.trackerUnmapped, queryFn: api.listUnmappedPeople, enabled, staleTime: 5 * 60_000, refetchOnWindowFocus: false })
 export const useWaitingTickets = (enabled = true) => useQuery({ queryKey: keys.tickets, queryFn: api.listWaitingTickets, enabled, ...poll })
 
+/** The model catalog ships with the server: read once. */
+export const useModelsCatalog = (enabled = true) => useQuery({ queryKey: keys.modelsCatalog, queryFn: api.modelsCatalog, enabled, staleTime: Infinity })
+/** Key checks and tests run as jobs: polled like the lists, so a result shows when it comes. */
+export const useModelChecks = (enabled = true) => useQuery({ queryKey: keys.modelChecks, queryFn: api.modelChecks, enabled, ...poll })
+
 /** Everything a confirmed plan can change: refresh what shows it. */
-export const CONFIG_KEYS = [keys.fleet, keys.providers, keys.shapes, keys.machines, ["plans"], ["resources"], ["plan"], keys.joinCodes, keys.me, keys.trackerConnections, keys.trackerRoutes, keys.trackerUnmapped] as const
+export const CONFIG_KEYS = [keys.fleet, keys.providers, keys.shapes, keys.machines, ["plans"], ["resources"], ["plan"], keys.joinCodes, keys.me, keys.trackerConnections, keys.trackerRoutes, keys.trackerUnmapped, keys.modelChecks] as const

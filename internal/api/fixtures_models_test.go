@@ -92,6 +92,7 @@ func modelsFixtureCases() []fixtureCase {
 		Fields: []domain.ConfigFieldChange{}, Line: "+ AI connection deepseek (deepseek)"}}, func(v *mcp.ConfigPlanView) {
 		v.Affects = "Jobs leased from now on see the change; workers need nothing."
 		v.Steps = []domain.ConfigStep{{Kind: domain.ConfigStepSecret, Resource: "model_connection/deepseek", Title: "API key of deepseek", Secret: "models/deepseek"}}
+		v.LowersProtection, v.ConfirmWord = []string{"Sends the code of jobs on deepseek to a new provider with a new key"}, "acme"
 	})
 	suggestPlan := modelsPlan(811, "Models suggested (low_cost)", []domain.ConfigChange{{Op: domain.ConfigUpdate, Kind: "model_assignment", Name: "organization",
 		Old: json.RawMessage(assignment), New: json.RawMessage(assignment),

@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router"
 import { cn } from "cn"
 import { SearchIcon } from "lucide-react"
 import { useState } from "react"
-import { useConnections, useFleet, useGates, useGoals, useJobs, useMembers, useProjects } from "@/api/queries"
+import { useConnections, useFleet, useGates, useGoals, useJobs, useMembers, useProjects, useResources } from "@/api/queries"
 import type { GoalStatus } from "@/api/types"
 import { Age } from "@/components/Age"
 import { useOpenCommandMenu } from "@/components/CommandMenu"
@@ -301,6 +301,7 @@ function FinishSetup() {
   const fleet = useFleet()
   const members = useMembers(can("member.manage"))
   const connections = useConnections(can("connection.manage"))
+  const models = useResources("model_connection", can("models.manage"))
   const [dismissed, setDismissed] = useState(dismissedItems)
   const dismiss = (id: string) => {
     const next = [...dismissed, id]
@@ -319,6 +320,7 @@ function FinishSetup() {
       to: "/machines/add",
       show: can("worker.manage") && fleet.data !== undefined && fleet.data.locations.length > 0 && !fleet.data.locations.some((l) => /windows|macos/i.test(l.runs)),
     },
+    { id: "models", text: "Add an AI provider key", to: "/settings/models", show: can("models.manage") && models.data !== undefined && models.data.length === 0 },
     { id: "signin", text: "Connect company sign-in", to: "/settings/sign-in", show: can("connection.manage") && connections.data !== undefined && !connections.data.some((c) => !c.instance) },
   ].filter((i) => i.show && !dismissed.includes(i.id))
   if (items.length === 0) return null

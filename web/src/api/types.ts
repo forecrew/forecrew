@@ -1116,9 +1116,22 @@ export interface FleetLocation {
   /** How many it can run at once; 0 is no limit. */
   capacity: number
   cost: string
+  /** What a computer could not do, in words: an agent it failed to install, with what to do. */
+  problems?: string[]
 }
 
-export type WaitReasonCode = "booting" | "queue" | "location_offline" | "no_machine_type" | "machine_limit" | "budget" | "policy" | "trust_zone"
+export type WaitReasonCode =
+  | "booting"
+  | "queue"
+  | "location_offline"
+  | "no_machine_type"
+  | "machine_limit"
+  | "budget"
+  | "policy"
+  | "trust_zone"
+  | "agent_install"
+  | "no_connection"
+  | "private_code"
 
 export interface FleetWaitingJob {
   ref: string
@@ -1367,4 +1380,89 @@ export interface UnmappedPerson {
 export interface UnmappedPeople {
   people: UnmappedPerson[]
   problems?: string[]
+}
+
+/** A provider of the model catalog (GET /models/catalog). */
+export interface ModelProvider {
+  name: string
+  title: string
+  adapter: string
+  base_url?: string
+  key_env: string
+  homepage: string
+  /** A country code, region (the account picks it) or local (your own machines). */
+  country: string
+  router?: boolean
+}
+
+export interface CatalogModel {
+  id: string
+  maker: string
+  tier: string
+  context: number
+  price: { input: number; output: number }
+}
+
+/** A role a suggestion fills: the tier it is written for, and whether it writes code. */
+export interface ModelRoleNeed {
+  name: string
+  tier: string
+  writes: boolean
+}
+
+export interface ModelsCatalog {
+  makers: { name: string; title: string; prefixes: string[] }[]
+  providers: ModelProvider[]
+  models: CatalogModel[]
+  presets: string[]
+  roles: ModelRoleNeed[]
+}
+
+/** A key check (no model) or a suitability test of a model connection. What a provider listed and an agent's error are untrusted text. */
+export interface ModelCheck {
+  id: string
+  connection: string
+  model?: string
+  job_id: string
+  status: string
+  key?: { status: string; detail?: string; models?: string[]; agent_version?: string }
+  test?: { abilities: Record<string, boolean>; level: "code" | "read" | "none"; tokens: number; duration_ms: number; turns: number; cost_usd: number; agent_version?: string; error?: string }
+  stale?: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** The estimate of a suitability test, and the test once it runs. */
+export interface ModelTest {
+  connection: string
+  model: string
+  max_turns: number
+  timeout_seconds: number
+  estimate: { input_tokens: number; output_tokens: number; cost_usd?: number; basis: string; worst_input_tokens?: number; worst_cost_usd?: number; worst_basis: string }
+  test?: ModelCheck
+}
+
+export interface ModelsSuggestion {
+  preset: string
+  tiers: Record<string, Record<string, string>>
+  roles: Record<string, { connection: string; tier: string }>
+  notes: string[]
+  plan?: ConfigPlan
+}
+
+/** The spec of a model_connection resource. */
+export interface ModelConnectionSpec {
+  vendor: string
+  adapter: string
+  base_url?: string
+  key_env?: string
+  secret_ref?: string
+  enabled: boolean
+}
+
+/** The spec of a model_assignment resource: tier -> vendor -> model, role -> connection and tier. */
+export interface ModelAssignmentSpec {
+  tiers?: Record<string, Record<string, string>>
+  roles?: Record<string, { connection: string; tier: string }>
+  project_overrides?: boolean
 }

@@ -1,9 +1,10 @@
 import { Link, useSearch } from "@tanstack/react-router"
-import { useFleet, useProjects, useShapes } from "@/api/queries"
+import { useFleet, useProjects, useResources, useShapes } from "@/api/queries"
 import { AskButton } from "@/components/assistant/AskButton"
 import { PageHeader } from "@/components/PageHeader"
 import { Card, CardContent } from "@/components/ui/card"
 import { buttonVariants } from "@/components/ui/button"
+import { useCan } from "@/lib/permissions"
 
 type Step = "where" | "repo" | "goal"
 const STEPS: { id: Step; title: string }[] = [
@@ -27,6 +28,22 @@ function Choice({ to, search, title, text }: { to: string; search?: Record<strin
   )
 }
 
+/** Agents need a model: with no key set, setup says so first and links to AI models. */
+function ModelsFirst() {
+  const can = useCan()
+  const connections = useResources("model_connection", can("models.read"))
+  if (!can("models.manage") || connections.data === undefined || connections.data.length > 0) return null
+  return (
+    <section aria-label="No AI provider yet" className="mb-6 max-w-3xl rounded-xl border bg-card p-4">
+      <h2 className="font-medium">Add an AI provider key first</h2>
+      <p className="mb-2 text-sm text-muted-foreground">Agents work with your own keys. One is enough: Forecrew finds its models and gives them to the roles.</p>
+      <Link to="/settings/models" className={buttonVariants({ variant: "outline" })}>
+        Add a key
+      </Link>
+    </section>
+  )
+}
+
 /**
  * First-run setup: where jobs run comes before the repository, because onboarding is itself a
  * job and needs a machine. Each step names its decision; later ones follow the earlier.
@@ -43,6 +60,7 @@ export function SetupPage() {
   const current = STEPS.find((s) => !done[s.id])!.id
   return (
     <>
+      <ModelsFirst />
       <PageHeader title="Set up Forecrew" meta="Three decisions: where jobs run, which repository, the first goal.">
         <AskButton message="Help me set up Forecrew" />
       </PageHeader>

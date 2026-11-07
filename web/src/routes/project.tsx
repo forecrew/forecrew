@@ -18,6 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { goalRef, goalTone, isRefOrId, jobRef, projectTone, splitList, stageOf, words } from "@/lib/format"
 import { ProjectAccess } from "@/components/ProjectAccess"
+import { ProjectModels } from "@/components/ProjectModels"
 import { useCan } from "@/lib/permissions"
 
 function ProfileView({ profile }: { profile: Profile }) {
@@ -246,6 +247,7 @@ export function ProjectPage() {
           </section>
 
           <ProjectAccess project={p} />
+          <ProjectModels project={p} />
         </>
       )}
     </Async>
