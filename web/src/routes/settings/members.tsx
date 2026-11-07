@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { api } from "@/api/client"
-import { keys, useChange, useInvitations, useMe, useMembers, useProjects, useRevokeInvitation, useRoles } from "@/api/queries"
-import type { Invitation, Member } from "@/api/types"
+import { keys, useBindings, useChange, useInvitations, useMe, useMembers, useProjects, useRevokeInvitation, useRoles } from "@/api/queries"
+import type { Invitation, Member, Role } from "@/api/types"
 import { Age } from "@/components/Age"
 import { Async } from "@/components/Async"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -43,13 +43,112 @@ function Access({ m }: { m: Member }) {
   )
 }
 
-function MemberActions({ m, lastOwner }: { m: Member; lastOwner: boolean }) {
+/**
+ * Why the caller may not act on a member: someone who holds roles the caller
+ * does not fully hold (an Admin and an Owner) is out of reach (No escalation).
+ */
+export function outOfReach(m: Member, roles: Role[], mine: string[]): string | undefined {
+  for (const held of m.roles) {
+    if (held.scope !== "organization") continue
+    const lacking = roles.find((r) => r.scope === "organization" && r.name === held.role)?.permissions.find((p) => !mine.includes(p))
+    if (lacking) return `Only someone who holds everything ${held.role} does can change ${m.name} (you lack ${lacking}).`
+  }
+  return undefined
+}
+
+/** Changes the organization role of a member: the new role is given first, then the old ones are taken. */
+function ChangeRole({ m, lastOwner }: { m: Member; lastOwner: boolean }) {
+  const roles = useRoles()
+  const bindings = useBindings()
+  const [open, setOpen] = useState(false)
+  const [role, setRole] = useState("")
+  const mine = (bindings.data ?? []).filter((b) => b.subject_kind === "user" && b.subject_id === m.user_id && !b.project && b.role_scope === "organization")
+  const options = (roles.data ?? []).filter((r) => r.scope === "organization")
+  const chosen = role || m.roles.find((r) => r.scope === "organization")?.role || options[0]?.name || ""
+  const change = useChange(
+    async (name: string) => {
+      const given = mine.some((b) => b.role === name) ? undefined : await api.createBinding({ subject_kind: "user", subject: m.user_id, role: name })
+      try {
+        for (const b of mine.filter((x) => x.role !== name)) await api.deleteBinding(b.id)
+      } catch (err) {
+        if (given) await api.deleteBinding(given.id).catch(() => {}) // as it was
+        throw err
+      }
+    },
+    ["bindings"],
+    keys.members,
+  )
+  if (lastOwner) return <DisabledAction label={`Change role of ${m.name}`} text="Change role" reason="The last Owner cannot be demoted." />
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) change.reset()
+      }}
+    >
+      <DialogTrigger render={<Button variant="outline" aria-label={`Change role of ${m.name}`} />}>Change role</DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Change the role of {m.name}</DialogTitle>
+          <DialogDescription>The new role replaces their role on the organization. Access on projects, and through teams, stays.</DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            change.mutate(chosen, { onSuccess: () => setOpen(false) })
+          }}
+        >
+          <Field label="Role">
+            {(p) => (
+              <NativeSelect {...p} value={chosen} onChange={(e) => setRole(e.target.value)}>
+                {options.map((r) => (
+                  <NativeSelectOption key={r.name} value={r.name}>
+                    {r.name}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            )}
+          </Field>
+          {change.isError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {change.error.message}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button type="submit" disabled={change.isPending || !chosen}>
+              Change role
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function MemberActions({ m, lastOwner, unreachable }: { m: Member; lastOwner: boolean; unreachable?: string }) {
   const suspend = useChange((suspended: boolean) => api.suspendMember(m.user_id, suspended), keys.members)
   const remove = useChange((id: string) => api.removeMember(id), keys.members)
   const whose = `${m.name}`
   if (m.source === "scim") return null // the status column says who manages it
+  if (unreachable) {
+    return (
+      <div className="space-y-1">
+        <div className="flex flex-wrap gap-2">
+          {[["Change role", `Change role of ${whose}`], [m.status === "suspended" ? "Resume" : "Suspend", `${m.status === "suspended" ? "Resume" : "Suspend"} ${whose}`], ["Remove", `Remove ${whose}`]].map(([text, label]) => (
+            <Button key={text} variant="outline" disabled aria-label={label}>
+              {text}
+            </Button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">{unreachable}</p>
+      </div>
+    )
+  }
   return (
     <div className="flex flex-wrap items-start gap-2">
+      <ChangeRole m={m} lastOwner={lastOwner} />
       {m.status === "suspended" ? (
         <Button variant="outline" aria-label={`Resume ${whose}`} onClick={() => suspend.mutate(false)} disabled={suspend.isPending}>
           Resume
@@ -306,6 +405,7 @@ export function MembersTab() {
   const me = useMe().data
   const can = useCan()
   const members = useMembers()
+  const roles = useRoles()
   const manage = can("member.manage")
   const [link, setLink] = useState<{ url: string; who: string }>()
   const owners = (members.data ?? []).filter((m) => m.status === "active" && m.roles.some((r) => r.role === "owner" && r.scope === "organization"))
@@ -348,7 +448,7 @@ export function MembersTab() {
                     </TableCell>
                     {manage ? (
                       <TableCell>
-                        <MemberActions m={m} lastOwner={owners.length === 1 && owners[0]!.user_id === m.user_id} />
+                        <MemberActions m={m} lastOwner={owners.length === 1 && owners[0]!.user_id === m.user_id} unreachable={outOfReach(m, roles.data ?? [], me?.permissions ?? [])} />
                       </TableCell>
                     ) : null}
                   </TableRow>

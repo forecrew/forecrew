@@ -1,3 +1,4 @@
+import { LockIcon } from "lucide-react"
 import { useState } from "react"
 import { api } from "@/api/client"
 import { keys, useChange, useConnections } from "@/api/queries"
@@ -28,9 +29,23 @@ function AddConnection({ onAdded }: { onAdded: (c: Connection) => void }) {
   const [name, setName] = useState("")
   const [issuer, setIssuer] = useState("")
   const [clientId, setClientId] = useState("")
-  const [secretRef, setSecretRef] = useState("")
+  const [secret, setSecret] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const add = useChange((v: Parameters<typeof api.createConnection>[0]) => api.createConnection(v), keys.connections)
+  // The client secret goes through a change plan: a secure field straight to
+  // the secret store, and the connection starts turned off.
+  const add = useChange(async (v: { kind: ConnectionKind; name: string; issuer?: string; client_id: string; secret: string }) => {
+    const ref = `conn-${v.name}`
+    const spec = { kind: v.kind, client_id: v.client_id, client_secret_ref: `store:${ref}`, jit: { enabled: false }, enabled: false, ...(v.issuer ? { issuer: v.issuer } : {}) }
+    const plan = await api.planConfig(`Add sign-in ${v.name}`, [{ kind: "connection", name: v.name, spec }])
+    try {
+      await api.putPlanSecret(plan.id, ref, v.secret)
+      await api.applyPlan(plan.id)
+    } catch (err) {
+      await api.cancelPlan(plan.id).catch(() => {}) // no plan is left open
+      throw err
+    }
+    return (await api.listConnections()).find((c) => c.name === v.name)
+  }, keys.connections)
   const needsIssuer = kind === "oidc" || kind === "microsoft"
 
   const submit = (e: React.FormEvent) => {
@@ -39,19 +54,19 @@ function AddConnection({ onAdded }: { onAdded: (c: Connection) => void }) {
     if (!/^[a-z0-9][a-z0-9._-]{0,63}$/.test(name)) next.name = "Use lowercase letters, digits, dots, dashes and underscores."
     if (needsIssuer && !/^https:\/\/\S+$/.test(issuer)) next.issuer = "Enter the https address of the issuer."
     if (!clientId.trim()) next.clientId = "Enter the client ID from your provider."
-    if (!/^(env:FORECREW_CONN_[A-Z0-9_]+|secret:conn-[a-z0-9._/-]+)$/.test(secretRef)) next.secretRef = "Use env:FORECREW_CONN_NAME or secret:conn-name."
+    if (!secret.trim()) next.secret = "Paste the client secret from your provider."
     setErrors(next)
     if (Object.keys(next).length) return
     add.mutate(
-      { kind, name, client_id: clientId.trim(), client_secret_ref: secretRef, ...(needsIssuer ? { issuer } : {}) },
+      { kind, name, client_id: clientId.trim(), secret, ...(needsIssuer ? { issuer } : {}) },
       {
         onSuccess: (c) => {
           setOpen(false)
           setName("")
           setIssuer("")
           setClientId("")
-          setSecretRef("")
-          onAdded(c)
+          setSecret("") // never kept in the page
+          if (c) onAdded(c)
         },
       },
     )
@@ -94,8 +109,13 @@ function AddConnection({ onAdded }: { onAdded: (c: Connection) => void }) {
           <Field label="Client ID" error={errors.clientId}>
             {(p) => <Input {...p} className="font-mono" value={clientId} onChange={(e) => setClientId(e.target.value)} />}
           </Field>
-          <Field label="Client secret reference" error={errors.secretRef} hint="The client secret itself is never typed here: the server reads it from this name, which your administrator sets up.">
-            {(p) => <Input {...p} className="font-mono" value={secretRef} onChange={(e) => setSecretRef(e.target.value)} />}
+          <Field label="Client secret" error={errors.secret} hint="A secure field: it goes straight to the server's secret store and is never shown again.">
+            {(p) => (
+              <div className="flex items-center gap-2">
+                <LockIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <Input {...p} type="password" autoComplete="off" spellCheck={false} className="font-mono" value={secret} onChange={(e) => setSecret(e.target.value)} />
+              </div>
+            )}
           </Field>
           {add.isError ? (
             <p role="alert" className="text-sm text-destructive">

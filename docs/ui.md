@@ -36,17 +36,20 @@ The screens follow `2 - UI design/Configuration and fleet UI.md`.
   filters by person, action, what it was done to and dates; what was recorded
   is shown as text).
   - Members: role, direct access and teams ("direct", "through team Mobile"),
-    status. Suspend (after confirming), resume and remove need
-    `member.manage`; the last Owner's actions are disabled and say why;
+    status. Change role (the new role is given before the old is taken),
+    suspend (after confirming), resume and remove need `member.manage`; the
+    last Owner's actions are disabled and say why, and so are all actions on a
+    member who holds roles the caller does not fully hold (an Admin and an
+    Owner), naming the permission missing;
     members provisioned by SCIM show "Managed by your identity provider" and
     no controls. Invitations (by email or GitHub login, roles, expiry, revoke):
     the link is shown once with Copy.
   - Teams: members, and the roles each team holds on the organization and on
     projects. Roles lists the built-in roles read-only as capabilities by area.
   - Sign-in: the server's connections are read-only ("Managed by server file").
-    Adding a company sign-in takes a client ID and the name of the secret
-    (`env:FORECREW_CONN_NAME` or `secret:conn-name`; the secret is never
-    typed), starts turned off, shows the redirect address to allow at the
+    Adding a company sign-in takes a client ID and the client secret in a
+    secure field (a password input that goes through a change plan to the secret
+    store, `store:conn-<name>`, and is never shown again), starts turned off, shows the redirect address to allow at the
     provider, and can be turned on only after Test sign-in worked.
 - **Your account** (`/account`; `/tokens` leads here): linked sign-ins,
   personal tokens (create with name, scope and expiry, shown once with Copy;

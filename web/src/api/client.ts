@@ -1,5 +1,5 @@
 import type {
-  Account, AuditEntry, AuditFilter, BrowserSession, CliAuthorization, Connection, CreateConnectionInput, CreatedInvitation, CreatedToken, Identity,
+  Account, ConfigPlan, AuditEntry, AuditFilter, BrowserSession, CliAuthorization, Connection, CreateConnectionInput, CreatedInvitation, CreatedToken, Identity,
   Invitation, Member, Role, RoleBinding, Scope, ServiceAccount, Team, TeamMember,
   Artifact, Assumption, AssumptionStatus, Council, CouncilDetail, CouncilStatus, Decision, StartCouncilInput,
   CreateGoalInput, Discovery, DispatchJobInput, ErrorBody, Gate, GateInfo, Goal, GoalDetail, GoalStatus, Job, JobInfo,
@@ -145,6 +145,15 @@ export const api = {
   createServiceAccount: (input: { name: string; description?: string }) => request<ServiceAccount>("POST", "/api/v1/service-accounts", input),
   setServiceAccountDisabled: (name: string, disabled: boolean) =>
     request<ServiceAccount>("POST", `/api/v1/service-accounts/${seg(name)}/${disabled ? "disable" : "enable"}`),
+
+  /** A plan of changes made from a form; it is applied with applyPlan once its secure fields are filled. */
+  planConfig: (title: string, changes: { kind: string; name: string; spec: unknown }[]) =>
+    request<ConfigPlan>("POST", "/api/v1/config/plans", { title, changes, source: "form" }),
+  /** Saves a secure field of a plan; the value goes to the secret store and is never read back. */
+  putPlanSecret: (plan: string, secret: string, value: string) =>
+    request<ConfigPlan>("PUT", `/api/v1/config/plans/${seg(plan)}/secrets/${seg(secret)}`, { value }),
+  applyPlan: (plan: string, word?: string) => request<{ plan: ConfigPlan }>("POST", `/api/v1/config/plans/${seg(plan)}/apply`, word ? { word } : {}),
+  cancelPlan: (plan: string) => request<ConfigPlan>("POST", `/api/v1/config/plans/${seg(plan)}/cancel`),
 
   listConnections: () => request<Connection[]>("GET", "/api/v1/connections"),
   createConnection: (input: CreateConnectionInput) => request<Connection>("POST", "/api/v1/connections", input),
