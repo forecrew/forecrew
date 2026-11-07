@@ -1,6 +1,7 @@
 package tracker_test
 
 import (
+	"context"
 	"errors"
 	"go/parser"
 	"go/token"
@@ -13,6 +14,7 @@ import (
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/tracker"
 	"github.com/forecrew/forecrew/internal/tracker/trackertest"
@@ -128,6 +130,56 @@ func TestDeliverWithAFullQueue(t *testing.T) {
 		must(t, w.svc.Deliver(t.Context(), trackertest.Kind, tracker.Request{Header: h, Body: body}))
 	}
 	w.svc.Drain(t.Context())
+}
+
+// flakyGates fails the next Resolve.
+type flakyGates struct {
+	gates.Service
+	fail bool
+}
+
+func (f *flakyGates) Resolve(ctx context.Context, by domain.Actor, id uuid.UUID, d domain.GateStatus, feedback string) (domain.Gate, error) {
+	if f.fail {
+		f.fail = false
+		return domain.Gate{}, errors.New("the database went away")
+	}
+	return f.Service.Resolve(ctx, by, id, d, feedback)
+}
+
+// An answer that fails is taken back, and the same comment cannot answer the
+// next question when it is read again.
+func TestAReplyThatFailsAnswersNothingLater(t *testing.T) {
+	st := testkit.NewStore(nil)
+	acc := domain.Account{Name: "default"}
+	must(t, st.Accounts().Create(t.Context(), &acc))
+	flaky := &flakyGates{}
+	w := newWorld(t, st, acc.ID, func(c *tracker.Config) {
+		flaky.Service = c.Gates
+		c.Gates = flaky
+	})
+	ctx := t.Context()
+	w.route(t, w.app.ID, domain.TrackerMatch{}, nil)
+	w.put(t, labeled("A-1", w.ann))
+	q := w.question(t, w.link(t, "A-1"), "Which?")
+	flaky.fail = true
+	w.fake.PersonComment("A-1", w.ann, "@forecrew reply Postgres")
+	if err := w.svc.Hint(ctx, w.conn, tracker.Event{Key: "A-1"}); err == nil {
+		t.Fatal("a failed answer was not reported")
+	}
+	must(t, w.svc.Hint(ctx, w.conn, tracker.Event{Key: "A-1"})) // read again: claimed
+	if g, _ := w.gates.Get(ctx, w.account, q.ID); g.Status != domain.GatePending {
+		t.Fatalf("the comment answered after all: %+v", g)
+	}
+	w.sync(t)
+	text := comments(w.fake.Ticket("A-1"))
+	if strings.Contains(text, "is answered") || !strings.Contains(text, "did not go through") {
+		t.Errorf("comments = %q", text)
+	}
+	w.fake.PersonComment("A-1", w.ann, "@forecrew reply Postgres, again")
+	w.hint(t, "A-1")
+	if g, _ := w.gates.Get(ctx, w.account, q.ID); g.Status != domain.GateApproved || !strings.Contains(g.Feedback, "again") {
+		t.Errorf("a new reply: %+v", g)
+	}
 }
 
 // The bounds apply to what an adapter returns.

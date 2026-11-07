@@ -286,6 +286,7 @@ func scenarios() map[string]func(*testing.T, *world) {
 		"project not onboarded":         projectNotOnboarded,
 		"an issue has one goal":         anIssueHasOneGoal,
 		"a stale transition is dropped": staleTransitionIsDropped,
+		"a reply answers once":          aReplyAnswersOnce,
 		"so is one with no successor":   staleTransitionWithoutASuccessor,
 	}
 }
@@ -1223,6 +1224,32 @@ func staleTransitionWithoutASuccessor(t *testing.T, w *world) {
 	w.sync(t)
 	if got := w.fake.Ticket("AI-1"); got.State != "closed" || !got.Closed {
 		t.Errorf("a person's change was undone: %+v", got)
+	}
+}
+
+// A comment read again, here because its cursor was lost, answers nothing
+// more, whatever it said the first time.
+func aReplyAnswersOnce(t *testing.T, w *world) {
+	ctx := t.Context()
+	w.route(t, w.app.ID, domain.TrackerMatch{}, nil)
+	w.fake.Put(labeled("AJ-1", w.ann))
+	w.hint(t, "AJ-1")
+	w.fake.PersonComment("AJ-1", w.ann, "@forecrew reply too early")
+	w.hint(t, "AJ-1") // no question yet
+	l := w.link(t, "AJ-1")
+	first := w.question(t, l, "First?")
+	w.fake.PersonComment("AJ-1", w.ann, "@forecrew reply Postgres")
+	w.hint(t, "AJ-1")
+	if g, _ := w.gates.Get(ctx, w.account, first.ID); g.Status != domain.GateApproved {
+		t.Fatalf("first = %+v", g)
+	}
+	second := w.question(t, l, "Second?")
+	l = w.link(t, "AJ-1")
+	l.CommentCursor = ""
+	must(t, w.st.TicketLinks().Update(ctx, &l))
+	w.hint(t, "AJ-1")
+	if g, _ := w.gates.Get(ctx, w.account, second.ID); g.Status != domain.GatePending {
+		t.Errorf("an old reply answered the next question: %+v", g)
 	}
 }
 

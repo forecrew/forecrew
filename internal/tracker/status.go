@@ -389,6 +389,10 @@ func (s *Service) readComments(ctx context.Context, c domain.TrackerConnection, 
 // reply answers the oldest question of the goal as the mapped user. It
 // resolves only ask_human gates, which no playbook step waits on; the answer
 // is ticket text, so it reaches the agent marked.
+//
+// The comment's dedupe key is claimed before anything happens, whatever the
+// outcome: a comment read again after a failure finds it taken and cannot
+// answer the next question with the same text.
 func (s *Service) reply(ctx context.Context, c domain.TrackerConnection, ad Adapter, l domain.TicketLink, g domain.Goal, cm Comment, text string) error {
 	user, ok, err := s.person(ctx, c, ad, cm.Author)
 	if err != nil {
@@ -398,27 +402,56 @@ func (s *Service) reply(ctx context.Context, c domain.TrackerConnection, ad Adap
 		s.cfg.Logger.Warn("reply from an unknown tracker user", "account_id", l.AccountID, "connection", c.ID, "key", l.Key)
 		return audit(ctx, s.cfg.Store, s.forecrewd(l.AccountID), l, "ticket.reply_ignored", s.cfg.Now(), map[string]any{"key": l.Key, "comment": cm.ID})
 	}
-	questions, err := s.questions(ctx, l.AccountID, g)
+	by := domain.UserActor(l.AccountID, user, domain.Credential{})
+	q, note, err := s.replyTarget(ctx, by, l, g)
 	if err != nil {
 		return err
 	}
-	key := "reply:" + cm.ID
-	if len(questions) == 0 {
-		return s.say(ctx, s.cfg.Store, l, key, "No question is waiting for an answer here.")
+	claim := domain.TrackerWrite{
+		AccountID: l.AccountID, ConnectionID: l.ConnectionID, LinkID: l.ID, Key: l.Key, DedupeKey: "comment:reply:" + cm.ID,
+		Kind: domain.WriteComment, Value: note, NextAttempt: s.cfg.Now(),
 	}
-	q := questions[0]
-	by := domain.UserActor(l.AccountID, user, domain.Credential{})
-	switch err := s.cfg.Authz.AuthorizeGate(ctx, by, q); {
-	case errors.Is(err, authz.ErrDenied):
-		return s.say(ctx, s.cfg.Store, l, key, fmt.Sprintf("You need the permission `%s` on this project to answer.", domain.PermGateApproveNeedsYou))
-	case err != nil:
-		return err
+	isNew, err := s.cfg.Store.TrackerOutbox().Enqueue(ctx, &claim)
+	if err != nil {
+		return fmt.Errorf("claim comment %s: %w", cm.ID, err)
+	}
+	if !isNew || q.ID == uuid.Nil() {
+		return nil
 	}
 	answer := contextpack.WrapUntrusted("reply on ticket "+l.Key, text)
 	if _, err := s.cfg.Gates.Resolve(ctx, by, q.ID, domain.GateApproved, answer); err != nil {
-		return fmt.Errorf("answer %s: %w", q.Ref(), err)
+		return errors.Join(fmt.Errorf("answer %s: %w", q.Ref(), err), s.withdraw(ctx, l, claim, cm, q))
 	}
-	return s.say(ctx, s.cfg.Store, l, key, q.Ref()+" is answered.")
+	return nil
+}
+
+// replyTarget returns the question a reply answers and what to say to it; the
+// zero gate when it answers none.
+func (s *Service) replyTarget(ctx context.Context, by domain.Actor, l domain.TicketLink, g domain.Goal) (domain.Gate, string, error) {
+	questions, err := s.questions(ctx, l.AccountID, g)
+	if err != nil {
+		return domain.Gate{}, "", err
+	}
+	if len(questions) == 0 {
+		return domain.Gate{}, "No question is waiting for an answer here.", nil
+	}
+	q := questions[0]
+	switch err := s.cfg.Authz.AuthorizeGate(ctx, by, q); {
+	case errors.Is(err, authz.ErrDenied):
+		return domain.Gate{}, fmt.Sprintf("You need the permission `%s` on this project to answer.", domain.PermGateApproveNeedsYou), nil
+	case err != nil:
+		return domain.Gate{}, "", err
+	}
+	return q, q.Ref() + " is answered.", nil
+}
+
+// withdraw takes back the comment of an answer that did not go through, and
+// says so: the comment stays claimed, so the person replies again.
+func (s *Service) withdraw(ctx context.Context, l domain.TicketLink, claim domain.TrackerWrite, cm Comment, q domain.Gate) error {
+	if err := s.cfg.Store.TrackerOutbox().MarkSent(ctx, l.AccountID, claim.ID, "", s.cfg.Now()); err != nil {
+		return fmt.Errorf("withdraw the comment on %s: %w", q.Ref(), err)
+	}
+	return s.say(ctx, s.cfg.Store, l, "reply-failed:"+cm.ID, fmt.Sprintf("Your answer to %s did not go through. Reply again, or answer in Forecrew.", q.Ref()))
 }
 
 // retryAfter is the wait after a failed attempt.
