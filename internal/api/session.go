@@ -241,7 +241,7 @@ func (s *Server) switchOrganization(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	acc, err := s.cfg.Auth.Switch(r.Context(), caller, body.Organization)
-	if errors.Is(err, auth.ErrNotMember) {
+	if errors.Is(err, auth.ErrNotMember) || errors.Is(err, auth.ErrSSORequired) {
 		s.fail(w, r, err, http.StatusForbidden, "forbidden")
 		return
 	}
@@ -265,7 +265,7 @@ func (s *Server) profile(ctx context.Context, c mcp.Caller, id uuid.UUID) (domai
 
 // discover tells a sign-in page which connections to show. It is public:
 // connection names and kinds are what the page displays anyway.
-func (s *Server) discover(w http.ResponseWriter, r *http.Request) {
+func (s *Server) signInOptions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	var in auth.DiscoverInput
 	if err := decode(r, &in); err != nil {

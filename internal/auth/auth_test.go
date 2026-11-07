@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 	"uuid"
@@ -52,6 +53,17 @@ type fixture struct {
 	cfg     config.Auth
 	inst    domain.Connection // instance OIDC connection
 	gh      domain.Connection // instance GitHub connection
+	http    *http.Client      // reaches the fakes
+	handler *swapHandler      // /auth/, which setPolicy replaces
+}
+
+// swapHandler is a handler that can be replaced while the server runs.
+type swapHandler struct{ h atomic.Value }
+
+func (s *swapHandler) set(h http.Handler) { s.h.Store(&h) }
+
+func (s *swapHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	(*s.h.Load().(*http.Handler)).ServeHTTP(w, r)
 }
 
 func must(t *testing.T, err error) {
@@ -96,7 +108,9 @@ func newFixture(t *testing.T, change ...func(*config.Auth)) *fixture {
 		},
 	})
 	must(t, f.svc.Start(t.Context()))
-	mux.Handle("/auth/", f.svc.Handler())
+	f.http, f.handler = insecure, &swapHandler{}
+	f.handler.set(f.svc.Handler())
+	mux.Handle("/auth/", f.handler)
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "the app") })
 	conns, err := f.st.Connections().List(t.Context(), uuid.Nil())
 	must(t, err)

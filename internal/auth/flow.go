@@ -268,6 +268,7 @@ const (
 	reasonDisabled          = "user_disabled"
 	reasonSuspended         = "membership_suspended"
 	reasonTestDenied        = "test_denied"
+	reasonSSORequired       = "sso_required"
 )
 
 var reasons = map[string]struct {
@@ -288,6 +289,7 @@ var reasons = map[string]struct {
 	reasonDisabled:        {http.StatusForbidden, "This account is disabled", "Ask your administrator."},
 	reasonSuspended:       {http.StatusForbidden, "Your membership is suspended", "Ask an owner of your organization."},
 	reasonTestDenied:      {http.StatusForbidden, "You cannot test this sign-in", "Sign in as an administrator of the organization that owns it, then start the test again from its settings."},
+	reasonSSORequired:     {http.StatusForbidden, "Your organization requires its single sign-on", "Sign in with your work account: enter your work email on the sign-in page."},
 }
 
 // refused is a sign-in stopped for a reason.

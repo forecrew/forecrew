@@ -88,6 +88,38 @@ func TestLinkedUserResolvesWithThePermission(t *testing.T) {
 	}
 }
 
+// Under SSO enforcement through another connection, a linked GitHub account
+// no longer stands for the member; through GitHub itself it does.
+func TestCommandOfEnforcedUser(t *testing.T) {
+	ctx := t.Context()
+	e := newEnv(t)
+	e.issue()
+	id := e.linked(domain.RoleMaintainer)
+	u, err := e.st.Users().Get(ctx, id)
+	must(t, err)
+	u.Email = "octo@acme.example"
+	must(t, e.st.Users().Update(ctx, &u))
+	d := domain.VerifiedDomain{AccountID: e.account, Domain: "acme.example", VerificationToken: "t"}
+	must(t, e.st.VerifiedDomains().Create(ctx, &d))
+	must(t, e.st.VerifiedDomains().SetVerified(ctx, e.account, d.ID, true))
+	conn := domain.Connection{AccountID: e.account, Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://idp.example", ClientID: "c", ClientSecretRef: "env:FORECREW_CONN_X", Enabled: true}
+	must(t, e.st.Connections().Create(ctx, &conn))
+	must(t, e.st.VerifiedDomains().SetEnforcement(ctx, e.account, d.ID, true, conn.ID))
+
+	g := e.openGate(domain.GateMergeApproval, 1)
+	e.comment("@forecrew approve")
+	if got := e.gate(g); got.Status != domain.GatePending {
+		t.Fatalf("gate = %+v", got)
+	}
+	hub := domain.Connection{Kind: domain.ConnectionGitHub, Name: "hub", ClientID: "c", ClientSecretRef: "env:X", Enabled: true}
+	must(t, e.st.Connections().UpsertInstance(ctx, &hub))
+	must(t, e.st.VerifiedDomains().SetEnforcement(ctx, e.account, d.ID, true, hub.ID))
+	e.comment("@forecrew approve")
+	if got := e.gate(g); got.Status != domain.GateApproved {
+		t.Fatalf("gate = %+v", got)
+	}
+}
+
 // TestCommandRefusedWithoutThePermission is a Contributor who may approve
 // specs but not merges.
 func TestCommandRefusedWithoutThePermission(t *testing.T) {
