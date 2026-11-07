@@ -271,6 +271,18 @@ func (d Deps) withDefaults() Deps {
 	return d
 }
 
+// modelService decides each job's model connection. Without GitHub's word
+// that a repo is public, every repo counts as private.
+func modelService(st store.Store, cfg *config.Config, vault secrets.Store, log *slog.Logger, d Deps) *models.Service {
+	svc := models.New(st, cfg, vault, log)
+	if gh, ok := d.GitHub.(interface {
+		RepoPublic(ctx context.Context, repo string) (bool, error)
+	}); ok {
+		svc.WithPublicRepo(gh.RepoPublic, d.Now)
+	}
+	return svc
+}
+
 // New builds every component. It fails when a role or a playbook is
 // invalid: a playbook calling an unregistered action or running an unknown
 // role stops startup.
@@ -293,7 +305,7 @@ func New(d Deps) (*App, error) {
 	if encrypted != nil {
 		vault = encrypted
 	}
-	modelSvc := models.New(st, cfg, vault, log)
+	modelSvc := modelService(st, cfg, vault, log, d)
 	catalog.WithModels(modelSvc)
 	seats, err := councils.Load(d.Files, catalog.Definition)
 	if err != nil {

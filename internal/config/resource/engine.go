@@ -266,6 +266,11 @@ func (g *Engine) Plan(ctx context.Context, by domain.Actor, req PlanRequest) (do
 		Applies: "now", Changes: []domain.ConfigChange{}, Steps: []domain.ConfigStep{}, Needs: []domain.Permission{}, LowersProtection: []string{}, Reversible: true,
 		Untrusted: req.Untrusted, CreatedBy: by.String(), ConversationID: req.ConversationID, JobID: req.JobID, Reverts: req.Reverts, ExpiresAt: now.Add(g.cfg.TTL)}
 	wanted := slices.Clone(req.Changes)
+	implied, err := impliedAuthorizations(ctx, e, wanted)
+	if err != nil {
+		return domain.ConfigPlan{}, err
+	}
+	wanted = append(wanted, implied...)
 	slices.SortStableFunc(wanted, func(a, b Wanted) int { return cmp.Compare(order(a.Kind), order(b.Kind)) })
 	cur := current{}
 	d := draft{plan: &p}

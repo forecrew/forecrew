@@ -3,6 +3,8 @@ package models
 import (
 	"fmt"
 	"io/fs"
+	"net/netip"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/config"
+	"github.com/forecrew/forecrew/internal/netguard"
 	"github.com/forecrew/forecrew/internal/schema"
 )
 
@@ -289,4 +292,23 @@ func (c *Catalog) MakerOf(model string) string {
 		}
 	}
 	return ""
+}
+
+// LocalEndpoint reports whether baseURL is on localhost or a loopback or
+// private address: a model there runs on your own network, and private code
+// sent to it needs no authorization. Empty is the vendor's own endpoint.
+func LocalEndpoint(baseURL string) bool {
+	if baseURL == "" {
+		return false
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	host := u.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	a, err := netip.ParseAddr(host)
+	return err == nil && netguard.Local(a)
 }

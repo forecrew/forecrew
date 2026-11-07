@@ -98,6 +98,23 @@ func (c *Client) HeadSHA(ctx context.Context, repo, branch string) (string, erro
 	return ref.GetObject().GetSHA(), nil
 }
 
+// RepoPublic reports whether repo is public: its visibility is public. A
+// private or internal repo, or one GitHub does not show, is not.
+func (c *Client) RepoPublic(ctx context.Context, repo string) (bool, error) {
+	g, owner, name, err := c.repoClient(ctx, repo)
+	if err != nil {
+		return false, err
+	}
+	r, _, err := g.Repositories.Get(ctx, owner, name)
+	if err != nil {
+		return false, wrap("get repo "+repo, err)
+	}
+	if v := r.GetVisibility(); v != "" {
+		return v == "public", nil
+	}
+	return r.Private != nil && !r.GetPrivate(), nil
+}
+
 // Archive implements Tracker. GitHub answers the archive request with a
 // redirect to a short-lived download URL, which needs no token.
 func (c *Client) Archive(ctx context.Context, repo, ref string) (io.ReadCloser, error) {

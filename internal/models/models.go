@@ -23,8 +23,14 @@ import (
 	"github.com/forecrew/forecrew/internal/store"
 )
 
-// ReasonNoConnection is the reason_code of a job that waits for a connection.
-const ReasonNoConnection = "no_connection"
+// Reason codes of a job that waits (job_status reason_code).
+const (
+	// ReasonNoConnection: no usable connection serves its role.
+	ReasonNoConnection = "no_connection"
+	// ReasonPrivateCode: its connection is not authorized for the private
+	// code of its project.
+	ReasonPrivateCode = "private_code"
+)
 
 // Where a decision comes from.
 const (
@@ -64,6 +70,9 @@ type Decision struct {
 	// that has no model settings of its own. A role that was never configured
 	// is refused when a job is created, as it always was.
 	Unset bool
+	// Code is the reason code of a decision that waits; empty means
+	// ReasonNoConnection.
+	Code string
 
 	connection domain.ModelConnection
 }
@@ -73,6 +82,9 @@ type State struct {
 	Connections map[string]domain.ModelConnection
 	Org         domain.ModelAssignment
 	Projects    map[uuid.UUID]domain.ModelAssignment
+	// Authorizations say which connection may receive the private code of
+	// which project; Decide does not look at them, Service does.
+	Authorizations []domain.ModelAuthorization
 }
 
 // NewState builds a State from the rows of a store.
@@ -239,6 +251,7 @@ type Service struct {
 	cfg    *config.Config
 	vault  secrets.Store
 	logger *slog.Logger
+	repos  *visibility
 }
 
 // New returns a service. cfg is forecrew.yaml with the stored server settings;
@@ -247,7 +260,7 @@ func New(st store.Store, cfg *config.Config, vault secrets.Store, logger *slog.L
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return &Service{st: st, cfg: cfg, vault: vault, logger: logger}
+	return &Service{st: st, cfg: cfg, vault: vault, logger: logger, repos: &visibility{}}
 }
 
 func (s *Service) load(ctx context.Context, accountID uuid.UUID) (State, error) {
@@ -259,7 +272,13 @@ func (s *Service) load(ctx context.Context, accountID uuid.UUID) (State, error) 
 	if err != nil {
 		return State{}, fmt.Errorf("model assignments: %w", err)
 	}
-	return NewState(conns, assigns), nil
+	auths, err := s.st.ModelAuthorizations().List(ctx, accountID)
+	if err != nil {
+		return State{}, fmt.Errorf("model authorizations: %w", err)
+	}
+	st := NewState(conns, assigns)
+	st.Authorizations = auths
+	return st, nil
 }
 
 // key reads the key of a decision on an organization's connection, in that
@@ -285,7 +304,11 @@ func (s *Service) key(ctx context.Context, accountID uuid.UUID, d Decision) (Dec
 }
 
 func (s *Service) decide(ctx context.Context, accountID uuid.UUID, st State, r Request) (Decision, []byte, error) {
-	return s.key(ctx, accountID, st.Decide(s.cfg, r))
+	d, err := s.private(ctx, accountID, st, r.ProjectID, st.Decide(s.cfg, r))
+	if err != nil || d.Waiting != "" {
+		return d, nil, err
+	}
+	return s.key(ctx, accountID, d)
 }
 
 // Decide answers for one request, keys included.
@@ -397,13 +420,12 @@ func (s *Service) Settle(ctx context.Context, accountID uuid.UUID) error {
 // pass, whether each connection has a key, so each is read once.
 func (s *Service) settled(ctx context.Context, accountID uuid.UUID, st State, c store.JobClass, keys map[string]Decision) (Decision, error) {
 	j := domain.Job{ProjectID: c.ProjectID, Role: c.Role, Pool: c.Pool, Runtime: c.Runtime, Spec: domain.JobSpec{PinnedRuntime: c.Pinned}}
-	d := st.Decide(s.cfg, requestOf(j))
-	if d.Source != SourceOrganization {
-		return d, nil
+	d, err := s.private(ctx, accountID, st, c.ProjectID, st.Decide(s.cfg, requestOf(j)))
+	if err != nil || d.Source != SourceOrganization || d.Waiting != "" {
+		return d, err
 	}
 	checked, ok := keys[d.Connection]
 	if !ok {
-		var err error
 		if checked, _, err = s.key(ctx, accountID, d); err != nil {
 			return d, err
 		}
@@ -433,7 +455,7 @@ func (s *Service) WaitReason(ctx context.Context, j domain.Job) (code, sentence 
 	if err != nil || d.Unset || d.Waiting == "" {
 		return "", "", false, err
 	}
-	return ReasonNoConnection, d.Waiting, true, nil
+	return cmp.Or(d.Code, ReasonNoConnection), d.Waiting, true, nil
 }
 
 type before struct {

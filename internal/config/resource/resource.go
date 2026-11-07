@@ -223,7 +223,7 @@ func base[S any](kind, title, scope string, read domain.Permission) Area {
 // refer to comes first.
 var areas = []Area{
 	organizationArea(), runtimeArea(), poolArea(), authArea(), scheduleArea(),
-	modelConnectionArea(), modelAssignmentArea(),
+	modelConnectionArea(), modelAssignmentArea(), modelAuthorizationArea(),
 	connectionArea(), domainArea(), memberArea(), teamArea(), roleBindingArea(),
 	providerArea(), shapeArea(), fleetPolicyArea(), trackerConnectionArea(), trackerRouteArea(),
 	integrationArea(), knowledgePolicyArea(), repoFileArea(),

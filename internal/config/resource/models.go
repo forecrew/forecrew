@@ -161,6 +161,13 @@ func modelConnectionApply(ctx context.Context, e *Env, old, want *Resource) erro
 			return err
 		}
 		before = &o
+		// An authorization is for where the code goes: a new endpoint
+		// needs a new one.
+		if o.Adapter != s.Adapter || o.BaseURL != s.BaseURL {
+			if err := e.Store.ModelAuthorizations().DeleteConnection(ctx, e.Actor.AccountID, c.ID); err != nil {
+				return err
+			}
+		}
 	}
 	for _, action := range connectionActions(before, s) {
 		if err := auditModel(ctx, e, action, want.Name, map[string]any{"secret_ref": s.SecretRef, "base_url": s.BaseURL}); err != nil {
@@ -627,6 +634,17 @@ func (w *modelWorld) users(connection string) []string {
 	return out
 }
 
+// moved reports whether c sends an existing connection to another endpoint.
+func moved(c domain.ConfigChange) bool {
+	old, want := resources(c)
+	if c.Kind != KindModelConnection || old == nil || want == nil {
+		return false
+	}
+	o, _ := decode[modelConnectionSpec](old.Spec)
+	w, _ := decode[modelConnectionSpec](want.Spec)
+	return o.Adapter != w.Adapter || o.BaseURL != w.BaseURL
+}
+
 // retired reports whether c turns a connection off or deletes it.
 func retired(c domain.ConfigChange) bool {
 	if c.Kind != KindModelConnection {
@@ -646,7 +664,7 @@ func retired(c domain.ConfigChange) bool {
 
 func touchesModels(changes []domain.ConfigChange) bool {
 	return slices.ContainsFunc(changes, func(c domain.ConfigChange) bool {
-		return c.Kind == KindModelConnection || c.Kind == KindModelAssignment
+		return c.Kind == KindModelConnection || c.Kind == KindModelAssignment || c.Kind == KindModelAuthorization
 	})
 }
 
@@ -663,6 +681,9 @@ func reviewModels(ctx context.Context, e *Env, changes []domain.ConfigChange) (p
 	}
 	var notes []string
 	for _, c := range changes {
+		if moved(c) {
+			notes = append(notes, "Connection "+c.Name+" goes to a new endpoint, so its authorizations for private code end: authorize it again where it should serve private repos.")
+		}
 		if !retired(c) {
 			continue
 		}
@@ -673,7 +694,11 @@ func reviewModels(ctx context.Context, e *Env, changes []domain.ConfigChange) (p
 	if err := w.overlay(ctx, e, changes); err != nil {
 		return nil, "", err
 	}
-	return w.problems(e), strings.Join(notes, " "), nil
+	problems, said, err := describeAuthorizations(ctx, e, w, changes)
+	if err != nil {
+		return nil, "", err
+	}
+	return append(w.problems(e), problems...), strings.Join(append(notes, said...), " "), nil
 }
 
 // recheckModels is the same check inside the transaction of a plan, on what

@@ -111,6 +111,26 @@ func TestHeadSHA(t *testing.T) {
 	wantErr(t, err, github.ErrInvalid)
 }
 
+func TestRepoPublic(t *testing.T) {
+	for body, want := range map[string]bool{
+		`{"private":false,"visibility":"public"}`: true, `{"private":true,"visibility":"private"}`: false,
+		`{"private":false,"visibility":"internal"}`: false, `{"private":false}`: true, `{}`: false,
+	} {
+		e := newEnv(t)
+		e.handle("GET /repos/acme/app", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) })
+		got, err := e.client.RepoPublic(t.Context(), "acme/app")
+		noErr(t, err)
+		if got != want {
+			t.Errorf("%s: public = %v", body, got)
+		}
+	}
+	e := newEnv(t)
+	_, err := e.client.RepoPublic(t.Context(), "acme/app")
+	wantErr(t, err, github.ErrNotFound)
+	_, err = e.client.RepoPublic(t.Context(), "bad")
+	wantErr(t, err, github.ErrInvalid)
+}
+
 // A repo without commits answers 409 on the ref endpoint.
 func TestHeadSHAOfAnEmptyRepo(t *testing.T) {
 	e := newEnv(t)

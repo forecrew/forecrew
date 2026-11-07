@@ -212,6 +212,18 @@ func (w *world) connect(t *testing.T, c domain.ModelConnection, key, role string
 	if err := w.st.ModelAssignments().Put(ctx, &a); err != nil {
 		t.Fatal(err)
 	}
+	// Authorized for every project: the private code policy has its own
+	// tests.
+	w.authorize(t, c, uuid.Nil())
+}
+
+// authorize lets c receive the private code of project, or of every project.
+func (w *world) authorize(t *testing.T, c domain.ModelConnection, project uuid.UUID) {
+	t.Helper()
+	a := domain.ModelAuthorization{AccountID: w.account, ProjectID: project, ConnectionID: c.ID, Connection: c.Name, Adapter: c.Adapter, BaseURL: c.BaseURL, AuthorizedBy: "user:ana"}
+	if err := w.st.ModelAuthorizations().Put(t.Context(), &a); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func (w *world) job(t *testing.T, role, adapter string) domain.Job {
@@ -410,6 +422,7 @@ func TestSeatKeepsItsAdapterThroughAWait(t *testing.T) {
 	if err := w.vault.Put(ctx, domain.Actor{}, w.account, "models/b", []byte("k")); err != nil {
 		t.Fatal(err)
 	}
+	w.authorize(t, c, uuid.Nil())
 	if err := s.Settle(ctx, w.account); err != nil {
 		t.Fatal(err)
 	}

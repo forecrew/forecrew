@@ -23,6 +23,7 @@ a resource nor listed as a bootstrap setting.
 | `auth` | `auth` | `config_settings` over `auth` | `org.manage` |
 | `model_connection` | connection | `model_connections` | `models.manage` |
 | `model_assignment` | `organization`, or `project:<project>` | `model_assignments` | `models.manage`; `models.assign` on the project for `project:` |
+| `model_authorization` | `<connection>@<project>`, or `<connection>@*` | `model_authorizations` | `models.assign` on the project; `models.authorize` for `*` |
 | `connection` | connection | `connections` | `connection.manage`, No escalation |
 | `domain` | email domain | `verified_domains` | `connection.manage` |
 | `member` | user ID, or an email for an invitation | `memberships`, `invitations` | `member.manage`, No escalation |
@@ -145,6 +146,38 @@ code is `internal/models`; nothing else decides a job's connection.
 - **Audit:** `model_connection.created`, `.rotated`, `.disabled`, `.enabled`,
   `.changed`, `.deleted` and `model_assignment.changed`, `.deleted`, with
   references, never a value. Export shows references.
+
+## Private code
+
+Plan decision 35. A provider receives a project's private code only after a
+person authorized that connection for that project. `internal/models` enforces
+it on the server with every decision: when a job is created, when queued jobs
+are settled and again at lease, so no screen or client can skip it.
+
+- **`model_authorization`** `<connection>@<project>` (or `@*`, every project)
+  has an empty spec: who and when are those of the plan that applies it
+  (`model_authorizations`). It holds the connection's `adapter` and `base_url`
+  as they were, and counts only while the connection keeps them: a plan that
+  sends a connection to another endpoint ends its authorizations, and says so.
+  Deleting it revokes: the next job of the project waits.
+- **Exempt:** a connection whose `base_url` is `localhost` or a loopback or
+  private address, because the code stays on your own network; the runtimes of
+  the server file, which are the existing setup, so a pilot does not stop; and
+  a public repo, as GitHub says at that moment (kept five minutes). A repo
+  GitHub does not answer for counts as private.
+- **A plan that assigns a connection to a project** (a role of
+  `project:<project>` put on another connection) gets the
+  `model_authorization` it needs as one more change, and its `affects` says in
+  words whose code goes to which provider and where, from the model catalog:
+  "The code of acme/app goes to Anthropic API (in US) through connection
+  cloud." Confirming the plan records the authorization. Every authorization
+  lowers protection, so it needs the browser and the second confirmation, and
+  a plan from a token cannot add one; `@*` also needs `models.authorize`.
+- **Fail closed:** a job whose connection is not authorized stays queued with
+  runtime `none` and `reason_code` `private_code`, a sentence naming the repo,
+  the connection and the authorization to confirm. Nothing falls back to
+  another connection or to the server's key.
+- **Audit:** `model_authorization.created`, `.deleted`.
 
 ## Plans
 
