@@ -52,11 +52,11 @@ Parameters:
     Description: 'Release of the fleet agent to install.'
   InstallRef:
     Type: String
-    Default: main
-    AllowedPattern: '^[A-Za-z0-9._/-]{1,64}$'
+    AllowedPattern: '^v[0-9][A-Za-z0-9._-]{0,62}$'
     Description: >-
-      Git tag or branch of forecrew/forecrew the install script comes from. Pin it
-      to a release tag you have read.
+      Release tag of forecrew/forecrew the install script comes from, such as
+      v0.2.0. A tag, never a branch: the instance runs that script as root. Read it
+      first.
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: 'The VPC machines start in (ec2 mode).'
@@ -83,9 +83,12 @@ Parameters:
     Description: 'mac mode only: the availability zone of AgentSubnetId, for the dedicated host.'
   FleetName:
     Type: String
-    Default: forecrew
     AllowedPattern: '^[A-Za-z0-9._-]{1,64}$'
-    Description: 'The value of the forecrew:fleet tag on everything the agent creates. The role allows exactly this.'
+    Description: >-
+      The value of the forecrew:fleet tag on everything the agent creates. The role
+      allows exactly this, and the agent terminates every instance in the account
+      and region that carries it, so it must be unique per account and region: for
+      example forecrew-prod-eu1. There is no default on purpose.
   InstanceTypes:
     Type: CommaDelimitedList
     Default: 'c7i.large,c7i.xlarge,c7i.2xlarge,c7i.4xlarge'

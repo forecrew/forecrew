@@ -36,7 +36,7 @@ func TestUserData(t *testing.T) {
 	if f.Content != "FORECREW_SERVER_URL=https://forecrew.example.com:8443\nFORECREW_BOOTSTRAP_TOKEN="+testToken+"\n" {
 		t.Errorf("content = %q", f.Content)
 	}
-	if len(doc.Runcmd) != 2 || strings.Join(doc.Runcmd[0], " ") != "shutdown -P +90" || doc.Runcmd[1][0] != "sh" {
+	if len(doc.Runcmd) != 2 || strings.Join(doc.Runcmd[0], " ") != "shutdown -P +90" || doc.Runcmd[1][0] != "sh" || !strings.Contains(doc.Runcmd[1][2], "obj.pkl") {
 		t.Errorf("runcmd = %v", doc.Runcmd)
 	}
 	if got, _ := userData(&fleet.Bootstrap{ServerURL: "https://x.example", Token: "fcb_x"}, time.Second); !strings.Contains(string(mustDecode(t, got)), "+1'") {

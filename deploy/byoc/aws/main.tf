@@ -11,6 +11,8 @@ data "aws_ssm_parameter" "al2023" {
 }
 
 locals {
+  fleet_name = var.fleet_name != "" ? var.fleet_name : "forecrew-${substr(sha1("${data.aws_caller_identity.current.account_id}${data.aws_region.current.name}${var.vpc_id}"), 0, 8)}"
+
   is_ec2   = var.mode == "ec2"
   is_mac   = var.mode == "mac"
   has_copy = local.is_ec2 && var.copy_ami != null
@@ -38,10 +40,10 @@ locals {
 
 resource "aws_security_group" "machines" {
   count       = local.is_ec2 ? 1 : 0
-  name_prefix = "${var.fleet_name}-machines-"
+  name_prefix = "${local.fleet_name}-machines-"
   description = "Forecrew machines - no inbound, the public internet out"
   vpc_id      = var.vpc_id
-  tags        = merge(local.tags, { Name = "${var.fleet_name}-machines" })
+  tags        = merge(local.tags, { Name = "${local.fleet_name}-machines" })
 
   lifecycle {
     create_before_destroy = true
@@ -86,10 +88,10 @@ resource "aws_vpc_security_group_egress_rule" "machines_ntp" {
 }
 
 resource "aws_security_group" "agent" {
-  name_prefix = "${var.fleet_name}-agent-"
+  name_prefix = "${local.fleet_name}-agent-"
   description = "Forecrew fleet agent - no inbound, HTTPS and DNS out"
   vpc_id      = var.vpc_id
-  tags        = merge(local.tags, { Name = "${var.fleet_name}-agent" })
+  tags        = merge(local.tags, { Name = "${local.fleet_name}-agent" })
 
   lifecycle {
     create_before_destroy = true
@@ -134,7 +136,7 @@ resource "aws_vpc_security_group_egress_rule" "agent_ntp" {
 
 resource "aws_iam_role" "agent" {
   count = local.is_ec2 ? 1 : 0
-  name_prefix = "${var.fleet_name}-agent-"
+  name_prefix = "${local.fleet_name}-agent-"
   description = "Forecrew fleet agent. It creates, tags and terminates instances that carry its fleet tag, and nothing else."
   tags        = local.tags
   assume_role_policy = jsonencode({
@@ -154,7 +156,7 @@ resource "aws_iam_role_policy" "agent" {
   policy = templatefile("${path.module}/policy.json.tftpl", {
     region              = data.aws_region.current.name
     account             = data.aws_caller_identity.current.account_id
-    fleet               = var.fleet_name
+    fleet               = local.fleet_name
     instance_types      = jsonencode(var.instance_types)
     subnet_arns         = jsonencode(local.subnet_arns)
     network_arns        = jsonencode(concat(local.subnet_arns, ["arn:aws:ec2:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:security-group/${aws_security_group.machines[0].id}"]))
@@ -163,7 +165,7 @@ resource "aws_iam_role_policy" "agent" {
 
 resource "aws_iam_instance_profile" "agent" {
   count       = local.is_ec2 ? 1 : 0
-  name_prefix = "${var.fleet_name}-agent-"
+  name_prefix = "${local.fleet_name}-agent-"
   role        = aws_iam_role.agent[0].name
   tags        = local.tags
 }
@@ -174,7 +176,7 @@ resource "aws_ec2_host" "mac" {
   instance_type     = var.agent_instance_type
   auto_placement    = "off"
   host_recovery     = "on"
-  tags              = merge(local.tags, { Name = "${var.fleet_name}-mac-host" })
+  tags              = merge(local.tags, { Name = "${local.fleet_name}-mac-host" })
 }
 
 resource "aws_instance" "agent" {
@@ -185,7 +187,7 @@ resource "aws_instance" "agent" {
   iam_instance_profile   = local.is_ec2 ? aws_iam_instance_profile.agent[0].name : null
   tenancy                = local.is_mac ? "host" : null
   host_id                = local.is_mac ? aws_ec2_host.mac[0].id : null
-  tags                   = merge(local.tags, { Name = "${var.fleet_name}-agent" })
+  tags                   = merge(local.tags, { Name = "${local.fleet_name}-agent" })
 
   metadata_options {
     http_tokens                 = "required"
@@ -203,7 +205,7 @@ resource "aws_instance" "agent" {
     image_signing_key      = var.image_signing_key
     agent_kind             = local.agent_kind
     region                 = data.aws_region.current.name
-    fleet_name             = var.fleet_name
+    fleet_name             = local.fleet_name
     machine_subnets        = join(", ", var.machine_subnet_ids)
     machine_security_group = local.is_ec2 ? aws_security_group.machines[0].id : "none"
     instance_types         = join(", ", var.instance_types)
