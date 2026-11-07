@@ -1,6 +1,7 @@
 package fleet_test
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -161,5 +162,38 @@ func TestMachineName(t *testing.T) {
 	s := m.ID.String()
 	if got := fleet.MachineName(domain.Shape{Name: "linux-small"}, m); got != "linux-small-"+s[len(s)-3:] {
 		t.Fatalf("name = %q", got)
+	}
+}
+
+// heldModels holds every job of role "held" for want of a connection.
+type heldModels struct{ settled int }
+
+func (h *heldModels) Settle(ctx context.Context, accountID uuid.UUID) error {
+	h.settled++
+	return nil
+}
+
+func (h *heldModels) WaitReason(_ context.Context, j domain.Job) (string, string, bool, error) {
+	return "no_connection", "Role " + j.Role + " has no model connection", j.Runtime == domain.RuntimeNone, nil
+}
+
+// A job with no model connection starts no machine and shows why it waits.
+func TestJobsWithoutAConnectionStartNoMachine(t *testing.T) {
+	e := newEnv(t)
+	e.shape(e.prov, "small", nil)
+	models := &heldModels{}
+	e.c = fleet.New(fleet.Config{Store: e.st, Now: e.clock.Now, Direct: func(domain.CapacityProvider) fleet.Provider { return e.fake }, Models: models})
+	e.job(e.account, e.project, func(j *domain.Job) { j.Runtime = domain.RuntimeNone })
+	e.reconcile()
+	if len(e.fake.Requests()) != 0 || models.settled == 0 {
+		t.Fatalf("%d creates, %d settles", len(e.fake.Requests()), models.settled)
+	}
+	o, err := e.c.Overview(e.ctx, e.account, everyProject)
+	must(t, err)
+	if o.Waiting != 1 || o.Queue[0].Code != "no_connection" || !strings.Contains(o.Headline, "no model connection") {
+		t.Fatalf("overview = %+v", o)
+	}
+	if o, _ := e.c.Overview(e.ctx, e.account, func(uuid.UUID) bool { return false }); o.Waiting != 0 {
+		t.Fatalf("hidden overview = %+v", o)
 	}
 }
