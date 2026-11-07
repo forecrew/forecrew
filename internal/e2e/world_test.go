@@ -322,8 +322,10 @@ func (w *world) runWorker(p *workerProc, token string, labels []string) *workerP
 		Client: client, Labels: labels, Version: "e2e", WorkDir: filepath.Join(w.t.TempDir(), "work"), MaxJobs: 1,
 		Runtimes: runtime.NewRegistry(fakeRuntime{runtime.ClaudeCode, name, w.ag}, fakeRuntime{runtime.Codex, name, w.ag}, fakeRuntime{runtime.Opencode, name, w.ag}),
 		Analyzer: &testkit.Analyzer{}, Logger: slog.New(slog.NewTextHandler(p.logs, nil)), Environ: hermeticGit(),
-		CloneURL:          func(string) string { return w.remote },
-		HeartbeatInterval: 100 * time.Millisecond, FlushInterval: 20 * time.Millisecond, GracePeriod: 100 * time.Millisecond,
+		// Key checks reach the fake model providers on this machine.
+		LocalModelEndpoints: true,
+		CloneURL:            func(string) string { return w.remote },
+		HeartbeatInterval:   100 * time.Millisecond, FlushInterval: 20 * time.Millisecond, GracePeriod: 100 * time.Millisecond,
 	}
 	var ctx context.Context
 	ctx, p.cancel = context.WithCancel(context.Background())
