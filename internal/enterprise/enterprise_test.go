@@ -1,6 +1,7 @@
 package enterprise_test
 
 import (
+	"go/ast"
 	"go/build/constraint"
 	"go/parser"
 	"go/token"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -52,44 +54,43 @@ func taggedEnterprise(t *testing.T, path string) bool {
 	return false
 }
 
+// importsEE says whether a Go file imports ee/.
+func importsEE(t *testing.T, path string) bool {
+	t.Helper()
+	const ee = "github.com/forecrew/forecrew/ee"
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slices.ContainsFunc(file.Imports, func(imp *ast.ImportSpec) bool {
+		name, err := strconv.Unquote(imp.Path.Value)
+		return err == nil && (name == ee || strings.HasPrefix(name, ee+"/"))
+	})
+}
+
 // TestOpenCoreDoesNotImportEE walks every Go file outside ee/. Only a file
 // behind the build tag, in cmd/, may import ee/: that is how a binary of the
 // enterprise build links it in.
 func TestOpenCoreDoesNotImportEE(t *testing.T) {
 	root := filepath.Join("..", "..")
-	const ee = "github.com/forecrew/forecrew/ee"
 	seen := 0
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() {
-			switch d.Name() {
-			case "ee", "node_modules", ".git", "web":
-				return filepath.SkipDir
-			}
-			return nil
+		if d.IsDir() && slices.Contains([]string{"ee", "node_modules", ".git", "web"}, d.Name()) {
+			return filepath.SkipDir
 		}
-		if !strings.HasSuffix(path, ".go") {
+		if d.IsDir() || !strings.HasSuffix(path, ".go") {
 			return nil
 		}
 		seen++
-		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		for _, imp := range file.Imports {
-			name, err := strconv.Unquote(imp.Path.Value)
-			if err != nil {
-				return err
-			}
-			if name != ee && !strings.HasPrefix(name, ee+"/") {
-				continue
-			}
-			rel, _ := filepath.Rel(root, path)
-			if !strings.HasPrefix(rel, "cmd"+string(filepath.Separator)) || !taggedEnterprise(t, path) {
-				t.Errorf("%s imports %s", rel, name)
-			}
+		if importsEE(t, path) && (!strings.HasPrefix(rel, "cmd"+string(filepath.Separator)) || !taggedEnterprise(t, path)) {
+			t.Errorf("%s imports ee/", rel)
 		}
 		return nil
 	})

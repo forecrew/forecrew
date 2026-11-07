@@ -1,0 +1,44 @@
+{
+  "realm": "forecrew",
+  "enabled": true,
+  "groups": [{"name": "devs"}, {"name": "ops"}],
+  "clients": [
+    {
+      "clientId": "forecrew",
+      "name": "Forecrew",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "change-me",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "redirectUris": ["https://forecrew.example.com/auth/*"],
+      "attributes": {"pkce.code.challenge.method": "S256"},
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "ann",
+      "enabled": true,
+      "email": "ann@acme.example",
+      "emailVerified": true,
+      "firstName": "Ann",
+      "lastName": "Smith",
+      "groups": ["/devs"],
+      "credentials": [{"type": "password", "value": "change-me", "temporary": false}]
+    }
+  ]
+}

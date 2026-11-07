@@ -22,11 +22,19 @@ func TestEnterpriseCommands(t *testing.T) {
 		return mcp.ProvisioningInfo{Name: "okta", JIT: domain.JIT{Enabled: true}, GroupClaim: "groups"}, nil
 	}
 	m := domain.GroupMapping{ID: domain.NewID(), ExternalGroup: "devs"}
-	e.svc.ListGroupMappingsFunc = func(context.Context, domain.Actor, any) ([]domain.GroupMapping, error) { return []domain.GroupMapping{m}, nil }
-	e.svc.AddGroupMappingFunc = func(context.Context, domain.Actor, mcp.AddGroupMappingInput) (domain.GroupMapping, error) { return m, nil }
-	e.svc.RemoveGroupMappingFunc = func(context.Context, domain.Actor, mcp.GroupMappingRefInput) (domain.GroupMapping, error) { return m, nil }
+	e.svc.ListGroupMappingsFunc = func(context.Context, domain.Actor, any) ([]domain.GroupMapping, error) {
+		return []domain.GroupMapping{m}, nil
+	}
+	e.svc.AddGroupMappingFunc = func(context.Context, domain.Actor, mcp.AddGroupMappingInput) (domain.GroupMapping, error) {
+		return m, nil
+	}
+	e.svc.RemoveGroupMappingFunc = func(context.Context, domain.Actor, mcp.GroupMappingRefInput) (domain.GroupMapping, error) {
+		return m, nil
+	}
 	tok := domain.SCIMToken{Name: "okta"}
-	e.svc.ListSCIMTokensFunc = func(context.Context, domain.Actor, any) ([]domain.SCIMToken, error) { return []domain.SCIMToken{tok}, nil }
+	e.svc.ListSCIMTokensFunc = func(context.Context, domain.Actor, any) ([]domain.SCIMToken, error) {
+		return []domain.SCIMToken{tok}, nil
+	}
 	e.svc.CreateSCIMTokenFunc = func(context.Context, domain.Actor, mcp.CreateSCIMTokenInput) (mcp.CreateSCIMTokenOutput, error) {
 		return mcp.CreateSCIMTokenOutput{Token: tok, Secret: "fcscim_x", URL: "https://f/scim/v2/acme"}, nil
 	}

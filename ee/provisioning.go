@@ -62,40 +62,44 @@ func syncGroups(ctx context.Context, tx store.Store, conn domain.Connection, gro
 		want[k] = want[k] || slices.Contains(groups, m.ExternalGroup)
 	}
 	for k, in := range want {
-		m, err := tx.Memberships().Get(ctx, k.account, u.ID)
-		if errors.Is(err, store.ErrNotFound) || (err == nil && m.Status != domain.MembershipActive) {
-			continue
-		}
-		if err != nil {
+		if err := syncTeam(ctx, tx, k.account, k.team, u.ID, in); err != nil {
 			return err
-		}
-		members, err := tx.Teams().Members(ctx, k.account, k.team)
-		if err != nil {
-			return err
-		}
-		i := slices.IndexFunc(members, func(x domain.TeamMember) bool { return x.UserID == u.ID })
-		by := domain.SystemActor(k.account, "idp")
-		switch {
-		case in && i < 0:
-			if err := tx.Teams().AddMember(ctx, &domain.TeamMember{TeamID: k.team, UserID: u.ID, AccountID: k.account, Source: domain.SourceIDP}); err != nil {
-				return err
-			}
-			if err := audit(ctx, tx, by, "team.member_added", "team", k.team, map[string]any{"user": u.ID}); err != nil {
-				return err
-			}
-		case !in && i >= 0 && members[i].Source == domain.SourceIDP:
-			if err := tx.Teams().RemoveMember(ctx, k.account, k.team, u.ID); err != nil {
-				return err
-			}
-			if err := audit(ctx, tx, by, "team.member_removed", "team", k.team, map[string]any{"user": u.ID}); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
 }
 
-// roleByName finds an organization role for a JIT default.
+// syncTeam adds an active member to a team or takes them out, if group
+// mapping put them there.
+func syncTeam(ctx context.Context, tx store.Store, accountID, teamID, userID uuid.UUID, in bool) error {
+	m, err := tx.Memberships().Get(ctx, accountID, userID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && m.Status != domain.MembershipActive) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	members, err := tx.Teams().Members(ctx, accountID, teamID)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(members, func(x domain.TeamMember) bool { return x.UserID == userID })
+	action := ""
+	switch {
+	case in && i < 0:
+		action = "team.member_added"
+		err = tx.Teams().AddMember(ctx, &domain.TeamMember{TeamID: teamID, UserID: userID, AccountID: accountID, Source: domain.SourceIDP})
+	case !in && i >= 0 && members[i].Source == domain.SourceIDP:
+		action = "team.member_removed"
+		err = tx.Teams().RemoveMember(ctx, accountID, teamID, userID)
+	}
+	if err != nil || action == "" {
+		return err
+	}
+	return audit(ctx, tx, domain.SystemActor(accountID, "idp"), action, "team", teamID, map[string]any{"user": userID})
+}
+
+// defaultRole finds an organization role for a JIT default.
 func (s *Service) defaultRole(ctx context.Context, accountID uuid.UUID, name string) (domain.Role, error) {
 	r, err := s.st.Roles().GetByName(ctx, accountID, domain.RoleScopeOrganization, name)
 	if errors.Is(err, store.ErrNotFound) {

@@ -2,19 +2,26 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
 
-.PHONY: build test test-integration test-docker test-toolbox-browser test-kvm test-microvm images-validate lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live smoke-live-jira
+.PHONY: build build-enterprise test test-integration test-docker test-toolbox-browser test-kvm test-microvm images-validate lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live smoke-live-jira
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
 
+# forecrewd with ee/ linked in (docs/enterprise.md).
+build-enterprise:
+	go build -trimpath -tags enterprise -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
+
+# Both builds: open core, and with the enterprise tag, which adds ee/.
 test: web-test
 	go test -race ./...
+	go test -race -tags enterprise ./...
 
 # Needs Postgres: set FORECREW_TEST_DATABASE_URL, for example
 # postgres://postgres:postgres@localhost:5432/forecrew_test?sslmode=disable
 test-integration:
 	@test -n "$$FORECREW_TEST_DATABASE_URL" || { echo "FORECREW_TEST_DATABASE_URL is not set"; exit 1; }
 	go test -race -tags integration ./...
+	go test -race -tags 'integration enterprise' ./ee/...
 
 # Needs a Docker engine: the worker's environments run in containers.
 test-docker:
@@ -48,6 +55,7 @@ images-validate:
 # where it is not installed (CI installs it).
 lint: web-lint
 	golangci-lint run ./...
+	golangci-lint run --build-tags enterprise ./ee/... ./cmd/...
 	@if command -v actionlint >/dev/null; then actionlint packs/workflows/*.yml; else echo "actionlint not installed, workflow template not linted"; fi
 
 # The Postgres store counts towards coverage only through its integration

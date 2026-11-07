@@ -173,34 +173,17 @@ func (s *Service) SetSSOEnforcement(ctx context.Context, by domain.Actor, in mcp
 	}
 	connection := uuid.Nil()
 	if in.Enforce {
-		if d.VerifiedAt.IsZero() {
-			return mcp.DomainInfo{}, wrap(d.Domain+" is not verified", mcp.ErrConflict)
-		}
-		if in.Connection == "" {
-			return mcp.DomainInfo{}, wrap("connection is required to enforce", mcp.ErrInvalidInput)
-		}
-		c, err := s.connection(ctx, by.AccountID, in.Connection)
-		if err != nil {
+		if connection, err = s.enforceable(ctx, by.AccountID, d, in.Connection); err != nil {
 			return mcp.DomainInfo{}, err
 		}
-		if !c.Enabled {
-			return mcp.DomainInfo{}, wrap("connection "+c.Name+" is turned off", mcp.ErrConflict)
-		}
-		connection = c.ID
 	}
 	err = s.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
 		if err := tx.VerifiedDomains().SetEnforcement(ctx, by.AccountID, d.ID, in.Enforce, connection); err != nil {
 			return err
 		}
 		if in.Enforce {
-			a, err := tx.Accounts().Get(ctx, by.AccountID)
-			if err != nil {
+			if err := capTokens(ctx, tx, by.AccountID); err != nil {
 				return err
-			}
-			if a.MaxTokenTTL == 0 {
-				if err := tx.Accounts().SetMaxTokenTTL(ctx, by.AccountID, domain.DefaultSSOTokenTTL); err != nil {
-					return err
-				}
 			}
 		}
 		if d, err = tx.VerifiedDomains().Get(ctx, by.AccountID, d.ID); err != nil {
@@ -209,6 +192,35 @@ func (s *Service) SetSSOEnforcement(ctx context.Context, by domain.Actor, in mcp
 		return audit(ctx, tx, by, "sso.enforcement_changed", "domain", d.ID, map[string]any{"domain": d.Domain, "enforce": in.Enforce, "connection_id": connection.String()})
 	})
 	return domainInfo(d), storeErr(err, "domain "+d.Domain)
+}
+
+// enforceable returns the connection named by ref when d can be enforced
+// through it.
+func (s *Service) enforceable(ctx context.Context, accountID uuid.UUID, d domain.VerifiedDomain, ref string) (uuid.UUID, error) {
+	if d.VerifiedAt.IsZero() {
+		return uuid.Nil(), wrap(d.Domain+" is not verified", mcp.ErrConflict)
+	}
+	if ref == "" {
+		return uuid.Nil(), wrap("connection is required to enforce", mcp.ErrInvalidInput)
+	}
+	c, err := s.connection(ctx, accountID, ref)
+	if err != nil {
+		return uuid.Nil(), err
+	}
+	if !c.Enabled {
+		return uuid.Nil(), wrap("connection "+c.Name+" is turned off", mcp.ErrConflict)
+	}
+	return c.ID, nil
+}
+
+// capTokens gives an organization without a token cap the default one of SSO
+// enforcement; a cap an Owner chose stays.
+func capTokens(ctx context.Context, tx store.Store, accountID uuid.UUID) error {
+	a, err := tx.Accounts().Get(ctx, accountID)
+	if err != nil || a.MaxTokenTTL != 0 {
+		return err
+	}
+	return tx.Accounts().SetMaxTokenTTL(ctx, accountID, domain.DefaultSSOTokenTTL)
 }
 
 // SetMaxTokenTTL implements mcp.EnterpriseTools.
