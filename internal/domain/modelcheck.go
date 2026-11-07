@@ -11,6 +11,16 @@ import (
 // (config-resources.md, Model checks). It runs no agent and gets no repo.
 const JobKindModelCheck JobKind = "model_check"
 
+// ModelCheckCapability is what a worker that runs key checks and
+// suitability tests says when it polls. forecrewd then gives it
+// ModelCheckLabel, which those jobs require, so an older worker never runs
+// a test on a project's repo.
+const ModelCheckCapability = "model_checks"
+
+// ModelCheckLabel is required by key checks and suitability tests; a worker
+// never sets it itself.
+const ModelCheckLabel = "models:checks"
+
 // ModelCheckSpec is what a model_check job checks. URL and KeyEnv are filled
 // in at lease time from the connection as it is then, so the key only ever
 // goes to the connection's own endpoint.
@@ -77,6 +87,9 @@ type SuitabilitySpec struct {
 	Connection string `json:"connection"`
 	// Nonce is the code word the worker writes into the fixture.
 	Nonce string `json:"nonce"`
+	// Schema is the output schema the agent answers with. The job's own
+	// output is the worker's SuitabilityReport.
+	Schema json.RawMessage `json:"schema"`
 }
 
 // SuitabilityReport is what the worker reports of a suitability test.
@@ -85,6 +98,9 @@ type SuitabilityReport struct {
 	Output json.RawMessage `json:"output,omitempty"`
 	// Error says why the run failed or the answer did not match.
 	Error string `json:"error,omitempty"`
+	// Read says the agent's final answer named the code word, whether or
+	// not it was the JSON asked for.
+	Read bool `json:"read"`
 	// Edited and Ran are what the worker found in the fixture afterwards.
 	Edited       bool   `json:"edited"`
 	Ran          bool   `json:"ran"`

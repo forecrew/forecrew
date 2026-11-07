@@ -63,11 +63,28 @@ type ModelConnection struct {
 	// their own, so it is only for opencode.
 	KeyEnv string `json:"key_env,omitempty"`
 	// SecretRef is a ValidModelSecretRef, resolved at lease time.
-	SecretRef string    `json:"secret_ref"`
-	Enabled   bool      `json:"enabled"`
-	UpdatedBy string    `json:"updated_by"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	SecretRef string `json:"secret_ref"`
+	Enabled   bool   `json:"enabled"`
+	// Models holds what people entered of models the catalog does not
+	// know, by model.
+	Models    map[string]ModelInfo `json:"models,omitempty"`
+	UpdatedBy string               `json:"updated_by"`
+	CreatedAt time.Time            `json:"created_at"`
+	UpdatedAt time.Time            `json:"updated_at"`
+}
+
+// ModelInfo is what people say of a model the catalog does not know: its
+// maker, the tier it suits and its price in US dollars per million tokens.
+type ModelInfo struct {
+	Maker string      `json:"maker,omitempty"`
+	Tier  string      `json:"tier,omitempty"`
+	Price *ModelPrice `json:"price,omitempty"`
+}
+
+// ModelPrice is in US dollars per million tokens.
+type ModelPrice struct {
+	Input  float64 `json:"input"`
+	Output float64 `json:"output"`
 }
 
 // ModelRole gives a role a connection and a tier.

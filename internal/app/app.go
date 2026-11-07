@@ -339,6 +339,8 @@ func New(d Deps) (*App, error) {
 	kbProposals := &proposals.Service{Store: st, Policy: syncer.Policy, GitHub: d.GitHub, Gates: gateSvc, Roles: catalog, Log: log}
 	gateSvc.WithLessons(kbProposals)
 	jobSvc.WithRegistrar(kbProposals) // also hears of failed and canceled jobs (jobs.FailureRegistrar)
+	modelChecks := models.NewChecker(st, jobSvc, nil)
+	jobSvc.WithRegistrar(modelChecks) // also records the checks that failed
 	tasks, err := roles.LoadTasks(d.Files)
 	if err != nil {
 		return nil, err
@@ -399,7 +401,7 @@ func New(d Deps) (*App, error) {
 		Store: st, Gates: gateSvc, Bus: bus, Evidence: ev != nil, Assumptions: regs, Search: search, Notes: notes, Proposals: kbProposals, Assistant: toolSvc, Logger: log, Version: d.Version, Now: d.Now,
 	})
 	workers := workerapi.New(workerapi.Config{
-		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Grant: modelSvc.Grant, Settle: modelSvc.Settle, Pools: cfg.Pools, Logger: log,
+		Store: st, Jobs: jobSvc, Tokens: d.GitHub, Grant: modelSvc.Grant, CheckGrant: modelSvc.CheckGrant, Settle: modelSvc.Settle, Pools: cfg.Pools, Logger: log,
 		Evidence: ev, MaxArtifactSize: evidenceMaxSize(cfg), MaxTestResultsSize: cfg.MaxTestResultsSize,
 		JobMCPURL: jobMCPURL(cfg), Attachments: jobGateway.Attachments(),
 	})

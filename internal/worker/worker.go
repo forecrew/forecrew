@@ -68,6 +68,9 @@ type Config struct {
 	// DockerHost is the daemon endpoint of the operator's Docker context,
 	// kept when the config is replaced; see newFromConfig.
 	DockerHost string
+	// LocalModelEndpoints lets a key check reach a model on localhost or a
+	// private address (local_model_endpoints in worker.yaml).
+	LocalModelEndpoints bool
 }
 
 // Worker polls forecrewd and runs its jobs.

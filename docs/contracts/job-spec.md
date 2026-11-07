@@ -116,7 +116,9 @@ same with `"branch": ""`, `"base_ref": "main"` and
 | `endpoint` | object | Agent jobs only. The custom model endpoint of the job's runtime (`runtimes.<name>.base_url`, config.md): `base_url`, and `key_env`, the name of the variable holding its key (the runtime's first `credential_env`; absent when it has none). Holds no secret. Added at lease time, also when the pool withholds `env`, so that the job never falls back to the vendor. Absent: the vendor's own endpoint. For an organization's model connection it also has `organization: true`: the worker sends that endpoint only the key in `env`, never one of its own, and runs it as for `organization_model`. |
 | `organization_model` | bool | Agent jobs on an organization's model connection, with or without `endpoint`. The job needs the label `models:organization` (worker-api.md), and the worker runs the agent with only an allowlist of its own variables: `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `LANG`, `LANGUAGE`, `LC_*`, `TZ`, `TMPDIR`, `TERM`, `PWD`, `XDG_*`, `SSL_CERT_*`, the Windows system variables, and the proxy variables (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) when their URL holds no credentials, plus `NO_PROXY`. No key, token or secret of the worker's (`CLAUDE_CODE_OAUTH_TOKEN` included) and nothing that sends the key elsewhere (`OPENAI_BASE_URL`, `OLLAMA_HOST`, `CLAUDE_CODE_USE_BEDROCK`, `*_ENDPOINT`...) reaches the run; the job's `env` is added after. It hands a toolbox container no key of its own. Set when the job is settled on such a connection and at lease. |
 | `pinned_runtime` | string | Agent jobs of a council seat: the adapter the seat is pinned to, kept when the role moves to a connection of another agent. |
-| `kind` | `agent` \| `command` | Job kind; absent means `agent`. |
+| `kind` | `agent` \| `command` \| `model_check` | Job kind; absent means `agent`. |
+| `model_check` | object | `model_check` jobs only; required. The key check of a model connection (config-resources.md, Model checks): `connection` and `adapter`, and, added at lease from the connection as it is then, `url` (where its models are listed), `auth` (`bearer`, `x-api-key`, `api-key` or `none`), `format` (`anthropic` or `openai`) and `key_env`, the variable of `env` that holds the key. No repo token and no job MCP token. Needs the labels `models:organization` and `models:checks`. |
+| `suitability` | object | Agent jobs only. Makes the job the suitability test of `model` on a connection: `connection`, `nonce` (the code word) and `schema` (the agent's output schema). The connection and model are the job's whatever its role's assignment; it gets the connection's key and endpoint at lease, no repo token, and needs the label `models:checks`. |
 | `locked_paths` | string[] | Agent jobs only. Globs like `write_paths` (no `!`) the job may not change even when `write_paths` allow it, e.g. the tests a test engineer wrote before the developer's job. |
 | `toolbox` | object | Agent jobs only. The role's toolbox (`packs/toolboxes/<name>.yaml`, toolbox.schema.json), resolved: the image the agent runs in, its CLIs and MCP servers. Absent: the agent runs on the worker's host. A job with a toolbox needs the `docker` label. |
 | `command` | object | Command jobs only; required. What to run, below. |
@@ -188,3 +190,29 @@ same with `"branch": ""`, `"base_ref": "main"` and
    code is kept in the run. `failed` is for the job itself: the environment
    could not be built, a service never became healthy, the command could not start (its `errored` run is still reported), or `timeout` passed. `timeout` is one budget for the setup and the command.
    `retry` is for infrastructure problems, as for agent jobs.
+
+## Worker rules: model checks
+
+A `model_check` job lists the models of a connection; a job with
+`suitability` tests a model. Neither touches a repo.
+
+1. `model_check`: GET `url` with the key of `env[key_env]` as `auth` says,
+   following no redirect, within 20 s. The address must be public, or, with
+   `local_model_endpoints` in worker.yaml, loopback or private; never
+   link-local. Complete with `succeeded` and the output
+   `{status, detail, models, agent_version}`: `reachable` with the names it
+   listed (only plain names, at most 1000), `refused` on 401 or 403,
+   `unreachable` when nothing answered (or 429 and 5xx), `wrong_address` when
+   the answer is no list of models, `unsupported` when `url` is empty.
+   `agent_version` is what the adapter's CLI says here. The provider's own
+   words are never reported.
+2. `suitability`: copy `packs/fixtures/model-test` into a fresh work dir,
+   write the code word into `notes.txt` and `<nonce>-ran` into `token.txt`,
+   and run the agent there with `prompt`, `schema`, `max_turns` and
+   `timeout`, on `endpoint` with `env`, as for an organization's connection.
+   Never clone `repo`, commit or push. Complete with `succeeded` and the
+   output `{output, error, read, edited, ran, turns, agent_version}`:
+   `output` is the agent's answer when it matched `schema`, `read` whether
+   its final answer named the code word, `edited` whether `greeting.txt`
+   holds `hello, forecrew`, `ran` whether `.check-ran` holds the token. A
+   missing agent gives the job back (`retry`).

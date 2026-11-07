@@ -105,7 +105,7 @@ Request:
   "labels": ["go", "node", "linux", "runtime:claude-code"],
   "free_slots": 1,
   "version": "v0.1.0",
-  "capabilities": ["organization_models"]
+  "capabilities": ["organization_models", "model_checks"]
 }
 ```
 
@@ -114,7 +114,7 @@ Request:
 | `labels` | string[] | Every label of the worker, including the os and runtime labels it adds. Normalized (trimmed, lowercased, deduplicated) by the server. |
 | `free_slots` | int ≥ 0 | `max_jobs` minus running jobs. |
 | `version` | string | forecrew-worker version. |
-| `capabilities` | string[] | What the worker can do beyond its labels; absent from an older worker. `organization_models`: it gives an agent on an organization's model connection nothing of its own (job-spec.md, `organization_model`). forecrewd then adds the label `models:organization`, which jobs on such a connection require; a worker never sets that label itself, and the server drops it from `labels`. |
+| `capabilities` | string[] | What the worker can do beyond its labels; absent from an older worker. `organization_models`: it gives an agent on an organization's model connection nothing of its own (job-spec.md, `organization_model`). forecrewd then adds the label `models:organization`, which jobs on such a connection require; a worker never sets that label itself, and the server drops it from `labels`. `model_checks`: it runs key checks (`model_check` jobs) and suitability tests (job-spec.md, `model_check`, `suitability`); forecrewd adds the label `models:checks`, which they require, the same way. |
 
 Behavior:
 

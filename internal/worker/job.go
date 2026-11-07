@@ -356,8 +356,13 @@ func (r *jobRun) execute(ctx context.Context) Completion {
 	if err := r.validate(); err != nil {
 		return r.failed("%v", err)
 	}
-	if r.spec.IsCommand() {
+	switch {
+	case r.spec.IsCommand():
 		return r.executeCommand(ctx)
+	case r.spec.Kind == domain.JobKindModelCheck:
+		return r.executeModelCheck(ctx)
+	case r.spec.Suitability != nil:
+		return r.executeSuitability(ctx)
 	}
 	r.ev.text(domain.EventStatus, "cloning")
 	g := r.w.git

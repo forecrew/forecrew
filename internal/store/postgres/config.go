@@ -228,12 +228,21 @@ func (r conversationRepo) Messages(ctx context.Context, accountID, conversationI
 
 type modelConnectionRepo struct{ db dbtx }
 
-const modelConnectionCols = `id, account_id, name, vendor, adapter, base_url, key_env, secret_ref, enabled, updated_by, created_at, updated_at`
+const modelConnectionCols = `id, account_id, name, vendor, adapter, base_url, key_env, secret_ref, enabled, models, updated_by, created_at, updated_at`
 
 func scanModelConnection(row pgx.Row) (c domain.ModelConnection, err error) {
-	err = row.Scan(&c.ID, &c.AccountID, &c.Name, &c.Vendor, &c.Adapter, &c.BaseURL, &c.KeyEnv, &c.SecretRef, &c.Enabled, &c.UpdatedBy, &c.CreatedAt, &c.UpdatedAt)
+	var models []byte
+	if err = row.Scan(&c.ID, &c.AccountID, &c.Name, &c.Vendor, &c.Adapter, &c.BaseURL, &c.KeyEnv, &c.SecretRef, &c.Enabled, &models, &c.UpdatedBy, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		return c, err
+	}
 	utc(&c.CreatedAt, &c.UpdatedAt)
-	return c, err
+	if err = json.Unmarshal(models, &c.Models); err != nil {
+		return c, fmt.Errorf("decode connection models: %w", err)
+	}
+	if len(c.Models) == 0 {
+		c.Models = nil
+	}
+	return c, nil
 }
 
 func (r modelConnectionRepo) List(ctx context.Context, accountID uuid.UUID) ([]domain.ModelConnection, error) {
@@ -242,12 +251,16 @@ func (r modelConnectionRepo) List(ctx context.Context, accountID uuid.UUID) ([]d
 
 func (r modelConnectionRepo) Put(ctx context.Context, c *domain.ModelConnection) error {
 	c.ID = newID(c.ID)
-	return mapErr(r.db.QueryRow(ctx, `INSERT INTO model_connections (id, account_id, name, vendor, adapter, base_url, key_env, secret_ref, enabled, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	models, err := json.Marshal(c.Models)
+	if err != nil {
+		return err
+	}
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO model_connections (id, account_id, name, vendor, adapter, base_url, key_env, secret_ref, enabled, models, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE(NULLIF($10::jsonb, 'null'), '{}'), $11)
 		ON CONFLICT (account_id, name) DO UPDATE SET vendor = EXCLUDED.vendor, adapter = EXCLUDED.adapter, base_url = EXCLUDED.base_url, key_env = EXCLUDED.key_env,
-			secret_ref = EXCLUDED.secret_ref, enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = now()
+			secret_ref = EXCLUDED.secret_ref, enabled = EXCLUDED.enabled, models = EXCLUDED.models, updated_by = EXCLUDED.updated_by, updated_at = now()
 		RETURNING id, created_at, updated_at`,
-		c.ID, c.AccountID, c.Name, c.Vendor, c.Adapter, c.BaseURL, c.KeyEnv, c.SecretRef, c.Enabled, c.UpdatedBy).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt))
+		c.ID, c.AccountID, c.Name, c.Vendor, c.Adapter, c.BaseURL, c.KeyEnv, c.SecretRef, c.Enabled, models, c.UpdatedBy).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt))
 }
 
 func (r modelConnectionRepo) Delete(ctx context.Context, accountID uuid.UUID, name string) error {

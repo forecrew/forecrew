@@ -54,7 +54,7 @@ func newFromConfig(ctx context.Context, cfg *config.Worker, environ []string, ve
 	}
 	toolboxes, _ := fs.Sub(forecrew.Files, "packs/toolboxes") // the path exists in the embedded files
 	return New(Config{
-		Toolboxes: toolboxes, RegistryAuth: cfg.RegistryAuth, DockerHost: dockerHost,
+		Toolboxes: toolboxes, RegistryAuth: cfg.RegistryAuth, DockerHost: dockerHost, LocalModelEndpoints: cfg.LocalModelEndpoints,
 		DockerBin: dockerBin, ImageMaxAge: time.Duration(cfg.ImagePruneDays) * 24 * time.Hour,
 		Client: NewClient(cfg.ServerURL, cfg.Token, nil), Labels: labels, Version: version,
 		WorkDir: cfg.WorkDir, MaxJobs: cfg.MaxJobs,

@@ -11,6 +11,12 @@ BEGIN
 END $$;
 -- +goose StatementEnd
 
+ALTER TABLE jobs DROP CONSTRAINT jobs_kind_check;
+ALTER TABLE jobs ADD CONSTRAINT jobs_kind_check CHECK (kind IN ('agent','command','model_check'));
+
+-- What people entered of models the catalog does not know.
+ALTER TABLE model_connections ADD COLUMN models jsonb NOT NULL DEFAULT '{}';
+
 -- project_id NULL: every project of the organization.
 CREATE TABLE model_authorizations (
   id            uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -46,7 +52,11 @@ CREATE INDEX model_checks_job ON model_checks (account_id, job_id);
 
 -- +goose Down
 DROP TABLE model_checks;
+DELETE FROM jobs WHERE kind = 'model_check';
+ALTER TABLE jobs DROP CONSTRAINT jobs_kind_check;
+ALTER TABLE jobs ADD CONSTRAINT jobs_kind_check CHECK (kind IN ('agent','command'));
 DROP TABLE model_authorizations;
+ALTER TABLE model_connections DROP COLUMN models;
 -- +goose StatementBegin
 DO $$
 BEGIN

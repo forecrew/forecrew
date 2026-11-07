@@ -251,7 +251,9 @@ func (r modelConnectionRepo) Put(_ context.Context, c *domain.ModelConnection) e
 			c.ID, c.CreatedAt = rows[i].ID, rows[i].CreatedAt
 			d.modelConns.rows = slices.Delete(rows, i, i+1)
 		}
-		d.modelConns.insert(*c)
+		row := *c
+		row.Models = maps.Clone(c.Models)
+		d.modelConns.insert(row)
 		return nil
 	})
 }

@@ -351,6 +351,9 @@ type Grant struct {
 // now: a rotated key counts from the next lease, and nothing about it is
 // stored with the job.
 func (s *Service) Grant(ctx context.Context, j domain.Job) (Grant, error) {
+	if j.Spec.Suitability != nil {
+		return s.testGrant(ctx, j)
+	}
 	st, err := s.load(ctx, j.AccountID)
 	if err != nil {
 		return Grant{}, err
@@ -397,6 +400,9 @@ func (s *Service) Settle(ctx context.Context, accountID uuid.UUID) error {
 	}
 	keys := map[string]Decision{} // whether each connection has a key, read once a pass
 	for _, c := range classes {
+		if c.Role == TestRole {
+			continue // a test runs on the connection it names
+		}
 		d, err := s.settled(ctx, accountID, st, c, keys)
 		if err != nil {
 			return err
@@ -444,7 +450,7 @@ type Waiter interface {
 
 // WaitReason implements Waiter: ok only for a job with no usable connection.
 func (s *Service) WaitReason(ctx context.Context, j domain.Job) (code, sentence string, ok bool, err error) {
-	if j.Kind.OrDefault() != domain.JobKindAgent {
+	if j.Kind.OrDefault() != domain.JobKindAgent || j.Spec.Suitability != nil {
 		return "", "", false, nil
 	}
 	st, err := s.load(ctx, j.AccountID)

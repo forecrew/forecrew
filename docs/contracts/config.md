@@ -300,6 +300,7 @@ max_jobs: 2
 | `work_dir` | path | no | `<user cache dir>/forecrew-worker` | Where per-job workspaces are created and removed. |
 | `max_jobs` | integer ≥ 1 | no | `1` | Jobs run at once. |
 | `registry_auth` | bool | no | `false` | Let the worker's Docker pulls and builds use the registry logins of the worker's user. By default they run with an empty Docker config, because image names come from repos and must not be able to use the operator's private registries. |
+| `local_model_endpoints` | bool | no | `false` | Let the key check of a model connection (a `model_check` job) reach `localhost` and private addresses, where a self-hosted model such as Ollama or LM Studio runs. Off, the check reaches public addresses only; on, it reaches what `trackers.private_addresses` reaches, never link-local or cloud metadata addresses. Agents themselves are not limited by it. |
 | `image_prune_days` | integer ≥ 1 | no | `14` | Days after which a worker with the `docker` label removes the environment images (`forecrew-env:*`) no job used. |
 
 On top of `labels` the worker adds, when polling:

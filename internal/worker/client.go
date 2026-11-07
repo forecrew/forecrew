@@ -98,7 +98,7 @@ func (c *Client) Poll(ctx context.Context, labels []string, freeSlots int, versi
 		FreeSlots    int      `json:"free_slots"`
 		Version      string   `json:"version"`
 		Capabilities []string `json:"capabilities"`
-	}{labels, freeSlots, version, []string{domain.OrganizationModelCapability}}
+	}{labels, freeSlots, version, []string{domain.OrganizationModelCapability, domain.ModelCheckCapability}}
 	var lease Lease
 	sent := time.Now()
 	status, err := c.once(ctx, "/worker/v1/poll", req, &lease)
