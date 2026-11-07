@@ -199,6 +199,9 @@ func (s *Service) TestTrackerConnection(ctx context.Context, by domain.Actor, in
 	}
 	checks = append(checks, routeStates(ctx, ad, routes, tracker.Failed(checks) == nil))
 	for _, check := range checks {
+		if in.WrapUntrusted && check.Detail != "" {
+			check.Detail = contextpack.WrapUntrusted("tracker "+c.Name, check.Detail)
+		}
 		out.Checks = append(out.Checks, mcp.TrackerCheck(check))
 		out.OK = out.OK && check.OK
 	}
@@ -314,6 +317,9 @@ func (s *Service) ListTrackerRoutes(ctx context.Context, by domain.Actor, in mcp
 	for i, r := range routes {
 		if out[i], err = s.routeInfo(ctx, r); err != nil {
 			return nil, err
+		}
+		if in.WrapUntrusted && r.Warning != "" {
+			out[i].Warning = contextpack.WrapUntrusted("tracker "+out[i].Connection, r.Warning)
 		}
 	}
 	return out, nil
