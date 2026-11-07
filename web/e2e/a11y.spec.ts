@@ -24,7 +24,15 @@ const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: bo
   { name: "jobs", path: "/jobs", ready: "Jobs" },
   { name: "job", path: "/jobs/JOB-41", ready: /JOB-41/ },
   { name: "quality", path: "/quality", ready: "Quality" },
-  { name: "workers", path: "/workers", ready: "Workers" },
+  { name: "machines", path: "/machines", ready: "Machines" },
+  { name: "machine types", path: "/machines?tab=types", ready: "Machines" },
+  { name: "machines for a member", path: "/machines", ready: "Machines", me: "me-contributor" },
+  { name: "add machines", path: "/machines/add", ready: "Add machines" },
+  { name: "add a computer", path: "/machines/add?kind=computer", ready: "Add machines" },
+  { name: "add an AWS account", path: "/machines/add?kind=aws", ready: "Add machines" },
+  { name: "location", path: "/machines/018f0000-0000-7000-8000-000000000700", ready: "Home Server" },
+  { name: "offline location", path: "/machines/018f0000-0000-7000-8000-000000000701", ready: "Mac Mini" },
+  { name: "set up", path: "/setup", ready: "Set up Forecrew" },
   { name: "assumptions", path: "/assumptions", ready: "Assumptions" },
   { name: "knowledge", path: "/knowledge?project=app", ready: "Knowledge" },
   { name: "knowledge proposals", path: "/knowledge?project=app&tab=proposals", ready: "Knowledge" },
@@ -41,6 +49,9 @@ const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: bo
   { name: "settings members for a viewer", path: "/settings/people", ready: "People", me: "me-viewer" },
   { name: "settings sign-in", path: "/settings/sign-in", ready: "Sign-in", me: "me-admin" },
   { name: "settings change history", path: "/settings/history", ready: "Change history", me: "me-admin" },
+  { name: "settings all activity", path: "/settings/history?tab=activity", ready: "Change history", me: "me-admin" },
+  { name: "settings policies", path: "/settings/policies", ready: "Policies", me: "me-admin" },
+  { name: "settings policies for a viewer", path: "/settings/policies", ready: "Policies", me: "me-viewer" },
   { name: "project access", path: "/projects/app", ready: "app", me: "me-admin" },
 ]
 
@@ -67,6 +78,20 @@ for (const size of sizes) {
         .toBeLessThanOrEqual(0)
     })
   }
+
+  test(`the assistant panel with a plan has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page)
+    await page.goto("/machines")
+    await page.getByRole("button", { name: "Ask", exact: true }).click()
+    await page.getByLabel("Say what you want").fill("Add my Linux server")
+    await page.getByRole("button", { name: "Send" }).click()
+    await expect(page.getByRole("region", { name: /Change plan/ })).toBeVisible()
+    await page.waitForLoadState("networkidle")
+    const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]).analyze()
+    const bad = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical")
+    expect(bad.map((v) => `${v.id}: ${v.help} (${v.nodes.map((n) => n.target.join(" ")).join(", ")})`)).toEqual([])
+  })
 
   test(`the command menu and the dark theme have no serious violations on ${size.name}`, async ({ page }) => {
     await page.setViewportSize({ width: size.width, height: size.height })
