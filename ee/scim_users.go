@@ -240,7 +240,7 @@ func (s *Service) createUser(w http.ResponseWriter, r *http.Request, c scimCall)
 }
 
 // joinSCIM gives the user a membership with source scim, or brings a deleted
-// one back; any other membership is a clash.
+// one back, active only if SCIM suspended it; any other membership is a clash.
 func joinSCIM(ctx context.Context, tx store.Store, c scimCall, in scimUser, userID uuid.UUID) (domain.Membership, error) {
 	external := cmp.Or(in.ExternalID, userID.String())
 	m, err := tx.Memberships().Get(ctx, c.account, userID)
@@ -253,11 +253,15 @@ func joinSCIM(ctx context.Context, tx store.Store, c scimCall, in scimUser, user
 	case m.Source != domain.SourceSCIM || m.ExternalID != "":
 		return m, scimTaken("%s is a member already", in.UserName)
 	}
-	m.Status, m.ExternalID = statusOf(in.Active), external
-	if err := tx.Memberships().SetStatus(ctx, c.account, userID, m.Status); err != nil {
+	m.ExternalID = external
+	if err := tx.Memberships().SetExternalID(ctx, c.account, userID, external); err != nil {
 		return m, err
 	}
-	return m, tx.Memberships().SetExternalID(ctx, c.account, userID, external)
+	if !m.SCIMSuspended || statusOf(in.Active) != domain.MembershipActive {
+		return m, nil // an Owner's suspension stays
+	}
+	m.Status, m.SCIMSuspended = domain.MembershipActive, false
+	return m, tx.Memberships().SetStatus(ctx, c.account, userID, m.Status)
 }
 
 // userChange is what a PUT or PATCH leaves a user as. Name is empty to keep
@@ -287,10 +291,11 @@ func (ch userChange) resolved() string {
 	return strings.TrimSpace(given + " " + family)
 }
 
-// endAccess suspends a member and, in the same transaction, ends their
+// endAccess suspends a member, marked as SCIM's doing so that SCIM may let
+// them back in, and, in the same transaction, ends their
 // sessions in the organization and revokes their tokens and OAuth grants.
 func endAccess(ctx context.Context, tx store.Store, accountID, userID uuid.UUID) error {
-	if err := tx.Memberships().SetStatus(ctx, accountID, userID, domain.MembershipSuspended); err != nil {
+	if err := tx.Memberships().SuspendBySCIM(ctx, accountID, userID); err != nil {
 		return err
 	}
 	if err := tx.Sessions().RevokeByUser(ctx, userID, accountID); err != nil {
@@ -333,11 +338,11 @@ func saveUser(ctx context.Context, tx store.Store, c scimCall, u *domain.User, m
 		}
 		m.Status = domain.MembershipSuspended
 		return audit(ctx, tx, c.by, "scim.user_deactivated", "user", u.ID, map[string]any{"token": c.token})
-	case !wasActive && ch.active:
+	case !wasActive && ch.active && m.SCIMSuspended:
 		if err := tx.Memberships().SetStatus(ctx, c.account, u.ID, domain.MembershipActive); err != nil {
 			return err
 		}
-		m.Status = domain.MembershipActive
+		m.Status, m.SCIMSuspended = domain.MembershipActive, false
 	}
 	return audit(ctx, tx, c.by, "scim.user_updated", "user", u.ID, map[string]any{"token": c.token})
 }

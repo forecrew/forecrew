@@ -245,7 +245,17 @@ func (r membershipRepo) SetStatus(_ context.Context, accountID, userID uuid.UUID
 		if status != domain.MembershipActive && d.lastOwner(accountID, userID) {
 			return store.ErrLastOwner
 		}
-		m.Status, m.UpdatedAt = status, now
+		m.Status, m.SCIMSuspended, m.UpdatedAt = status, false, now
+		return nil
+	})
+}
+
+func (r membershipRepo) SuspendBySCIM(ctx context.Context, accountID, userID uuid.UUID) error {
+	if err := r.SetStatus(ctx, accountID, userID, domain.MembershipSuspended); err != nil {
+		return err
+	}
+	return update(r.s, membershipsT, accountID, userID, func(m *domain.Membership, _ time.Time) error {
+		m.SCIMSuspended = true
 		return nil
 	})
 }

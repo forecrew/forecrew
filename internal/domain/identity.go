@@ -81,8 +81,11 @@ type Membership struct {
 	Status     MembershipStatus `json:"status"`
 	Source     Source           `json:"source"`
 	ExternalID string           `json:"external_id,omitempty"` // SCIM externalId of the user in this organization
-	CreatedAt  time.Time        `json:"created_at"`
-	UpdatedAt  time.Time        `json:"updated_at"`
+	// SCIMSuspended says SCIM suspended the membership, so SCIM may let it
+	// back in; an Owner's suspension never carries it.
+	SCIMSuspended bool      `json:"scim_suspended,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Invitation asks someone, by email or GitHub login, to join an

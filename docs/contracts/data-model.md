@@ -750,9 +750,11 @@ CREATE TABLE memberships (
   status      text NOT NULL CHECK (status IN ('active','invited','suspended')),
   source      text NOT NULL CHECK (source IN ('manual','invitation','jit','scim')),
   external_id text,                                    -- SCIM externalId
+  scim_suspended boolean NOT NULL DEFAULT false,       -- migration 00012; SCIM suspended it, so SCIM may let it back in
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (account_id, user_id)
+  UNIQUE (account_id, user_id),
+  CONSTRAINT memberships_scim_suspended CHECK (NOT scim_suspended OR status = 'suspended')
 );
 CREATE UNIQUE INDEX memberships_external ON memberships (account_id, external_id) WHERE external_id IS NOT NULL;
 CREATE INDEX memberships_user ON memberships (user_id);

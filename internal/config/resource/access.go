@@ -96,7 +96,7 @@ const memberInvited = "invited"
 
 func memberArea() Area {
 	a := base[memberSpec](KindMember, "Member", ScopeOrganization, domain.PermOrgRead)
-	a.Setting, a.Hidden = domain.Membership{}, []string{"id", "account_id", "user_id", "source", "external_id", "created_at", "updated_at"}
+	a.Setting, a.Hidden = domain.Membership{}, []string{"id", "account_id", "user_id", "source", "external_id", "scim_suspended", "created_at", "updated_at"}
 	a.Affects = "Takes effect at the person's next request."
 	a.Read = readMembers
 	a.Validate = memberValidate

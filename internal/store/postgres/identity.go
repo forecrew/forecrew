@@ -126,10 +126,10 @@ func (r identityRepo) Delete(ctx context.Context, userID, id uuid.UUID) error {
 
 type membershipRepo struct{ db dbtx }
 
-var membershipCols = `id, account_id, user_id, status, source, ` + ctext("external_id") + `, created_at, updated_at`
+var membershipCols = `id, account_id, user_id, status, source, ` + ctext("external_id") + `, scim_suspended, created_at, updated_at`
 
 func scanMembership(row pgx.Row) (m domain.Membership, err error) {
-	err = row.Scan(&m.ID, &m.AccountID, &m.UserID, &m.Status, &m.Source, &m.ExternalID, &m.CreatedAt, &m.UpdatedAt)
+	err = row.Scan(&m.ID, &m.AccountID, &m.UserID, &m.Status, &m.Source, &m.ExternalID, &m.SCIMSuspended, &m.CreatedAt, &m.UpdatedAt)
 	utc(&m.CreatedAt, &m.UpdatedAt)
 	return m, err
 }
@@ -159,7 +159,11 @@ func (r membershipRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]dom
 }
 
 func (r membershipRepo) SetStatus(ctx context.Context, accountID, userID uuid.UUID, status domain.MembershipStatus) error {
-	return mustUpdate(ctx, r.db, `UPDATE memberships SET status = $3, updated_at = now() WHERE account_id = $1 AND user_id = $2`, accountID, userID, status)
+	return mustUpdate(ctx, r.db, `UPDATE memberships SET status = $3, scim_suspended = false, updated_at = now() WHERE account_id = $1 AND user_id = $2`, accountID, userID, status)
+}
+
+func (r membershipRepo) SuspendBySCIM(ctx context.Context, accountID, userID uuid.UUID) error {
+	return mustUpdate(ctx, r.db, `UPDATE memberships SET status = 'suspended', scim_suspended = true, updated_at = now() WHERE account_id = $1 AND user_id = $2`, accountID, userID)
 }
 
 func (r membershipRepo) SetExternalID(ctx context.Context, accountID, userID uuid.UUID, externalID string) error {

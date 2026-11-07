@@ -228,6 +228,9 @@ and their `external_id`. Forecrew keeps `userName` as the email, `name`,
 `displayName`, `externalId` and members. A SCIM token acts only on members
 and teams with source `scim`, so it never reaches a member it did not
 provision; creating one is limited by permissions.md, No escalation.
+SCIM lets back in (`active: true`) only a membership it suspended itself
+(`scim_suspended`, migration 00012); one an Owner suspended stays suspended
+whatever the provider sends, and every other change of status clears the mark.
 
 ## Actors and the audit log
 
