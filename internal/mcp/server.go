@@ -463,7 +463,8 @@ func registerEnterpriseTools(r registrar, svc ToolService) {
 			return result(out, "SCIM token %s created.", out.Token.Name), err
 		}, "name")
 	register(r, ToolRevokeSCIMToken, "Revoke a SCIM token. Enterprise build only.",
-		fieldDocs{"token": "Token name or UUID."}, func(ctx context.Context, by domain.Actor, in SCIMTokenRefInput) (toolResult, error) {
+		fieldDocs{"token": "Token name or UUID."}, //nolint:gosec // a description, no credential
+		func(ctx context.Context, by domain.Actor, in SCIMTokenRefInput) (toolResult, error) {
 			t, err := svc.RevokeSCIMToken(ctx, by, in)
 			return result(t, "SCIM token %s revoked.", t.Name), err
 		}, "token")

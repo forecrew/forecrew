@@ -25,40 +25,9 @@ func (s *Service) signIn(ctx context.Context, conn domain.Connection, c Claims, 
 		return "", err
 	}
 	err = s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
-		proven, err := emailProven(ctx, tx, conn, c)
+		user, account, err := s.admitted(ctx, tx, conn, c, f)
 		if err != nil {
 			return err
-		}
-		inv, err := s.invitation(ctx, tx, conn, c, proven, f.Invite)
-		if err != nil {
-			return err
-		}
-		user, err := resolveUser(ctx, tx, conn, c, proven, inv, s.cfg.Policy.Provisions(conn))
-		if err != nil {
-			return err
-		}
-		if !user.DisabledAt.IsZero() {
-			return refusal(reasonDisabled)
-		}
-		if inv != nil {
-			if err := accept(ctx, tx, *inv, user.ID); err != nil {
-				return err
-			}
-		}
-		if user, err = s.syncAdmin(ctx, tx, user, conn, c, proven); err != nil {
-			return err
-		}
-		if err := s.cfg.Policy.Admit(ctx, tx, conn, c, user); err != nil {
-			return err
-		}
-		account, err := organization(ctx, tx, user, conn, f.Org, inv)
-		if err != nil {
-			return err
-		}
-		if account != uuid.Nil() {
-			if err := enterThrough(ctx, tx, user, account, conn.ID); err != nil {
-				return err
-			}
 		}
 		if err := tx.Users().Seen(ctx, user.ID); err != nil {
 			return err
@@ -66,6 +35,43 @@ func (s *Service) signIn(ctx context.Context, conn domain.Connection, c Claims, 
 		return s.newSession(ctx, tx, token, user, account, conn.ID, userAgent, ip)
 	})
 	return token, err
+}
+
+// admitted finds who signed in, accepts the invitation of the link, applies
+// the policy and returns the user and the organization of their session.
+func (s *Service) admitted(ctx context.Context, tx store.Store, conn domain.Connection, c Claims, f flow) (domain.User, uuid.UUID, error) {
+	none := uuid.Nil()
+	proven, err := emailProven(ctx, tx, conn, c)
+	if err != nil {
+		return domain.User{}, none, err
+	}
+	inv, err := s.invitation(ctx, tx, conn, c, proven, f.Invite)
+	if err != nil {
+		return domain.User{}, none, err
+	}
+	user, err := resolveUser(ctx, tx, conn, c, proven, inv, s.cfg.Policy.Provisions(conn))
+	if err != nil {
+		return user, none, err
+	}
+	if !user.DisabledAt.IsZero() {
+		return user, none, refusal(reasonDisabled)
+	}
+	if inv != nil {
+		if err := accept(ctx, tx, *inv, user.ID); err != nil {
+			return user, none, err
+		}
+	}
+	if user, err = s.syncAdmin(ctx, tx, user, conn, c, proven); err != nil {
+		return user, none, err
+	}
+	if err := s.cfg.Policy.Admit(ctx, tx, conn, c, user); err != nil {
+		return user, none, err
+	}
+	account, err := organization(ctx, tx, user, conn, f.Org, inv)
+	if err != nil || account == none {
+		return user, account, err
+	}
+	return user, account, enterThrough(ctx, tx, user, account, conn.ID)
 }
 
 // emailDomain returns the domain of an email address, lowercase.

@@ -186,7 +186,11 @@ func writeSCIM(w http.ResponseWriter, status int, v any) error {
 }
 
 func writeSCIMError(w http.ResponseWriter, e *scimError) {
-	_ = writeSCIM(w, e.status, map[string]any{"schemas": []string{scimErrorSchema}, "status": strconv.Itoa(e.status), "scimType": e.kind, "detail": e.detail})
+	body := map[string]any{"schemas": []string{scimErrorSchema}, "status": strconv.Itoa(e.status), "detail": e.detail}
+	if e.kind != "" {
+		body["scimType"] = e.kind
+	}
+	_ = writeSCIM(w, e.status, body)
 }
 
 // readSCIM decodes the body; attributes Forecrew does not keep are ignored.
