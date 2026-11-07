@@ -63,9 +63,9 @@ type plan struct {
 	reasons map[uuid.UUID]Reason
 }
 
-// usage adds up what a month cost so far (fleet.md, Fleet policy): usage
-// records do not exist yet, so it reads what they will hold from the
-// machines, metered from assigned_at to destroyed_at or now.
+// usage adds up what a month cost so far (fleet.md, Fleet policy): what the
+// machines of the month cost, ended or not, metered as their usage records
+// are (MeterStart) to destroyed_at or now, from the start of the month.
 type usage struct {
 	shapeCost    map[uuid.UUID]float64
 	providerCost map[uuid.UUID]float64
@@ -85,14 +85,14 @@ func (s *snapshot) usage() usage {
 	start := monthStart(s.now)
 	for _, m := range s.machines {
 		shape, ok := s.shapes[m.ShapeID]
-		if !ok || m.AssignedAt.IsZero() {
+		from, metered := MeterStart(m)
+		if !ok || !metered {
 			continue
 		}
 		end := m.DestroyedAt
 		if end.IsZero() {
 			end = s.now
 		}
-		from := m.AssignedAt
 		if from.Before(start) {
 			from = start
 		}
