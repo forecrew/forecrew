@@ -1191,3 +1191,45 @@ func TestOwnCloudInAPlanNeedsThePaidPlanOnAHostedInstance(t *testing.T) {
 	check(t, w.st.FleetPolicies().Put(ctx, &policy))
 	w.apply(w.owner, w.plan(w.owner, wanted(t, "provider", "own-aws", map[string]any{"kind": "aws"})))
 }
+
+// The plan is what the instance sells: no role of the organization changes
+// it, worker.manage and billing.manage included; a non-delegated instance
+// admin does, except on a hosted instance, where configuration never does.
+func TestFleetPlanIsTheInstances(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	paid := wanted(t, "fleet_policy", "fleet", map[string]any{"routing": "own_only", "plan": "paid"})
+	refused := func(by domain.Actor) {
+		t.Helper()
+		_, err := w.engine.Plan(ctx, by, resource.PlanRequest{Title: "t", Source: domain.ConfigFromCLI, Changes: []mcp.ConfigWanted{paid}})
+		wantErr(t, err, authz.ErrDenied)
+	}
+	for _, role := range []string{domain.RoleOwner, domain.RoleAdmin, domain.RoleBilling} {
+		refused(w.person(role))
+	}
+	ru := w.st.AddMember(w.account.ID, domain.User{Name: "root", InstanceAdmin: true}, "")
+	testkit.Bind(t, w.st, w.account.ID, domain.SubjectUser, ru.ID, domain.RoleScopeOrganization, domain.RoleOwner, uuid.Nil())
+	root := domain.UserActor(w.account.ID, ru.ID, domain.Credential{Kind: domain.CredentialSession, ID: domain.NewID()})
+	delegated := root
+	delegated.Credential = domain.Credential{Kind: domain.CredentialOAuthGrant, ID: domain.NewID()}
+	refused(delegated)
+
+	// An instance admin's plan, applied by the same person, sets it.
+	w.apply(root, w.plan(root, paid))
+	got, err := w.st.FleetPolicies().Get(ctx, w.account.ID)
+	check(t, err)
+	if got.Plan != domain.PlanPaid {
+		t.Fatalf("plan = %s", got.Plan)
+	}
+	// Others still change the rest of the policy, the plan as it is.
+	w.apply(w.owner, w.plan(w.owner, wanted(t, "fleet_policy", "fleet", map[string]any{"routing": "own_first", "plan": "paid"})))
+	// Applied by someone else, a plan that changes it is refused.
+	back := w.plan(root, wanted(t, "fleet_policy", "fleet", map[string]any{"routing": "own_first", "plan": "free"}))
+	_, err = w.engine.Apply(ctx, w.owner, resource.Confirmation{Plan: back.ID, Word: back.ConfirmWord})
+	wantErr(t, err, authz.ErrDenied)
+
+	w.server.Fleet.Hosted = true
+	_, err = w.engine.Plan(ctx, root, resource.PlanRequest{Title: "t", Source: domain.ConfigFromCLI,
+		Changes: []mcp.ConfigWanted{wanted(t, "fleet_policy", "fleet", map[string]any{"routing": "own_first", "plan": "free"})}})
+	wantErr(t, err, authz.ErrDenied)
+}

@@ -340,7 +340,7 @@ routing chosen on the first-run screen (T65, T66).
 | `allowed_shapes` | Shape names it may use, own or hosted; empty allows all. |
 | `quotas` | `concurrent_machines`, `monthly_minutes`, and `monthly_budget`, which counts hosted machines only; absent means no limit. |
 | `egress` | Hosts or CIDRs its hosted machines may reach beyond the defaults (Network). |
-| `plan` | `free` or `paid`, a stub until billing (S.3), set by instance admins only and not part of the resource: attaching an own cloud to a hosted organization needs `paid` (T64), and priorities and free-plan limits read it (T65). |
+| `plan` | `free` or `paid`, a stub until billing (S.3). It is what the instance sells, so no role of the organization changes it, `worker.manage` and `billing.manage` included: in the `fleet_policy` resource a change of `plan` is accepted only from a person flagged as an instance admin acting through their own session (not an OAuth grant), and on a hosted instance (`fleet.hosted`) never. Attaching an own cloud to a hosted organization needs `paid` (T64), and priorities and free-plan limits read it (T65). |
 
 Months are calendar months in UTC. Minutes and budgets count usage records of
 the month plus the machines still running.
