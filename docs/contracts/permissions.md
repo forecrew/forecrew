@@ -100,7 +100,9 @@ repository does not.
   that service account. Its scopes stay within the highest class of the
   owner's permissions and within the token the call is made with, and a
   credential below `write` creates none. An OAuth grant creates none at all:
-  a token would outlive the person disconnecting the app.
+  a token would outlive the person disconnecting the app. For the same
+  reason a grant creates no capacity provider token, join code or
+  invitation link, and an instance admin's grant is not an instance admin.
 - **An instance admin recovering access** (identity.md, Recovery) holds every
   permission on the organization they entered, in a session only, whatever
   their bindings. The entry is audited as `instance_admin.entered`.
@@ -129,7 +131,9 @@ An **OAuth grant** acts as its user (`user:<id>`, identity.md), so roles and
 gates apply as for a personal token, but it is an app, not the person at a
 browser. Its access tokens work on `/mcp` only and are refused on `/api/v1`,
 so nothing that is served there alone, and no rule that needs a session,
-reaches it; `authz.Delegated` names such a caller for rules on `/mcp`.
+reaches it; `authz.Delegated` names such a caller for rules on `/mcp`, and
+`authz.Engine.RefuseDelegated` refuses it (audited): `create_token`,
+`create_provider`, `create_join_code` and `create_invitation`.
 
 An **ownerless token** has no owner's permissions to meet, so it is limited
 only by its scopes (`admin` on the rows from before migration 00005), in its
@@ -318,9 +322,9 @@ object up and checks the permission on the object's project.
 | `fleet_overview` | `GET /api/v1/fleet` | `worker.read`; jobs show only with `job.read` on their project |
 | `list_images` | `GET /api/v1/images` | `worker.read` |
 | | `POST /api/v1/images`, `DELETE /api/v1/images/{image}` | `worker.manage`, from a person only (a user, never a service account, an ownerless token or a machine); an instance-wide image also needs an instance admin. REST and CLI only, no MCP tool: an agent never registers an image others trust |
-| `create_provider` | `POST /api/v1/providers` | `worker.manage`; only the caller's organization, and instance-wide only for an instance admin |
+| `create_provider` | `POST /api/v1/providers` | `worker.manage`; only the caller's organization, and instance-wide only for an instance admin; never through an OAuth grant |
 | `revoke_provider` | `POST /api/v1/providers/{provider}/revoke` | `worker.manage`; another organization's is `404`, an instance-wide one is for an instance admin |
-| `create_join_code` | `POST /api/v1/join-codes` | `worker.manage`; as `create_provider` |
+| `create_join_code` | `POST /api/v1/join-codes` | `worker.manage`; as `create_provider`, so never through an OAuth grant |
 | `list_join_codes` | `GET /api/v1/join-codes` | `worker.manage`; instance-wide codes show to an instance admin |
 | `confirm_join` | `POST /api/v1/join-codes/{join}/confirm` | `worker.manage`; as `revoke_provider` |
 | `list_pending_gates` | `GET /api/v1/gates` | `gate.read`; each gate says whether the caller may resolve it |
@@ -368,7 +372,7 @@ object up and checks the permission on the object's project.
 | `create_token` | `POST /api/v1/tokens` | own; `token.manage` for a service account's; never through an OAuth grant |
 | `list_connected_apps` | `GET /api/v1/connected-apps` | own, class read; nobody sees another person's |
 | `revoke_connected_app` | `POST /api/v1/connected-apps/{app}/revoke` | own, with class write unless it is the app in use; another person's is `404` |
-| `create_invitation` | `POST /api/v1/invitations` | `member.manage` |
+| `create_invitation` | `POST /api/v1/invitations` | `member.manage`; never through an OAuth grant |
 | `list_invitations` | `GET /api/v1/invitations` | `member.manage` |
 | `revoke_invitation` | `POST /api/v1/invitations/{invitation}/revoke` | `member.manage` |
 | `config_schema` | `GET /api/v1/config/schema` | `config.read` |

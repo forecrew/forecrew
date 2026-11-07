@@ -237,7 +237,7 @@ func (s *Service) FleetOverview(ctx context.Context, by domain.Actor) (fleet.Ove
 // instance-wide rows are theirs alone (fleet.md, Permissions).
 func (s *Service) instanceAdmin(ctx context.Context, by domain.Actor) (bool, error) {
 	id, ok := by.SubjectID()
-	if !ok || by.Kind != domain.ActorUser {
+	if !ok || by.Kind != domain.ActorUser || authz.Delegated(by) {
 		return false, nil
 	}
 	u, err := s.cfg.Store.Users().Get(ctx, id)
@@ -249,8 +249,12 @@ func (s *Service) instanceAdmin(ctx context.Context, by domain.Actor) (bool, err
 
 // providerOrg says whose a new provider or join code is, and that by may make
 // it: by's own organization, or an instance-wide one for an instance admin.
-// Another organization looks like one that does not exist.
+// Another organization looks like one that does not exist. A connected app
+// makes neither: the token or code it would hold outlives disconnecting it.
 func (s *Service) providerOrg(ctx context.Context, by domain.Actor, slug string) (uuid.UUID, error) {
+	if err := s.authz.RefuseDelegated(ctx, by); err != nil {
+		return uuid.Nil(), err
+	}
 	if err := s.allowOrg(ctx, by, domain.PermWorkerManage); err != nil {
 		return uuid.Nil(), err
 	}

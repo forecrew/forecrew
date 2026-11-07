@@ -184,6 +184,10 @@ func (s *Service) grants(ctx context.Context, by domain.Actor, in []mcp.RoleGran
 // CreateInvitation implements mcp.ToolService.
 func (s *Service) CreateInvitation(ctx context.Context, by domain.Actor, in mcp.CreateInvitationInput) (mcp.CreateInvitationOutput, error) {
 	var out mcp.CreateInvitationOutput
+	// The link lets someone in after the app that asked is disconnected.
+	if err := s.authz.RefuseDelegated(ctx, by); err != nil {
+		return out, err
+	}
 	if err := s.allowOrg(ctx, by, domain.PermMemberManage); err != nil {
 		return out, err
 	}
