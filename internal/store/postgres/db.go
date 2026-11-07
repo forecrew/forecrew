@@ -156,6 +156,9 @@ func (s *Store) VerificationReports() store.VerificationReportRepo {
 // Councils implements store.Store.
 func (s *Store) Councils() store.CouncilRepo { return councilRepo{s.db} }
 
+// Proposals implements store.Store.
+func (s *Store) Proposals() store.ProposalRepo { return proposalRepo{s.db} }
+
 // Postgres error codes the store maps to sentinels.
 const (
 	codeUnique     = "23505"
