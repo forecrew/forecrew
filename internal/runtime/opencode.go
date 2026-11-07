@@ -255,12 +255,16 @@ func withoutOpencodeEnv(env []string) []string {
 
 // withEndpointKey makes sure a custom endpoint gets its key: a key from the
 // worker's environment joins spec.Env, so it is redacted like the others, and
-// a job without one fails now rather than at the provider.
+// a job without one fails now rather than at the provider. The endpoint of an
+// organization's connection takes only the key the job came with.
 func withEndpointKey(spec RunSpec, base []string) (RunSpec, error) {
 	if spec.Endpoint == nil || spec.Endpoint.KeyEnv == "" || spec.Env[spec.Endpoint.KeyEnv] != "" {
 		return spec, nil
 	}
 	name := spec.Endpoint.KeyEnv
+	if spec.Endpoint.Organization {
+		return spec, fmt.Errorf("%w: the job has no %s, and a key of this worker does not go to an organization's endpoint", ErrRunFailed, name)
+	}
 	i := slices.IndexFunc(base, func(kv string) bool {
 		v, ok := strings.CutPrefix(kv, name+"=")
 		return ok && v != ""

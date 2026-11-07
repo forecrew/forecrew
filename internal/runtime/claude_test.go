@@ -496,3 +496,21 @@ func TestClaudeEndpoint(t *testing.T) {
 		t.Fatalf("ANTHROPIC_BASE_URL = %q", got)
 	}
 }
+
+// TestOrganizationEndpointGetsNoWorkerKey: the custom endpoint of an
+// organization's connection sees the job's key and nothing the worker holds.
+func TestOrganizationEndpointGetsNoWorkerKey(t *testing.T) {
+	rec := filepath.Join(t.TempDir(), "rec.json")
+	a := newFakeClaude("FAKE_STREAM="+stream("claude_success.jsonl"), "FAKE_RECORD="+rec,
+		"ANTHROPIC_API_KEY=worker-key", "ANTHROPIC_AUTH_TOKEN=worker-token", "DEEPSEEK_API_KEY=worker-other", "KEEP=me")
+	spec := claudeSpec()
+	spec.Env = map[string]string{"ANTHROPIC_API_KEY": "org-key"}
+	spec.Endpoint = &domain.Endpoint{BaseURL: "https://proxy.example.com", KeyEnv: "ANTHROPIC_API_KEY", Organization: true}
+	if _, _, err := collect(t, a, spec); err != nil {
+		t.Fatal(err)
+	}
+	env := readRecord(t, rec).Env
+	if env["ANTHROPIC_API_KEY"] != "org-key" || env["ANTHROPIC_AUTH_TOKEN"] != "" || env["DEEPSEEK_API_KEY"] != "" || env["KEEP"] != "me" {
+		t.Fatalf("env = %v", env)
+	}
+}

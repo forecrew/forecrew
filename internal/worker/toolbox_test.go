@@ -511,6 +511,23 @@ func TestToolboxRefusesOpencode(t *testing.T) {
 	}
 }
 
+// TestToolboxOrganizationEndpointGetsNoWorkerKey: the worker's own key is not
+// passed to the container of a job on an organization's endpoint.
+func TestToolboxOrganizationEndpointGetsNoWorkerKey(t *testing.T) {
+	e, g := namedEnv(t, runtime.ClaudeCode, func(context.Context, runtime.RunSpec, func(domain.JobEvent)) (runtime.Result, error) {
+		return runtime.Result{}, nil
+	})
+	s := toolboxSpec(e, securityBox, func(s *domain.JobSpec) {
+		s.Runtime = runtime.ClaudeCode
+		s.Endpoint = &domain.Endpoint{BaseURL: "https://models.example.com/v1", KeyEnv: "EP_KEY", Organization: true}
+	})
+	e.doComplete(s)
+	got := calls(t, g.log)
+	if hasCall(got, "-e EP_KEY ") || hasCall(got, "-e "+runtime.KeyEnv(runtime.ClaudeCode)+" ") {
+		t.Errorf("a key of the worker reached the container: %v", got)
+	}
+}
+
 func TestToolboxEndpointKeyIsPassedByName(t *testing.T) {
 	const key = "ep-secret-0123456789abcdef"
 	var out []string
