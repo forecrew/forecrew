@@ -75,7 +75,7 @@ func modelsFixtureCases() []fixtureCase {
 			c.Test = &domain.SuitabilityResult{Abilities: map[string]bool{domain.AbilityRead: true, domain.AbilityMCP: true, domain.AbilityJSON: true}, Level: domain.LevelRead, Turns: 6}
 		}),
 	}
-	resources := func(kind string, rs ...mcp.ConfigResource) func(*env) {
+	resources := func(rs ...mcp.ConfigResource) func(*env) {
 		return func(e *env) {
 			e.svc.ConfigGetFunc = func(context.Context, domain.Actor, mcp.ConfigGetInput) ([]mcp.ConfigResource, error) { return rs, nil }
 		}
@@ -155,16 +155,16 @@ func modelsFixtureCases() []fixtureCase {
 					Notes: []string{"The reviewer stays on claude: only models of deepseek passed for the developer"}, Plan: &suggestPlan}, nil
 			}
 		}},
-		{"config-resources-model-connection", "GET", "/api/v1/config/resources?kind=model_connection", "", 200, "bearer", resources("model_connection",
+		{"config-resources-model-connection", "GET", "/api/v1/config/resources?kind=model_connection", "", 200, "bearer", resources(
 			res("model_connection", "claude", "server", "file", `{"adapter":"claude-code","enabled":true,"key_env":"ANTHROPIC_API_KEY","vendor":"anthropic"}`),
 			res("model_connection", "deepseek", "organization", "database", `{"adapter":"opencode","base_url":"https://api.deepseek.com/v1","enabled":true,"key_env":"DEEPSEEK_API_KEY","secret_ref":"store:models/deepseek","vendor":"deepseek"}`),
 			res("model_connection", "home-ollama", "organization", "database", `{"adapter":"opencode","base_url":"http://localhost:11434/v1","enabled":true,"key_env":"OLLAMA_API_KEY","vendor":"ollama"}`),
 		)},
-		{"config-resources-model-assignment", "GET", "/api/v1/config/resources?kind=model_assignment", "", 200, "bearer", resources("model_assignment",
+		{"config-resources-model-assignment", "GET", "/api/v1/config/resources?kind=model_assignment", "", 200, "bearer", resources(
 			res("model_assignment", "organization", "organization", "database", assignment),
 			res("model_assignment", "project:app", "project", "database", `{"roles":{"reviewer":{"connection":"home-ollama","tier":"fast"}}}`),
 		)},
-		{"config-resources-model-authorization", "GET", "/api/v1/config/resources?kind=model_authorization", "", 200, "bearer", resources("model_authorization",
+		{"config-resources-model-authorization", "GET", "/api/v1/config/resources?kind=model_authorization", "", 200, "bearer", resources(
 			res("model_authorization", "deepseek@app", "project", "database", `{}`),
 		)},
 		{"config-plan-model-connection", "POST", "/api/v1/config/plans", `{"title":"Add AI provider DeepSeek API","source":"form","changes":[{"kind":"model_connection","name":"deepseek","spec":{"vendor":"deepseek","adapter":"opencode","base_url":"https://api.deepseek.com/v1","key_env":"DEEPSEEK_API_KEY","secret_ref":"store:models/deepseek","enabled":true}}]}`, 201, "bearer", func(e *env) {

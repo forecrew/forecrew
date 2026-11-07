@@ -48,6 +48,22 @@ func (s *Server) recordAgents(ctx context.Context, w domain.Worker, agents []dom
 	return agents
 }
 
+// lacksOnlyAgent reports whether j is a queued agent job of w's pool that w,
+// with labels, could run but for the label of its runtime, and w did not
+// report a failed install of it: that says why on the machine and the job.
+func lacksOnlyAgent(j domain.Job, w domain.Worker, labels []string) bool {
+	if j.Kind.OrDefault() != domain.JobKindAgent || j.Runtime == "" || j.Runtime == domain.RuntimeNone || domain.OrDefaultPool(j.Pool) != domain.OrDefaultPool(w.Pool) {
+		return false
+	}
+	need := j.RequiredLabels()
+	runtime := domain.RuntimeLabel(j.Runtime)
+	if domain.MatchLabels(need, labels) || !domain.MatchLabels(slices.DeleteFunc(slices.Clone(need), func(l string) bool { return l == runtime }), labels) {
+		return false
+	}
+	a, ok := w.Agent(j.Runtime)
+	return !ok || a.Error == ""
+}
+
 // installRequest returns the adapter w should install, or "": the runtime
 // of the oldest queued agent job of w's pool that no online worker of the
 // pool can run, when w has everything else the job needs, says it installs
@@ -67,22 +83,15 @@ func (s *Server) installRequest(ctx context.Context, w domain.Worker, labels []s
 	var workers []domain.Worker
 	now := s.cfg.Now()
 	for _, j := range slices.Backward(queued) { // oldest first
-		if j.Kind.OrDefault() != domain.JobKindAgent || j.Runtime == "" || j.Runtime == domain.RuntimeNone || domain.OrDefaultPool(j.Pool) != domain.OrDefaultPool(w.Pool) {
+		if !lacksOnlyAgent(j, w, labels) {
 			continue
-		}
-		need := j.RequiredLabels()
-		runtime := domain.RuntimeLabel(j.Runtime)
-		if domain.MatchLabels(need, labels) || !domain.MatchLabels(slices.DeleteFunc(slices.Clone(need), func(l string) bool { return l == runtime }), labels) {
-			continue
-		}
-		if a, ok := w.Agent(j.Runtime); ok && a.Error != "" {
-			continue // it says why on the machine and on the job
 		}
 		if workers == nil {
 			if workers, err = s.cfg.Store.Workers().List(ctx, w.AccountID); err != nil {
 				return ""
 			}
 		}
+		need := j.RequiredLabels()
 		if slices.ContainsFunc(workers, func(o domain.Worker) bool {
 			return o.Online(now) && domain.OrDefaultPool(o.Pool) == domain.OrDefaultPool(w.Pool) && domain.MatchLabels(need, o.Labels)
 		}) {
