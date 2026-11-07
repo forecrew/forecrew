@@ -82,3 +82,9 @@ func TestRolesAndProvisioningOnPostgres(t *testing.T) {
 		t.Fatalf("still bound: %v", err)
 	}
 }
+
+func TestOwnerSuspensionSurvivesDeleteOnPostgres(t *testing.T) {
+	pool := testkit.NewDatabase(t)
+	must(t, postgres.Migrate(t.Context(), pool))
+	ownerSuspensionSurvivesDelete(t, newEnvOn(t, postgres.New(pool), testkit.NewClock(time.Now())))
+}

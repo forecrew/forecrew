@@ -481,3 +481,40 @@ func TestSCIMDoesNotUndoAnOwnersSuspension(t *testing.T) {
 		t.Fatalf("activate after SCIM = %d %v", status, got)
 	}
 }
+
+// ownerSuspensionSurvivesDelete is an Owner's suspension, then a SCIM
+// delete and a create of the same userName: the member stays suspended, and
+// the delete still ended their access.
+func ownerSuspensionSurvivesDelete(t *testing.T, e *env) {
+	ctx := t.Context()
+	e.verified("acme.example")
+	c := e.scim()
+	hooks := grantHooks(t, e)
+	_, body := c.do(http.MethodPost, "/Users", userBody("ann@acme.example"))
+	id, _ := body["id"].(string)
+	user := uuid.MustParse(id)
+	hooks["grant_access"](user)
+	must(t, e.st.Memberships().SetStatus(ctx, e.org.ID, user, domain.MembershipSuspended))
+	if status, _ := c.do(http.MethodDelete, "/Users/"+id, ""); status != http.StatusNoContent {
+		t.Fatalf("delete = %d", status)
+	}
+	hooks["access_ended"](user)
+	m, err := e.st.Memberships().Get(ctx, e.org.ID, user)
+	must(t, err)
+	if m.SCIMSuspended {
+		t.Fatalf("SCIM marked an Owner's suspension: %+v", m)
+	}
+	if status, got := c.do(http.MethodPost, "/Users", userBody("ann@acme.example")); status != http.StatusCreated || got["active"] != false {
+		t.Fatalf("create after delete = %d %v", status, got)
+	}
+	if status, got := c.do(http.MethodPatch, "/Users/"+id, `{"Operations":[{"op":"Replace","path":"active","value":true}]}`); status != http.StatusOK || got["active"] != false {
+		t.Fatalf("activate = %d %v", status, got)
+	}
+	if m, err = e.st.Memberships().Get(ctx, e.org.ID, user); err != nil || m.Status != domain.MembershipSuspended {
+		t.Fatalf("membership = %+v, %v", m, err)
+	}
+}
+
+func TestOwnerSuspensionSurvivesDelete(t *testing.T) {
+	ownerSuspensionSurvivesDelete(t, newEnv(t))
+}
