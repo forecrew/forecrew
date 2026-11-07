@@ -411,6 +411,17 @@ func TestReportBug(t *testing.T) {
 	}
 }
 
+// A project listed only in goal_v3.projects runs the testing system too, so
+// it reports bugs.
+func TestReportBugInAGoalV3Project(t *testing.T) {
+	f := newFixture(t, func(c *tools.Config) { c.GoalV3Projects = []string{"app"} })
+	g, err := f.svc.ReportBug(t.Context(), f.by, mcp.ReportBugInput{Project: "app", Title: "Crash"})
+	must(t, err)
+	if starts := f.playbooks.Starts(); g.Kind != domain.GoalBug || len(starts) != 1 || starts[0].Playbook != tools.PlaybookBugfix {
+		t.Errorf("goal %+v, starts %+v", g, starts)
+	}
+}
+
 func TestReportBugErrors(t *testing.T) {
 	tests := []struct {
 		name     string

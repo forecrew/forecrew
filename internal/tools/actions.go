@@ -224,7 +224,8 @@ func (s *Service) ReportIssueAsBug(ctx context.Context, by domain.Actor, p domai
 
 // startBug creates a goal of kind bug and starts the bug-fix playbook. The
 // bug-fix playbook writes its regression test with the testing system, so
-// only the projects of Config.TestingProjects have it. issue is the goal's
+// only the projects of Config.TestingProjects and Config.GoalV3Projects (which
+// run it too) have it. issue is the goal's
 // GitHub issue, or 0 for the playbook to open one.
 func (s *Service) startBug(ctx context.Context, by domain.Actor, p domain.Project, title, body string, platforms []string, issue int) (domain.Goal, error) {
 	if title == "" {
@@ -233,8 +234,8 @@ func (s *Service) startBug(ctx context.Context, by domain.Actor, p domain.Projec
 	if p.Status != domain.ProjectOnboarded {
 		return domain.Goal{}, fmt.Errorf("project %s is %s, onboard it first: %w", p.Name, p.Status, mcp.ErrInvalidInput)
 	}
-	if !slices.Contains(s.cfg.TestingProjects, p.Name) {
-		return domain.Goal{}, fmt.Errorf("the bug-fix playbook needs the testing system: add %s to testing.projects: %w", p.Name, mcp.ErrInvalidInput)
+	if !slices.Contains(s.cfg.TestingProjects, p.Name) && !slices.Contains(s.cfg.GoalV3Projects, p.Name) {
+		return domain.Goal{}, fmt.Errorf("the bug-fix playbook needs the testing system: add %s to testing.projects or goal_v3.projects: %w", p.Name, mcp.ErrInvalidInput)
 	}
 	g := domain.Goal{
 		AccountID: by.AccountID, ProjectID: p.ID, Kind: domain.GoalBug, Title: title, Body: body,
