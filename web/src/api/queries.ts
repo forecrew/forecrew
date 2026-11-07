@@ -410,8 +410,13 @@ export const useResources = (kind: string, enabled = true) => useQuery({ queryKe
 export const useTrackerConnections = (enabled = true) => useQuery({ queryKey: keys.trackerConnections, queryFn: api.listTrackerConnections, enabled, ...poll })
 export const useTrackerRoutes = (enabled = true) => useQuery({ queryKey: keys.trackerRoutes, queryFn: api.listTrackerRoutes, enabled, ...poll })
 export const useTrackerIdentities = (enabled = true) => useQuery({ queryKey: keys.trackerIdentities, queryFn: api.listTrackerIdentities, enabled })
-/** Reads the waiting tickets from their trackers, so it does not poll. */
-export const useUnmappedPeople = (enabled = true) => useQuery({ queryKey: keys.trackerUnmapped, queryFn: api.listUnmappedPeople, enabled })
+/**
+ * Reads the waiting tickets from their trackers, which spends the budget of the connection's
+ * token: it does not poll or refetch on focus, and is fresh for five minutes. A mapping, an
+ * accepted or a dismissed ticket and a confirmed plan invalidate it.
+ */
+export const useUnmappedPeople = (enabled = true) =>
+  useQuery({ queryKey: keys.trackerUnmapped, queryFn: api.listUnmappedPeople, enabled, staleTime: 5 * 60_000, refetchOnWindowFocus: false })
 export const useWaitingTickets = (enabled = true) => useQuery({ queryKey: keys.tickets, queryFn: api.listWaitingTickets, enabled, ...poll })
 
 /** Everything a confirmed plan can change: refresh what shows it. */
