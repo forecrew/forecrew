@@ -227,26 +227,8 @@ func (s *Service) createUser(w http.ResponseWriter, r *http.Request, c scimCall)
 		if err := checkExternalID(ctx, tx, c, in.ExternalID, u.ID); err != nil {
 			return err
 		}
-		external := cmp.Or(in.ExternalID, u.ID.String())
-		m, err = tx.Memberships().Get(ctx, c.account, u.ID)
-		switch {
-		case errors.Is(err, store.ErrNotFound):
-			m = domain.Membership{AccountID: c.account, UserID: u.ID, Status: statusOf(in.Active), Source: domain.SourceSCIM, ExternalID: external}
-			if err := tx.Memberships().Create(ctx, &m); err != nil {
-				return err
-			}
-		case err != nil:
+		if m, err = joinSCIM(ctx, tx, c, in, u.ID); err != nil {
 			return err
-		case m.Source == domain.SourceSCIM && m.ExternalID == "":
-			if err := tx.Memberships().SetStatus(ctx, c.account, u.ID, statusOf(in.Active)); err != nil {
-				return err
-			}
-			if err := tx.Memberships().SetExternalID(ctx, c.account, u.ID, external); err != nil {
-				return err
-			}
-			m.Status, m.ExternalID = statusOf(in.Active), external
-		default:
-			return scimTaken("%s is a member already", in.UserName)
 		}
 		return audit(ctx, tx, c.by, "scim.user_created", "user", u.ID, map[string]any{"token": c.token, "status": m.Status})
 	})
@@ -255,6 +237,27 @@ func (s *Service) createUser(w http.ResponseWriter, r *http.Request, c scimCall)
 	}
 	w.Header().Set("Location", c.base+"/Users/"+u.ID.String())
 	return writeSCIM(w, http.StatusCreated, userResource(c, u, m))
+}
+
+// joinSCIM gives the user a membership with source scim, or brings a deleted
+// one back; any other membership is a clash.
+func joinSCIM(ctx context.Context, tx store.Store, c scimCall, in scimUser, userID uuid.UUID) (domain.Membership, error) {
+	external := cmp.Or(in.ExternalID, userID.String())
+	m, err := tx.Memberships().Get(ctx, c.account, userID)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		m = domain.Membership{AccountID: c.account, UserID: userID, Status: statusOf(in.Active), Source: domain.SourceSCIM, ExternalID: external}
+		return m, tx.Memberships().Create(ctx, &m)
+	case err != nil:
+		return m, err
+	case m.Source != domain.SourceSCIM || m.ExternalID != "":
+		return m, scimTaken("%s is a member already", in.UserName)
+	}
+	m.Status, m.ExternalID = statusOf(in.Active), external
+	if err := tx.Memberships().SetStatus(ctx, c.account, userID, m.Status); err != nil {
+		return m, err
+	}
+	return m, tx.Memberships().SetExternalID(ctx, c.account, userID, external)
 }
 
 // userChange is what a PUT or PATCH leaves a user as. Name is empty to keep
