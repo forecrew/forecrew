@@ -325,8 +325,17 @@ func TestProviderOrganizationChecks(t *testing.T) {
 	if _, err := f.svc.CreateJoinCode(ctx, f.by, mcp.CreateJoinCodeInput{Org: other.Slug}); !errors.Is(err, mcp.ErrNotFound) {
 		t.Errorf("join code of another organization: %v", err)
 	}
-	// Instance-wide rows are for instance admins.
+	// With several organizations nothing is instance-wide by accident, not
+	// even for an instance admin.
 	in.Org = ""
+	if _, err := f.svc.CreateProvider(ctx, manager(t, f, true), in); !errors.Is(err, mcp.ErrInvalidInput) {
+		t.Errorf("no org: %v", err)
+	}
+	if _, err := f.svc.CreateJoinCode(ctx, manager(t, f, true), mcp.CreateJoinCodeInput{}); !errors.Is(err, mcp.ErrInvalidInput) {
+		t.Errorf("join code with no org: %v", err)
+	}
+	// Instance-wide rows are for instance admins, who say so.
+	in.Org = fleet.OrgInstance
 	if _, err := f.svc.CreateProvider(ctx, f.by, in); !errors.Is(err, authz.ErrDenied) {
 		t.Errorf("instance-wide: %v", err)
 	}
@@ -472,7 +481,7 @@ func TestInstanceWideJoinCodes(t *testing.T) {
 	root := manager(t, f, true)
 	other := domain.Account{Name: "other", Slug: "other"}
 	must(t, f.st.Accounts().Create(ctx, &other))
-	out, err := f.svc.CreateJoinCode(ctx, root, mcp.CreateJoinCodeInput{})
+	out, err := f.svc.CreateJoinCode(ctx, root, mcp.CreateJoinCodeInput{Org: fleet.OrgInstance})
 	must(t, err)
 	if out.JoinCode.AccountID != uuid.Nil() {
 		t.Fatalf("out = %+v", out)

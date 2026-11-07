@@ -178,10 +178,13 @@ func TestProviderOrganization(t *testing.T) {
 	}
 	b := domain.Account{Name: "Other", Slug: "other"}
 	must(t, st.Accounts().Create(ctx, &b))
-	id, err = fleet.ProviderOrganization(ctx, st, "")
+	if _, err = fleet.ProviderOrganization(ctx, st, ""); !errors.Is(err, fleet.ErrOrgRequired) {
+		t.Fatalf("several organizations: %v", err)
+	}
+	id, err = fleet.ProviderOrganization(ctx, st, fleet.OrgInstance)
 	must(t, err)
 	if id != uuid.Nil() {
-		t.Fatalf("several organizations: %s", id)
+		t.Fatalf("instance-wide: %s", id)
 	}
 	id, err = fleet.ProviderOrganization(ctx, st, "other")
 	must(t, err)

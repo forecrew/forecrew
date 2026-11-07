@@ -89,7 +89,7 @@ func providerAddCommand(r *remote) *cobra.Command {
 }
 
 // orgFlagHelp explains --org of the commands that connect a location.
-const orgFlagHelp = "organization slug; defaults to the server's organization when it has only one, otherwise instance-wide"
+const orgFlagHelp = "organization slug, or instance for an instance-wide location; required on a server with several organizations"
 
 func providerRevokeCommand(r *remote) *cobra.Command {
 	return &cobra.Command{

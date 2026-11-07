@@ -135,11 +135,23 @@ func idTail(id uuid.UUID, n int) string {
 	return s[len(s)-n:]
 }
 
-// ProviderOrganization says whose a new provider is (fleet.md, Ownership):
-// the organization of slug or, with no slug, the server's only organization,
-// so a home server is the organization's own. On a server with several,
-// no slug means instance-wide, the zero ID.
+// OrgInstance in place of an organization's slug asks for an instance-wide
+// provider. An organization with this slug cannot be named by it here.
+const OrgInstance = "instance"
+
+// ErrOrgRequired means a server with several organizations was not told whose
+// a new provider is.
+var ErrOrgRequired = errors.New(`several organizations: name one, or "` + OrgInstance + `" for an instance-wide location`)
+
+// ProviderOrganization says whose a new provider is (fleet.md, Ownership): the
+// organization of slug, instance-wide (the zero ID) for OrgInstance or, with no
+// slug, the server's only organization, so a home server is the organization's
+// own. On a server with several no slug is ErrOrgRequired: nothing instance-wide
+// happens by accident.
 func ProviderOrganization(ctx context.Context, st store.Store, slug string) (uuid.UUID, error) {
+	if slug == OrgInstance {
+		return uuid.Nil(), nil
+	}
 	accounts, err := st.Accounts().List(ctx)
 	if err != nil {
 		return uuid.Nil(), fmt.Errorf("list organizations: %w", err)
@@ -148,7 +160,7 @@ func ProviderOrganization(ctx context.Context, st store.Store, slug string) (uui
 		if len(accounts) == 1 {
 			return accounts[0].ID, nil
 		}
-		return uuid.Nil(), nil
+		return uuid.Nil(), ErrOrgRequired
 	}
 	for _, a := range accounts {
 		if a.Slug == slug {
