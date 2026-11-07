@@ -43,8 +43,13 @@ function ChangeLine({ c }: { c: ConfigChange }) {
 function SecondConfirmation({ plan, open, busy, onClose, onConfirm }: { plan: ConfigPlan; open: boolean; busy: boolean; onClose: () => void; onConfirm: (word: string) => void }) {
   const [word, setWord] = useState("")
   const word0 = plan.confirm_word ?? ""
+  // A word typed before is not kept for the next time the dialog opens.
+  const close = () => {
+    setWord("")
+    onClose()
+  }
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => !o && close()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Confirm: {plan.title}</DialogTitle>
@@ -62,7 +67,7 @@ function SecondConfirmation({ plan, open, busy, onClose, onConfirm }: { plan: Co
           <Input value={word} autoComplete="off" spellCheck={false} className="font-mono" onChange={(e) => setWord(e.target.value)} />
         </label>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={close}>
             Keep it as it is
           </Button>
           <Button variant="destructive" disabled={busy || word !== word0} onClick={() => onConfirm(word)}>
