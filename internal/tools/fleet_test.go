@@ -324,6 +324,32 @@ func TestOwnCloudNeedsThePaidPlanOnAHostedInstance(t *testing.T) {
 		t.Fatalf("paid plan: %v", err)
 	}
 
+	// A location an agent reported through a join code is gated the same way: the
+	// organization went back to the free plan.
+	policy.Plan = domain.PlanFree
+	must(t, f.st.FleetPolicies().Put(ctx, &policy))
+	code, err := f.svc.CreateJoinCode(ctx, f.by, mcp.CreateJoinCodeInput{})
+	must(t, err)
+	_, err = fleet.Join(ctx, f.st, f.clock.Now(), fleet.JoinRequest{Code: code.Code, Claim: "claim", Kind: domain.ProviderAWS, Facts: domain.ProviderCapabilities{CloudAccount: "123456789012"}})
+	must(t, err)
+	codes, err := f.svc.ListJoinCodes(ctx, f.by, mcp.ListJoinCodesInput{})
+	must(t, err)
+	var claimed mcp.JoinCodeInfo
+	for _, c := range codes {
+		if c.ID == code.JoinCode.ID {
+			claimed = c
+		}
+	}
+	confirm := mcp.ConfirmJoinInput{Join: claimed.ID.String(), Name: "joined-aws", FactsHash: claimed.FactsHash}
+	if _, err := f.svc.ConfirmJoin(ctx, f.by, confirm); !errors.Is(err, authz.ErrDenied) {
+		t.Fatalf("confirming an own cloud on the free plan: %v", err)
+	}
+	policy.Plan = domain.PlanPaid
+	must(t, f.st.FleetPolicies().Put(ctx, &policy))
+	if _, err := f.svc.ConfirmJoin(ctx, f.by, confirm); err != nil {
+		t.Fatalf("confirming on the paid plan: %v", err)
+	}
+
 	// Not hosted: no gate, whatever the plan.
 	g := newFixture(t)
 	if _, err := g.svc.CreateProvider(ctx, g.by, aws); err != nil {

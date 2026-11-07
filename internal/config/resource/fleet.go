@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/mcp"
 )
 
@@ -153,6 +154,9 @@ func applyProvider(ctx context.Context, e *Env, old, want *Resource) error {
 			return err
 		}
 		p := providerRow(e, want.Name, s)
+		if err := fleet.RequirePaidPlan(ctx, e.Store, e.Server != nil && e.Server.Fleet.Hosted, p); err != nil {
+			return err
+		}
 		return e.Store.CapacityProviders().Create(ctx, &p)
 	}
 	row, err := e.Store.CapacityProviders().GetByName(ctx, e.Actor.AccountID, old.Name)

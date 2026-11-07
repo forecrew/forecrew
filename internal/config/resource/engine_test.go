@@ -1166,3 +1166,23 @@ func TestAssistantHomeServer(t *testing.T) {
 		t.Fatalf("messages = %+v", messages)
 	}
 }
+
+// A location in an own cloud is gated on a hosted instance whichever way it is
+// added, and a configuration plan is one of them.
+func TestOwnCloudInAPlanNeedsThePaidPlanOnAHostedInstance(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	w.server.Fleet.Hosted = true
+	p := w.plan(w.owner, wanted(t, "provider", "own-aws", map[string]any{"kind": "aws"}))
+	_, err := w.engine.Apply(ctx, w.owner, resource.Confirmation{Plan: p.ID, Word: p.ConfirmWord})
+	wantErr(t, err, authz.ErrDenied)
+	if _, err := w.st.CapacityProviders().GetByName(ctx, w.account.ID, "own-aws"); err == nil {
+		t.Fatal("the refused location was stored")
+	}
+	// A home server is not an own cloud.
+	w.apply(w.owner, w.plan(w.owner, wanted(t, "provider", "home", map[string]any{"kind": "microvm"})))
+	policy := domain.DefaultFleetPolicy(w.account.ID)
+	policy.Plan = domain.PlanPaid
+	check(t, w.st.FleetPolicies().Put(ctx, &policy))
+	w.apply(w.owner, w.plan(w.owner, wanted(t, "provider", "own-aws", map[string]any{"kind": "aws"})))
+}
