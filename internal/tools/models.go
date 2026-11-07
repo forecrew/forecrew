@@ -142,6 +142,24 @@ func (s *Service) ModelsResults(ctx context.Context, by domain.Actor, in mcp.Mod
 	return out, nil
 }
 
+// ModelsCatalog implements mcp.ToolService.
+func (s *Service) ModelsCatalog(ctx context.Context, by domain.Actor, _ mcp.ModelsCatalogInput) (mcp.ModelsCatalog, error) {
+	if err := s.allowOrg(ctx, by, domain.PermModelsRead); err != nil {
+		return mcp.ModelsCatalog{}, err
+	}
+	cat, err := models.DefaultCatalog()
+	if err != nil {
+		return mcp.ModelsCatalog{}, err
+	}
+	out := mcp.ModelsCatalog{Makers: cat.Makers, Providers: cat.Providers, Models: cat.Models, Presets: models.Presets(), Roles: []mcp.ModelRoleNeed{}}
+	if s.cfg.RoleNeeds != nil {
+		for _, n := range s.cfg.RoleNeeds() {
+			out.Roles = append(out.Roles, mcp.ModelRoleNeed{Name: n.Name, Tier: string(n.Tier), Writes: n.Writes})
+		}
+	}
+	return out, nil
+}
+
 // ModelsSuggest implements mcp.ToolService.
 func (s *Service) ModelsSuggest(ctx context.Context, by domain.Actor, in mcp.ModelsSuggestInput) (mcp.ModelsSuggestion, error) {
 	if err := s.allowOrg(ctx, by, domain.PermModelsRead); err != nil {

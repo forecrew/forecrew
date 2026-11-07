@@ -313,6 +313,7 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolModelsTest, map[string]any{"connection": "cloud", "model": "m", "run": true}, mcp.ModelsTestInput{Connection: "cloud", Model: "m", Run: true, WrapUntrusted: true}},
 		{mcp.ToolModelsResults, map[string]any{"connection": "cloud"}, mcp.ModelsResultsInput{Connection: "cloud", WrapUntrusted: true}},
 		{mcp.ToolModelsSuggest, map[string]any{"preset": "low_cost"}, mcp.ModelsSuggestInput{Preset: "low_cost", Source: domain.ConfigFromMCP}},
+		{mcp.ToolModelsCatalog, map[string]any{}, mcp.ModelsCatalogInput{}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))

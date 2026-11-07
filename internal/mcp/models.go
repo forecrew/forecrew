@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/models"
 )
 
 // ModelConnectionRefInput names an organization's model connection.
@@ -36,6 +37,28 @@ type ModelsSuggestInput struct {
 	Preset string `json:"preset,omitempty"`
 	// Source is who asks, as for config_plan.
 	Source domain.ConfigPlanSource `json:"source,omitempty"`
+}
+
+// ModelsCatalogInput is the input of models_catalog: there is none.
+type ModelsCatalogInput struct{}
+
+// ModelRoleNeed is a role a suggestion fills: the tier its pack is written
+// for, and whether it writes code.
+type ModelRoleNeed struct {
+	Name   string `json:"name"`
+	Tier   string `json:"tier"`
+	Writes bool   `json:"writes"`
+}
+
+// ModelsCatalog is the answer of models_catalog: the providers, makers and
+// models of the model catalog this release ships, the presets of a
+// suggestion, and the roles it fills.
+type ModelsCatalog struct {
+	Makers    []models.Maker        `json:"makers"`
+	Providers []models.Provider     `json:"providers"`
+	Models    []models.CatalogModel `json:"models"`
+	Presets   []string              `json:"presets"`
+	Roles     []ModelRoleNeed       `json:"roles"`
 }
 
 // ModelCheckView is a key check or a suitability test as a caller sees it.
@@ -106,6 +129,11 @@ func registerModels(r registrar, svc ToolService) {
 			in.WrapUntrusted = true
 			out, err := svc.ModelsResults(ctx, by, in)
 			return list("results", out, "%d results.", len(out)), err
+		})
+	register(r, ToolModelsCatalog, "List the model catalog this release ships: providers (with their adapter, address, key variable and country), makers and models (with tier, context and price), the presets of models_suggest and the roles it fills.",
+		fieldDocs{}, func(ctx context.Context, by domain.Actor, in ModelsCatalogInput) (toolResult, error) {
+			out, err := svc.ModelsCatalog(ctx, by, in)
+			return result(out, "%d providers, %d models.", len(out.Providers), len(out.Models)), err
 		})
 	register(r, ToolModelsSuggest, "Suggest which tested model serves each role, with a preset: balanced (default), low_cost or local_only. No model is involved: the suggestion comes from the tests and the model catalog, and is a change plan a person confirms; notes say what could not be filled.",
 		fieldDocs{"preset": "balanced, low_cost or local_only.", "source": "Who asks: mcp by default."}, func(ctx context.Context, by domain.Actor, in ModelsSuggestInput) (toolResult, error) {

@@ -3,6 +3,7 @@ package tools_test
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"uuid"
@@ -201,5 +202,26 @@ func TestTheAssistantSuggestsByTheSameFunction(t *testing.T) {
 	}
 	if _, err := f.svc.ModelsSuggestFor(ctx, domain.Job{AccountID: f.account.ID, ID: domain.NewID()}, jobmcp.ModelsSuggestInput{}); err == nil {
 		t.Fatal("a job of no conversation suggested")
+	}
+	// It reads the providers and the results, without what providers said.
+	read, err := f.svc.ConfigRead(ctx, job, jobmcp.ConfigReadInput{Kind: "model_connection", Models: true})
+	must(t, err)
+	if read.Models == nil || len(read.Models.Providers) == 0 || len(read.Resources) != 2 ||
+		!slices.Contains(read.Models.Results, jobmcp.ModelResult{Connection: "ds", Model: "deepseek-chat", Status: string(domain.SuitabilityDone), Level: domain.LevelCode}) {
+		t.Fatalf("read = %+v, models %+v", read, read.Models)
+	}
+}
+
+func TestModelsCatalog(t *testing.T) {
+	f, by, _ := modelsFixture(t)
+	out, err := f.svc.ModelsCatalog(t.Context(), by, mcp.ModelsCatalogInput{})
+	must(t, err)
+	if len(out.Providers) == 0 || len(out.Models) == 0 || len(out.Presets) != 3 || len(out.Roles) != 2 || !out.Roles[0].Writes {
+		t.Fatalf("catalog = %+v", out)
+	}
+	none := newFixture(t)
+	nobody, _ := none.member(t, orgScope, domain.RoleOwner, uuid.Nil())
+	if out, err := none.svc.ModelsCatalog(t.Context(), nobody, mcp.ModelsCatalogInput{}); err != nil || out.Roles == nil {
+		t.Fatalf("without role needs: %+v, %v", out, err)
 	}
 }
