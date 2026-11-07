@@ -8,7 +8,7 @@ runs there and only dials out to forecrewd. It needs:
 
 | Kind | Runs on | Needs here |
 |------|---------|------------|
-| `microvm` | Linux with KVM | `/dev/kvm`, `firecracker` or `cloud-hypervisor` |
+| `microvm` | Linux with KVM | root, `/dev/kvm`, `firecracker` and `jailer` (or `cloud-hypervisor`), `ip`, `nft`, IP forwarding, trusted image keys ([fleet.md](../fleet.md#home-server-setup)) |
 | `proxmox` | Linux next to Proxmox | an API token in a local file; the installer asks for it |
 | `hyperv` | Windows | Hyper-V and `powershell.exe` |
 | `tart` | Apple silicon | `tart` |

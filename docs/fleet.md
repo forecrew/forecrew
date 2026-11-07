@@ -36,8 +36,9 @@ Local credentials are not in this file. Each provider finds its own by the
 machine's own means: files readable by the agent's user, or an instance role.
 Nothing of them is ever sent to forecrewd: capabilities hold facts.
 
-This build has no provider of a real kind yet (T61 to T64 add them): `run` says
-so, and `doctor` lists it as missing.
+This build has the `microvm` provider (below); the other kinds come with T62
+to T64. For a kind it does not have, `run` says so and `doctor` lists it as
+missing.
 
 ## Connecting
 
@@ -135,3 +136,98 @@ Both limits are in memory, and a restart of forecrewd resets them.
 The agent logs JSON to stderr. Neither side logs a body of this API, a provider
 or bootstrap token, a join code or a claim, and errors of a provider are scrubbed
 with `domain.SecretPatterns` before they are logged or reported.
+
+## MicroVM locations
+
+A Linux host with KVM runs each machine as a fresh microVM, destroyed after its
+jobs: under Firecracker and its jailer by default, under Cloud Hypervisor when
+the shape asks for a GPU (or `provider_config: {vmm: cloud-hypervisor}`). Guests
+are Linux; Windows guests are not offered yet.
+
+What a machine is made of, all named in a record
+(`<state_dir>/machines/<id>.json`) written before any of it, so that Destroy can
+finish what a crash interrupted:
+
+- **A jail.** Firecracker runs under the jailer in
+  `<state_dir>/jail/firecracker/<id>/root`: its own chroot, mount namespace and
+  user (`uid_base` + the machine's slot; nothing else may use those IDs), with
+  Firecracker's seccomp filters. Cloud Hypervisor, which has no jailer, runs as
+  that user on files only it can read, with its seccomp filters on. The VMM runs
+  in its own session and outlives the agent.
+- **Disks.** The root disk is the machine's own copy of the image, a reflink
+  where the file system has them (btrfs, XFS: instant; elsewhere a full copy,
+  which `doctor` warns about), sized to the shape's `disk_gb`, which is its quota:
+  the guest grows its file system to it. The config disk holds the server's URL
+  and addresses, the CA bundle and the bootstrap token; the guest wipes it once
+  read. `<state_dir>/cache.ext4`, when it exists, is attached to every machine
+  read-only at `/var/cache/forecrew` (make one with `mke2fs -d <dir>`).
+- **CPU and memory** are the shape's, as vCPUs and guest memory. A host takes
+  machines while their memory fits its own less 1 GB, up to `max_machines`.
+- **A network.** A tap device of its own (`fcvm<slot>`) with a /30, no bridge,
+  and an nftables table of its own (`inet forecrew_vm<slot>`): the machine reaches
+  the internet through NAT, its resolver (`dns`) and forecrewd's address and port,
+  and nothing else: not the host, the LAN, other machines or metadata
+  addresses. A location's `network_allow` (hosts or CIDRs) opens more, for a
+  home or on-premise network. Machines have IPv4 only.
+- **A wall-time kill.** At its deadline the agent kills the VMM, whether or not
+  forecrewd can be reached; forecrewd then destroys the rest.
+- **Docker inside.** An image with `dockerd` gets it started in the guest's own
+  kernel before the worker, so environments with Docker work without touching
+  the host. The guest kernel needs overlayfs, bridges, veth and netfilter.
+
+Destroy kills the VMM and removes the table, the tap, the jail with every disk,
+and the record. The agent lists machines from the records, so after a restart
+it finds them all and forecrewd says which to destroy.
+
+**Images.** A machine boots a `rootfs` image and its kernel, fetched over http(s)
+into `<state_dir>/images` by digest. Before first use the agent checks the
+signature against `trusted_keys_file` and the digests of both files
+(`images.VerifyFile`), and refuses the machine otherwise. For an image stored
+elsewhere (`s3`, `oci`, ...) put the file in that directory under its digest's
+hex; it is checked the same way. Images unused for `image_cache_days` are
+removed.
+
+**Start time.** No snapshots yet: each machine boots its kernel. The guest's init
+is a static program that needs no shell; a machine reaches forecrewd about as
+fast as its kernel boots (see the report of T61 for measurements).
+
+### microvm.yaml
+
+`/etc/forecrew-fleet-agent/microvm.yaml` (`FORECREW_MICROVM_CONFIG` moves it);
+every key has a default and a missing file means all defaults. It holds no
+secrets.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `state_dir` | `/var/lib/forecrew-microvm` | Records, images and jails, on one file system; btrfs or XFS for instant clones |
+| `trusted_keys_file` | `/etc/forecrew-fleet-agent/image-keys.pub` | Public keys images must be signed with, one `ed25519:...` per line |
+| `firecracker`, `jailer`, `cloud_hypervisor` | the names on PATH | The commands |
+| `uid_base` | `900000` | First of the users machines run as |
+| `subnet` | `172.30.0.0/16` | Where the machines' /30 networks come from |
+| `dns` | `1.1.1.1` | The machines' resolver |
+| `max_machines` | from memory, 512 MB each | Machines at once |
+| `gpus` | none | PCI addresses bound to `vfio-pci`, one per machine that asks for a GPU |
+| `ca_file` | the host's bundle | What an https forecrewd's certificate chains to |
+| `image_cache_days` | `14` | How long an unused image stays |
+
+### Home server setup
+
+1. A Linux host with KVM (`ls -l /dev/kvm`), ideally with `/var/lib` on btrfs or
+   XFS.
+2. Install Firecracker and its jailer from the Firecracker releases, both on
+   PATH, and `ip` (iproute2) and `nft` (nftables). For a GPU, Cloud Hypervisor
+   too, with the device bound to `vfio-pci` and listed in `gpus`.
+3. Turn on forwarding: `net.ipv4.ip_forward=1` in `/etc/sysctl.d/`. Docker on the
+   same host drops forwarded traffic it does not know; let the machines through
+   with `iptables -I DOCKER-USER -i fcvm+ -j ACCEPT` and
+   `iptables -I DOCKER-USER -o fcvm+ -j ACCEPT` (the machines' own tables still
+   refuse the LAN).
+4. Put the public keys you trust in `/etc/forecrew-fleet-agent/image-keys.pub`.
+5. `public_base_url` of forecrewd must be an address machines can reach: not
+   `localhost`. forecrewd on this host or the LAN is fine; machines may reach it,
+   on its port only.
+6. Install the agent with a join code ([runbooks/add-provider.md](runbooks/add-provider.md));
+   for `microvm` it runs as root, as the jailer, taps and nftables need. Check
+   with `forecrew-fleet-agent doctor --kind microvm`.
+7. Add a shape on the location with a signed `rootfs` image, and `docker` in its
+   labels if the image has Docker.

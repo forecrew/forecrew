@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
 
-.PHONY: build test test-integration test-docker test-toolbox-browser test-kvm images-validate lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live
+.PHONY: build test test-integration test-docker test-toolbox-browser test-kvm test-microvm images-validate lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
@@ -27,9 +27,18 @@ test-toolbox-browser:
 
 # Needs /dev/kvm, qemu, Docker with alpine:latest, mke2fs 1.47.1 or newer with libarchive and a
 # kernel (FORECREW_TEST_KERNEL, see internal/images/boot_kvm_test.go): boots a
-# converted root filesystem and checks that its worker reaches a fake server.
+# converted root filesystem and checks that the machine spends its token before
+# the image's code runs, and that its worker reaches a fake server.
 test-kvm:
 	go test -count=1 -tags kvm -run Boots ./internal/images/
+
+# As root, with firecracker and jailer on PATH and FORECREW_TEST_KERNEL (and
+# FORECREW_TEST_DOCKER_IMAGE for Docker inside): runs microVMs under the real
+# Firecracker and checks isolation and clean-up (internal/fleetagent/microvm).
+test-microvm:
+	go test -c -tags kvm -o microvm.test ./internal/fleetagent/microvm/
+	sudo --preserve-env=FORECREW_TEST_KERNEL,FORECREW_TEST_DOCKER_IMAGE,PATH ./microvm.test -test.run TestMicroVMs -test.v
+	rm -f microvm.test
 
 # packer validate on every image template (deploy/images/README.md).
 images-validate:
