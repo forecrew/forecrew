@@ -47,9 +47,11 @@ There are two ways, and both end with an `active` location.
 single-use code that lasts 1 hour (`--cloud`: 7 days, for a kit another team
 runs). An agent started with it reports what it found, with no access to
 anything. `forecrew provider joins` shows that report and `forecrew provider
-confirm <id> --name <name>` accepts it: the agent then gets its token over its
-own connection and keeps it in `token_file`. What the agent reports is unchecked,
-so look at the host and account before you confirm. An agent that restarts
+confirm <id> --name <name> --facts <hash>` accepts it: the agent then gets its
+token over its own connection and keeps it in `token_file`. What the agent reports
+is unchecked, so look at the host and account before you confirm. `--facts` names
+the report you read: if the agent sent another since, the confirmation is refused
+and you read it again. An agent that restarts
 before that, or loses the answer, needs a new code.
 
 **`forecrew provider add <name> --kind <kind> [--org <slug>]`** prints a token
@@ -102,6 +104,31 @@ machine started just before a crash moves to `booting` with the token it has.
 fills in the host's name, OS, architecture, CPUs, memory and free disk, and it
 adds the checks `memory`, `disk` and, on Linux, `kvm`. They are sent again when
 they change, seen at the 5-minute round.
+
+## Limits on joining
+
+`join` is the one route without a token, so it is limited before any lookup, by
+two limits:
+
+- **Per address:** 2 calls a second with bursts of 20, from the address of the
+  TCP connection. `X-Forwarded-For` is not read: anyone can write it, and a client
+  would pick its own limit. So behind a reverse proxy every agent has the proxy's
+  address and they share this limit, which is enough for dozens of waiting agents
+  (each calls every 5 s), and a flood from one source through the proxy stops
+  their joins too.
+- **Global:** 5 calls a second with an unknown, used or expired code, over all
+  addresses. This is what bounds guessing, and it is deliberately a lock-out:
+  while someone floods `join` with wrong codes, past that rate **every** `join`
+  gets `429`, real codes included. A real code uses up nothing, but it cannot get
+  in during the flood. Agents that have their token are not touched, since only
+  `join` is limited; joining agents back off and go on when the flood ends. It
+  costs a new location its start, never a running one, and it is not a way to
+  guess: at most about 3 million tries fit in a week-long code's life, against
+  2^40 codes.
+
+Both limits are in memory, and a restart of forecrewd resets them.
+
+`reconcile` and `poll` refuse lists of more than 1000 entries with `400`.
 
 ## Logs
 
