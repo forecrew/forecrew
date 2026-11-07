@@ -142,6 +142,28 @@ func TestConnectedAppMintsNoCredential(t *testing.T) {
 	}
 }
 
+// TestLeavingTheOrganizationEndsApps is suspend, reinstate and remove
+// through the member tools: the store ends the apps in the same transaction.
+func TestLeavingTheOrganizationEndsApps(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	_, ana := f.member(t, orgScope, domain.RoleViewer, uuid.Nil())
+	_, before := grantFor(t, f, ana, "before", domain.ScopeRead)
+	_, err := f.svc.SetMemberSuspended(ctx, f.by, mcp.SetMemberInput{User: ana.String(), Suspended: true})
+	must(t, err)
+	_, err = f.svc.SetMemberSuspended(ctx, f.by, mcp.SetMemberInput{User: ana.String()})
+	must(t, err)
+	if g, err := f.st.OAuth().GetGrant(ctx, before.ID); err != nil || g.RevokedAt.IsZero() {
+		t.Fatalf("an app came back with the reinstated member: %+v, %v", g, err)
+	}
+	_, after := grantFor(t, f, ana, "after", domain.ScopeRead)
+	_, err = f.svc.RemoveMember(ctx, f.by, mcp.MemberRefInput{User: ana.String()})
+	must(t, err)
+	if g, err := f.st.OAuth().GetGrant(ctx, after.ID); err != nil || g.RevokedAt.IsZero() {
+		t.Fatalf("an app outlived the removal: %+v, %v", g, err)
+	}
+}
+
 type grantBearer string
 
 func (b grantBearer) RoundTrip(r *http.Request) (*http.Response, error) {

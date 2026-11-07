@@ -340,7 +340,7 @@ var consentPage = template.Must(template.New("consent").Parse(`<!doctype html><h
 {{else}}<p><label>Organization: <select name="organization">{{range .Organizations}}<option value="{{.Slug}}">{{.Name}}</option>{{end}}</select></label></p>{{end}}
 <p>It may, as you and never beyond your roles there:</p>
 <ul>{{range .Scopes}}<li>{{.}}</li>{{end}}</ul>
-<p>You can disconnect it at any time under Tokens.</p>
+<p>You can disconnect it at any time on your account page.</p>
 <p><button type="submit" name="decision" value="allow">Allow</button> <button type="submit" name="decision" value="deny">Cancel</button></p>
 </form></body></html>
 `))
