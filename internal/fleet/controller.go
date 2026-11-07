@@ -58,6 +58,9 @@ type Config struct {
 	// FreePlan limits organizations on the free plan on hosted machines
 	// (config.md fleet.free_plan); MonthlyBudget is not used.
 	FreePlan domain.FleetQuotas
+	// Hosted is config.md fleet.hosted: instance-wide machines start only
+	// on locations of HostedKinds.
+	Hosted bool
 	// Models settles queued jobs on their model connections and says why a
 	// job without one waits; *models.Service is one. Nil leaves jobs as they
 	// are.
@@ -306,7 +309,7 @@ func (c *Controller) started(ctx context.Context, m domain.Machine, externalID s
 // way round a queued job and a full machine would start a second one.
 func (c *Controller) load(ctx context.Context, only uuid.UUID) (*snapshot, error) {
 	st := c.cfg.Store
-	s := &snapshot{now: c.cfg.Now(), currency: c.cfg.Currency, freePlan: c.cfg.FreePlan, providers: map[uuid.UUID]domain.CapacityProvider{}, shapes: map[uuid.UUID]domain.Shape{}, jobEnds: map[uuid.UUID]time.Time{}}
+	s := &snapshot{now: c.cfg.Now(), currency: c.cfg.Currency, freePlan: c.cfg.FreePlan, hosted: c.cfg.Hosted, providers: map[uuid.UUID]domain.CapacityProvider{}, shapes: map[uuid.UUID]domain.Shape{}, jobEnds: map[uuid.UUID]time.Time{}}
 	if err := c.loadFleet(ctx, s); err != nil {
 		return nil, err
 	}
@@ -621,6 +624,9 @@ func (c *Controller) start(ctx context.Context, p domain.CapacityProvider, d Pro
 	shape, err := c.cfg.Store.Shapes().Get(ctx, m.ShapeID)
 	if err != nil {
 		return fmt.Errorf("machine %s: shape: %w", m.ID, err)
+	}
+	if err := RequireHostedKind(c.cfg.Hosted, p); err != nil {
+		return c.failMachine(ctx, m, err.Error())
 	}
 	image, err := c.image(ctx, p, shape, m.AccountID)
 	if err != nil {

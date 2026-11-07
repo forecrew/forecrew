@@ -28,6 +28,7 @@ type snapshot struct {
 	now       time.Time
 	currency  string
 	freePlan  domain.FleetQuotas
+	hosted    bool // config fleet.hosted
 	providers map[uuid.UUID]domain.CapacityProvider
 	shapes    map[uuid.UUID]domain.Shape
 	// machines are the machines that exist or ended this month.
@@ -460,6 +461,9 @@ type block struct {
 func (p *planner) room(org uuid.UUID, s domain.Shape, isNew bool) *block {
 	pr := p.s.providers[s.ProviderID]
 	cur := p.s.currency
+	if RequireHostedKind(p.s.hosted, pr) != nil {
+		return &block{reason: Reason{Code: ReasonOffline, Sentence: displayName(pr.Name) + " cannot run hosted machines: only a microVM location keeps them to their allowlist"}}
+	}
 	if !pr.CanStart(p.s.now) {
 		return &block{offline: pr}
 	}

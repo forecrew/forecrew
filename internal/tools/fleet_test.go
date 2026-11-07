@@ -737,3 +737,42 @@ func TestFleetNotices(t *testing.T) {
 		t.Fatalf("all = %+v", all)
 	}
 }
+
+// On a hosted instance an instance-wide location must be a microVM location,
+// whether it is added directly or confirmed from a join code: any other kind
+// would give paying organizations' machines the whole internet.
+func TestHostedInstanceWideLocationsAreMicroVM(t *testing.T) {
+	hosted := func(c *tools.Config) { c.Server = &config.Config{Fleet: config.Fleet{Hosted: true}} }
+	for _, kind := range domain.ProviderKinds() {
+		t.Run(string(kind), func(t *testing.T) {
+			f := newFixture(t, hosted)
+			ctx := t.Context()
+			root := manager(t, f, true)
+			_, err := f.svc.CreateProvider(ctx, root, mcp.CreateProviderInput{Name: "cloud", Kind: kind, Org: fleet.OrgInstance})
+			if kind == domain.ProviderMicroVM {
+				must(t, err)
+				return
+			}
+			if !errors.Is(err, mcp.ErrInvalidInput) || !errors.Is(err, fleet.ErrHostedKind) || !strings.Contains(err.Error(), "must be microvm") {
+				t.Fatalf("instance-wide %s: %v", kind, err)
+			}
+			out, err := f.svc.CreateJoinCode(ctx, root, mcp.CreateJoinCodeInput{Org: fleet.OrgInstance})
+			must(t, err)
+			_, err = fleet.Join(ctx, f.st, f.clock.Now(), fleet.JoinRequest{Code: out.Code, Claim: "c", Kind: kind})
+			must(t, err)
+			codes, err := f.svc.ListJoinCodes(ctx, root, mcp.ListJoinCodesInput{})
+			must(t, err)
+			if _, err := f.svc.ConfirmJoin(ctx, root, mcp.ConfirmJoinInput{Join: out.JoinCode.ID.String(), Name: "cloud", FactsHash: codes[0].FactsHash}); !errors.Is(err, fleet.ErrHostedKind) {
+				t.Fatalf("confirmed %s: %v", kind, err)
+			}
+			if ps, _ := f.st.CapacityProviders().List(ctx, uuid.Nil()); len(ps) != 0 {
+				t.Fatalf("stored %+v", ps)
+			}
+		})
+	}
+	// Not hosted, an instance-wide location may be of any kind.
+	f := newFixture(t)
+	if _, err := f.svc.CreateProvider(t.Context(), manager(t, f, true), mcp.CreateProviderInput{Name: "pve", Kind: domain.ProviderProxmox, Org: fleet.OrgInstance}); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -84,6 +84,9 @@ func providerValidate(_ context.Context, e *Env, old *Resource, want Resource) e
 	if err := p.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
 	}
+	if err := fleet.RequireHostedKind(e.Server != nil && e.Server.Fleet.Hosted, p); err != nil {
+		return fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
+	}
 	if old != nil {
 		if o, _ := decode[providerSpec](old.Spec); o.ProviderKind != s.ProviderKind {
 			return invalid("a location does not change kind")

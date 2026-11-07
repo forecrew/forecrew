@@ -416,7 +416,11 @@ func (s *Service) addProvider(ctx context.Context, by domain.Actor, p *domain.Ca
 	if err := p.Validate(); err != nil {
 		return fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
 	}
-	if err := fleet.RequirePaidPlan(ctx, s.cfg.Store, s.cfg.Server != nil && s.cfg.Server.Fleet.Hosted, *p); err != nil {
+	hosted := s.cfg.Server != nil && s.cfg.Server.Fleet.Hosted
+	if err := fleet.RequireHostedKind(hosted, *p); err != nil {
+		return fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
+	}
+	if err := fleet.RequirePaidPlan(ctx, s.cfg.Store, hosted, *p); err != nil {
 		return err
 	}
 	err := s.cfg.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
