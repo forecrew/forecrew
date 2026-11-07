@@ -220,6 +220,11 @@ finish what a crash interrupted:
   private network, a network of the host, the host, metadata or another
   machine, whatever it says. New connections to the usual mining-pool ports are
   counted, for the abuse checks.
+  **Known limit: DNS.** A machine always reaches its resolver (`dns`) on port 53,
+  in either mode, and a resolver answers names anyone can register, so a machine
+  can send data out, slowly, inside DNS queries (DNS tunnelling) whatever its
+  egress list says. Nothing here stops that; a hosted location that must, points
+  `dns` at a resolver of its own that answers only the allowed names.
 - **A wall-time kill.** At its deadline the agent kills the VMM and everything in
   its session, whether or not forecrewd can be reached; forecrewd then destroys
   the rest.
