@@ -101,6 +101,11 @@ func (c *capBuffer) Write(p []byte) (int, error) {
 func (c *capBuffer) Bytes() []byte  { return c.buf.Bytes() }
 func (c *capBuffer) String() string { return c.buf.String() }
 
+// output runs a command that has an answer to read.
+func (c cli) output(ctx context.Context, args ...string) (string, error) {
+	return c.do(ctx, false, "", args...)
+}
+
 func (c cli) version(ctx context.Context) (string, error) {
 	out, err := c.do(ctx, false, "", "--version")
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -86,6 +87,9 @@ func newEnv(t *testing.T, edit func(*Config)) *testEnv {
 			}
 		}
 		return n, err
+	}
+	e.p.hostNets = func() []netip.Prefix {
+		return []netip.Prefix{netip.MustParsePrefix("192.168.64.1/24"), netip.MustParsePrefix("10.0.0.7/24")}
 	}
 	e.p.pmset = func(context.Context) (string, error) {
 		return "System-wide power settings:\n sleep                0\n displaysleep         10\n", nil
@@ -183,7 +187,7 @@ func TestCreateListDestroy(t *testing.T) {
 		t.Errorf("set = %q", set)
 	}
 	args := e.file(t, "vms", name, "run-args")
-	for _, want := range []string{"--no-graphics", "--no-audio", "--no-clipboard", "--net-softnet", "--net-softnet-allow=10.1.0.0/16,192.0.2.10/32", name} {
+	for _, want := range []string{"--no-graphics", "--no-audio", "--no-clipboard", "--net-softnet", "--net-softnet-block=192.168.64.1/32", "--net-softnet-allow=10.1.0.0/16,192.0.2.10/32", name} {
 		if !strings.Contains(args, want) {
 			t.Errorf("run args %q lack %q", args, want)
 		}
@@ -225,7 +229,7 @@ func (e *testEnv) checkGuestAndCredentials(t *testing.T, name, ref string) {
 		t.Errorf("guest got %q", got)
 	}
 	exec := e.file(t, "vms", name, "exec")
-	if !strings.Contains(exec, "sudo -n /bin/sh -c") || !strings.HasSuffix(strings.TrimSpace(exec), "sh "+guestDir) {
+	if !strings.Contains(exec, "sudo -n /bin/sh -c") || !strings.HasSuffix(strings.TrimSpace(exec), "sh "+guestDir+" 1.1.1.1 9.9.9.9") {
 		t.Errorf("exec = %q", exec)
 	}
 	calls := e.file(t, "calls.log")
@@ -411,6 +415,28 @@ func (e *testEnv) inject(t *testing.T, file, content string) {
 	}
 }
 
+// lastID is the machine of the newest record or VM name.
+func (e *testEnv) lastID(t *testing.T) string {
+	t.Helper()
+	files, _ := filepath.Glob(filepath.Join(e.home, "guest-*.stdin"))
+	if len(files) == 0 {
+		return "none"
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(filepath.Base(files[0]), "guest-"+vmPrefix), ".stdin")
+}
+
+// shimFor is a tart that runs shell for one command and is the fake otherwise.
+func (e *testEnv) shimFor(t *testing.T, cmd, body string) string {
+	t.Helper()
+	fake, _ := filepath.Abs("testdata/tart")
+	path := filepath.Join(e.dir, "tart-shim-"+cmd)
+	script := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = %s ]; then %s; fi\nexec %s \"$@\"\n", cmd, body, fake)
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { // #nosec G306 -- a test script
+		t.Fatal(err)
+	}
+	return path
+}
+
 // shim is a tart that fails exec of anything but the probe, and is the fake
 // otherwise.
 func (e *testEnv) shim(t *testing.T) string {
@@ -510,6 +536,83 @@ func TestLocalBaseVM(t *testing.T) {
 	r.Shape.ProviderConfig = map[string]any{"base_vm": 3}
 	if _, err := e.p.Create(t.Context(), r); err == nil {
 		t.Error("a number as base_vm")
+	}
+}
+
+func TestGatewayIsBlockedAndChecked(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		hosts []netip.Prefix
+		ip    string
+		want  string
+	}{
+		{"another gateway", []netip.Prefix{netip.MustParsePrefix("192.168.64.254/24")}, "", "set softnet_gateway: 192.168.64.254"},
+		{"no address on the network", []netip.Prefix{netip.MustParsePrefix("10.0.0.7/24")}, "", "cannot be checked"},
+		{"no host address at all", nil, "", "cannot be checked"},
+		{"junk from tart", nil, "not an address", "tart ip said"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newEnv(t, nil)
+			e.p.hostNets = func() []netip.Prefix { return c.hosts }
+			if c.ip != "" {
+				e.inject(t, "guest-ip", c.ip)
+			}
+			_, err := e.p.Create(t.Context(), e.request())
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("error = %v, want %q", err, c.want)
+			}
+			// The settings never reached a machine whose host is open.
+			if got := e.file(t, "guest-"+vmName(e.lastID(t))+".stdin"); got != "" {
+				t.Errorf("settings were delivered: %q", got)
+			}
+			if len(e.vms(t)) != 0 {
+				t.Errorf("a VM stayed: %v", e.vms(t))
+			}
+		})
+	}
+	t.Run("no address from tart", func(t *testing.T) {
+		e := newEnv(t, nil)
+		e.p.cfg.BootWaitSeconds = 1
+		e.p.cli.bin = e.shimFor(t, "ip", "exit 1")
+		if _, err := e.p.Create(t.Context(), e.request()); err == nil || !strings.Contains(err.Error(), "no address") {
+			t.Errorf("error = %v", err)
+		}
+	})
+	t.Run("the server is the gateway", func(t *testing.T) {
+		e := newEnv(t, nil)
+		req := e.request()
+		req.Bootstrap.ServerURL = "http://192.168.64.1:8080"
+		if _, err := e.p.Create(t.Context(), req); err == nil || !strings.Contains(err.Error(), "blocked") {
+			t.Errorf("error = %v", err)
+		}
+	})
+}
+
+func TestPrivateResolverIsAllowed(t *testing.T) {
+	e := newEnv(t, func(c *Config) { c.DNS = []string{"10.9.0.53", "1.1.1.1"} })
+	req := e.request()
+	if _, err := e.p.Create(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
+	args := e.file(t, "vms", vmName(req.MachineID.String()), "run-args")
+	if !strings.Contains(args, "--net-softnet-allow=192.0.2.10/32,10.9.0.53/32 ") && !strings.Contains(args, "--net-softnet-allow=10.9.0.53/32,192.0.2.10/32 ") {
+		t.Errorf("a LAN resolver is not allowed: %q", args)
+	}
+}
+
+func TestNoSoftnet(t *testing.T) {
+	e := newEnv(t, func(c *Config) { c.Softnet, c.AllowNoSoftnet = false, true })
+	e.p.hostNets = func() []netip.Prefix { return nil } // not looked at
+	req := e.request()
+	if _, err := e.p.Create(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
+	name := vmName(req.MachineID.String())
+	if args := e.file(t, "vms", name, "run-args"); strings.Contains(args, "softnet") {
+		t.Errorf("run args %q", args)
+	}
+	if exec := e.file(t, "vms", name, "exec"); strings.Contains(exec, "1.1.1.1") {
+		t.Errorf("resolvers were set without softnet: %q", exec)
 	}
 }
 
@@ -796,7 +899,8 @@ func TestChecks(t *testing.T) {
 			e.p.pmset = func(context.Context) (string, error) { return "", errors.New("x") }
 		}},
 		{"no softnet", "softnet", statusFail, func(e *testEnv) { e.p.lookPath = func(string) bool { return false } }},
-		{"softnet off", "softnet", statusWarn, func(e *testEnv) { e.p.cfg.Softnet = false }},
+		{"softnet off", "softnet", statusFail, func(e *testEnv) { e.p.cfg.Softnet = false }},
+		{"softnet off, allowed", "softnet", statusWarn, func(e *testEnv) { e.p.cfg.Softnet, e.p.cfg.AllowNoSoftnet = false, true }},
 		{"credentials unset", "registry credentials", statusFail, func(e *testEnv) {
 			e.p.cfg.RegistryUsername, e.p.cfg.RegistryPassword = "env:NOPE", "env:NOPE2"
 		}},

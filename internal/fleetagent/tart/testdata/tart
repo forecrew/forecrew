@@ -62,6 +62,11 @@ get)
 	[ -f "$home/disk-null" ] && disk=null
 	printf '{"OS":"darwin","CPU":4,"Memory":8192,"Disk":%s,"DiskFormat":"raw","Size":20,"Display":"1024x768px","MACAddress":"aa:bb","Running":%s,"State":"%s"}\n' "$disk" "$r" "$s"
 	;;
+ip)
+	exists "$1" || die "the VM \"$1\" does not exist"
+	alive "$1" || die "the VM \"$1\" is not running"
+	if [ -f "$home/guest-ip" ]; then cat "$home/guest-ip"; else echo 192.168.64.5; fi
+	;;
 pull)
 	mkdir -p "$home/cache"
 	echo "$1" >>"$home/cache/pulled"

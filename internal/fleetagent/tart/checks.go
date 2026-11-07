@@ -37,8 +37,10 @@ func (p *Provider) checks(ctx context.Context) []domain.ProviderCheck {
 	}
 	if p.cfg.Softnet {
 		out = append(out, check("softnet", p.softnet(), statusFail, "softnet found: machines stay off the LAN and this host"))
+	} else if p.cfg.AllowNoSoftnet {
+		out = append(out, domain.ProviderCheck{Name: "softnet", Status: statusWarn, Detail: "softnet is off, as allow_no_softnet says: machines reach the LAN and this host"})
 	} else {
-		out = append(out, domain.ProviderCheck{Name: "softnet", Status: statusWarn, Detail: "softnet is off: machines can reach the LAN and this host"})
+		out = append(out, domain.ProviderCheck{Name: "softnet", Status: statusFail, Detail: "softnet is off: machines would reach the LAN and this host; turn it on, or set allow_no_softnet on this Mac"})
 	}
 	return out
 }
