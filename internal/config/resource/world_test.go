@@ -3,6 +3,7 @@ package resource_test
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/secrets"
+	"github.com/forecrew/forecrew/internal/signintest"
 	"github.com/forecrew/forecrew/internal/store"
 	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/tools"
@@ -140,4 +142,17 @@ func (w *world) spec(kind, name string) string {
 		return ""
 	}
 	return string(rs[0].Spec)
+}
+
+// tested records a test sign-in that worked for the connection called name,
+// as it is now.
+func (w *world) connectionTested(name string) {
+	w.t.Helper()
+	rows, err := w.st.Connections().List(w.t.Context(), w.account.ID)
+	check(w.t, err)
+	i := slices.IndexFunc(rows, func(c domain.Connection) bool { return c.Name == name })
+	if i < 0 {
+		w.t.Fatalf("no connection %s", name)
+	}
+	check(w.t, signintest.Record(w.t.Context(), w.st, w.owner, rows[i]))
 }

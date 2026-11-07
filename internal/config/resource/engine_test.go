@@ -526,7 +526,7 @@ func TestWhoConfirmsWhat(t *testing.T) {
 func TestSecretRequired(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
-	conn := map[string]any{"kind": "oidc", "issuer": "https://acme.okta.com", "client_id": "abc", "client_secret_ref": "store:conn-okta", "jit": map[string]any{"enabled": false}, "enabled": true}
+	conn := map[string]any{"kind": "oidc", "issuer": "https://acme.okta.com", "client_id": "abc", "client_secret_ref": "store:conn-okta", "jit": map[string]any{"enabled": false}, "enabled": false}
 	p := w.plan(w.owner, wanted(t, "connection", "okta", conn))
 	if len(p.Steps) != 1 || p.Steps[0].Kind != domain.ConfigStepSecret || p.Steps[0].Secret != "conn-okta" || p.Steps[0].Filled {
 		t.Fatalf("steps = %+v", p.Steps)
@@ -570,11 +570,16 @@ func TestSecretRequired(t *testing.T) {
 	if strings.Contains(yaml, "the-value") || !strings.Contains(yaml, "store:conn-okta") {
 		t.Errorf("export:\n%s", yaml)
 	}
+	// It is turned on once a test sign-in worked.
+	w.connectionTested("okta")
+	on := map[string]any{}
+	maps.Copy(on, conn)
+	on["enabled"] = true
+	w.apply(w.owner, w.plan(w.owner, wanted(t, "connection", "okta", on)))
 	// A connection has no delete: it is turned off, which lowers protection,
 	// and so does turning it off by hand.
 	off := map[string]any{}
 	maps.Copy(off, conn)
-	off["enabled"] = false
 	if p := w.plan(w.owner, wanted(t, "connection", "okta", off)); len(p.LowersProtection) != 1 {
 		t.Errorf("disabling: %v", p.LowersProtection)
 	}
@@ -595,7 +600,7 @@ func TestSecretsAreStaged(t *testing.T) {
 	ctx := t.Context()
 	acc := w.account.ID
 	conn := func(ref, issuer string) map[string]any {
-		return map[string]any{"kind": "oidc", "issuer": issuer, "client_id": "abc", "client_secret_ref": ref, "jit": map[string]any{"enabled": false}, "enabled": true}
+		return map[string]any{"kind": "oidc", "issuer": issuer, "client_id": "abc", "client_secret_ref": ref, "jit": map[string]any{"enabled": false}, "enabled": false}
 	}
 	check(t, w.vault.Put(ctx, w.owner, acc, "conn-live", []byte("live")))
 
@@ -675,7 +680,7 @@ func TestAPlanCannotReachAnotherPlansStagedValue(t *testing.T) {
 	ctx := t.Context()
 	acc := w.account.ID
 	conn := func(ref, issuer string) map[string]any {
-		return map[string]any{"kind": "oidc", "issuer": issuer, "client_id": "abc", "client_secret_ref": ref, "jit": map[string]any{"enabled": false}, "enabled": true}
+		return map[string]any{"kind": "oidc", "issuer": issuer, "client_id": "abc", "client_secret_ref": ref, "jit": map[string]any{"enabled": false}, "enabled": false}
 	}
 	a := w.plan(w.owner, wanted(t, "connection", "a", conn("store:conn-a", "https://a.example.com")))
 	_, err := w.engine.PutSecret(ctx, w.owner, a.ID, "conn-a", []byte("unconfirmed"))
