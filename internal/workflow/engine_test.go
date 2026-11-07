@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -320,6 +321,29 @@ steps:
 		v.waitStep(t, r.ID, "optional:escalate", 1, domain.StepWaiting)
 		v.decide(t, r.ID, "optional:escalate", 1, domain.GateRejected, "")
 		v.waitRun(t, r.ID, domain.RunCanceled)
+	})
+	// A human who rejects a gate inside the loop stops the run: that is not a
+	// failure to skip.
+	t.Run("a gate rejected inside", func(t *testing.T) {
+		v := newEnv(t)
+		_, r := v.engine(t, `
+steps:
+  - id: optional
+    type: loop
+    max_iterations: 1
+    until: steps.ask.output.decision
+    on_failure: skip
+    steps:
+      - {id: ask, type: gate, with: {kind: needs_you, title: "Sure", subject_repo: acme/app}}
+`, nil)
+		v.waitStep(t, r.ID, "optional/1/ask", 1, domain.StepWaiting)
+		v.decide(t, r.ID, "optional/1/ask", 1, domain.GateRejected, "no")
+		done := v.waitRun(t, r.ID, domain.RunCanceled)
+		steps, err := v.st.StepRuns().ListByRun(t.Context(), v.account, r.ID)
+		must(t, err)
+		if !strings.Contains(done.Error, "gate rejected") || slices.ContainsFunc(steps, func(s domain.StepRun) bool { return s.StepID == "optional:escalate" }) {
+			t.Errorf("run = %+v", done)
+		}
 	})
 	t.Run("not failing", func(t *testing.T) {
 		v := newEnv(t)

@@ -18,6 +18,7 @@ import (
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/registers"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -383,6 +384,42 @@ func TestGoalV3FailedLearnCanBeSkipped(t *testing.T) {
 	}
 	if _, err := r.tracker.FindPR(t.Context(), "acme/app", proposals.LearnBranch(r.goal)); err == nil {
 		t.Error("a learn PR for a skipped step")
+	}
+}
+
+// A learn step that fails after its PR was opened (the head moved before the
+// merge) is skipped the same way: the PR is closed and the proposals are
+// rejected, and the goal closes.
+func TestGoalV3SkipAfterTheLearnPROpened(t *testing.T) {
+	ctx := t.Context()
+	r := startGoalV3(t, &domain.GoalSize{Councils: []domain.CouncilKind{}, Reason: "Chosen by the person who created the goal."})
+	r.approveSpec(t)
+	r.design(t, planTask("Charge cards", []string{"AC-1", "AC-2"}, []string{"go"}))
+	r.delivered(t)
+	hist := r.waitStep(t, "learning/1/learn_retro", domain.StepWaiting)
+	j, err := r.st.Jobs().Get(ctx, r.account, hist.JobID)
+	must(t, err)
+	j = testkit.Lease(t, r.st, j)
+	k, err := r.proposals.Submit(ctx, j, proposals.Input{Section: "lessons", Path: "knowledge/lessons/a.md", Action: domain.KnowledgeAdd, Body: "# A\n", Reason: "JOB-1"})
+	must(t, err)
+	r.finishJob(t, hist.JobID, []byte(`{"summary":"s","proposals":[],"assumptions":[]}`), "", 0.2)
+	r.pendingGate(t, domain.GateKnowledgeProposal)
+	pr, err := r.tracker.FindPR(ctx, "acme/app", proposals.LearnBranch(r.goal))
+	must(t, err)
+	r.decide(t, domain.GateKnowledgeProposal, mcp.ToolApprove, "")
+	r.waitStep(t, "learning/1/learn_merged/0/learn_checks", domain.StepWaiting)
+	must(t, r.tracker.SetHeadSHA("acme/app", pr.Number, "feedfacefeedfacefeedfacefeedfacefeedface"))
+	checksDone(t, r.runner, pr)
+	g := r.pendingGate(t, domain.GateNeedsYou)
+	if !strings.Contains(g.Summary, "learn_merge") || !strings.Contains(g.Summary, "skip it") {
+		t.Errorf("gate = %+v", g)
+	}
+	r.decide(t, domain.GateNeedsYou, mcp.ToolApprove, "")
+	r.waitRun(t, domain.RunSucceeded)
+	got, err := r.st.KnowledgeProposals().Get(ctx, r.account, k.ID)
+	must(t, err)
+	if got.Status != domain.KnowledgeRejected || r.prNow(t, pr.Number).State != "closed" || r.goalNow(t).Status != domain.GoalDone {
+		t.Errorf("proposal %s, pr %+v, goal %s", got.Status, r.prNow(t, pr.Number), r.goalNow(t).Status)
 	}
 }
 
