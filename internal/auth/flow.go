@@ -32,6 +32,7 @@ type flow struct {
 	Verifier   string `json:"v"`
 	Org        string `json:"o,omitempty"` // slug the sign-in page was for
 	Invite     string `json:"i,omitempty"` // invitation token of the link
+	Setup      string `json:"u,omitempty"` // setup link token, from the cookie POST /auth/setup set
 	// Return is the page of this site to go back to after the sign-in.
 	Return string `json:"r,omitempty"`
 	// Test marks a test of a connection: the flow signs nobody in and only
@@ -50,6 +51,7 @@ func (s *Service) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /auth/{connection}/login", s.login)
 	mux.HandleFunc("GET /auth/{connection}/callback", s.callback)
+	mux.HandleFunc("POST /auth/setup", s.setupOrganization)
 	return mux
 }
 
@@ -103,6 +105,10 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f := flow{Connection: conn.ID.String(), Org: r.URL.Query().Get("org"), Invite: r.URL.Query().Get("invite"), Return: sitePath(r.URL.Query().Get("redirect")), Verifier: oauth2.GenerateVerifier()}
+	if c, err := r.Cookie(setupCookie); err == nil && !test {
+		f.Setup = c.Value
+	}
+	http.SetCookie(w, &http.Cookie{Name: setupCookie, Path: "/auth/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
 	if test {
 		tester, err := s.authorizeTest(r.Context(), r, conn)
 		if err != nil {
@@ -258,6 +264,7 @@ const (
 	reasonNoMembership      = "no_membership"
 	reasonInvitation        = "invitation_invalid"
 	reasonInvitationOther   = "invitation_for_someone_else"
+	reasonSetupLink         = "setup_link_invalid"
 	reasonDisabled          = "user_disabled"
 	reasonSuspended         = "membership_suspended"
 	reasonTestDenied        = "test_denied"
@@ -277,6 +284,7 @@ var reasons = map[string]struct {
 		"You signed in, but this account is not a member of an organization here. Ask an owner of your organization for an invitation, and open its link."},
 	reasonInvitation:      {http.StatusForbidden, "This invitation cannot be used", "It expired, was revoked or was accepted already. Ask for a new one."},
 	reasonInvitationOther: {http.StatusForbidden, "This invitation is for someone else", "Sign in with the account the invitation was sent to, with a verified email address."},
+	reasonSetupLink:       {http.StatusForbidden, "This setup link cannot be used", "It expired, was used already, is for another organization, or the organization has an owner already: a setup link only makes the first owner. Create a new one on the server with forecrew setup-link, or invite people."},
 	reasonDisabled:        {http.StatusForbidden, "This account is disabled", "Ask your administrator."},
 	reasonSuspended:       {http.StatusForbidden, "Your membership is suspended", "Ask an owner of your organization."},
 	reasonTestDenied:      {http.StatusForbidden, "You cannot test this sign-in", "Sign in as an administrator of the organization that owns it, then start the test again from its settings."},
