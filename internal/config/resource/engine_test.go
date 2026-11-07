@@ -91,6 +91,7 @@ func TestEverySettingHasAResource(t *testing.T) {
 		"sizing": "moves with roles", "policy": "moves with roles", "model_tiers": "T69", "roles": "T69",
 		"max_test_results_size": "a limit of the server", "actions": "a limit of the server", "testing": "the projects on the testing playbook, a rollout switch",
 		"knowledge": "how old knowledge may get, a tuning value of the server",
+		"trackers":  "a limit of the server; connections and routes are resources from T74",
 	}
 	for _, key := range fieldNames(config.Config{}, "yaml") {
 		_, isBootstrap := bootstrap[key]
