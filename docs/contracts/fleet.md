@@ -403,6 +403,11 @@ machine has its own network (a tap and a table of rules of its own, no bridge),
 so machines of one organization are apart from each other as much as from
 another's.
 
+Known limit: a machine always reaches its resolver on port 53, so data can
+leave a machine inside DNS queries (DNS tunnelling) whatever its egress list
+says; the list is not a guarantee that nothing leaves. A location closes that
+only with a resolver of its own that answers the allowed names alone.
+
 ## Images
 
 `images` (`domain.Image`): `name`, `version`, `os`, `arch`, `format` (`rootfs`,
