@@ -22,6 +22,8 @@ func TestCommands(t *testing.T) {
 		{[]string{"doctor", "--nonsense"}, 2, ""},
 		{[]string{"doctor", "--kind", "vmware"}, 1, "not a kind"},
 		{[]string{"run", "--nonsense"}, 2, ""},
+		{[]string{"build-image", "--nonsense"}, 2, ""},
+		{[]string{"build-image"}, 1, "licence"},
 		{[]string{"run", "--config", filepath.Join(t.TempDir(), "none.yaml")}, 1, "read configuration"},
 	}
 	for _, tt := range tests {

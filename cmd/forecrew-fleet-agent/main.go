@@ -27,6 +27,7 @@ commands:
   run      connect to forecrewd and keep the machines here as it asks (--config agent.yaml)
   doctor   say what is missing for a kind of location (--kind microvm)
   detect   print the kind of location this machine looks like
+  build-image  build the Windows image of this location from your ISO (Proxmox, Hyper-V)
   version  print the version
 `
 
@@ -58,6 +59,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return doctor(ctx, rest, stdout, stderr)
 	case "run":
 		return serve(ctx, rest, stderr, getenv)
+	case "build-image":
+		return buildImage(ctx, rest, stdout, stderr)
 	case "help", "-h", "--help", "-help":
 		fmt.Fprint(stdout, usage)
 		return 0
