@@ -366,6 +366,7 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 		})
 	registerAccessTools(r, svc)
 	registerOrgTools(r, svc)
+	registerEnterpriseTools(r, svc)
 }
 
 // registerOrgTools adds the tools of the organization and its members.
@@ -418,6 +419,102 @@ func registerOrgTools(r registrar, svc ToolService) {
 			c, err := svc.SetConnectionEnabled(ctx, by, in)
 			return result(c, "Connection %s is %s.", c.Name, map[bool]string{true: "on", false: "off"}[c.Enabled]), err
 		}, "connection", "enabled")
+}
+
+// registerEnterpriseTools adds the tools of the enterprise build.
+func registerEnterpriseTools(r registrar, svc ToolService) {
+	dom := "Email domain, or the UUID of one added already."
+	conn := "Connection name or UUID."
+	register(r, ToolListDomains, "List the organization's email domains, with the DNS record that proves each and whether SSO is enforced. Enterprise build only.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			items, err := svc.ListDomains(ctx, by)
+			return list("domains", items, "%d domains.", len(items)), err
+		})
+	register(r, ToolAddDomain, "Add an email domain. Returns the DNS TXT record to create before verifying it. Enterprise build only.",
+		fieldDocs{"domain": "Email domain, for example acme.com."},
+		func(ctx context.Context, by domain.Actor, in DomainInput) (toolResult, error) {
+			d, err := svc.AddDomain(ctx, by, in)
+			return result(d, "Domain %s added: create TXT %s.", d.Domain, d.RecordName), err
+		}, "domain")
+	register(r, ToolVerifyDomain, "Look up the DNS TXT record of a domain and mark it verified. A domain belongs to one organization. Enterprise build only.",
+		fieldDocs{"domain": dom}, func(ctx context.Context, by domain.Actor, in DomainInput) (toolResult, error) {
+			d, err := svc.VerifyDomain(ctx, by, in)
+			return result(d, "Domain %s verified.", d.Domain), err
+		}, "domain")
+	register(r, ToolDeleteDomain, "Remove a domain with its SSO enforcement. Enterprise build only.",
+		fieldDocs{"domain": dom}, func(ctx context.Context, by domain.Actor, in DomainInput) (toolResult, error) {
+			d, err := svc.DeleteDomain(ctx, by, in)
+			return result(d, "Domain %s removed.", d.Domain), err
+		}, "domain")
+	register(r, ToolSetSSOEnforcement, "Require, or stop requiring, one connection for everyone whose email is in a verified domain. Turning it on caps their personal tokens at 7 days when the organization has no cap. Enterprise build only.",
+		fieldDocs{"domain": dom, "enforce": "Turn enforcement on or off.", "connection": conn + " Required to enforce."},
+		func(ctx context.Context, by domain.Actor, in SetSSOEnforcementInput) (toolResult, error) {
+			d, err := svc.SetSSOEnforcement(ctx, by, in)
+			return result(d, "SSO enforcement of %s: %t.", d.Domain, d.EnforceSSO), err
+		}, "domain", "enforce")
+	register(r, ToolSetMaxTokenTTL, "Set how long the personal tokens of users under SSO enforcement last. Enterprise build only.",
+		fieldDocs{"max_token_ttl": "A duration such as 168h; empty removes the cap."},
+		func(ctx context.Context, by domain.Actor, in SetMaxTokenTTLInput) (toolResult, error) {
+			a, err := svc.SetMaxTokenTTL(ctx, by, in)
+			return result(a, "Token cap of %s updated.", a.Slug), err
+		}, "max_token_ttl")
+	register(r, ToolSetProvisioning, "Set the just-in-time membership and the group claim of an organization's connection. Fields left out stay as they are. Enterprise build only.",
+		fieldDocs{"connection": conn, "jit_enabled": "Create the membership at a first sign-in.", "default_roles": "Names of the organization roles a new member gets.", "group_claim": "ID token claim with the user's groups."},
+		func(ctx context.Context, by domain.Actor, in SetProvisioningInput) (toolResult, error) {
+			p, err := svc.SetConnectionProvisioning(ctx, by, in)
+			return result(p, "Provisioning of %s updated.", p.Name), err
+		}, "connection")
+	register(r, ToolListGroupMappings, "List the organization's mappings of identity provider groups to teams. Enterprise build only.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			items, err := svc.ListGroupMappings(ctx, by)
+			return list("mappings", items, "%d group mappings.", len(items)), err
+		})
+	register(r, ToolAddGroupMapping, "Map a group of a connection to a team: at every sign-in, people in the group join the team and people who left it leave. Enterprise build only.",
+		fieldDocs{"connection": conn, "group": "The group as the provider names it in the claim.", "team": "Team slug or UUID."},
+		func(ctx context.Context, by domain.Actor, in AddGroupMappingInput) (toolResult, error) {
+			m, err := svc.AddGroupMapping(ctx, by, in)
+			return result(m, "Group %s mapped.", m.ExternalGroup), err
+		}, "connection", "group", "team")
+	register(r, ToolRemoveGroupMapping, "Remove a group mapping. Enterprise build only.",
+		fieldDocs{"mapping": "Mapping UUID."}, func(ctx context.Context, by domain.Actor, in GroupMappingRefInput) (toolResult, error) {
+			m, err := svc.RemoveGroupMapping(ctx, by, in)
+			return result(m, "Mapping of %s removed.", m.ExternalGroup), err
+		}, "mapping")
+	register(r, ToolListSCIMTokens, "List the organization's SCIM tokens, never their values. Enterprise build only.",
+		nil, func(ctx context.Context, by domain.Actor, _ struct{}) (toolResult, error) {
+			items, err := svc.ListSCIMTokens(ctx, by)
+			return list("tokens", items, "%d SCIM tokens.", len(items)), err
+		})
+	register(r, ToolCreateSCIMToken, "Create a SCIM token for the identity provider. Its value is shown once. Enterprise build only.",
+		fieldDocs{"name": "Token name, unique in the organization."},
+		func(ctx context.Context, by domain.Actor, in CreateSCIMTokenInput) (toolResult, error) {
+			out, err := svc.CreateSCIMToken(ctx, by, in)
+			return result(out, "SCIM token %s created.", out.Token.Name), err
+		}, "name")
+	register(r, ToolRevokeSCIMToken, "Revoke a SCIM token. Enterprise build only.",
+		fieldDocs{"token": "Token name or UUID."}, func(ctx context.Context, by domain.Actor, in SCIMTokenRefInput) (toolResult, error) {
+			t, err := svc.RevokeSCIMToken(ctx, by, in)
+			return result(t, "SCIM token %s revoked.", t.Name), err
+		}, "token")
+	role := "Custom role name or UUID."
+	permissions := "Permissions from the catalog; a project role holds project-scoped ones only."
+	register(r, ToolCreateRole, "Create a custom role from the permission catalog. Enterprise build only.",
+		fieldDocs{"name": "Lowercase role name.", "scope": "organization or project.", "description": "What the role is for.", "permissions": permissions},
+		func(ctx context.Context, by domain.Actor, in CreateRoleInput) (toolResult, error) {
+			x, err := svc.CreateRole(ctx, by, in)
+			return result(x, "Role %s created.", x.Name), err
+		}, "name", "scope", "permissions")
+	register(r, ToolUpdateRole, "Change a custom role. It reaches everyone bound to it. Fields left out stay as they are. Enterprise build only.",
+		fieldDocs{"role": role, "name": "New name.", "description": "New description.", "permissions": permissions},
+		func(ctx context.Context, by domain.Actor, in UpdateRoleInput) (toolResult, error) {
+			x, err := svc.UpdateRole(ctx, by, in)
+			return result(x, "Role %s updated.", x.Name), err
+		}, "role")
+	register(r, ToolDeleteRole, "Delete a custom role that nothing uses. Enterprise build only.",
+		fieldDocs{"role": role}, func(ctx context.Context, by domain.Actor, in RoleRefInput) (toolResult, error) {
+			x, err := svc.DeleteRole(ctx, by, in)
+			return result(x, "Role %s deleted.", x.Name), err
+		}, "role")
 }
 
 func registerProviderTools(r registrar, svc ToolService) {

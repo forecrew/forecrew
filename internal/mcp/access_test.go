@@ -1,11 +1,14 @@
 package mcp
 
 import (
+	"errors"
 	"maps"
 	"os"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/forecrew/forecrew/internal/domain"
 )
 
 // TestToolAccessCoversEveryTool fails when an MCP tool has no access entry
@@ -56,6 +59,36 @@ func TestToolsAreDocumented(t *testing.T) {
 			if !strings.Contains(string(doc), "`"+tool+"`") {
 				t.Errorf("%s lacks %s", file, tool)
 			}
+		}
+	}
+}
+
+// TestNoEnterpriseAnswersUnavailable covers the open-core build.
+func TestNoEnterpriseAnswersUnavailable(t *testing.T) {
+	ctx := t.Context()
+	by := domain.Actor{}
+	var e EnterpriseTools = NoEnterprise{}
+	calls := []func() error{
+		func() error { _, err := e.ListDomains(ctx, by); return err },
+		func() error { _, err := e.AddDomain(ctx, by, DomainInput{}); return err },
+		func() error { _, err := e.VerifyDomain(ctx, by, DomainInput{}); return err },
+		func() error { _, err := e.DeleteDomain(ctx, by, DomainInput{}); return err },
+		func() error { _, err := e.SetSSOEnforcement(ctx, by, SetSSOEnforcementInput{}); return err },
+		func() error { _, err := e.SetMaxTokenTTL(ctx, by, SetMaxTokenTTLInput{}); return err },
+		func() error { _, err := e.SetConnectionProvisioning(ctx, by, SetProvisioningInput{}); return err },
+		func() error { _, err := e.ListGroupMappings(ctx, by); return err },
+		func() error { _, err := e.AddGroupMapping(ctx, by, AddGroupMappingInput{}); return err },
+		func() error { _, err := e.RemoveGroupMapping(ctx, by, GroupMappingRefInput{}); return err },
+		func() error { _, err := e.ListSCIMTokens(ctx, by); return err },
+		func() error { _, err := e.CreateSCIMToken(ctx, by, CreateSCIMTokenInput{}); return err },
+		func() error { _, err := e.RevokeSCIMToken(ctx, by, SCIMTokenRefInput{}); return err },
+		func() error { _, err := e.CreateRole(ctx, by, CreateRoleInput{}); return err },
+		func() error { _, err := e.UpdateRole(ctx, by, UpdateRoleInput{}); return err },
+		func() error { _, err := e.DeleteRole(ctx, by, RoleRefInput{}); return err },
+	}
+	for i, call := range calls {
+		if err := call(); !errors.Is(err, ErrUnavailable) {
+			t.Errorf("call %d: %v", i, err)
 		}
 	}
 }

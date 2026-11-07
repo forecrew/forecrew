@@ -288,6 +288,23 @@ func TestCallEachTool(t *testing.T) {
 		{mcp.ToolCreateConnection, map[string]any{"kind": "oidc", "name": "okta", "issuer": "https://acme.okta.com", "client_id": "c", "client_secret_ref": "env:FORECREW_CONN_OKTA"},
 			mcp.CreateConnectionInput{Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://acme.okta.com", ClientID: "c", ClientSecretRef: "env:FORECREW_CONN_OKTA"}},
 		{mcp.ToolSetConnection, map[string]any{"connection": "okta", "enabled": true}, mcp.SetConnectionInput{Connection: "okta", Enabled: true}},
+		{mcp.ToolListDomains, nil, nil},
+		{mcp.ToolAddDomain, map[string]any{"domain": "acme.com"}, mcp.DomainInput{Domain: "acme.com"}},
+		{mcp.ToolVerifyDomain, map[string]any{"domain": "acme.com"}, mcp.DomainInput{Domain: "acme.com"}},
+		{mcp.ToolDeleteDomain, map[string]any{"domain": "acme.com"}, mcp.DomainInput{Domain: "acme.com"}},
+		{mcp.ToolSetSSOEnforcement, map[string]any{"domain": "acme.com", "enforce": true, "connection": "okta"}, mcp.SetSSOEnforcementInput{Domain: "acme.com", Enforce: true, Connection: "okta"}},
+		{mcp.ToolSetMaxTokenTTL, map[string]any{"max_token_ttl": "24h"}, mcp.SetMaxTokenTTLInput{MaxTokenTTL: "24h"}},
+		{mcp.ToolSetProvisioning, map[string]any{"connection": "okta"}, mcp.SetProvisioningInput{Connection: "okta"}},
+		{mcp.ToolListGroupMappings, nil, nil},
+		{mcp.ToolAddGroupMapping, map[string]any{"connection": "okta", "group": "devs", "team": "core"}, mcp.AddGroupMappingInput{Connection: "okta", Group: "devs", Team: "core"}},
+		{mcp.ToolRemoveGroupMapping, map[string]any{"mapping": "m"}, mcp.GroupMappingRefInput{Mapping: "m"}},
+		{mcp.ToolListSCIMTokens, nil, nil},
+		{mcp.ToolCreateSCIMToken, map[string]any{"name": "okta"}, mcp.CreateSCIMTokenInput{Name: "okta"}},
+		{mcp.ToolRevokeSCIMToken, map[string]any{"token": "okta"}, mcp.SCIMTokenRefInput{Token: "okta"}},
+		{mcp.ToolCreateRole, map[string]any{"name": "auditor", "scope": "organization", "permissions": []string{"audit.read"}},
+			mcp.CreateRoleInput{Name: "auditor", Scope: domain.RoleScopeOrganization, Permissions: []domain.Permission{domain.PermAuditRead}}},
+		{mcp.ToolUpdateRole, map[string]any{"role": "auditor", "name": "reader"}, mcp.UpdateRoleInput{Role: "auditor", Name: "reader"}},
+		{mcp.ToolDeleteRole, map[string]any{"role": "auditor"}, mcp.RoleRefInput{Role: "auditor"}},
 	}
 	if len(tests) != len(mcp.Tools()) {
 		t.Fatalf("%d cases for %d tools", len(tests), len(mcp.Tools()))
@@ -600,6 +617,10 @@ func TestEveryToolChecksItsPermission(t *testing.T) {
 		mcp.ToolCreateProvider: {"name": "n", "kind": "aws"}, mcp.ToolRevokeProvider: {"provider": "n"}, mcp.ToolConfirmJoin: {"join": "j", "name": "n", "facts_hash": "h"},
 		mcp.ToolSetMemberSuspended: {"user": "u", "suspended": true}, mcp.ToolRemoveMember: {"user": "u"},
 		mcp.ToolCreateConnection: {"kind": "oidc", "name": "o", "client_id": "c", "client_secret_ref": "env:X"}, mcp.ToolSetConnection: {"connection": "o", "enabled": true},
+		mcp.ToolAddDomain: {"domain": "a.b"}, mcp.ToolVerifyDomain: {"domain": "a.b"}, mcp.ToolDeleteDomain: {"domain": "a.b"}, mcp.ToolSetSSOEnforcement: {"domain": "a.b", "enforce": true},
+		mcp.ToolSetMaxTokenTTL: {"max_token_ttl": "1h"}, mcp.ToolSetProvisioning: {"connection": "c"}, mcp.ToolAddGroupMapping: {"connection": "c", "group": "g", "team": "t"},
+		mcp.ToolRemoveGroupMapping: {"mapping": "m"}, mcp.ToolCreateSCIMToken: {"name": "n"}, mcp.ToolRevokeSCIMToken: {"token": "t"},
+		mcp.ToolCreateRole: {"name": "n", "scope": "organization", "permissions": []string{"audit.read"}}, mcp.ToolUpdateRole: {"role": "r"}, mcp.ToolDeleteRole: {"role": "r"},
 	}
 	for name, a := range mcp.ToolAccess() {
 		if a.Permission == "" || a.Own {

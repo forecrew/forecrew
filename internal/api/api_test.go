@@ -263,6 +263,22 @@ func TestEndpoints(t *testing.T) {
 		{"POST", "/api/v1/connections/okta/enable", "", 200, mcp.ToolSetConnection, mcp.SetConnectionInput{Connection: "okta", Enabled: true}},
 		{"POST", "/api/v1/connections/okta/disable", "", 200, mcp.ToolSetConnection, mcp.SetConnectionInput{Connection: "okta"}},
 		{"PATCH", "/api/v1/organization", `{"name":"Acme Inc","slug":"acme-inc"}`, 200, mcp.ToolUpdateOrganization, mcp.UpdateOrganizationInput{Name: "Acme Inc", Slug: "acme-inc"}},
+		{"GET", "/api/v1/domains", "", 200, mcp.ToolListDomains, nil},
+		{"POST", "/api/v1/domains", `{"domain":"acme.com"}`, 201, mcp.ToolAddDomain, mcp.DomainInput{Domain: "acme.com"}},
+		{"POST", "/api/v1/domains/acme.com/verify", "", 200, mcp.ToolVerifyDomain, mcp.DomainInput{Domain: "acme.com"}},
+		{"DELETE", "/api/v1/domains/acme.com", "", 200, mcp.ToolDeleteDomain, mcp.DomainInput{Domain: "acme.com"}},
+		{"PUT", "/api/v1/domains/acme.com/enforcement", `{"enforce":true,"connection":"okta"}`, 200, mcp.ToolSetSSOEnforcement, mcp.SetSSOEnforcementInput{Domain: "acme.com", Enforce: true, Connection: "okta"}},
+		{"PUT", "/api/v1/organization/max-token-ttl", `{"max_token_ttl":"24h"}`, 200, mcp.ToolSetMaxTokenTTL, mcp.SetMaxTokenTTLInput{MaxTokenTTL: "24h"}},
+		{"PUT", "/api/v1/connections/okta/provisioning", `{}`, 200, mcp.ToolSetProvisioning, mcp.SetProvisioningInput{Connection: "okta"}},
+		{"GET", "/api/v1/group-mappings", "", 200, mcp.ToolListGroupMappings, nil},
+		{"POST", "/api/v1/group-mappings", `{"connection":"okta","group":"devs","team":"core"}`, 201, mcp.ToolAddGroupMapping, mcp.AddGroupMappingInput{Connection: "okta", Group: "devs", Team: "core"}},
+		{"DELETE", "/api/v1/group-mappings/m", "", 200, mcp.ToolRemoveGroupMapping, mcp.GroupMappingRefInput{Mapping: "m"}},
+		{"GET", "/api/v1/scim-tokens", "", 200, mcp.ToolListSCIMTokens, nil},
+		{"POST", "/api/v1/scim-tokens", `{"name":"okta"}`, 201, mcp.ToolCreateSCIMToken, mcp.CreateSCIMTokenInput{Name: "okta"}},
+		{"POST", "/api/v1/scim-tokens/okta/revoke", "", 200, mcp.ToolRevokeSCIMToken, mcp.SCIMTokenRefInput{Token: "okta"}},
+		{"POST", "/api/v1/roles", `{"name":"auditor","scope":"organization","permissions":["audit.read"]}`, 201, mcp.ToolCreateRole, mcp.CreateRoleInput{Name: "auditor", Scope: domain.RoleScopeOrganization, Permissions: []domain.Permission{domain.PermAuditRead}}},
+		{"PATCH", "/api/v1/roles/auditor", `{"name":"reader"}`, 200, mcp.ToolUpdateRole, mcp.UpdateRoleInput{Role: "auditor", Name: "reader"}},
+		{"DELETE", "/api/v1/roles/auditor", "", 200, mcp.ToolDeleteRole, mcp.RoleRefInput{Role: "auditor"}},
 	}
 	seen := map[string]bool{}
 	for i, tt := range tests {

@@ -186,6 +186,9 @@ func Tools() []string {
 		ToolListAudit,
 		ToolListConnections, ToolCreateConnection, ToolSetConnection,
 		ToolListConnectedApps, ToolRevokeConnectedApp,
+		ToolListDomains, ToolAddDomain, ToolVerifyDomain, ToolDeleteDomain, ToolSetSSOEnforcement, ToolSetMaxTokenTTL,
+		ToolSetProvisioning, ToolListGroupMappings, ToolAddGroupMapping, ToolRemoveGroupMapping,
+		ToolListSCIMTokens, ToolCreateSCIMToken, ToolRevokeSCIMToken, ToolCreateRole, ToolUpdateRole, ToolDeleteRole,
 	}
 }
 
@@ -385,6 +388,7 @@ type ToolService interface {
 	ProjectQuality(ctx context.Context, by domain.Actor, in ProjectInput) (QualityInfo, error)
 	AccessService
 	OrgService
+	EnterpriseTools
 }
 
 // AccessService manages who may do what: teams, role bindings and service
