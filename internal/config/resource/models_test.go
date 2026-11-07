@@ -91,6 +91,20 @@ func TestModelKeysStayWithModelConnections(t *testing.T) {
 	w.refused(w.owner, "only a model connection", wanted(t, "connection", "evil", oidc))
 }
 
+// TestALocalModelNeedsNoKey: a connection on your own network may have no
+// key, and its plan no secure field; any other must have one.
+func TestALocalModelNeedsNoKey(t *testing.T) {
+	w := newWorld(t)
+	local := map[string]any{"vendor": "ollama", "adapter": "opencode", "key_env": "OLLAMA_API_KEY", "base_url": "http://localhost:11434/v1"}
+	p := w.plan(w.owner, wanted(t, "model_connection", "home", local))
+	if slices.ContainsFunc(p.Steps, func(s domain.ConfigStep) bool { return s.Kind == domain.ConfigStepSecret }) {
+		t.Fatalf("steps = %+v", p.Steps)
+	}
+	w.apply(w.owner, p)
+	local["base_url"] = "https://models.example.com/v1"
+	w.refused(w.owner, "only a local base_url", wanted(t, "model_connection", "far", local))
+}
+
 func TestAConnectionStagesItsKeyAndLowersProtection(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()

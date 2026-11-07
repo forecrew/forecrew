@@ -267,6 +267,40 @@ func TestGrantKeyEnvOfTheAdapter(t *testing.T) {
 	}
 }
 
+// TestGrantOfAModelWithoutKey: a model on your own network may have no key;
+// any other connection without one waits.
+func TestGrantOfAModelWithoutKey(t *testing.T) {
+	w := newWorld(t)
+	c := conn("home", config.AdapterOpencode, "acme")
+	c.KeyEnv, c.BaseURL, c.SecretRef = "OLLAMA_API_KEY", "http://localhost:11434/v1", ""
+	w.connect(t, c, "", "developer")
+	w.tiers(t, "acme/llama")
+	s := models.New(w.st, fileConfig(), w.vault, nil)
+	g, err := s.Grant(t.Context(), w.job(t, "developer", config.AdapterOpencode))
+	if err != nil || g.Waiting != "" || !maps.Equal(g.Env, map[string]string{"OLLAMA_API_KEY": ""}) {
+		t.Fatalf("grant = %+v, %v", g, err)
+	}
+	c.BaseURL = "https://models.example.com/v1"
+	c.ID = uuid.Nil()
+	w2 := newWorld(t)
+	w2.connect(t, c, "", "developer")
+	w2.tiers(t, "acme/llama")
+	g, err = models.New(w2.st, fileConfig(), w2.vault, nil).Grant(t.Context(), w2.job(t, "developer", config.AdapterOpencode))
+	if err != nil || !strings.Contains(g.Waiting, "has no key") || g.Env != nil {
+		t.Fatalf("remote without a key = %+v, %v", g, err)
+	}
+}
+
+// tiers gives the developer model, on vendor acme.
+func (w *world) tiers(t *testing.T, model string) {
+	t.Helper()
+	a := org("developer", "home")
+	a.AccountID, a.UpdatedBy, a.Tiers = w.account, "user:ana", map[string]map[string]string{"strong": {"acme": model}}
+	if err := w.st.ModelAssignments().Put(t.Context(), &a); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestGrantOfTheServerFile(t *testing.T) {
 	w := newWorld(t)
 	c := fileConfig()

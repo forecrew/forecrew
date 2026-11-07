@@ -288,6 +288,13 @@ func (s *Service) key(ctx context.Context, accountID uuid.UUID, d Decision) (Dec
 	if d.Source != SourceOrganization {
 		return d, nil, nil
 	}
+	if d.connection.SecretRef == "" {
+		// Only a model on your own network may have no key.
+		if !LocalEndpoint(d.connection.BaseURL) {
+			return waiting("Connection %s has no key: enter it %s", d.Connection, settingsHint), nil, nil
+		}
+		return d, []byte{}, nil
+	}
 	if s.vault == nil {
 		return waiting("Connection %s has a key in the secret store, and the store is off on this server: set %s", d.Connection, config.EnvSecretKey), nil, nil
 	}
