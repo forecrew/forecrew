@@ -158,21 +158,24 @@ func machineArch(goarch string) (domain.MachineArch, bool) {
 }
 
 // parseMeminfo reads MemTotal of /proc/meminfo, in MB.
-func parseMeminfo(s string) (int, error) {
+func parseMeminfo(s string) (int, error) { return meminfoField(s, "MemTotal") }
+
+// meminfoField reads a field of /proc/meminfo, in MB.
+func meminfoField(s, key string) (int, error) {
 	for line := range strings.SplitSeq(s, "\n") {
-		if rest, ok := strings.CutPrefix(line, "MemTotal:"); ok {
+		if rest, ok := strings.CutPrefix(line, key+":"); ok {
 			f := strings.Fields(rest)
 			if len(f) == 0 {
 				break
 			}
 			kb, err := strconv.Atoi(f[0])
 			if err != nil {
-				return 0, fmt.Errorf("parse MemTotal: %w", err)
+				return 0, fmt.Errorf("parse %s: %w", key, err)
 			}
 			return kb / 1024, nil
 		}
 	}
-	return 0, fmt.Errorf("no MemTotal")
+	return 0, fmt.Errorf("no %s", key)
 }
 
 // DetectKind says which kind fits this machine, or empty when none does: what

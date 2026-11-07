@@ -166,7 +166,11 @@ finish what a crash interrupted:
   read-only at `/var/cache/forecrew` (make one with `mke2fs -d <dir>`); the agent
   makes the file read-only for everyone, as all machines share it.
 - **CPU and memory** are the shape's, as vCPUs and guest memory. A host takes
-  machines while their memory fits its own less 1 GB, up to `max_machines`.
+  machines while their memory fits its own less 1 GB, up to `max_machines`, and
+  while the kernel says it has the new machine's memory left (`MemAvailable`, less
+  1 GB), whatever else took memory. Slots, memory, GPUs and disk are checked and
+  taken under one lock with the machine's record, so two creates at once cannot
+  both take the last room.
 - **A network.** A tap device of its own (`fcvm<slot>`) with a /30, no bridge,
   and an nftables table of its own (`inet forecrew_vm<slot>`): the machine reaches
   the internet through NAT, its resolver (`dns`) and forecrewd's address and port,
@@ -198,8 +202,12 @@ it finds them all and forecrewd says which to destroy.
 **Images.** A machine boots a `rootfs` image and its kernel, fetched over http(s)
 into `<state_dir>/images` by digest. Before first use the agent checks the
 signature against `trusted_keys_file` and the digests of both files
-(`images.VerifyFile`), and refuses the machine otherwise. A cached file that is
-not the one signed is removed and fetched once more. For an image stored
+(`images.VerifyFile`), and refuses the machine otherwise. It checks the digests
+again before a machine uses files that changed since (another inode, size,
+modification or change time), so a file damaged or replaced in the cache is
+never booted unchecked; each machine gets its own copy of the kernel, so using a
+file does not change it. A cached file that is not the one signed is removed and
+fetched once more. For an image stored
 elsewhere (`s3`, `oci`, ...) put the file in that directory under its digest's
 hex; it is checked the same way. Images unused for `image_cache_days` are
 removed.
