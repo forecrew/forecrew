@@ -1,0 +1,10 @@
+{
+  "headline": "No machines yet. Agents need somewhere to work.",
+  "working": 0,
+  "waiting": 0,
+  "routing": "own_only",
+  "locations": [],
+  "queue": [],
+  "running": []
+}
+

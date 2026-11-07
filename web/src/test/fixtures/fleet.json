@@ -1,0 +1,84 @@
+{
+  "headline": "2 jobs waiting: Only Mac Mini can run this, and it is offline.",
+  "working": 2,
+  "waiting": 2,
+  "spend": {
+    "amount": 41,
+    "limit": 200,
+    "currency": "CHF"
+  },
+  "routing": "own_only",
+  "locations": [
+    {
+      "id": "018f0000-0000-7000-8000-000000000700",
+      "kind": "location",
+      "name": "Home Server",
+      "runs": "Linux",
+      "status": "online",
+      "in_use": 2,
+      "capacity": 3,
+      "cost": "Free"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000701",
+      "kind": "location",
+      "name": "Mac Mini",
+      "runs": "macOS",
+      "status": "offline",
+      "in_use": 0,
+      "capacity": 2,
+      "cost": "Free"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000702",
+      "kind": "location",
+      "name": "Aws Frankfurt",
+      "runs": "Linux",
+      "status": "online",
+      "in_use": 0,
+      "capacity": 20,
+      "cost": "About CHF 0.04 per minute"
+    },
+    {
+      "id": "018f0000-0000-7000-8000-000000000060",
+      "kind": "computer",
+      "name": "build-box-1",
+      "runs": "Linux, directly",
+      "status": "online",
+      "in_use": 0,
+      "capacity": 0,
+      "cost": "Free"
+    }
+  ],
+  "queue": [
+    {
+      "ref": "JOB-42",
+      "role": "reviewer",
+      "code": "location_offline",
+      "sentence": "Only Mac Mini can run this, and it is offline"
+    },
+    {
+      "ref": "JOB-46",
+      "role": "developer",
+      "code": "budget",
+      "sentence": "This month's limit of CHF 200 is used up"
+    }
+  ],
+  "running": [
+    {
+      "ref": "JOB-41",
+      "role": "developer",
+      "machine": "linux-small-8f2",
+      "location": "Home Server",
+      "minutes": 4
+    },
+    {
+      "ref": "JOB-44",
+      "role": "reviewer",
+      "machine": "linux-medium-1ac",
+      "location": "Home Server",
+      "minutes": 1
+    }
+  ]
+}
+

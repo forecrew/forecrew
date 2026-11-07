@@ -1,0 +1,50 @@
+{
+  "id": "018f0000-0000-7000-8000-000000000700",
+  "account_id": "018f0000-0000-7000-8000-000000000001",
+  "name": "home-server",
+  "kind": "microvm",
+  "mode": "agent",
+  "status": "pending",
+  "last_seen_at": "2026-03-01T11:59:00Z",
+  "capabilities": {
+    "os": [
+      "linux"
+    ],
+    "arch": [
+      "amd64"
+    ],
+    "max_cpu": 16,
+    "max_memory_mb": 65536,
+    "max_disk_gb": 412,
+    "max_machines": 3,
+    "checks": [
+      {
+        "name": "kvm",
+        "status": "ok",
+        "detail": "Available"
+      },
+      {
+        "name": "disk",
+        "status": "ok",
+        "detail": "412 GB free"
+      },
+      {
+        "name": "software",
+        "status": "ok",
+        "detail": "Up to date"
+      }
+    ],
+    "host": "home-nas \u003cb\u003e1\u003c/b\u003e",
+    "agent_version": "0.9.2"
+  },
+  "limits": {
+    "max_machines": 3
+  },
+  "network_allow": [],
+  "tags": {},
+  "created_at": "2026-02-08T16:00:00Z",
+  "updated_at": "2026-02-08T16:00:00Z",
+  "online": false,
+  "ownership": "own"
+}
+

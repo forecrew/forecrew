@@ -1,0 +1,4 @@
+{
+  "yaml": "kind: provider\nname: home-server\nspec:\n  kind: microvm\n  limits:\n    max_machines: 3\n"
+}
+
