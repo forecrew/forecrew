@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, Outlet, useNavigate, useSearch } from "@tanstack/react-router"
 import {
-  BookOpenIcon, BriefcaseIcon, CommandIcon, FlaskConicalIcon, GavelIcon, UsersIcon, FolderGitIcon, InboxIcon, KeyRoundIcon, LayoutDashboardIcon, LogOutIcon, MenuIcon, ScaleIcon, ServerIcon, TargetIcon,
+  BookOpenIcon, BriefcaseIcon, ChevronsUpDownIcon, CommandIcon, FlaskConicalIcon, GavelIcon, UsersIcon, FolderGitIcon, InboxIcon, LayoutDashboardIcon, MenuIcon, ScaleIcon, ServerIcon, SettingsIcon, TargetIcon,
 } from "lucide-react"
 import { useCallback, useState } from "react"
 import { api } from "@/api/client"
@@ -9,7 +9,10 @@ import { useGates, useMe } from "@/api/queries"
 import { CommandMenu, CommandMenuContext, useCommandMenuShortcut } from "@/components/CommandMenu"
 import { ProjectSelect } from "@/components/ProjectSelect"
 import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import { SETTINGS, allowed } from "@/lib/permissions"
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 
 const NAV = [
@@ -95,41 +98,102 @@ function Brand() {
   )
 }
 
-/** The sidebar (a menu on narrow screens), the command menu and the page. */
-export function AppShell() {
+/**
+ * The organization the session works in. With two or more it is a switcher
+ * (only organizations the person is an active member of, and the session may
+ * enter: one from an organization's own connection has just its own).
+ */
+function OrganizationSwitcher({ onNavigate }: { onNavigate?: () => void }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
-  const me = useMe()
-  const project = useProjectFilter()
-  const [menu, setMenu] = useState(false)
-  const [commands, setCommands] = useState(false)
-  const toggleCommands = useCallback(() => setCommands((o) => !o), [])
-  useCommandMenuShortcut(toggleCommands)
-
-  const logout = async () => {
+  const me = useMe().data
+  const orgs = me?.organizations ?? []
+  const [error, setError] = useState("")
+  if (!me?.account) return null
+  if (orgs.length < 2) {
+    return <p className="truncate px-1 text-sm font-medium">{me.account.name}</p>
+  }
+  const change = async (slug: string) => {
+    setError("")
     try {
-      await api.logout()
+      await api.switchOrganization(slug)
+      // Everything on screen belongs to the organization left behind.
+      await qc.invalidateQueries()
+      onNavigate?.()
+      await navigate({ to: "/" })
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor="organization-switcher" className="sr-only">
+        Switch organization
+      </Label>
+      <NativeSelect id="organization-switcher" className="w-full" value={me.account.slug} onChange={(e) => void change(e.target.value)}>
+        {orgs.map((o) => (
+          <NativeSelectOption key={o.id} value={o.slug}>
+            {o.name}
+          </NativeSelectOption>
+        ))}
+      </NativeSelect>
+      {error ? (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/** Settings, when the caller may read a section, and the account menu. */
+function AccountBlock({ onNavigate }: { onNavigate?: () => void }) {
+  const qc = useQueryClient()
+  const navigate = useNavigate()
+  const me = useMe().data
+  const settings = SETTINGS.find((s) => allowed(me, s.permission))
+  const name = me?.user?.name ?? me?.token
+
+  const signOut = async (everywhere: boolean) => {
+    try {
+      await (everywhere ? api.signOutEverywhere() : api.logout())
     } finally {
       qc.clear()
       await navigate({ to: "/login" })
     }
   }
 
-  const account = (onNavigate?: () => void) => (
+  return (
     <div className="mt-auto space-y-2 border-t pt-4">
-      <Link to="/tokens" onClick={onNavigate} className={linkClass}>
-        <KeyRoundIcon className="size-4" aria-hidden="true" />
-        Tokens
-      </Link>
-      <p className="px-3 text-xs text-muted-foreground">
-        Signed in as <span className="font-mono">{me.data?.token ?? me.data?.user?.name}</span>
-        {me.data?.account ? <> on {me.data.account.name}</> : null}
-      </p>
-      <Button variant="ghost" className="w-full justify-start gap-2" onClick={() => void logout()}>
-        <LogOutIcon aria-hidden="true" /> Log out
-      </Button>
+      {settings ? (
+        <Link to={settings.to} onClick={onNavigate} className={linkClass}>
+          <SettingsIcon className="size-4" aria-hidden="true" />
+          Settings
+        </Link>
+      ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger render={<Button variant="ghost" className="w-full justify-between gap-2" aria-label="Account menu" />}>
+          <span className="truncate">{name}</span>
+          <ChevronsUpDownIcon aria-hidden="true" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-52">
+          <DropdownMenuItem render={<Link to="/account" onClick={onNavigate} />}>Your account</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => void signOut(false)}>Sign out</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => void signOut(true)}>Sign out everywhere</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   )
+}
+
+/** The sidebar (a menu on narrow screens), the command menu and the page. */
+export function AppShell() {
+  const project = useProjectFilter()
+  const [menu, setMenu] = useState(false)
+  const [commands, setCommands] = useState(false)
+  const toggleCommands = useCallback(() => setCommands((o) => !o), [])
+  useCommandMenuShortcut(toggleCommands)
 
   return (
     <div className="min-h-screen md:grid md:grid-cols-[15rem_1fr]">
@@ -138,9 +202,10 @@ export function AppShell() {
       </a>
       <aside className="hidden flex-col gap-4 border-r bg-sidebar p-4 text-sidebar-foreground md:sticky md:top-0 md:flex md:h-screen">
         <Brand />
+        <OrganizationSwitcher />
         <ProjectSwitcher />
         <NavLinks />
-        {account()}
+        <AccountBlock />
       </aside>
       <div className="min-w-0">
         <header className="flex items-center justify-between border-b bg-card px-4 py-2 md:hidden">
@@ -168,9 +233,10 @@ export function AppShell() {
             <SheetContent side="left" className="flex flex-col gap-4 p-4">
               <SheetTitle>Forecrew</SheetTitle>
               <SheetDescription className="sr-only">Go to a page</SheetDescription>
+              <OrganizationSwitcher onNavigate={() => setMenu(false)} />
               <ProjectSwitcher onNavigate={() => setMenu(false)} />
               <NavLinks onNavigate={() => setMenu(false)} />
-              {account(() => setMenu(false))}
+              <AccountBlock onNavigate={() => setMenu(false)} />
             </SheetContent>
           </Sheet>
         </nav>

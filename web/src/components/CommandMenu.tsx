@@ -36,7 +36,8 @@ const PAGES = [
   { label: "Assumptions", to: "/assumptions" },
   { label: "Knowledge", to: "/knowledge" },
   { label: "Workers", to: "/workers" },
-  { label: "Tokens", to: "/tokens" },
+  { label: "Your account", to: "/account" },
+  { label: "Settings", to: "/settings" },
 ] as const
 
 function Results({ go }: { go: (to: string, params?: Record<string, string>) => void }) {

@@ -1,13 +1,13 @@
 import { expect, test } from "@playwright/test"
 import { mockApi } from "./api"
 
-test("log in, open the inbox and approve a gate", async ({ page }) => {
+test("sign in through GitHub, open the inbox and approve a gate", async ({ page }) => {
   const calls = await mockApi(page, { loggedIn: false })
   await page.goto("/inbox")
   await expect(page).toHaveURL(/\/login\?redirect=%2Finbox/)
-  await expect(page.getByRole("link", { name: "Sign in with github" })).toHaveAttribute("href", /^\/auth\/.+\/login$/)
-  await page.getByLabel("API token").fill("fcm_example")
-  await page.getByRole("button", { name: "Log in" }).click()
+  // The fake GitHub signs in and sends the browser back to the page it came from.
+  await page.getByRole("link", { name: "Sign in with github" }).click()
+  await expect(page).toHaveURL(/\/inbox$/)
 
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible()
   const gate = page.getByRole("article", { name: /GATE-9/ })
@@ -20,7 +20,7 @@ test("log in, open the inbox and approve a gate", async ({ page }) => {
 
   const approve = calls.log.find((c) => c.call === "POST /gates/GATE-9/approve")
   expect(approve?.body).toEqual({ feedback: "Ship it" })
-  expect(calls.log.find((c) => c.call === "POST /session")?.body).toEqual({ token: "fcm_example" })
+  expect(calls.log.some((c) => c.call === "POST /session")).toBe(false) // no pasted token
 })
 
 test("keyboard shortcuts in the inbox", async ({ page }) => {
@@ -85,9 +85,9 @@ test("cancel a job from the jobs list with the keyboard", async ({ page }) => {
   expect(calls.log.find((c) => c.call === "POST /jobs/JOB-42/cancel")).toBeDefined()
 })
 
-test("revoke another token on the tokens page", async ({ page }) => {
+test("revoke another token on the account page", async ({ page }) => {
   const calls = await mockApi(page)
-  await page.goto("/tokens")
+  await page.goto("/account")
   const row = page.getByRole("row", { name: /old-laptop/ })
   await row.getByRole("button", { name: "Revoke old-laptop" }).click()
   await page.getByRole("dialog", { name: "Revoke old-laptop?" }).getByRole("button", { name: "Revoke old-laptop" }).click()
@@ -99,14 +99,14 @@ test("revoke another token on the tokens page", async ({ page }) => {
 
 test("revoking the token in use warns and goes to the login page", async ({ page }) => {
   await mockApi(page)
-  await page.goto("/tokens")
+  await page.goto("/account")
   await expect(page.getByRole("row", { name: /laptop/ }).first()).toContainText("this session")
   await page.getByRole("button", { name: "Revoke laptop", exact: true }).click()
   const dialog = page.getByRole("dialog", { name: "Revoke laptop?" })
   await expect(dialog).toContainText("You will be logged out")
   await dialog.getByRole("button", { name: "Revoke laptop" }).click()
   await expect(page).toHaveURL(/\/login/)
-  await expect(page.getByLabel("API token")).toBeVisible()
+  await expect(page.getByLabel("Email")).toBeVisible()
 })
 
 test("agent text with HTML is shown as text and the page's policy blocks scripts", async ({ page }) => {
@@ -198,4 +198,29 @@ test("onboard a repository with a name and default branch", async ({ page }) => 
   await page.getByRole("button", { name: "Onboard repository" }).click()
   await expect(page).toHaveURL(/\/projects\//)
   expect(calls.log.find((c) => c.call === "POST /projects")?.body).toEqual({ repo: "acme/docs", name: "handbook", default_branch: "trunk" })
+})
+
+test("an admin invites someone and sees the link once", async ({ page }) => {
+  const calls = await mockApi(page, { me: "me-admin" })
+  await page.goto("/settings/people")
+  await expect(page.getByRole("heading", { name: "People", level: 1 })).toBeVisible()
+  await expect(page.getByText("Marta Rossi")).toBeVisible()
+  await page.getByRole("button", { name: "Invite" }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog.getByLabel("Email address").fill("new@acme.test")
+  await dialog.getByRole("button", { name: "Create invitation" }).click()
+  const card = page.getByRole("region", { name: "Invitation for new@acme.test" })
+  await expect(card.getByLabel("Invitation link")).toHaveValue(/\/login\?invite=fci_/)
+  await card.getByRole("button", { name: "Done" }).click()
+  await expect(card).toHaveCount(0)
+  expect(calls.log.find((c) => c.call === "POST /invitations")?.body).toMatchObject({ email: "new@acme.test", roles: [{ role: "member" }] })
+})
+
+test("a viewer reads the members but cannot invite", async ({ page }) => {
+  await mockApi(page, { me: "me-viewer" })
+  await page.goto("/settings/people")
+  await expect(page.getByText("Marta Rossi")).toBeVisible()
+  await expect(page.getByRole("button", { name: "Invite" })).toBeDisabled()
+  await expect(page.getByText("member.manage")).toBeVisible()
+  await expect(page.getByRole("link", { name: "Sign-in" })).toHaveCount(0)
 })
