@@ -333,3 +333,67 @@ func TestUpdateComment(t *testing.T) {
 	_, err = e.client.UpdateComment(t.Context(), "bad", 9, "x")
 	wantErr(t, err, github.ErrInvalid)
 }
+
+func TestListIssuesSince(t *testing.T) {
+	e := newEnv(t)
+	since := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	e.handle("GET /repos/acme/app/issues", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("state") != "all" || q.Get("sort") != "updated" || q.Get("direction") != "asc" || q.Get("since") == "" {
+			t.Errorf("query = %v", q)
+		}
+		_, _ = w.Write([]byte(`[
+			{"number": 3, "title": "Crash", "state": "closed", "updated_at": "2026-05-02T10:00:00Z", "type": {"name": "Bug"},
+			 "user": {"id": 11, "login": "ann", "type": "User"}, "assignees": [{"id": 12, "login": "forecrew-bot", "type": "User"}]},
+			{"number": 4, "title": "A PR", "pull_request": {"url": "https://api/pulls/4"}}
+		]`))
+	})
+	got, err := e.client.ListIssuesSince(t.Context(), "acme/app", since)
+	noErr(t, err)
+	if len(got) != 1 {
+		t.Fatalf("got %+v", got)
+	}
+	i := got[0]
+	if i.Number != 3 || i.Type != "Bug" || i.Author.ID != 11 || i.Assignees[0].Login != "forecrew-bot" || !i.UpdatedAt.Equal(time.Date(2026, 5, 2, 10, 0, 0, 0, time.UTC)) {
+		t.Errorf("issue = %+v", i)
+	}
+}
+
+func TestListIssueEvents(t *testing.T) {
+	e := newEnv(t)
+	e.handle("GET /repos/acme/app/issues/7/events", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"event": "labeled", "actor": {"id": 11, "login": "ann", "type": "User"}, "label": {"name": "forecrew"}, "created_at": "2026-05-02T10:00:00Z"},
+			{"event": "assigned", "actor": {"id": 12, "login": "machine", "type": "User"}, "assignee": {"id": 12, "login": "machine"},
+			 "assigner": {"id": 11, "login": "ann", "type": "User"}, "created_at": "2026-05-02T10:01:00Z"},
+			{"event": "assigned", "actor": {"id": 9, "login": "app[bot]", "type": "Bot"}, "assignee": {"id": 12, "login": "machine"}, "created_at": "2026-05-02T10:02:00Z"},
+			{"event": "closed", "actor": {"id": 11, "login": "ann"}, "created_at": "2026-05-02T10:03:00Z"}
+		]`))
+	})
+	got, err := e.client.ListIssueEvents(t.Context(), "acme/app", 7)
+	noErr(t, err)
+	if len(got) != 3 {
+		t.Fatalf("got %+v", got)
+	}
+	if got[0].Event != github.IssueLabeled || got[0].Value != "forecrew" || got[0].Actor.ID != 11 {
+		t.Errorf("labeled = %+v", got[0])
+	}
+	if got[1].Event != github.IssueAssigned || got[1].Value != "machine" || got[1].Actor.Login != "ann" {
+		t.Errorf("assigned = %+v, the assigner did it", got[1])
+	}
+	if !got[2].Actor.Bot {
+		t.Errorf("assigned by a bot = %+v", got[2])
+	}
+}
+
+func TestIssueTimelineErrors(t *testing.T) {
+	e := newEnv(t)
+	e.serve("GET /repos/acme/app/issues/404/events", http.StatusNotFound, "error_not_found.json")
+	e.serve("GET /repos/acme/app/issues", http.StatusForbidden, "error_forbidden.json")
+	if _, err := e.client.ListIssueEvents(t.Context(), "acme/app", 404); err == nil {
+		t.Error("no error")
+	}
+	if _, err := e.client.ListIssuesSince(t.Context(), "acme/app", time.Now()); err == nil {
+		t.Error("no error")
+	}
+}

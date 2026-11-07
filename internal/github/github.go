@@ -75,14 +75,43 @@ type Commit struct {
 	Time   time.Time `json:"time"`
 }
 
+// User is a GitHub account. ID is stable; a login can be renamed and then
+// taken by someone else.
+type User struct {
+	ID    int64  `json:"id"`
+	Login string `json:"login"`
+	Bot   bool   `json:"bot,omitempty"` // a GitHub App or other bot
+}
+
 // Issue is a GitHub issue.
 type Issue struct {
-	Number int      `json:"number"`
-	Title  string   `json:"title"`
-	Body   string   `json:"body"`
-	State  string   `json:"state"` // open or closed
-	Labels []string `json:"labels"`
-	URL    string   `json:"url"`
+	Number    int       `json:"number"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
+	State     string    `json:"state"` // open or closed
+	Labels    []string  `json:"labels"`
+	URL       string    `json:"url"`
+	Type      string    `json:"type,omitempty"` // the issue type's name
+	Author    User      `json:"author,omitzero"`
+	Assignees []User    `json:"assignees,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitzero"`
+	// PullRequest is set when the issue is a pull request, which the issues
+	// API also serves.
+	PullRequest bool `json:"pull_request,omitempty"`
+}
+
+// Issue event kinds Forecrew reads.
+const (
+	IssueAssigned = "assigned"
+	IssueLabeled  = "labeled"
+)
+
+// IssueEvent is an entry of an issue's timeline.
+type IssueEvent struct {
+	Event string    `json:"event"` // IssueAssigned or IssueLabeled
+	Actor User      `json:"actor"` // who did it
+	Value string    `json:"value"` // the assignee's login or the label
+	At    time.Time `json:"at"`
 }
 
 // IssueInput creates an issue.
@@ -108,8 +137,12 @@ type Autolink struct {
 
 // Comment is an issue or PR conversation comment.
 type Comment struct {
-	ID        int64     `json:"id"`
-	Author    string    `json:"author"` // GitHub login
+	ID     int64  `json:"id"`
+	Author string `json:"author"` // GitHub login
+	// AuthorID is the stable ID of Author, and Bot says it is a GitHub App or
+	// other bot.
+	AuthorID  int64     `json:"author_id,omitempty"`
+	Bot       bool      `json:"bot,omitempty"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -281,6 +314,11 @@ type Tracker interface {
 	// ListOpenIssues returns the open issues (not pull requests) of repo that
 	// carry label, oldest first.
 	ListOpenIssues(ctx context.Context, repo, label string) ([]Issue, error)
+	// ListIssuesSince returns the issues (not pull requests) of repo updated
+	// at or after since, in any state, oldest update first.
+	ListIssuesSince(ctx context.Context, repo string, since time.Time) ([]Issue, error)
+	// ListIssueEvents returns who assigned and labeled an issue, oldest first.
+	ListIssueEvents(ctx context.Context, repo string, number int) ([]IssueEvent, error)
 
 	// CreateComment comments on an issue or PR conversation.
 	CreateComment(ctx context.Context, repo string, number int, body string) (Comment, error)

@@ -28,6 +28,7 @@ type Tracker struct {
 }
 
 type fakeRepo struct {
+	now       func() time.Time
 	next      int
 	issues    map[int]*fakeIssue
 	prs       map[int]*github.PullRequest
@@ -51,6 +52,7 @@ type fakeIssue struct {
 	issue    github.Issue
 	comments []github.Comment
 	children []int
+	events   []github.IssueEvent
 }
 
 // NewTracker returns a tracker without repos. now defaults to the real UTC time.
@@ -63,6 +65,7 @@ func (t *Tracker) Install(repo string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.repos[strings.ToLower(repo)] = &fakeRepo{
+		now:    t.now,
 		issues: map[int]*fakeIssue{}, prs: map[int]*github.PullRequest{}, labels: map[string]github.Label{},
 		checks: map[string]github.CheckStatus{}, checkRuns: map[string]github.CheckRunInput{}, reviews: map[int][]github.Review{},
 		branches: map[string]bool{}, files: map[string][]byte{}, heads: map[string]string{}, commits: map[string]github.Commit{}, deleted: map[string][]string{},
@@ -149,8 +152,9 @@ func (t *Tracker) addComment(repo string, number int, author, body string, ev *E
 			return err
 		}
 		r.commentID++
-		c = github.Comment{ID: r.commentID, Author: author, Body: body, CreatedAt: t.now()}
+		c = github.Comment{ID: r.commentID, Author: author, Bot: author == TrackerBot, Body: body, CreatedAt: t.now()}
 		i.comments = append(i.comments, c)
+		i.issue.UpdatedAt = t.now()
 		_, isPR := r.prs[number]
 		*ev = commentEvent(repo, number, isPR, c)
 		return nil
@@ -196,7 +200,7 @@ func (r *fakeRepo) newIssue(repo string, title, body string, labels []string) *f
 	r.next++
 	i := &fakeIssue{issue: github.Issue{
 		Number: r.next, Title: title, Body: body, State: "open", Labels: slices.Clone(labels),
-		URL: fmt.Sprintf("https://github.com/%s/issues/%d", repo, r.next),
+		URL: fmt.Sprintf("https://github.com/%s/issues/%d", repo, r.next), UpdatedAt: r.now(),
 	}}
 	r.issues[r.next] = i
 	return i
@@ -244,6 +248,7 @@ func (t *Tracker) UpdateIssue(_ context.Context, repo string, number int, in git
 		setIf(&i.issue.Title, in.Title)
 		setIf(&i.issue.Body, in.Body)
 		setIf(&i.issue.State, in.State)
+		i.issue.UpdatedAt = t.now()
 		out = i.issue
 		return nil
 	})
@@ -302,6 +307,82 @@ func (t *Tracker) ListOpenIssues(_ context.Context, repo, label string) ([]githu
 		return nil
 	})
 	return out, err
+}
+
+// ListIssuesSince implements github.Tracker.
+func (t *Tracker) ListIssuesSince(_ context.Context, repo string, since time.Time) ([]github.Issue, error) {
+	var out []github.Issue
+	err := t.with(repo, func(r *fakeRepo) error {
+		for _, n := range slices.Sorted(maps.Keys(r.issues)) {
+			if i := r.issues[n].issue; !i.UpdatedAt.Before(since) {
+				out = append(out, i)
+			}
+		}
+		return nil
+	})
+	slices.SortStableFunc(out, func(a, b github.Issue) int { return a.UpdatedAt.Compare(b.UpdatedAt) })
+	return out, err
+}
+
+// ListIssueEvents implements github.Tracker.
+func (t *Tracker) ListIssueEvents(_ context.Context, repo string, number int) ([]github.IssueEvent, error) {
+	var out []github.IssueEvent
+	err := t.with(repo, func(r *fakeRepo) error {
+		i, err := r.issue(number)
+		if err == nil {
+			out = slices.Clone(i.events)
+		}
+		return err
+	})
+	return out, err
+}
+
+// LabelIssue adds a label to an issue as a person does on GitHub.
+func (t *Tracker) LabelIssue(repo string, number int, by github.User, label string) error {
+	return t.editIssue(repo, number, func(i *fakeIssue) {
+		i.issue.Labels = append(i.issue.Labels, label)
+		i.events = append(i.events, github.IssueEvent{Event: github.IssueLabeled, Actor: by, Value: label, At: t.now()})
+	})
+}
+
+// AssignIssue assigns an issue to a user as a person does on GitHub.
+func (t *Tracker) AssignIssue(repo string, number int, by, to github.User) error {
+	return t.editIssue(repo, number, func(i *fakeIssue) {
+		i.issue.Assignees = append(i.issue.Assignees, to)
+		i.events = append(i.events, github.IssueEvent{Event: github.IssueAssigned, Actor: by, Value: to.Login, At: t.now()})
+	})
+}
+
+// EditIssue changes an issue directly, for what only GitHub can set: its
+// type, author or pull request mark.
+func (t *Tracker) EditIssue(repo string, number int, fn func(*github.Issue)) error {
+	return t.editIssue(repo, number, func(i *fakeIssue) { fn(&i.issue) })
+}
+
+// CommentAs adds a person's comment to an issue.
+func (t *Tracker) CommentAs(repo string, number int, by github.User, body string) (github.Comment, error) {
+	var c github.Comment
+	err := t.with(repo, func(r *fakeRepo) error {
+		r.commentID++
+		c = github.Comment{ID: r.commentID, Author: by.Login, AuthorID: by.ID, Bot: by.Bot, Body: body, CreatedAt: t.now()}
+		return nil
+	})
+	if err != nil {
+		return c, err
+	}
+	return c, t.editIssue(repo, number, func(i *fakeIssue) { i.comments = append(i.comments, c) })
+}
+
+func (t *Tracker) editIssue(repo string, number int, fn func(*fakeIssue)) error {
+	return t.with(repo, func(r *fakeRepo) error {
+		i, err := r.issue(number)
+		if err != nil {
+			return err
+		}
+		fn(i)
+		i.issue.UpdatedAt = t.now()
+		return nil
+	})
 }
 
 // CreateComment implements github.Tracker. The author is "forecrew[bot]";
