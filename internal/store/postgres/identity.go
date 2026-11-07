@@ -38,6 +38,9 @@ func (s *Store) VerifiedDomains() store.VerifiedDomainRepo { return verifiedDoma
 // Sessions implements store.Store.
 func (s *Store) Sessions() store.SessionRepo { return sessionRepo{s.db} }
 
+// SCIMTokens implements store.Store.
+func (s *Store) SCIMTokens() store.SCIMTokenRepo { return scimTokenRepo{s.db} }
+
 // ---- users
 
 type userRepo struct{ db dbtx }
@@ -531,4 +534,38 @@ func (r mcpTokenRepo) AssignOwner(ctx context.Context, accountID uuid.UUID, kind
 func (r mcpTokenRepo) RevokeByOwner(ctx context.Context, accountID uuid.UUID, kind domain.SubjectKind, ownerID uuid.UUID) error {
 	_, err := r.db.Exec(ctx, `UPDATE mcp_tokens SET revoked_at = now() WHERE account_id = $1 AND owner_kind = $2 AND owner_id = $3 AND revoked_at IS NULL`, accountID, kind, ownerID)
 	return mapErr(err)
+}
+
+// ---- SCIM tokens
+
+type scimTokenRepo struct{ db dbtx }
+
+var scimTokenCols = `id, account_id, name, token_hash, created_by, ` + ctime("last_used_at") + `, ` + ctime("revoked_at") + `, created_at`
+
+func scanSCIMToken(row pgx.Row) (t domain.SCIMToken, err error) {
+	err = row.Scan(&t.ID, &t.AccountID, &t.Name, &t.TokenHash, &t.CreatedBy, &t.LastUsedAt, &t.RevokedAt, &t.CreatedAt)
+	utc(&t.LastUsedAt, &t.RevokedAt, &t.CreatedAt)
+	return t, err
+}
+
+func (r scimTokenRepo) Create(ctx context.Context, t *domain.SCIMToken) error {
+	t.ID = newID(t.ID)
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO scim_tokens (id, account_id, name, token_hash, created_by) VALUES ($1, $2, $3, $4, $5)
+		RETURNING created_at`, t.ID, t.AccountID, t.Name, t.TokenHash, t.CreatedBy).Scan(&t.CreatedAt))
+}
+
+func (r scimTokenRepo) GetByTokenHash(ctx context.Context, hash []byte) (domain.SCIMToken, error) {
+	return one(ctx, r.db, scanSCIMToken, `SELECT `+scimTokenCols+` FROM scim_tokens WHERE token_hash = $1`, hash)
+}
+
+func (r scimTokenRepo) List(ctx context.Context, accountID uuid.UUID) ([]domain.SCIMToken, error) {
+	return many(ctx, r.db, scanSCIMToken, `SELECT `+scimTokenCols+` FROM scim_tokens WHERE account_id = $1 ORDER BY created_at, id`, accountID)
+}
+
+func (r scimTokenRepo) Touch(ctx context.Context, accountID, id uuid.UUID) error {
+	return mustUpdate(ctx, r.db, `UPDATE scim_tokens SET last_used_at = now() WHERE account_id = $1 AND id = $2`, accountID, id)
+}
+
+func (r scimTokenRepo) Revoke(ctx context.Context, accountID, id uuid.UUID) error {
+	return mustUpdate(ctx, r.db, `UPDATE scim_tokens SET revoked_at = COALESCE(revoked_at, now()) WHERE account_id = $1 AND id = $2`, accountID, id)
 }

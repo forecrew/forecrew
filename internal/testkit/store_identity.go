@@ -26,6 +26,7 @@ type identityData struct {
 	sessions     table[domain.Session]
 	oauthClients table[domain.OAuthClient]
 	oauthGrants  table[domain.OAuthGrant]
+	scimTokens   table[domain.SCIMToken]
 }
 
 func newIdentityData() identityData {
@@ -40,6 +41,7 @@ func newIdentityData() identityData {
 		sessions:     table[domain.Session]{key: func(r domain.Session) (uuid.UUID, uuid.UUID) { return r.UserID, r.ID }},
 		oauthClients: table[domain.OAuthClient]{key: func(r domain.OAuthClient) (uuid.UUID, uuid.UUID) { return uuid.Nil(), r.ID }},
 		oauthGrants:  table[domain.OAuthGrant]{key: func(r domain.OAuthGrant) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		scimTokens:   table[domain.SCIMToken]{key: func(r domain.SCIMToken) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 	}
 }
 
@@ -54,6 +56,7 @@ func (i identityData) clone() identityData {
 	i.sessions = i.sessions.clone()
 	i.oauthClients = i.oauthClients.clone()
 	i.oauthGrants = i.oauthGrants.clone()
+	i.scimTokens = i.scimTokens.clone()
 	return i
 }
 
@@ -65,6 +68,7 @@ func setupLinksT(d *storeData) *table[store.SetupLink]    { return &d.identity.s
 func connectionsT(d *storeData) *table[domain.Connection] { return &d.identity.connections }
 func domainsT(d *storeData) *table[domain.VerifiedDomain] { return &d.identity.domains }
 func sessionsT(d *storeData) *table[domain.Session]       { return &d.identity.sessions }
+func scimTokensT(d *storeData) *table[domain.SCIMToken]   { return &d.identity.scimTokens }
 
 // Users implements store.Store.
 func (s *Store) Users() store.UserRepo { return userRepo{s} }
@@ -644,6 +648,49 @@ func (r tokenRepo) RevokeByOwner(_ context.Context, accountID uuid.UUID, kind do
 			if t.AccountID == accountID && t.OwnerKind == kind && t.OwnerID == ownerID && t.RevokedAt.IsZero() {
 				t.RevokedAt = now
 			}
+		}
+		return nil
+	})
+}
+
+// SCIMTokens implements store.Store.
+func (s *Store) SCIMTokens() store.SCIMTokenRepo { return scimTokenRepo{s} }
+
+type scimTokenRepo struct{ s *Store }
+
+func (r scimTokenRepo) Create(_ context.Context, t *domain.SCIMToken) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		if d.identity.scimTokens.exists(func(x domain.SCIMToken) bool {
+			return (x.AccountID == t.AccountID && x.Name == t.Name) || bytes.Equal(x.TokenHash, t.TokenHash)
+		}) {
+			return fmt.Errorf("scim token %s: %w", t.Name, store.ErrConflict)
+		}
+		t.ID = newID(t.ID)
+		t.CreatedAt = now
+		d.identity.scimTokens.insert(*t)
+		return nil
+	})
+}
+
+func (r scimTokenRepo) GetByTokenHash(_ context.Context, hash []byte) (domain.SCIMToken, error) {
+	return findRow(r.s, scimTokensT, func(t domain.SCIMToken) bool { return bytes.Equal(t.TokenHash, hash) })
+}
+
+func (r scimTokenRepo) List(_ context.Context, accountID uuid.UUID) ([]domain.SCIMToken, error) {
+	return listRows(r.s, scimTokensT, 0, func(t domain.SCIMToken) bool { return t.AccountID == accountID })
+}
+
+func (r scimTokenRepo) Touch(_ context.Context, accountID, id uuid.UUID) error {
+	return update(r.s, scimTokensT, accountID, id, func(t *domain.SCIMToken, now time.Time) error {
+		t.LastUsedAt = now
+		return nil
+	})
+}
+
+func (r scimTokenRepo) Revoke(_ context.Context, accountID, id uuid.UUID) error {
+	return update(r.s, scimTokensT, accountID, id, func(t *domain.SCIMToken, now time.Time) error {
+		if t.RevokedAt.IsZero() {
+			t.RevokedAt = now
 		}
 		return nil
 	})
