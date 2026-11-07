@@ -1,6 +1,6 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Page } from "@playwright/test"
-import { mockApi } from "./api"
+import { fixture, mockApi } from "./api"
 
 const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: boolean; gates?: string; me?: string; roles?: string }[] = [
   { name: "login", path: "/login", ready: "Log in to Forecrew", loggedIn: false },
@@ -53,6 +53,8 @@ const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: bo
   { name: "settings all activity", path: "/settings/history?tab=activity", ready: "Change history", me: "me-admin" },
   { name: "settings policies", path: "/settings/policies", ready: "Policies", me: "me-admin" },
   { name: "settings policies for a viewer", path: "/settings/policies", ready: "Policies", me: "me-viewer" },
+  { name: "settings integrations", path: "/settings/integrations", ready: "Integrations", me: "me-admin" },
+  { name: "settings integrations for a viewer", path: "/settings/integrations", ready: "Integrations", me: "me-viewer" },
   { name: "project access", path: "/projects/app", ready: "app", me: "me-admin" },
 ]
 
@@ -157,6 +159,51 @@ for (const size of sizes) {
     await expect(page.getByRole("dialog")).toHaveCount(0)
     await page.getByRole("button", { name: "Import", exact: true }).click()
     await expect(page.getByRole("dialog", { name: "Import YAML" })).toBeVisible()
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`the tracker dialogs and results have no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page, { me: "me-admin", trackerFails: true })
+    await page.goto("/settings/integrations")
+    const card = page.getByRole("region", { name: /Jira jira/ })
+    await expect(card.getByText("2 people not matched yet")).toBeVisible()
+    // The people to match, the tickets that wait and the results of a failed test.
+    await card.getByRole("button", { name: "Review the people of jira" }).click()
+    await expect(page.getByRole("list", { name: "People not matched yet" })).toBeVisible()
+    await card.getByRole("button", { name: "Open the waiting tickets of jira" }).click()
+    await expect(page.getByRole("list", { name: "Tickets waiting" })).toBeVisible()
+    await card.getByRole("button", { name: "Test connection of jira" }).click()
+    await expect(card.getByRole("list", { name: "Test of jira" })).toBeVisible()
+    await expect(card.getByRole("form", { name: "Add the company's certificate" })).toBeVisible()
+    await expectNoSeriousViolations(page)
+    // The connect form, with its private address note and its plan with the secure field.
+    await page.getByRole("button", { name: "Connect a tracker" }).click()
+    const dialog = page.getByRole("dialog", { name: "Connect a tracker" })
+    await dialog.getByLabel("Address", { exact: true }).fill("https://jira.acme.local/jira")
+    await expect(dialog.getByRole("note")).toBeVisible()
+    await expectNoSeriousViolations(page)
+    await dialog.getByLabel("Projects", { exact: true }).fill("ENG")
+    await dialog.getByRole("button", { name: "Review the change" }).click()
+    await expect(dialog.getByRole("form", { name: /Secure field: token of tracker connection/ })).toBeVisible()
+    await expectNoSeriousViolations(page)
+    await page.keyboard.press("Escape")
+    // The rule form with the statuses under More options.
+    await card.getByRole("button", { name: "Add a rule to jira" }).click()
+    const rule = page.getByRole("dialog", { name: "Add a rule" })
+    await rule.getByText("More options").click()
+    await expect(rule.getByLabel("When the goal is done")).toBeVisible()
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`the ticket card of the Inbox has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    const gates = (fixture("gates") as { ref: string; kind: string }[]).map((g, i) => (i === 0 ? { ...g, ref: "GATE-15", kind: "ticket_intake", title: "Accept ticket ENG-21 from jira" } : g))
+    await mockApi(page, { gates: "gates" })
+    await page.route("**/api/v1/gates", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(gates) }))
+    await page.goto("/inbox?gate=GATE-15")
+    const card = page.getByRole("article", { name: /GATE-15/ })
+    await expect(card.getByText("Marta Rossi isn't in Forecrew. Start this anyway?")).toBeVisible()
     await expectNoSeriousViolations(page)
   })
 

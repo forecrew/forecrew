@@ -44,10 +44,10 @@ function Ticket({ t }: { t: TicketInfo }) {
               ))}
             </NativeSelect>
           ) : null}
-          <PermButton permission="goal.create" project={t.project_id} aria-label={`${unknown ? "Start" : "Accept"} ${t.key}`} disabled={accept.isPending || (needsProject && !project)} onClick={() => accept.mutate(undefined)}>
+          <PermButton permission="goal.create" project={t.project_id} aria-label={`${unknown ? "Start anyway" : "Accept"}: ${t.key}`} disabled={accept.isPending || (needsProject && !project)} onClick={() => accept.mutate(undefined)}>
             {unknown ? "Start anyway" : "Accept"}
           </PermButton>
-          <PermButton permission="goal.create" project={t.project_id} variant="outline" aria-label={`Dismiss ${t.key}`} disabled={dismiss.isPending} onClick={() => dismiss.mutate(undefined)}>
+          <PermButton permission="goal.create" project={t.project_id} variant="outline" aria-label={`Dismiss: ${t.key}`} disabled={dismiss.isPending} onClick={() => dismiss.mutate(undefined)}>
             Dismiss
           </PermButton>
         </div>

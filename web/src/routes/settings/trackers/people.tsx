@@ -26,7 +26,7 @@ function Person({ p }: { p: UnmappedPerson }) {
       </p>
       <div className="flex flex-wrap items-center gap-2">
         {p.suggestions.map((s) => (
-          <PermButton key={s.user} permission="trackers.manage" variant="outline" aria-label={`Confirm ${name} is ${s.name}`} disabled={map.isPending} onClick={() => map.mutate(s.user)}>
+          <PermButton key={s.user} permission="trackers.manage" variant="outline" disabled={map.isPending} onClick={() => map.mutate(s.user)}>
             Same person as {s.name} ({s.reason})
           </PermButton>
         ))}
