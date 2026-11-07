@@ -366,6 +366,21 @@ A hosted machine takes one job, whatever the shape's `max_jobs` says
 refused in the lease's transaction. Each job of a paying organization gets a
 fresh machine.
 
+## Abuse
+
+A location may watch its machines for abuse (`fleet.AbuseChecker`; the microVM
+provider's `abuse` keys, docs/fleet.md): CPU held full for long, alone or while
+connecting to mining pools. It stops such a machine at once and its agent
+reports it `failed` with `abuse` (fleet-agent-api.md). forecrewd then fails the
+machine, cancels its job rather than requeue it, writes `machine.abuse` to the
+organization's audit log and opens a **notice** (`fleet_notices`,
+`domain.FleetNotice`), one per machine and kind, for the instance's operator.
+Instance admins list notices with `list_fleet_notices` (`GET
+/api/v1/fleet/notices`, `forecrew notices`) and close them with
+`resolve_fleet_notice`. A notice's `detail` is the agent's words: untrusted.
+
+Free-plan limits are in Fairness.
+
 ## Network
 
 By default a machine reaches the internet and nothing else: not the host, the

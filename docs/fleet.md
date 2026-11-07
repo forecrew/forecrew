@@ -210,6 +210,16 @@ finish what a crash interrupted:
 - **A wall-time kill.** At its deadline the agent kills the VMM and everything in
   its session, whether or not forecrewd can be reached; forecrewd then destroys
   the rest.
+- **Abuse checks.** With `abuse` set, the agent looks at every machine about
+  every 30 seconds: the CPU time of its VMM (its vCPUs are the VMM's threads)
+  and the `mining` counter of its nftables table, which counts new connections
+  to the usual ports of mining pools. A machine whose vCPUs stay over 90% busy
+  for `mining_minutes` while it connects to those ports, or for `cpu_minutes`
+  whatever it does, has its VMM killed at once; its cache is not kept. The agent
+  reports it `failed` with `abuse` (`mining` or `cpu`), and forecrewd cancels its
+  job instead of running it again, writes `machine.abuse` to the organization's
+  audit log and opens a notice for the instance's operator (`forecrew notices`).
+  Both are off by default; a location that runs hosted machines turns them on.
 - **Docker inside.** An image with `dockerd` gets it started in the guest's own
   kernel before the worker, so environments with Docker work without touching
   the host. The guest kernel needs overlayfs, bridges, veth and netfilter.
@@ -257,6 +267,8 @@ secrets.
 | `ca_file` | the host's bundle | What an https forecrewd's certificate chains to |
 | `image_cache_days` | `14` | How long an unused image stays |
 | `org_cache_gb` | `0` | Size of each organization's cache disk, per pool; 0 gives machines none. Needs `cryptsetup` and `mkfs.ext4` |
+| `abuse.cpu_minutes` | `0` | Stops a machine whose vCPUs stay over 90% busy this long; 0 is off |
+| `abuse.mining_minutes` | `0` | Stops a machine whose vCPUs stay over 90% busy this long while it connects to the usual ports of mining pools; 0 is off |
 | `egress` | `open` | `open`: machines reach the internet and `network_allow`. `allowlist`: only `network_allow`, never a private network; for a location of the instance that runs hosted machines |
 
 ### Home server setup

@@ -92,6 +92,11 @@ type Provider struct {
 	// dm-crypt mapping is open.
 	mknod      func(device, node string) error
 	hasMapping func(name string) bool
+	// output runs a host command and returns what it wrote; cpuTime reads a
+	// process's CPU time; now is the time. Tests replace them.
+	output  func(ctx context.Context, name string, args ...string) ([]byte, error)
+	cpuTime func(pid int) (time.Duration, error)
+	now     func() time.Time
 
 	// mu guards slots and the records of machines being changed.
 	mu       sync.Mutex
@@ -99,6 +104,8 @@ type Provider struct {
 	lastGC   time.Time
 	fetching sync.Mutex // also guards verified
 	caching  sync.Mutex // guards the organizations' caches
+	watchMu  sync.Mutex // guards watch
+	watch    map[string]*cpuWatch
 	// verified holds, by image signature, the files as they were when their
 	// digests were last checked.
 	verified map[string][2]stamp
@@ -125,8 +132,9 @@ func New(cfg Config, log *slog.Logger) (*Provider, error) {
 		},
 		http: &http.Client{Timeout: fetchTimeout}, resolver: net.DefaultResolver,
 		run: runCommand, chown: os.Chown, memoryMB: fleetagent.MemoryMB, availableMB: fleetagent.AvailableMemoryMB, localNets: localNets, freeBytes: freeBytes,
-		hasDevice:  func(name string) bool { _, err := net.InterfaceByName(name); return err == nil },
-		mknod:      mknodOf,
+		hasDevice: func(name string) bool { _, err := net.InterfaceByName(name); return err == nil },
+		mknod:     mknodOf,
+		output:    outputOf, cpuTime: cpuTime, now: time.Now, watch: map[string]*cpuWatch{},
 		hasMapping: func(name string) bool { _, err := os.Stat(filepath.Join("/dev/mapper", name)); return err == nil },
 		timers:     map[string]*time.Timer{}, verified: map[string][2]stamp{},
 	}
@@ -426,7 +434,7 @@ func (p *Provider) reserve(id, vmmName string, req fleet.CreateRequest, server [
 		slot++
 	}
 	r := &record{
-		ID: id, VMM: vmmName, Slot: slot, MemoryMB: req.Shape.MemoryMB, DiskGB: req.Shape.DiskGB, GPUs: free[:req.Shape.GPU], OrgCache: p.orgCacheOf(req),
+		ID: id, VMM: vmmName, Slot: slot, CPU: req.Shape.CPU, MemoryMB: req.Shape.MemoryMB, DiskGB: req.Shape.DiskGB, GPUs: free[:req.Shape.GPU], OrgCache: p.orgCacheOf(req),
 		Tags: req.Tags, Allow: req.NetworkAllow, Server: server, Port: port, Deadline: req.Deadline, CreatedAt: time.Now().UTC(),
 	}
 	if err := p.save(r); err != nil {

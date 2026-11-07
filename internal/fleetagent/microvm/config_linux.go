@@ -54,6 +54,8 @@ type Config struct {
 	// OrgCacheGB sizes each organization's cache disk, per pool; 0 gives
 	// machines none.
 	OrgCacheGB int `yaml:"org_cache_gb"`
+	// Abuse are the abuse checks, off by default.
+	Abuse AbuseConfig `yaml:"abuse"`
 }
 
 func defaults() Config {
@@ -98,6 +100,9 @@ func (c Config) validate() error {
 	}
 	if c.Egress != egressOpen && c.Egress != egressAllowlist {
 		bad = append(bad, fmt.Errorf("egress must be %s or %s, got %q", egressOpen, egressAllowlist, c.Egress))
+	}
+	if c.Abuse.CPUMinutes < 0 || c.Abuse.MiningMinutes < 0 {
+		bad = append(bad, fmt.Errorf("abuse limits must not be negative"))
 	}
 	if c.OrgCacheGB < 0 {
 		bad = append(bad, fmt.Errorf("org_cache_gb must not be negative, got %d", c.OrgCacheGB))
