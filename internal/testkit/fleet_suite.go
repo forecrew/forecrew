@@ -446,12 +446,11 @@ func (s *fleetSuite) usage(prov domain.CapacityProvider, shape domain.Shape) {
 	m := domain.Machine{AccountID: s.account, ProviderID: prov.ID, ShapeID: shape.ID}
 	s.must(s.st.Machines().Create(ctx, &m))
 	s.must(s.st.Machines().UpdateState(ctx, m.ID, domain.MachineRequested, domain.MachineDestroyed, ""))
+	failed := domain.Machine{AccountID: s.account, ProviderID: prov.ID, ShapeID: shape.ID}
+	s.must(s.st.Machines().Create(ctx, &failed))
+	s.must(s.st.Machines().UpdateState(ctx, failed.ID, domain.MachineRequested, domain.MachineFailed, "gone"))
 	var since time.Time // the fake's clock is the test's
-	missed, err := r.Unmetered(ctx, since, 0)
-	s.must(err)
-	if !slices.ContainsFunc(missed, func(x domain.Machine) bool { return x.ID == m.ID }) {
-		s.t.Fatalf("unmetered = %+v, want machine %s", missed, m.ID)
-	}
+	s.unmetered(since, m.ID, failed.ID)
 	start := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
 	u := domain.UsageRecord{AccountID: s.account, MachineID: m.ID, ShapeID: shape.ID, Ownership: domain.OwnershipOwn,
 		Minutes: 12.3456, Cost: 0.1234567, StartedAt: start, EndedAt: start.Add(12 * time.Minute)}
@@ -474,7 +473,7 @@ func (s *fleetSuite) usage(prov domain.CapacityProvider, shape domain.Shape) {
 	if err := r.Create(ctx, &wrong); err == nil {
 		s.t.Fatal("a record landed on another organization")
 	}
-	missed, err = r.Unmetered(ctx, since, 0)
+	missed, err := r.Unmetered(ctx, since, 0)
 	s.must(err)
 	if slices.ContainsFunc(missed, func(x domain.Machine) bool { return x.ID == m.ID }) {
 		s.t.Fatal("a metered machine is still unmetered")
@@ -555,5 +554,17 @@ func (s *fleetSuite) notices(prov domain.CapacityProvider, shape domain.Shape) {
 	s.must(err)
 	if len(all) != 1 {
 		s.t.Fatalf("limit: %d", len(all))
+	}
+}
+
+// unmetered checks that Unmetered lists each of ids.
+func (s *fleetSuite) unmetered(since time.Time, ids ...uuid.UUID) {
+	s.t.Helper()
+	missed, err := s.st.Usage().Unmetered(s.t.Context(), since, 0)
+	s.must(err)
+	for _, want := range ids {
+		if !slices.ContainsFunc(missed, func(x domain.Machine) bool { return x.ID == want }) {
+			s.t.Fatalf("unmetered = %+v, want machine %s", missed, want)
+		}
 	}
 }

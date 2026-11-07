@@ -188,3 +188,67 @@ func TestUsageReport(t *testing.T) {
 		t.Fatalf("last month = %+v", before)
 	}
 }
+
+// A machine of a location revoked under it fails and is never reported gone:
+// it is billed up to its failure, once, and stops counting against limits.
+func TestRevokedLocationMachineIsBilledToItsFailure(t *testing.T) {
+	e := newEnv(t)
+	agent, shape := e.agentProvider(e.account)
+	shape.PricePerMinute = 0.5
+	must(t, e.st.Shapes().Update(e.ctx, &shape))
+	e.job(e.account, e.project, nil)
+	e.reconcile()
+	ms := e.machines(store.MachineFilter{ShapeID: shape.ID})
+	if len(ms) != 1 {
+		t.Fatalf("%d machines", len(ms))
+	}
+	must(t, e.c.ReportState(e.ctx, agent, ms[0].ID, domain.MachineBooting, "vm-1", ""))
+	e.clock.Advance(10 * time.Minute)
+	must(t, e.st.CapacityProviders().SetStatus(e.ctx, agent.ID, domain.ProviderRevoked))
+	e.reconcile()
+	m := e.machine(ms[0].ID)
+	if m.State != domain.MachineFailed {
+		t.Fatalf("machine = %s", m.State)
+	}
+	list, err := e.st.Usage().List(e.ctx, e.account, store.UsageFilter{})
+	must(t, err)
+	if len(list) != 1 || list[0].MachineID != m.ID || list[0].Minutes != 10 || list[0].Cost != 5 || !list[0].EndedAt.Equal(m.UpdatedAt) {
+		t.Fatalf("records = %+v", list)
+	}
+	// Months on, it still counts 10 minutes, and a late report of its end
+	// bills nothing more.
+	e.clock.Advance(2 * time.Hour)
+	e.reconcile()
+	must(t, e.c.ReportState(e.ctx, agent, m.ID, domain.MachineDestroyed, "", ""))
+	sum, err := e.st.Usage().Sum(e.ctx, e.account, store.UsageFilter{})
+	must(t, err)
+	if sum.Minutes != 10 {
+		t.Fatalf("billed %.3f minutes", sum.Minutes)
+	}
+	month := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	u, err := e.c.Usage(e.ctx, e.account, month, month.AddDate(0, 1, 0), false)
+	must(t, err)
+	if u.Running != (fleet.UsageTotals{}) {
+		t.Fatalf("a failed machine still runs up cost: %+v", u.Running)
+	}
+}
+
+// A failed machine left without a record, as rows from before metering are,
+// is billed by the catch-up up to its failure.
+func TestBackfillMetersFailedMachines(t *testing.T) {
+	e := newEnv(t)
+	agent, _ := e.agentProvider(e.account) // nothing destroys its machines from here
+	shape := e.shape(agent, "small", func(s *domain.Shape) { s.PricePerMinute = 1 })
+	m := domain.Machine{AccountID: e.account, ProviderID: agent.ID, ShapeID: shape.ID}
+	must(t, e.st.Machines().Create(e.ctx, &m))
+	must(t, e.st.Machines().UpdateState(e.ctx, m.ID, domain.MachineRequested, domain.MachineBooting, ""))
+	e.clock.Advance(4 * time.Minute)
+	must(t, e.st.Machines().UpdateState(e.ctx, m.ID, domain.MachineBooting, domain.MachineFailed, "lost"))
+	e.clock.Advance(time.Hour)
+	e.reconcile()
+	got, err := e.st.Usage().List(e.ctx, e.account, store.UsageFilter{})
+	must(t, err)
+	if len(got) != 1 || got[0].Minutes != 4 {
+		t.Fatalf("records = %+v", got)
+	}
+}

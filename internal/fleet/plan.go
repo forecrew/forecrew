@@ -92,8 +92,8 @@ func (s *snapshot) usage() usage {
 		if !ok || !metered {
 			continue
 		}
-		end := m.DestroyedAt
-		if end.IsZero() {
+		end, ended := MeterEnd(m)
+		if !ended {
 			end = s.now
 		}
 		if from.Before(start) {

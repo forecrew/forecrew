@@ -481,7 +481,15 @@ func (c *Controller) failMachine(ctx context.Context, m domain.Machine, why stri
 		if err := revokeWorker(ctx, tx, m); err != nil {
 			return err
 		}
-		return c.audit(ctx, tx, m, ActionFailed, map[string]any{"error": why})
+		data := map[string]any{"error": why}
+		u, err := meter(ctx, tx, m.ID)
+		if err != nil {
+			return err
+		}
+		if u != nil {
+			data["minutes"], data["cost"] = u.Minutes, u.Cost
+		}
+		return c.audit(ctx, tx, m, ActionFailed, data)
 	})
 }
 

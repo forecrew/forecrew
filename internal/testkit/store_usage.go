@@ -86,11 +86,12 @@ func (r usageRepo) SumByProvider(_ context.Context, providerID uuid.UUID, from, 
 func (r usageRepo) Unmetered(_ context.Context, since time.Time, limit int) ([]domain.Machine, error) {
 	rows, err := read(r.s, func(d *storeData) ([]domain.Machine, error) {
 		return d.machines.filter(0, func(m domain.Machine) bool {
-			return m.State == domain.MachineDestroyed && m.AccountID != uuid.Nil() && !m.DestroyedAt.Before(since) &&
+			end := ended(m)
+			return (m.State == domain.MachineDestroyed || m.State == domain.MachineFailed) && m.AccountID != uuid.Nil() && !end.Before(since) &&
 				!d.usage.exists(func(u domain.UsageRecord) bool { return u.MachineID == m.ID })
 		}), nil
 	})
-	slices.SortStableFunc(rows, func(a, b domain.Machine) int { return a.DestroyedAt.Compare(b.DestroyedAt) })
+	slices.SortStableFunc(rows, func(a, b domain.Machine) int { return ended(a).Compare(ended(b)) })
 	if limit > 0 && len(rows) > limit {
 		rows = rows[:limit]
 	}
@@ -98,3 +99,11 @@ func (r usageRepo) Unmetered(_ context.Context, since time.Time, limit int) ([]d
 }
 
 func usageT(d *storeData) *table[domain.UsageRecord] { return &d.usage }
+
+// ended is when a machine ended, as Unmetered orders them.
+func ended(m domain.Machine) time.Time {
+	if m.DestroyedAt.IsZero() {
+		return m.UpdatedAt
+	}
+	return m.DestroyedAt
+}

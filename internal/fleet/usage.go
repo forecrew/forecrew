@@ -53,24 +53,39 @@ func roundTo(v float64, places int) float64 {
 	return math.Round(v*p) / p
 }
 
-// meter writes the usage record of machine id, destroyed in tx, in the same
-// transaction: the machine ends and is billed together or not at all, and a
-// second try finds the record and writes none (store.ErrConflict). An
-// unassigned machine costs nobody and has none. It returns the record written,
-// nil when there is none.
+// MeterEnd is when machine m stopped costing its organization: when it failed
+// or, if it never did, was destroyed. A machine still up has not ended.
+func MeterEnd(m domain.Machine) (time.Time, bool) {
+	switch m.State {
+	case domain.MachineFailed:
+		return m.UpdatedAt, true // the failure is the row's last change
+	case domain.MachineDestroyed:
+		return m.DestroyedAt, true
+	}
+	return time.Time{}, false
+}
+
+// meter writes the usage record of machine id, which ended in tx (failed or
+// destroyed), in the same transaction: the machine ends and is billed together
+// or not at all, and a second try, or the destroy after a failure, finds the
+// record and writes none (store.ErrConflict). A machine that fails is billed
+// to its failure, even when nothing ever says it is gone. An unassigned
+// machine costs nobody and has none. It returns the record written, nil when
+// there is none.
 func meter(ctx context.Context, tx store.Store, id uuid.UUID) (*domain.UsageRecord, error) {
 	m, err := tx.Machines().Get(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("machine %s: %w", id, err)
 	}
-	if m.AccountID == uuid.Nil() || m.DestroyedAt.IsZero() {
+	end, ended := MeterEnd(m)
+	if m.AccountID == uuid.Nil() || !ended {
 		return nil, nil
 	}
 	shape, err := tx.Shapes().Get(ctx, m.ShapeID)
 	if err != nil {
 		return nil, fmt.Errorf("shape of machine %s: %w", id, err)
 	}
-	u := Meter(m, shape, m.DestroyedAt)
+	u := Meter(m, shape, end)
 	switch err := tx.Usage().Create(ctx, &u); {
 	case errors.Is(err, store.ErrConflict):
 		return nil, nil
@@ -80,7 +95,7 @@ func meter(ctx context.Context, tx store.Store, id uuid.UUID) (*domain.UsageReco
 	return &u, nil
 }
 
-// backfill meters destroyed machines that have no record, at most once per
+// backfill meters ended machines that have no record, at most once per
 // backfillEvery: those that ended before metering existed, or by a path that
 // did not meter. Each one is in its organization's audit log, so a late record
 // is never silent.

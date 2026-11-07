@@ -1369,8 +1369,9 @@ type UsageRepo interface {
 	// SumByProvider sums a provider's records of every organization, for
 	// its monthly budget.
 	SumByProvider(ctx context.Context, providerID uuid.UUID, from, to time.Time) (UsageTotal, error)
-	// Unmetered returns destroyed machines of an organization with no record,
-	// destroyed at or after since, oldest first: what metering missed.
+	// Unmetered returns ended machines (failed or destroyed) of an
+	// organization with no record, ended at or after since (destroyed_at, or
+	// updated_at of a failed one), oldest first: what metering missed.
 	Unmetered(ctx context.Context, since time.Time, limit int) ([]domain.Machine, error)
 }
 
