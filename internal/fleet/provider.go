@@ -127,6 +127,28 @@ func RequirePaidPlan(ctx context.Context, st store.Store, hosted bool, p domain.
 	return nil
 }
 
+// HostedKinds are the kinds of location that may serve a hosted instance's
+// instance-wide machines: only a microVM location keeps a machine to its
+// organization's egress list (egress: allowlist, docs/fleet.md) and never
+// opens the host's networks. On Proxmox, Hyper-V or Tart a hosted machine would
+// reach the whole internet, and AWS is an organization's own cloud.
+var HostedKinds = []domain.ProviderKind{domain.ProviderMicroVM}
+
+// ErrHostedKind refuses a location that may not serve hosted machines.
+var ErrHostedKind = errors.New("this kind of location does not serve hosted machines")
+
+// RequireHostedKind is the gate of an instance-wide location on a hosted
+// instance (config fleet.hosted): it must be of HostedKinds. Every way of
+// adding a location goes through it, and the controller checks it again
+// before it starts a machine.
+func RequireHostedKind(hosted bool, p domain.CapacityProvider) error {
+	if !hosted || p.AccountID != uuid.Nil() || slices.Contains(HostedKinds, p.Kind) {
+		return nil
+	}
+	return fmt.Errorf("%w: an instance-wide location of a hosted instance must be microvm, not %s: only a microVM location keeps a paying organization's machines to its egress allowlist, and on %s they would reach the whole internet",
+		ErrHostedKind, p.Kind, p.Kind)
+}
+
 // AbuseReport says a provider stopped a machine for abuse.
 type AbuseReport struct {
 	MachineID  uuid.UUID

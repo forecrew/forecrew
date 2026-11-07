@@ -3,6 +3,7 @@ package fleet_test
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 	"uuid"
@@ -10,6 +11,7 @@ import (
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/fleet"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/testkit"
 )
 
 // A hosted machine runs one job and goes, whatever max_jobs its shape says:
@@ -175,4 +177,71 @@ func TestFreePlanLimits(t *testing.T) {
 		t.Fatalf("%d machines past the month's minutes", got[0])
 	}
 	wantReason(t, e.reason(second), fleet.ReasonBudget, "The free plan's 30 minutes of hosted machines this month are used up")
+}
+
+func TestRequireHostedKind(t *testing.T) {
+	for _, kind := range domain.ProviderKinds() {
+		wide := domain.CapacityProvider{Kind: kind}
+		own := domain.CapacityProvider{AccountID: domain.NewID(), Kind: kind}
+		err := fleet.RequireHostedKind(true, wide)
+		if (err == nil) != (kind == domain.ProviderMicroVM) || (err != nil && !errors.Is(err, fleet.ErrHostedKind)) {
+			t.Errorf("%s: %v", kind, err)
+		}
+		if fleet.RequireHostedKind(true, own) != nil || fleet.RequireHostedKind(false, wide) != nil {
+			t.Errorf("%s: an own location, or a server that is not hosted, is gated", kind)
+		}
+	}
+}
+
+// A hosted instance starts no machine on an instance-wide location that is not
+// a microVM location, says why the job waits, and fails a machine that exists.
+func TestHostedInstanceStartsNothingOnOtherKinds(t *testing.T) {
+	for _, kind := range []domain.ProviderKind{domain.ProviderProxmox, domain.ProviderHyperV, domain.ProviderTart, domain.ProviderAWS} {
+		t.Run(string(kind), func(t *testing.T) {
+			e := newEnv(t)
+			e.c = fleet.New(fleet.Config{Store: e.st, Now: e.clock.Now, Currency: "CHF", ServerURL: "https://forecrew.example.com", Hosted: true,
+				Direct: func(p domain.CapacityProvider) fleet.Provider { return e.drivers[p.ID] }})
+			fake := testkit.NewFakeProvider()
+			p := domain.CapacityProvider{Name: "cloud", Kind: kind, Mode: domain.ProviderModeDirect, Status: domain.ProviderActive}
+			must(t, e.st.CapacityProviders().Create(e.ctx, &p))
+			e.drivers[p.ID] = fake
+			s := e.shape(p, "cloud-small", nil)
+			e.policy(e.account, domain.RoutingHosted, nil)
+			j := e.job(e.account, e.project, nil)
+			e.reconcile()
+			if n := len(fake.Requests()); n != 0 {
+				t.Fatalf("%d creates", n)
+			}
+			r := e.reason(j)
+			if r.Code != fleet.ReasonOffline || !strings.Contains(r.Sentence, "cannot run hosted machines") {
+				t.Fatalf("reason = %+v", r)
+			}
+			// A machine asked for before the instance was hosted, which the job
+			// claims, is failed, never started.
+			m := domain.Machine{AccountID: e.account, ProviderID: p.ID, ShapeID: s.ID}
+			must(t, e.st.Machines().Create(e.ctx, &m))
+			e.reconcile()
+			if got := e.machine(m.ID); got.State == domain.MachineRequested || len(fake.Requests()) != 0 || !strings.Contains(got.Error, "must be microvm") {
+				t.Fatalf("machine = %+v", got)
+			}
+		})
+	}
+}
+
+// An agent of an instance-wide location that is not a microVM location gets no
+// token on a hosted instance: its requested machine fails with why.
+func TestHostedInstanceDeliversNothingToOtherKinds(t *testing.T) {
+	e := newEnv(t)
+	e.c = fleet.New(fleet.Config{Store: e.st, Now: e.clock.Now, ServerURL: "https://forecrew.example.com", Hosted: true})
+	p, s := e.agentProvider(uuid.Nil())
+	m := e.agentMachine(p, s, domain.MachineRequested)
+	d, err := e.c.Desired(e.ctx, p, nil)
+	must(t, err)
+	must(t, e.c.Deliver(e.ctx, p, &d))
+	if len(d.Machines) != 0 {
+		t.Fatalf("delivered %+v", d.Machines)
+	}
+	if got := e.machine(m.ID); got.State != domain.MachineFailed || !strings.Contains(got.Error, "must be microvm") {
+		t.Fatalf("machine = %+v", got)
+	}
 }

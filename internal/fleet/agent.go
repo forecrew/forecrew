@@ -111,6 +111,12 @@ func (c *Controller) deliver(ctx context.Context, p domain.CapacityProvider, req
 	if m.State != domain.MachineRequested {
 		return false, nil
 	}
+	if err := RequireHostedKind(c.cfg.Hosted, p); err != nil {
+		if err := c.failMachine(ctx, m, err.Error()); err != nil && !errors.Is(err, store.ErrConflict) {
+			return false, err
+		}
+		return false, nil
+	}
 	image, err := c.image(ctx, p, req.Shape, m.AccountID)
 	if err != nil {
 		if err := c.failMachine(ctx, m, "image: "+err.Error()); err != nil && !errors.Is(err, store.ErrConflict) {

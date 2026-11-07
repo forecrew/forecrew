@@ -65,6 +65,14 @@ instance-wide location, which only an instance admin can make. So nothing become
 instance-wide by accident, and an organization with the slug `instance` cannot be
 named here. Nobody can make a location for another organization.
 
+On a hosted instance (`fleet.hosted`), an instance-wide location must be of kind
+`microvm`, which keeps hosted machines to their organization's egress list
+(`egress: allowlist`): `provider add`, `provider confirm` and the controller,
+before it starts a machine, refuse any other kind and say why. On Proxmox,
+Hyper-V or Tart a paying organization's machine would reach the whole internet,
+and AWS is an organization's own cloud, whose agent refuses a hosted machine too.
+An organization's own location of any kind is not touched by this rule.
+
 `forecrew provider revoke <name>` stops the token at once and for good, a poll
 that was waiting included. The agent logs why and stops; no service manager
 restarts it, because its exit status is 0. Its machines are not touched at the

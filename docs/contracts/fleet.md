@@ -390,6 +390,12 @@ machines egress is narrower, model APIs, GitHub and package registries, and
 `fleet_policy.egress` adds to it (T65). A desired machine's `network_allow` is
 the sum of what applies.
 
+On a hosted instance (`fleet.hosted`) an instance-wide location is of kind
+`microvm` (`fleet.HostedKinds`, `fleet.RequireHostedKind`): adding or confirming
+one of another kind is refused, and the controller starts no machine on one, the
+job waiting with the reason. An AWS location, an organization's own cloud,
+refuses a hosted machine itself.
+
 On a hosted machine that sum is `fleet.HostedEgress` (model APIs, GitHub, the
 usual package registries), the hosts of the organization's enabled model
 connections to custom endpoints, and its `egress`, with the location's own
