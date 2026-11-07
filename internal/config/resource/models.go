@@ -588,15 +588,30 @@ func (w *modelWorld) problems(e *Env) []string {
 	return out
 }
 
-// separation keeps the reviewer off the developer's vendor, as config.md's
-// policy.allow_same_vendor_review says.
+// separation keeps the reviewer off the developer's maker, as config.md's
+// policy.allow_same_vendor_review says: the maker of the model from the
+// catalog when it is known, so a router or a cloud reseller does not hide it,
+// else the vendor.
 func (w *modelWorld) separation(s modelScope) []string {
 	dev := w.state.Decide(w.server, models.Request{ProjectID: s.project, Role: developerRole})
 	rev := w.state.Decide(w.server, models.Request{ProjectID: s.project, Role: reviewerRole})
-	if dev.Waiting != "" || rev.Waiting != "" || dev.Vendor != rev.Vendor || (dev.Source == models.SourceServer && rev.Source == models.SourceServer) {
+	if dev.Waiting != "" || rev.Waiting != "" || (dev.Source == models.SourceServer && rev.Source == models.SourceServer) {
 		return nil
 	}
-	return []string{fmt.Sprintf("%s: reviewer and developer both use vendor %q; set policy.allow_same_vendor_review to allow it", s.title, dev.Vendor)}
+	cat, _ := models.DefaultCatalog() // a nil catalog compares vendors
+	d, r := makerOr(cat, dev), makerOr(cat, rev)
+	if d != r {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s: reviewer and developer both use models of %q; set policy.allow_same_vendor_review to allow it", s.title, d)}
+}
+
+// makerOr is the maker of a decision's model, or its vendor.
+func makerOr(cat *models.Catalog, d models.Decision) string {
+	if m := cat.MakerOf(d.Model); m != "" {
+		return m
+	}
+	return d.Vendor
 }
 
 // users lists the roles on a connection, with who they are for.

@@ -21,7 +21,7 @@ var (
 	ErrNotConfigured = errors.New("role has no runtime")
 	// ErrSameVendorReview means the reviewer would use the developer's
 	// vendor without policy.allow_same_vendor_review.
-	ErrSameVendorReview = errors.New("reviewer and developer use the same vendor")
+	ErrSameVendorReview = errors.New("reviewer and developer use models of the same maker")
 )
 
 var _ Resolver = (*Catalog)(nil)
@@ -54,8 +54,8 @@ func (c *Catalog) Toolbox(name string) (toolbox, known bool) {
 
 // New loads the role files from fsys (see Load) and checks them against cfg:
 // every role cfg configures must exist, and separation of duties must hold
-// (config.Config.SameVendorReview): the reviewer uses a runtime of another
-// vendor than the developer unless policy.allow_same_vendor_review is set.
+// (config.Config.SameVendorReview): the reviewer uses a model of another
+// maker than the developer unless policy.allow_same_vendor_review is set.
 func New(fsys fs.FS, cfg *config.Config) (*Catalog, error) {
 	defs, err := Load(fsys)
 	if err != nil {
@@ -66,7 +66,11 @@ func New(fsys fs.FS, cfg *config.Config) (*Catalog, error) {
 			return nil, fmt.Errorf("forecrew.yaml roles.%s: %w", name, ErrUnknownRole)
 		}
 	}
-	if v, ok := cfg.SameVendorReview(); ok {
+	cat, err := models.DefaultCatalog()
+	if err != nil {
+		return nil, err
+	}
+	if v, ok := cfg.SameVendorReview(cat.MakerOf); ok {
 		return nil, fmt.Errorf("%w %q; set policy.allow_same_vendor_review to allow it", ErrSameVendorReview, v)
 	}
 	return &Catalog{defs: defs, cfg: cfg}, nil
