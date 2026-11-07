@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 BIN := bin
 
-.PHONY: build build-enterprise test test-integration test-docker test-toolbox-browser test-kvm test-microvm images-validate lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live smoke-live-jira
+.PHONY: byoc-validate build build-enterprise test test-integration test-docker test-toolbox-browser test-kvm test-microvm images-validate lint cover web web-dev web-lint web-test web-cover e2e test-e2e smoke-live smoke-live-jira
 
 build:
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)/ ./cmd/...
@@ -46,6 +46,10 @@ test-microvm:
 	go test -c -tags kvm -o microvm.test ./internal/fleetagent/microvm/
 	sudo --preserve-env=FORECREW_TEST_KERNEL,FORECREW_TEST_DOCKER_IMAGE,PATH ./microvm.test -test.run TestMicroVMs -test.v
 	rm -f microvm.test
+
+# cfn-lint and tofu validate on the AWS setup kit, where installed (deploy/byoc/aws/validate.sh).
+byoc-validate:
+	./deploy/byoc/aws/validate.sh
 
 # packer validate on every image template (deploy/images/README.md).
 images-validate:
