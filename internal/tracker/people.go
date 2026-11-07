@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"uuid"
 
@@ -45,7 +46,7 @@ func (s *Service) Unmapped(ctx context.Context, accountID, only uuid.UUID) ([]Un
 	}
 	var out []Unmapped
 	var errs []error
-	for _, id := range slices.SortedFunc(mapKeys(byConn), func(a, b uuid.UUID) int { return slices.Compare(a[:], b[:]) }) {
+	for _, id := range slices.SortedFunc(maps.Keys(byConn), func(a, b uuid.UUID) int { return slices.Compare(a[:], b[:]) }) {
 		found, err := s.unmappedOf(ctx, accountID, id, byConn[id][:min(len(byConn[id]), maxUnmappedReads)])
 		out = append(out, found...)
 		if err != nil {
@@ -53,16 +54,6 @@ func (s *Service) Unmapped(ctx context.Context, accountID, only uuid.UUID) ([]Un
 		}
 	}
 	return out, errors.Join(errs...)
-}
-
-func mapKeys[V any](m map[uuid.UUID]V) func(func(uuid.UUID) bool) {
-	return func(yield func(uuid.UUID) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
 }
 
 func (s *Service) unmappedOf(ctx context.Context, accountID, connection uuid.UUID, links []domain.TicketLink) ([]Unmapped, error) {
