@@ -37,16 +37,27 @@ func optional(s string) *string {
 	return &s
 }
 
+func toUser(u *gh.User) User {
+	return User{ID: u.GetID(), Login: u.GetLogin(), Bot: u.GetType() == "Bot"}
+}
+
 func toIssue(i *gh.Issue) Issue {
-	out := Issue{Number: i.GetNumber(), Title: i.GetTitle(), Body: i.GetBody(), State: i.GetState(), URL: i.GetHTMLURL()}
+	out := Issue{
+		Number: i.GetNumber(), Title: i.GetTitle(), Body: i.GetBody(), State: i.GetState(), URL: i.GetHTMLURL(),
+		Type: i.GetType().GetName(), Author: toUser(i.GetUser()), UpdatedAt: i.GetUpdatedAt().UTC(), PullRequest: i.IsPullRequest(),
+	}
 	for _, l := range i.Labels {
 		out.Labels = append(out.Labels, l.GetName())
+	}
+	for _, a := range i.Assignees {
+		out.Assignees = append(out.Assignees, toUser(a))
 	}
 	return out
 }
 
 func toComment(c *gh.IssueComment) Comment {
-	return Comment{ID: c.GetID(), Author: c.GetUser().GetLogin(), Body: c.GetBody(), CreatedAt: c.GetCreatedAt().UTC()}
+	u := toUser(c.GetUser())
+	return Comment{ID: c.GetID(), Author: u.Login, AuthorID: u.ID, Bot: u.Bot, Body: c.GetBody(), CreatedAt: c.GetCreatedAt().UTC()}
 }
 
 // CreateIssue implements Tracker.
@@ -145,6 +156,62 @@ func (c *Client) ListOpenIssues(ctx context.Context, repo, label string) ([]Issu
 		if !i.IsPullRequest() {
 			out = append(out, toIssue(i))
 		}
+	}
+	return out, nil
+}
+
+// ListIssuesSince implements Tracker. GitHub lists pull requests as issues
+// too; they are left out.
+func (c *Client) ListIssuesSince(ctx context.Context, repo string, since time.Time) ([]Issue, error) {
+	g, owner, name, err := c.repoClient(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+	opts := &gh.IssueListByRepoOptions{State: "all", Since: since, Sort: "updated", Direction: "asc"}
+	items, err := all(func(o gh.ListOptions) ([]*gh.Issue, *gh.Response, error) {
+		opts.ListOptions = o
+		return g.Issues.ListByRepo(ctx, owner, name, opts)
+	})
+	if err != nil {
+		return nil, wrap(fmt.Sprintf("list issues of %s updated since %s", repo, since), err)
+	}
+	var out []Issue
+	for _, i := range items {
+		if !i.IsPullRequest() {
+			out = append(out, toIssue(i))
+		}
+	}
+	return out, nil
+}
+
+// ListIssueEvents implements Tracker. Who did an assignment is its assigner,
+// when GitHub names one.
+func (c *Client) ListIssueEvents(ctx context.Context, repo string, number int) ([]IssueEvent, error) {
+	g, owner, name, err := c.repoClient(ctx, repo)
+	if err != nil {
+		return nil, err
+	}
+	events, err := all(func(o gh.ListOptions) ([]*gh.IssueEvent, *gh.Response, error) {
+		return g.Issues.ListIssueEvents(ctx, owner, name, number, &o)
+	})
+	if err != nil {
+		return nil, wrap(fmt.Sprintf("list events of %s#%d", repo, number), err)
+	}
+	var out []IssueEvent
+	for _, e := range events {
+		item := IssueEvent{Event: e.GetEvent(), Actor: toUser(e.GetActor()), At: e.GetCreatedAt().UTC()}
+		switch item.Event {
+		case IssueAssigned:
+			item.Value = e.GetAssignee().GetLogin()
+			if e.Assigner != nil {
+				item.Actor = toUser(e.Assigner)
+			}
+		case IssueLabeled:
+			item.Value = e.GetLabel().GetName()
+		default:
+			continue
+		}
+		out = append(out, item)
 	}
 	return out, nil
 }
