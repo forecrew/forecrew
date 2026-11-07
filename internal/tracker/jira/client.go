@@ -12,12 +12,10 @@ import (
 	"maps"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/forecrew/forecrew/internal/councils"
@@ -34,13 +32,15 @@ const (
 	// again.
 	maxRetryAfter = time.Minute
 	maxAttempts   = 3
+	// maxWait bounds what a Retry-After can say, so that no value overflows.
+	maxWait = 24 * time.Hour
 )
 
 // Errors of the client.
 var (
 	// ErrRefused means the address is private or loopback on a server that
-	// does not allow those, or redirects to one.
-	ErrRefused = errors.New("jira: address refused")
+	// does not allow those, or redirects to one; it is the councils guard's.
+	ErrRefused = councils.ErrRefused
 	errLogin   = errors.New("jira refused the credentials")
 	errDenied  = errors.New("jira denied access")
 )
@@ -72,21 +72,10 @@ func (e *apiError) Unwrap() error {
 	return nil
 }
 
-// guardDial refuses a connection to an address that is not public.
-func guardDial(_, address string, _ syscall.RawConn) error {
-	ap, err := netip.ParseAddrPort(address)
-	if err != nil {
-		return fmt.Errorf("%w: address %s: %w", ErrRefused, address, err)
-	}
-	if !councils.Public(ap.Addr()) {
-		return fmt.Errorf("%w: %s is not a public address", ErrRefused, ap.Addr())
-	}
-	return nil
-}
-
 // guarded checks the host of every request, redirects included, before it
 // goes out. A request through a proxy goes to the proxied transport: the
-// proxy makes the connection, so the dial guard would see the proxy.
+// proxy makes the connection, so the dial guard would see the proxy, and only
+// this check applies; the proxy enforces egress.
 type guarded struct {
 	d       Deps
 	direct  http.RoundTripper
@@ -107,19 +96,11 @@ func (g guarded) RoundTrip(req *http.Request) (*http.Response, error) {
 
 // allow fails with ErrRefused unless every address of host is public.
 func (d Deps) allow(ctx context.Context, host string) error {
-	addrs := []netip.Addr{}
-	if a, err := netip.ParseAddr(host); err == nil {
-		addrs = append(addrs, a)
-	} else if addrs, err = d.Lookup(ctx, host); err != nil {
-		return fmt.Errorf("resolve %s: %w", host, err)
-	}
-	if len(addrs) == 0 {
-		return fmt.Errorf("resolve %s: no address", host)
-	}
-	for _, a := range addrs {
-		if !councils.Public(a) {
-			return fmt.Errorf("%w: %s is %s, a private address, and this server does not reach private addresses (trackers.private_addresses)", ErrRefused, host, a.Unmap())
+	if err := councils.AllowHost(ctx, d.Lookup, host); err != nil {
+		if errors.Is(err, ErrRefused) {
+			return fmt.Errorf("%w; this server does not reach private addresses (trackers.private_addresses)", err)
 		}
+		return err
 	}
 	return nil
 }
@@ -138,13 +119,15 @@ func (d Deps) httpClient(caBundle string) (*http.Client, error) {
 	tlsConf := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: pool}
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
 	if !d.PrivateAddresses {
-		dialer.Control = guardDial
+		dialer.Control = councils.GuardDial
 	}
 	dial := dialer.DialContext
 	if d.Dial != nil {
 		dial = d.Dial
 	}
-	direct := &http.Transport{DialContext: dial, TLSClientConfig: tlsConf, TLSHandshakeTimeout: 10 * time.Second, ForceAttemptHTTP2: true, MaxIdleConns: 4}
+	// No idle connections: an adapter is built for each operation, and its
+	// transport would keep them open after it is gone.
+	direct := &http.Transport{DialContext: dial, TLSClientConfig: tlsConf, TLSHandshakeTimeout: 10 * time.Second, ForceAttemptHTTP2: true, DisableKeepAlives: true}
 	proxied := direct.Clone()
 	proxied.Proxy = d.Proxy
 	proxied.DialContext = (&net.Dialer{Timeout: 10 * time.Second}).DialContext
@@ -152,15 +135,23 @@ func (d Deps) httpClient(caBundle string) (*http.Client, error) {
 		proxied.DialContext = d.Dial
 	}
 	return &http.Client{
-		Transport: guarded{d: d, direct: direct, proxied: proxied},
-		Timeout:   d.Timeout,
-		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
-			if len(via) >= maxRedirects {
-				return fmt.Errorf("more than %d redirects", maxRedirects)
-			}
-			return nil
-		},
+		Transport:     guarded{d: d, direct: direct, proxied: proxied},
+		Timeout:       d.Timeout,
+		CheckRedirect: checkRedirect,
 	}, nil
+}
+
+// checkRedirect follows a redirect only on the same scheme, host and port:
+// the token goes with it, and must never go in clear or to another server.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	first := via[0].URL
+	switch {
+	case len(via) >= maxRedirects:
+		return fmt.Errorf("more than %d redirects", maxRedirects)
+	case req.URL.Scheme != first.Scheme || req.URL.Host != first.Host:
+		return fmt.Errorf("%w: a redirect from %s://%s to %s://%s leaves the server", ErrRefused, first.Scheme, first.Host, req.URL.Scheme, req.URL.Host)
+	}
+	return nil
 }
 
 // client calls the REST API of one Jira.
@@ -182,7 +173,8 @@ type call struct {
 }
 
 // do runs a call and decodes the answer into out. A rate limit with a short
-// Retry-After is waited out and tried again.
+// Retry-After is waited out and the call tried again, unless it is a POST,
+// which could then happen twice: the outbox retries those.
 func (c *client) do(ctx context.Context, r call, out any) error {
 	var body []byte
 	if r.in != nil {
@@ -195,7 +187,7 @@ func (c *client) do(ctx context.Context, r call, out any) error {
 	u.RawQuery = r.query.Encode()
 	for attempt := 1; ; attempt++ {
 		wait, err := c.once(ctx, r, u, body, out)
-		if wait <= 0 || attempt >= maxAttempts {
+		if wait <= 0 || attempt >= maxAttempts || r.method == http.MethodPost {
 			return err
 		}
 		if wait > maxRetryAfter {
@@ -251,11 +243,11 @@ func (c *client) once(ctx context.Context, r call, u *url.URL, body []byte, out 
 // retryAfter reads Retry-After, in seconds or as a date. A 429 without one
 // waits a little; a 503 without one is an outage, not a limit.
 func retryAfter(h string, now time.Time, limited bool) time.Duration {
-	if s, err := strconv.Atoi(strings.TrimSpace(h)); err == nil && s >= 0 {
-		return max(time.Second, time.Duration(s)*time.Second)
+	if s, err := strconv.ParseInt(strings.TrimSpace(h), 10, 64); err == nil && s >= 0 {
+		return max(time.Second, time.Duration(min(s, int64(maxWait/time.Second)))*time.Second)
 	}
 	if t, err := http.ParseTime(h); err == nil {
-		return max(time.Second, t.Sub(now))
+		return min(maxWait, max(time.Second, t.Sub(now)))
 	}
 	if limited {
 		return 5 * time.Second

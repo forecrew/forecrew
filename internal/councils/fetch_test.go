@@ -150,3 +150,40 @@ func TestFetchTimeout(t *testing.T) {
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestGuardDial(t *testing.T) {
+	for addr, ok := range map[string]bool{"10.0.0.1:443": false, "169.254.169.254:80": false, "[::1]:443": false, "93.184.215.14:443": true, "nonsense": false} {
+		err := GuardDial("tcp", addr, nil)
+		if (err == nil) != ok || (!ok && !errors.Is(err, ErrRefused)) {
+			t.Errorf("%s: %v", addr, err)
+		}
+	}
+}
+
+func TestAllowHost(t *testing.T) {
+	lookup := func(_ context.Context, host string) ([]netip.Addr, error) {
+		switch host {
+		case "public.test":
+			return []netip.Addr{netip.MustParseAddr("93.184.215.14")}, nil
+		case "mixed.test":
+			return []netip.Addr{netip.MustParseAddr("93.184.215.14"), netip.MustParseAddr("10.0.0.5")}, nil
+		case "empty.test":
+			return nil, nil
+		}
+		return nil, errors.New("no such host")
+	}
+	ctx := t.Context()
+	if err := AllowHost(ctx, lookup, "public.test"); err != nil {
+		t.Errorf("public: %v", err)
+	}
+	for _, host := range []string{"mixed.test", "127.0.0.1", "::1"} {
+		if err := AllowHost(ctx, lookup, host); !errors.Is(err, ErrRefused) {
+			t.Errorf("%s: %v", host, err)
+		}
+	}
+	for _, host := range []string{"empty.test", "missing.test"} {
+		if err := AllowHost(ctx, lookup, host); err == nil || errors.Is(err, ErrRefused) {
+			t.Errorf("%s: %v", host, err)
+		}
+	}
+}
