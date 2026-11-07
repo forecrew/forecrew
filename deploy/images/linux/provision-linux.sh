@@ -51,7 +51,8 @@ for pkg in @anthropic-ai/claude-code @openai/codex opencode-ai; do
 		find /opt/forecrew-cli/node_modules -maxdepth 1 -name 'opencode*' >&2
 		ldd --version 2>&1 | head -1 >&2
 		grep -o -m1 avx2 /proc/cpuinfo >&2 || echo "no avx2" >&2
-		head -c 4000 "/opt/forecrew-cli/node_modules/$pkg/postinstall.mjs" >&2 || true
+		sed -n '/^function installPackage/,$p' "/opt/forecrew-cli/node_modules/$pkg/postinstall.mjs" >&2 || true
+		find /opt/forecrew-cli/node_modules/opencode-linux-x64-baseline /opt/forecrew-cli/node_modules/opencode-ai/bin -maxdepth 2 >&2 || true
 		exit 1
 	fi
 done
