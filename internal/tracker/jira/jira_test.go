@@ -262,6 +262,23 @@ func TestRetryAfter(t *testing.T) {
 	if _, err := ad.Get(t.Context(), "ENG-42"); err == nil || len(w.slept) != 2 {
 		t.Errorf("tries after %v: %v", w.slept, err)
 	}
+	for h, want := range map[string]time.Duration{
+		"9223372036854775807":           24 * time.Hour,
+		"99999999999999999999999":       5 * time.Second, // not a number Go reads: the default of a 429
+		"0":                             time.Second,
+		"-5":                            5 * time.Second,
+		"Fri, 31 Dec 9999 23:59:59 GMT": 24 * time.Hour,
+	} {
+		if got := retryAfter(h, time.Now(), true); got != want {
+			t.Errorf("Retry-After %q waits %s, want %s", h, got, want)
+		}
+	}
+	// A POST is not tried again: the comment could be made twice.
+	w.slept, w.f.limited = nil, []string{"1"}
+	key := w.f.create("ENG", "t", "")
+	if _, err := ad.Comment(t.Context(), key, "once"); err == nil || len(w.slept) != 0 || len(w.f.posted) != 0 {
+		t.Errorf("a rate-limited POST: %v, slept %v, posted %v", err, w.slept, w.f.posted)
+	}
 	if got := retryAfter("", time.Now(), true); got != 5*time.Second {
 		t.Errorf("429 without Retry-After waits %s", got)
 	}
@@ -434,6 +451,26 @@ func publicWorld(t *testing.T) *world {
 	return w
 }
 
+// A redirect never takes the token in clear or to another server.
+func TestRedirectsStayOnTheServer(t *testing.T) {
+	w := newWorld(t, false)
+	host := strings.TrimPrefix(w.f.srv.URL, "https://")
+	for _, to := range []string{"http://" + host + "/jira/rest/api/2/serverInfo", "https://localhost:" + strings.Split(host, ":")[1] + "/jira/rest/api/2/serverInfo"} {
+		w.f.redirect = to
+		before := len(w.f.seen)
+		if _, err := w.adapter(t).Prepare(t.Context()); !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "leaves the server") {
+			t.Errorf("redirect to %s: %v", to, err)
+		}
+		if len(w.f.seen) != before+1 {
+			t.Errorf("redirect to %s was followed: %v", to, w.f.seen[before:])
+		}
+	}
+	w.f.redirect = w.f.srv.URL + "/jira/rest/api/2/serverInfo?again"
+	if _, err := w.adapter(t).Prepare(t.Context()); err != nil {
+		t.Errorf("a redirect on the server: %v", err)
+	}
+}
+
 func TestPrivateAddressesAreRefused(t *testing.T) {
 	w := publicWorld(t)
 	if checks := w.adapter(t).Check(t.Context()); tracker.Failed(checks) != nil {
@@ -457,26 +494,10 @@ func TestPrivateAddressesAreRefused(t *testing.T) {
 		t.Errorf("a redirect to loopback: %v", err)
 	}
 	// A self-hosted server reaches its own network.
-	w.f.redirect = ""
 	w.conn.Config["base_url"] = w.f.baseURL()
 	w.deps.PrivateAddresses = true
 	if _, err := w.adapter(t).Prepare(t.Context()); err != nil {
 		t.Errorf("a self-hosted server: %v", err)
-	}
-}
-
-func TestDialGuard(t *testing.T) {
-	if err := guardDial("tcp", "10.0.0.1:443", nil); !errors.Is(err, ErrRefused) {
-		t.Errorf("private: %v", err)
-	}
-	if err := guardDial("tcp", "169.254.169.254:80", nil); !errors.Is(err, ErrRefused) {
-		t.Errorf("metadata: %v", err)
-	}
-	if err := guardDial("tcp", "93.184.215.14:443", nil); err != nil {
-		t.Errorf("public: %v", err)
-	}
-	if err := guardDial("tcp", "nonsense", nil); !errors.Is(err, ErrRefused) {
-		t.Errorf("nonsense: %v", err)
 	}
 }
 

@@ -151,8 +151,9 @@ func (f *fakeJira) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	switch path {
 	case "rest/api/2/serverInfo":
-		if f.redirect != "" {
-			http.Redirect(w, r, f.redirect, http.StatusFound)
+		if to := f.redirect; to != "" {
+			f.redirect = ""
+			http.Redirect(w, r, to, http.StatusFound)
 			return
 		}
 		f.write(w, http.StatusOK, fixture(f.t, f.dir(), "serverInfo.json"))
