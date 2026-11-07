@@ -1302,6 +1302,9 @@ type TrackerConnectionRepo interface {
 	// ListByKind returns the connections of a kind in every account, for a
 	// webhook all of them share.
 	ListByKind(ctx context.Context, kind string) ([]domain.TrackerConnection, error)
+	// Update changes a connection's config and triggers; its name and kind
+	// stay.
+	Update(ctx context.Context, c *domain.TrackerConnection) error
 	// Delete removes a connection with its routes, identities, cursor and
 	// outbox, and answers ErrConflict while it has a live ticket. Ended ticket
 	// links stay without their connection: they say that a goal's text came
@@ -1309,13 +1312,18 @@ type TrackerConnectionRepo interface {
 	Delete(ctx context.Context, accountID, id uuid.UUID) error
 }
 
-// TrackerRouteRepo stores routes.
+// TrackerRouteRepo stores routes. (connection, position) is unique.
 type TrackerRouteRepo interface {
 	Create(ctx context.Context, r *domain.TrackerRoute) error
 	Get(ctx context.Context, accountID, id uuid.UUID) (domain.TrackerRoute, error)
 	// List returns the routes of a connection in the order they are tried,
 	// or of every connection for the zero ID.
 	List(ctx context.Context, accountID, connectionID uuid.UUID) ([]domain.TrackerRoute, error)
+	// Update changes what a route matches and where it sends tickets; its
+	// connection and position stay.
+	Update(ctx context.Context, r *domain.TrackerRoute) error
+	// SetWarning sets or, with "", clears the warning of a route.
+	SetWarning(ctx context.Context, accountID, id uuid.UUID, warning string) error
 	Delete(ctx context.Context, accountID, id uuid.UUID) error
 }
 

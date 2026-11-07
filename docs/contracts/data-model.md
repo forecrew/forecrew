@@ -1,6 +1,6 @@
 # Data model
 
-Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access, 00007 the fleet, 00008 invitation GitHub ID, 00009 knowledge note hits and promotion). Each table maps to a
+Postgres 18 schema created by T02 (`internal/store`) and extended by later migrations (00002 goal platforms, 00003 testing system, 00004 team, 00005 identity and access, 00007 the fleet, 00008 invitation GitHub ID, 00009 knowledge note hits and promotion, 00012 tracker route warnings and positions). Each table maps to a
 type in `internal/domain` and a repository in `store.Store`; JSON names in
 `domain` equal the column names. The DDL below is the contract; T02 may add
 indexes but not change columns, types or constraints without a contract
@@ -1312,10 +1312,12 @@ CREATE TABLE tracker_routes (
   goal_kind     text CHECK (goal_kind IN ('feature','bug')),   -- NULL goes by the ticket's type
   playbook      text,                                          -- NULL is the project's goal playbook
   states        jsonb NOT NULL DEFAULT '{}',   -- logical state -> the tracker's state
+  warning       text NOT NULL DEFAULT '',      -- migration 00012: why the tracker did not take the last state
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (account_id, project_id) REFERENCES projects (account_id, id)
+  FOREIGN KEY (account_id, project_id) REFERENCES projects (account_id, id),
+  CONSTRAINT tracker_routes_position UNIQUE (connection_id, position)   -- migration 00012
 );
 CREATE INDEX tracker_routes_connection ON tracker_routes (account_id, connection_id, position);
 

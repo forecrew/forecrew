@@ -129,9 +129,13 @@ type TrackerRoute struct {
 	Playbook string `json:"playbook,omitempty"`
 	// States maps logical states to the tracker's. A state left out is not
 	// written to the ticket.
-	States    map[TicketState]string `json:"states"`
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
+	States map[TicketState]string `json:"states"`
+	// Warning says why the tracker did not take the last state Forecrew
+	// wrote: no transition reaches it, or one needs fields Forecrew does not
+	// have. A state that goes through clears it.
+	Warning   string    `json:"warning,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Validate checks the route's goal kind and state mapping.

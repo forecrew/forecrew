@@ -64,3 +64,32 @@ func TestTrackerMigrationRollsBack(t *testing.T) {
 	_, err = p.Up(ctx)
 	must(t, err)
 }
+
+// 00012 gives the routes of a connection one position each, and rolls back.
+func TestRoutePositionsMigration(t *testing.T) {
+	pool := newPoolAt(t, 11)
+	ctx := t.Context()
+	p := provider(t, pool)
+	st := New(pool)
+	var account uuid.UUID
+	must(t, pool.QueryRow(ctx, `SELECT id FROM accounts`).Scan(&account))
+	project := domain.Project{AccountID: account, Name: "app", Repo: "acme/app", DefaultBranch: "main", Status: domain.ProjectOnboarded}
+	must(t, st.Projects().Create(ctx, &project))
+	conn := domain.TrackerConnection{AccountID: account, Name: "board", Kind: "fake", Triggers: domain.TrackerTriggers{Label: "x"}}
+	must(t, st.TrackerConnections().Create(ctx, &conn))
+	for range 2 {
+		_, err := pool.Exec(ctx, `INSERT INTO tracker_routes (account_id, connection_id, position, project_id) VALUES ($1, $2, 5, $3)`, account, conn.ID, project.ID)
+		must(t, err)
+	}
+	_, err := p.UpTo(ctx, 12)
+	must(t, err)
+	routes, err := st.TrackerRoutes().List(ctx, account, conn.ID)
+	must(t, err)
+	if len(routes) != 2 || routes[0].Position != 1 || routes[1].Position != 2 || routes[0].Warning != "" {
+		t.Errorf("routes = %+v", routes)
+	}
+	_, err = p.DownTo(ctx, 11)
+	must(t, err)
+	_, err = p.Up(ctx)
+	must(t, err)
+}

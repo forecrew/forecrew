@@ -108,6 +108,28 @@ func (r trackerConnectionRepo) ListByKind(ctx context.Context, kind string) ([]d
 	return many(ctx, r.db, scanTrackerConnection, `SELECT `+trackerConnectionCols+` FROM tracker_connections WHERE kind = $1 ORDER BY created_at, id`, kind)
 }
 
+func (r trackerConnectionRepo) Update(ctx context.Context, c *domain.TrackerConnection) error {
+	if err := c.Validate(); err != nil {
+		return err
+	}
+	if c.Config == nil {
+		c.Config = map[string]any{}
+	}
+	config, err := json.Marshal(c.Config)
+	if err != nil {
+		return fmt.Errorf("encode tracker config: %w", err)
+	}
+	triggers, err := json.Marshal(c.Triggers)
+	if err != nil {
+		return fmt.Errorf("encode tracker triggers: %w", err)
+	}
+	err = r.db.QueryRow(ctx, `UPDATE tracker_connections SET config = $3, triggers = $4, updated_at = now()
+		WHERE account_id = $1 AND id = $2 RETURNING name, kind, created_at, updated_at`,
+		c.AccountID, c.ID, config, triggers).Scan(&c.Name, &c.Kind, &c.CreatedAt, &c.UpdatedAt)
+	utc(&c.CreatedAt, &c.UpdatedAt)
+	return mapErr(err)
+}
+
 func (r trackerConnectionRepo) Delete(ctx context.Context, accountID, id uuid.UUID) error {
 	return inTx(ctx, r.db, func(tx dbtx) error {
 		// The row lock waits for a link being made and keeps new ones out.
@@ -128,11 +150,11 @@ func (r trackerConnectionRepo) Delete(ctx context.Context, accountID, id uuid.UU
 
 type trackerRouteRepo struct{ db dbtx }
 
-var trackerRouteCols = `id, account_id, connection_id, position, match, project_id, ` + ctext("goal_kind") + `, ` + ctext("playbook") + `, states, created_at, updated_at`
+var trackerRouteCols = `id, account_id, connection_id, position, match, project_id, ` + ctext("goal_kind") + `, ` + ctext("playbook") + `, states, warning, created_at, updated_at`
 
 func scanTrackerRoute(row pgx.Row) (t domain.TrackerRoute, err error) {
 	var match, states []byte
-	if err = row.Scan(&t.ID, &t.AccountID, &t.ConnectionID, &t.Position, &match, &t.ProjectID, &t.GoalKind, &t.Playbook, &states, &t.CreatedAt, &t.UpdatedAt); err != nil {
+	if err = row.Scan(&t.ID, &t.AccountID, &t.ConnectionID, &t.Position, &match, &t.ProjectID, &t.GoalKind, &t.Playbook, &states, &t.Warning, &t.CreatedAt, &t.UpdatedAt); err != nil {
 		return t, err
 	}
 	utc(&t.CreatedAt, &t.UpdatedAt)
@@ -176,6 +198,32 @@ func (r trackerRouteRepo) Get(ctx context.Context, accountID, id uuid.UUID) (dom
 func (r trackerRouteRepo) List(ctx context.Context, accountID, connectionID uuid.UUID) ([]domain.TrackerRoute, error) {
 	return many(ctx, r.db, scanTrackerRoute, `SELECT `+trackerRouteCols+` FROM tracker_routes
 		WHERE account_id = $1 AND ($2::uuid IS NULL OR connection_id = $2) ORDER BY connection_id, position, created_at, id`, accountID, opt(connectionID))
+}
+
+func (r trackerRouteRepo) Update(ctx context.Context, t *domain.TrackerRoute) error {
+	if err := t.Validate(); err != nil {
+		return err
+	}
+	if t.States == nil {
+		t.States = map[domain.TicketState]string{}
+	}
+	match, err := json.Marshal(t.Match)
+	if err != nil {
+		return fmt.Errorf("encode route match: %w", err)
+	}
+	states, err := json.Marshal(t.States)
+	if err != nil {
+		return fmt.Errorf("encode route states: %w", err)
+	}
+	err = r.db.QueryRow(ctx, `UPDATE tracker_routes SET match = $3, project_id = $4, goal_kind = $5, playbook = $6, states = $7, updated_at = now()
+		WHERE account_id = $1 AND id = $2 RETURNING connection_id, position, warning, created_at, updated_at`,
+		t.AccountID, t.ID, match, t.ProjectID, opt(string(t.GoalKind)), opt(t.Playbook), states).Scan(&t.ConnectionID, &t.Position, &t.Warning, &t.CreatedAt, &t.UpdatedAt)
+	utc(&t.CreatedAt, &t.UpdatedAt)
+	return mapErr(err)
+}
+
+func (r trackerRouteRepo) SetWarning(ctx context.Context, accountID, id uuid.UUID, warning string) error {
+	return exactlyOne(r.db.Exec(ctx, `UPDATE tracker_routes SET warning = $3, updated_at = now() WHERE account_id = $1 AND id = $2`, accountID, id, warning))
 }
 
 func (r trackerRouteRepo) Delete(ctx context.Context, accountID, id uuid.UUID) error {
