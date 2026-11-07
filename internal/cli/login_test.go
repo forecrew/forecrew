@@ -281,7 +281,9 @@ func TestLoginWithAPastedCode(t *testing.T) {
 	done := make(chan int, 1)
 	pr, pw := newPipe()
 	l.env.Stdin = pr
-	go func() { done <- RunWith(t.Context(), []string{"login", "--server", l.server.URL, "--no-browser"}, &out, &errOut, "test", l.env) }()
+	go func() {
+		done <- RunWith(t.Context(), []string{"login", "--server", l.server.URL, "--no-browser"}, &out, &errOut, "test", l.env)
+	}()
 	for i := 0; i < 500 && !strings.Contains(out.String(), "code_challenge"); i++ {
 		sleepBriefly()
 	}

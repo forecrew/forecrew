@@ -77,7 +77,7 @@ func pkce(t *testing.T) (verifier, challenge string) {
 func TestCLILogin(t *testing.T) {
 	e := newSessionEnv(t)
 	var names []string
-	e.svc.CreateTokenFunc = func(_ context.Context, by domain.Actor, in mcp.CreateTokenInput) (mcp.CreateTokenOutput, error) {
+	e.svc.CreateTokenFunc = func(_ context.Context, _ domain.Actor, in mcp.CreateTokenInput) (mcp.CreateTokenOutput, error) {
 		names = append(names, in.Name+":"+string(in.Scopes[0]))
 		if in.Scopes[0] == domain.ScopeAdmin {
 			return mcp.CreateTokenOutput{}, authz.ErrDenied

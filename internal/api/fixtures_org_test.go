@@ -71,19 +71,19 @@ func orgFixtureCases() []fixtureCase {
 		{ID: fid(352), AccountID: fid(1), Email: "gone@acme.test", ExpiresAt: at(60 * 24), RevokedAt: at(-10), InvitedBy: "user:" + fid(300).String(), CreatedAt: at(-90)},
 	}
 	connections := []mcp.ConnectionInfo{
-		{Connection: domain.Connection{ID: fid(90), Kind: domain.ConnectionGitHub, Name: "github", Enabled: true, CreatedAt: at(-9000), UpdatedAt: at(-9000)}, Instance: true,
+		{ID: fid(90), Kind: domain.ConnectionGitHub, Name: "github", Enabled: true, CreatedAt: at(-9000), UpdatedAt: at(-9000), Instance: true,
 			RedirectURL: "https://forecrew.example.com/auth/" + fid(90).String() + "/callback"},
-		{Connection: domain.Connection{ID: fid(91), AccountID: fid(1), Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://acme.okta.com", ClientID: "0oa1", ClientSecretRef: "env:FORECREW_CONN_OKTA", Enabled: true, CreatedAt: at(-900), UpdatedAt: at(-800)},
+		{ID: fid(91), AccountID: fid(1), Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://acme.okta.com", ClientID: "0oa1", ClientSecretRef: "env:FORECREW_CONN_OKTA", Enabled: true, CreatedAt: at(-900), UpdatedAt: at(-800),
 			Tested: true, RedirectURL: "https://forecrew.example.com/auth/" + fid(91).String() + "/callback", TestURL: "https://forecrew.example.com/auth/" + fid(91).String() + "/login?test=1"},
-		{Connection: domain.Connection{ID: fid(92), AccountID: fid(1), Kind: domain.ConnectionGoogle, Name: "google", ClientID: "123.apps.googleusercontent.com", ClientSecretRef: "secret:conn-google", CreatedAt: at(-90), UpdatedAt: at(-90)},
+		{ID: fid(92), AccountID: fid(1), Kind: domain.ConnectionGoogle, Name: "google", ClientID: "123.apps.googleusercontent.com", ClientSecretRef: "secret:conn-google", CreatedAt: at(-90), UpdatedAt: at(-90),
 			RedirectURL: "https://forecrew.example.com/auth/" + fid(92).String() + "/callback", TestURL: "https://forecrew.example.com/auth/" + fid(92).String() + "/login?test=1"},
 	}
 	audit := []mcp.AuditInfo{
-		{AuditEntry: domain.AuditEntry{ID: fid(360), AccountID: fid(1), Actor: "user:" + fid(300).String(), Credential: "session:" + fid(310).String(), Action: "member.suspended", SubjectType: "user", SubjectID: fid(302),
-			Data: []byte(`{"name":"Luca Bianchi"}`), CreatedAt: at(-5)}, ActorName: "Gianmaria"},
-		{AuditEntry: domain.AuditEntry{ID: fid(361), AccountID: fid(1), Actor: "service_account:" + fid(340).String(), Credential: "token:" + fid(90).String(), Action: "team.created", SubjectType: "team", SubjectID: fid(330),
-			Data: []byte(`{"name":"<img src=x onerror=alert(1)>","slug":"mobile"}`), CreatedAt: at(-120)}, ActorName: "ci"},
-		{AuditEntry: domain.AuditEntry{ID: fid(362), AccountID: fid(1), Actor: "github:octo", Action: "gate.resolved", SubjectType: "gate", SubjectID: fid(30), ProjectID: fid(10), CreatedAt: at(-1500)}},
+		{ID: fid(360), AccountID: fid(1), Actor: "user:" + fid(300).String(), Credential: "session:" + fid(310).String(), Action: "member.suspended", SubjectType: "user", SubjectID: fid(302),
+			Data: []byte(`{"name":"Luca Bianchi"}`), CreatedAt: at(-5), ActorName: "Gianmaria"},
+		{ID: fid(361), AccountID: fid(1), Actor: "service_account:" + fid(340).String(), Credential: "token:" + fid(90).String(), Action: "team.created", SubjectType: "team", SubjectID: fid(330),
+			Data: []byte(`{"name":"<img src=x onerror=alert(1)>","slug":"mobile"}`), CreatedAt: at(-120), ActorName: "ci"},
+		{ID: fid(362), AccountID: fid(1), Actor: "github:octo", Action: "gate.resolved", SubjectType: "gate", SubjectID: fid(30), ProjectID: fid(10), CreatedAt: at(-1500)},
 	}
 	tokensWithScopes := func(e *env) {
 		e.svc.ListTokensFunc = func(context.Context, domain.Actor, any) ([]mcp.TokenInfo, error) {
@@ -108,7 +108,7 @@ func orgFixtureCases() []fixtureCase {
 			e.svc.ListMembersFunc = func(context.Context, domain.Actor, any) ([]mcp.MemberInfo, error) { return members, nil }
 		}},
 		{"member-suspend", "POST", "/api/v1/members/" + fid(301).String() + "/suspend", "", 200, "bearer", func(e *env) {
-			e.svc.SetMemberSuspendedFunc = func(_ context.Context, _ domain.Actor, in mcp.SetMemberInput) (mcp.MemberInfo, error) {
+			e.svc.SetMemberSuspendedFunc = func(_ context.Context, _ domain.Actor, _ mcp.SetMemberInput) (mcp.MemberInfo, error) {
 				m := members[1]
 				m.Status = domain.MembershipSuspended
 				return m, nil
@@ -146,21 +146,21 @@ func orgFixtureCases() []fixtureCase {
 		{"role-bindings", "GET", "/api/v1/role-bindings", "", 200, "bearer", func(e *env) {
 			e.svc.ListRoleBindingsFunc = func(context.Context, domain.Actor, mcp.ListRoleBindingsInput) ([]mcp.RoleBindingInfo, error) {
 				return []mcp.RoleBindingInfo{
-					{RoleBinding: domain.RoleBinding{ID: fid(370), AccountID: fid(1), SubjectKind: domain.SubjectUser, SubjectID: fid(300), CreatedBy: "user:x", CreatedAt: at(-5000)}, Role: "owner", RoleScope: domain.RoleScopeOrganization, SubjectName: "Gianmaria"},
-					{RoleBinding: domain.RoleBinding{ID: fid(371), AccountID: fid(1), SubjectKind: domain.SubjectUser, SubjectID: fid(301), ProjectID: fid(10), CreatedBy: "user:x", CreatedAt: at(-4000)}, Role: "maintainer", RoleScope: domain.RoleScopeProject, Project: "app", SubjectName: "Marta Rossi"},
-					{RoleBinding: domain.RoleBinding{ID: fid(372), AccountID: fid(1), SubjectKind: domain.SubjectTeam, SubjectID: fid(330), ProjectID: fid(10), CreatedBy: "user:x", CreatedAt: at(-3000)}, Role: "contributor", RoleScope: domain.RoleScopeProject, Project: "app", SubjectName: "Mobile"},
-					{RoleBinding: domain.RoleBinding{ID: fid(373), AccountID: fid(1), SubjectKind: domain.SubjectTeam, SubjectID: fid(330), CreatedBy: "user:x", CreatedAt: at(-3000)}, Role: "member", RoleScope: domain.RoleScopeOrganization, SubjectName: "Mobile"},
+					{ID: fid(370), AccountID: fid(1), SubjectKind: domain.SubjectUser, SubjectID: fid(300), CreatedBy: "user:x", CreatedAt: at(-5000), Role: "owner", RoleScope: domain.RoleScopeOrganization, SubjectName: "Gianmaria"},
+					{ID: fid(371), AccountID: fid(1), SubjectKind: domain.SubjectUser, SubjectID: fid(301), ProjectID: fid(10), CreatedBy: "user:x", CreatedAt: at(-4000), Role: "maintainer", RoleScope: domain.RoleScopeProject, Project: "app", SubjectName: "Marta Rossi"},
+					{ID: fid(372), AccountID: fid(1), SubjectKind: domain.SubjectTeam, SubjectID: fid(330), ProjectID: fid(10), CreatedBy: "user:x", CreatedAt: at(-3000), Role: "contributor", RoleScope: domain.RoleScopeProject, Project: "app", SubjectName: "Mobile"},
+					{ID: fid(373), AccountID: fid(1), SubjectKind: domain.SubjectTeam, SubjectID: fid(330), CreatedBy: "user:x", CreatedAt: at(-3000), Role: "member", RoleScope: domain.RoleScopeOrganization, SubjectName: "Mobile"},
 				}, nil
 			}
 		}},
 		{"role-binding-create", "POST", "/api/v1/role-bindings", `{"subject_kind":"user","subject":"` + fid(301).String() + `","role":"viewer","project":"app"}`, 201, "bearer", func(e *env) {
 			e.svc.CreateRoleBindingFunc = func(context.Context, domain.Actor, mcp.CreateRoleBindingInput) (mcp.RoleBindingInfo, error) {
-				return mcp.RoleBindingInfo{RoleBinding: domain.RoleBinding{ID: fid(374), AccountID: fid(1), SubjectKind: domain.SubjectUser, SubjectID: fid(301), ProjectID: fid(10), CreatedAt: at(0)}, Role: "viewer", RoleScope: domain.RoleScopeProject, Project: "app"}, nil
+				return mcp.RoleBindingInfo{ID: fid(374), AccountID: fid(1), SubjectKind: domain.SubjectUser, SubjectID: fid(301), ProjectID: fid(10), CreatedAt: at(0), Role: "viewer", RoleScope: domain.RoleScopeProject, Project: "app"}, nil
 			}
 		}},
 		{"role-binding-delete", "DELETE", "/api/v1/role-bindings/" + fid(371).String(), "", 200, "bearer", func(e *env) {
 			e.svc.DeleteRoleBindingFunc = func(context.Context, domain.Actor, mcp.RoleBindingRefInput) (mcp.RoleBindingInfo, error) {
-				return mcp.RoleBindingInfo{RoleBinding: domain.RoleBinding{ID: fid(371), AccountID: fid(1)}, Role: "maintainer"}, nil
+				return mcp.RoleBindingInfo{ID: fid(371), AccountID: fid(1), Role: "maintainer"}, nil
 			}
 		}},
 		{"service-accounts", "GET", "/api/v1/service-accounts", "", 200, "bearer", func(e *env) {

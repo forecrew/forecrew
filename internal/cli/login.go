@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -177,36 +178,33 @@ func (r *remote) login(cmd *cobra.Command, f loginFlags) error {
 	cmd.Println(authURL)
 	cmd.Println("Waiting. On a machine without a browser, paste the code the page shows and press Enter.")
 
-	var code string
-	select {
-	case code = <-got:
-	case code = <-pasted(r.env.Stdin):
-	case <-time.After(loginTimeout):
-		return errors.New("timed out waiting for the browser: run forecrew login again")
-	case <-ctx.Done():
-		return ctx.Err()
+	code, err := waitForCode(ctx, got, pasted(r.env.Stdin))
+	if err != nil {
+		return err
 	}
 	out, err := r.exchange(ctx, server, api.CLITokenInput{Code: code, CodeVerifier: verifier, Name: "cli-" + host})
 	if err != nil {
 		return err
 	}
-	st, err := creds.load()
-	if err != nil {
-		return err
-	}
-	if st.Server != server { // another server: the old logins are no use here
-		for org := range st.Orgs {
-			creds.drop(&st, org)
-		}
-		st = stored{Server: server, Orgs: map[string]storedOrg{}}
-	}
-	creds.put(&st, out.Account.Slug, storedOrg{TokenID: out.Token.ID.String(), TokenName: out.Token.Name, User: out.User.Name}, out.Secret)
-	st.Current = out.Account.Slug
-	if err := creds.save(st); err != nil {
+	if err := creds.keep(server, out); err != nil {
 		return fmt.Errorf("keep the login: %w", err)
 	}
 	cmd.Printf("Logged in to %s as %s on %s, with the token %s.\n", server, safeText(out.User.Name), safeText(out.Account.Name), out.Token.Name)
 	return nil
+}
+
+// waitForCode waits for the code from the browser, pasted, or the timeout.
+func waitForCode(ctx context.Context, got, paste <-chan string) (string, error) {
+	select {
+	case code := <-got:
+		return code, nil
+	case code := <-paste:
+		return code, nil
+	case <-time.After(loginTimeout):
+		return "", errors.New("timed out waiting for the browser: run forecrew login again")
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }
 
 func cmpOr(a, b string) string {
@@ -253,51 +251,7 @@ func logoutCommand(r *remote) *cobra.Command {
 		Use:   "logout",
 		Short: "Revoke the token of your login to the current organization and forget it",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			creds, ok := newCredStore(r.env)
-			if !ok {
-				return errors.New("there is no config directory: nothing to log out of")
-			}
-			st, err := creds.load()
-			if err != nil {
-				return err
-			}
-			orgs := []string{st.Current}
-			if all {
-				orgs = nil
-				for org := range st.Orgs {
-					orgs = append(orgs, org)
-				}
-				slices.Sort(orgs)
-			}
-			if len(orgs) == 0 || orgs[0] == "" {
-				return errors.New("you are not logged in")
-			}
-			var failed []string
-			for _, org := range orgs {
-				if err := r.revokeLogin(cmd, creds, st, org); err != nil {
-					failed = append(failed, fmt.Sprintf("%s: %v", org, err))
-				}
-				creds.drop(&st, org)
-				cmd.Printf("Logged out of %s.\n", org)
-			}
-			if st.Current == "" && len(st.Orgs) > 0 {
-				st.Current = slices.Sorted(func(yield func(string) bool) {
-					for o := range st.Orgs {
-						if !yield(o) {
-							return
-						}
-					}
-				})[0]
-			}
-			if err := creds.save(st); err != nil {
-				return err
-			}
-			if len(failed) > 0 {
-				return fmt.Errorf("forgotten here, but not revoked on the server (revoke it with forecrew tokens revoke): %s", strings.Join(failed, "; "))
-			}
-			return nil
-		},
+		RunE:  func(cmd *cobra.Command, _ []string) error { return r.logout(cmd, all) },
 	}
 	cmd.Flags().BoolVar(&all, "all", false, "log out of every organization")
 	return cmd
@@ -400,4 +354,59 @@ func orgSwitchCommand(r *remote) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&f.noBrowser, "no-browser", false, "print the address instead of opening a browser")
 	return cmd
+}
+
+// logout revokes the tokens of the current organization, or of all, and
+// forgets them.
+func (r *remote) logout(cmd *cobra.Command, all bool) error {
+	creds, ok := newCredStore(r.env)
+	if !ok {
+		return errors.New("there is no config directory: nothing to log out of")
+	}
+	st, err := creds.load()
+	if err != nil {
+		return err
+	}
+	orgs := []string{st.Current}
+	if all {
+		orgs = slices.Sorted(maps.Keys(st.Orgs))
+	}
+	if len(orgs) == 0 || orgs[0] == "" {
+		return errors.New("you are not logged in")
+	}
+	var failed []string
+	for _, org := range orgs {
+		if err := r.revokeLogin(cmd, creds, st, org); err != nil {
+			failed = append(failed, fmt.Sprintf("%s: %v", org, err))
+		}
+		creds.drop(&st, org)
+		cmd.Printf("Logged out of %s.\n", org)
+	}
+	if st.Current == "" && len(st.Orgs) > 0 {
+		st.Current = slices.Sorted(maps.Keys(st.Orgs))[0]
+	}
+	if err := creds.save(st); err != nil {
+		return err
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("forgotten here, but not revoked on the server (revoke it with forecrew tokens revoke): %s", strings.Join(failed, "; "))
+	}
+	return nil
+}
+
+// keep stores the token of a login and makes its organization the current one.
+func (c *credStore) keep(server string, out api.CLIToken) error {
+	st, err := c.load()
+	if err != nil {
+		return err
+	}
+	if st.Server != server { // another server: the old logins are no use here
+		for org := range st.Orgs {
+			c.drop(&st, org)
+		}
+		st = stored{Server: server, Orgs: map[string]storedOrg{}}
+	}
+	c.put(&st, out.Account.Slug, storedOrg{TokenID: out.Token.ID.String(), TokenName: out.Token.Name, User: out.User.Name}, out.Secret)
+	st.Current = out.Account.Slug
+	return c.save(st)
 }

@@ -377,7 +377,7 @@ func registerOrgTools(r registrar, svc ToolService) {
 			return list("connections", c, "%d connections.", len(c)), err
 		})
 	register(r, ToolCreateConnection, "Add a sign-in connection of the organization: GitHub, Google, Microsoft or generic OpenID Connect. It starts turned off. The client secret is never sent here: client_secret_ref names where forecrewd reads it. Test it with a sign-in in the browser (test_url), then turn it on.",
-		fieldDocs{"kind": "github, google, microsoft or oidc.", "name": "Lowercase name, unique in the organization.", "issuer": "https URL of the OpenID Connect issuer; empty for github and google.",
+		fieldDocs{"kind": "github, google, microsoft or oidc.", "name": "Lowercase name, unique in the organization.", "issuer": "https URL of the OpenID Connect issuer; empty for github and google.", //nolint:gosec // field descriptions, not credentials
 			"client_id": "The OAuth client ID registered at the provider.", "client_secret_ref": "Where forecrewd reads the client secret: env:FORECREW_CONN_NAME or secret:conn-name. Never the secret itself."},
 		func(ctx context.Context, by domain.Actor, in CreateConnectionInput) (toolResult, error) {
 			c, err := svc.CreateConnection(ctx, by, in)
