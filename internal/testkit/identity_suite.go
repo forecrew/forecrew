@@ -40,6 +40,12 @@ type identitySuite struct {
 
 // oauth checks clients, the single use of grants, families and the sweep.
 func (s *identitySuite) oauth() {
+	client := s.oauthClient()
+	expired := s.oauthGrants(client)
+	s.oauthSweep(client, expired)
+}
+
+func (s *identitySuite) oauthClient() domain.OAuthClient {
 	ctx := s.t.Context()
 	r := s.st.OAuth()
 	s.n++
@@ -58,7 +64,13 @@ func (s *identitySuite) oauth() {
 	if got.Name != "Renamed" || len(got.RedirectURIs) != 1 || got.LastUsedAt.IsZero() || byID.ClientID != client.ClientID {
 		s.t.Fatalf("client = %+v, by ID %+v", got, byID)
 	}
+	return client
+}
 
+// oauthGrants returns the ID of an expired grant it leaves behind.
+func (s *identitySuite) oauthGrants(client domain.OAuthClient) uuid.UUID {
+	ctx := s.t.Context()
+	r := s.st.OAuth()
 	person := s.user("oauth@example.com", true)
 	s.member(person)
 	u := person.ID
@@ -124,7 +136,12 @@ func (s *identitySuite) oauth() {
 	if g, err := r.GetGrant(ctx, again.ID); err != nil || g.RevokedAt.IsZero() {
 		s.t.Fatalf("RevokeByUser everywhere = %+v, %v", g, err)
 	}
+	return expired.ID
+}
 
+func (s *identitySuite) oauthSweep(client domain.OAuthClient, expired uuid.UUID) {
+	ctx := s.t.Context()
+	r := s.st.OAuth()
 	if n, err := r.DeleteUnusedClients(ctx, time.Now().Add(time.Hour)); err != nil || n != 0 {
 		s.t.Fatalf("a client with grants was deleted: %d, %v", n, err)
 	}
@@ -133,7 +150,7 @@ func (s *identitySuite) oauth() {
 	if n != 1 {
 		s.t.Fatalf("DeleteExpiredGrants = %d", n)
 	}
-	_, err = r.GetGrant(ctx, expired.ID)
+	_, err = r.GetGrant(ctx, expired)
 	s.wantErr(err, store.ErrNotFound)
 	if _, err := r.DeleteExpiredGrants(ctx, time.Now().Add(2*time.Hour)); err != nil {
 		s.t.Fatal(err)
