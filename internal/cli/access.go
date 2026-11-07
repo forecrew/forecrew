@@ -16,7 +16,7 @@ import (
 
 // rolesCommand lists the roles of the organization.
 func rolesCommand(r *remote) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "roles",
 		Short: "List the roles of the organization",
 		Args:  cobra.NoArgs,
@@ -37,6 +37,8 @@ func rolesCommand(r *remote) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.AddCommand(customRoleCommands(r)...)
+	return cmd
 }
 
 // teamsCommand lists the teams; its subcommands manage them. A team named
