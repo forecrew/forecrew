@@ -29,7 +29,7 @@ import (
 // TestRegistry: every area of the task is there, with all five functions.
 func TestRegistry(t *testing.T) {
 	want := []string{"organization", "member", "team", "role_binding", "connection", "pool", "shape", "provider", "fleet_policy", "integration", "knowledge_policy", "schedule",
-		"runtime", "auth", "domain", "repo_file"}
+		"runtime", "auth", "domain", "repo_file", "tracker_connection", "tracker_route"}
 	for _, kind := range want {
 		a, ok := resource.Lookup(kind)
 		if !ok {

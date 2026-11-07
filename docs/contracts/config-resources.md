@@ -33,9 +33,11 @@ a resource nor listed as a bootstrap setting.
 | `integration` | project | `.forecrew/profile.yaml` | `project.manage` on the project |
 | `knowledge_policy` | project | `.forecrew/knowledge-policy.yaml` | `project.manage` on the project |
 | `repo_file` | `<project>:.forecrew/<path>` | the file | `project.manage` on the project |
+| `tracker_connection` | connection | `tracker_connections` | `trackers.manage` |
+| `tracker_route` | `<connection>/<position>` | `tracker_routes` | `trackers.manage` |
 
-Each area has a read permission: `org.read`, `worker.read` or
-`connection.manage`; `billing.manage` also reads `provider`, `shape` and
+Each area has a read permission: `org.read`, `worker.read`,
+`connection.manage` or `trackers.read`; `billing.manage` also reads `provider`, `shape` and
 `fleet_policy`, whole, to change their budget fields. What a caller cannot read is left out of `config_get`
 and `config_export`, the assistant included, and a plan touching it is
 refused.
@@ -55,6 +57,18 @@ forecrewd, and its plan says so.
 `forecrew/config-<plan>`, and only under `.forecrew/`. A plan touches one repo
 and holds nothing else, because a pull request and a transaction cannot be
 one step.
+
+**Trackers.** A `tracker_connection` spec is `kind`, `config` and `triggers`,
+as `create_tracker_connection` takes them; a config key ending in `_ref` names a
+value of the secret store (`store:<name>`), which the plan asks for. What the
+adapter reads from the tracker itself, such as Jira's `deployment`, is no
+setting: it is left out of the spec, kept while the rest of the config stays,
+and read again by the connection test. A plan does not reach the tracker, whose
+token it has not put in place yet: a new or changed connection gets a `connect`
+step, `forecrew tracker test <name>`. A route's states are checked against the
+tracker when its connection exists before the plan. Routes are named by their
+connection and position (`jira/1`); a route's `warning` is the tracker's to
+set and no setting.
 
 **Resources without a delete.** Deleting a connection or a shape, or reverting
 its creation, sets `enabled: false`. Deleting a provider revokes it. A server

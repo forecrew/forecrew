@@ -44,6 +44,8 @@ const (
 	KindIntegration     = "integration"
 	KindKnowledgePolicy = "knowledge_policy"
 	KindRepoFile        = "repo_file"
+	KindTrackerConn     = "tracker_connection"
+	KindTrackerRoute    = "tracker_route"
 )
 
 // Scope and origin of a resource.
@@ -93,6 +95,15 @@ type Access interface {
 	// CheckHolder is the rule of No escalation for acting on a subject that
 	// holds roles.
 	CheckHolder(ctx context.Context, by domain.Actor, kind domain.SubjectKind, id uuid.UUID) error
+	// TrackerConnectionRow checks a wanted tracker connection short of asking
+	// the tracker, and lists the config keys its adapter fills in.
+	TrackerConnectionRow(ctx context.Context, by domain.Actor, in mcp.CreateTrackerConnectionInput) (domain.TrackerConnection, []string, error)
+	// TrackerDerived lists the config keys the adapter of a connection fills
+	// in.
+	TrackerDerived(c domain.TrackerConnection) []string
+	// TrackerRouteRow checks a wanted route; ask checks its states against
+	// the tracker.
+	TrackerRouteRow(ctx context.Context, by domain.Actor, in mcp.CreateTrackerRouteInput, ask bool) (domain.TrackerRoute, error)
 }
 
 // FileChange is one file of a repo plan; nil Content deletes it.
@@ -208,7 +219,7 @@ func base[S any](kind, title, scope string, read domain.Permission) Area {
 var areas = []Area{
 	organizationArea(), runtimeArea(), poolArea(), authArea(), scheduleArea(),
 	connectionArea(), domainArea(), memberArea(), teamArea(), roleBindingArea(),
-	providerArea(), shapeArea(), fleetPolicyArea(),
+	providerArea(), shapeArea(), fleetPolicyArea(), trackerConnectionArea(), trackerRouteArea(),
 	integrationArea(), knowledgePolicyArea(), repoFileArea(),
 }
 
