@@ -167,6 +167,19 @@ FORECREW_JOIN_CODE=$code FORECREW_PROXMOX_TOKEN='root@pam!agent=abc-123' "$scrip
 logged "useradd --system"
 logged "chown forecrew-fleet-agent:forecrew-fleet-agent $conf_dir/proxmox-token"
 ! grep -q 'abc-123' "$conf" "$secrets" "$unit" "$MOCK_LOG" || fail "the proxmox token leaked"
+grep -q '^nodes: \[[A-Za-z0-9-]*\]$' "$conf_dir/proxmox.yaml" || fail "proxmox.yaml has no node"
+! grep -qi 'insecure\|verify' "$conf_dir/proxmox.yaml" || fail "proxmox.yaml says something about verification"
+
+reset
+release linux v1 proxmox
+mkdir -p "$FORECREW_INSTALL_ROOT/etc/pve" && echo "-----BEGIN CERTIFICATE-----" >"$FORECREW_INSTALL_ROOT/etc/pve/pve-root-ca.pem"
+FORECREW_JOIN_CODE=$code FORECREW_PROXMOX_NODE=pve2 FORECREW_PROXMOX_TOKEN='root@pam!agent=abc-123' "$script" --server https://forecrew.example.com </dev/null >/dev/null
+grep -qx 'nodes: \[pve2\]' "$conf_dir/proxmox.yaml" || fail "FORECREW_PROXMOX_NODE ignored"
+grep -qx 'ca_file: /etc/forecrew-fleet-agent/proxmox-ca.pem' "$conf_dir/proxmox.yaml" || fail "the cluster CA was not used"
+[ -f "$conf_dir/proxmox-ca.pem" ] || fail "the cluster CA was not copied"
+reset
+release linux v1 proxmox
+refused "not a node name" env FORECREW_JOIN_CODE=$code FORECREW_PROXMOX_NODE='a;b' FORECREW_PROXMOX_TOKEN='root@pam!agent=abc-123' "$script" --server https://forecrew.example.com --kind proxmox
 
 reset
 out="$(FORECREW_JOIN_CODE=$code "$script" --server https://forecrew.example.com --kind proxmox </dev/null)"

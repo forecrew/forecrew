@@ -360,6 +360,27 @@ ask_local() {
 		elif [ ! -f "$file" ]; then
 			say "warning: no Proxmox API token: put one in $file, readable by $svc_user alone"
 		fi
+		# What the provider needs besides the token: the node it runs on (more
+		# nodes, the bridge, VLAN and DNS are in docs/fleet.md), and the cluster's
+		# own CA, so that the API's certificate is checked and not skipped.
+		yaml="$conf_dir/proxmox.yaml"
+		if [ ! -f "$yaml" ]; then
+			node="${FORECREW_PROXMOX_NODE:-$(uname -n | cut -d. -f1)}"
+			case "$node" in
+			"" | -* | *[!A-Za-z0-9-]*) die "the Proxmox node name \"$node\" is not a node name: set FORECREW_PROXMOX_NODE" ;;
+			esac
+			{
+				echo "nodes: [$node]"
+				if [ -r "$root/etc/pve/pve-root-ca.pem" ]; then
+					cp "$root/etc/pve/pve-root-ca.pem" "$conf_dir/proxmox-ca.pem"
+					chmod 0644 "$conf_dir/proxmox-ca.pem"
+					echo "ca_file: /etc/forecrew-fleet-agent/proxmox-ca.pem"
+				fi
+				echo "tls_server_name: $(uname -n)"
+			} >"$yaml"
+			chmod 0644 "$yaml"
+			say "wrote $yaml for node $node: add more nodes there if machines may run on them"
+		fi
 		;;
 	esac
 }
