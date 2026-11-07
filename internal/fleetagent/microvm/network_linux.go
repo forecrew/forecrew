@@ -168,9 +168,9 @@ func localNets(subnet netip.Prefix) []netip.Prefix {
 
 // applyRules loads the machine's table.
 func (p *Provider) applyRules(ctx context.Context, r *record, n network) error {
-	nets, err := fleetagent.ResolveAllow(ctx, p.resolver, r.Allow)
-	if err != nil {
-		return err
+	nets, missed := fleetagent.ResolveAvailable(ctx, p.resolver, r.Allow)
+	if len(missed) > 0 {
+		p.log.Warn("names in network_allow did not resolve: they open nothing", "machine_id", r.ID, "names", missed)
 	}
 	a := allowed{Port: r.Port, DNS: p.dns, Nets: nets, Subnet: p.subnet, Local: p.localNets(p.subnet), Allowlist: p.cfg.Egress == egressAllowlist}
 	for _, s := range r.Server {

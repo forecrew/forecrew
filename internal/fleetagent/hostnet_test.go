@@ -40,3 +40,17 @@ func TestLoadTrustedKeys(t *testing.T) {
 		t.Error("junk keys were read")
 	}
 }
+
+func TestResolveAvailable(t *testing.T) {
+	got, missed := ResolveAvailable(t.Context(), net.DefaultResolver, []string{"10.0.0.5/8", "192.0.2.1", "2001:db8::/32", "::1", "nothing.invalid", "localhost"})
+	var s []string
+	for _, p := range got {
+		s = append(s, p.String())
+	}
+	if !strings.HasPrefix(strings.Join(s, " "), "10.0.0.0/8 192.0.2.1/32 127.0.0.1/32") {
+		t.Errorf("resolved = %v", s)
+	}
+	if len(missed) != 1 || missed[0] != "nothing.invalid" {
+		t.Errorf("missed = %v", missed)
+	}
+}
