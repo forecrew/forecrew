@@ -484,6 +484,21 @@ func TestSmallerDiskIsNotSet(t *testing.T) {
 	}
 }
 
+func TestUnknownDiskIsNotSet(t *testing.T) {
+	e := newEnv(t, nil)
+	if err := os.MkdirAll(e.home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(e.home, "disk-null"), nil, 0o600) // `"Disk": null`, as of a running VM
+	req := e.request()
+	if _, err := e.p.Create(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
+	if set := e.file(t, "vms", vmName(req.MachineID.String()), "set"); strings.Contains(set, "--disk-size") {
+		t.Errorf("set = %q", set)
+	}
+}
+
 func TestUpdate(t *testing.T) {
 	e := newEnv(t, nil)
 	req := e.request()

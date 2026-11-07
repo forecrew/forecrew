@@ -306,10 +306,11 @@ func (p *Provider) start(ctx context.Context, r *record, req fleet.CreateRequest
 		return err
 	}
 	set := []string{"--cpu", strconv.Itoa(req.Shape.CPU), "--memory", strconv.Itoa(req.Shape.MemoryMB)}
-	// A disk only grows, and only the shape's size is the quota.
+	// A disk only grows, and only the shape's size is the quota. A size Tart does
+	// not report is unknown, and the disk is left alone rather than risk shrinking it.
 	if info, err := p.cli.info(ctx, name); err != nil {
 		return err
-	} else if req.Shape.DiskGB > info.Disk {
+	} else if info.Disk != nil && req.Shape.DiskGB > *info.Disk {
 		set = append(set, "--disk-size", strconv.Itoa(req.Shape.DiskGB))
 	}
 	if err := p.cli.set(ctx, name, set...); err != nil {
