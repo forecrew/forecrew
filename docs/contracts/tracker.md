@@ -334,3 +334,9 @@ columns anyway, so a card in the handover column means a person is waiting.
   the same link replaces it, but one of an ended link stays, and the connection
   cannot be deleted until it is sent or discarded (`discard_tracker_writes`). Fix
   the route's `states` before the goal ends.
+
+## Jira
+
+Kind `jira`, package `internal/tracker/jira`: Jira Cloud and Data Center in
+one adapter, set up from `serverInfo`. Config, tokens, permissions, webhooks
+and private CAs are in [trackers/jira.md](../trackers/jira.md).
