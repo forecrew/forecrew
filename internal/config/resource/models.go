@@ -19,12 +19,6 @@ import (
 // assignmentProject starts the name of a project's model_assignment.
 const assignmentProject = "project:"
 
-// Roles that separation of duties keeps on different vendors.
-const (
-	developerRole = "developer"
-	reviewerRole  = "reviewer"
-)
-
 type modelConnectionSpec struct {
 	Vendor    string `json:"vendor"`
 	Adapter   string `json:"adapter"`
@@ -637,8 +631,8 @@ func (w *modelWorld) problems(e *Env) []string {
 // catalog when it is known, so a router or a cloud reseller does not hide it,
 // else the vendor.
 func (w *modelWorld) separation(s modelScope) []string {
-	dev := w.state.Decide(w.server, models.Request{ProjectID: s.project, Role: developerRole})
-	rev := w.state.Decide(w.server, models.Request{ProjectID: s.project, Role: reviewerRole})
+	dev := w.state.Decide(w.server, models.Request{ProjectID: s.project, Role: models.DeveloperRole})
+	rev := w.state.Decide(w.server, models.Request{ProjectID: s.project, Role: models.ReviewerRole})
 	if dev.Waiting != "" || rev.Waiting != "" || (dev.Source == models.SourceServer && rev.Source == models.SourceServer) {
 		return nil
 	}
