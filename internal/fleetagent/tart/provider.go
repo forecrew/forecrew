@@ -74,7 +74,9 @@ type Provider struct {
 	mu       sync.Mutex
 	timers   map[string]*time.Timer
 	lastGC   time.Time
-	fetching sync.Mutex // one pull or prune at a time
+	fetching sync.Mutex // one pull or prune at a time; also guards verified
+	// verified holds the fingerprint of each pulled image that was checked.
+	verified map[string]string
 }
 
 // New returns the provider of cfg. log may be nil.
@@ -89,9 +91,9 @@ func New(cfg Config, log *slog.Logger) (*Provider, error) {
 		cfg: cfg, log: log, resolver: net.DefaultResolver, poll: pollEvery, goos: runtime.GOOS, goarch: runtime.GOARCH,
 		memoryMB: fleetagent.MemoryMB, freeGB: fleetagent.DiskFreeGB, getenv: os.Getenv, pmset: pmset, vmProcesses: countVMProcesses, hostNets: localNets,
 		lookPath: func(name string) bool { _, err := exec.LookPath(name); return err == nil },
-		timers:   map[string]*time.Timer{},
+		timers:   map[string]*time.Timer{}, verified: map[string]string{},
 	}
-	p.cli = cli{bin: cfg.Tart, home: cfg.StateDir, getenv: p.getenv, user: cfg.RegistryUsername, pass: cfg.RegistryPassword, regHost: cfg.RegistryHost}
+	p.cli = cli{bin: cfg.Tart, home: cfg.StateDir, getenv: p.getenv, user: cfg.RegistryUsername, pass: cfg.RegistryPassword}
 	if err := p.armTimers(); err != nil {
 		return nil, err
 	}

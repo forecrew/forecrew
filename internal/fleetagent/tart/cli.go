@@ -20,12 +20,11 @@ import (
 // environment holds other secrets (its provider token), so none of it reaches
 // Tart or, through it, a guest.
 type cli struct {
-	bin     string
-	home    string
-	getenv  func(string) string
-	user    string // env:NAME references
-	pass    string
-	regHost string
+	bin    string
+	home   string
+	getenv func(string) string
+	user   string // env:NAME references
+	pass   string
 }
 
 // vmInfo is a line of `tart list --format json`.
@@ -38,21 +37,30 @@ type vmInfo struct {
 	State   string `json:"State"`
 }
 
-// env is what a tart command sees; withRegistry adds the registry's
-// credentials, for the commands that pull.
-func (c cli) env(withRegistry bool) (env []string, secret string) {
-	env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + c.home, "TART_HOME=" + filepath.Join(c.home, "tart-home")}
-	if withRegistry && c.user != "" {
+// tartHome is where Tart keeps its VMs and its cache.
+func (c cli) tartHome() string { return filepath.Join(c.home, "tart-home") }
+
+// env is what a tart command sees; registry, the host of an image being pulled,
+// adds the credentials, and limits them to that host.
+func (c cli) env(registry string) (env []string, secret string) {
+	env = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + c.home, "TART_HOME=" + c.tartHome()}
+	if registry != "" && c.user != "" {
 		u, p := c.getenv(refName(c.user)), c.getenv(refName(c.pass))
 		if u != "" && p != "" {
-			env = append(env, "TART_REGISTRY_USERNAME="+u, "TART_REGISTRY_PASSWORD="+p)
-			if c.regHost != "" {
-				env = append(env, "TART_REGISTRY_HOSTNAME="+c.regHost)
-			}
+			env = append(env, "TART_REGISTRY_USERNAME="+u, "TART_REGISTRY_PASSWORD="+p, "TART_REGISTRY_HOSTNAME="+registry)
 			secret = p
 		}
 	}
 	return env, secret
+}
+
+// registryOf is the host of a remote image reference, or empty for a local VM.
+func registryOf(ref string) string {
+	host, _, ok := strings.Cut(ref, "/")
+	if !ok {
+		return ""
+	}
+	return host
 }
 
 // snippet makes what a command said safe to put in an error: quoted, so it is
@@ -70,8 +78,8 @@ func snippet(b []byte, secret string) string {
 	return strconv.Quote(s)
 }
 
-func (c cli) do(ctx context.Context, withRegistry bool, stdin string, args ...string) (string, error) {
-	env, secret := c.env(withRegistry)
+func (c cli) do(ctx context.Context, registry, stdin string, args ...string) (string, error) {
+	env, secret := c.env(registry)
 	cmd := exec.CommandContext(ctx, c.bin, args...) // #nosec G204 -- the operator's command with arguments of this package
 	cmd.Env = env
 	cmd.Stdin = strings.NewReader(stdin)
@@ -103,11 +111,11 @@ func (c *capBuffer) String() string { return c.buf.String() }
 
 // output runs a command that has an answer to read.
 func (c cli) output(ctx context.Context, args ...string) (string, error) {
-	return c.do(ctx, false, "", args...)
+	return c.do(ctx, "", "", args...)
 }
 
 func (c cli) version(ctx context.Context) (string, error) {
-	out, err := c.do(ctx, false, "", "--version")
+	out, err := c.do(ctx, "", "", "--version")
 	if err != nil {
 		return "", err
 	}
@@ -118,7 +126,7 @@ func (c cli) version(ctx context.Context) (string, error) {
 }
 
 func (c cli) list(ctx context.Context) ([]vmInfo, error) {
-	out, err := c.do(ctx, false, "", "list", "--source", "local", "--format", "json")
+	out, err := c.do(ctx, "", "", "list", "--source", "local", "--format", "json")
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +138,7 @@ func (c cli) list(ctx context.Context) ([]vmInfo, error) {
 }
 
 func (c cli) info(ctx context.Context, name string) (vmInfo, error) {
-	out, err := c.do(ctx, false, "", "get", name, "--format", "json")
+	out, err := c.do(ctx, "", "", "get", name, "--format", "json")
 	if err != nil {
 		return vmInfo{}, err
 	}
@@ -142,32 +150,32 @@ func (c cli) info(ctx context.Context, name string) (vmInfo, error) {
 }
 
 func (c cli) pull(ctx context.Context, ref string) error {
-	_, err := c.do(ctx, true, "", "pull", ref)
+	_, err := c.do(ctx, registryOf(ref), "", "pull", ref)
 	return err
 }
 
 func (c cli) clone(ctx context.Context, src, name string) error {
-	_, err := c.do(ctx, true, "", "clone", src, name)
+	_, err := c.do(ctx, registryOf(src), "", "clone", src, name)
 	return err
 }
 
 func (c cli) set(ctx context.Context, name string, args ...string) error {
-	_, err := c.do(ctx, false, "", append([]string{"set", name}, args...)...)
+	_, err := c.do(ctx, "", "", append([]string{"set", name}, args...)...)
 	return err
 }
 
 func (c cli) stop(ctx context.Context, name string, seconds int) error {
-	_, err := c.do(ctx, false, "", "stop", "--timeout", strconv.Itoa(seconds), name)
+	_, err := c.do(ctx, "", "", "stop", "--timeout", strconv.Itoa(seconds), name)
 	return err
 }
 
 func (c cli) delete(ctx context.Context, name string) error {
-	_, err := c.do(ctx, false, "", "delete", name)
+	_, err := c.do(ctx, "", "", "delete", name)
 	return err
 }
 
 func (c cli) prune(ctx context.Context, days int) error {
-	_, err := c.do(ctx, false, "", "prune", "--entries", "caches", "--older-than", strconv.Itoa(days))
+	_, err := c.do(ctx, "", "", "prune", "--entries", "caches", "--older-than", strconv.Itoa(days))
 	return err
 }
 
@@ -178,7 +186,7 @@ func (c cli) exec(ctx context.Context, stdin, name string, command ...string) er
 	if stdin != "" {
 		args = append(args, "-i")
 	}
-	_, err := c.do(ctx, false, stdin, append(append(args, name), command...)...)
+	_, err := c.do(ctx, "", stdin, append(append(args, name), command...)...)
 	return err
 }
 
@@ -190,7 +198,7 @@ func (c cli) start(name, log string, flags []string) (<-chan error, error) {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	env, _ := c.env(false)
+	env, _ := c.env("")
 	cmd := exec.Command(c.bin, append(append([]string{"run"}, flags...), name)...) // #nosec G204 -- see do
 	cmd.Env, cmd.Stdout, cmd.Stderr, cmd.Dir = env, f, f, "/"
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

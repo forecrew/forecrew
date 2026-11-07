@@ -52,11 +52,14 @@ type Config struct {
 	// reach the LAN and the host, and doctor warns instead of failing.
 	AllowNoSoftnet bool `yaml:"allow_no_softnet"`
 	// RegistryUsername and RegistryPassword are references (env:NAME) to the
-	// credentials of the registry images come from; RegistryHost limits them
-	// to that registry.
-	RegistryUsername string `yaml:"registry_username"`
-	RegistryPassword string `yaml:"registry_password"`
-	RegistryHost     string `yaml:"registry_host"`
+	// credentials of the registries images come from. RegistryHosts are the
+	// registries an image may come from: an image of any other host is refused,
+	// and the credentials go only to the host of the image being pulled. The
+	// image's URI is not signed, so this list, on this Mac, is what decides
+	// where credentials are sent; it is required when credentials are set.
+	RegistryUsername string   `yaml:"registry_username"`
+	RegistryPassword string   `yaml:"registry_password"`
+	RegistryHosts    []string `yaml:"registry_hosts"`
 	// AllowLocalBase lets a shape name a VM already on this Mac
 	// (provider_config base_vm) instead of a signed image. Off, because the
 	// agent cannot check such a VM.
@@ -121,6 +124,13 @@ func (c Config) validate() error {
 			bad = append(bad, fmt.Errorf("dns must list IPv4 addresses, got %q", d))
 		}
 	}
+	bad = append(bad, c.validateRegistry()...)
+	return errors.Join(bad...)
+}
+
+// validateRegistry checks what is set for registries.
+func (c Config) validateRegistry() []error {
+	var bad []error
 	for key, v := range map[string]string{"registry_username": c.RegistryUsername, "registry_password": c.RegistryPassword} {
 		if v != "" && !envRef.MatchString(v) {
 			bad = append(bad, fmt.Errorf("%s must be a reference, env:NAME, never the value itself", key))
@@ -129,10 +139,15 @@ func (c Config) validate() error {
 	if (c.RegistryUsername == "") != (c.RegistryPassword == "") {
 		bad = append(bad, errors.New("registry_username and registry_password go together"))
 	}
-	if c.RegistryHost != "" && !registryHost.MatchString(c.RegistryHost) {
-		bad = append(bad, fmt.Errorf("registry_host must be a registry host name, got %q", c.RegistryHost))
+	for _, h := range c.RegistryHosts {
+		if !registryHost.MatchString(h) {
+			bad = append(bad, fmt.Errorf("registry_hosts must list registry host names in lower case, got %q", h))
+		}
 	}
-	return errors.Join(bad...)
+	if c.RegistryUsername != "" && len(c.RegistryHosts) == 0 {
+		bad = append(bad, errors.New("registry_hosts is required with registry credentials: they are sent only to a host listed there"))
+	}
+	return bad
 }
 
 // refName returns the variable an env:NAME reference names.

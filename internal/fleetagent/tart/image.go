@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,29 +49,22 @@ func ociRef(img domain.Image) (string, error) {
 	return repo + "@" + img.Digest, nil
 }
 
-// source returns what a machine is cloned from, and makes it available: for an
-// image, its signature is checked against the keys of this host every time, and
-// the registry checks the content against the digest the signature covers when
-// Tart pulls it. A shape's base_vm names a local VM instead, when this host's
-// operator allows it.
+// source returns what a machine is cloned from, and makes it available.
+//
+// For an image: the signature (which covers the digest but not the URI) is checked
+// against the keys of this host every time; the URI's host must be one of
+// registry_hosts, so that credentials and requests go only where this Mac's
+// operator says; and Tart pulls registry/name@digest. Tart itself does not check
+// that what it pulled is what the digest names, so the agent does: the manifest
+// Tart cached must hash to the signed digest, and the files it cached must match
+// the manifest's digests (verifyPulled). A pulled image that cannot be checked
+// is refused.
+//
+// A shape's base_vm names a VM of the agent's own Tart home instead, when this
+// host's operator allows it.
 func (p *Provider) source(ctx context.Context, cfg providerConfig, img domain.Image) (string, error) {
 	if cfg.BaseVM != "" {
-		if !p.cfg.AllowLocalBase {
-			return "", fmt.Errorf("the shape names a local VM (base_vm): set allow_local_base in tart.yaml on this Mac to run unsigned VMs")
-		}
-		if !localVM.MatchString(cfg.BaseVM) || strings.HasPrefix(cfg.BaseVM, vmPrefix) {
-			return "", fmt.Errorf("base_vm %q is not a name of a local VM of this Mac", cfg.BaseVM)
-		}
-		vms, err := p.cli.list(ctx)
-		if err != nil {
-			return "", err
-		}
-		for _, v := range vms {
-			if v.Name == cfg.BaseVM {
-				return v.Name, nil
-			}
-		}
-		return "", fmt.Errorf("base_vm %q is not on this Mac", cfg.BaseVM)
+		return p.localSource(ctx, cfg.BaseVM)
 	}
 	if img.Format != domain.ImageTart || img.OS != domain.OSMacOS || img.Arch != domain.ArchARM64 {
 		return "", fmt.Errorf("image %s@%s: a Tart location runs macOS arm64 images in the tart format, not %s %s %s", img.Name, img.Version, img.OS, img.Arch, img.Format)
@@ -86,12 +80,37 @@ func (p *Provider) source(ctx context.Context, cfg providerConfig, img domain.Im
 	if err != nil {
 		return "", err
 	}
+	if len(p.cfg.RegistryHosts) > 0 && !slices.Contains(p.cfg.RegistryHosts, strings.ToLower(registryOf(ref))) {
+		return "", fmt.Errorf("image %s@%s: its registry %s is not in registry_hosts of tart.yaml", img.Name, img.Version, registryOf(ref))
+	}
+	repo, _, _ := strings.Cut(ref, "@")
 	p.fetching.Lock()
 	defer p.fetching.Unlock()
 	if err := p.cli.pull(ctx, ref); err != nil {
 		return "", fmt.Errorf("image %s@%s: %w", img.Name, img.Version, err)
 	}
+	if err := p.verifyPulled(ctx, repo, img.Digest); err != nil {
+		return "", fmt.Errorf("image %s@%s: %w", img.Name, img.Version, err)
+	}
 	return ref, nil
+}
+
+// localSource finds the VM base_vm names, in the agent's own Tart home.
+func (p *Provider) localSource(ctx context.Context, name string) (string, error) {
+	if !p.cfg.AllowLocalBase {
+		return "", fmt.Errorf("the shape names a local VM (base_vm): set allow_local_base in tart.yaml on this Mac to run unsigned VMs")
+	}
+	if !localVM.MatchString(name) || strings.HasPrefix(name, vmPrefix) {
+		return "", fmt.Errorf("base_vm %q is not a name of a local VM of this Mac", name)
+	}
+	vms, err := p.cli.list(ctx)
+	if err != nil {
+		return "", err
+	}
+	if !slices.ContainsFunc(vms, func(v vmInfo) bool { return v.Name == name }) {
+		return "", fmt.Errorf("base_vm %q is not in the agent's Tart home (%s)", name, p.cli.tartHome())
+	}
+	return name, nil
 }
 
 // pruneCache removes pulled images unused for a while, at most once in
@@ -117,4 +136,5 @@ func (p *Provider) pruneCache(ctx context.Context) {
 	if err := p.cli.prune(ctx, p.cfg.ImageCacheDays); err != nil {
 		p.log.Warn("clean the image cache", "error", err)
 	}
+	clear(p.verified) // what comes back is pulled again, and checked again
 }
