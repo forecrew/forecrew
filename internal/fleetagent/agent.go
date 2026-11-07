@@ -210,11 +210,14 @@ func (a *Agent) reconcile(ctx context.Context) error {
 		return err
 	}
 	for _, external := range destroy {
-		id := uuid.Nil()
-		if i := slices.IndexFunc(instances, func(x fleet.Instance) bool { return x.ExternalID == external }); i >= 0 {
-			id = instances[i].MachineID
+		// forecrewd says what to destroy, but only among what the agent listed:
+		// it can never name something else this provider's credentials reach.
+		i := slices.IndexFunc(instances, func(x fleet.Instance) bool { return x.ExternalID == external })
+		if i < 0 {
+			a.cfg.Logger.WarnContext(ctx, "forecrewd named a machine the provider did not list; leaving it alone", "external_id", external)
+			continue
 		}
-		a.destroy(ctx, id, external)
+		a.destroy(ctx, instances[i].MachineID, external)
 	}
 	return nil
 }
