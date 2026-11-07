@@ -273,6 +273,13 @@ func (a *agentInstaller) prepare() error {
 	if err := os.Chmod(a.dir, 0o700); err != nil { // #nosec G302 -- a directory needs its execute bit; only the worker's user has any
 		return err
 	}
+	// A download a crash cut short is never used.
+	for _, pattern := range []string{".download-*", ".binary-*"} {
+		left, _ := filepath.Glob(filepath.Join(a.dir, pattern))
+		for _, f := range left {
+			_ = os.Remove(f)
+		}
+	}
 	s := readAgentState(a.dir)
 	changed := false
 	for name, in := range s.Installed {
