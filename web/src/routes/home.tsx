@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router"
 import { cn } from "cn"
 import { SearchIcon } from "lucide-react"
 import { useState } from "react"
-import { useConnections, useFleet, useGates, useGoals, useJobs, useMembers } from "@/api/queries"
+import { useConnections, useFleet, useGates, useGoals, useJobs, useMembers, useProjects } from "@/api/queries"
 import type { GoalStatus } from "@/api/types"
 import { Age } from "@/components/Age"
 import { useOpenCommandMenu } from "@/components/CommandMenu"
@@ -253,6 +253,23 @@ function Fleet() {
   )
 }
 
+/** First run: nothing is connected yet, so say where to begin. Where jobs run comes first. */
+function Welcome() {
+  const fleet = useFleet()
+  const projects = useProjects()
+  const can = useCan()
+  if (!can("worker.manage") || fleet.data?.locations.length !== 0 || projects.data?.length !== 0) return null
+  return (
+    <section aria-label="Welcome" className="mb-6 rounded-xl border bg-card p-4">
+      <h2 className="font-medium">Welcome to Forecrew</h2>
+      <p className="mb-2 text-sm text-muted-foreground">Agents need somewhere to work before they can do anything. Three decisions, and you are set.</p>
+      <Link to="/setup" className={cn(buttonVariants())}>
+        Set up Forecrew
+      </Link>
+    </section>
+  )
+}
+
 const DISMISSED = "forecrew.setup.dismissed"
 const dismissedItems = (): string[] => {
   try {
@@ -326,6 +343,7 @@ export function HomePage() {
         ) : null}
       </div>
       <Headline />
+      <Welcome />
       <FinishSetup />
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <Stat title="Decisions waiting">
