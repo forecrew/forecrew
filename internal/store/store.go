@@ -89,6 +89,7 @@ type Store interface {
 	Identities() IdentityRepo
 	Memberships() MembershipRepo
 	Invitations() InvitationRepo
+	SetupLinks() SetupLinkRepo
 	Connections() ConnectionRepo
 	VerifiedDomains() VerifiedDomainRepo
 	Sessions() SessionRepo
@@ -127,6 +128,10 @@ type AccountRepo interface {
 	// Rename writes the organization's name and slug; a slug that is taken
 	// fails with ErrConflict.
 	Rename(ctx context.Context, id uuid.UUID, name, slug string) error
+	// Lock holds the organization's row until the transaction ends, so what
+	// decides who may join it (the first Owner) is decided one at a time;
+	// ErrNotFound when there is none. Outside a transaction it holds nothing.
+	Lock(ctx context.Context, id uuid.UUID) error
 }
 
 // ProjectRepo stores projects. Name and Repo are unique per account
@@ -878,6 +883,41 @@ type InvitationRepo interface {
 	// bindings in the same transaction.
 	Accept(ctx context.Context, accountID, id, userID uuid.UUID) (domain.Invitation, error)
 	Revoke(ctx context.Context, accountID, id uuid.UUID) error
+}
+
+// SetupLink is a one-time link that makes the first Owner of an organization.
+// The server's operator creates it with forecrew setup-link; only the SHA-256
+// of its token is stored.
+type SetupLink struct {
+	ID        uuid.UUID
+	AccountID uuid.UUID
+	TokenHash []byte
+	ExpiresAt time.Time
+	UsedBy    uuid.UUID // zero until used
+	UsedAt    time.Time // zero until used
+	CreatedBy string    // Actor.String()
+	CreatedAt time.Time
+}
+
+// Pending reports whether the link can still be used at now.
+func (l SetupLink) Pending(now time.Time) bool {
+	return l.UsedAt.IsZero() && now.Before(l.ExpiresAt)
+}
+
+// SetupLinkRepo stores setup links.
+type SetupLinkRepo interface {
+	Create(ctx context.Context, l *SetupLink) error
+	// GetByTokenHash is unscoped: the link identifies the organization.
+	GetByTokenHash(ctx context.Context, hash []byte) (SetupLink, error)
+	// Use records userID's use of a link that is pending (SetupLink.Pending);
+	// ErrConflict otherwise, so a link works once even when two sign-ins race.
+	// The caller creates the membership in the same transaction.
+	Use(ctx context.Context, accountID, id, userID uuid.UUID) (SetupLink, error)
+	// FirstOwnerOpen says whether the organization still has no Owner and no
+	// active member: a setup link only ever makes the first Owner. Callers
+	// hold AccountRepo.Lock first, so nobody joins between this and their
+	// own join.
+	FirstOwnerOpen(ctx context.Context, accountID uuid.UUID) (bool, error)
 }
 
 // TeamRepo stores teams and their members. Slug and ExternalID are unique

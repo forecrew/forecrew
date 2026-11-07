@@ -63,6 +63,13 @@ func (r accountRepo) SetMaxTokenTTL(_ context.Context, id uuid.UUID, ttl time.Du
 	})
 }
 
+func (r accountRepo) Lock(_ context.Context, id uuid.UUID) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		_, err := d.accounts.get(id, id)
+		return err
+	})
+}
+
 func (r accountRepo) Rename(_ context.Context, id uuid.UUID, name, slug string) error {
 	return r.s.do(func(d *storeData, _ time.Time) error {
 		if d.accounts.exists(func(a domain.Account) bool { return a.ID != id && a.Slug == slug }) {

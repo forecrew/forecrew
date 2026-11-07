@@ -26,6 +26,9 @@ func (s *Store) Memberships() store.MembershipRepo { return membershipRepo{s.db}
 // Invitations implements store.Store.
 func (s *Store) Invitations() store.InvitationRepo { return invitationRepo{s.db} }
 
+// SetupLinks implements store.Store.
+func (s *Store) SetupLinks() store.SetupLinkRepo { return setupLinkRepo{s.db} }
+
 // Connections implements store.Store.
 func (s *Store) Connections() store.ConnectionRepo { return connectionRepo{s.db} }
 
@@ -248,6 +251,55 @@ func (r invitationRepo) Accept(ctx context.Context, accountID, id, userID uuid.U
 
 func (r invitationRepo) Revoke(ctx context.Context, accountID, id uuid.UUID) error {
 	return mustUpdate(ctx, r.db, `UPDATE invitations SET revoked_at = COALESCE(revoked_at, now()) WHERE account_id = $1 AND id = $2`, accountID, id)
+}
+
+// ---- setup links
+
+type setupLinkRepo struct{ db dbtx }
+
+var setupLinkCols = `id, account_id, token_hash, expires_at, ` + cuuid("used_by") + `, ` + ctime("used_at") + `, created_by, created_at`
+
+func scanSetupLink(row pgx.Row) (l store.SetupLink, err error) {
+	if err = row.Scan(&l.ID, &l.AccountID, &l.TokenHash, &l.ExpiresAt, &l.UsedBy, &l.UsedAt, &l.CreatedBy, &l.CreatedAt); err != nil {
+		return l, err
+	}
+	utc(&l.ExpiresAt, &l.UsedAt, &l.CreatedAt)
+	return l, nil
+}
+
+func (r setupLinkRepo) Create(ctx context.Context, l *store.SetupLink) error {
+	l.ID = newID(l.ID)
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO setup_links (id, account_id, token_hash, expires_at, created_by)
+		VALUES ($1, $2, $3, $4, $5) RETURNING created_at`,
+		l.ID, l.AccountID, l.TokenHash, l.ExpiresAt.UTC(), l.CreatedBy).Scan(&l.CreatedAt))
+}
+
+func (r setupLinkRepo) GetByTokenHash(ctx context.Context, hash []byte) (store.SetupLink, error) {
+	return one(ctx, r.db, scanSetupLink, `SELECT `+setupLinkCols+` FROM setup_links WHERE token_hash = $1`, hash)
+}
+
+func (r setupLinkRepo) Use(ctx context.Context, accountID, id, userID uuid.UUID) (store.SetupLink, error) {
+	l, err := one(ctx, r.db, scanSetupLink, `UPDATE setup_links SET used_by = $3, used_at = now()
+		WHERE account_id = $1 AND id = $2 AND used_at IS NULL AND expires_at > now()
+		RETURNING `+setupLinkCols, accountID, id, userID)
+	if err == nil {
+		return l, nil
+	}
+	if _, getErr := one(ctx, r.db, scanSetupLink, `SELECT `+setupLinkCols+` FROM setup_links WHERE account_id = $1 AND id = $2`, accountID, id); getErr != nil {
+		return store.SetupLink{}, getErr
+	}
+	return store.SetupLink{}, fmt.Errorf("setup link %s is not pending: %w", id, store.ErrConflict)
+}
+
+// FirstOwnerOpen reads in its own statement, after the caller's Lock was
+// granted: a statement takes its snapshot when it starts, so a join that
+// committed while the lock was awaited is seen.
+func (r setupLinkRepo) FirstOwnerOpen(ctx context.Context, accountID uuid.UUID) (bool, error) {
+	var open bool
+	err := r.db.QueryRow(ctx, `SELECT NOT EXISTS (SELECT 1 FROM memberships WHERE account_id = $1 AND status = 'active')
+		AND NOT EXISTS (SELECT 1 FROM role_bindings b JOIN roles r ON r.id = b.role_id
+			WHERE b.account_id = $1 AND r.name = 'owner' AND r.scope = 'organization')`, accountID).Scan(&open)
+	return open, mapErr(err)
 }
 
 // ---- connections

@@ -776,6 +776,19 @@ CREATE TABLE invitations (
 );
 CREATE INDEX invitations_account ON invitations (account_id, created_at);
 
+CREATE TABLE setup_links (                             -- migration 00014; forecrew setup-link, identity.md Recovery
+  id          uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id  uuid NOT NULL REFERENCES accounts(id),
+  token_hash  bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
+  expires_at  timestamptz NOT NULL,
+  used_by     uuid REFERENCES users(id),
+  used_at     timestamptz,
+  created_by  text NOT NULL,                           -- domain.Actor.String()
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  CHECK ((used_by IS NULL) = (used_at IS NULL))
+);
+CREATE INDEX setup_links_account ON setup_links (account_id, created_at);
+
 CREATE TABLE teams (
   id          uuid PRIMARY KEY DEFAULT uuidv7(),
   account_id  uuid NOT NULL REFERENCES accounts(id),
@@ -1615,6 +1628,7 @@ cap). `RequeueExpired` does not delay the job.
 | Identity | identities | `store.IdentityRepo` (T52) |
 | Membership | memberships | `store.MembershipRepo` (T52) |
 | Invitation, Grant | invitations | `store.InvitationRepo` (T52) |
+| SetupLink | setup_links | `store.SetupLinkRepo` (T67) |
 | Connection, JIT | connections | `store.ConnectionRepo` (T52) |
 | GroupMapping | group_mappings | `store.ConnectionRepo` (T56) |
 | Session | sessions | `store.SessionRepo` (T52) |

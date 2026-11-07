@@ -20,6 +20,7 @@ type identityData struct {
 	identities   table[domain.Identity]
 	memberships  table[domain.Membership]
 	invitations  table[domain.Invitation]
+	setupLinks   table[store.SetupLink]
 	connections  table[domain.Connection]
 	domains      table[domain.VerifiedDomain]
 	sessions     table[domain.Session]
@@ -33,6 +34,7 @@ func newIdentityData() identityData {
 		identities:   table[domain.Identity]{key: func(r domain.Identity) (uuid.UUID, uuid.UUID) { return r.UserID, r.ID }},
 		memberships:  table[domain.Membership]{key: func(r domain.Membership) (uuid.UUID, uuid.UUID) { return r.AccountID, r.UserID }},
 		invitations:  table[domain.Invitation]{key: func(r domain.Invitation) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		setupLinks:   table[store.SetupLink]{key: func(r store.SetupLink) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		connections:  table[domain.Connection]{key: func(r domain.Connection) (uuid.UUID, uuid.UUID) { return uuid.Nil(), r.ID }},
 		domains:      table[domain.VerifiedDomain]{key: func(r domain.VerifiedDomain) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		sessions:     table[domain.Session]{key: func(r domain.Session) (uuid.UUID, uuid.UUID) { return r.UserID, r.ID }},
@@ -46,6 +48,7 @@ func (i identityData) clone() identityData {
 	i.identities = i.identities.clone()
 	i.memberships = i.memberships.clone()
 	i.invitations = i.invitations.clone()
+	i.setupLinks = i.setupLinks.clone()
 	i.connections = i.connections.clone()
 	i.domains = i.domains.clone()
 	i.sessions = i.sessions.clone()
@@ -58,6 +61,7 @@ func usersT(d *storeData) *table[domain.User]             { return &d.identity.u
 func identitiesT(d *storeData) *table[domain.Identity]    { return &d.identity.identities }
 func membershipsT(d *storeData) *table[domain.Membership] { return &d.identity.memberships }
 func invitationsT(d *storeData) *table[domain.Invitation] { return &d.identity.invitations }
+func setupLinksT(d *storeData) *table[store.SetupLink]    { return &d.identity.setupLinks }
 func connectionsT(d *storeData) *table[domain.Connection] { return &d.identity.connections }
 func domainsT(d *storeData) *table[domain.VerifiedDomain] { return &d.identity.domains }
 func sessionsT(d *storeData) *table[domain.Session]       { return &d.identity.sessions }
@@ -331,8 +335,54 @@ func (r invitationRepo) Revoke(_ context.Context, accountID, id uuid.UUID) error
 	})
 }
 
+// SetupLinks implements store.Store.
+func (s *Store) SetupLinks() store.SetupLinkRepo { return setupLinkRepo{s} }
+
+type setupLinkRepo struct{ s *Store }
+
+func (r setupLinkRepo) Create(_ context.Context, l *store.SetupLink) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		l.ID = newID(l.ID)
+		l.CreatedAt = now
+		d.identity.setupLinks.insert(*l)
+		return nil
+	})
+}
+
+func (r setupLinkRepo) GetByTokenHash(_ context.Context, hash []byte) (store.SetupLink, error) {
+	return findRow(r.s, setupLinksT, func(l store.SetupLink) bool { return bytes.Equal(l.TokenHash, hash) })
+}
+
+func (r setupLinkRepo) Use(_ context.Context, accountID, id, userID uuid.UUID) (store.SetupLink, error) {
+	var out store.SetupLink
+	err := update(r.s, setupLinksT, accountID, id, func(l *store.SetupLink, now time.Time) error {
+		if !l.Pending(now) {
+			return fmt.Errorf("setup link %s is not pending: %w", id, store.ErrConflict)
+		}
+		l.UsedBy, l.UsedAt = userID, now
+		out = *l
+		return nil
+	})
+	return out, err
+}
+
 // Connections implements store.Store.
 func (s *Store) Connections() store.ConnectionRepo { return connectionRepo{s} }
+
+// FirstOwnerOpen: no active member and no binding of the Owner role.
+func (r setupLinkRepo) FirstOwnerOpen(_ context.Context, accountID uuid.UUID) (bool, error) {
+	var open bool
+	err := r.s.do(func(d *storeData, _ time.Time) error {
+		members := d.identity.memberships.exists(func(m domain.Membership) bool { return m.AccountID == accountID && m.Status == domain.MembershipActive })
+		owners := d.access.bindings.exists(func(b domain.RoleBinding) bool {
+			i := slices.IndexFunc(d.access.roles, func(x domain.Role) bool { return x.ID == b.RoleID })
+			return b.AccountID == accountID && i >= 0 && d.access.roles[i].Name == domain.RoleOwner && d.access.roles[i].Scope == domain.RoleScopeOrganization
+		})
+		open = !members && !owners
+		return nil
+	})
+	return open, err
+}
 
 type connectionRepo struct{ s *Store }
 
