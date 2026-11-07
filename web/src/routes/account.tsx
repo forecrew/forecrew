@@ -131,7 +131,7 @@ export function AccountPage() {
   const me = useMe().data
   const identities = useIdentities()
   const tokens = useTokens()
-  const sessions = useSessions()
+  const sessions = useSessions(Boolean(me?.user)) // a token login has no browser sessions
   const end = useChange((id: string) => api.endSession(id), keys.sessions)
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -196,6 +196,7 @@ export function AccountPage() {
         </Async>
       </Section>
 
+      {person ? (
       <Section id="sessions" title="Sessions">
         <Async query={sessions} isEmpty={(d) => d.length === 0} empty="No browser sessions.">
           {(items) => (
@@ -247,6 +248,7 @@ export function AccountPage() {
           Sign out everywhere
         </Button>
       </Section>
+      ) : null}
     </div>
   )
 }
