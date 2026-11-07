@@ -198,6 +198,7 @@ func (r goalRepo) Create(ctx context.Context, g *domain.Goal) error {
 		g.Number = n
 		g.Kind = g.Kind.OrDefault()
 		g.Platforms = domain.NormalizeLabels(g.Platforms)
+		g.Kind = g.Kind.OrDefault()
 		size, err := goalSize(g.Size)
 		if err != nil {
 			return err
