@@ -33,7 +33,7 @@ func (s *Service) signIn(ctx context.Context, conn domain.Connection, c Claims, 
 		if err != nil {
 			return err
 		}
-		user, err := resolveUser(ctx, tx, conn, c, proven, inv)
+		user, err := resolveUser(ctx, tx, conn, c, proven, inv, s.cfg.Policy.Provisions(conn))
 		if err != nil {
 			return err
 		}
@@ -48,9 +48,17 @@ func (s *Service) signIn(ctx context.Context, conn domain.Connection, c Claims, 
 		if user, err = s.syncAdmin(ctx, tx, user, conn, c, proven); err != nil {
 			return err
 		}
+		if err := s.cfg.Policy.Admit(ctx, tx, conn, c, user); err != nil {
+			return err
+		}
 		account, err := organization(ctx, tx, user, conn, f.Org, inv)
 		if err != nil {
 			return err
+		}
+		if account != uuid.Nil() {
+			if err := enterThrough(ctx, tx, user, account, conn.ID); err != nil {
+				return err
+			}
 		}
 		if err := tx.Users().Seen(ctx, user.ID); err != nil {
 			return err
@@ -120,9 +128,9 @@ func invited(inv domain.Invitation, conn domain.Connection, c Claims, proven boo
 }
 
 // resolveUser finds the user of a sign-in by identity, then by proven email
-// (linking the identity), then creates one for an invitation. Anyone else is
-// refused.
-func resolveUser(ctx context.Context, tx store.Store, conn domain.Connection, c Claims, proven bool, inv *domain.Invitation) (domain.User, error) {
+// (linking the identity), then creates one for an invitation or for a
+// connection that provisions people. Anyone else is refused.
+func resolveUser(ctx context.Context, tx store.Store, conn domain.Connection, c Claims, proven bool, inv *domain.Invitation, provisions bool) (domain.User, error) {
 	id, err := tx.Identities().GetBySubject(ctx, conn.ID, c.Subject)
 	if err == nil {
 		if err := tx.Identities().Seen(ctx, id.ID, c.Login, c.Email); err != nil {
@@ -147,7 +155,7 @@ func resolveUser(ctx context.Context, tx store.Store, conn domain.Connection, c 
 	}
 	switch {
 	case user.ID != uuid.Nil():
-	case inv == nil:
+	case inv == nil && !provisions:
 		return domain.User{}, refusal(reasonNoMembership)
 	default:
 		user = domain.User{Name: displayName(c), Email: c.Email, EmailVerified: proven}
@@ -171,6 +179,9 @@ func displayName(c Claims) string {
 
 // accept records the acceptance and gives the membership and the roles.
 func accept(ctx context.Context, tx store.Store, inv domain.Invitation, userID uuid.UUID) error {
+	if err := inviterCovers(ctx, tx, inv); err != nil {
+		return err
+	}
 	inv, err := tx.Invitations().Accept(ctx, inv.AccountID, inv.ID, userID)
 	if errors.Is(err, store.ErrConflict) {
 		return refusal(reasonInvitation)
@@ -183,6 +194,59 @@ func accept(ctx context.Context, tx store.Store, inv domain.Invitation, userID u
 		return err
 	}
 	return audit(ctx, tx, by, "invitation.accepted", "invitation", inv.ID, nil)
+}
+
+// inviterCovers refuses an invitation whose inviter no longer holds what it
+// gives: No escalation counts at acceptance too, or a demoted Admin's old link
+// would still make an Admin. An instance admin, who holds no role, and the
+// actors that are not a user or service account are not checked.
+func inviterCovers(ctx context.Context, tx store.Store, inv domain.Invitation) error {
+	by, err := domain.ParseActor(inv.InvitedBy)
+	if err != nil {
+		return refusal(reasonInvitation)
+	}
+	id, ok := by.SubjectID()
+	if !ok {
+		return nil
+	}
+	kind := domain.SubjectServiceAccount
+	if by.Kind == domain.ActorUser {
+		kind = domain.SubjectUser
+		u, err := tx.Users().Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		if u.InstanceAdmin {
+			return nil
+		}
+	}
+	bound, err := tx.RoleBindings().Effective(ctx, inv.AccountID, kind, id)
+	if err != nil {
+		return err
+	}
+	for _, g := range inv.Grants {
+		role, err := tx.Roles().Get(ctx, inv.AccountID, g.RoleID)
+		if errors.Is(err, store.ErrNotFound) {
+			return refusal(reasonInvitation)
+		}
+		if err != nil {
+			return err
+		}
+		for _, p := range role.Permissions {
+			if !holds(bound, p, g.ProjectID) {
+				return refusal(reasonInvitation)
+			}
+		}
+	}
+	return nil
+}
+
+// holds says whether a binding of bound gives p at the scope of a grant: an
+// organization binding, or one on that project.
+func holds(bound []store.BoundRole, p domain.Permission, project uuid.UUID) bool {
+	return slices.ContainsFunc(bound, func(b store.BoundRole) bool {
+		return b.Role.Has(p) && (b.Binding.ProjectID == uuid.Nil() || (project != uuid.Nil() && b.Binding.ProjectID == project))
+	})
 }
 
 // Join makes the user an active member with the roles: it creates the
@@ -294,13 +358,24 @@ func organization(ctx context.Context, tx store.Store, u domain.User, conn domai
 	if err != nil {
 		return uuid.Nil(), err
 	}
-	active := []uuid.UUID{}
+	active, closed := []uuid.UUID{}, false
 	for _, m := range memberships {
-		if m.Status == domain.MembershipActive {
+		if m.Status != domain.MembershipActive {
+			continue
+		}
+		ok, _, err := ssoAllows(ctx, tx, u, m.AccountID, conn.ID)
+		if err != nil {
+			return uuid.Nil(), err
+		}
+		if ok {
 			active = append(active, m.AccountID)
 		}
+		closed = closed || !ok
 	}
 	if len(active) == 0 && !u.InstanceAdmin {
+		if closed {
+			return uuid.Nil(), refusal(reasonSSORequired)
+		}
 		return uuid.Nil(), refusal(reasonNoMembership)
 	}
 	want := conn.AccountID
@@ -321,12 +396,51 @@ func organization(ctx context.Context, tx store.Store, u domain.User, conn domai
 	switch {
 	case want != uuid.Nil() && slices.Contains(active, want):
 		return want, nil
+	case want != uuid.Nil() && !u.InstanceAdmin && closed:
+		return uuid.Nil(), refusal(reasonSSORequired)
 	case want != uuid.Nil() && !u.InstanceAdmin:
 		return uuid.Nil(), refusal(reasonNoMembership)
 	case want == uuid.Nil() && len(active) == 1:
 		return active[0], nil
 	}
 	return uuid.Nil(), nil
+}
+
+// enterThrough refuses a session in an organization that requires another
+// connection of the user. An instance admin and a break-glass sign-in, without
+// a connection, are exempt, and each such entry is audited there.
+func enterThrough(ctx context.Context, tx store.Store, u domain.User, account, connection uuid.UUID) error {
+	ok, exempt, err := ssoAllows(ctx, tx, u, account, connection)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return refusal(reasonSSORequired)
+	}
+	if !exempt {
+		return nil
+	}
+	data, err := json.Marshal(map[string]string{"connection_id": connection.String()})
+	if err != nil {
+		return err
+	}
+	return audit(ctx, tx, domain.UserActor(account, u.ID, domain.Credential{}), "sso.exempted", "user", u.ID, data)
+}
+
+// ssoAllows says whether connection opens the organization for u, and whether
+// that is only because u is exempt from what the organization enforces.
+func ssoAllows(ctx context.Context, st store.Store, u domain.User, account, connection uuid.UUID) (ok, exempt bool, err error) {
+	enforced, err := store.EnforcedConnections(ctx, st, account, u.ID)
+	if err != nil {
+		return false, false, err
+	}
+	if len(enforced) == 0 || slices.Contains(enforced, connection) {
+		return true, false, nil
+	}
+	if u.InstanceAdmin || connection == uuid.Nil() {
+		return true, true, nil
+	}
+	return false, false, nil
 }
 
 // newSession stores the session of token: a new ID at every sign-in.

@@ -89,6 +89,13 @@ func tokenCaller(ctx context.Context, st store.Store, token string, now time.Tim
 		if err != nil {
 			return c, t, err
 		}
+		limit, err := store.PersonalTokenCap(ctx, st, t.AccountID, t.OwnerID)
+		if err != nil {
+			return c, t, err
+		}
+		if limit > 0 && !now.Before(t.CreatedAt.Add(limit)) {
+			return c, t, errNoAccess
+		}
 	case domain.SubjectServiceAccount:
 		sa, err := st.ServiceAccounts().Get(ctx, t.AccountID, t.OwnerID)
 		if errors.Is(err, store.ErrNotFound) || (err == nil && !sa.DisabledAt.IsZero()) {

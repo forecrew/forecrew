@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/domain"
@@ -90,6 +91,13 @@ func (e *engine) commander(ctx context.Context, p domain.Project, ev github.Even
 		return by, true, fmt.Errorf("find the user of %s: %w", ev.Actor, err)
 	}
 	if len(users) == 1 {
+		required, err := e.gitHubClosed(ctx, p.AccountID, users[0])
+		if err != nil {
+			return by, true, err
+		}
+		if required {
+			return by, true, nil // this identity no longer stands for the user here
+		}
 		return domain.UserActor(p.AccountID, users[0], domain.Credential{}), true, nil
 	}
 	bindings, err := e.Store.RoleBindings().List(ctx, p.AccountID, store.RoleBindingFilter{})
@@ -97,6 +105,25 @@ func (e *engine) commander(ctx context.Context, p domain.Project, ev github.Even
 		return by, true, fmt.Errorf("list role bindings: %w", err)
 	}
 	return by, len(bindings) > 0, nil
+}
+
+// gitHubClosed says whether the organization requires a connection of the
+// user that is not GitHub, so their GitHub identity does not act there.
+func (e *engine) gitHubClosed(ctx context.Context, accountID, userID uuid.UUID) (bool, error) {
+	enforced, err := store.EnforcedConnections(ctx, e.Store, accountID, userID)
+	if err != nil {
+		return false, fmt.Errorf("check the sign-in of %s: %w", userID, err)
+	}
+	for _, id := range enforced {
+		c, err := e.Store.Connections().Get(ctx, id)
+		if err != nil {
+			return false, fmt.Errorf("read connection %s: %w", id, err)
+		}
+		if c.Kind == domain.ConnectionGitHub {
+			return false, nil
+		}
+	}
+	return len(enforced) > 0, nil
 }
 
 // permitted runs check for a linked user, whose command needs p, and replies

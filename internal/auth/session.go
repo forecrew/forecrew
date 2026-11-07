@@ -45,6 +45,16 @@ func (s *Service) Resolve(ctx context.Context, token string) (mcp.Caller, error)
 			}
 			c.BreakGlass = true
 		}
+		ok, _, err := ssoAllows(ctx, st, user, sess.AccountID, sess.ConnectionID)
+		if err != nil {
+			return mcp.Caller{}, err
+		}
+		if !ok {
+			if err := st.Sessions().Revoke(ctx, user.ID, sess.ID); err != nil {
+				return mcp.Caller{}, err
+			}
+			return mcp.Caller{}, ErrNoSession
+		}
 	}
 	if err := st.Sessions().Touch(ctx, sess.ID, earliest(now.Add(s.cfg.Auth.SessionIdle), sess.ExpiresAt)); err != nil {
 		s.cfg.Logger.WarnContext(ctx, "touch session", "user_id", user.ID, "error", err)
@@ -101,6 +111,9 @@ func (s *Service) Switch(ctx context.Context, c mcp.Caller, slug string) (domain
 		if err := enter(ctx, tx, c, id, acc.ID); err != nil {
 			return err
 		}
+		if err := checkSSO(ctx, tx, id, c.Actor.Credential.ID, acc.ID); err != nil {
+			return err
+		}
 		return tx.Sessions().SetAccount(ctx, c.Actor.Credential.ID, acc.ID)
 	})
 	return acc, err
@@ -128,6 +141,28 @@ func enter(ctx context.Context, tx store.Store, c mcp.Caller, userID, accountID 
 		return fmt.Errorf("audit instance admin: %w", err)
 	}
 	return nil
+}
+
+// checkSSO refuses to move a session into an organization that requires
+// another connection of its user, as signing in there would be refused.
+func checkSSO(ctx context.Context, tx store.Store, userID, sessionID, accountID uuid.UUID) error {
+	sessions, err := tx.Sessions().ListByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(sessions, func(x domain.Session) bool { return x.ID == sessionID })
+	if i < 0 {
+		return ErrNoSession
+	}
+	u, err := tx.Users().Get(ctx, userID)
+	if err != nil {
+		return err
+	}
+	err = enterThrough(ctx, tx, u, accountID, sessions[i].ConnectionID)
+	if _, ok := errors.AsType[*refused](err); ok {
+		return ErrSSORequired
+	}
+	return err
 }
 
 // checkOrigin refuses to move a session out of the organization whose

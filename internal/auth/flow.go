@@ -188,7 +188,7 @@ func (s *Service) callback(w http.ResponseWriter, r *http.Request) {
 		s.testResult(w, r, conn, tester, claims)
 		return
 	}
-	token, err := s.signIn(r.Context(), conn, claims, f, r.UserAgent(), remoteIP(r))
+	token, err := s.signIn(r.Context(), conn, claims, f, r.UserAgent(), RemoteIP(r))
 	if err != nil {
 		s.refuse(w, r, nil, err)
 		return
@@ -226,7 +226,8 @@ func Cookie(token string, maxAge int) *http.Cookie {
 	return &http.Cookie{Name: CookieName, Value: token, Path: "/", MaxAge: maxAge, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode}
 }
 
-func remoteIP(r *http.Request) string {
+// RemoteIP is the address of the client; empty when it cannot be read.
+func RemoteIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil || net.ParseIP(host) == nil {
 		return ""
@@ -253,6 +254,7 @@ const (
 	reasonDisabled          = "user_disabled"
 	reasonSuspended         = "membership_suspended"
 	reasonTestDenied        = "test_denied"
+	reasonSSORequired       = "sso_required"
 )
 
 var reasons = map[string]struct {
@@ -272,6 +274,7 @@ var reasons = map[string]struct {
 	reasonDisabled:        {http.StatusForbidden, "This account is disabled", "Ask your administrator."},
 	reasonSuspended:       {http.StatusForbidden, "Your membership is suspended", "Ask an owner of your organization."},
 	reasonTestDenied:      {http.StatusForbidden, "You cannot test this sign-in", "Sign in as an administrator of the organization that owns it, then start the test again from its settings."},
+	reasonSSORequired:     {http.StatusForbidden, "Your organization requires its single sign-on", "Sign in with your work account: enter your work email on the sign-in page."},
 }
 
 // refused is a sign-in stopped for a reason.

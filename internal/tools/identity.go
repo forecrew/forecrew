@@ -76,6 +76,9 @@ func (s *Service) CreateToken(ctx context.Context, by domain.Actor, in mcp.Creat
 	if err := s.checkScopes(ctx, by, kind, owner, in.Scopes); err != nil {
 		return out, err
 	}
+	if ttl, err = s.cappedTTL(ctx, by, kind, owner, ttl, in.TTL != ""); err != nil {
+		return out, err
+	}
 	secret, err := auth.NewToken(auth.PrefixToken)
 	if err != nil {
 		return out, err
@@ -98,6 +101,23 @@ func (s *Service) CreateToken(ctx context.Context, by domain.Actor, in mcp.Creat
 		return out, err
 	}
 	return mcp.CreateTokenOutput{Token: tokenInfo(by, t), Secret: secret}, nil
+}
+
+// cappedTTL applies the organization's cap on the personal tokens of users
+// under SSO enforcement: a default is shortened, a TTL the caller asked for
+// is refused.
+func (s *Service) cappedTTL(ctx context.Context, by domain.Actor, kind domain.SubjectKind, owner uuid.UUID, ttl time.Duration, asked bool) (time.Duration, error) {
+	if kind != domain.SubjectUser {
+		return ttl, nil
+	}
+	limit, err := store.PersonalTokenCap(ctx, s.cfg.Store, by.AccountID, owner)
+	if err != nil || limit == 0 || ttl <= limit {
+		return ttl, err
+	}
+	if asked {
+		return 0, fmt.Errorf("ttl %s is above this organization's limit of %s: %w", ttl, limit, mcp.ErrInvalidInput)
+	}
+	return limit, nil
 }
 
 // tokenOwner returns who a new token belongs to: the calling user, or the
