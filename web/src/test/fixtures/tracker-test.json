@@ -1,0 +1,55 @@
+{
+  "connection": "jira",
+  "ok": true,
+  "checks": [
+    {
+      "name": "address",
+      "ok": true,
+      "detail": "Jira data_center 10.3.1 at https://jira.acme.local/jira"
+    },
+    {
+      "name": "certificate",
+      "ok": true,
+      "detail": "trusted"
+    },
+    {
+      "name": "login",
+      "ok": true,
+      "detail": "signed in as Forecrew (JIRAUSER10200)"
+    },
+    {
+      "name": "projects",
+      "ok": true,
+      "detail": "ENG, MOBILE: browse, comment and transition"
+    },
+    {
+      "name": "transitions",
+      "ok": true,
+      "detail": "5 statuses"
+    },
+    {
+      "name": "routes",
+      "ok": true,
+      "detail": "2 routes map to states the tracker has"
+    }
+  ],
+  "states": [
+    {
+      "name": "To Do"
+    },
+    {
+      "name": "In Progress"
+    },
+    {
+      "name": "Code Review"
+    },
+    {
+      "name": "Ready for agents"
+    },
+    {
+      "name": "Done",
+      "closed": true
+    }
+  ]
+}
+

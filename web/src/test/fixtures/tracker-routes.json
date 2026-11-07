@@ -1,0 +1,60 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000930",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "connection_id": "018f0000-0000-7000-8000-000000000920",
+    "position": 1,
+    "match": {
+      "project": "ENG",
+      "labels": [
+        "forecrew"
+      ]
+    },
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "states": {
+      "done": "Done",
+      "in_progress": "In Progress"
+    },
+    "created_at": "2026-02-28T22:40:00Z",
+    "updated_at": "2026-02-28T22:40:00Z",
+    "connection": "jira",
+    "project": "app"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000931",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "connection_id": "018f0000-0000-7000-8000-000000000920",
+    "position": 2,
+    "match": {
+      "project": "MOBILE",
+      "types": [
+        "Bug"
+      ]
+    },
+    "project_id": "018f0000-0000-7000-8000-000000000012",
+    "states": {
+      "done": "Done"
+    },
+    "warning": "no transition of MOBILE-4 reaches Done; it offers In Progress, Won't Do",
+    "created_at": "2026-02-28T22:40:00Z",
+    "updated_at": "2026-02-28T22:40:00Z",
+    "connection": "jira",
+    "project": "mobile"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000932",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "connection_id": "018f0000-0000-7000-8000-000000000921",
+    "position": 1,
+    "match": {
+      "project": "ENG"
+    },
+    "project_id": "018f0000-0000-7000-8000-000000000010",
+    "states": null,
+    "created_at": "2026-02-28T22:40:00Z",
+    "updated_at": "2026-02-28T22:40:00Z",
+    "connection": "linear",
+    "project": "app"
+  }
+]
+
