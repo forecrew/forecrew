@@ -336,7 +336,7 @@ func registerTools(srv *sdk.Server, svc ToolService, engine *authz.Engine, logge
 }
 
 func registerProviderTools(r registrar, svc ToolService) {
-	org := "Organization slug; left out, the server's organization when it has only one, otherwise instance-wide, for instance admins."
+	org := "Organization slug, or instance for an instance-wide location, for instance admins. Required on a server with several organizations; left out, the server's only one."
 	register(r, ToolCreateProvider, "Add a capacity provider (location) served by a fleet agent, for scripts and air-gapped sites. The answer holds its token, shown this once; a join code shows no token to anyone.",
 		fieldDocs{"name": "Provider name.", "kind": "What it runs on: microvm, proxmox, hyperv, tart or aws.", "org": org},
 		func(ctx context.Context, by domain.Actor, in CreateProviderInput) (toolResult, error) {

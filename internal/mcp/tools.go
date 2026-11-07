@@ -866,8 +866,8 @@ type ImageInfo struct {
 }
 
 // CreateProviderInput is the input of create_provider. Org is an
-// organization's slug; empty means the server's organization when it has only
-// one, and instance-wide otherwise (fleet.md, Ownership).
+// organization's slug or fleet.OrgInstance; empty means the server's
+// organization, and is refused when it has several (fleet.md, Ownership).
 type CreateProviderInput struct {
 	Name string              `json:"name"`
 	Kind domain.ProviderKind `json:"kind"`

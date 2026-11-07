@@ -25,7 +25,8 @@ Nobody sees a token this way, and the code alone gives access to nothing.
    forecrew provider join
    ```
 
-   On a server with several organizations add `--org <slug>`.
+   On a server with several organizations `--org <slug>` is required, or
+   `--org instance` for an instance-wide location, as an instance admin.
 
 2. On the machine, run the install script as root. Keep the code off the command
    line, where every user of the machine could read it:

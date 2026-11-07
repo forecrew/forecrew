@@ -250,6 +250,9 @@ func (s *Service) providerOrg(ctx context.Context, by domain.Actor, slug string)
 		return uuid.Nil(), err
 	}
 	id, err := fleet.ProviderOrganization(ctx, s.cfg.Store, slug)
+	if errors.Is(err, fleet.ErrOrgRequired) {
+		return uuid.Nil(), fmt.Errorf("%w: %w", err, mcp.ErrInvalidInput)
+	}
 	if err != nil {
 		return uuid.Nil(), notFound(err, "organization "+slug)
 	}
@@ -262,7 +265,7 @@ func (s *Service) providerOrg(ctx context.Context, by domain.Actor, slug string)
 			return uuid.Nil(), err
 		}
 		if !admin {
-			return uuid.Nil(), fmt.Errorf("an instance-wide location needs an instance admin; name your organization with org: %w", authz.ErrDenied)
+			return uuid.Nil(), fmt.Errorf("an instance-wide location needs an instance admin: %w", authz.ErrDenied)
 		}
 		return id, nil
 	}

@@ -55,9 +55,11 @@ before that, or loses the answer, needs a new code.
 **`forecrew provider add <name> --kind <kind> [--org <slug>]`** prints a token
 once, for scripts and air-gapped sites.
 
-Without `--org`, both use the server's organization when it has only one.
-On a server with several that means an instance-wide location, which only an
-instance admin can make. Nobody can make a location for another organization.
+Without `--org`, both use the server's organization when it has only one. A
+server with several refuses that: name a slug, or `--org instance` for an
+instance-wide location, which only an instance admin can make. So nothing becomes
+instance-wide by accident, and an organization with the slug `instance` cannot be
+named here. Nobody can make a location for another organization.
 
 `forecrew provider revoke <name>` stops the token at once and for good, a poll
 that was waiting included. The agent logs why and stops; no service manager
