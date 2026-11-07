@@ -350,9 +350,13 @@ func (r connectionRepo) Create(ctx context.Context, c *domain.Connection) error 
 		c.ID, opt(c.AccountID), c.Kind, c.Name, c.Issuer, c.ClientID, c.ClientSecretRef, jit, c.GroupClaim, c.Enabled).Scan(&c.CreatedAt, &c.UpdatedAt))
 }
 
+// Lock is FOR NO KEY UPDATE, not FOR UPDATE: every row that references the
+// connection (sessions, identities, group mappings) holds FOR KEY SHARE on
+// it, which FOR UPDATE conflicts with and this does not, so a sign-in cannot
+// deadlock with whoever holds the lock. Two lockers still exclude each other.
 func (r connectionRepo) Lock(ctx context.Context, id uuid.UUID) error {
 	var locked int
-	return mapErr(r.db.QueryRow(ctx, `SELECT 1 FROM connections WHERE id = $1 FOR UPDATE`, id).Scan(&locked))
+	return mapErr(r.db.QueryRow(ctx, `SELECT 1 FROM connections WHERE id = $1 FOR NO KEY UPDATE`, id).Scan(&locked))
 }
 
 func (r connectionRepo) Get(ctx context.Context, id uuid.UUID) (domain.Connection, error) {

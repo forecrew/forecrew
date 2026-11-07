@@ -614,3 +614,49 @@ func TestConnectionTestOrder(t *testing.T) {
 		t.Fatalf("lock of no row: %v", err)
 	}
 }
+
+// TestConnectionLockDoesNotDeadlockWithSignIn: a sign-in holds the
+// organization row and then writes a row that references the connection (an
+// identity), while a test, an apply or an enable holds the connection and
+// then wants the organization row. FOR UPDATE on the connection conflicts
+// with the KEY SHARE lock of the reference and the two wait for each other;
+// the lock of the connection does not.
+func TestConnectionLockDoesNotDeadlockWithSignIn(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	c := domain.Connection{AccountID: f.account, Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://a.example.com", ClientID: "c1", ClientSecretRef: "env:FORECREW_CONN_OKTA"}
+	must(t, f.st.Connections().Create(ctx, &c))
+	u := domain.User{Name: "Ana", Email: "ana@example.com", EmailVerified: true}
+	must(t, f.st.Users().Create(ctx, &u))
+
+	connLocked, accountLocked := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 2)
+	go func() { // whoever changes the connection
+		done <- f.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+			if err := tx.Connections().Lock(ctx, c.ID); err != nil {
+				return err
+			}
+			close(connLocked)
+			<-accountLocked
+			return tx.Accounts().Lock(ctx, f.account)
+		})
+	}()
+	go func() { // the sign-in
+		done <- f.st.WithTx(ctx, func(ctx context.Context, tx store.Store) error {
+			<-connLocked
+			if err := tx.Accounts().Lock(ctx, f.account); err != nil {
+				return err
+			}
+			close(accountLocked)
+			return tx.Identities().Create(ctx, &domain.Identity{UserID: u.ID, ConnectionID: c.ID, Subject: "sub-1", Login: "ana"})
+		})
+	}()
+	for range 2 {
+		select {
+		case err := <-done:
+			must(t, err)
+		case <-time.After(15 * time.Second):
+			t.Fatal("deadlock: neither transaction ended")
+		}
+	}
+}

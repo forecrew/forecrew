@@ -1039,9 +1039,10 @@ type ConnectionRepo interface {
 	// GroupClaim and Enabled.
 	Update(ctx context.Context, c *domain.Connection) error
 	// Lock takes the row of connection id for the rest of the transaction
-	// (SELECT ... FOR UPDATE; ErrNotFound if there is none), so what changes
-	// a connection and what records or clears its test run one after the
-	// other.
+	// (SELECT ... FOR NO KEY UPDATE, so rows that reference the connection,
+	// which share its key, do not wait for it or deadlock with it; ErrNotFound
+	// if there is none), so what changes a connection and what records or
+	// clears its test run one after the other.
 	Lock(ctx context.Context, id uuid.UUID) error
 	AddGroupMapping(ctx context.Context, m *domain.GroupMapping) error
 	RemoveGroupMapping(ctx context.Context, accountID, id uuid.UUID) error

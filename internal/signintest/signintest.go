@@ -14,12 +14,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/store"
 )
+
+// ErrChanged is Record's refusal: the connection changed during the test.
+var ErrChanged = errors.New("the connection changed during the test; test again")
 
 // Audit actions of a connection's tests.
 const (
@@ -56,7 +60,7 @@ func Record(ctx context.Context, st store.Store, by domain.Actor, c domain.Conne
 			return err
 		}
 		if Fingerprint(stored) != Fingerprint(c) {
-			return fmt.Errorf("connection %s changed while it was tested: %w", c.Name, store.ErrConflict)
+			return fmt.Errorf("%w: %w", ErrChanged, store.ErrConflict)
 		}
 		return append1(ctx, tx, by, ActionTested, c, data{Fingerprint: Fingerprint(c)})
 	})

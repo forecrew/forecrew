@@ -67,7 +67,8 @@ func oidc(issuer, clientID string, enabled bool) map[string]any {
 }
 
 // A plan, like the other ways, turns a connection on only after a test
-// sign-in worked for its issuer and client ID, and whoever wrote the plan.
+// sign-in worked for its kind, issuer, client ID and secret reference, and
+// whoever wrote the plan.
 func TestPlanEnablesConnectionOnlyAfterTest(t *testing.T) {
 	ctx := t.Context()
 	w := newWorld(t)
