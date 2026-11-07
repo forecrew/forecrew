@@ -47,7 +47,10 @@
       "status": "online",
       "in_use": 0,
       "capacity": 0,
-      "cost": "Free"
+      "cost": "Free",
+      "problems": [
+        "Codex was downloaded on Build Box 1 but did not match its checksum, so it was deleted: check for a proxy that changes downloads; it tries again within the hour"
+      ]
     }
   ],
   "queue": [

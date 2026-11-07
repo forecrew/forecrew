@@ -1,0 +1,73 @@
+[
+  {
+    "kind": "model_assignment",
+    "name": "organization",
+    "spec": {
+      "project_overrides": true,
+      "roles": {
+        "architect": {
+          "connection": "claude",
+          "tier": "best"
+        },
+        "developer": {
+          "connection": "claude",
+          "tier": "strong"
+        },
+        "facilitator": {
+          "connection": "deepseek",
+          "tier": "fast"
+        },
+        "product-owner": {
+          "connection": "claude",
+          "tier": "best"
+        },
+        "reviewer": {
+          "connection": "deepseek",
+          "tier": "strong"
+        },
+        "security-reviewer": {
+          "connection": "deepseek",
+          "tier": "strong"
+        },
+        "test-engineer": {
+          "connection": "claude",
+          "tier": "strong"
+        },
+        "triage": {
+          "connection": "deepseek",
+          "tier": "fast"
+        }
+      },
+      "tiers": {
+        "best": {
+          "anthropic": "claude-opus-4-5",
+          "deepseek": "deepseek-reasoner"
+        },
+        "fast": {
+          "deepseek": "deepseek-chat"
+        },
+        "strong": {
+          "anthropic": "claude-sonnet-4-5",
+          "deepseek": "deepseek-chat"
+        }
+      }
+    },
+    "scope": "organization",
+    "origin": "database"
+  },
+  {
+    "kind": "model_assignment",
+    "name": "project:app",
+    "spec": {
+      "roles": {
+        "reviewer": {
+          "connection": "home-ollama",
+          "tier": "fast"
+        }
+      }
+    },
+    "scope": "project",
+    "origin": "database"
+  }
+]
+

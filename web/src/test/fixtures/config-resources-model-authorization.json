@@ -1,0 +1,10 @@
+[
+  {
+    "kind": "model_authorization",
+    "name": "deepseek@app",
+    "spec": {},
+    "scope": "project",
+    "origin": "database"
+  }
+]
+

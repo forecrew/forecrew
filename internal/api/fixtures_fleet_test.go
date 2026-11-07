@@ -75,7 +75,8 @@ func fixtureOverview() fleet.Overview {
 			{ID: fid(700), Kind: fleet.LocationProvider, Name: "Home Server", Runs: "Linux", Status: fleet.StatusOnline, InUse: 2, Capacity: 3, Cost: "Free"},
 			{ID: fid(701), Kind: fleet.LocationProvider, Name: "Mac Mini", Runs: "macOS", Status: fleet.StatusOffline, InUse: 0, Capacity: 2, Cost: "Free"},
 			{ID: fid(702), Kind: fleet.LocationProvider, Name: "Aws Frankfurt", Runs: "Linux", Status: fleet.StatusOnline, InUse: 0, Capacity: 20, Cost: "About CHF 0.04 per minute"},
-			{ID: fid(60), Kind: fleet.LocationComputer, Name: "build-box-1", Runs: "Linux, directly", Status: fleet.StatusOnline, InUse: 0, Cost: "Free"},
+			{ID: fid(60), Kind: fleet.LocationComputer, Name: "build-box-1", Runs: "Linux, directly", Status: fleet.StatusOnline, InUse: 0, Cost: "Free",
+				Problems: []string{"Codex was downloaded on Build Box 1 but did not match its checksum, so it was deleted: check for a proxy that changes downloads; it tries again within the hour"}},
 		},
 		Queue: []fleet.WaitingJob{
 			{Ref: "JOB-42", Role: "reviewer", Code: fleet.ReasonOffline, Sentence: "Only Mac Mini can run this, and it is offline"},

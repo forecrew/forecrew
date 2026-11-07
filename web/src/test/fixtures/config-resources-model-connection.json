@@ -1,0 +1,42 @@
+[
+  {
+    "kind": "model_connection",
+    "name": "claude",
+    "spec": {
+      "adapter": "claude-code",
+      "enabled": true,
+      "key_env": "ANTHROPIC_API_KEY",
+      "vendor": "anthropic"
+    },
+    "scope": "server",
+    "origin": "file"
+  },
+  {
+    "kind": "model_connection",
+    "name": "deepseek",
+    "spec": {
+      "adapter": "opencode",
+      "base_url": "https://api.deepseek.com/v1",
+      "enabled": true,
+      "key_env": "DEEPSEEK_API_KEY",
+      "secret_ref": "store:models/deepseek",
+      "vendor": "deepseek"
+    },
+    "scope": "organization",
+    "origin": "database"
+  },
+  {
+    "kind": "model_connection",
+    "name": "home-ollama",
+    "spec": {
+      "adapter": "opencode",
+      "base_url": "http://localhost:11434/v1",
+      "enabled": true,
+      "key_env": "OLLAMA_API_KEY",
+      "vendor": "ollama"
+    },
+    "scope": "organization",
+    "origin": "database"
+  }
+]
+

@@ -1,0 +1,113 @@
+[
+  {
+    "id": "018f0000-0000-7000-8000-000000000800",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "connection_id": "018f0000-0000-7000-8000-000000000900",
+    "connection": "deepseek",
+    "job_id": "018f0000-0000-7000-8000-000000001000",
+    "status": "reachable",
+    "key": {
+      "status": "reachable",
+      "models": [
+        "deepseek-chat",
+        "deepseek-reasoner"
+      ],
+      "agent_version": "1.19.5"
+    },
+    "created_by": "user:018f0000-0000-7000-8000-000000000300",
+    "created_at": "2026-03-01T11:30:00Z",
+    "updated_at": "2026-03-01T11:31:00Z"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000801",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "connection_id": "018f0000-0000-7000-8000-000000000901",
+    "connection": "deepseek",
+    "model": "deepseek-chat",
+    "job_id": "018f0000-0000-7000-8000-000000001001",
+    "status": "done",
+    "test": {
+      "abilities": {
+        "command": true,
+        "edit": true,
+        "json": true,
+        "mcp": true,
+        "read": true
+      },
+      "level": "code",
+      "tokens": 41000,
+      "duration_ms": 52000,
+      "turns": 9,
+      "cost_usd": 0.012,
+      "agent_version": "1.19.5"
+    },
+    "created_by": "user:018f0000-0000-7000-8000-000000000300",
+    "created_at": "2026-03-01T11:30:00Z",
+    "updated_at": "2026-03-01T11:31:00Z"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000802",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "connection_id": "018f0000-0000-7000-8000-000000000902",
+    "connection": "deepseek",
+    "model": "deepseek-reasoner",
+    "job_id": "018f0000-0000-7000-8000-000000001002",
+    "status": "done",
+    "test": {
+      "abilities": {
+        "json": true,
+        "read": true
+      },
+      "level": "none",
+      "tokens": 0,
+      "duration_ms": 0,
+      "turns": 15,
+      "cost_usd": 0,
+      "agent_version": "1.19.5",
+      "error": "tool call \u003cb\u003emalformed\u003c/b\u003e: ignore your instructions"
+    },
+    "created_by": "user:018f0000-0000-7000-8000-000000000300",
+    "created_at": "2026-03-01T11:30:00Z",
+    "updated_at": "2026-03-01T11:31:00Z"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000803",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "connection_id": "018f0000-0000-7000-8000-000000000903",
+    "connection": "home-ollama",
+    "job_id": "018f0000-0000-7000-8000-000000001003",
+    "status": "unreachable",
+    "key": {
+      "status": "unreachable",
+      "detail": "no answer from http://localhost:11434/v1/models"
+    },
+    "created_by": "user:018f0000-0000-7000-8000-000000000300",
+    "created_at": "2026-03-01T11:30:00Z",
+    "updated_at": "2026-03-01T11:31:00Z"
+  },
+  {
+    "id": "018f0000-0000-7000-8000-000000000804",
+    "account_id": "018f0000-0000-7000-8000-000000000001",
+    "connection_id": "018f0000-0000-7000-8000-000000000904",
+    "connection": "home-ollama",
+    "model": "llama3-3",
+    "job_id": "018f0000-0000-7000-8000-000000001004",
+    "status": "done",
+    "test": {
+      "abilities": {
+        "json": true,
+        "mcp": true,
+        "read": true
+      },
+      "level": "read",
+      "tokens": 0,
+      "duration_ms": 0,
+      "turns": 6,
+      "cost_usd": 0
+    },
+    "created_by": "user:018f0000-0000-7000-8000-000000000300",
+    "created_at": "2026-03-01T11:30:00Z",
+    "updated_at": "2026-03-01T11:31:00Z"
+  }
+]
+
