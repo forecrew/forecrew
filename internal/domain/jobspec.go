@@ -33,8 +33,12 @@ func (s JobSpec) Validate() error {
 		s.checkAgent(&p)
 	case JobKindCommand:
 		s.checkCommand(&p)
+	case JobKindModelCheck:
+		if s.ModelCheck == nil || s.ModelCheck.Connection == "" || s.Prompt != "" || s.Command != nil || len(s.WritePaths) > 0 || s.Toolbox != nil {
+			p.addf("model_check job needs model_check with a connection, and has no prompt, command, write_paths or toolbox")
+		}
 	default:
-		p.addf("kind must be agent or command, got %q", s.Kind)
+		p.addf("kind must be agent, command or model_check, got %q", s.Kind)
 	}
 	return p.err("job spec")
 }

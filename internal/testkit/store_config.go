@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -263,6 +264,7 @@ func (r modelConnectionRepo) Delete(_ context.Context, accountID uuid.UUID, name
 		}
 		id := d.modelConns.rows[i].ID
 		d.modelAuths.rows = slices.DeleteFunc(d.modelAuths.rows, func(x domain.ModelAuthorization) bool { return x.ConnectionID == id })
+		d.modelChecks.rows = slices.DeleteFunc(d.modelChecks.rows, func(x domain.ModelCheck) bool { return x.ConnectionID == id })
 		d.modelConns.rows = slices.Delete(d.modelConns.rows, i, i+1)
 		return nil
 	})
@@ -332,8 +334,8 @@ func (r modelAuthorizationRepo) Put(_ context.Context, a *domain.ModelAuthorizat
 		if err := foreign(&d.projects, a.AccountID, a.ProjectID); err != nil {
 			return err
 		}
-		if err := foreign(&d.modelConns, a.AccountID, a.ConnectionID); err != nil {
-			return err
+		if !d.modelConns.exists(func(x domain.ModelConnection) bool { return x.AccountID == a.AccountID && x.ID == a.ConnectionID }) {
+			return fmt.Errorf("model connection %s: %w", a.ConnectionID, store.ErrNotFound)
 		}
 		a.CreatedAt = now
 		row, err := d.modelAuths.find(func(x domain.ModelAuthorization) bool {
@@ -370,4 +372,67 @@ func (r modelAuthorizationRepo) DeleteConnection(_ context.Context, accountID, c
 		})
 		return nil
 	})
+}
+
+// ModelChecks implements store.Store.
+func (s *Store) ModelChecks() store.ModelCheckRepo { return modelCheckRepo{s} }
+
+type modelCheckRepo struct{ s *Store }
+
+func (r modelCheckRepo) List(_ context.Context, accountID uuid.UUID) ([]domain.ModelCheck, error) {
+	return read(r.s, func(d *storeData) ([]domain.ModelCheck, error) {
+		rows := d.modelChecks.filter(0, func(c domain.ModelCheck) bool { return c.AccountID == accountID })
+		slices.SortFunc(rows, func(a, b domain.ModelCheck) int {
+			return cmp.Or(strings.Compare(a.Connection, b.Connection), strings.Compare(a.Model, b.Model))
+		})
+		return rows, nil
+	})
+}
+
+func (r modelCheckRepo) Put(_ context.Context, c *domain.ModelCheck) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		if !d.modelConns.exists(func(x domain.ModelConnection) bool { return x.AccountID == c.AccountID && x.ID == c.ConnectionID }) {
+			return fmt.Errorf("model connection %s: %w", c.ConnectionID, store.ErrNotFound)
+		}
+		if err := foreign(&d.jobs, c.AccountID, c.JobID); err != nil {
+			return err
+		}
+		row, err := d.modelChecks.find(func(x domain.ModelCheck) bool {
+			return x.AccountID == c.AccountID && x.ConnectionID == c.ConnectionID && x.Model == c.Model
+		})
+		if err != nil {
+			c.ID, c.CreatedAt, c.UpdatedAt = newID(c.ID), now, now
+			d.modelChecks.insert(cloneCheck(*c))
+			return nil
+		}
+		c.ID, c.CreatedAt, c.UpdatedAt = row.ID, row.CreatedAt, now
+		*row = cloneCheck(*c)
+		return nil
+	})
+}
+
+func (r modelCheckRepo) GetByJob(_ context.Context, accountID, jobID uuid.UUID) (domain.ModelCheck, error) {
+	return read(r.s, func(d *storeData) (domain.ModelCheck, error) {
+		row, err := d.modelChecks.find(func(x domain.ModelCheck) bool { return x.AccountID == accountID && x.JobID == jobID })
+		if err != nil {
+			return domain.ModelCheck{}, fmt.Errorf("model check of job %s: %w", jobID, store.ErrNotFound)
+		}
+		return cloneCheck(*row), nil
+	})
+}
+
+// cloneCheck copies a check with its results, so the store shares nothing
+// with its caller.
+func cloneCheck(c domain.ModelCheck) domain.ModelCheck {
+	if c.Key != nil {
+		k := *c.Key
+		k.Models = slices.Clone(k.Models)
+		c.Key = &k
+	}
+	if c.Test != nil {
+		t := *c.Test
+		t.Abilities = maps.Clone(t.Abilities)
+		c.Test = &t
+	}
+	return c
 }

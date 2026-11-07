@@ -273,7 +273,7 @@ func TestCommandJobRequiredLabels(t *testing.T) {
 	if got := j.RequiredLabels(); !slices.Equal(got, []string{"docker", "go"}) {
 		t.Fatalf("RequiredLabels = %v", got)
 	}
-	if !slices.Equal(JobKinds(), []JobKind{JobKindAgent, JobKindCommand}) || JobKindCommand.OrDefault() != JobKindCommand {
+	if !slices.Equal(JobKinds(), []JobKind{JobKindAgent, JobKindCommand, JobKindModelCheck}) || JobKindCommand.OrDefault() != JobKindCommand {
 		t.Fatalf("JobKinds = %v", JobKinds())
 	}
 }

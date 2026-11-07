@@ -106,6 +106,7 @@ type Store interface {
 	ModelConnections() ModelConnectionRepo
 	ModelAssignments() ModelAssignmentRepo
 	ModelAuthorizations() ModelAuthorizationRepo
+	ModelChecks() ModelCheckRepo
 	Secrets() SecretRepo
 	Conversations() ConversationRepo
 	ProviderJoinCodes() ProviderJoinCodeRepo
@@ -1546,6 +1547,19 @@ type ModelAuthorizationRepo interface {
 	Delete(ctx context.Context, accountID, connectionID, projectID uuid.UUID) error
 	// DeleteConnection removes every row of a connection.
 	DeleteConnection(ctx context.Context, accountID, connectionID uuid.UUID) error
+}
+
+// ModelCheckRepo stores the last key check of each connection and the last
+// suitability test of each of its models. A connection's rows go with it.
+type ModelCheckRepo interface {
+	// List returns the rows of the account, by connection then model.
+	List(ctx context.Context, accountID uuid.UUID) ([]domain.ModelCheck, error)
+	// Put creates or replaces the row of (account, connection, model). A
+	// connection or job of another account is ErrNotFound.
+	Put(ctx context.Context, c *domain.ModelCheck) error
+	// GetByJob returns the row of a job; ErrNotFound when a newer check
+	// replaced it.
+	GetByJob(ctx context.Context, accountID, jobID uuid.UUID) (domain.ModelCheck, error)
 }
 
 // SecretRepo stores encrypted secrets; internal/secrets holds the key. The

@@ -64,7 +64,7 @@ pools:                                        # optional; these are the defaults
     credentials: {runtimes: ["*"], repo_token: write}
   control:
     roles: ["*"]
-    kinds: [agent]
+    kinds: [agent, model_check]
     credentials: {runtimes: ["*"], repo_token: read}
   actions:
     roles: []
@@ -186,7 +186,7 @@ custom endpoint receives the repo code in the prompts and the runtime's key.
 | `policy.accept_recommendations` | list of council kinds | no | empty | Council kinds (`domain.CouncilKind`) whose recommendation is accepted without a human; the decision is recorded as `policy`. Empty means every brief opens a `council_decision` gate. `reversible` is declared by the facilitator, an agent, and nothing verifies it, so this policy rests on that claim. A brief is accepted only when it says `reversible` and no member other than the devil's advocate, whose dissent its seat requires, dissents or votes against the recommendation. |
 | `pools` | map name → pool | no | `build`, `control`, `actions` as above | Worker pools (`config.Pool`). Names are `domain.ValidName`s. An entry replaces the default of the same name; the defaults not redefined always exist. Every worker belongs to one pool (worker-api.md, Pools). |
 | `pools.<name>.roles` | list of strings | no | empty | Roles whose agent jobs the pool runs, or `"*"` for all. Not used for command jobs. |
-| `pools.<name>.kinds` | list of `agent` \| `command` | yes | | Job kinds the pool runs. |
+| `pools.<name>.kinds` | list of `agent` \| `command` \| `model_check` | yes | | Job kinds the pool runs. `model_check` is the key check of a model connection (config-resources.md, Model checks), which runs in `control`. |
 | `pools.<name>.credentials.runtimes` | list of strings | no | empty | Runtimes (keys of `runtimes`) whose `credential_env` the pool's jobs may receive, or `"*"`. A job whose runtime is not listed is leased without `env`. |
 | `pools.<name>.credentials.repo_token` | `write` \| `read` \| `none` | yes | | Widest repo token scope the pool's jobs receive. A writing role's job is refused in a pool without `write`. |
 | `max_test_results_size` | integer bytes | no | `33554432` (32 MiB) | Largest request body of `complete` (worker-api.md), which carries the test results of a command job; larger bodies get `413`. Every other worker API request is limited to 1 MiB. |

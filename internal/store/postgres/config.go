@@ -339,3 +339,61 @@ func (r modelAuthorizationRepo) DeleteConnection(ctx context.Context, accountID,
 	_, err := r.db.Exec(ctx, `DELETE FROM model_authorizations WHERE account_id = $1 AND connection_id = $2`, accountID, connectionID)
 	return mapErr(err)
 }
+
+type modelCheckRepo struct{ db dbtx }
+
+const modelCheckCols = `id, account_id, connection_id, connection, model, job_id, status, result, stale, created_by, created_at, updated_at`
+
+func scanModelCheck(row pgx.Row) (c domain.ModelCheck, err error) {
+	var result []byte
+	if err = row.Scan(&c.ID, &c.AccountID, &c.ConnectionID, &c.Connection, &c.Model, &c.JobID, &c.Status, &result, &c.Stale, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		return c, err
+	}
+	utc(&c.CreatedAt, &c.UpdatedAt)
+	if len(result) == 0 || string(result) == "null" {
+		return c, nil
+	}
+	if c.Model == "" {
+		c.Key = &domain.ModelCheckResult{}
+		err = json.Unmarshal(result, c.Key)
+	} else {
+		c.Test = &domain.SuitabilityResult{}
+		err = json.Unmarshal(result, c.Test)
+	}
+	if err != nil {
+		return c, fmt.Errorf("decode model check: %w", err)
+	}
+	return c, nil
+}
+
+func (r modelCheckRepo) List(ctx context.Context, accountID uuid.UUID) ([]domain.ModelCheck, error) {
+	return many(ctx, r.db, scanModelCheck, `SELECT `+modelCheckCols+` FROM model_checks WHERE account_id = $1 ORDER BY connection, model`, accountID)
+}
+
+func (r modelCheckRepo) Put(ctx context.Context, c *domain.ModelCheck) error {
+	c.ID = newID(c.ID)
+	if err := owned(ctx, r.db, c.AccountID, ref{"model_connections", c.ConnectionID}, ref{"jobs", c.JobID}); err != nil {
+		return err
+	}
+	var result any
+	switch {
+	case c.Key != nil:
+		result = c.Key
+	case c.Test != nil:
+		result = c.Test
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO model_checks (id, account_id, connection_id, connection, model, job_id, status, result, stale, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8::jsonb, 'null'), $9, $10)
+		ON CONFLICT (account_id, connection_id, model) DO UPDATE SET connection = EXCLUDED.connection, job_id = EXCLUDED.job_id, status = EXCLUDED.status,
+			result = EXCLUDED.result, stale = EXCLUDED.stale, created_by = EXCLUDED.created_by, updated_at = now()
+		RETURNING id, created_at, updated_at`,
+		c.ID, c.AccountID, c.ConnectionID, c.Connection, c.Model, c.JobID, c.Status, raw, c.Stale, c.CreatedBy).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt))
+}
+
+func (r modelCheckRepo) GetByJob(ctx context.Context, accountID, jobID uuid.UUID) (domain.ModelCheck, error) {
+	return one(ctx, r.db, scanModelCheck, `SELECT `+modelCheckCols+` FROM model_checks WHERE account_id = $1 AND job_id = $2`, accountID, jobID)
+}

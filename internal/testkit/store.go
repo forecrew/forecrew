@@ -80,6 +80,7 @@ type storeData struct {
 	modelConns    table[domain.ModelConnection]
 	modelAssigns  table[domain.ModelAssignment]
 	modelAuths    table[domain.ModelAuthorization]
+	modelChecks   table[domain.ModelCheck]
 	conversations table[domain.AssistantConversation]
 	messages      table[domain.AssistantMessage]
 	// jobMCP holds the job MCP token hash of a job with the lease it was
@@ -143,6 +144,7 @@ func NewStore(now func() time.Time) *Store {
 		modelConns:    table[domain.ModelConnection]{key: func(r domain.ModelConnection) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		modelAssigns:  table[domain.ModelAssignment]{key: func(r domain.ModelAssignment) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		modelAuths:    table[domain.ModelAuthorization]{key: func(r domain.ModelAuthorization) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		modelChecks:   table[domain.ModelCheck]{key: func(r domain.ModelCheck) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		conversations: table[domain.AssistantConversation]{key: func(r domain.AssistantConversation) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		messages:      table[domain.AssistantMessage]{key: func(r domain.AssistantMessage) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 	}}}
@@ -196,6 +198,7 @@ func (d *storeData) clone() *storeData {
 	c.modelConns = d.modelConns.clone()
 	c.modelAssigns = d.modelAssigns.clone()
 	c.modelAuths = d.modelAuths.clone()
+	c.modelChecks = d.modelChecks.clone()
 	c.conversations = d.conversations.clone()
 	c.messages = d.messages.clone()
 	return &c
