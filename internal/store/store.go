@@ -1345,8 +1345,9 @@ type TrackerRouteRepo interface {
 	// List returns the routes of a connection in the order they are tried,
 	// or of every connection for the zero ID.
 	List(ctx context.Context, accountID, connectionID uuid.UUID) ([]domain.TrackerRoute, error)
-	// Update changes what a route matches and where it sends tickets; its
-	// connection and position stay.
+	// Update changes what a route matches and where it sends tickets, and
+	// clears its warning, which was about the route before; its connection
+	// and position stay.
 	Update(ctx context.Context, r *domain.TrackerRoute) error
 	// SetWarning sets or, with "", clears the warning of a route.
 	SetWarning(ctx context.Context, accountID, id uuid.UUID, warning string) error

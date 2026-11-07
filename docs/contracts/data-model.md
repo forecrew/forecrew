@@ -1312,7 +1312,7 @@ CREATE TABLE tracker_routes (
   goal_kind     text CHECK (goal_kind IN ('feature','bug')),   -- NULL goes by the ticket's type
   playbook      text,                                          -- NULL is the project's goal playbook
   states        jsonb NOT NULL DEFAULT '{}',   -- logical state -> the tracker's state
-  warning       text NOT NULL DEFAULT '',      -- migration 00013: why the tracker did not take the last state
+  warning       text NOT NULL DEFAULT '',      -- migration 00013: why the tracker did not take the last state; an edit clears it
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now(),
   FOREIGN KEY (account_id, connection_id) REFERENCES tracker_connections (account_id, id) ON DELETE CASCADE,
