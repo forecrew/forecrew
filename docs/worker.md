@@ -43,8 +43,9 @@ name crosses the wire.
   and the worker advertises the new `runtime:<adapter>` label at its next
   poll. A wrong checksum deletes the file. What was installed (version,
   address, SHA-256, time) and the last failure are kept in
-  `<work_dir>/agents/state.json`; a failed install of a version is tried again
-  after an hour at the earliest. An install of another version than the
+  `<work_dir>/agents/state.json`; a failed install of a version is reported
+  for an hour, during which forecrewd does not ask again, and is tried again
+  when asked after that. An install of another version than the
   release's manifest is removed at start and installed again when a job
   needs it.
 - **Reporting.** Each poll lists the agents and their source: `image` on a

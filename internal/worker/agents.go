@@ -515,7 +515,9 @@ func (a *agentInstaller) report(lookPath func(string) (string, error), fleet boo
 		found, err := lookPath(cli.binary)
 		switch {
 		case err != nil:
-			if f, failed := s.Failed[cli.adapter]; failed {
+			// A failure stops being reported once the install may be tried
+			// again, so forecrewd asks again.
+			if f, failed := s.Failed[cli.adapter]; failed && (a == nil || a.manifest.Agents == nil || !a.due(cli.adapter)) {
 				ag.Error = f.Code
 			}
 		case installed && a != nil && filepath.Dir(found) == a.binDir():

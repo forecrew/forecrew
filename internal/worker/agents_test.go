@@ -248,6 +248,9 @@ func TestInstallWrongChecksumIsRefusedAndDeleted(t *testing.T) {
 	if !a.due("codex") {
 		t.Error("a failed install is never tried again")
 	}
+	if r := a.report(a.lookPath, false); !slices.Contains(r, domain.WorkerAgent{Adapter: "codex"}) {
+		t.Errorf("report after an hour = %+v, want the failure gone so forecrewd asks again", r)
+	}
 }
 
 func TestInstallFailures(t *testing.T) {
