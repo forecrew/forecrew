@@ -764,8 +764,9 @@ func connectionRow(ctx context.Context, e *Env, want Resource) (domain.Connectio
 }
 
 // connectionNeeds is permissions.md, No escalation: changing what a
-// connection trusts, or the roles it gives, takes every permission of those
-// roles.
+// connection trusts, or the roles it gives, takes every permission of the
+// roles it gives and gave, and, when what it trusts changes, of the roles of
+// the teams mapped to it, because the new provider decides who joins them.
 func connectionNeeds(ctx context.Context, e *Env, old, want *Resource, fields []domain.ConfigFieldChange) ([]Need, error) {
 	out := need(domain.PermConnectionManage)
 	if want == nil || (old != nil && !touches(fields, append(connectionTrust, "jit")...)) {
@@ -775,12 +776,64 @@ func connectionNeeds(ctx context.Context, e *Env, old, want *Resource, fields []
 	if err != nil {
 		return nil, err
 	}
-	for _, name := range s.JIT.DefaultRoles {
+	names := s.JIT.DefaultRoles
+	if old != nil {
+		o, err := decode[connectionSpec](old.Spec)
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, o.JIT.DefaultRoles...)
+		if touches(fields, connectionTrust...) {
+			teams, err := mappedTeamNeeds(ctx, e, old.Name)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, teams...)
+		}
+	}
+	for _, name := range names {
 		r, err := e.Store.Roles().GetByName(ctx, e.Actor.AccountID, domain.RoleScopeOrganization, name)
 		if err != nil {
 			return nil, missing(err, "role "+name)
 		}
 		out = append(out, need(r.Permissions...)...)
+	}
+	return out, nil
+}
+
+// mappedTeamNeeds are the permissions of the bindings of every team of the
+// organization mapped to its connection called name, each at its scope.
+func mappedTeamNeeds(ctx context.Context, e *Env, name string) ([]Need, error) {
+	conns, err := e.Store.Connections().List(ctx, e.Actor.AccountID)
+	if err != nil {
+		return nil, err
+	}
+	i := slices.IndexFunc(conns, func(c domain.Connection) bool { return c.Name == name })
+	if i < 0 {
+		return nil, nil
+	}
+	mappings, err := e.Store.Connections().GroupMappings(ctx, conns[i].ID)
+	if err != nil {
+		return nil, err
+	}
+	var out []Need
+	for _, m := range mappings {
+		if m.AccountID != e.Actor.AccountID {
+			continue
+		}
+		bindings, err := e.Store.RoleBindings().List(ctx, m.AccountID, store.RoleBindingFilter{SubjectKind: domain.SubjectTeam, SubjectID: m.TeamID})
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range bindings {
+			r, err := e.Store.Roles().Get(ctx, m.AccountID, b.RoleID)
+			if err != nil {
+				return nil, err
+			}
+			for _, p := range r.Permissions {
+				out = append(out, Need{Permission: p, ProjectID: b.ProjectID})
+			}
+		}
 	}
 	return out, nil
 }
