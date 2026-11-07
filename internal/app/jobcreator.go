@@ -109,14 +109,6 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	if err != nil {
 		return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
 	}
-	for _, w := range req.WritePaths {
-		if strings.HasPrefix(w, "!") || !domain.RelativePath(w) || strings.ContainsFunc(w, func(r rune) bool { return unicode.IsControl(r) || r == '`' }) {
-			return uuid.Nil(), fmt.Errorf("create %s job: write_paths: %q must be a glob relative to the repo root, without !, control characters or backticks: %w", req.Role, w, jobs.ErrInvalid)
-		}
-	}
-	// The added paths are the job's, and the role's prompt and the curated
-	// knowledge rules see them.
-	role.WritePaths = slices.Concat(role.WritePaths, req.WritePaths)
 	// The lease mints a token for the job's repo: it must be the project's.
 	if req.Repo != "" && !strings.EqualFold(req.Repo, project.Repo) {
 		return uuid.Nil(), fmt.Errorf("create %s job: repo %s is not the repo of project %s: %w", req.Role, req.Repo, project.Name, jobs.ErrInvalid)
@@ -161,6 +153,26 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	return j.ID, nil
 }
 
+// withWritePaths returns role with the paths of req added to its write paths.
+func withWritePaths(role roles.Role, req workflow.JobRequest) (roles.Role, error) {
+	if err := checkWritePaths(req); err != nil {
+		return role, err
+	}
+	role.WritePaths = slices.Concat(role.WritePaths, req.WritePaths)
+	return role, nil
+}
+
+// checkWritePaths refuses a write path that is not a plain glob under the
+// repo root: like the locked ones it may come from a playbook's action.
+func checkWritePaths(req workflow.JobRequest) error {
+	for _, w := range req.WritePaths {
+		if strings.HasPrefix(w, "!") || !domain.RelativePath(w) || strings.ContainsFunc(w, func(r rune) bool { return unicode.IsControl(r) || r == '`' }) {
+			return fmt.Errorf("create %s job: write_paths: %q must be a glob relative to the repo root, without !, control characters or backticks: %w", req.Role, w, jobs.ErrInvalid)
+		}
+	}
+	return nil
+}
+
 // jobRole resolves the role of req, as a council turn, the review of a
 // knowledge proposal or a task of the role when req is one.
 func (c *jobCreator) jobRole(ctx context.Context, req workflow.JobRequest) (roles.Role, error) {
@@ -185,7 +197,9 @@ func (c *jobCreator) jobRole(ctx context.Context, req workflow.JobRequest) (role
 		}
 		return role.ProposalReviewer(reviewer.OutputSchema), nil
 	}
-	return role, nil
+	// The added write paths are the job's: the role's prompt and the curated
+	// knowledge rules see them. Tasks, councils and reviews stay read-only.
+	return withWritePaths(role, req)
 }
 
 // toolboxJob returns the needs and the allowed tools of a job of role: with a

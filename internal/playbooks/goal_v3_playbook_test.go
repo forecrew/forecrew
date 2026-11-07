@@ -61,7 +61,32 @@ func startGoalV3(t *testing.T, size *domain.GoalSize, registered ...bool) *v3Run
 	}
 	var mu sync.Mutex
 	var calls []councilCall
-	v.actions["council.run"] = func(ctx context.Context, call workflow.ActionCall) (any, error) {
+	v.actions["council.run"] = fakeCouncilRun(v, &mu, &calls)
+	must(t, v.tracker.SetFile("acme/app", "head1", "README.md", []byte("# app\n")))
+	must(t, v.tracker.SetHeadOfBranch("acme/app", "main", "head1"))
+	v.matrixFiles(t, "agent/TASK-1")
+	for round := 1; round <= 4; round++ {
+		v.matrixFiles(t, v2sha(round))
+	}
+	g := v.newGoal(t)
+	if size != nil {
+		must(t, v.st.Goals().SetSize(t.Context(), v.account, g.ID, *size))
+	}
+	r := startRun(t, v, "goal-v3", workflow.StartRequest{
+		AccountID: v.account, ProjectID: v.project.ID, GoalID: g.ID,
+		Inputs: map[string]any{"repo": "acme/app", "goal_id": g.ID.String(), "platforms": g.Platforms},
+	})
+	run := &v2Run{&goalRun{runner: r, goal: g, heads: map[string]int{}}}
+	if regs != nil {
+		run.register = regs
+	}
+	run.workerOnline(t, "linux-box", "docker", "linux")
+	run.workerOnline(t, "windows-box", "windows")
+	return &v3Run{v2Run: run, mu: &mu, calls: &calls}
+}
+
+func fakeCouncilRun(v *env, mu *sync.Mutex, calls *[]councilCall) workflow.Action {
+	return func(ctx context.Context, call workflow.ActionCall) (any, error) {
 		var with councilCall
 		if err := workflow.DecodeWith(call.With, &with); err != nil {
 			return nil, err
@@ -71,7 +96,7 @@ func startGoalV3(t *testing.T, size *domain.GoalSize, registered ...bool) *v3Run
 			return nil, err
 		}
 		mu.Lock()
-		calls = append(calls, with)
+		*calls = append(*calls, with)
 		mu.Unlock()
 		c := domain.Council{ID: id, AccountID: call.Run.AccountID, ProjectID: call.Run.ProjectID, GoalID: call.Run.GoalID, Kind: with.Kind,
 			Question: with.Question, Constraints: with.Constraints, Status: domain.CouncilRunning}
@@ -100,27 +125,6 @@ func startGoalV3(t *testing.T, size *domain.GoalSize, registered ...bool) *v3Run
 		}
 		return map[string]string{"council_id": c.ID.String(), "ref": c.Ref()}, nil
 	}
-	must(t, v.tracker.SetFile("acme/app", "head1", "README.md", []byte("# app\n")))
-	must(t, v.tracker.SetHeadOfBranch("acme/app", "main", "head1"))
-	v.matrixFiles(t, "agent/TASK-1")
-	for round := 1; round <= 4; round++ {
-		v.matrixFiles(t, v2sha(round))
-	}
-	g := v.newGoal(t)
-	if size != nil {
-		must(t, v.st.Goals().SetSize(t.Context(), v.account, g.ID, *size))
-	}
-	r := startRun(t, v, "goal-v3", workflow.StartRequest{
-		AccountID: v.account, ProjectID: v.project.ID, GoalID: g.ID,
-		Inputs: map[string]any{"repo": "acme/app", "goal_id": g.ID.String(), "platforms": g.Platforms},
-	})
-	run := &v2Run{&goalRun{runner: r, goal: g, heads: map[string]int{}}}
-	if regs != nil {
-		run.register = regs
-	}
-	run.workerOnline(t, "linux-box", "docker", "linux")
-	run.workerOnline(t, "windows-box", "windows")
-	return &v3Run{v2Run: run, mu: &mu, calls: &calls}
 }
 
 func triageOutput(impact, reversibility string, areas ...string) map[string]any {
@@ -165,12 +169,6 @@ func (r *v3Run) delivered(t *testing.T) {
 	r.review(t, 0, 1, 1, approveReview())
 	r.pendingGate(t, domain.GateMergeApproval)
 	r.decide(t, domain.GateMergeApproval, mcp.ToolApprove, "")
-}
-
-// retro answers the retro job of the learn step.
-func (r *v3Run) retro(t *testing.T) workflow.JobRequest {
-	t.Helper()
-	return r.answer(t, "learning/1/learn_retro", map[string]any{"summary": "Nothing surprising.", "proposals": []any{}, "assumptions": []any{}}, 0.2)
 }
 
 func (r *v3Run) noStep(t *testing.T, prefix string) {
@@ -416,49 +414,43 @@ func TestGoalV3HighImpactAssumptionBlocksTheMergeGate(t *testing.T) {
 func TestGoalV3KeepsTheMergeGate(t *testing.T) {
 	books, err := workflow.LoadPlaybooks(forecrew.Files, "packs/playbooks")
 	must(t, err)
-	var assess, merges, developers int
-	var walk func(steps []workflow.Step)
-	walk = func(steps []workflow.Step) {
-		for _, s := range steps {
-			switch {
-			case s.Action == "goal.assess":
-				assess++
-				if s.With["require_verification"] != true || s.With["sha"] == nil {
-					t.Errorf("goal.assess lacks the verification or the head: %+v", s.With)
-				}
-			case s.Action == "github.merge_pr" && s.With["require_verification"] != nil:
-				merges++
-				if s.With["require_verification"] != true || s.With["sha"] == nil {
-					t.Errorf("the merge lacks the verification or the head: %+v", s.With)
-				}
-			case s.Type == workflow.StepJob && s.With["role"] == "developer":
-				developers++
-				if s.With["locked_paths"] == nil {
-					t.Errorf("the developer is not locked: %+v", s.With)
-				}
-			}
-			walk(s.Steps)
+	var assess, merges, developers []workflow.Step
+	var others []string
+	walkSteps(books["goal-v3"].Steps, func(s workflow.Step) {
+		switch {
+		case s.Action == "goal.assess":
+			assess = append(assess, s)
+		case s.Action == "github.merge_pr" && s.With["require_verification"] != nil:
+			merges = append(merges, s)
+		case s.Action == "github.merge_pr":
+			others = append(others, s.ID)
+		case s.Type == workflow.StepJob && s.With["role"] == "developer":
+			developers = append(developers, s)
+		}
+	})
+	if len(assess) != 1 || len(merges) != 1 || len(developers) != 1 {
+		t.Fatalf("assess %d, merges %d, developers %d", len(assess), len(merges), len(developers))
+	}
+	for _, s := range append(assess, merges...) {
+		if s.With["require_verification"] != true || s.With["sha"] == nil {
+			t.Errorf("%s lacks the verification or the head: %+v", s.ID, s.With)
 		}
 	}
-	walk(books["goal-v3"].Steps)
-	if assess != 1 || merges != 1 || developers != 1 {
-		t.Errorf("assess %d, merges %d, developers %d", assess, merges, developers)
+	if developers[0].With["locked_paths"] == nil {
+		t.Errorf("the developer is not locked: %+v", developers[0].With)
 	}
 	// Every other merge of the playbook is a docs PR a human approved: the
 	// ADR and the learn PR.
-	var others []string
-	var collect func(steps []workflow.Step)
-	collect = func(steps []workflow.Step) {
-		for _, s := range steps {
-			if s.Action == "github.merge_pr" && s.With["require_verification"] == nil {
-				others = append(others, s.ID)
-			}
-			collect(s.Steps)
-		}
-	}
-	collect(books["goal-v3"].Steps)
 	if !slices.Equal(others, []string{"adr_merge", "learn_merge"}) {
 		t.Errorf("merges without the report: %v", others)
+	}
+}
+
+// walkSteps calls f on every step of steps, nested ones included.
+func walkSteps(steps []workflow.Step, f func(workflow.Step)) {
+	for _, s := range steps {
+		f(s)
+		walkSteps(s.Steps, f)
 	}
 }
 

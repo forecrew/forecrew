@@ -45,7 +45,7 @@ type JobRequest struct {
 	// in the job spec.
 	LockedPaths []string `json:"locked_paths,omitempty" yaml:"locked_paths,omitempty"`
 	// WritePaths are globs added to the role's write paths for this job, so
-	// that a read-only role writes the files they name (the architect's ADR).
+	// that a read-only role writes the files they name (the architect's ADR). Tasks, council turns and proposal reviews stay read-only.
 	// They are for playbook authors: take them from an action, never from a
 	// job's output. The job needs a pool whose policy gives a write token.
 	WritePaths []string `json:"write_paths,omitempty" yaml:"write_paths,omitempty"`
