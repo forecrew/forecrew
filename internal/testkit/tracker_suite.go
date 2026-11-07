@@ -135,6 +135,10 @@ func trackerRoutes(ctx context.Context, t *testing.T, st store.Store, conn domai
 		got.Warning != "no transition reaches Done" {
 		t.Errorf("updated route = %+v, %v", got, err)
 	}
+	mustT(t, repo.Update(ctx, &second))
+	if got, err := repo.Get(ctx, conn.AccountID, second.ID); err != nil || got.Warning != "" || second.Warning != "" {
+		t.Errorf("an edited route kept its warning: %+v, %v", got, err)
+	}
 	if err := repo.SetWarning(ctx, conn.AccountID, uuid.NewV7(), "x"); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("SetWarning of nothing: %v", err)
 	}

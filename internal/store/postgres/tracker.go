@@ -215,7 +215,7 @@ func (r trackerRouteRepo) Update(ctx context.Context, t *domain.TrackerRoute) er
 	if err != nil {
 		return fmt.Errorf("encode route states: %w", err)
 	}
-	err = r.db.QueryRow(ctx, `UPDATE tracker_routes SET match = $3, project_id = $4, goal_kind = $5, playbook = $6, states = $7, updated_at = now()
+	err = r.db.QueryRow(ctx, `UPDATE tracker_routes SET match = $3, project_id = $4, goal_kind = $5, playbook = $6, states = $7, warning = '', updated_at = now()
 		WHERE account_id = $1 AND id = $2 RETURNING connection_id, position, warning, created_at, updated_at`,
 		t.AccountID, t.ID, match, t.ProjectID, opt(string(t.GoalKind)), opt(t.Playbook), states).Scan(&t.ConnectionID, &t.Position, &t.Warning, &t.CreatedAt, &t.UpdatedAt)
 	utc(&t.CreatedAt, &t.UpdatedAt)

@@ -110,7 +110,8 @@ connection does not read the backlog.
 transition of the ticket's workflow reaches it, or one needs fields Forecrew
 does not have. The core forces nothing: it says so in a comment on the ticket,
 sets `tracker_routes.warning` on the ticket's route, and does not retry. The
-next state that goes through clears the warning.
+next state that goes through clears the warning, and so does an edit of the
+route.
 
 An optional `Preparer` (`Prepare(ctx)`, `Derived()`) reads what the tracker
 says of itself when a connection is set up, such as Jira's `serverInfo`, and
