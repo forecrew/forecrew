@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { councilTone, decisionRef, splitLines, words } from "@/lib/format"
 import { cn } from "cn"
+import { useCanAnywhere } from "@/lib/permissions"
 
 const STATUSES: CouncilStatus[] = ["running", "decided", "failed", "canceled"]
 const DEVILS_ADVOCATE = "devils-advocate"
@@ -27,15 +28,18 @@ const DEVILS_ADVOCATE = "devils-advocate"
 export function CouncilsPage() {
   const { project = "", status = "" } = useSearch({ from: "/app/councils" })
   const navigate = useNavigate({ from: "/councils" })
+  const canAnywhere = useCanAnywhere()
   const councils = useCouncils(project, status as CouncilStatus | "")
   const projects = useProjects()
   const names = new Map(projects.data?.map((p) => [p.id, p.name]))
   return (
     <>
       <PageHeader title="Councils">
-        <Link to="/councils/new" search={project ? { project } : {}} className={cn(buttonVariants())}>
-          Start a council
-        </Link>
+        {canAnywhere("council.start") ? (
+          <Link to="/councils/new" search={project ? { project } : {}} className={cn(buttonVariants())}>
+            Start a council
+          </Link>
+        ) : null}
       </PageHeader>
       <div className="mb-4 space-y-1.5">
         <Label htmlFor="council-status">Status</Label>

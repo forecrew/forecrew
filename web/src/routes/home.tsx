@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/StatusBadge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { gateKindLabel, goalRef, jobRef, stageOf } from "@/lib/format"
+import { useCanAnywhere } from "@/lib/permissions"
 
 function LoadError({ message }: { message: string }) {
   return <p className="text-sm text-destructive">Could not load: {message}</p>
@@ -256,6 +257,7 @@ function Fleet() {
 
 export function HomePage() {
   const openCommands = useOpenCommandMenu()
+  const canAnywhere = useCanAnywhere()
   return (
     <>
       <h1 className="sr-only">Home</h1>
@@ -264,9 +266,11 @@ export function HomePage() {
           <SearchIcon aria-hidden="true" /> Search or run a command
         </Button>
         <kbd className="hidden rounded-md border px-1.5 py-1 font-mono text-xs text-muted-foreground sm:block">Ctrl K</kbd>
-        <Link to="/goals/new" className={cn(buttonVariants({ size: "lg" }))}>
-          New goal
-        </Link>
+        {canAnywhere("goal.create") ? (
+          <Link to="/goals/new" className={cn(buttonVariants({ size: "lg" }))}>
+            New goal
+          </Link>
+        ) : null}
       </div>
       <Headline />
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
