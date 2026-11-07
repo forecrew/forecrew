@@ -1200,6 +1200,9 @@ type CreateTrackerConnectionInput struct {
 // TrackerConnectionRefInput names a connection.
 type TrackerConnectionRefInput struct {
 	Connection string `json:"connection"` // name or UUID
+	// WrapUntrusted marks the tracker's words in a connection test, as in
+	// SearchKnowledgeInput.
+	WrapUntrusted bool `json:"-"`
 }
 
 // TrackerCheck is one result of a connection test. Detail can hold the
@@ -1220,6 +1223,9 @@ type TrackerConnectionTest struct {
 // TrackerConnectionFilterInput narrows a list to one connection.
 type TrackerConnectionFilterInput struct {
 	Connection string `json:"connection,omitempty"` // name or UUID
+	// WrapUntrusted marks the tracker's words in route warnings, as in
+	// SearchKnowledgeInput.
+	WrapUntrusted bool `json:"-"`
 }
 
 // CreateTrackerRouteInput is the input of create_tracker_route.

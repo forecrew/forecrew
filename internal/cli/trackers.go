@@ -130,7 +130,7 @@ func testTrackerCommand(r *remote) *cobra.Command {
 				if !c.OK {
 					result = "FAILED"
 				}
-				rows = append(rows, []string{c.Name, result, dash(c.Detail)})
+				rows = append(rows, []string{c.Name, result, dash(safeText(c.Detail))}) // the tracker's words
 			}
 			table(cmd.OutOrStdout(), rows)
 			if !out.OK {
@@ -368,7 +368,7 @@ func printTrackerRoutes(w io.Writer, items []mcp.TrackerRouteInfo) {
 	rows := [][]string{{"ID", "CONNECTION", "#", "PROJECT", "MATCH PROJECT", "TYPES", "LABELS", "KIND", "WARNING"}}
 	for _, r := range items {
 		rows = append(rows, []string{r.ID.String(), r.Connection, strconv.Itoa(r.Position), r.Project, dash(r.Match.Project),
-			dash(strings.Join(r.Match.Types, ",")), dash(strings.Join(r.Match.Labels, ",")), dash(string(r.GoalKind)), dash(r.Warning)})
+			dash(strings.Join(r.Match.Types, ",")), dash(strings.Join(r.Match.Labels, ",")), dash(string(r.GoalKind)), dash(safeText(r.Warning))})
 	}
 	table(w, rows)
 }
