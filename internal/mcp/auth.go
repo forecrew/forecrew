@@ -80,23 +80,8 @@ func tokenCaller(ctx context.Context, st store.Store, token string, now time.Tim
 	c := Caller{Actor: TokenActor(t), Scopes: t.ScopesOrLegacy(), TokenName: t.Name}
 	switch t.OwnerKind {
 	case domain.SubjectUser:
-		user, err := st.Users().Get(ctx, t.OwnerID)
-		if err != nil {
+		if err := checkUserToken(ctx, st, t, now); err != nil {
 			return c, t, err
-		}
-		m, err := st.Memberships().Get(ctx, t.AccountID, t.OwnerID)
-		if errors.Is(err, store.ErrNotFound) || (err == nil && m.Status != domain.MembershipActive) || !user.DisabledAt.IsZero() {
-			return c, t, errNoAccess
-		}
-		if err != nil {
-			return c, t, err
-		}
-		limit, err := store.PersonalTokenCap(ctx, st, t.AccountID, t.OwnerID)
-		if err != nil {
-			return c, t, err
-		}
-		if limit > 0 && !now.Before(t.CreatedAt.Add(limit)) {
-			return c, t, errNoAccess
 		}
 	case domain.SubjectServiceAccount:
 		sa, err := st.ServiceAccounts().Get(ctx, t.AccountID, t.OwnerID)
@@ -190,6 +175,31 @@ func UserActive(ctx context.Context, st store.Store, accountID, userID uuid.UUID
 		return false, err
 	}
 	return m.Status == domain.MembershipActive && user.DisabledAt.IsZero(), nil
+}
+
+// checkUserToken checks the owner of a personal token: an enabled user, an
+// active member, and within the cap of SSO enforcement, which counts from the
+// token's creation so that older tokens are limited too.
+func checkUserToken(ctx context.Context, st store.Store, t domain.MCPToken, now time.Time) error {
+	user, err := st.Users().Get(ctx, t.OwnerID)
+	if err != nil {
+		return err
+	}
+	m, err := st.Memberships().Get(ctx, t.AccountID, t.OwnerID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && m.Status != domain.MembershipActive) || !user.DisabledAt.IsZero() {
+		return errNoAccess
+	}
+	if err != nil {
+		return err
+	}
+	limit, err := store.PersonalTokenCap(ctx, st, t.AccountID, t.OwnerID)
+	if err != nil {
+		return err
+	}
+	if limit > 0 && !now.Before(t.CreatedAt.Add(limit)) {
+		return errNoAccess
+	}
+	return nil
 }
 
 // Authenticate returns middleware that requires "Authorization: Bearer

@@ -388,29 +388,38 @@ func (s *Service) listedAdmin(ctx context.Context, st store.Store, u domain.User
 	return false, nil
 }
 
-// organization picks the session's organization: the one the sign-in was
-// for, or the only one the user is in. Zero means the user picks later. Only
-// instance admins sign in without a membership; they enter an organization
-// through a switch, which is audited. An organization's connection opens that
-// organization and no other: its provider vouches for nothing else.
-func organization(ctx context.Context, tx store.Store, u domain.User, conn domain.Connection, slug string, invited uuid.UUID) (uuid.UUID, error) {
+// openedBy returns the organizations conn opens for u, and whether SSO
+// enforcement closed any.
+func openedBy(ctx context.Context, tx store.Store, u domain.User, conn domain.Connection) (active []uuid.UUID, closed bool, err error) {
 	memberships, err := tx.Memberships().ListByUser(ctx, u.ID)
 	if err != nil {
-		return uuid.Nil(), err
+		return nil, false, err
 	}
-	active, closed := []uuid.UUID{}, false
 	for _, m := range memberships {
 		if m.Status != domain.MembershipActive {
 			continue
 		}
 		ok, _, err := ssoAllows(ctx, tx, u, m.AccountID, conn.ID)
 		if err != nil {
-			return uuid.Nil(), err
+			return nil, false, err
 		}
 		if ok {
 			active = append(active, m.AccountID)
 		}
 		closed = closed || !ok
+	}
+	return active, closed, nil
+}
+
+// organization picks the session's organization: the one the sign-in was
+// for, or the only one the user is in. Zero means the user picks later. Only
+// instance admins sign in without a membership; they enter an organization
+// through a switch, which is audited. An organization's connection opens that
+// organization and no other: its provider vouches for nothing else.
+func organization(ctx context.Context, tx store.Store, u domain.User, conn domain.Connection, slug string, invited uuid.UUID) (uuid.UUID, error) {
+	active, closed, err := openedBy(ctx, tx, u, conn)
+	if err != nil {
+		return uuid.Nil(), err
 	}
 	if len(active) == 0 && !u.InstanceAdmin {
 		if closed {
