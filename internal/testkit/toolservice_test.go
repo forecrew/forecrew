@@ -161,6 +161,10 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.CreateRole(ctx, by, mcp.CreateRoleInput{}); return err },
 		func() error { _, err := s.UpdateRole(ctx, by, mcp.UpdateRoleInput{}); return err },
 		func() error { _, err := s.DeleteRole(ctx, by, mcp.RoleRefInput{}); return err },
+		func() error { _, err := s.ModelsCheck(ctx, by, mcp.ModelConnectionRefInput{}); return err },
+		func() error { _, err := s.ModelsTest(ctx, by, mcp.ModelsTestInput{}); return err },
+		func() error { _, err := s.ModelsResults(ctx, by, mcp.ModelsResultsInput{}); return err },
+		func() error { _, err := s.ModelsSuggest(ctx, by, mcp.ModelsSuggestInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())
