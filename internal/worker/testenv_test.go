@@ -75,6 +75,18 @@ type fakeAPI struct {
 	maxCompleteBytes int
 	// onUpload, when set, runs when an artifact arrives.
 	onUpload func(name string)
+	// install is the Forecrew-Install-Agent header of every 204 answer;
+	// pollBodies holds every poll request.
+	install    string
+	pollBodies []pollBody
+}
+
+// pollBody is a poll request as the fake API read it.
+type pollBody struct {
+	Labels       []string             `json:"labels"`
+	FreeSlots    int                  `json:"free_slots"`
+	Capabilities []string             `json:"capabilities"`
+	Agents       []domain.WorkerAgent `json:"agents"`
 }
 
 // upload is an artifact the fake API received.
@@ -107,13 +119,12 @@ func newFakeAPI(t *testing.T) *fakeAPI {
 }
 
 func (a *fakeAPI) poll(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Labels    []string `json:"labels"`
-		FreeSlots int      `json:"free_slots"`
-	}
+	var req pollBody
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	a.mu.Lock()
 	a.polls = append(a.polls, req.FreeSlots)
+	a.pollBodies = append(a.pollBodies, req)
+	install := a.install
 	n := len(a.polls)
 	answer := a.pollAnswer
 	wait := a.longPoll
@@ -134,6 +145,9 @@ func (a *fakeAPI) poll(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-time.After(wait):
 		case <-r.Context().Done():
+		}
+		if install != "" {
+			w.Header().Set(InstallHeader, install)
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return

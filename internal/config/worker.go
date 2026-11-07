@@ -42,6 +42,10 @@ type Worker struct {
 	// LM Studio) runs. Off, it reaches public addresses only; link-local
 	// addresses, where cloud metadata lives, never.
 	LocalModelEndpoints bool `yaml:"local_model_endpoints"`
+	// AutoInstallAgents lets the worker install an agent CLI it lacks when
+	// forecrewd asks, from the manifest of its own release, into its own
+	// directory. Nil means true; a machine of the fleet never installs.
+	AutoInstallAgents *bool `yaml:"auto_install_agents"`
 	// Token comes from FORECREW_WORKER_TOKEN.
 	Token string `yaml:"-"`
 	// BootstrapToken comes from FORECREW_BOOTSTRAP_TOKEN. The worker trades
@@ -99,6 +103,9 @@ func (w *Worker) applyDefaults() error {
 	}
 	return nil
 }
+
+// InstallsAgents reports whether auto_install_agents is on (the default).
+func (w *Worker) InstallsAgents() bool { return w.AutoInstallAgents == nil || *w.AutoInstallAgents }
 
 // Validate checks the worker configuration and reports every problem at once.
 func (w *Worker) Validate() error {

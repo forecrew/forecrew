@@ -1,0 +1,102 @@
+# Agent CLIs forecrew-worker may install by itself (docs/worker.md, Agent
+# install). It ships inside each release and is never fetched: the server only
+# names an adapter, and the worker takes version, address and SHA-256 from
+# this file. Only agents that ship a standalone binary are listed; the
+# versions are those of the toolbox base image (packs/toolboxes/base).
+# The SHA-256 is of the file at the address: GitHub's release asset digest,
+# or the checksum of Claude Code's release manifest.
+version: 1
+
+agents:
+  claude-code:
+    version: 2.1.306
+    binary: claude
+    platforms:
+      linux/amd64:
+        url: https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/2.1.306/linux-x64/claude
+        sha256: 520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe
+      linux/arm64:
+        url: https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/2.1.306/linux-arm64/claude
+        sha256: 77d257d5e8b8730ec61d5a4992a8eb65550aaf9589f464988aa1a9684338d801
+      darwin/amd64:
+        url: https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/2.1.306/darwin-x64/claude
+        sha256: fc273f4caaeb11189bfed82251496728cf1e650563cb9b5f70d91ec6bec42c17
+      darwin/arm64:
+        url: https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/2.1.306/darwin-arm64/claude
+        sha256: b5d795b7760032d79954b55a9cd1876dcf3a8dc9608fd6bb9f618593f69fd44b
+      windows/amd64:
+        url: https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/2.1.306/win32-x64/claude.exe
+        sha256: f6bc9de38f507c36c9a3bb0085a59a27e32156e2208252bf1707c4e3ef309114
+      windows/arm64:
+        url: https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/2.1.306/win32-arm64/claude.exe
+        sha256: 4f0c6c80521987a4c649a31e9e51e40ea5736f5dc5089a7b0e5a375aadfcb16e
+
+  codex:
+    version: 0.163.0
+    binary: codex
+    platforms:
+      linux/amd64:
+        url: https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-x86_64-unknown-linux-musl.tar.gz
+        sha256: beb339e8ecd9ba057a6bb2dc81ad8ca474812edfbf0fc5056ca818797648dde4
+        archive: tar.gz
+        path: codex-x86_64-unknown-linux-musl
+      linux/arm64:
+        url: https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-aarch64-unknown-linux-musl.tar.gz
+        sha256: a7261e65f4a96d8f4ca65a069c6cf2dc2c33defc341e48078acefda9461fffe4
+        archive: tar.gz
+        path: codex-aarch64-unknown-linux-musl
+      darwin/amd64:
+        url: https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-x86_64-apple-darwin.tar.gz
+        sha256: 562a1aea0e5686283a467687d268ae33705f02fd4d40f1bc4110a415c5c1c7b1
+        archive: tar.gz
+        path: codex-x86_64-apple-darwin
+      darwin/arm64:
+        url: https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-aarch64-apple-darwin.tar.gz
+        sha256: 61c4d9a92521bdb42b0c1d9f87c673f6da628a06de5945cbdd9a0010632f6d10
+        archive: tar.gz
+        path: codex-aarch64-apple-darwin
+      windows/amd64:
+        url: https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-x86_64-pc-windows-msvc.exe.zip
+        sha256: dabdb4d16aaf10fea40b74811c96efddcd9138f122163b69ed604fcb3eb704c3
+        archive: zip
+        path: codex-x86_64-pc-windows-msvc.exe
+      windows/arm64:
+        url: https://github.com/openai/codex/releases/download/rust-v0.163.0/codex-aarch64-pc-windows-msvc.exe.zip
+        sha256: c12842937952bc1dd757c82ae3f31c83f21b794344cf361b506b0218d4881c74
+        archive: zip
+        path: codex-aarch64-pc-windows-msvc.exe
+
+  opencode:
+    version: 1.19.5
+    binary: opencode
+    platforms:
+      linux/amd64:
+        url: https://github.com/anomalyco/opencode/releases/download/v1.19.5/opencode-linux-x64.tar.gz
+        sha256: 588310a336fa3b9df36b3f0225b26f679d453efaad0cf3d66c3651ef3ec1647a
+        archive: tar.gz
+        path: opencode
+      linux/arm64:
+        url: https://github.com/anomalyco/opencode/releases/download/v1.19.5/opencode-linux-arm64.tar.gz
+        sha256: fae5be262d693b7c5e562856cc473e59e741772936db0c0600ac0d5ed5bd088b
+        archive: tar.gz
+        path: opencode
+      darwin/amd64:
+        url: https://github.com/anomalyco/opencode/releases/download/v1.19.5/opencode-darwin-x64.zip
+        sha256: b0212efa6db347187225a17fa3a31c6b261bf4c9f1589a290b0ca902d720d250
+        archive: zip
+        path: opencode
+      darwin/arm64:
+        url: https://github.com/anomalyco/opencode/releases/download/v1.19.5/opencode-darwin-arm64.zip
+        sha256: c1c9e62521192192ef4c3ed1355ada2144055bddb61682217e997b03c55203c1
+        archive: zip
+        path: opencode
+      windows/amd64:
+        url: https://github.com/anomalyco/opencode/releases/download/v1.19.5/opencode-windows-x64.zip
+        sha256: 09a6e693157f0887e504f2cf4357a8cbddc5ead5d0dffb9a269dcc47c48640f5
+        archive: zip
+        path: opencode.exe
+      windows/arm64:
+        url: https://github.com/anomalyco/opencode/releases/download/v1.19.5/opencode-windows-arm64.zip
+        sha256: 5d49139bd917511ff35a3c06065c9f47918346668f05ea020e778286f302fbb7
+        archive: zip
+        path: opencode.exe

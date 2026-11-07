@@ -96,6 +96,10 @@ func TestRunAndCheckWithConfig(t *testing.T) {
 	if !strings.Contains(stdout.String(), "token accepted") || strings.Contains(stdout.String()+stderr.String(), "fcw_token") {
 		t.Errorf("check output = %s", stdout.String())
 	}
+	stdout.Reset()
+	if code := run(t.Context(), []string{"status", "--config", cfgPath}, &stdout, &stderr, environ, "v1"); code != 0 || !strings.Contains(stdout.String(), "auto_install_agents: on") {
+		t.Fatalf("status code = %d\n%s\n%s", code, stdout.String(), stderr.String())
+	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 	defer cancel()

@@ -64,7 +64,9 @@ func (w *Worker) pollLoop(ctx, runCtx context.Context, jobs *sync.WaitGroup) err
 			return nil
 		}
 		free := cap(slots) - len(slots) + 1
-		lease, err := w.cfg.Client.Poll(ctx, w.cfg.Labels, free, w.cfg.Version)
+		lease, install, err := w.cfg.Client.PollFor(ctx, PollRequest{
+			Labels: w.currentLabels(), FreeSlots: free, Version: w.cfg.Version, Agents: w.agentReport(), Install: w.cfg.agents != nil,
+		})
 		if err != nil {
 			<-slots
 			if ctx.Err() != nil {
@@ -84,6 +86,7 @@ func (w *Worker) pollLoop(ctx, runCtx context.Context, jobs *sync.WaitGroup) err
 		failures = 0
 		if lease == nil {
 			<-slots
+			w.installAgent(ctx, install)
 			continue
 		}
 		jobs.Go(func() {

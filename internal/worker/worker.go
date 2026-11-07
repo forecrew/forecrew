@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/forecrew/forecrew/internal/analyzer"
@@ -71,6 +72,12 @@ type Config struct {
 	// LocalModelEndpoints lets a key check reach a model on localhost or a
 	// private address (local_model_endpoints in worker.yaml).
 	LocalModelEndpoints bool
+	// agents installs the agent CLIs forecrewd asks for; nil means
+	// auto_install_agents is off, or the worker is on a fleet machine.
+	agents *agentInstaller
+	// fleet marks the worker of a fleet machine: its agents come from the
+	// image.
+	fleet bool
 }
 
 // Worker polls forecrewd and runs its jobs.
@@ -79,6 +86,9 @@ type Worker struct {
 	git    *gitClient
 	reaper *reaper
 	docker *dockerCLI // nil without Docker
+
+	mu     sync.Mutex
+	labels []string // Config.Labels, and the runtimes installed since
 }
 
 // New returns a Worker. Config.Client, Runtimes, Analyzer and Logger are
@@ -107,7 +117,7 @@ func New(cfg Config) *Worker {
 	}
 	// Git never searches for a repo above the work dir's parent.
 	g := newGitClient("git", nil, cfg.Environ, filepath.Dir(cfg.WorkDir))
-	w := &Worker{cfg: cfg, git: g, reaper: newReaper(g.runningPIDs, &g.gate)}
+	w := &Worker{cfg: cfg, git: g, reaper: newReaper(g.runningPIDs, &g.gate), labels: cfg.Labels}
 	if cfg.DockerBin != "" {
 		w.docker = newDockerCLI(cfg.DockerBin, cfg.WorkDir, cfg.Environ)
 		if !cfg.RegistryAuth {

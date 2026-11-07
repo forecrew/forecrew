@@ -2,6 +2,7 @@ package worker
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -43,20 +44,20 @@ func TestDetectLabelsAddsDocker(t *testing.T) {
 	bin, _ := fakeDocker(t, `version) echo 29.1.0;;`)
 	t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	cfg := &config.Worker{Labels: []string{"go"}, WorkDir: t.TempDir()}
-	labels, dockerBin, info := detectLabels(t.Context(), cfg, os.Environ())
+	labels, dockerBin, info := detectLabels(t.Context(), cfg, os.Environ(), exec.LookPath)
 	if !slices.Contains(labels, "docker") || !slices.Contains(labels, "go") || dockerBin != "docker" || info != "29.1.0" {
 		t.Errorf("labels = %v, bin = %q, info = %q", labels, dockerBin, info)
 	}
 
 	bad, _ := fakeDocker(t, `version) echo "Cannot connect to the Docker daemon" >&2; exit 1;;`)
 	t.Setenv("PATH", filepath.Dir(bad)+string(os.PathListSeparator)+os.Getenv("PATH"))
-	labels, dockerBin, info = detectLabels(t.Context(), cfg, os.Environ())
+	labels, dockerBin, info = detectLabels(t.Context(), cfg, os.Environ(), exec.LookPath)
 	if slices.Contains(labels, "docker") || dockerBin != "" || !strings.Contains(info, "Cannot connect") {
 		t.Errorf("without an engine: labels = %v, bin = %q, info = %q", labels, dockerBin, info)
 	}
 
 	t.Setenv("PATH", t.TempDir())
-	if labels, dockerBin, _ = detectLabels(t.Context(), cfg, os.Environ()); slices.Contains(labels, "docker") || dockerBin != "" {
+	if labels, dockerBin, _ = detectLabels(t.Context(), cfg, os.Environ(), exec.LookPath); slices.Contains(labels, "docker") || dockerBin != "" {
 		t.Errorf("without a client: labels = %v, bin = %q", labels, dockerBin)
 	}
 }
@@ -200,7 +201,7 @@ func TestRootWorkerDoesNotAdvertiseDocker(t *testing.T) {
 	old := hostIDs
 	hostIDs = func() (int, int) { return 0, 0 }
 	defer func() { hostIDs = old }()
-	labels, dockerBin, info := detectLabels(t.Context(), &config.Worker{WorkDir: t.TempDir()}, os.Environ())
+	labels, dockerBin, info := detectLabels(t.Context(), &config.Worker{WorkDir: t.TempDir()}, os.Environ(), exec.LookPath)
 	if slices.Contains(labels, "docker") || dockerBin != "" || !strings.Contains(info, "root") {
 		t.Errorf("labels = %v, bin = %q, info = %q", labels, dockerBin, info)
 	}
