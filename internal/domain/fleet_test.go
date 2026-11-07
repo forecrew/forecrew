@@ -759,3 +759,15 @@ func TestShapeServesAnOrganizationModelJob(t *testing.T) {
 		t.Fatalf("plain job: %v", plain.RequiredLabels())
 	}
 }
+
+func TestFleetNoticeValidate(t *testing.T) {
+	n := FleetNotice{MachineID: NewID(), ProviderID: NewID(), Kind: AbuseMining}
+	if err := n.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []FleetNotice{{ProviderID: NewID(), Kind: AbuseCPU}, {MachineID: NewID(), ProviderID: NewID(), Kind: "spam"}} {
+		if err := bad.Validate(); !errors.Is(err, ErrInvalidRecord) {
+			t.Errorf("%+v: %v", bad, err)
+		}
+	}
+}

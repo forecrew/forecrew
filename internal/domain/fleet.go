@@ -1009,3 +1009,39 @@ func (p *problems) checkNoSecrets(field string, v any) {
 		}
 	}
 }
+
+// Abuse kinds: what the abuse checks of a location found on a machine.
+const (
+	AbuseCPU    = "cpu"    // its CPUs stayed full for longer than the location allows
+	AbuseMining = "mining" // full CPUs while connecting to mining pools' ports
+)
+
+// AbuseKinds returns every kind.
+func AbuseKinds() []string { return []string{AbuseCPU, AbuseMining} }
+
+// FleetNotice is something the instance's operator must look at (table
+// fleet_notices): a machine its location stopped for abuse. AccountID is the
+// machine's organization, zero for an unassigned one.
+type FleetNotice struct {
+	ID         uuid.UUID `json:"id"`
+	AccountID  uuid.UUID `json:"account_id,omitzero"`
+	MachineID  uuid.UUID `json:"machine_id"`
+	ProviderID uuid.UUID `json:"provider_id"`
+	JobID      uuid.UUID `json:"job_id,omitzero"`
+	Kind       string    `json:"kind"`
+	// Detail is what the location said, written by its agent: untrusted.
+	Detail     string    `json:"detail"`
+	CreatedAt  time.Time `json:"created_at"`
+	ResolvedAt time.Time `json:"resolved_at,omitzero"`
+	ResolvedBy string    `json:"resolved_by,omitempty"`
+}
+
+// Validate checks the notice, wrapping ErrInvalidRecord.
+func (n FleetNotice) Validate() error {
+	var p problems
+	if n.MachineID == uuid.Nil() || n.ProviderID == uuid.Nil() {
+		p.addf("machine_id and provider_id must be set")
+	}
+	checkEnum(&p, "kind", n.Kind, AbuseKinds())
+	return p.errOf(ErrInvalidRecord, "fleet notice")
+}
