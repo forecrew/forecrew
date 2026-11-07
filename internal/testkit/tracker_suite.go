@@ -206,6 +206,28 @@ func activeLink(ctx context.Context, t *testing.T, repo store.TicketLinkRepo, l 
 	}
 }
 
+// dropTransitions checks that only unsent transitions of the link go.
+func dropTransitions(ctx context.Context, t *testing.T, repo store.TrackerOutboxRepo, link domain.TicketLink, now time.Time) {
+	t.Helper()
+	write := func(key string, kind domain.TrackerWriteKind) *domain.TrackerWrite {
+		w := domain.TrackerWrite{AccountID: link.AccountID, ConnectionID: link.ConnectionID, LinkID: link.ID, Key: link.Key, DedupeKey: key, Kind: kind, Value: "v", NextAttempt: now}
+		if _, err := repo.Enqueue(ctx, &w); err != nil {
+			t.Fatal(err)
+		}
+		return &w
+	}
+	sent := write("state:sent", domain.WriteTransition)
+	mustT(t, repo.MarkSent(ctx, link.AccountID, sent.ID, "", now))
+	write("state:stale", domain.WriteTransition)
+	comment := write("comment:kept", domain.WriteComment)
+	mustT(t, repo.DropTransitions(ctx, link.AccountID, link.ID))
+	due, err := repo.Due(ctx, link.AccountID, now.Add(time.Hour), 10)
+	if err != nil || len(due) != 1 || due[0].ID != comment.ID {
+		t.Errorf("Due after DropTransitions = %+v, %v", due, err)
+	}
+	mustT(t, repo.MarkSent(ctx, link.AccountID, comment.ID, "", now))
+}
+
 func trackerOutbox(ctx context.Context, t *testing.T, st store.Store, link domain.TicketLink) {
 	t.Helper()
 	repo := st.TrackerOutbox()
@@ -245,4 +267,5 @@ func trackerOutbox(ctx context.Context, t *testing.T, st store.Store, link domai
 	if err := repo.MarkSent(ctx, acc, uuid.NewV7(), "", now); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("MarkSent of nothing: %v", err)
 	}
+	dropTransitions(ctx, t, repo, link, now)
 }

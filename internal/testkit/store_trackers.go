@@ -341,6 +341,15 @@ func (r outboxRepo) Enqueue(_ context.Context, w *domain.TrackerWrite) (bool, er
 	return isNew, err
 }
 
+func (r outboxRepo) DropTransitions(_ context.Context, accountID, linkID uuid.UUID) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		d.trackers.outbox.rows = slices.DeleteFunc(d.trackers.outbox.rows, func(w domain.TrackerWrite) bool {
+			return w.AccountID == accountID && w.LinkID == linkID && w.Kind == domain.WriteTransition && w.SentAt.IsZero()
+		})
+		return nil
+	})
+}
+
 func (r outboxRepo) Due(_ context.Context, accountID uuid.UUID, now time.Time, limit int) ([]domain.TrackerWrite, error) {
 	return listRows(r.s, outboxT, limit, func(w domain.TrackerWrite) bool {
 		return w.AccountID == accountID && w.SentAt.IsZero() && !w.NextAttempt.After(now)

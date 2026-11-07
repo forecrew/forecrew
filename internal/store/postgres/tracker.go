@@ -328,6 +328,11 @@ func (r trackerOutboxRepo) Enqueue(ctx context.Context, w *domain.TrackerWrite) 
 	return err == nil, mapErr(err)
 }
 
+func (r trackerOutboxRepo) DropTransitions(ctx context.Context, accountID, linkID uuid.UUID) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM tracker_outbox WHERE account_id = $1 AND link_id = $2 AND kind = 'transition' AND sent_at IS NULL`, accountID, linkID)
+	return mapErr(err)
+}
+
 func (r trackerOutboxRepo) Due(ctx context.Context, accountID uuid.UUID, now time.Time, limit int) ([]domain.TrackerWrite, error) {
 	return many(ctx, r.db, scanTrackerWrite, `SELECT `+trackerWriteCols+` FROM tracker_outbox
 		WHERE account_id = $1 AND sent_at IS NULL AND next_attempt_at <= $2 ORDER BY created_at, id LIMIT $3`, accountID, now, limit)

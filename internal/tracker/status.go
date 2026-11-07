@@ -39,11 +39,15 @@ func (s *Service) enqueue(ctx context.Context, st store.Store, l domain.TicketLi
 }
 
 // setState records a logical state and queues the transition its route maps
-// it to, if any.
+// it to, if any. It replaces a transition still waiting for its retry, mapped
+// or not: a stale one could reopen a ticket that has moved on.
 func (s *Service) setState(ctx context.Context, st store.Store, l *domain.TicketLink, state domain.TicketState) error {
 	l.State = state
 	if err := st.TicketLinks().Update(ctx, l); err != nil {
 		return fmt.Errorf("update the link of %s: %w", l.Key, err)
+	}
+	if err := st.TrackerOutbox().DropTransitions(ctx, l.AccountID, l.ID); err != nil {
+		return fmt.Errorf("replace the transition of %s: %w", l.Key, err)
 	}
 	if l.RouteID == uuid.Nil() {
 		return nil
