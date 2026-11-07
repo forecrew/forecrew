@@ -26,6 +26,8 @@ type fakeSystem struct {
 	mu         sync.Mutex
 	calls      []string
 	mountErr   error
+	procErr    error
+	clockErr   error
 	networkErr error
 	growErr    error
 	cacheErr   error
@@ -39,7 +41,12 @@ func (f *fakeSystem) call(format string, args ...any) {
 	f.calls = append(f.calls, fmt.Sprintf(format, args...))
 }
 
-func (f *fakeSystem) mountAll() error { f.call("mount"); return f.mountErr }
+func (f *fakeSystem) mountProc() error { f.call("proc"); return f.procErr }
+func (f *fakeSystem) mountAll() error  { f.call("mount"); return f.mountErr }
+func (f *fakeSystem) setClock(t time.Time) error {
+	f.call("clock %d", t.Unix())
+	return f.clockErr
+}
 func (f *fakeSystem) loadModules(p []string) error {
 	f.call("modules %s", strings.Join(p, " "))
 	return f.modulesErr
@@ -72,6 +79,8 @@ type testGuest struct {
 	dir  string
 	srv  *httptest.Server
 	seen []string
+	// modprobe is what the kernel would run, as the exchange saw it.
+	modprobe string
 }
 
 const workerScript = `#!/bin/sh
@@ -85,6 +94,9 @@ func newGuest(t *testing.T, cmdline string) *testGuest {
 	g := &testGuest{sys: &fakeSystem{}, logs: &bytes.Buffer{}, dir: dir}
 	g.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		g.seen = append(g.seen, r.URL.Path+" "+r.Header.Get("Authorization"))
+		if raw, err := os.ReadFile(filepath.Join(g.dir, "proc/sys/kernel/modprobe")); err == nil {
+			g.modprobe = string(raw)
+		}
 		if r.Header.Get("Authorization") != "Bearer fcb_good" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -95,6 +107,7 @@ func newGuest(t *testing.T, cmdline string) *testGuest {
 	g.guest = &guest{sys: g.sys, root: dir, version: "v1", dockerWait: 300 * time.Millisecond,
 		say: func(f string, a ...any) { fmt.Fprintf(g.logs, f+"\n", a...) }}
 	write(t, filepath.Join(dir, "proc/cmdline"), cmdline, 0o644)
+	write(t, filepath.Join(dir, "proc/sys/kernel/modprobe"), "/sbin/modprobe\n", 0o644)
 	write(t, filepath.Join(dir, "etc/resolv.conf"), "old", 0o644)
 	write(t, filepath.Join(dir, "opt/forecrew/forecrew-worker"), workerScript, 0o755)
 	g.configDisk(t, "fcb_good")
@@ -109,7 +122,8 @@ func (g *testGuest) configDisk(t *testing.T, token string) {
 	}
 	host, port, _ := net.SplitHostPort(u.Host)
 	// A name nobody resolves: the address comes from the settings alone.
-	raw, err := Encode(Settings{ServerURL: "http://forecrew.invalid:" + port, Token: token, ServerAddrs: []string{host}})
+	// The host's clock is ahead of the guest's: in 2100.
+	raw, err := Encode(Settings{ServerURL: "http://forecrew.invalid:" + port, Token: token, ServerAddrs: []string{host}, Time: time.Unix(4102444800, 0)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,16 +159,18 @@ func bootContext(t *testing.T) context.Context {
 func TestBoot(t *testing.T) {
 	g := newGuest(t, "forecrew.ip=10.1.0.2/30 forecrew.gw=10.1.0.1 forecrew.dns=1.1.1.1 forecrew.halt=reboot forecrew.modules=/a.ko,/b.ko forecrew.cache=/dev/vdc")
 	write(t, filepath.Join(g.dir, "etc/forecrew/labels"), "docker\n# a comment\n\n", 0o644)
-	write(t, filepath.Join(g.dir, "etc/forecrew/env"), "PATH=/image/bin\nGOFLAGS=-mod=mod\nFORECREW_WORKER_TOKEN=stolen\nbad name=1\nnot a variable\n", 0o644)
+	write(t, filepath.Join(g.dir, "etc/forecrew/env"), "PATH=/image/bin\nGOFLAGS=-mod=mod\nFORECREW_WORKER_TOKEN=stolen\nbad name=1\nnot a variable\n"+
+		"HTTPS_PROXY=http://evil\nhttp_proxy=http://evil\nALL_PROXY=evil\nSSL_CERT_FILE=/evil.pem\nSSL_CERT_DIR=/evil\nGODEBUG=x509ignoreCN=1\n", 0o644)
 	g.boot(bootContext(t))
 
 	if len(g.seen) != 1 || g.seen[0] != "/worker/v1/bootstrap Bearer fcb_good" {
 		t.Fatalf("requests = %q\n%s", g.seen, g.logs)
 	}
+	checkModprobe(t, g)
 	if g.sys.halted != "reboot!" {
 		t.Errorf("halted = %q", g.sys.halted)
 	}
-	want := "mount|modules /a.ko /b.ko|network 10.1.0.2/30 10.1.0.1|grow /dev/vda|cache /dev/vdc"
+	want := "proc|mount|modules /a.ko /b.ko|network 10.1.0.2/30 10.1.0.1|grow /dev/vda|cache /dev/vdc|clock 4102444800"
 	if got := strings.Join(g.sys.calls, "|"); got != want {
 		t.Errorf("calls = %s", got)
 	}
@@ -172,7 +188,7 @@ func TestBoot(t *testing.T) {
 			t.Errorf("no %q in the worker's environment:\n%s", want, env)
 		}
 	}
-	for _, bad := range []string{"stolen", "fcb_good", "BOOTSTRAP"} {
+	for _, bad := range []string{"stolen", "fcb_good", "BOOTSTRAP", "evil", "GODEBUG"} {
 		if strings.Contains(env, bad) {
 			t.Errorf("%q in the worker's environment:\n%s", bad, env)
 		}
@@ -191,6 +207,17 @@ func TestBoot(t *testing.T) {
 	}
 	if st, err := os.Stat(filepath.Join(g.dir, "run/forecrew/worker.yaml")); err != nil || st.Mode().Perm() != 0o600 {
 		t.Errorf("worker.yaml = %v, %v", st, err)
+	}
+}
+
+// checkModprobe checks that the module loader was off during the exchange only.
+func checkModprobe(t *testing.T, g *testGuest) {
+	t.Helper()
+	if g.modprobe != modprobeOff+"\n" {
+		t.Errorf("during the exchange the kernel would run %q", g.modprobe)
+	}
+	if got := read(t, filepath.Join(g.dir, "proc/sys/kernel/modprobe")); got != "/sbin/modprobe\n" {
+		t.Errorf("the module loader was not turned back on: %q", got)
 	}
 }
 
@@ -214,6 +241,8 @@ func TestBootRefusedToken(t *testing.T) {
 func TestBootStopsEarly(t *testing.T) {
 	for name, breakIt := range map[string]func(g *testGuest, t *testing.T){
 		"mount":      func(g *testGuest, _ *testing.T) { g.sys.mountErr = errors.New("no") },
+		"proc":       func(g *testGuest, _ *testing.T) { g.sys.procErr = errors.New("no") },
+		"no loader":  func(g *testGuest, _ *testing.T) { _ = os.Remove(filepath.Join(g.dir, "proc/sys/kernel/modprobe")) },
 		"network":    func(g *testGuest, _ *testing.T) { g.sys.networkErr = errors.New("no") },
 		"no cmdline": func(g *testGuest, _ *testing.T) { _ = os.Remove(filepath.Join(g.dir, "proc/cmdline")) },
 		"no disk":    func(g *testGuest, _ *testing.T) { _ = os.Remove(filepath.Join(g.dir, "dev/vdb")) },
@@ -242,6 +271,46 @@ func TestBootStopsEarly(t *testing.T) {
 				t.Errorf("the token was used: %q", g.seen)
 			}
 		})
+	}
+}
+
+// A guest whose clock is ahead of the host's moment keeps it.
+func TestClockOnlyMovesForward(t *testing.T) {
+	g := newGuest(t, "")
+	u, _ := url.Parse(g.srv.URL)
+	raw, err := Encode(Settings{ServerURL: g.srv.URL, Token: "fcb_good", ServerAddrs: []string{u.Hostname()}, Time: time.Unix(1, 0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(g.dir, "dev/vdb"), string(raw), 0o600)
+	g.sys.clockErr = errors.New("unused")
+	g.boot(bootContext(t))
+	if strings.Contains(strings.Join(g.sys.calls, "|"), "clock") || len(g.seen) != 1 {
+		t.Errorf("calls = %v, requests = %v", g.sys.calls, g.seen)
+	}
+}
+
+func TestClockFailureIsSaid(t *testing.T) {
+	g := newGuest(t, "")
+	g.sys.clockErr = errors.New("no clock")
+	g.boot(bootContext(t))
+	if !strings.Contains(g.logs.String(), "no clock") || len(g.seen) != 1 {
+		t.Errorf("logs = %s, requests = %v", g.logs, g.seen)
+	}
+}
+
+// A loader that cannot be turned back on is said, and the machine goes on.
+func TestModprobeRestoreFailureIsSaid(t *testing.T) {
+	g := newGuest(t, "")
+	g.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = os.Remove(filepath.Join(g.dir, "proc/sys/kernel/modprobe"))
+		_ = os.Mkdir(filepath.Join(g.dir, "proc/sys/kernel/modprobe"), 0o755)
+		g.seen = append(g.seen, "x")
+		_, _ = w.Write([]byte(`{"worker_token":"fcw_new"}`))
+	})
+	g.boot(bootContext(t))
+	if !strings.Contains(g.logs.String(), "back on") {
+		t.Errorf("logs = %s", g.logs)
 	}
 }
 
@@ -402,6 +471,12 @@ func TestMachineUnprivileged(t *testing.T) {
 	}
 	if err := m.mountAll(); err == nil {
 		t.Error("mountAll: no error")
+	}
+	if err := m.mountProc(); err == nil {
+		t.Error("mountProc: no error")
+	}
+	if err := m.setClock(time.Now()); err == nil {
+		t.Error("setClock: no error")
 	}
 	notModule := filepath.Join(t.TempDir(), "x.ko")
 	write(t, notModule, "x", 0o644)

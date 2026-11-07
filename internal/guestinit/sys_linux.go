@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -15,15 +16,34 @@ import (
 // machine is the system of a real guest.
 type machine struct{}
 
-// mountAll mounts what a Linux guest needs. The kernel mounted the root; its
-// image may not have the directories.
+// mountProc mounts /proc, the first thing: it is how the module loader is
+// turned off.
+func (machine) mountProc() error {
+	if err := os.MkdirAll("/proc", 0o555); err != nil { // #nosec G301 -- a standard directory
+		return err
+	}
+	err := syscall.Mount("proc", "/proc", "proc", syscall.MS_NOSUID|syscall.MS_NODEV|syscall.MS_NOEXEC, "")
+	if err != nil && !errors.Is(err, syscall.EBUSY) {
+		return fmt.Errorf("/proc: %w", err)
+	}
+	return nil
+}
+
+// setClock sets the wall clock. Firecracker emulates no real-time clock, and
+// certificates are checked against it.
+func (machine) setClock(t time.Time) error {
+	tv := syscall.NsecToTimeval(t.UnixNano())
+	return syscall.Settimeofday(&tv)
+}
+
+// mountAll mounts the rest of what a Linux guest needs. The kernel mounted the
+// root; its image may not have the directories.
 func (machine) mountAll() error {
 	for _, m := range []struct {
 		fs, target string
 		flags      uintptr
 		data       string
 	}{
-		{"proc", "/proc", syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC, ""},
 		{"sysfs", "/sys", syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC, ""},
 		{"devtmpfs", "/dev", syscall.MS_NOSUID, "mode=0755"},
 		{"devpts", "/dev/pts", syscall.MS_NOSUID | syscall.MS_NOEXEC, "gid=5,mode=620,ptmxmode=666"},

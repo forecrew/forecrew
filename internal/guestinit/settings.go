@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -38,6 +39,9 @@ type Settings struct {
 	ServerAddrs []string `json:"server_addrs"`
 	// CAPEM is what the server's certificate must chain to.
 	CAPEM string `json:"ca_pem,omitempty"`
+	// Time is when the host made the machine: the guest's clock is at least
+	// that, for the certificate check.
+	Time time.Time `json:"time,omitzero"`
 }
 
 // LogValue hides the token.

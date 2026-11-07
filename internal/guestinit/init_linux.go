@@ -53,7 +53,9 @@ const (
 
 // system is what PID 1 does to the machine that only a real one can do.
 type system interface {
+	mountProc() error
 	mountAll() error
+	setClock(t time.Time) error
 	loadModules(paths []string) error
 	network(ip, gateway string) error
 	growRoot(device string) error
@@ -87,6 +89,15 @@ func (g *guest) boot(ctx context.Context) {
 }
 
 func (g *guest) run(ctx context.Context, args map[string]string) error {
+	if err := g.sys.mountProc(); err != nil {
+		return fmt.Errorf("mount: %w", err)
+	}
+	// The kernel would run the image's modprobe, as root, to load a module
+	// anything below asks for: no image program runs before the exchange.
+	restore, err := g.blockModprobe()
+	if err != nil {
+		return err
+	}
 	if err := g.sys.mountAll(); err != nil {
 		return fmt.Errorf("mount: %w", err)
 	}
@@ -104,9 +115,18 @@ func (g *guest) run(ctx context.Context, args map[string]string) error {
 	}
 	// The one call that uses the token. Until it returns nothing of the image
 	// has run, and after it the token is worth nothing.
+	if s.Time.After(time.Now()) {
+		// The guest's clock is behind the moment the host made it.
+		if err := g.sys.setClock(s.Time); err != nil {
+			g.say("set the clock: %v", err)
+		}
+	}
 	grant, err := exchange(ctx, s, g.version)
 	if err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
+	}
+	if err := restore(); err != nil {
+		g.say("%v", err)
 	}
 	g.pinServer(s)
 	cfg, err := g.workerConfig(s.ServerURL, grant)
@@ -116,6 +136,28 @@ func (g *guest) run(ctx context.Context, args map[string]string) error {
 	env := g.environment()
 	g.startDocker(ctx, env)
 	return g.runWorker(ctx, cfg, env, grant.WorkerToken)
+}
+
+// modprobeOff is what the kernel is told to run to load a module: nothing.
+const modprobeOff = "/nonexistent/forecrew-modprobe-off"
+
+// blockModprobe turns off the kernel's module autoloader, and returns what turns
+// it back on.
+func (g *guest) blockModprobe() (func() error, error) {
+	path := g.path("/proc/sys/kernel/modprobe")
+	old, err := os.ReadFile(path) // #nosec G304 -- a fixed path
+	if err != nil {
+		return nil, fmt.Errorf("module loader: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(modprobeOff+"\n"), 0o644); err != nil { // #nosec G306 -- a file of /proc
+		return nil, fmt.Errorf("turn off the module loader: %w", err)
+	}
+	return func() error {
+		if err := os.WriteFile(path, old, 0o644); err != nil { // #nosec G306 G703 -- a file of /proc
+			return fmt.Errorf("turn the module loader back on: %w", err)
+		}
+		return nil
+	}, nil
 }
 
 // prepare makes the machine ready. A disk that does not grow or a missing cache
@@ -288,7 +330,7 @@ func (g *guest) environment() []string {
 	env := []string{"PATH=" + basePath, "HOME=/root"}
 	for _, l := range g.imageLines(imageEnvFile) {
 		name, _, ok := strings.Cut(l, "=")
-		if !ok || name == "" || strings.HasPrefix(name, "FORECREW_") || strings.ContainsFunc(name, notEnvName) {
+		if !ok || name == "" || strings.HasPrefix(name, "FORECREW_") || strings.ContainsFunc(name, notEnvName) || steersTraffic(name) {
 			continue
 		}
 		if i := slices.IndexFunc(env, func(e string) bool { return strings.HasPrefix(e, name+"=") }); i >= 0 {
@@ -298,6 +340,14 @@ func (g *guest) environment() []string {
 		env = append(env, l)
 	}
 	return env
+}
+
+// steersTraffic reports a variable that would send the worker's calls, and its
+// token, through the image's choice of proxy or trust, or change how Go checks
+// them.
+func steersTraffic(name string) bool {
+	n := strings.ToUpper(name)
+	return strings.HasSuffix(n, "_PROXY") || strings.HasPrefix(n, "SSL_CERT_") || n == "GODEBUG"
 }
 
 func notEnvName(r rune) bool {

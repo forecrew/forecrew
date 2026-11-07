@@ -306,7 +306,7 @@ func (p *Provider) settings(ctx context.Context, b *fleet.Bootstrap) (guestinit.
 	if err != nil {
 		return guestinit.Settings{}, 0, fmt.Errorf("resolve the server: %w", err)
 	}
-	s := guestinit.Settings{ServerURL: b.ServerURL, Token: b.Token}
+	s := guestinit.Settings{ServerURL: b.ServerURL, Token: b.Token, Time: time.Now().UTC()}
 	for _, a := range found {
 		if a.IsLoopback() {
 			return guestinit.Settings{}, 0, fmt.Errorf("the server's address %s is this host's loopback, which a machine cannot reach: set public_base_url to an address machines can reach", a)

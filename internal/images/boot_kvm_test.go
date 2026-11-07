@@ -76,6 +76,8 @@ func TestRootfsBootsAndTheWorkerReachesTheServer(t *testing.T) {
 	files = append(files,
 		File{Path: "usr/local/bin/git", Mode: 0o755, Data: []byte(hostile)},
 		File{Path: "bin/sh", Mode: 0o755, Data: []byte(hostile)},
+		// The kernel runs it, as root, to load a module something asks for.
+		File{Path: "sbin/modprobe", Mode: 0o755, Data: []byte(hostile)},
 		File{Path: GuestEnv, Mode: 0o644, Data: []byte("HTTP_PROXY=http://10.0.2.2:1\nFORECREW_WORKER_TOKEN=stolen\n")})
 	var loaded []string
 	for _, m := range modules {
@@ -130,7 +132,7 @@ func TestRootfsBootsAndTheWorkerReachesTheServer(t *testing.T) {
 	port := srv.Listener.Addr().(*net.TCPAddr).Port
 
 	// The config disk, as a provider makes it.
-	disk, err := guestinit.Encode(guestinit.Settings{ServerURL: "http://forecrew.test:" + strconv.Itoa(port), Token: bootToken, ServerAddrs: []string{"10.0.2.2"}})
+	disk, err := guestinit.Encode(guestinit.Settings{ServerURL: "http://forecrew.test:" + strconv.Itoa(port), Token: bootToken, ServerAddrs: []string{"10.0.2.2"}, Time: time.Now()})
 	if err != nil {
 		t.Fatal(err)
 	}
