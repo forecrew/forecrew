@@ -1,0 +1,540 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Forecrew in your own AWS account: a fleet agent on one instance starts a fresh
+  instance in your VPC for each job and terminates it afterwards. The agent holds
+  the account's credentials through an instance role that can only create, tag and
+  terminate instances carrying its fleet tag. Forecrew holds no credentials here.
+  The join code is the only secret input.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Connect}
+        Parameters: [ServerUrl, JoinCode, ImageSigningKey, AgentVersion, InstallRef]
+      - Label: {default: Where}
+        Parameters: [Mode, VpcId, AgentSubnetId, MachineSubnet1, MachineSubnet2, MachineSubnet3, HostAvailabilityZone]
+      - Label: {default: Machines}
+        Parameters: [FleetName, InstanceTypes, AssignPublicIp, MaxMachines, MonthlyBudget, MaxLifetimeHours]
+      - Label: {default: The agent}
+        Parameters: [AgentInstanceType, AgentAmiId]
+      - Label: {default: Image copy (optional)}
+        Parameters: [CopyAmiId, CopyAmiRegion, CopyAmiDigest]
+
+Parameters:
+  Mode:
+    Type: String
+    Default: ec2
+    AllowedValues: [ec2, microvm, mac]
+    Description: >-
+      ec2: one instance per job, started by the agent. microvm: the agent's own
+      instance is a metal or nested-virtualization host and runs the jobs as
+      microVMs. mac: the agent's instance is an EC2 Mac on a dedicated host and
+      runs the jobs in Tart VMs (a dedicated host is billed for at least 24 hours).
+  ServerUrl:
+    Type: String
+    AllowedPattern: '^https?://[A-Za-z0-9._:/-]+$'
+    Description: 'Your forecrewd''s public URL.'
+  JoinCode:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '^[A-Za-z0-9-]{8,40}$'
+    Description: >-
+      From "forecrew provider join --cloud". It works once and gives no access
+      until a person confirms what the agent reports.
+  ImageSigningKey:
+    Type: String
+    AllowedPattern: '^ed25519:[A-Za-z0-9+/=]{20,100}$'
+    Description: 'The public key your images are signed with (forecrew image keygen prints it). Not a secret.'
+  AgentVersion:
+    Type: String
+    Default: latest
+    AllowedPattern: '^(latest|v[0-9][A-Za-z0-9.+-]*)$'
+    Description: 'Release of the fleet agent to install.'
+  InstallRef:
+    Type: String
+    Default: main
+    AllowedPattern: '^[A-Za-z0-9._/-]{1,64}$'
+    Description: >-
+      Git tag or branch of forecrew/forecrew the install script comes from. Pin it
+      to a release tag you have read.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: 'The VPC machines start in (ec2 mode).'
+  AgentSubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: 'Where the agent''s own instance runs. It needs outbound HTTPS.'
+  MachineSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: 'Subnet for machines (ec2 mode). Machines need outbound internet, directly or through a NAT gateway.'
+  MachineSubnet2:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(subnet-[0-9a-f]{8,17})?$'
+    Description: 'Optional second subnet, usually in another availability zone.'
+  MachineSubnet3:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(subnet-[0-9a-f]{8,17})?$'
+    Description: 'Optional third subnet.'
+  HostAvailabilityZone:
+    Type: String
+    Default: ''
+    AllowedPattern: '^([a-z]{2}-[a-z]+-[0-9][a-z])?$'
+    Description: 'mac mode only: the availability zone of AgentSubnetId, for the dedicated host.'
+  FleetName:
+    Type: String
+    Default: forecrew
+    AllowedPattern: '^[A-Za-z0-9._-]{1,64}$'
+    Description: 'The value of the forecrew:fleet tag on everything the agent creates. The role allows exactly this.'
+  InstanceTypes:
+    Type: CommaDelimitedList
+    Default: 'c7i.large,c7i.xlarge,c7i.2xlarge,c7i.4xlarge'
+    Description: 'The instance types machines may use (ec2 mode); * works, as in c7i.*. The role allows these and no others.'
+  AssignPublicIp:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: 'true for a public subnet. A private subnet with a NAT gateway needs none.'
+  MaxMachines:
+    Type: Number
+    Default: 10
+    MinValue: 1
+    MaxValue: 1000
+    Description: 'The most machines at once, whatever Forecrew asks for.'
+  MonthlyBudget:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: >-
+      Stops new machines when the month's estimated spend reaches it, in the
+      currency of your shapes' prices. 0 is no limit. The location shows a warning
+      at 80%.
+  MaxLifetimeHours:
+    Type: Number
+    Default: 24
+    MinValue: 1
+    MaxValue: 336
+    Description: 'No machine lives longer: it shuts itself down, and the agent terminates what outlives it.'
+  AgentInstanceType:
+    Type: String
+    Default: t3.small
+    AllowedPattern: '^[a-z0-9]+\.[a-z0-9]+$'
+    Description: >-
+      ec2: t3.small is enough. microvm: a metal type, or one with nested
+      virtualization, sized for the microVMs. mac: mac2.metal or another Mac type.
+  AgentAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: >-
+      The agent's AMI. For an Arm instance type use the ...-arm64 parameter; for mac
+      mode give a macOS AMI that has Tart.
+  CopyAmiId:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(ami-[0-9a-f]{8,17})?$'
+    Description: 'Optional. An AMI of your Forecrew image to copy into this account, tagged with its digest. The agent boots only AMIs of this account.'
+  CopyAmiRegion:
+    Type: String
+    Default: ''
+    AllowedPattern: '^([a-z]{2}-[a-z]+-[0-9])?$'
+    Description: 'The region CopyAmiId is in.'
+  CopyAmiDigest:
+    Type: String
+    Default: ''
+    AllowedPattern: '^(sha256:[0-9a-f]{64})?$'
+    Description: 'The digest in the image''s manifest (the one its signature covers).'
+
+Conditions:
+  IsEc2: !Equals [!Ref Mode, ec2]
+  IsMac: !Equals [!Ref Mode, mac]
+  HasSubnet2: !Not [!Equals [!Ref MachineSubnet2, '']]
+  HasSubnet3: !And [!Condition HasSubnet2, !Not [!Equals [!Ref MachineSubnet3, '']]]
+  HasCopy: !And [!Condition IsEc2, !Not [!Equals [!Ref CopyAmiId, '']]]
+
+Resources:
+  # What machines can reach: the internet, DNS and time, and nothing private. A
+  # security group cannot say "everything but", so the rules below are the whole
+  # IPv4 space minus 0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12,
+  # 192.168/16 and 224/3. No inbound rule at all. The instance metadata service
+  # is not filtered by a security group: machines are launched with IMDSv2 only
+  # and one hop, and without a role.
+  MachineSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: IsEc2
+    Properties:
+      GroupDescription: Forecrew machines - no inbound, the public internet out
+      VpcId: !Ref VpcId
+      SecurityGroupIngress: []
+      SecurityGroupEgress:
+        - {IpProtocol: udp, FromPort: 53, ToPort: 53, CidrIp: 169.254.169.253/32, Description: VPC DNS resolver}
+        - {IpProtocol: tcp, FromPort: 53, ToPort: 53, CidrIp: 169.254.169.253/32, Description: VPC DNS resolver}
+        - {IpProtocol: udp, FromPort: 123, ToPort: 123, CidrIp: 169.254.169.123/32, Description: Amazon Time Sync}
+        - {IpProtocol: '-1', CidrIp: 1.0.0.0/8}
+        - {IpProtocol: '-1', CidrIp: 2.0.0.0/7}
+        - {IpProtocol: '-1', CidrIp: 4.0.0.0/6}
+        - {IpProtocol: '-1', CidrIp: 8.0.0.0/7}
+        - {IpProtocol: '-1', CidrIp: 11.0.0.0/8}
+        - {IpProtocol: '-1', CidrIp: 12.0.0.0/6}
+        - {IpProtocol: '-1', CidrIp: 16.0.0.0/4}
+        - {IpProtocol: '-1', CidrIp: 32.0.0.0/3}
+        - {IpProtocol: '-1', CidrIp: 64.0.0.0/3}
+        - {IpProtocol: '-1', CidrIp: 96.0.0.0/6}
+        - {IpProtocol: '-1', CidrIp: 100.0.0.0/10}
+        - {IpProtocol: '-1', CidrIp: 100.128.0.0/9}
+        - {IpProtocol: '-1', CidrIp: 101.0.0.0/8}
+        - {IpProtocol: '-1', CidrIp: 102.0.0.0/7}
+        - {IpProtocol: '-1', CidrIp: 104.0.0.0/5}
+        - {IpProtocol: '-1', CidrIp: 112.0.0.0/5}
+        - {IpProtocol: '-1', CidrIp: 120.0.0.0/6}
+        - {IpProtocol: '-1', CidrIp: 124.0.0.0/7}
+        - {IpProtocol: '-1', CidrIp: 126.0.0.0/8}
+        - {IpProtocol: '-1', CidrIp: 128.0.0.0/3}
+        - {IpProtocol: '-1', CidrIp: 160.0.0.0/5}
+        - {IpProtocol: '-1', CidrIp: 168.0.0.0/8}
+        - {IpProtocol: '-1', CidrIp: 169.0.0.0/9}
+        - {IpProtocol: '-1', CidrIp: 169.128.0.0/10}
+        - {IpProtocol: '-1', CidrIp: 169.192.0.0/11}
+        - {IpProtocol: '-1', CidrIp: 169.224.0.0/12}
+        - {IpProtocol: '-1', CidrIp: 169.240.0.0/13}
+        - {IpProtocol: '-1', CidrIp: 169.248.0.0/14}
+        - {IpProtocol: '-1', CidrIp: 169.252.0.0/15}
+        - {IpProtocol: '-1', CidrIp: 169.255.0.0/16}
+        - {IpProtocol: '-1', CidrIp: 170.0.0.0/7}
+        - {IpProtocol: '-1', CidrIp: 172.0.0.0/12}
+        - {IpProtocol: '-1', CidrIp: 172.32.0.0/11}
+        - {IpProtocol: '-1', CidrIp: 172.64.0.0/10}
+        - {IpProtocol: '-1', CidrIp: 172.128.0.0/9}
+        - {IpProtocol: '-1', CidrIp: 173.0.0.0/8}
+        - {IpProtocol: '-1', CidrIp: 174.0.0.0/7}
+        - {IpProtocol: '-1', CidrIp: 176.0.0.0/4}
+        - {IpProtocol: '-1', CidrIp: 192.0.0.0/9}
+        - {IpProtocol: '-1', CidrIp: 192.128.0.0/11}
+        - {IpProtocol: '-1', CidrIp: 192.160.0.0/13}
+        - {IpProtocol: '-1', CidrIp: 192.169.0.0/16}
+        - {IpProtocol: '-1', CidrIp: 192.170.0.0/15}
+        - {IpProtocol: '-1', CidrIp: 192.172.0.0/14}
+        - {IpProtocol: '-1', CidrIp: 192.176.0.0/12}
+        - {IpProtocol: '-1', CidrIp: 192.192.0.0/10}
+        - {IpProtocol: '-1', CidrIp: 193.0.0.0/8}
+        - {IpProtocol: '-1', CidrIp: 194.0.0.0/7}
+        - {IpProtocol: '-1', CidrIp: 196.0.0.0/6}
+        - {IpProtocol: '-1', CidrIp: 200.0.0.0/5}
+        - {IpProtocol: '-1', CidrIp: 208.0.0.0/4}
+      Tags:
+        - {Key: Name, Value: !Sub '${FleetName}-machines'}
+        - {Key: 'forecrew:kit', Value: aws-byoc}
+
+  AgentSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Forecrew fleet agent - no inbound, HTTPS and DNS out
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: forecrewd, the AWS APIs and the release}
+        - {IpProtocol: udp, FromPort: 53, ToPort: 53, CidrIp: 169.254.169.253/32, Description: VPC DNS resolver}
+        - {IpProtocol: tcp, FromPort: 53, ToPort: 53, CidrIp: 169.254.169.253/32, Description: VPC DNS resolver}
+        - {IpProtocol: udp, FromPort: 123, ToPort: 123, CidrIp: 169.254.169.123/32, Description: Amazon Time Sync}
+      Tags:
+        - {Key: Name, Value: !Sub '${FleetName}-agent'}
+        - {Key: 'forecrew:kit', Value: aws-byoc}
+
+  AgentRole:
+    Type: AWS::IAM::Role
+    Condition: IsEc2
+    Properties:
+      Description: 'Forecrew fleet agent. It creates, tags and terminates instances that carry its fleet tag, and nothing else.'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - {Effect: Allow, Principal: {Service: ec2.amazonaws.com}, Action: 'sts:AssumeRole'}
+      Policies:
+        - PolicyName: forecrew-fleet-agent
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: RunInstance
+                Effect: Allow
+                Action: 'ec2:RunInstances'
+                Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+                Condition:
+                  StringEquals:
+                    'aws:RequestTag/forecrew:fleet': !Ref FleetName
+                    'ec2:MetadataHttpTokens': required
+                  NumericLessThanEquals:
+                    'ec2:MetadataHttpPutResponseHopLimit': '1'
+                  StringLike:
+                    'ec2:InstanceType': !Ref InstanceTypes
+                  'Null':
+                    'ec2:IamInstanceProfile': 'true'
+              - Sid: RunInstanceVolume
+                Effect: Allow
+                Action: 'ec2:RunInstances'
+                Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:volume/*'
+                Condition:
+                  StringEquals:
+                    'aws:RequestTag/forecrew:fleet': !Ref FleetName
+                  Bool:
+                    'ec2:Encrypted': 'true'
+              - Sid: RunInstanceNetworkInterface
+                Effect: Allow
+                Action: 'ec2:RunInstances'
+                Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*'
+                Condition:
+                  StringEquals:
+                    'aws:RequestTag/forecrew:fleet': !Ref FleetName
+                  ArnEquals:
+                    'ec2:Subnet':
+                      - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${MachineSubnet1}'
+                      - !If [HasSubnet2, !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${MachineSubnet2}', !Ref 'AWS::NoValue']
+                      - !If [HasSubnet3, !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${MachineSubnet3}', !Ref 'AWS::NoValue']
+              - Sid: RunInstanceSpotRequest
+                Effect: Allow
+                Action: 'ec2:RunInstances'
+                Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:spot-instances-request/*'
+                Condition:
+                  StringEquals:
+                    'aws:RequestTag/forecrew:fleet': !Ref FleetName
+              - Sid: RunInstanceNetwork
+                Effect: Allow
+                Action: 'ec2:RunInstances'
+                Resource:
+                  - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${MachineSubnet1}'
+                  - !If [HasSubnet2, !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${MachineSubnet2}', !Ref 'AWS::NoValue']
+                  - !If [HasSubnet3, !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${MachineSubnet3}', !Ref 'AWS::NoValue']
+                  - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${MachineSecurityGroup.GroupId}'
+              - Sid: RunInstanceImage
+                Effect: Allow
+                Action: 'ec2:RunInstances'
+                Resource:
+                  - !Sub 'arn:aws:ec2:${AWS::Region}::image/*'
+                  - !Sub 'arn:aws:ec2:${AWS::Region}::snapshot/*'
+                Condition:
+                  StringEquals:
+                    'ec2:Owner': !Ref AWS::AccountId
+              - Sid: TagOnLaunch
+                Effect: Allow
+                Action: 'ec2:CreateTags'
+                Resource:
+                  - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+                  - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:volume/*'
+                  - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:network-interface/*'
+                  - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:spot-instances-request/*'
+                Condition:
+                  StringEquals:
+                    'ec2:CreateAction': RunInstances
+                    'aws:RequestTag/forecrew:fleet': !Ref FleetName
+              - Sid: ChangeTagsOfOwnMachines
+                Effect: Allow
+                Action: ['ec2:CreateTags', 'ec2:DeleteTags']
+                Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+                Condition:
+                  StringEquals:
+                    'ec2:ResourceTag/forecrew:fleet': !Ref FleetName
+                  'ForAllValues:StringNotEquals':
+                    'aws:TagKeys': ['forecrew:fleet', 'forecrew:machine', 'forecrew:price']
+              - Sid: TerminateOwnMachines
+                Effect: Allow
+                Action: 'ec2:TerminateInstances'
+                Resource: !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/*'
+                Condition:
+                  StringEquals:
+                    'ec2:ResourceTag/forecrew:fleet': !Ref FleetName
+              - Sid: Look
+                Effect: Allow
+                Action:
+                  - 'ec2:DescribeInstances'
+                  - 'ec2:DescribeInstanceTypes'
+                  - 'ec2:DescribeImages'
+                  - 'ec2:DescribeSubnets'
+                  - 'ec2:DescribeSecurityGroups'
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    'aws:RequestedRegion': !Ref AWS::Region
+              - Sid: NeverMoveTheFleetTag
+                Effect: Deny
+                Action: ['ec2:CreateTags', 'ec2:DeleteTags']
+                Resource: '*'
+                Condition:
+                  'ForAnyValue:StringEquals':
+                    'aws:TagKeys': 'forecrew:fleet'
+                  'Null':
+                    'ec2:CreateAction': 'true'
+      Tags:
+        - {Key: 'forecrew:kit', Value: aws-byoc}
+
+  AgentProfile:
+    Type: AWS::IAM::InstanceProfile
+    Condition: IsEc2
+    Properties:
+      Roles: [!Ref AgentRole]
+
+  MacHost:
+    Type: AWS::EC2::Host
+    Condition: IsMac
+    Properties:
+      AvailabilityZone: !Ref HostAvailabilityZone
+      InstanceType: !Ref AgentInstanceType
+      AutoPlacement: 'off'
+      HostRecovery: 'on'
+      Tags:
+        - {Key: Name, Value: !Sub '${FleetName}-mac-host'}
+        - {Key: 'forecrew:kit', Value: aws-byoc}
+
+  AgentInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AgentAmiId
+      InstanceType: !Ref AgentInstanceType
+      SubnetId: !Ref AgentSubnetId
+      SecurityGroupIds: [!Ref AgentSecurityGroup]
+      IamInstanceProfile: !If [IsEc2, !Ref AgentProfile, !Ref 'AWS::NoValue']
+      Tenancy: !If [IsMac, host, !Ref 'AWS::NoValue']
+      HostId: !If [IsMac, !Ref MacHost, !Ref 'AWS::NoValue']
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+      BlockDeviceMappings:
+        - DeviceName: !If [IsMac, /dev/sda1, /dev/xvda]
+          Ebs: {VolumeSize: 40, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true}
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/bin/bash
+            # Starts the Forecrew fleet agent of this account (deploy/byoc/aws). The join
+            # code is the only secret in it: it works once, gives access to nothing until a
+            # person confirms what the agent reports, and cloud-init keeps this file on the
+            # instance, so it is worth nothing after that.
+            set -euo pipefail
+            conf=/etc/forecrew-fleet-agent
+            mkdir -p "$conf"
+            printf '%s\n' '${ImageSigningKey}' >"$conf/image-keys.pub"
+            if [ '${AgentKind}' = aws ]; then
+            cat >"$conf/aws.yaml" <<'YAML'
+            region: ${AWS::Region}
+            fleet: ${FleetName}
+            subnets: [${MachineSubnets}]
+            security_group: ${MachineSecurityGroup}
+            instance_types: [${InstanceTypesList}]
+            assign_public_ip: ${AssignPublicIp}
+            max_machines: ${MaxMachines}
+            monthly_budget: ${MonthlyBudget}
+            max_lifetime: ${MaxLifetimeHours}h
+            YAML
+            fi
+            export FORECREW_JOIN_CODE='${JoinCode}'
+            curl -fsSL -o /tmp/install.sh 'https://raw.githubusercontent.com/forecrew/forecrew/${InstallRef}/deploy/fleet-agent/install.sh'
+            sh /tmp/install.sh --server '${ServerUrl}' --kind '${AgentKind}' --version '${AgentVersion}'
+            rm -f /tmp/install.sh
+          - AgentKind: !If [IsEc2, aws, !If [IsMac, tart, microvm]]
+            MachineSubnets: !If
+              - HasSubnet3
+              - !Sub '${MachineSubnet1}, ${MachineSubnet2}, ${MachineSubnet3}'
+              - !If [HasSubnet2, !Sub '${MachineSubnet1}, ${MachineSubnet2}', !Ref MachineSubnet1]
+            InstanceTypesList: !Join [', ', !Ref InstanceTypes]
+            MachineSecurityGroup: !If [IsEc2, !Ref MachineSecurityGroup, none]
+      Tags:
+        - {Key: Name, Value: !Sub '${FleetName}-agent'}
+        - {Key: 'forecrew:kit', Value: aws-byoc}
+
+  # Optional: a copy of the image's AMI in this account, tagged with the digest
+  # its signature covers. The agent boots only AMIs of this account, so this is
+  # how an image built elsewhere gets here.
+  CopyRole:
+    Type: AWS::IAM::Role
+    Condition: HasCopy
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - {Effect: Allow, Principal: {Service: lambda.amazonaws.com}, Action: 'sts:AssumeRole'}
+      ManagedPolicyArns: ['arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole']
+      Policies:
+        - PolicyName: copy-one-image
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: Copy
+                Effect: Allow
+                Action: ['ec2:CopyImage', 'ec2:CreateTags']
+                Resource:
+                  - !Sub 'arn:aws:ec2:${AWS::Region}::image/*'
+                  - !Sub 'arn:aws:ec2:${AWS::Region}::snapshot/*'
+              - Sid: Look
+                Effect: Allow
+                Action: 'ec2:DescribeImages'
+                Resource: '*'
+              - Sid: RemoveOnlyWhatWasCopied
+                Effect: Allow
+                Action: ['ec2:DeregisterImage', 'ec2:DeleteSnapshot']
+                Resource:
+                  - !Sub 'arn:aws:ec2:${AWS::Region}::image/*'
+                  - !Sub 'arn:aws:ec2:${AWS::Region}::snapshot/*'
+                Condition:
+                  StringEquals:
+                    'ec2:ResourceTag/forecrew:kit': aws-byoc
+
+  CopyFunction:
+    Type: AWS::Lambda::Function
+    Condition: HasCopy
+    Properties:
+      Runtime: python3.12
+      Handler: index.handler
+      Timeout: 120
+      Role: !GetAtt CopyRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+
+
+          def handler(event, context):
+              p = event["ResourceProperties"]
+              ec2 = boto3.client("ec2")
+              try:
+                  if event["RequestType"] == "Delete":
+                      ami = event["PhysicalResourceId"]
+                      if ami.startswith("ami-"):
+                          images = ec2.describe_images(ImageIds=[ami])["Images"]
+                          snapshots = [b["Ebs"]["SnapshotId"] for i in images for b in i.get("BlockDeviceMappings", []) if "Ebs" in b]
+                          ec2.deregister_image(ImageId=ami)
+                          for s in snapshots:
+                              ec2.delete_snapshot(SnapshotId=s)
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {}, ami)
+                      return
+                  tags = [{"Key": "forecrew:image-digest", "Value": p["Digest"]}, {"Key": "forecrew:kit", "Value": "aws-byoc"}]
+                  r = ec2.copy_image(
+                      Name="forecrew-" + p["Digest"][7:19],
+                      SourceImageId=p["SourceImageId"],
+                      SourceRegion=p["SourceRegion"],
+                      TagSpecifications=[{"ResourceType": t, "Tags": tags} for t in ("image", "snapshot")],
+                  )
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {"AmiId": r["ImageId"]}, r["ImageId"])
+              except Exception as e:  # CloudFormation must always get an answer
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, event.get("PhysicalResourceId", "none"), reason=str(e)[:200])
+
+  CopiedImage:
+    Type: Custom::CopyImage
+    Condition: HasCopy
+    Properties:
+      ServiceToken: !GetAtt CopyFunction.Arn
+      SourceImageId: !Ref CopyAmiId
+      SourceRegion: !Ref CopyAmiRegion
+      Digest: !Ref CopyAmiDigest
+
+Outputs:
+  AgentInstanceId:
+    Value: !Ref AgentInstance
+    Description: 'Look at it with "forecrew provider joins", then confirm what it reports.'
+  AgentKind:
+    Value: !If [IsEc2, aws, !If [IsMac, tart, microvm]]
+  MachineSecurityGroupId:
+    Condition: IsEc2
+    Value: !Ref MachineSecurityGroup
+  AgentRoleArn:
+    Condition: IsEc2
+    Value: !GetAtt AgentRole.Arn
+  CopiedAmiId:
+    Condition: HasCopy
+    Value: !GetAtt CopiedImage.AmiId
+    Description: 'Use ami:<region>/<this id> as the image''s URI. It is usable once its state is available.'

@@ -1,0 +1,26 @@
+#!/bin/bash
+# Starts the Forecrew fleet agent of this account (deploy/byoc/aws). The join
+# code is the only secret in it: it works once, gives access to nothing until a
+# person confirms what the agent reports, and cloud-init keeps this file on the
+# instance, so it is worth nothing after that.
+set -euo pipefail
+conf=/etc/forecrew-fleet-agent
+mkdir -p "$conf"
+printf '%s\n' '${image_signing_key}' >"$conf/image-keys.pub"
+if [ '${agent_kind}' = aws ]; then
+cat >"$conf/aws.yaml" <<'YAML'
+region: ${region}
+fleet: ${fleet_name}
+subnets: [${machine_subnets}]
+security_group: ${machine_security_group}
+instance_types: [${instance_types}]
+assign_public_ip: ${assign_public_ip}
+max_machines: ${max_machines}
+monthly_budget: ${monthly_budget}
+max_lifetime: ${max_lifetime_hours}h
+YAML
+fi
+export FORECREW_JOIN_CODE='${join_code}'
+curl -fsSL -o /tmp/install.sh 'https://raw.githubusercontent.com/forecrew/forecrew/${install_ref}/deploy/fleet-agent/install.sh'
+sh /tmp/install.sh --server '${server_url}' --kind '${agent_kind}' --version '${agent_version}'
+rm -f /tmp/install.sh
