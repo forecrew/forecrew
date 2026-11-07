@@ -23,10 +23,10 @@ func ConfigStoreSuite(t *testing.T, st store.Store, accountID, projectID, jobID 
 		configSecrets(t, st, scope)
 	}
 	configAccounts(t, st, accountID)
-	configModels(t, st, accountID, projectID)
+	configModels(t, st, accountID, projectID, jobID)
 }
 
-func configModels(t *testing.T, st store.Store, accountID, projectID uuid.UUID) {
+func configModels(t *testing.T, st store.Store, accountID, projectID, jobID uuid.UUID) {
 	t.Helper()
 	ctx := t.Context()
 	must := func(err error) {
@@ -44,12 +44,16 @@ func configModels(t *testing.T, st store.Store, accountID, projectID uuid.UUID) 
 		t.Fatalf("connections = %+v, %v", rows, err)
 	}
 	configAuthorizations(t, st, accountID, projectID, rows[0])
+	configChecks(t, st, accountID, rows[0], jobID)
 	must(st.ModelConnections().Delete(ctx, accountID, "zai"))
 	if err := st.ModelConnections().Delete(ctx, accountID, "zai"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("delete again = %v", err)
 	}
 	if auths, err := st.ModelAuthorizations().List(ctx, accountID); err != nil || len(auths) != 0 {
 		t.Fatalf("authorizations outlive their connection: %+v, %v", auths, err)
+	}
+	if checks, err := st.ModelChecks().List(ctx, accountID); err != nil || len(checks) != 0 {
+		t.Fatalf("checks outlive their connection: %+v, %v", checks, err)
 	}
 
 	off := false
@@ -331,4 +335,41 @@ func configAuthorizations(t *testing.T, st store.Store, accountID, projectID uui
 		t.Fatalf("after DeleteConnection: %+v", rows)
 	}
 	must(st.ModelAuthorizations().Put(ctx, &all))
+}
+
+// configChecks checks the key check and the test of a model of connection c;
+// jobID is a job of the account.
+func configChecks(t *testing.T, st store.Store, accountID uuid.UUID, c domain.ModelConnection, jobID uuid.UUID) {
+	t.Helper()
+	ctx := t.Context()
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	key := domain.ModelCheck{AccountID: accountID, ConnectionID: c.ID, Connection: c.Name, JobID: jobID, Status: domain.ModelCheckQueued, CreatedBy: "user:ana"}
+	must(st.ModelChecks().Put(ctx, &key))
+	key.ID, key.Status = uuid.Nil(), domain.ModelCheckReachable
+	key.Key = &domain.ModelCheckResult{Status: domain.ModelCheckReachable, Models: []string{"glm-4.6"}, AgentVersion: "1.0"}
+	must(st.ModelChecks().Put(ctx, &key))
+	test := domain.ModelCheck{AccountID: accountID, ConnectionID: c.ID, Connection: c.Name, Model: "glm-4.6", JobID: jobID, Status: domain.SuitabilityDone, CreatedBy: "user:ana", Stale: true,
+		Test: &domain.SuitabilityResult{Abilities: map[string]bool{domain.AbilityRead: true}, Level: domain.LevelNone, Tokens: 9, DurationMS: 5}}
+	must(st.ModelChecks().Put(ctx, &test))
+	rows, err := st.ModelChecks().List(ctx, accountID)
+	if err != nil || len(rows) != 2 || rows[0].Model != "" || rows[0].Key == nil || rows[0].Key.Models[0] != "glm-4.6" || rows[0].Status != domain.ModelCheckReachable ||
+		rows[1].Test == nil || !rows[1].Test.Abilities[domain.AbilityRead] || !rows[1].Stale || rows[1].CreatedAt.IsZero() {
+		t.Fatalf("checks = %+v, %v", rows, err)
+	}
+	got, err := st.ModelChecks().GetByJob(ctx, accountID, jobID)
+	if err != nil || got.JobID != jobID {
+		t.Fatalf("by job = %+v, %v", got, err)
+	}
+	if _, err := st.ModelChecks().GetByJob(ctx, accountID, domain.NewID()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("by another job = %v", err)
+	}
+	other := domain.ModelCheck{AccountID: accountID, ConnectionID: domain.NewID(), Connection: "x", JobID: jobID, Status: "queued", CreatedBy: "user:ana"}
+	if err := st.ModelChecks().Put(ctx, &other); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("put on a missing connection = %v", err)
+	}
 }

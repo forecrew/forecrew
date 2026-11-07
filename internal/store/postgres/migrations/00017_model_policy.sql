@@ -25,7 +25,27 @@ CREATE TABLE model_authorizations (
   UNIQUE NULLS NOT DISTINCT (account_id, connection_id, project_id)
 );
 
+-- The last key check of a connection (model '') and the last suitability
+-- test of each of its models.
+CREATE TABLE model_checks (
+  id            uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id    uuid NOT NULL REFERENCES accounts(id),
+  connection_id uuid NOT NULL REFERENCES model_connections(id) ON DELETE CASCADE,
+  connection    text NOT NULL,
+  model         text NOT NULL DEFAULT '',
+  job_id        uuid NOT NULL REFERENCES jobs(id),
+  status        text NOT NULL,
+  result        jsonb,
+  stale         boolean NOT NULL DEFAULT false,
+  created_by    text NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, connection_id, model)
+);
+CREATE INDEX model_checks_job ON model_checks (account_id, job_id);
+
 -- +goose Down
+DROP TABLE model_checks;
 DROP TABLE model_authorizations;
 -- +goose StatementBegin
 DO $$

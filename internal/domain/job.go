@@ -88,7 +88,7 @@ const (
 )
 
 // JobKinds returns every job kind.
-func JobKinds() []JobKind { return []JobKind{JobKindAgent, JobKindCommand} }
+func JobKinds() []JobKind { return []JobKind{JobKindAgent, JobKindCommand, JobKindModelCheck} }
 
 // OrDefault returns k, or JobKindAgent when k is empty (specs stored before
 // job kinds existed).
@@ -309,6 +309,11 @@ type JobSpec struct {
 	// Endpoint is the custom model endpoint of the job's runtime, added at
 	// lease time like Env; agent jobs only. Nil means the vendor's own.
 	Endpoint *Endpoint `json:"endpoint,omitempty"`
+
+	// ModelCheck is what a model_check job checks.
+	ModelCheck *ModelCheckSpec `json:"model_check,omitempty"`
+	// Suitability makes an agent job the suitability test of a model.
+	Suitability *SuitabilitySpec `json:"suitability,omitempty"`
 }
 
 // Endpoint is a custom model endpoint (runtimes.<name>.base_url in

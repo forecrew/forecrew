@@ -100,7 +100,7 @@ func DefaultPools() map[string]Pool {
 			Credentials: PoolCredentials{Runtimes: []string{AnyRole}, RepoToken: RepoTokenWrite},
 		},
 		domain.PoolControl: {
-			Roles: []string{AnyRole}, Kinds: []domain.JobKind{domain.JobKindAgent},
+			Roles: []string{AnyRole}, Kinds: []domain.JobKind{domain.JobKindAgent, domain.JobKindModelCheck},
 			Credentials: PoolCredentials{Runtimes: []string{AnyRole}, RepoToken: RepoTokenRead},
 		},
 		domain.PoolActions: {

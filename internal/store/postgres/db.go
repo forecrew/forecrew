@@ -96,6 +96,9 @@ func (s *Store) ModelAuthorizations() store.ModelAuthorizationRepo {
 	return modelAuthorizationRepo{s.db}
 }
 
+// ModelChecks implements store.Store.
+func (s *Store) ModelChecks() store.ModelCheckRepo { return modelCheckRepo{s.db} }
+
 // Secrets implements store.Store.
 func (s *Store) Secrets() store.SecretRepo { return secretRepo{s.db} }
 
