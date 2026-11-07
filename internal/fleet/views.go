@@ -56,6 +56,9 @@ type Location struct {
 	// Capacity is how many it can run at once; 0 means no limit.
 	Capacity int    `json:"capacity"`
 	Cost     string `json:"cost"` // Free, or the lowest price
+	// Problems are what a computer could not do, in words: an agent CLI it
+	// failed to install, with what to do.
+	Problems []string `json:"problems,omitempty"`
 }
 
 // WaitingJob is a queued job with why it waits.
@@ -189,7 +192,13 @@ func (s *snapshot) locations(o *organization) []Location {
 		if w.Online(s.now) {
 			status = StatusOnline
 		}
-		out = append(out, Location{ID: w.ID, Kind: LocationComputer, Name: w.Name, Runs: workerRuns(w), Status: status, InUse: running[w.ID], Capacity: w.MaxJobs, Cost: "Free"})
+		var problems []string
+		for _, a := range w.Agents {
+			if p := agentProblem(displayName(w.Name), a); p != "" {
+				problems = append(problems, p)
+			}
+		}
+		out = append(out, Location{ID: w.ID, Kind: LocationComputer, Name: w.Name, Runs: workerRuns(w), Status: status, InUse: running[w.ID], Capacity: w.MaxJobs, Cost: "Free", Problems: problems})
 	}
 	slices.SortFunc(out, func(a, b Location) int { return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) })
 	return out

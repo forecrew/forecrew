@@ -7,6 +7,7 @@ to forecrewd (`docs/contracts/worker-api.md`); config is `worker.yaml`
 ```
 forecrew-worker run --config worker.yaml     # poll for jobs and run them
 forecrew-worker check --config worker.yaml   # labels, git, runtime CLIs, server and token
+forecrew-worker status --config worker.yaml  # the agent CLIs and where each comes from
 forecrew-worker version
 ```
 
@@ -14,8 +15,52 @@ forecrew-worker version
 
 The configured labels, the os (`linux`, `windows`; a macOS worker advertises
 both `darwin`, the `GOOS` value of conventions.md, and `macos`, the name repo profiles use) and `runtime:claude-code` / `runtime:codex` / `runtime:opencode` for each of `claude`,
-`codex` and `opencode` found on `PATH`, and `docker` when the Docker engine answers
+`codex` and `opencode` found in `<work_dir>/agents/bin` or on `PATH`, and `docker` when the Docker engine answers
 `docker version` (see Environments).
+
+## Agent install
+
+A worker gets the agent CLI a job needs without anyone touching the machine.
+When queued jobs need `runtime:<adapter>` and no online worker of their pool
+has it, forecrewd asks the workers of that pool that have everything else the
+job needs, on their next poll (worker-api.md, Agent install). Only the adapter
+name crosses the wire.
+
+- **The manifest.** `packs/agents/manifest.yaml` ships inside each release
+  and is never fetched. Per agent it pins an exact version and, per OS and
+  architecture, the official download address and its SHA-256: Claude Code's
+  native build, and the release binaries of Codex and opencode on GitHub, at
+  the versions of the toolbox base image. Only agents that ship a standalone
+  binary are listed; an agent with none is reported missing, and Forecrew
+  does not install runtimes such as Node for it. A worker ignores a request
+  for anything that is not an adapter of its own manifest, one that names a
+  version or an address included.
+- **The install.** The worker downloads over https only (a redirect may not
+  leave it), checks the SHA-256 as it reads, extracts the binary from a
+  `tar.gz` or `zip`, and puts it in `<work_dir>/agents/bin` (mode `0700`). It
+  installs nothing system-wide and asks for no rights: a worker running as
+  root never installs. That directory comes first on `PATH` for the runtimes,
+  and the worker advertises the new `runtime:<adapter>` label at its next
+  poll. A wrong checksum deletes the file. What was installed (version,
+  address, SHA-256, time) and the last failure are kept in
+  `<work_dir>/agents/state.json`; a failed install of a version is tried again
+  after an hour at the earliest. An install of another version than the
+  release's manifest is removed at start and installed again when a job
+  needs it.
+- **Reporting.** Each poll lists the agents and their source: `image` on a
+  fleet machine, `installed`, or `system` (found on `PATH`), and the code of a
+  failed install. A failure shows on the machine (Machines, Locations) and as
+  the waiting reason `agent_install` of the job, with what to do.
+  `forecrew-worker status` lists the same, with paths and the failure's
+  detail.
+- **Turning it off.** `auto_install_agents: false` in worker.yaml. A worker of
+  a fleet machine never installs: it uses what its image contains. A job
+  with a toolbox runs the CLI of the toolbox image (Toolboxes, below).
+
+Agents run as the worker's user, which can also change the files of
+`<work_dir>/agents` (see Agents are not isolated from the worker): the
+checksum protects the download, not a binary on a machine an agent already
+runs on.
 
 ## Pools
 

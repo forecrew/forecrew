@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 	"uuid"
 
@@ -574,6 +575,8 @@ func (p *planner) why(o *organization, j domain.Job, matches []domain.Shape, blo
 // noMatch explains a job no shape of the organization's policy serves.
 func (p *planner) noMatch(o *organization, d domain.ShapeDemand) Reason {
 	online := false
+	var lacksAgent *domain.Worker
+	runtime, but := agentNeed(d.Labels)
 	for _, w := range o.workers {
 		if w.Ephemeral || !w.Online(p.s.now) || w.Pool != d.Pool {
 			continue
@@ -583,6 +586,12 @@ func (p *planner) noMatch(o *organization, d domain.ShapeDemand) Reason {
 			p.inLine[d.Pool]++
 			return queueReason(p.inLine[d.Pool], "a free machine")
 		}
+		if lacksAgent == nil && runtime != "" && domain.MatchLabels(but, w.Labels) {
+			lacksAgent = &w
+		}
+	}
+	if lacksAgent != nil {
+		return agentReason(*lacksAgent, runtime)
 	}
 	open := o.policy
 	open.Routing, open.AllowedShapes = domain.RoutingOwnFirst, nil
@@ -594,6 +603,19 @@ func (p *planner) noMatch(o *organization, d domain.ShapeDemand) Reason {
 		return zoneReason(d.Pool)
 	}
 	return noShapeReason(d)
+}
+
+// agentNeed returns the adapter of the runtime label among labels and the
+// other labels; "" when there is none.
+func agentNeed(labels []string) (adapter string, others []string) {
+	for _, l := range labels {
+		if a, ok := strings.CutPrefix(l, "runtime:"); ok && a != domain.RuntimeNone {
+			adapter = a
+			continue
+		}
+		others = append(others, l)
+	}
+	return adapter, others
 }
 
 // waitsForJob reports a machine with no job so far.

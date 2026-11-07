@@ -928,6 +928,39 @@ func TestWaitReasons(t *testing.T) {
 		must(t, err)
 		wantReason(t, e.reason(e.job(e.account, e.project, nil)), fleet.ReasonQueue, "First in line for a free machine")
 	})
+	t.Run("static worker without the agent", func(t *testing.T) {
+		cases := []struct {
+			name   string
+			labels []string
+			agents []domain.WorkerAgent
+			want   string
+		}{
+			{"installing", []string{domain.AgentInstallLabel}, nil, "Installing Codex on Box"},
+			{"does not install", nil, nil, "Codex is not on Box: install it there, or turn on auto_install_agents in its worker.yaml"},
+			{"checksum", []string{domain.AgentInstallLabel}, []domain.WorkerAgent{{Adapter: "codex", Error: domain.AgentInstallChecksum}}, "Codex was downloaded on Box but did not match its checksum"},
+			{"unsupported", nil, []domain.WorkerAgent{{Adapter: "codex", Error: domain.AgentInstallUnsupported}}, "Codex has no standalone build for Box's system"},
+			{"download", nil, []domain.WorkerAgent{{Adapter: "codex", Error: domain.AgentInstallDownload}}, "Codex could not be downloaded on Box"},
+			{"write", nil, []domain.WorkerAgent{{Adapter: "codex", Error: domain.AgentInstallWrite}}, "Codex could not be installed on Box: run forecrew-worker status there"},
+		}
+		for _, c := range cases {
+			t.Run(c.name, func(t *testing.T) {
+				e := newEnv(t)
+				w := domain.Worker{AccountID: e.account, Name: "box", MaxJobs: 1, TokenHash: []byte{1}}
+				must(t, e.st.Workers().Create(e.ctx, &w))
+				must(t, e.st.Workers().Seen(e.ctx, e.account, w.ID, append([]string{"runtime:claude-code"}, c.labels...), "v1"))
+				must(t, e.st.Workers().SetAgents(e.ctx, e.account, w.ID, c.agents))
+				r := e.reason(e.job(e.account, e.project, nil))
+				if r.Code != fleet.ReasonAgent || !strings.HasPrefix(r.Sentence, c.want) {
+					t.Fatalf("reason = %+v, want %q", r, c.want)
+				}
+				o, err := e.c.Overview(e.ctx, e.account, func(uuid.UUID) bool { return true })
+				must(t, err)
+				if got := o.Locations[0].Problems; (c.agents != nil) != (len(got) == 1) {
+					t.Errorf("problems = %v", got)
+				}
+			})
+		}
+	})
 	t.Run("not the fleet's", func(t *testing.T) {
 		e := newEnv(t)
 		for _, j := range []domain.Job{
