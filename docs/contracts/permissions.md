@@ -165,6 +165,7 @@ feature: see identity.md, Tokens.
 | `trackers.manage` | admin | organization | tracker connections, routes and identities, within [No escalation](#no-escalation) |
 | `models.read` | read | organization | read model connections and assignments, never a key |
 | `models.manage` | admin | organization | model connections, and the organization's assignment and policy |
+| `models.authorize` | admin | organization | authorize a model connection for the private code of every project (`model_authorization` `<connection>@*`), with the second confirmation |
 | `project.read` | read | project | a project, its profile, councils, assumptions, decisions, knowledge and improvement proposals |
 | `project.manage` | admin | project | project settings and project role bindings |
 | `models.assign` | admin | project | the model overrides of a project |
@@ -252,6 +253,7 @@ protected knowledge, access requests or improvement proposals) and
 | `org.manage` | x |  |  |  |  |  |  |  |  |
 | `org.read` | x | x | x | x | x |  |  |  |  |
 | `models.assign` | x | x |  |  |  | x |  |  |  |
+| `models.authorize` | x | x |  |  |  |  |  |  |  |
 | `models.manage` | x | x |  |  |  |  |  |  |  |
 | `models.read` | x | x |  | x | x |  |  |  |  |
 | `pool.manage` | x | x |  |  |  |  |  |  |  |

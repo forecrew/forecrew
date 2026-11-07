@@ -55,6 +55,7 @@
     "knowledge.propose",
     "member.manage",
     "models.assign",
+    "models.authorize",
     "models.manage",
     "models.read",
     "org.read",

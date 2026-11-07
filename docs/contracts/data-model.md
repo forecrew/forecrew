@@ -1456,6 +1456,28 @@ connection; `Jobs.QueuedClasses` and `Jobs.Retarget` move queued jobs between
 runtimes by (project, pool, role, runtime, `spec.pinned_runtime`,
 `spec.model`, `spec.organization_model`).
 
+### Private code and model checks (migration 00017)
+
+See [config-resources.md](config-resources.md#private-code). The migration
+also gives `models.authorize` to the built-in Owner and Admin roles
+(permissions.md).
+
+```sql
+-- project_id NULL: every project of the organization.
+CREATE TABLE model_authorizations (
+  id            uuid PRIMARY KEY DEFAULT uuidv7(),
+  account_id    uuid NOT NULL REFERENCES accounts(id),
+  project_id    uuid REFERENCES projects(id),
+  connection_id uuid NOT NULL REFERENCES model_connections(id) ON DELETE CASCADE,
+  connection    text NOT NULL,
+  adapter       text NOT NULL,           -- as authorized: another endpoint
+  base_url      text NOT NULL DEFAULT '', -- needs a new authorization
+  authorized_by text NOT NULL,           -- domain.Actor.String()
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  UNIQUE NULLS NOT DISTINCT (account_id, connection_id, project_id)
+);
+```
+
 ### Configuration (migration 00010)
 
 See [config-resources.md](config-resources.md).

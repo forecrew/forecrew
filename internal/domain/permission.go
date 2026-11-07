@@ -28,12 +28,13 @@ const (
 	PermWorkerRead           Permission = "worker.read"   // workers, machines, providers, shapes, images and fleet usage
 	PermWorkerManage         Permission = "worker.manage" // workers, capacity providers, shapes, the fleet policy and images, except budget fields; shown as Manage machines
 	PermPoolManage           Permission = "pool.manage"
-	PermConfigRead           Permission = "config.read"     // configuration resources, within what the caller may read of each
-	PermConfigApply          Permission = "config.apply"    // change plans; applying also needs what each resource needs
-	PermProjectCreate        Permission = "project.create"  // onboard a repo
-	PermTrackersManage       Permission = "trackers.manage" // tracker connections, routes and identities
-	PermModelsRead           Permission = "models.read"     // model connections and assignments; never a key
-	PermModelsManage         Permission = "models.manage"   // model connections, and the organization's assignment and policy
+	PermConfigRead           Permission = "config.read"      // configuration resources, within what the caller may read of each
+	PermConfigApply          Permission = "config.apply"     // change plans; applying also needs what each resource needs
+	PermProjectCreate        Permission = "project.create"   // onboard a repo
+	PermTrackersManage       Permission = "trackers.manage"  // tracker connections, routes and identities
+	PermModelsRead           Permission = "models.read"      // model connections and assignments; never a key
+	PermModelsManage         Permission = "models.manage"    // model connections, and the organization's assignment and policy
+	PermModelsAuthorize      Permission = "models.authorize" // send the private code of every project to a model connection
 
 	PermProjectRead       Permission = "project.read"   // the project, its profile, councils, registers, knowledge and proposals
 	PermProjectManage     Permission = "project.manage" // project settings and project role bindings
@@ -118,6 +119,7 @@ var permissionTable = map[Permission]permissionInfo{
 	PermTrackersManage:       {ScopeAdmin, false},
 	PermModelsRead:           {ScopeRead, false},
 	PermModelsManage:         {ScopeAdmin, false},
+	PermModelsAuthorize:      {ScopeAdmin, false},
 
 	PermProjectRead:       {ScopeRead, true},
 	PermProjectManage:     {ScopeAdmin, true},

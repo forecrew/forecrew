@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -260,6 +261,8 @@ func (r modelConnectionRepo) Delete(_ context.Context, accountID uuid.UUID, name
 		if i < 0 {
 			return fmt.Errorf("model connection %s: %w", name, store.ErrNotFound)
 		}
+		id := d.modelConns.rows[i].ID
+		d.modelAuths.rows = slices.DeleteFunc(d.modelAuths.rows, func(x domain.ModelAuthorization) bool { return x.ConnectionID == id })
 		d.modelConns.rows = slices.Delete(d.modelConns.rows, i, i+1)
 		return nil
 	})
@@ -305,6 +308,66 @@ func (r modelAssignmentRepo) Delete(_ context.Context, accountID, projectID uuid
 			return fmt.Errorf("model assignment: %w", store.ErrNotFound)
 		}
 		d.modelAssigns.rows = slices.Delete(d.modelAssigns.rows, i, i+1)
+		return nil
+	})
+}
+
+// ModelAuthorizations implements store.Store.
+func (s *Store) ModelAuthorizations() store.ModelAuthorizationRepo { return modelAuthorizationRepo{s} }
+
+type modelAuthorizationRepo struct{ s *Store }
+
+func (r modelAuthorizationRepo) List(_ context.Context, accountID uuid.UUID) ([]domain.ModelAuthorization, error) {
+	return read(r.s, func(d *storeData) ([]domain.ModelAuthorization, error) {
+		rows := d.modelAuths.filter(0, func(a domain.ModelAuthorization) bool { return a.AccountID == accountID })
+		slices.SortFunc(rows, func(a, b domain.ModelAuthorization) int {
+			return cmp.Or(strings.Compare(a.Connection, b.Connection), strings.Compare(a.ProjectID.String(), b.ProjectID.String()))
+		})
+		return rows, nil
+	})
+}
+
+func (r modelAuthorizationRepo) Put(_ context.Context, a *domain.ModelAuthorization) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		if err := foreign(&d.projects, a.AccountID, a.ProjectID); err != nil {
+			return err
+		}
+		if err := foreign(&d.modelConns, a.AccountID, a.ConnectionID); err != nil {
+			return err
+		}
+		a.CreatedAt = now
+		row, err := d.modelAuths.find(func(x domain.ModelAuthorization) bool {
+			return x.AccountID == a.AccountID && x.ConnectionID == a.ConnectionID && x.ProjectID == a.ProjectID
+		})
+		if err != nil {
+			a.ID = newID(a.ID)
+			d.modelAuths.insert(*a)
+			return nil
+		}
+		a.ID = row.ID
+		*row = *a
+		return nil
+	})
+}
+
+func (r modelAuthorizationRepo) Delete(_ context.Context, accountID, connectionID, projectID uuid.UUID) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		i := slices.IndexFunc(d.modelAuths.rows, func(x domain.ModelAuthorization) bool {
+			return x.AccountID == accountID && x.ConnectionID == connectionID && x.ProjectID == projectID
+		})
+		if i < 0 {
+			return fmt.Errorf("model authorization: %w", store.ErrNotFound)
+		}
+		d.modelAuths.rows = slices.Delete(d.modelAuths.rows, i, i+1)
+		return nil
+	})
+}
+
+func (r modelAuthorizationRepo) DeleteConnection(_ context.Context, accountID, connectionID uuid.UUID) error {
+	return r.s.do(func(d *storeData, _ time.Time) error {
+		d.modelAuths.rows = slices.DeleteFunc(d.modelAuths.rows, func(x domain.ModelAuthorization) bool {
+			return x.AccountID == accountID && x.ConnectionID == connectionID
+		})
 		return nil
 	})
 }

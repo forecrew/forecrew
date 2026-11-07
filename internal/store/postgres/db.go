@@ -91,6 +91,11 @@ func (s *Store) ModelConnections() store.ModelConnectionRepo { return modelConne
 // ModelAssignments implements store.Store.
 func (s *Store) ModelAssignments() store.ModelAssignmentRepo { return modelAssignmentRepo{s.db} }
 
+// ModelAuthorizations implements store.Store.
+func (s *Store) ModelAuthorizations() store.ModelAuthorizationRepo {
+	return modelAuthorizationRepo{s.db}
+}
+
 // Secrets implements store.Store.
 func (s *Store) Secrets() store.SecretRepo { return secretRepo{s.db} }
 
