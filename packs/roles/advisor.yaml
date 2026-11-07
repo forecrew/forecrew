@@ -1,0 +1,18 @@
+role: advisor
+model: best
+prompt: roles/advisor.md
+tools: [repo.read, git.read, assumption.record, kb.search, request_access]
+write_paths: []
+produces: [proposals]
+output_schema: schemas/proposals.json
+pool: control
+definition_of_done:
+  - every proposal answers a listed signal, and its dedupe_key is that signal's key
+  - no more proposals than the limit you were given, best first
+  - no action uses a tool outside the catalog
+  - nothing already open, snoozed or recently rejected is proposed again
+escalate_when:
+  - the signals contradict the code and you cannot tell which one is right
+max_turns: 30
+timeout: 20m
+context: [knowledge]

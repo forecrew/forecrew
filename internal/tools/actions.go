@@ -412,6 +412,9 @@ func (s *Service) decide(ctx context.Context, by domain.Actor, tool string, in m
 		var g domain.Gate
 		if g, err = s.cfg.Gates.Find(ctx, by.AccountID, in.Gate); err == nil {
 			err = s.authz.AuthorizeGate(ctx, by, g)
+			if err == nil && tool == mcp.ToolApprove {
+				err = s.allowGoalOfProposal(ctx, by, g)
+			}
 			if err == nil && in.SaveAsLesson {
 				// The feedback becomes a proposal, sent as the caller's own.
 				err = s.allow(ctx, by, domain.PermKnowledgePropose, g.ProjectID)

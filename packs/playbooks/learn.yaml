@@ -60,5 +60,10 @@ steps:
     action: goal.learn_settle
     with: {goal_id: '${inputs.goal_id}'}
     on_failure: escalate
+  # What the goal taught may be worth a proposal; not after a rejected learn.
+  - id: advise
+    type: action
+    action: advise.start
+    with: {goal_id: '${inputs.goal_id}', gate: '${steps.learn.output.gate}'}
 finally:
   - {id: abandon, type: action, action: goal.learn_settle, with: {goal_id: '${inputs.goal_id}'}}

@@ -11,6 +11,7 @@ import { CliLoginPage } from "@/routes/cli-login"
 import { CouncilPage, CouncilsPage, NewCouncilPage } from "@/routes/councils"
 import { DecisionsPage } from "@/routes/decisions"
 import { AssumptionsPage } from "@/routes/assumptions"
+import { ProposalsPage } from "@/routes/proposals"
 import { GoalPage } from "@/routes/goal"
 import { GoalsPage, NewGoalPage } from "@/routes/goals"
 import { HomePage } from "@/routes/home"
@@ -46,6 +47,7 @@ interface Search {
   /** The question a new council opens with. */
   question?: string
   impact?: string
+  category?: string
   /** The knowledge page's tab, search words and filters. */
   tab?: string
   q?: string
@@ -63,7 +65,7 @@ interface Search {
 
 const search = (s: Record<string, unknown>): Search => {
   const out: Search = {}
-  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question", "impact", "tab", "redirect_uri", "state", "code_challenge", "organization", "host", "q", "section", "kind", "provider", "goal"] as const) {
+  for (const k of ["project", "status", "redirect", "org", "invite", "gate", "question", "impact", "category", "tab", "redirect_uri", "state", "code_challenge", "organization", "host", "q", "section", "kind", "provider", "goal"] as const) {
     const v = s[k]
     if (typeof v === "string" && v) out[k] = v
   }
@@ -114,6 +116,7 @@ const routeTree = root.addChildren([
     child("/projects/new", OnboardPage),
     child("/projects/$name", ProjectPage),
     createRoute({ getParentRoute: () => app, path: "/assumptions", validateSearch: search, component: AssumptionsPage }),
+    createRoute({ getParentRoute: () => app, path: "/proposals", validateSearch: search, component: ProposalsPage }),
     createRoute({ getParentRoute: () => app, path: "/knowledge", validateSearch: search, component: KnowledgePage }),
     createRoute({ getParentRoute: () => app, path: "/jobs", validateSearch: search, component: JobsPage }),
     child("/jobs/$ref", JobPage),

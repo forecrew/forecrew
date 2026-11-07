@@ -35,7 +35,7 @@ rejected.
 
 | Type | Fields | What it does |
 |------|--------|--------------|
-| `job` | `with`, `on_failure` | Creates a job through `workflow.JobCreator`, then waits for its `job.completed`. `with` takes the json keys of `workflow.JobRequest` (`role` required; `account_id`, `project_id` are set by the engine; `goal_id` and `task_id` default to the run's; `pool` picks the worker pool and defaults to the role pack's `pool`, and a pool whose policy does not run the role fails the step (docs/worker.md, Pools); `task` makes the job a read-only task of the role instead of its usual work (`packs/tasks/<role>.<task>.md` with its output schema `<role>.<task>.json`; the knowledge curator has `retro` and `curate`); `prompt` adds instructions to the job's prompt and must be literal text written in the playbook: a `${...}` reference in it is refused when the playbook loads, because the prompt is rendered as trusted instructions; `locked_paths`, a list of globs, goes into the job spec and the prompt: the job fails if it changes a matching file, see Locked tests; `write_paths`, a list of globs, is added to the role's write paths for this job, so a read-only role writes the files they name (the architect's ADR in `goal-v3`): take it from an action, never from a job's output, and run the job in a pool that gets a write token). Fails when the job fails or is canceled. |
+| `job` | `with`, `on_failure` | Creates a job through `workflow.JobCreator`, then waits for its `job.completed`. `with` takes the json keys of `workflow.JobRequest` (`role` required; `account_id`, `project_id` are set by the engine; `goal_id` and `task_id` default to the run's; `pool` picks the worker pool and defaults to the role pack's `pool`, and a pool whose policy does not run the role fails the step (docs/worker.md, Pools); `task` makes the job a read-only task of the role instead of its usual work (`packs/tasks/<role>.<task>.md` with its output schema `<role>.<task>.json`; the knowledge curator has `retro` and `curate`, the advisor `revise`); `prompt` adds instructions to the job's prompt and must be literal text written in the playbook: a `${...}` reference in it is refused when the playbook loads, because the prompt is rendered as trusted instructions; `locked_paths`, a list of globs, goes into the job spec and the prompt: the job fails if it changes a matching file, see Locked tests; `write_paths`, a list of globs, is added to the role's write paths for this job, so a read-only role writes the files they name (the architect's ADR in `goal-v3`): take it from an action, never from a job's output, and run the job in a pool that gets a write token). Fails when the job fails or is canceled. |
 | `action` | `action`, `with`, `on_failure` | Calls the Go function registered under `action` in `workflow.Actions` with the resolved `with`. Its result is the step output; an error fails the step. |
 | `gate` | `with`, `on_failure` | Opens a gate and waits for `gate.resolved`. `with` takes the json keys of `gates.OpenRequest`: `kind`, `title`, `subject_repo` (required), `summary`, `subject_number`, `goal_id`, `spec_id`, `task_id`, `job_id`. |
 | `wait` | `with`, `timeout`, `on_failure` | Waits for a signal. `with.signal` is the kind and the remaining keys build its key with the `domain` helpers: `checks.completed` (`repo`, `sha`), `pr.merged` / `pr.closed` (`repo`, `number`), `job.completed` (`job_id`), `gate.resolved` (`gate_id`), `council.decided` (`council_id`). The first signal stored under the key completes the step, so for a PR either merged or closed does (the output's `signal` says which). On `job.completed` the step follows the job-step rules: it outputs the job's values and fails when the job did not succeed. On `gate.resolved` it outputs the gate's values but does not apply the gate-decision rules below. A wait for `gate.resolved` (like a gate step) finds the gate resolved when the signal was lost; the other waits have no lost-signal fallback. `timeout` (Go duration, e.g. `30m`) fails the step after that long; zero waits forever. |
@@ -290,6 +290,15 @@ published in the same process and otherwise by the periodic sweep (30 s).
 | `goal.retro_context` | `goal_id` | `{text, notes}`. The goal's history for the retro job: spec revisions, what humans answered at the goal's gates, the reviews that asked for changes, the jobs that failed or were canceled, costs by role and the goal's notes with their ids. Everything a person or agent wrote is marked as data, each text cut and each list bounded. Reads only. |
 | `goal.learn` | `goal_id` | `{proposals, files, number, branch, head_sha, gate, if_gate}`. The learn step: writes in one PR `agent/learn-GOAL-n` the goal's register files (`.forecrew/assumptions/A-n.yaml`, `docs/decisions/DEC-n.md`, as `registers.Export` gives them, only when they differ from the default branch) and the goal's queued `per_goal` proposals for the repo (`entry`: provenance frontmatter, then the body; source `GOAL-n`). It checks them against the policy again first: what the policy no longer allows, or a section that became protected, is rejected and audited. Proposals for a provider without a review flow wait at the gate. Opens one `knowledge_proposal` gate, with the call's key as ID, for the PR and those proposals; `gate` is its ID (empty when there was nothing to send) and `if_gate` holds it for a `foreach`. Idempotent for its key. |
 | `goal.learn_decide` | `goal_id`, `gate` | `{if_merge, if_follow}`. Anything but an approved gate closes the learn PR and rejects the proposals; an approval accepts the ones copied across by hand and says how the PR gets merged (`if_follow` when a section it changes is owned by `codeowners`). |
+| `advise.prepare` | none | `{text, signals, room, if_advise}`. Runs the detectors and tends the project's proposals: a snooze that ended puts its proposal back, a proposal done `advisor.MeasureAfter` (14 days) ago gets its `outcome`, an open one its new evidence. `signals` are those nothing answers yet, heaviest first, at most 40; `room` what the weekly cap leaves; `if_advise` has one item when both are there and the role `advisor` has a runtime. Signal text is marked as data in `text`. Idempotent. |
+| `advise.file` | `jobs` (the foreach of advisor jobs), `signals` | `{created, updated, dropped}`. Files what the advisor wrote, best first. A draft answers one listed signal, whose key is its `dedupe_key`; evidence and weight come from the cited signals. A draft whose key has an open proposal updates it. One matching a rejected proposal is dropped unless the signal's weight doubled or 90 days passed, one matching a proposal done within 14 days is dropped, and one past `advisor.max_per_week` is dropped. Tools must be in the catalog, which a revision is held to as well: a name in `tools` outside it drops the draft, a draft answering a tooling signal must name a catalog tool, and the action text may neither name a missing tool of the brief that the catalog lacks nor install or run a package or image the catalog lacks (`pip`, `npm`, `pnpm`, `yarn`, `brew`, `apt`, `go`, `cargo` and the like with `install` or `add`, `npx` and `uvx`, `docker run` and `docker pull`; `installRules` in `internal/advisor`). A `config_pr` may only write `.forecrew/profile.yaml`, `matrix.yaml`, `knowledge-policy.yaml` and `environments/<name>.yaml`, valid against their contracts, at most 10 files of 64 KiB. A new proposal gets an `improvement_proposal` gate and a run of `proposal`. Idempotent for its key. |
+| `advise.start` | `goal_id`, `gate` (the learn gate, empty when there is none) | `{started}`. Last step of `learn`: starts `advise` unless a run of it is going on for the project, or the learn gate was not approved. An error is logged, never fails the retro. Does nothing without an advisor. |
+| `proposal.round` | `proposal_id` | `{gate_id}`: the gate the proposal waits on now. |
+| `proposal.assess` | `proposal_id` | `{settled, if_revise}`. `settled` unless the human asked for changes; then `if_revise` holds the advisor's brief, with the proposal and the feedback marked as data. |
+| `proposal.reopen` | `proposal_id`, `jobs`, `settled` | `{reopened}`. Nothing when `settled`. Else applies the revision, under the rules of `advise.file`, and opens the next gate; a revision that breaks one is left out and the gate says why. Idempotent for its key. |
+| `proposal.carry` | `proposal_id` | `{if_pr, goal_ref}`. For an accepted proposal: a `goal` action creates a goal of kind `feature`, linked through `proposals.goal_id`, and starts it; a `config_pr` action writes the files on `agent/prop-<n>` and opens the PR, which a human merges; a `setup` action waits for `decide_proposal` with `done`. Idempotent. |
+| `proposal.pr_ended` | `proposal_id`, `signal` | `{signal}`. `pr.merged` makes the proposal `done`, `pr.closed` `superseded`. |
+| `proposal.abandon` | `proposal_id` | `{abandoned}`. The `finally` step: a proposal that is not final is `superseded` and its pending gate closed. |
 | `goal.learn_settle` | `goal_id`, optional `skipped` | `{failed, settled}` (`settled` is always true: it ends the learn loop of `goal-v3`). Last step and `finally` step of `learn`: a merged PR accepts what is in review, a closed one rejects it; in a run that failed or was canceled, or with `skipped` (the learn step of `goal-v3` that a human skipped), the PR is closed and what is in review or still queued rejected, a queued proposal even when the PR was merged, since it was never in it. |
 
 ### Command jobs
@@ -443,6 +452,7 @@ profile, the goal, spec and task, the step's `prompt` and feedback.
 | `test-architect` | `.forecrew/matrix.yaml`, `.forecrew/test-strategy.md` | `test-plan.json`: summary, every axis with its reason, matrix changes with reasons, assumptions, open questions | profile, spec when given, test plan |
 | `environment-engineer` | `.forecrew/environments/**` | `environments.json`: summary, every environment with its provider and reason, assumptions | profile, test plan |
 | `knowledge-curator` | `knowledge/**` (never the protected sections or the policy file) | `knowledge-seed.json`: summary, the entries it wrote with their sources, the sections it skipped, assumptions | profile. Two read-only tasks, `retro` (`knowledge-curator.retro.json`: summary, the proposals it made, assumptions) and `curate` (`knowledge-curator.curate.json`: summary, `reverified` entries, `drop_notes`, proposals, assumptions); both read the history or the work list in their `feedback` and propose with `kb_propose` |
+| `advisor` | nothing | `proposals.json`: summary, ranked proposals, assumptions | the signals, proposals and catalog in its `feedback`. Read-only task `revise` (`advisor.revise.json`: summary, the proposal written again, assumptions). Pool `control`, best tier |
 | `test-engineer` | test files only: `**/*_test.*`, `**/*.test.*`, `**/test_*.*`, `*.spec.*` and `*_spec.*` with code extensions, and `tests/`, `test/`, `__tests__/` and `testdata/` directories; never `.forecrew/**`, `.github/**`, `vendor/`, `node_modules/`, nor dependency, lock, build, Docker, script or CI files at any depth (`go.mod`, `package.json`, `*.lock`, `Makefile`, `Dockerfile`, `*.sh`, ...) | `test-map.json`: per test its criterion, suite, JUnit id (`<classname>::<name>`) and file; every file created or changed (`files`, the paths later locked for the developer and applied on the base); untestable criteria with reasons; assumptions | profile, goal, spec, task with its criteria, test plan |
 
 Every output also has `escalation` (null unless the role stopped for a
@@ -484,6 +494,54 @@ councils are, it is the same retro for a goal that is done.
 for every onboarded project unless `schedules` in config.md says otherwise: `curate.prepare`, a `knowledge-curator` job with
 `task: curate` when there is something to curate, `curate.finish`,
 `discover.github` and `curate.tools`. See [knowledge.md](knowledge.md#upkeep).
+
+## The advise playbook
+
+`packs/playbooks/advise.yaml`, input `repo`, is started weekly by the default
+schedule and by `advise.start` at the end of `learn`: `advise.prepare`, an
+`advisor` job when there is something to answer and room for it, and
+`advise.file`. Each new proposal then has a run of
+`packs/playbooks/proposal.yaml` (inputs `repo` and `proposal_id`, the run's ID
+being the proposal's) that waits on its gate, has the advisor revise it after a
+request for changes (in four rounds at most; a proposal still unsettled then is
+superseded), carries out the action and, for a
+PR, waits for it. `goal.close` makes the proposal of a goal `done` and
+`goal.settle` `superseded`. A proposal with a `measure` is measured by the
+first `advise.prepare` 14 days after it is done: the weight of its signal then,
+zero when the signal is gone, is `outcome.after`. `goal.retro_context` shows
+the outcomes of the last 30 days to the next retros.
+
+Gates and proposals move together: `advisor.Service` is a `gates.Recorder`, so
+`approve` or `reject` on the gate and `decide_proposal` do the same thing, and
+a human's decision is recorded as a decision (`DEC-n`). A snooze leaves the
+gate pending and out of `list_pending_gates` until the date.
+
+The detectors (`internal/advisor`) are deterministic. The key of a signal is
+its proposal's `dedupe_key`, and its weight the proposal's measure. A subject
+from the repo or an agent longer than 64 bytes keeps its first 40 and a hash of
+the whole, and a knowledge cluster whose questions share no word is no signal:
+
+| Detector | Signal | Key | Weight |
+|----------|--------|-----|--------|
+| `workers` | jobs of the last 14 days that waited over an hour for a pool or labels no online worker has | `workers:<pool>:<labels>` | jobs |
+| `tooling` | a tool named twice or more in the last 90 days in `needs_you` gates, escalations and `ask_human` questions alike | `tooling:<tool>` | mentions |
+| `knowledge` | `ask_human` questions of two or more goals in the last 90 days with half their words in common | `knowledge:<shared words>` | goals |
+| `testing` | two or more criteria `untested` or `untestable`; a test flaky in three or more reports; a required suite with no result in three or more reports and most of them | `testing:untested`, `testing:flaky:<test>`, `testing:incomplete:<environment>/<suite>` | occurrences |
+| `rework` | review comments of one theme, nits left out, on three or more tasks in the last 90 days | `rework:<theme>` | tasks |
+| `cost` | a role with 20 or more jobs on merged tasks that costs over twice the median of the roles per merged PR | `cost:<role>` | its ratio to the median |
+| `observability` | a Go or Node component with no known metrics, tracing or error-tracking library, in a project with no monitoring tool approved or connected | `observability:<path>` | 1 |
+| `security` | nothing in CI or the update-bot configs scans dependencies, or secrets | `security:dependency-scanning`, `security:secret-scanning` | 1 |
+| `ci` | a platform of the matrix (else of the profile) no CI runner matches | `ci:platform:<platform>` | 1 |
+| `integrations` | a tool `approved` and not connected 30 days after the last approved profile | `integrations:<tool>` | periods of 30 days |
+
+A missing tool is recognized in text by these rules, in `toolRules`: `X: command
+not found`, `command not found: X`, `exec: "X": executable file not found`, `X is
+not installed`, `missing tool|command|binary|service|environment X`, `no|without
+access to X`, `cannot|could not|can't connect|reach (to) X`, and
+`needs|requires (a|an|the) X tool|cli|service|server|environment`. A review
+comment's theme comes from keywords, in `themes`: `security`, `error-handling`,
+`concurrency`, `tests`, `naming`, `duplication`, `docs` and `logging`. The
+reviewer's output has a severity per comment and no category.
 
 ## The onboarding playbook
 
@@ -894,6 +952,9 @@ It is `goal-v2` with these steps added:
    the goal: a `needs_you` gate shows it, approving skips the learn step
    (`goal.learn_settle` with `skipped` closes its PR and rejects its proposals)
    and the goal closes; rejecting stops the run like any other.
+   The last step of the loop, as in `learn`, is `advise.start`: an approved
+   learn step, or one with nothing to approve, starts the `advise` playbook; a
+   skipped one never reaches it, and a rejected learn gate starts nothing.
 
 A goal whose run ends failed or canceled runs `goal.settle`, which also rejects
 the goal's knowledge proposals that waited for a learn step that will not run.

@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
 import { Link, Outlet, useNavigate, useSearch } from "@tanstack/react-router"
 import {
-  BookOpenIcon, BriefcaseIcon, ChevronsUpDownIcon, CommandIcon, FlaskConicalIcon, GavelIcon, UsersIcon, FolderGitIcon, InboxIcon, LayoutDashboardIcon, MenuIcon, ScaleIcon, ServerIcon, SettingsIcon, TargetIcon,
+  BookOpenIcon, BriefcaseIcon, ChevronsUpDownIcon, CommandIcon, FlaskConicalIcon, GavelIcon, UsersIcon, FolderGitIcon, InboxIcon, LayoutDashboardIcon, LightbulbIcon, MenuIcon, ScaleIcon, ServerIcon, SettingsIcon, TargetIcon,
 } from "lucide-react"
 import { useCallback, useState } from "react"
 import { api } from "@/api/client"
@@ -25,12 +25,13 @@ const NAV = [
   { to: "/jobs", label: "Jobs", icon: BriefcaseIcon },
   { to: "/quality", label: "Quality", icon: FlaskConicalIcon },
   { to: "/assumptions", label: "Assumptions", icon: ScaleIcon },
+  { to: "/proposals", label: "Proposals", icon: LightbulbIcon },
   { to: "/knowledge", label: "Knowledge", icon: BookOpenIcon },
   { to: "/workers", label: "Workers", icon: ServerIcon },
 ] as const
 
 // Pages that list things for one project; their sidebar links keep the chosen project.
-const FILTERED = ["/inbox", "/goals", "/councils", "/decisions", "/jobs", "/quality", "/assumptions", "/knowledge"]
+const FILTERED = ["/inbox", "/goals", "/councils", "/decisions", "/jobs", "/quality", "/assumptions", "/proposals", "/knowledge"]
 
 /** The project filter in the address, "" for all projects. */
 const useProjectFilter = () => ((useSearch({ strict: false }) as { project?: string }).project ?? "")

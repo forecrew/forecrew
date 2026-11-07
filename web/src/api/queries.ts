@@ -2,7 +2,7 @@ import { keepPreviousData, queryOptions, useMutation, useQuery, useQueryClient, 
 import { api } from "./client"
 import type {
   Assumption, AssumptionStatus, AuditFilter, CouncilStatus, GateInfo, GoalStatus, JobEvent, JobStatus, KnowledgeKind, KnowledgeProposalStatus, Level,
-  StartCouncilInput,
+  Proposal, ProposalCategory, ProposalDecision, ProposalStatus, StartCouncilInput,
 } from "./types"
 
 /** Lists refresh every 5 s. TanStack Query pauses polling while the tab is hidden. */
@@ -25,6 +25,7 @@ export const keys = {
   council: (ref: string) => ["council", ref] as const,
   decisions: (project?: string) => ["decisions", project ?? ""] as const,
   assumptions: (project: string) => ["assumptions", project] as const,
+  proposals: (project: string, status: string, category: string) => ["proposals", project, status, category] as const,
   artifacts: (job: string) => ["artifacts", job] as const,
   quality: (project: string) => ["quality", project] as const,
   verification: (change: string, project: string) => ["verification", change, project] as const,
@@ -252,7 +253,7 @@ export function useDecide() {
       qc.setQueriesData<GateInfo[]>({ queryKey: ["gates"] }, (old) => old?.filter((g) => g.ref !== v.ref))
     },
     onSettled: () =>
-      Promise.all(["gates", "goal", "council", "councils", "decisions", "assumptions"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
+      Promise.all(["gates", "goal", "council", "councils", "decisions", "assumptions", "proposals"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
   })
 }
 
@@ -273,6 +274,28 @@ export const useAssumptionRegister = (project: string, status: AssumptionStatus 
     placeholderData: keepPreviousData,
     ...poll,
   })
+
+/** The improvement proposals of one project, or of every project when none is chosen, by number within each. */
+export const useProposals = (project: string, status: ProposalStatus | "", category: ProposalCategory | "") =>
+  useQuery({
+    queryKey: keys.proposals(project, status, category),
+    queryFn: async (): Promise<Proposal[]> => {
+      const names = project ? [project] : (await api.listProjects()).map((p) => p.name)
+      const lists = await Promise.all(names.map((name) => api.listProposals({ project: name, status, category })))
+      return lists.flat()
+    },
+    placeholderData: keepPreviousData,
+    ...poll,
+  })
+
+/** Snoozes a proposal or marks its setup done; accepting and rejecting are gate decisions, which useDecide makes. */
+export function useDecideProposal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (v: { ref: string; decision: ProposalDecision; until?: string }) => api.decideProposal(v.ref, { decision: v.decision, until: v.until }),
+    onSettled: () => Promise.all(["gates", "proposals"].map((k) => qc.invalidateQueries({ queryKey: [k] }))),
+  })
+}
 
 /** Verifies, accepts or invalidates an assumption; the register, traces and goals refresh, and so do the gates (a review gate is decided with it). */
 export function useResolveAssumption() {

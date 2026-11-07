@@ -1,0 +1,20 @@
+{
+ "now": "2026-11-07T12:00:00Z",
+ "profile": {
+  "version": 1,
+  "name": "app",
+  "summary": "s",
+  "ci": {
+   "runners": [
+    "ubuntu-latest",
+    "macos-14",
+    "windows-2022"
+   ]
+  }
+ },
+ "platforms": [
+  "linux",
+  "macos",
+  "windows"
+ ]
+}

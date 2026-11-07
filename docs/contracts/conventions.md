@@ -155,7 +155,7 @@ T37 and T50, which open them):
 | `council_decision` | a council brief | the recommendation is the decision | the human's revision round with the feedback as a constraint, then a new synthesis and gate; once per council (`domain.MaxRevisionRounds`), after it the council runner refuses `request_changes` | the council fails |
 | `knowledge_proposal` | a change to a protected section, or to a provider without its own review | the change is applied (or, for a read-only provider, the human copied it across) | rejected, with the feedback kept for a new proposal | rejected |
 | `access_request` | an agent's request for knowledge access | a policy PR grants it (merged like any PR) | nothing is granted; the feedback says what narrower request would pass | nothing is granted |
-| `improvement_proposal` | an improvement proposal | accepted: its action starts | the advisor revises it with the feedback | rejected, with the feedback as reason |
+| `improvement_proposal` | an improvement proposal | accepted: its action starts | the advisor revises it with the feedback | rejected, with the feedback as reason, which is required |
 | `ticket_intake` | a ticket someone must accept (tracker.md), or an edit of a ticket a goal works on (`goal_id` set) | the ticket is accepted and its goal starts as the one who approved; for an edit, noted, and nothing changes | not allowed | the ticket is dismissed; for an edit, noted |
 
 A snooze of an improvement proposal (`decide_proposal`) leaves its gate

@@ -1,0 +1,110 @@
+{
+ "now": "2026-11-07T12:00:00Z",
+ "jobs": [
+  {
+   "id": "00000000-0000-0000-0000-000000000001",
+   "number": 1,
+   "pool": "build",
+   "role": "reviewer",
+   "runtime": "claude-code",
+   "needs": [],
+   "created_at": "2026-11-07T07:00:00Z",
+   "status": "succeeded",
+   "task_id": "00000000-0000-0000-0000-000000000259",
+   "output": {
+    "comments": [
+     {
+      "path": null,
+      "line": null,
+      "severity": "major",
+      "body": "The error is ignored; wrap the error."
+     }
+    ]
+   }
+  },
+  {
+   "id": "00000000-0000-0000-0000-000000000002",
+   "number": 2,
+   "pool": "build",
+   "role": "reviewer",
+   "runtime": "claude-code",
+   "needs": [],
+   "created_at": "2026-11-07T07:00:00Z",
+   "status": "succeeded",
+   "task_id": "00000000-0000-0000-0000-000000000259",
+   "output": {
+    "comments": [
+     {
+      "path": null,
+      "line": null,
+      "severity": "major",
+      "body": "Unhandled error from Close."
+     }
+    ]
+   }
+  },
+  {
+   "id": "00000000-0000-0000-0000-000000000003",
+   "number": 3,
+   "pool": "build",
+   "role": "reviewer",
+   "runtime": "claude-code",
+   "needs": [],
+   "created_at": "2026-11-07T07:00:00Z",
+   "status": "succeeded",
+   "task_id": "00000000-0000-0000-0000-00000000025a",
+   "output": {
+    "comments": [
+     {
+      "path": null,
+      "line": null,
+      "severity": "major",
+      "body": "Wrap the error."
+     }
+    ]
+   }
+  },
+  {
+   "id": "00000000-0000-0000-0000-000000000004",
+   "number": 4,
+   "pool": "build",
+   "role": "reviewer",
+   "runtime": "claude-code",
+   "needs": [],
+   "created_at": "2026-11-07T07:00:00Z",
+   "status": "succeeded",
+   "task_id": "00000000-0000-0000-0000-00000000025b",
+   "output": {
+    "comments": [
+     {
+      "path": null,
+      "line": null,
+      "severity": "nit",
+      "body": "Wrap the error."
+     }
+    ]
+   }
+  },
+  {
+   "id": "00000000-0000-0000-0000-000000000005",
+   "number": 5,
+   "pool": "build",
+   "role": "reviewer",
+   "runtime": "claude-code",
+   "needs": [],
+   "created_at": "2026-11-07T07:00:00Z",
+   "status": "succeeded",
+   "task_id": "00000000-0000-0000-0000-00000000025c",
+   "output": {
+    "comments": [
+     {
+      "path": null,
+      "line": null,
+      "severity": "major",
+      "body": "Looks odd."
+     }
+    ]
+   }
+  }
+ ]
+}

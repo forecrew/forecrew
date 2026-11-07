@@ -18,15 +18,15 @@ import (
 var _ gates.Recorder = (*Service)(nil)
 
 // decided are the gate kinds whose resolution by a human is a decision.
-var decided = []domain.GateKind{domain.GateSpecApproval, domain.GateMergeApproval, domain.GateCouncilDecision, domain.GateAssumptionReview}
+var decided = []domain.GateKind{domain.GateSpecApproval, domain.GateMergeApproval, domain.GateCouncilDecision, domain.GateAssumptionReview, domain.GateImprovementProposal}
 
 func human(by domain.Actor) bool {
 	return by.Kind == domain.ActorUser || by.Kind == domain.ActorGitHub || by.Kind == domain.ActorMCP
 }
 
 // GateResolved implements gates.Recorder. A gate of kind spec_approval,
-// merge_approval, council_decision or assumption_review that a human
-// resolved becomes a decision: the question is the gate's title, the choice
+// merge_approval, council_decision, assumption_review or improvement_proposal
+// that a human resolved becomes a decision: the question is the gate's title, the choice
 // its decision and the reasons the feedback. The decision on the gate of a
 // council names the council, and an approval is that of its recommendation
 // (accepted), with the feedback first among the reasons; that is the one

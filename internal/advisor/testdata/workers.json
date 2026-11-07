@@ -1,0 +1,64 @@
+{
+ "now": "2026-11-07T12:00:00Z",
+ "workers": [
+  {
+   "name": "w1",
+   "pool": "build",
+   "labels": [
+    "runtime:claude-code"
+   ],
+   "last_seen_at": "2026-11-07T12:00:00Z"
+  }
+ ],
+ "jobs": [
+  {
+   "id": "00000000-0000-0000-0000-000000000001",
+   "number": 1,
+   "pool": "build",
+   "role": "developer",
+   "runtime": "claude-code",
+   "needs": [
+    "macos"
+   ],
+   "created_at": "2026-11-07T07:00:00Z",
+   "status": "succeeded",
+   "started_at": "2026-11-07T10:00:00Z"
+  },
+  {
+   "id": "00000000-0000-0000-0000-000000000002",
+   "number": 2,
+   "pool": "build",
+   "role": "developer",
+   "runtime": "claude-code",
+   "needs": [
+    "macos"
+   ],
+   "created_at": "2026-11-07T07:00:00Z",
+   "status": "queued"
+  },
+  {
+   "id": "00000000-0000-0000-0000-000000000003",
+   "number": 3,
+   "pool": "build",
+   "role": "developer",
+   "runtime": "claude-code",
+   "needs": [],
+   "created_at": "2026-11-07T07:00:00Z",
+   "status": "succeeded",
+   "started_at": "2026-11-07T10:00:00Z"
+  },
+  {
+   "id": "00000000-0000-0000-0000-000000000004",
+   "number": 4,
+   "pool": "build",
+   "role": "developer",
+   "runtime": "claude-code",
+   "needs": [
+    "macos"
+   ],
+   "created_at": "2026-10-18T12:00:00Z",
+   "status": "succeeded",
+   "started_at": "2026-10-19T12:00:00Z"
+  }
+ ]
+}

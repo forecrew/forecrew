@@ -157,6 +157,47 @@ export interface GateInfo extends Gate {
   url?: string
   /** Whether the caller may resolve the gate; the buttons are left out when not. */
   can_resolve?: boolean
+  /** The improvement proposal of an improvement_proposal gate. */
+  proposal?: Proposal
+}
+
+export type ProposalStatus = "proposed" | "accepted" | "rejected" | "snoozed" | "done" | "superseded"
+export type ProposalCategory = "observability" | "testing" | "ci" | "security" | "docs" | "knowledge" | "tooling" | "workers" | "roles" | "cost"
+export type ProposalDecision = "accept" | "reject" | "snooze" | "done"
+
+export const PROPOSAL_STATUSES: ProposalStatus[] = ["proposed", "accepted", "rejected", "snoozed", "done", "superseded"]
+export const PROPOSAL_CATEGORIES: ProposalCategory[] = ["observability", "testing", "ci", "security", "docs", "knowledge", "tooling", "workers", "roles", "cost"]
+
+/** What accepting a proposal does: exactly one field is set. */
+export interface ProposalAction {
+  goal?: { title: string; body: string; platforms?: string[] }
+  config_pr?: { files: { path: string; content: string }[] }
+  setup?: { instructions: string; issue?: string }
+}
+
+/** An improvement proposal. Its text is the advisor's and what agents and repos wrote: show it as text. */
+export interface Proposal {
+  id: string
+  project_id: string
+  ref: string
+  scope: "project" | "platform"
+  category: ProposalCategory
+  title: string
+  rationale: string
+  evidence: { kind: string; ref: string; detail: string }[]
+  benefit: string
+  effort: "s" | "m" | "l"
+  risk: Level
+  action: ProposalAction
+  measure?: { detector: string; value: number }
+  status: ProposalStatus
+  snoozed_until?: string
+  reason?: string
+  outcome?: { before: number; after: number; measured_at: string }
+  gate_ref?: string
+  goal_ref?: string
+  can_decide: boolean
+  created_at: string
 }
 
 export interface GoalTicket {

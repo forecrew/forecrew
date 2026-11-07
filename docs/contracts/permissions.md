@@ -172,7 +172,7 @@ feature: see identity.md, Tokens.
 | `council.start` | write | project | start a council, add a constraint to one |
 | `assumption.resolve` | write | project | resolve an assumption |
 | `knowledge.propose` | write | project | propose a knowledge change |
-| `proposal.decide` | write | project | accept, reject or snooze an improvement proposal |
+| `proposal.decide` | write | project | accept, reject or snooze an improvement proposal, or mark its setup done |
 | `trackers.read` | read | project | tracker connections, routes and identities (on the organization), and the tickets waiting in the Inbox |
 | `gate.approve.profile` | write | project | resolve `profile_approval` gates |
 | `gate.approve.spec` | write | project | resolve `spec_approval` gates |
@@ -183,7 +183,7 @@ feature: see identity.md, Tokens.
 | `gate.approve.knowledge` | write | project | resolve `knowledge_proposal` gates of sections that are not protected |
 | `gate.approve.knowledge_protected` | write | project | resolve `knowledge_proposal` gates of protected sections |
 | `gate.approve.access_request` | write | project | resolve `access_request` gates |
-| `gate.approve.improvement` | write | project | resolve `improvement_proposal` gates |
+| `gate.approve.improvement` | write | project | resolve `improvement_proposal` gates; approving one whose action is a goal also needs `goal.create` |
 | `gate.approve.needs_you` | write | project | resolve `needs_you` gates, playbook escalations and `ask_human` questions alike |
 
 ### Budget fields
@@ -305,6 +305,8 @@ object up and checks the permission on the object's project.
 | `list_assumptions` | `GET /api/v1/assumptions` | `project.read` |
 | `resolve_assumption` | `POST /api/v1/assumptions/{assumption}/resolve` | `assumption.resolve` |
 | `list_decisions` | `GET /api/v1/decisions` | `project.read` |
+| `list_proposals` | `GET /api/v1/proposals` | `project.read` |
+| `decide_proposal` | `POST /api/v1/proposals/{proposal}/decide` | `proposal.decide`, and a person for every decision: `accept` and `reject` resolve the proposal's gate, so they also need `gate.approve.improvement`, and accepting a proposal whose action is a goal also needs `goal.create`, as does `approve` on its gate; `snooze` hides the gate and `done` closes the proposal as carried out, which a service account, an agent or a worker never does |
 | `get_trace` | `GET /api/v1/trace` | `project.read` on the project of the record and of its goal; a goal, spec, task or change ref, and the goal, spec, task, change and merge nodes, need `goal.read`; verification nodes need `job.read`. Without `goal.read` a council, decision or assumption ref gives only the councils, decisions and assumptions of its goal. Records of another project than the goal's are left out |
 | `search_knowledge` | `GET /api/v1/knowledge` | `project.read`; a caller that is no person sees only the sections open to every role |
 | `delete_note` | `DELETE /api/v1/knowledge/notes/{note}` | `knowledge.propose`, the closest write permission: deleting an agent note curates knowledge, and the catalog has no narrower one |
@@ -415,9 +417,6 @@ what its route needs. The server-side commands (`forecrew migrate`,
 break-glass `user`, `org` and `session` commands) work on the database
 directly with the operator's server access and no permission; they are
 audited as `user:<operator>`.
-
-**Planned tools** ([mcp.md](../mcp.md#planned-tools)) need, when their task
-builds them: `list_proposals` `project.read`; `decide_proposal` `proposal.decide`.
 
 ### Adding a tool or a route
 

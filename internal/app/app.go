@@ -23,6 +23,7 @@ import (
 
 	"github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/actionsprovider"
+	"github.com/forecrew/forecrew/internal/advisor"
 	"github.com/forecrew/forecrew/internal/analyzer"
 	"github.com/forecrew/forecrew/internal/api"
 	"github.com/forecrew/forecrew/internal/auth"
@@ -291,7 +292,7 @@ func New(d Deps) (*App, error) {
 	machines := fleet.New(fleet.Config{Store: st, Logger: log, Now: d.Now, Direct: d.FleetDirect, ServerURL: cfg.Server.PublicBaseURL, Currency: cfg.Fleet.Currency,
 		Image: images.Resolver(st.Images())})
 	jobSvc := jobs.New(st, bus, cfg.Pools, log, d.Now).WithRegistrar(regs).WithWaiting(machines)
-	gateSvc := gates.New(st, bus, d.Now).WithRecorder(regs)
+	gateSvc := gates.New(st, bus, d.Now)
 	emb := d.Embedder
 	if emb == nil && os.Getenv(EnvEmbeddingsKey) != "" {
 		emb = &knowledge.OpenAI{Key: os.Getenv(EnvEmbeddingsKey)}
@@ -314,8 +315,20 @@ func New(d Deps) (*App, error) {
 
 	actions := workflow.Actions{}
 	var engine *workflow.Engine
+	toolCatalog, err := advisor.LoadCatalog(d.Files)
+	if err != nil {
+		return nil, err
+	}
+	improvements := advisor.New(advisor.Config{
+		Store: st, Gates: gateSvc, GitHub: d.GitHub, Catalog: toolCatalog, MaxPerWeek: cfg.Advisor.MaxPerWeek, Now: d.Now, Log: log,
+		Runs: lateStarter(func() *workflow.Engine { return engine }),
+		GoalPlaybook: func(p domain.Project) string {
+			return tools.GoalPlaybook(cfg.Testing.Projects, cfg.GoalV3.Projects, p, domain.GoalFeature)
+		},
+	})
+	gateSvc.WithRecorder(gates.Recorders{regs, improvements})
 	playbooks.Register(actions, playbooks.Deps{
-		Store: st, Tracker: d.GitHub, Signals: bus, Sizing: cfg.Sizing, Roles: catalog, Knowledge: syncer, Proposals: kbProposals, Now: d.Now, Actions: d.Actions, Packs: d.Files,
+		Store: st, Tracker: d.GitHub, Signals: bus, Sizing: cfg.Sizing, Roles: catalog, Knowledge: syncer, Proposals: kbProposals, Advisor: improvements, Now: d.Now, Actions: d.Actions, Packs: d.Files,
 		Config: cfg, Councils: seats, Gates: gateSvc, Evidence: ev, Logger: log,
 		Runs: lateStarter(func() *workflow.Engine { return engine }),
 	})

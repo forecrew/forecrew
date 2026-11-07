@@ -1,0 +1,8 @@
+name: gitleaks
+kind: cli
+purpose: Finds secrets committed to a repository.
+homepage: https://github.com/gitleaks/gitleaks
+install: ghcr.io/gitleaks/gitleaks:v8.30.1
+license: MIT
+roles: [security-reviewer]
+categories: [security, ci]
