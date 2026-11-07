@@ -190,7 +190,7 @@ FORECREW_INSTALL_OS=Plan9 refused "unsupported operating system" "$script"
 rm "$MOCK_FIXTURES/checksums.txt"; touch "$MOCK_FIXTURES/checksums.txt"
 refused "no entry" env FORECREW_JOIN_CODE=$code "$script" --server https://x.example.com
 release linux v1
-sed -i 's/^./0/' "$MOCK_FIXTURES/checksums.txt"
+sed -i 's/^./x/' "$MOCK_FIXTURES/checksums.txt"
 refused "checksum mismatch" env FORECREW_JOIN_CODE=$code "$script" --server https://x.example.com
 
 # --- uninstall ------------------------------------------------------------------------
