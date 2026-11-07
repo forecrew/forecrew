@@ -1,10 +1,12 @@
 package playbooks
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/contextpack"
@@ -158,4 +160,34 @@ func (a *actions) productBriefNote(ctx context.Context, g domain.Goal) (string, 
 		}
 	}
 	return "", nil
+}
+
+// adrRoundOutput is the output of goal.adr_round.
+type adrRoundOutput struct {
+	// IfRework holds the human's feedback when the last round of the ADR ended
+	// with changes requested, for a foreach that reruns the architect.
+	IfRework []string `json:"if_rework"`
+	// Done is set when the ADR needs nothing more: none was written, or the
+	// human approved it.
+	Done bool `json:"done"`
+}
+
+// adrRoundAction is the action goal.adr_round, which reads how a round of
+// the ADR's review ended: with.decision is the decision of the round's gate,
+// empty when the architect wrote no ADR, and with.feedback what the human
+// wrote. Changes requested are not done and give the feedback (a default
+// when the human wrote none) to the architect; approved and no gate are done.
+func (a *actions) adrRoundAction(_ context.Context, call workflow.ActionCall) (any, error) {
+	var with struct {
+		Decision domain.GateStatus `json:"decision"`
+		Feedback string            `json:"feedback"`
+	}
+	if err := workflow.DecodeWith(call.With, &with); err != nil {
+		return nil, err
+	}
+	out := adrRoundOutput{IfRework: []string{}, Done: with.Decision == "" || with.Decision == domain.GateApproved}
+	if with.Decision == domain.GateChangesRequested {
+		out.IfRework = []string{cmp.Or(strings.TrimSpace(with.Feedback), "The reviewer asked for changes to the ADR.")}
+	}
+	return out, nil
 }

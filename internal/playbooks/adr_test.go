@@ -186,3 +186,28 @@ func TestSpecGateLinksTheProductBrief(t *testing.T) {
 		t.Errorf("summary = %s", s)
 	}
 }
+
+func TestGoalADRRound(t *testing.T) {
+	v := newEnv(t)
+	for _, tt := range []struct {
+		name, decision, feedback string
+		done                     bool
+		rework                   []string
+	}{
+		{"no ADR", "", "", true, nil},
+		{"approved", "approved", "fine", true, nil},
+		{"changes requested", "changes_requested", " say more ", false, []string{"say more"}},
+		{"changes requested without a word", "changes_requested", "", false, []string{"The reviewer asked for changes to the ADR."}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := v.call(t, "goal.adr_round", map[string]any{"decision": tt.decision, "feedback": tt.feedback})
+			must(t, err)
+			got := toMap(t, out)
+			if got["done"] != tt.done || !slices.Equal(toStrings(got["if_rework"]), tt.rework) {
+				t.Errorf("output = %v", got)
+			}
+		})
+	}
+	_, err := v.call(t, "goal.adr_round", map[string]any{"nope": 1})
+	wantErr(t, err, "nope")
+}

@@ -147,7 +147,7 @@ func (r *v3Run) adrPushed(t *testing.T) github.PullRequest {
 	t.Helper()
 	must(t, r.tracker.SetHeadOfBranch("acme/app", "agent/adr-GOAL-1", adrHead))
 	r.answer(t, "architecture/1/design", planOutput(planTask("Charge cards", []string{"AC-1", "AC-2"}, []string{"go"})), 0.75, adrHead)
-	r.waitStep(t, "adr_delivery/0/adr_pr", domain.StepSucceeded)
+	r.waitStep(t, "adr_review/1/adr_delivery/0/adr_pr", domain.StepSucceeded)
 	pr, err := r.tracker.FindPR(t.Context(), "acme/app", "agent/adr-GOAL-1")
 	must(t, err)
 	must(t, r.tracker.SetHeadSHA("acme/app", pr.Number, adrHead))
@@ -199,7 +199,7 @@ func TestGoalV3SmallGoalSkipsBothCouncils(t *testing.T) {
 	if got := r.councilCalls(); len(got) != 0 {
 		t.Errorf("councils = %+v", got)
 	}
-	r.noStep(t, "adr_delivery/0")
+	r.noStep(t, "adr_review/1/adr_delivery/0")
 
 	r.delivered(t)
 	// The learn step runs once every task is merged and before the goal
@@ -263,7 +263,7 @@ func TestGoalV3LargeGoalRunsBothCouncils(t *testing.T) {
 	}
 
 	// The ADR is a PR a human approves before anything else is built.
-	r.waitStep(t, "adr_delivery/0/adr_checks", domain.StepWaiting)
+	r.waitStep(t, "adr_review/1/adr_delivery/0/adr_checks", domain.StepWaiting)
 	if !strings.Contains(pr.Title, "ADR of GOAL-1") {
 		t.Errorf("adr pr = %+v", pr)
 	}
@@ -289,7 +289,7 @@ func TestGoalV3ADROnlyWhenWritten(t *testing.T) {
 			t.Errorf("architect request = %+v", arch)
 		}
 		r.waitStep(t, "tasks/0/tests/1/write_tests", domain.StepWaiting)
-		r.noStep(t, "adr_delivery/0/")
+		r.noStep(t, "adr_review/1/adr_delivery/0/")
 		if _, err := r.tracker.FindPR(t.Context(), "acme/app", "agent/adr-GOAL-1"); err == nil {
 			t.Error("a PR for an ADR nobody wrote")
 		}
@@ -298,7 +298,7 @@ func TestGoalV3ADROnlyWhenWritten(t *testing.T) {
 		r := startGoalV3(t, &domain.GoalSize{Impact: domain.LevelMedium, Reversibility: domain.ReversibleEasy, Councils: []domain.CouncilKind{domain.CouncilTechnical}, Reason: "A human chose."})
 		r.approveSpec(t)
 		pr := r.adrPushed(t)
-		r.waitStep(t, "adr_delivery/0/adr_checks", domain.StepWaiting)
+		r.waitStep(t, "adr_review/1/adr_delivery/0/adr_checks", domain.StepWaiting)
 		checksDone(t, r.runner, pr)
 		r.decide(t, domain.GateMergeApproval, mcp.ToolReject, "not now")
 		r.waitRun(t, domain.RunCanceled)
@@ -306,6 +306,40 @@ func TestGoalV3ADROnlyWhenWritten(t *testing.T) {
 			t.Error("a rejected ADR was merged")
 		}
 	})
+}
+
+// Changes requested on the ADR send the architect back to it with the
+// feedback, not out of the run; the new head is reviewed again and merged.
+func TestGoalV3ADRChangesRequested(t *testing.T) {
+	r := startGoalV3(t, &domain.GoalSize{Impact: domain.LevelMedium, Reversibility: domain.ReversibleEasy, Councils: []domain.CouncilKind{domain.CouncilTechnical}, Reason: "A human chose."})
+	r.approveSpec(t)
+	pr := r.adrPushed(t)
+	r.waitStep(t, "adr_review/1/adr_delivery/0/adr_checks", domain.StepWaiting)
+	checksDone(t, r.runner, pr)
+	g := r.pendingGate(t, domain.GateMergeApproval)
+	if !strings.Contains(g.Summary, "request changes") {
+		t.Errorf("the gate does not say what changes requested do: %s", g.Summary)
+	}
+	r.decide(t, domain.GateMergeApproval, mcp.ToolRequestChanges, "say more about the options")
+
+	const second = "adr0000000000000000000000000000000000002"
+	redo := r.request(r.waitStep(t, "adr_review/2/adr_rework/0/adr_redo", domain.StepWaiting).JobID)
+	if redo.Role != "architect" || !strings.Contains(redo.Feedback, "say more about the options") || redo.Pool != domain.PoolBuild ||
+		redo.Branch != "agent/adr-GOAL-1" || !slices.Equal(redo.WritePaths, []string{"docs/adr/**"}) {
+		t.Errorf("rework request = %+v", redo)
+	}
+	must(t, r.tracker.SetHeadOfBranch("acme/app", "agent/adr-GOAL-1", second))
+	r.answer(t, "adr_review/2/adr_rework/0/adr_redo", planOutput(planTask("Charge cards", []string{"AC-1", "AC-2"}, []string{"go"})), 0.5, second)
+	r.waitStep(t, "adr_review/2/adr_delivery/0/adr_pr", domain.StepSucceeded)
+	must(t, r.tracker.SetHeadSHA("acme/app", pr.Number, second))
+	pr.HeadSHA = second
+	r.waitStep(t, "adr_review/2/adr_delivery/0/adr_checks", domain.StepWaiting)
+	checksDone(t, r.runner, pr)
+	r.decide(t, domain.GateMergeApproval, mcp.ToolApprove, "")
+	r.waitStep(t, "tasks/0/tests/1/write_tests", domain.StepWaiting)
+	if !r.prNow(t, pr.Number).Merged {
+		t.Errorf("the ADR was not merged: %+v", r.prNow(t, pr.Number))
+	}
 }
 
 // A human who chose the councils when creating the goal skips triage, also
