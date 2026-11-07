@@ -70,7 +70,7 @@ func connectionPlan(filled bool, status domain.ConfigPlanStatus) mcp.ConfigPlanV
 	return mcp.ConfigPlanView{ConfigPlan: domain.ConfigPlan{
 		ID: fid(380), AccountID: fid(1), Status: status, Source: domain.ConfigFromForm, Title: "Add sign-in google", Applies: "now",
 		Changes: []domain.ConfigChange{}, Needs: []domain.Permission{domain.PermConnectionManage}, Affects: "People sign in through it from now on. Sessions already open are not touched.",
-		Steps: []domain.ConfigStep{{Kind: domain.ConfigStepSecret, Resource: "connection/google", Title: "Client secret of google", Secret: "conn-google", Filled: filled}},
+		Steps:            []domain.ConfigStep{{Kind: domain.ConfigStepSecret, Resource: "connection/google", Title: "Client secret of google", Secret: "conn-google", Filled: filled}},
 		LowersProtection: []string{}, Reversible: true, CreatedBy: "user:" + fid(300).String(), ExpiresAt: at(60), CreatedAt: at(0), UpdatedAt: at(0),
 	}, CanConfirm: true}
 }
@@ -224,10 +224,14 @@ func orgFixtureCases() []fixtureCase {
 			}
 		}},
 		{"config-plan-connection", "POST", "/api/v1/config/plans", `{"title":"Add sign-in google","source":"form","changes":[{"kind":"connection","name":"google","spec":{"kind":"google","client_id":"123.apps.googleusercontent.com","client_secret_ref":"store:conn-google","jit":{"enabled":false},"enabled":false}}]}`, 201, "bearer", func(e *env) {
-			e.svc.ConfigPlanFunc = func(context.Context, domain.Actor, mcp.ConfigPlanInput) (mcp.ConfigPlanView, error) { return connectionPlan(false, domain.ConfigPlanPending), nil }
+			e.svc.ConfigPlanFunc = func(context.Context, domain.Actor, mcp.ConfigPlanInput) (mcp.ConfigPlanView, error) {
+				return connectionPlan(false, domain.ConfigPlanPending), nil
+			}
 		}},
 		{"config-plan-secret", "PUT", "/api/v1/config/plans/" + fid(380).String() + "/secrets/conn-google", `{"value":"the-client-secret"}`, 200, "bearer", func(e *env) {
-			e.svc.ConfigPutSecretFunc = func(context.Context, domain.Actor, mcp.ConfigSecretInput) (mcp.ConfigPlanView, error) { return connectionPlan(true, domain.ConfigPlanPending), nil }
+			e.svc.ConfigPutSecretFunc = func(context.Context, domain.Actor, mcp.ConfigSecretInput) (mcp.ConfigPlanView, error) {
+				return connectionPlan(true, domain.ConfigPlanPending), nil
+			}
 		}},
 		{"config-plan-apply", "POST", "/api/v1/config/plans/" + fid(380).String() + "/apply", `{}`, 200, "bearer", func(e *env) {
 			e.svc.ConfigApplyFunc = func(context.Context, domain.Actor, mcp.ConfigApplyInput) (mcp.ConfigApplied, error) {
@@ -235,7 +239,9 @@ func orgFixtureCases() []fixtureCase {
 			}
 		}},
 		{"config-plan-cancel", "POST", "/api/v1/config/plans/" + fid(380).String() + "/cancel", "", 200, "bearer", func(e *env) {
-			e.svc.ConfigCancelFunc = func(context.Context, domain.Actor, mcp.ConfigPlanRefInput) (mcp.ConfigPlanView, error) { return connectionPlan(true, domain.ConfigPlanCanceled), nil }
+			e.svc.ConfigCancelFunc = func(context.Context, domain.Actor, mcp.ConfigPlanRefInput) (mcp.ConfigPlanView, error) {
+				return connectionPlan(true, domain.ConfigPlanCanceled), nil
+			}
 		}},
 		{"connection-enable", "POST", "/api/v1/connections/okta/enable", "", 200, "bearer", func(e *env) {
 			e.svc.SetConnectionFunc = func(context.Context, domain.Actor, mcp.SetConnectionInput) (mcp.ConnectionInfo, error) {

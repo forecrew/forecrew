@@ -339,7 +339,9 @@ func (revokeFailsTokens) RevokeByOwner(context.Context, uuid.UUID, domain.Subjec
 	return errors.New("the database went away")
 }
 
-func (s revokeFails) MCPTokens() store.PersonalTokenRepo { return revokeFailsTokens{s.Store.MCPTokens()} }
+func (s revokeFails) MCPTokens() store.PersonalTokenRepo {
+	return revokeFailsTokens{s.Store.MCPTokens()}
+}
 
 func (s revokeFails) WithTx(ctx context.Context, fn func(context.Context, store.Store) error) error {
 	return s.Store.WithTx(ctx, func(ctx context.Context, tx store.Store) error { return fn(ctx, revokeFails{tx}) })
