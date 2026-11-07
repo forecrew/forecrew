@@ -80,8 +80,8 @@ type Provider struct {
 	run func(ctx context.Context, stdin, name string, args ...string) error
 	// chown gives a file to a machine's user; tests replace it.
 	chown func(path string, uid, gid int) error
-	// memoryMB is the host's memory.
-	memoryMB func() (int, error)
+	// memoryMB is the host's memory, availableMB what it can still give.
+	memoryMB, availableMB func() (int, error)
 	// localNets are the networks the host is on; hasDevice says whether a
 	// network device exists.
 	localNets func(subnet netip.Prefix) []netip.Prefix
@@ -94,7 +94,9 @@ type Provider struct {
 	timers   map[string]*time.Timer
 	lastGC   time.Time
 	fetching sync.Mutex // also guards verified
-	verified map[string]bool
+	// verified holds, by image signature, the files as they were when their
+	// digests were last checked.
+	verified map[string][2]stamp
 }
 
 // New returns the provider of cfg. log may be nil.
@@ -117,9 +119,9 @@ func New(cfg Config, log *slog.Logger) (*Provider, error) {
 			vmmCloudHypervisor: cloudHypervisor{bin: lookPath(cfg.CloudHypervisor), base: base},
 		},
 		http: &http.Client{Timeout: fetchTimeout}, resolver: net.DefaultResolver,
-		run: runCommand, chown: os.Chown, memoryMB: fleetagent.MemoryMB, localNets: localNets, freeBytes: freeBytes,
+		run: runCommand, chown: os.Chown, memoryMB: fleetagent.MemoryMB, availableMB: fleetagent.AvailableMemoryMB, localNets: localNets, freeBytes: freeBytes,
 		hasDevice: func(name string) bool { _, err := net.InterfaceByName(name); return err == nil },
-		timers:    map[string]*time.Timer{}, verified: map[string]bool{},
+		timers:    map[string]*time.Timer{}, verified: map[string][2]stamp{},
 	}
 	if err := p.armTimers(); err != nil {
 		return nil, err
@@ -379,6 +381,11 @@ func (p *Provider) reserve(id, vmmName string, req fleet.CreateRequest, server [
 	if used > memory-hostReserveMB {
 		return nil, fleet.ErrCapacity
 	}
+	// What the records promise is not all: the host itself says what it can
+	// still give, whatever else took memory since.
+	if available, err := p.availableMB(); err != nil || req.Shape.MemoryMB > available-hostReserveMB {
+		return nil, fleet.ErrCapacity
+	}
 	var free []string
 	for _, g := range p.cfg.GPUs {
 		if !slices.Contains(gpus, g) {
@@ -448,7 +455,9 @@ func (p *Provider) start(ctx context.Context, r *record, shape domain.Shape, roo
 	if err := p.chown(dir, uid, uid); err != nil {
 		return err
 	}
-	if err := link(kernel, filepath.Join(dir, fileKernel)); err != nil {
+	// A copy, not a link: linking would change the cached file's change
+	// time, which is how a changed cache file is found (ensureImage).
+	if err := cloneReadOnly(kernel, filepath.Join(dir, fileKernel)); err != nil {
 		return fmt.Errorf("kernel: %w", err)
 	}
 	if err := p.rootDisk(rootImage, dir, shape.DiskGB, uid); err != nil {

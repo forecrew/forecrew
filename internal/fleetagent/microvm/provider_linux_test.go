@@ -92,6 +92,7 @@ func newEnv(t *testing.T, edit func(*Config)) *testEnv {
 	}
 	e.p.chown = func(string, int, int) error { return nil }
 	e.p.memoryMB = func() (int, error) { return 8192, nil }
+	e.p.availableMB = func() (int, error) { return 8192, nil }
 	e.p.localNets = func(netip.Prefix) []netip.Prefix { return []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24")} }
 	e.p.hasDevice = func(name string) bool {
 		e.mu.Lock()
@@ -220,6 +221,15 @@ func TestCreateCapacity(t *testing.T) {
 	big.Shape.MemoryMB = 8000
 	if _, err := e2.p.Create(t.Context(), big); !errors.Is(err, fleet.ErrCapacity) {
 		t.Errorf("more memory than the host: %v", err)
+	}
+	// The records leave room, but the host has given its memory to others.
+	e2.p.availableMB = func() (int, error) { return 1500, nil }
+	if _, err := e2.p.Create(t.Context(), e2.request()); !errors.Is(err, fleet.ErrCapacity) {
+		t.Errorf("more memory than the host has left: %v", err)
+	}
+	e2.p.availableMB = func() (int, error) { return 0, errors.New("no meminfo") }
+	if _, err := e2.p.Create(t.Context(), e2.request()); !errors.Is(err, fleet.ErrCapacity) {
+		t.Errorf("memory unknown: %v", err)
 	}
 	gpu := e2.request()
 	gpu.Shape.GPU = 1
@@ -523,6 +533,51 @@ func TestWrongCachedFileIsFetchedAgain(t *testing.T) {
 	if _, err := os.Stat(kernel); err == nil {
 		t.Error("the wrong file was kept")
 	}
+}
+
+// A cached file changed after it was checked is checked again before the next
+// machine uses it, by this process too; one left alone is not read again.
+func TestImageCheckedAtUse(t *testing.T) {
+	e := newEnv(t, func(c *Config) { c.MaxMachines = 3 })
+	if _, err := e.p.Create(t.Context(), e.request()); err != nil {
+		t.Fatal(err)
+	}
+	root, _ := e.p.cachePath(e.img.Digest)
+	sig := e.img.Signature
+	before := e.p.verified[sig]
+	if _, err := e.p.Create(t.Context(), e.request()); err != nil {
+		t.Fatal(err)
+	}
+	if !e.p.unchanged(sig, root, mustKernel(t, e)) {
+		t.Error("a file left alone counts as changed")
+	}
+	// Same size, same times: only the change time and the content differ.
+	st, _ := os.Stat(root)
+	if err := os.WriteFile(root, []byte("ROOT FILE SYSTEM"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(root, st.ModTime(), st.ModTime())
+	if e.p.unchanged(sig, root, mustKernel(t, e)) {
+		t.Fatal("a rewritten file counts as unchanged")
+	}
+	if _, err := e.p.Create(t.Context(), e.request()); err != nil {
+		t.Fatalf("a rewritten file is not fetched again: %v", err)
+	}
+	if got, _ := os.ReadFile(root); string(got) != "root file system" {
+		t.Errorf("cached file = %q", got)
+	}
+	if e.p.verified[sig] == before {
+		t.Error("the new file was not stamped")
+	}
+}
+
+func mustKernel(t *testing.T, e *testEnv) string {
+	t.Helper()
+	k, err := e.p.cachePath(e.img.Contents.Kernel.Digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return k
 }
 
 func TestDiskRoom(t *testing.T) {

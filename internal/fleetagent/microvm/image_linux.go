@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -40,8 +41,10 @@ func (p *Provider) imageDir() string { return filepath.Join(p.cfg.StateDir, "ima
 
 // ensureImage returns the files of img, fetched if needed. The signature is
 // checked every time, as it costs nothing, and the digests of the files before
-// their first use by this process: nothing else writes to the cache. The machine
-// is refused when any of it fails.
+// their first use and whenever either file changed since they were checked: a
+// file replaced, rewritten or touched by anyone has a new inode, size or change
+// time, which nothing but the kernel sets. The machine is refused when any of
+// it fails.
 func (p *Provider) ensureImage(ctx context.Context, img domain.Image) (root, kernel string, err error) {
 	if img.Format != domain.ImageRootfs || img.Contents.Kernel == nil {
 		return "", "", fmt.Errorf("image %s@%s: a microVM boots a rootfs image with a kernel, not %s", img.Name, img.Version, img.Format)
@@ -67,19 +70,59 @@ func (p *Provider) ensureImage(ctx context.Context, img domain.Image) (root, ker
 	if err := p.fetch(ctx, img.Contents.Kernel.URI, img.Contents.Kernel.Digest, kernel); err != nil {
 		return "", "", fmt.Errorf("image %s@%s kernel: %w", img.Name, img.Version, err)
 	}
-	if !p.verified[img.Signature] {
+	if !p.unchanged(img.Signature, root, kernel) {
 		if err := p.verifyFiles(ctx, img, root, kernel, keys); err != nil {
+			delete(p.verified, img.Signature)
 			return "", "", err
 		}
-		p.verified[img.Signature] = true
 	}
 	now := time.Now()
 	for _, f := range []string{root, kernel} {
 		_ = os.Chtimes(f, now, now) // a file that stays old is only fetched again
 	}
-	// The jail's user reads the kernel through a hard link, also when an
-	// operator put the file there.
-	return root, kernel, os.Chmod(kernel, 0o444) // #nosec G302 -- a kernel is no secret
+	// The jail's user reads its copy of the kernel, also when an operator
+	// put the file there. A chmod changes the change time, so only once.
+	if st, err := os.Stat(kernel); err != nil || st.Mode().Perm() != 0o444 {
+		if err := os.Chmod(kernel, 0o444); err != nil { // #nosec G302 -- a kernel is no secret
+			return "", "", err
+		}
+	}
+	// Stamped after this process's own changes, so only another's show.
+	r, err1 := stampOf(root)
+	k, err2 := stampOf(kernel)
+	if err := errors.Join(err1, err2); err != nil {
+		return "", "", err
+	}
+	p.verified[img.Signature] = [2]stamp{r, k}
+	return root, kernel, nil
+}
+
+// stamp is what changes when anything changes a file: which file it is, its
+// size, and its modification and change times.
+type stamp struct {
+	dev, ino     uint64
+	size         int64
+	mtime, ctime int64
+}
+
+func stampOf(path string) (stamp, error) {
+	var st syscall.Stat_t
+	if err := syscall.Stat(path, &st); err != nil {
+		return stamp{}, err
+	}
+	return stamp{dev: st.Dev, ino: st.Ino, size: st.Size, mtime: st.Mtim.Nano(), ctime: st.Ctim.Nano()}, nil
+}
+
+// unchanged reports that the files of the image signed sig are what they were
+// when their digests were checked. The caller holds fetching.
+func (p *Provider) unchanged(sig, root, kernel string) bool {
+	was, ok := p.verified[sig]
+	if !ok {
+		return false
+	}
+	r, err1 := stampOf(root)
+	k, err2 := stampOf(kernel)
+	return err1 == nil && err2 == nil && was == [2]stamp{r, k}
 }
 
 // verifyFiles checks the files of img and, when a cached one is not what was
@@ -190,14 +233,20 @@ func reflink(src, dst string) bool {
 	return unix.IoctlFileClone(int(out.Fd()), int(in.Fd())) == nil // #nosec G115 -- file descriptors
 }
 
+// cloneReadOnly makes dst a read-only copy of src, a reflink where the file
+// system has them.
+func cloneReadOnly(src, dst string) error {
+	if err := clone(src, dst); err != nil {
+		return err
+	}
+	return os.Chmod(dst, 0o444) // #nosec G302 -- a read-only copy
+}
+
 // link makes dst the file src, read-only, for what machines share. A hard link
 // costs nothing; on another file system it is a copy.
 func link(src, dst string) error {
 	if err := os.Link(src, dst); err == nil {
 		return nil
 	}
-	if err := clone(src, dst); err != nil {
-		return err
-	}
-	return os.Chmod(dst, 0o444) // #nosec G302 -- a shared read-only file
+	return cloneReadOnly(src, dst)
 }

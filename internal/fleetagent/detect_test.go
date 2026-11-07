@@ -115,6 +115,9 @@ func TestThisHost(t *testing.T) {
 }
 
 func TestParseMeminfo(t *testing.T) {
+	if mb, err := meminfoField("MemTotal: 2048 kB\nMemAvailable:    1024000 kB\n", "MemAvailable"); err != nil || mb != 1000 {
+		t.Errorf("available = %d, %v", mb, err)
+	}
 	if mb, err := parseMeminfo("MemFree: 1 kB\nMemTotal:       16384000 kB\n"); err != nil || mb != 16000 {
 		t.Fatalf("%d, %v", mb, err)
 	}
