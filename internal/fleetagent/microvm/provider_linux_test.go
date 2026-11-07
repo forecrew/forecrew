@@ -251,15 +251,15 @@ func TestCreateFailuresLeaveNothing(t *testing.T) {
 			other.Signature = images.Sign(e.key, other)
 			req.Image = other
 		},
-		"no bootstrap":  func(_ *testEnv, req *fleet.CreateRequest) { req.Bootstrap = nil },
-		"windows":       func(_ *testEnv, req *fleet.CreateRequest) { req.Shape.OS = domain.OSWindows },
-		"too small":     func(_ *testEnv, req *fleet.CreateRequest) { req.Shape.DiskGB = 0 },
-		"loopback":      func(_ *testEnv, req *fleet.CreateRequest) { req.Bootstrap.ServerURL = "http://127.0.0.1:8080" },
-		"bad url":       func(_ *testEnv, req *fleet.CreateRequest) { req.Bootstrap.ServerURL = "http://[::1" },
-		"bad port":      func(_ *testEnv, req *fleet.CreateRequest) { req.Bootstrap.ServerURL = "http://192.0.2.1:x" },
-		"ipv6 only":     func(_ *testEnv, req *fleet.CreateRequest) { req.Bootstrap.ServerURL = "http://[2001:db8::1]:8080" },
-		"unknown key":   func(_ *testEnv, req *fleet.CreateRequest) { req.Shape.ProviderConfig = map[string]any{"x": 1} },
-		"qcow2":         func(_ *testEnv, req *fleet.CreateRequest) { req.Image.Format = domain.ImageQCOW2 },
+		"no bootstrap": func(_ *testEnv, req *fleet.CreateRequest) { req.Bootstrap = nil },
+		"windows":      func(_ *testEnv, req *fleet.CreateRequest) { req.Shape.OS = domain.OSWindows },
+		"too small":    func(_ *testEnv, req *fleet.CreateRequest) { req.Shape.DiskGB = 0 },
+		"loopback":     func(_ *testEnv, req *fleet.CreateRequest) { req.Bootstrap.ServerURL = "http://127.0.0.1:8080" },
+		"bad url":      func(_ *testEnv, req *fleet.CreateRequest) { req.Bootstrap.ServerURL = "http://[::1" },
+		"bad port":     func(_ *testEnv, req *fleet.CreateRequest) { req.Bootstrap.ServerURL = "http://192.0.2.1:x" },
+		"ipv6 only":    func(_ *testEnv, req *fleet.CreateRequest) { req.Bootstrap.ServerURL = "http://[2001:db8::1]:8080" },
+		"unknown key":  func(_ *testEnv, req *fleet.CreateRequest) { req.Shape.ProviderConfig = map[string]any{"x": 1} },
+		"qcow2":        func(_ *testEnv, req *fleet.CreateRequest) { req.Image.Format = domain.ImageQCOW2 },
 		"nft fails": func(e *testEnv, _ *fleet.CreateRequest) {
 			e.runErr = func(cmd string) error {
 				if strings.HasPrefix(cmd, "ip tuntap") {

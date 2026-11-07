@@ -123,12 +123,24 @@ func (machine) growRoot(device string) error {
 	return nil
 }
 
-// mountCache mounts the read-only cache disk.
-func (machine) mountCache(device, target string) error {
+// mountCache mounts a cache disk: the shared one read-only, the
+// organization's for every job of the machine to write, which is one
+// organization's alone.
+func (machine) mountCache(device, target string, writable bool) error {
 	if err := os.MkdirAll(target, 0o755); err != nil { // #nosec G301 -- every job reads it
 		return err
 	}
-	return syscall.Mount(device, target, "ext4", syscall.MS_RDONLY|syscall.MS_NOSUID|syscall.MS_NODEV, "")
+	flags := uintptr(syscall.MS_NOSUID | syscall.MS_NODEV)
+	if !writable {
+		flags |= syscall.MS_RDONLY
+	}
+	if err := syscall.Mount(device, target, "ext4", flags, ""); err != nil {
+		return err
+	}
+	if writable {
+		return os.Chmod(target, 0o1777) // #nosec G302 -- like /tmp: the jobs of one organization, whoever they run as
+	}
+	return nil
 }
 
 // wait reaps every child, as PID 1 must, until pid ends.

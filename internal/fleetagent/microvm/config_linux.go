@@ -51,6 +51,9 @@ type Config struct {
 	// (network_allow only, never a private network), for an instance's
 	// hosted location.
 	Egress string `yaml:"egress"`
+	// OrgCacheGB sizes each organization's cache disk, per pool; 0 gives
+	// machines none.
+	OrgCacheGB int `yaml:"org_cache_gb"`
 }
 
 func defaults() Config {
@@ -95,6 +98,9 @@ func (c Config) validate() error {
 	}
 	if c.Egress != egressOpen && c.Egress != egressAllowlist {
 		bad = append(bad, fmt.Errorf("egress must be %s or %s, got %q", egressOpen, egressAllowlist, c.Egress))
+	}
+	if c.OrgCacheGB < 0 {
+		bad = append(bad, fmt.Errorf("org_cache_gb must not be negative, got %d", c.OrgCacheGB))
 	}
 	if c.ImageCacheDays < 1 {
 		bad = append(bad, fmt.Errorf("image_cache_days must be at least 1, got %d", c.ImageCacheDays))
