@@ -41,7 +41,8 @@ func (s *Service) improvementInfo(ctx context.Context, by domain.Actor, p domain
 			if err != nil {
 				return info, err
 			}
-			info.CanDecide = ok && s.allow(ctx, by, domain.PermProposalDecide, p.ProjectID) == nil
+			info.CanDecide = ok && s.allow(ctx, by, domain.PermProposalDecide, p.ProjectID) == nil &&
+				(p.Action.Goal == nil || s.allow(ctx, by, domain.PermGoalCreate, p.ProjectID) == nil)
 		}
 	}
 	if p.GoalID != uuid.Nil() {
@@ -52,6 +53,20 @@ func (s *Service) improvementInfo(ctx context.Context, by domain.Actor, p domain
 		info.GoalRef = g.Ref()
 	}
 	return info, nil
+}
+
+// allowGoalOfProposal checks that by may create the goal that approving g
+// starts, when g is the gate of a proposal with a goal action: accepting it
+// is creating a goal, by any entry point.
+func (s *Service) allowGoalOfProposal(ctx context.Context, by domain.Actor, g domain.Gate) error {
+	if g.Kind != domain.GateImprovementProposal {
+		return nil
+	}
+	found, err := s.cfg.Store.Proposals().List(ctx, g.AccountID, store.ProposalFilter{GateID: g.ID})
+	if err != nil || len(found) == 0 || found[0].Action.Goal == nil {
+		return err
+	}
+	return s.allow(ctx, by, domain.PermGoalCreate, g.ProjectID)
 }
 
 // gateProposal returns the proposal of g for its card, nil when it has none.
