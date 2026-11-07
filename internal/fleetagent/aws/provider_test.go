@@ -603,3 +603,16 @@ func checkLaunchSafety(t *testing.T, e *env, in *ec2.RunInstancesInput, req flee
 		t.Error("an on-demand c7i machine has neither market options nor credits")
 	}
 }
+
+// EC2 lags: a machine just started is not listed yet, and must still count.
+func TestLimitCountsMachinesEC2DoesNotShowYet(t *testing.T) {
+	e := newEnv(t, func(c *Config) { c.MaxMachines = 2 })
+	e.ec2.unseen = 100
+	e.create(e.request())
+	e.create(e.request())
+	if _, err := e.p.Create(t.Context(), e.request()); !errors.Is(err, fleet.ErrCapacity) {
+		t.Fatalf("a third machine started over the limit: %v", err)
+	}
+	e.clock.advance(consistencyWindow + time.Second) // what EC2 never showed is not counted for ever
+	e.create(e.request())
+}
