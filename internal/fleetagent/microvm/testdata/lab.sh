@@ -33,6 +33,9 @@ inns "$nsL" ip addr add fd00:ec2::254/64 dev peer0 nodad
 inns "$nsL" ip -6 route add default via fd00:ec2::1
 inns "$nsA" ip addr add fd00:a::2/64 dev peer0 nodad
 inns "$nsA" ip -6 route add default via fd00:a::1
+# An address that is not machine 0's, to send from as if it were another.
+inns "$nsA" ip addr add 192.0.2.77/32 dev peer0
+ip route add 192.0.2.77/32 via 172.30.0.2 # the way back, so only the rules can stop it
 ip addr add fd00:a::1/64 dev fcvm0 nodad
 listen() { # namespace (or "-" for the host), ports...
 	local ns=$1; shift
@@ -72,4 +75,9 @@ t 203.0.113.6 80 internet-other
 t 169.254.169.254 80 metadata
 t fd00:ec2::254 80 metadata-ipv6
 t 203.0.113.5 3333 mining-port
+if inns "$nsA" timeout 4 python3 -c 'import socket; socket.create_connection(("203.0.113.5", 80), timeout=2, source_address=("192.0.2.77", 0))' 2>/dev/null; then
+	echo "REACH spoofed-source"
+else
+	echo "blocked spoofed-source"
+fi
 echo "MINING $(nft list counter inet forecrew_vm0 mining | grep -o 'packets [0-9]*' | cut -d' ' -f2)"
