@@ -2,6 +2,7 @@ import { screen, waitFor } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { errors, fx, server } from "./server"
 import { renderApp } from "./render"
+import { leave } from "@/lib/redirect"
 
 describe("login and session", () => {
   test("a visit without a session goes to the login page and back after login", async () => {
@@ -106,6 +107,38 @@ describe("login and session", () => {
     await user.click(screen.getByRole("button", { name: "Log in" }))
     await screen.findByRole("heading", { name: "Home" })
     expect(router.state.location.pathname).toBe("/")
+  })
+
+  describe("on the way to an OAuth consent screen", () => {
+    const target = "/oauth/authorize?client_id=x&state=y"
+    const path = `/login?redirect=${encodeURIComponent(target)}`
+
+    test("someone signed in goes straight back, from this site", async () => {
+      const left = vi.spyOn(leave, "to").mockImplementation(() => {})
+      await renderApp(path)
+      await waitFor(() => expect(left).toHaveBeenCalledWith(target))
+      left.mockRestore()
+    })
+
+    test("someone else signs in with a link that comes back", async () => {
+      const left = vi.spyOn(leave, "to").mockImplementation(() => {})
+      server.use(http.get("/api/v1/me", errors.unauthorized))
+      await renderApp(path)
+      const link = await screen.findByRole("link", { name: /Sign in with/ })
+      expect(link.getAttribute("href")).toContain(`redirect=${encodeURIComponent(target)}`)
+      expect(left).not.toHaveBeenCalled()
+      left.mockRestore()
+    })
+
+    test("a token login leaves the app for it", async () => {
+      const left = vi.spyOn(leave, "to").mockImplementation(() => {})
+      server.use(http.get("/api/v1/me", errors.unauthorized))
+      const { user } = await renderApp(path)
+      await user.type(await screen.findByLabelText("API token"), "fcm_x")
+      await user.click(screen.getByRole("button", { name: "Log in" }))
+      await waitFor(() => expect(left).toHaveBeenCalledWith(target))
+      left.mockRestore()
+    })
   })
 
   test("any 401 later goes back to the login page", async () => {
