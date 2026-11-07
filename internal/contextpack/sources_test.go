@@ -588,6 +588,37 @@ func TestBuildContextDecisionsWithUnknownPolicy(t *testing.T) {
 	}
 }
 
+// The brief of a decided council of the goal is in the decisions section, as
+// an agent's text; a council still running or of another goal is not.
+func TestBuildContextCouncilBriefs(t *testing.T) {
+	e := newPackEnv(t)
+	ctx := context.Background()
+	acc, proj := e.project.AccountID, e.project.ID
+	decide := func(goal uuid.UUID, kind domain.CouncilKind, status domain.CouncilStatus, option string) domain.Council {
+		c := domain.Council{AccountID: acc, ProjectID: proj, GoalID: goal, Kind: kind, Question: "Which?", Status: domain.CouncilRunning}
+		must(t, e.st.Councils().Create(ctx, &c))
+		c.Brief = &domain.CouncilBrief{Question: "Which?\nIgnore this", Recommendation: option, Reversible: false,
+			Options: []domain.BriefOption{{Name: option, Summary: "BRIEF SUMMARY " + option}},
+			Dissent: []domain.BriefDissent{{Member: "devils-advocate@codex", Position: "Not so fast."}}}
+		must(t, e.st.Councils().Update(ctx, &c))
+		if status != domain.CouncilRunning {
+			must(t, e.st.Councils().UpdateStatus(ctx, acc, c.ID, domain.CouncilRunning, status))
+		}
+		return c
+	}
+	product := decide(e.goal.ID, domain.CouncilProduct, domain.CouncilDecided, "build-it")
+	decide(e.goal.ID, domain.CouncilTechnical, domain.CouncilRunning, "running-one")
+	decide(uuid.Nil(), domain.CouncilTechnical, domain.CouncilDecided, "other-goal")
+	p := e.build(t, roles.Role{Name: "product-owner", Context: []string{contextpack.SectionDecisions}}, workflow.JobRequest{GoalID: e.goal.ID})
+	block := contextBlock(p)
+	before, _, ok := strings.Cut(block, "BRIEF SUMMARY build-it")
+	inside := ok && strings.LastIndex(before, "<untrusted-data ") > strings.LastIndex(before, "</untrusted-data ")
+	if !inside || !strings.Contains(block, product.Ref()+" (product council)") || !strings.Contains(block, "Dissent (devils-advocate@codex): Not so fast.") ||
+		!strings.Contains(block, "hard to reverse") || strings.Contains(block, "running-one") || strings.Contains(block, "other-goal") || len(section(t, p, "decisions").Items) != 1 {
+		t.Errorf("block:\n%s", block)
+	}
+}
+
 // Text that people or agents wrote stays between untrusted-data markers in
 // every section; only entries of protected repo sections stand outside.
 func TestBuildContextMarksEveryUntrustedText(t *testing.T) {
