@@ -1437,7 +1437,7 @@ CREATE TABLE model_assignments (
 `jobs.runtime` is `none` for a queued agent job with no usable model
 connection; `Jobs.QueuedClasses` and `Jobs.Retarget` move queued jobs between
 runtimes by (project, pool, role, runtime, `spec.pinned_runtime`,
-`spec.model`).
+`spec.model`, `spec.organization_model`).
 
 ### Configuration (migration 00010)
 
@@ -1549,7 +1549,9 @@ WHERE id = (
     AND (run_after IS NULL OR run_after <= now())
     AND pool = (SELECT w.pool FROM workers w WHERE w.id = $2 AND w.account_id = $1)
     AND (needs || CASE WHEN kind = 'agent' THEN ARRAY[lower('runtime:' || runtime)]
-                       ELSE '{}'::text[] END) <@ $3::text[]
+                       ELSE '{}'::text[] END
+               || CASE WHEN kind = 'agent' AND spec->>'organization_model' = 'true'
+                       THEN ARRAY['models:organization'] ELSE '{}'::text[] END) <@ $3::text[]
   ORDER BY created_at, id
   LIMIT 1
   FOR UPDATE SKIP LOCKED

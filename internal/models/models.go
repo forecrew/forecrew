@@ -318,6 +318,10 @@ type Grant struct {
 	Model string
 	// Waiting says why the job must not run now.
 	Waiting string
+	// Organization says the connection is an organization's: only a worker
+	// with domain.OrganizationModelLabel may run the job, and it gives the
+	// agent nothing of its own.
+	Organization bool
 }
 
 // Grant decides for a leased job of its own organization, reading the key
@@ -348,7 +352,7 @@ func (s *Service) Grant(ctx context.Context, j domain.Job) (Grant, error) {
 	}
 	c := d.connection
 	name := cmp.Or(c.KeyEnv, runtime.KeyEnv(c.Adapter))
-	g := Grant{Connection: c.Name, Env: map[string]string{name: string(key)}, Model: d.Model}
+	g := Grant{Connection: c.Name, Env: map[string]string{name: string(key)}, Model: d.Model, Organization: true}
 	if c.BaseURL != "" {
 		g.Endpoint = &domain.Endpoint{BaseURL: c.BaseURL, KeyEnv: name, Organization: true}
 	}
@@ -368,25 +372,47 @@ func (s *Service) Settle(ctx context.Context, accountID uuid.UUID) error {
 	if err != nil {
 		return err
 	}
+	keys := map[string]Decision{} // whether each connection has a key, read once a pass
 	for _, c := range classes {
-		j := domain.Job{ProjectID: c.ProjectID, Role: c.Role, Pool: c.Pool, Runtime: c.Runtime, Spec: domain.JobSpec{PinnedRuntime: c.Pinned}}
-		d, _, err := s.decide(ctx, accountID, st, requestOf(j))
+		d, err := s.settled(ctx, accountID, st, c, keys)
 		if err != nil {
 			return err
 		}
 		if d.Unset {
 			continue
 		}
-		to, model := cmp.Or(d.Adapter, domain.RuntimeNone), cmp.Or(d.Model, c.Model)
-		if to == c.Runtime && model == c.Model {
+		to := store.JobClass{Runtime: cmp.Or(d.Adapter, domain.RuntimeNone), Model: cmp.Or(d.Model, c.Model), Organization: d.Source == SourceOrganization}
+		if to.Runtime == c.Runtime && to.Model == c.Model && to.Organization == c.Organization {
 			continue
 		}
-		if err := s.st.Jobs().Retarget(ctx, accountID, c, to, model); err != nil {
+		if err := s.st.Jobs().Retarget(ctx, accountID, c, to); err != nil {
 			return fmt.Errorf("retarget %s jobs: %w", c.Role, err)
 		}
-		s.logger.InfoContext(ctx, "queued jobs moved", "account_id", accountID, "role", c.Role, "from", c.Runtime, "to", to, "connection", d.Connection)
+		s.logger.InfoContext(ctx, "queued jobs moved", "account_id", accountID, "role", c.Role, "from", c.Runtime, "to", to.Runtime, "connection", d.Connection)
 	}
 	return nil
+}
+
+// settled is the decision for a class of queued jobs. keys holds, for one
+// pass, whether each connection has a key, so each is read once.
+func (s *Service) settled(ctx context.Context, accountID uuid.UUID, st State, c store.JobClass, keys map[string]Decision) (Decision, error) {
+	j := domain.Job{ProjectID: c.ProjectID, Role: c.Role, Pool: c.Pool, Runtime: c.Runtime, Spec: domain.JobSpec{PinnedRuntime: c.Pinned}}
+	d := st.Decide(s.cfg, requestOf(j))
+	if d.Source != SourceOrganization {
+		return d, nil
+	}
+	checked, ok := keys[d.Connection]
+	if !ok {
+		var err error
+		if checked, _, err = s.key(ctx, accountID, d); err != nil {
+			return d, err
+		}
+		keys[d.Connection] = checked
+	}
+	if checked.Waiting != "" {
+		return checked, nil
+	}
+	return d, nil
 }
 
 // Waiter says why a queued job waits; jobs.Waiting has the same method.

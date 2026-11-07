@@ -105,9 +105,13 @@ code is `internal/models`; nothing else decides a job's connection.
   of it is stored with the job; a rotated key applies from the next lease with
   no change on workers. The pool rule (`credentials.runtimes`) applies to
   connection names; an organization's connection whose pool withholds its key
-  waits rather than run with a key of the worker. The endpoint of an
-  organization's connection carries `organization: true` (job-spec.md):
-  workers send it nothing of their own.
+  waits rather than run with a key of the worker. A job on an organization's
+  connection carries `organization_model: true`, and its endpoint
+  `organization: true` (job-spec.md): the worker gives the agent no key,
+  token, secret or base URL of its own. Such a job needs the label
+  `models:organization`, which forecrewd gives only to a worker that polls
+  with the capability `organization_models` (worker-api.md) and to machine
+  shapes; an older worker never leases it, and the job waits for another.
 - **Waiting.** A queued job with no usable connection gets runtime `none`, so
   no worker leases it and no machine starts for it, and `job_status` gives the
   reason `no_connection` with a sentence naming the role and what to do. When
@@ -181,7 +185,9 @@ Cloud as a fallback, moving a machine type to another trust zone, giving a pool
 a repo write token, adding an instance admin, allowing token sign-in, removing
 the token cap, changing a runtime's `base_url` or `credential_env`, changing an
 instance connection, creating a model connection, changing its `base_url`,
-`adapter`, `key_env` or `secret_ref`, or turning it on again. A revert with one of those effects counts too, because it is a
+`adapter`, `key_env` or `secret_ref`, or turning it on again, moving a role of
+a `model_assignment` to another connection (adding a role, changing its
+connection, taking it off, deleting a project's overrides). A revert with one of those effects counts too, because it is a
 plan like any other.
 
 ### Permissions

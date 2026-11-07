@@ -497,20 +497,50 @@ func TestClaudeEndpoint(t *testing.T) {
 	}
 }
 
-// TestOrganizationEndpointGetsNoWorkerKey: the custom endpoint of an
-// organization's connection sees the job's key and nothing the worker holds.
-func TestOrganizationEndpointGetsNoWorkerKey(t *testing.T) {
+// TestOrganizationConnectionGetsNoWorkerCredential: a run on an
+// organization's connection, with or without a custom endpoint, sees the
+// job's key and none of the worker's keys, tokens (OAuth ones included),
+// secrets or base URLs.
+func TestOrganizationConnectionGetsNoWorkerCredential(t *testing.T) {
+	for name, edit := range map[string]func(*RunSpec){
+		"endpoint": func(s *RunSpec) {
+			s.Endpoint = &domain.Endpoint{BaseURL: "https://proxy.example.com", KeyEnv: "ANTHROPIC_API_KEY", Organization: true}
+		},
+		"no endpoint": func(s *RunSpec) { s.OrganizationModel = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := filepath.Join(t.TempDir(), "rec.json")
+			a := newFakeClaude("FAKE_STREAM="+stream("claude_success.jsonl"), "FAKE_RECORD="+rec,
+				"ANTHROPIC_API_KEY=worker-key", "ANTHROPIC_AUTH_TOKEN=worker-token", "CLAUDE_CODE_OAUTH_TOKEN=worker-oauth",
+				"DEEPSEEK_API_KEY=worker-other", "AWS_SECRET_ACCESS_KEY=worker-aws", "MY_SECRET=worker-secret", "ANTHROPIC_BASE_URL=https://worker.example.com", "KEEP=me")
+			spec := claudeSpec()
+			spec.Env = map[string]string{"ANTHROPIC_API_KEY": "org-key"}
+			edit(&spec)
+			if _, _, err := collect(t, a, spec); err != nil {
+				t.Fatal(err)
+			}
+			env := readRecord(t, rec).Env
+			for _, k := range []string{"ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "DEEPSEEK_API_KEY", "AWS_SECRET_ACCESS_KEY", "MY_SECRET"} {
+				if env[k] != "" {
+					t.Errorf("%s = %q", k, env[k])
+				}
+			}
+			if env["ANTHROPIC_API_KEY"] != "org-key" || env["KEEP"] != "me" || env["ANTHROPIC_BASE_URL"] == "https://worker.example.com" {
+				t.Fatalf("env = %v", env)
+			}
+		})
+	}
+}
+
+// TestWorkerConnectionKeepsItsEnvironment: without the marker the worker's
+// own variables stay, as before.
+func TestWorkerConnectionKeepsItsEnvironment(t *testing.T) {
 	rec := filepath.Join(t.TempDir(), "rec.json")
-	a := newFakeClaude("FAKE_STREAM="+stream("claude_success.jsonl"), "FAKE_RECORD="+rec,
-		"ANTHROPIC_API_KEY=worker-key", "ANTHROPIC_AUTH_TOKEN=worker-token", "DEEPSEEK_API_KEY=worker-other", "KEEP=me")
-	spec := claudeSpec()
-	spec.Env = map[string]string{"ANTHROPIC_API_KEY": "org-key"}
-	spec.Endpoint = &domain.Endpoint{BaseURL: "https://proxy.example.com", KeyEnv: "ANTHROPIC_API_KEY", Organization: true}
-	if _, _, err := collect(t, a, spec); err != nil {
+	a := newFakeClaude("FAKE_STREAM="+stream("claude_success.jsonl"), "FAKE_RECORD="+rec, "CLAUDE_CODE_OAUTH_TOKEN=worker-oauth")
+	if _, _, err := collect(t, a, claudeSpec()); err != nil {
 		t.Fatal(err)
 	}
-	env := readRecord(t, rec).Env
-	if env["ANTHROPIC_API_KEY"] != "org-key" || env["ANTHROPIC_AUTH_TOKEN"] != "" || env["DEEPSEEK_API_KEY"] != "" || env["KEEP"] != "me" {
+	if env := readRecord(t, rec).Env; env["CLAUDE_CODE_OAUTH_TOKEN"] != "worker-oauth" {
 		t.Fatalf("env = %v", env)
 	}
 }

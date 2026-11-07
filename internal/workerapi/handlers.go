@@ -22,9 +22,12 @@ import (
 )
 
 type pollRequest struct {
-	Labels    []string `json:"labels"`
-	FreeSlots int      `json:"free_slots"`
-	Version   string   `json:"version"`
+	Labels []string `json:"labels"`
+	// Capabilities lists what the worker can do beyond its labels; a
+	// worker from before a capability sends none.
+	Capabilities []string `json:"capabilities"`
+	FreeSlots    int      `json:"free_slots"`
+	Version      string   `json:"version"`
 }
 
 type pollResponse struct {
@@ -44,8 +47,7 @@ func (s *Server) poll(rw http.ResponseWriter, r *http.Request) {
 		writeError(rw, http.StatusBadRequest, "bad_request", "free_slots must not be negative")
 		return
 	}
-	// No worker runs the runtime of jobs that wait for a model connection.
-	labels := slices.DeleteFunc(domain.NormalizeLabels(req.Labels), func(l string) bool { return l == domain.RuntimeLabel(domain.RuntimeNone) })
+	labels := serverLabels(req)
 	if err := s.cfg.Store.Workers().Seen(ctx, w.AccountID, w.ID, labels, req.Version); err != nil {
 		if clientGone(ctx, err) {
 			rw.WriteHeader(http.StatusNoContent)
@@ -145,6 +147,21 @@ func (s *Server) lease(ctx context.Context, w domain.Worker, labels []string) (d
 	return j, err
 }
 
+// serverLabels returns the labels of a poll. The server decides two of them:
+// no worker runs the runtime of jobs that wait for a model connection, and
+// only a worker that says it keeps its own keys away from them gets the label
+// of jobs on an organization's connection. An older worker would hand the
+// agent keys of its own, so those jobs wait for another.
+func serverLabels(req pollRequest) []string {
+	labels := slices.DeleteFunc(domain.NormalizeLabels(req.Labels), func(l string) bool {
+		return l == domain.RuntimeLabel(domain.RuntimeNone) || l == domain.OrganizationModelLabel
+	})
+	if slices.Contains(req.Capabilities, domain.OrganizationModelCapability) {
+		labels = domain.NormalizeLabels(append(labels, domain.OrganizationModelLabel))
+	}
+	return labels
+}
+
 // errRevoked means the worker was revoked while its poll waited.
 var errRevoked = errors.New("worker revoked")
 
@@ -165,7 +182,7 @@ func (s *Server) handOut(ctx context.Context, w domain.Worker, j domain.Job) (do
 	if cur.Revoked() {
 		return domain.JobSpec{}, errRevoked
 	}
-	return s.withSecrets(ctx, j)
+	return s.withSecrets(ctx, cur, j)
 }
 
 // giveBack releases a leased job the worker will not run, so another poll
@@ -186,7 +203,7 @@ func (s *Server) giveBack(ctx context.Context, w domain.Worker, j domain.Job, re
 // jobs get no runtime secrets. The connection, key, endpoint and model come
 // from one decision on the job's own organization (models.Service.Grant); a
 // job whose connection is gone is not handed out.
-func (s *Server) withSecrets(ctx context.Context, j domain.Job) (domain.JobSpec, error) {
+func (s *Server) withSecrets(ctx context.Context, w domain.Worker, j domain.Job) (domain.JobSpec, error) {
 	spec := j.Spec
 	spec.JobID, spec.AccountID = j.ID, j.AccountID
 	pool, ok := s.cfg.Pools[j.Pool]
@@ -208,6 +225,10 @@ func (s *Server) withSecrets(ctx context.Context, j domain.Job) (domain.JobSpec,
 		if g.Waiting != "" {
 			return spec, fmt.Errorf("%w: %s", errNoConnection, g.Waiting)
 		}
+		if g.Organization && !slices.Contains(w.Labels, domain.OrganizationModelLabel) {
+			return spec, fmt.Errorf("%w: worker %s would hand the agent keys of its own: update it", errNoConnection, w.Name)
+		}
+		spec.OrganizationModel = g.Organization
 		if pool.Credentials.AllowsRuntime(g.Connection) {
 			spec.Env = g.Env
 		}

@@ -94,10 +94,11 @@ type Lease struct {
 // does not retry: the caller's poll loop backs off.
 func (c *Client) Poll(ctx context.Context, labels []string, freeSlots int, version string) (*Lease, error) {
 	req := struct {
-		Labels    []string `json:"labels"`
-		FreeSlots int      `json:"free_slots"`
-		Version   string   `json:"version"`
-	}{labels, freeSlots, version}
+		Labels       []string `json:"labels"`
+		FreeSlots    int      `json:"free_slots"`
+		Version      string   `json:"version"`
+		Capabilities []string `json:"capabilities"`
+	}{labels, freeSlots, version, []string{domain.OrganizationModelCapability}}
 	var lease Lease
 	sent := time.Now()
 	status, err := c.once(ctx, "/worker/v1/poll", req, &lease)

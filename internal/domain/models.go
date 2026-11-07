@@ -12,6 +12,16 @@ import (
 // for it. internal/models gives the job its runtime when a connection is there.
 const RuntimeNone = "none"
 
+// OrganizationModelLabel is required by a job on an organization's model
+// connection. forecrewd gives it to a worker that polls with the capability
+// OrganizationModelCapability, and to every machine shape: such a worker
+// keeps its own keys away from the job. A worker never sets it itself.
+const OrganizationModelLabel = "models:organization"
+
+// OrganizationModelCapability is what a worker that keeps its own keys away
+// from an organization's connection says when it polls.
+const OrganizationModelCapability = "organization_models"
+
 // ModelSecretPrefix starts the names of the secret store that hold model keys.
 // A model connection reaches this namespace only, and nothing else reaches it:
 // whoever manages a connection decides where its key is sent, so it must not

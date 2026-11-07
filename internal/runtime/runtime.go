@@ -47,6 +47,9 @@ type RunSpec struct {
 	// Endpoint is the custom model endpoint of the runtime; nil means the
 	// vendor's own.
 	Endpoint *domain.Endpoint
+	// OrganizationModel says the run is on an organization's model
+	// connection: the CLI gets no key, token or secret of the worker's own.
+	OrganizationModel bool
 	// MCPServers are the stdio MCP servers of the job's toolbox, started by
 	// the CLI next to the gateway. Their secrets are the variables of Env
 	// they name in CredentialEnv, which the CLI's configuration refers to.
@@ -97,7 +100,7 @@ func (s RunSpec) binary(cfg Config, def string) string {
 func (s RunSpec) baseEnv(cfg Config) []string {
 	if s.Container == nil {
 		base := startEnv(cfg.Env, nil)
-		if s.Endpoint != nil && s.Endpoint.Organization {
+		if s.organization() {
 			base = withoutWorkerKeys(base)
 		}
 		return startEnv(base, s.Env)
@@ -109,13 +112,26 @@ func (s RunSpec) baseEnv(cfg Config) []string {
 	return env
 }
 
-// withoutWorkerKeys removes the worker's own model keys from env. The endpoint
-// of an organization's connection is whatever its admin typed, so what the
-// worker holds must not reach it, whichever variable an agent CLI falls back on.
+// organization reports whether the run is on an organization's model
+// connection.
+func (s RunSpec) organization() bool {
+	return s.OrganizationModel || (s.Endpoint != nil && s.Endpoint.Organization)
+}
+
+// withoutWorkerKeys removes from env every credential the worker holds, and
+// what points an agent CLI at another endpoint. A job on an organization's
+// connection runs with that organization's key only: a key, token or secret
+// of the worker must not reach a provider the organization chose, whichever
+// variable an agent CLI falls back on (CLAUDE_CODE_OAUTH_TOKEN,
+// ANTHROPIC_AUTH_TOKEN, OPENAI_API_KEY...), and a base URL of the worker must
+// not take the organization's key elsewhere.
 func withoutWorkerKeys(env []string) []string {
 	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
-		return strings.HasSuffix(name, "_API_KEY") || strings.HasSuffix(name, "_AUTH_TOKEN")
+		name = strings.ToUpper(name)
+		return slices.ContainsFunc([]string{"_KEY", "_TOKEN", "_SECRET", "_BASE_URL", "_PASSWORD", "_CREDENTIALS"}, func(suffix string) bool {
+			return strings.HasSuffix(name, suffix)
+		})
 	})
 }
 

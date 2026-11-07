@@ -1,6 +1,7 @@
 package workerapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -203,5 +204,55 @@ func TestAJobWhoseConnectionWentIsGivenBack(t *testing.T) {
 	}
 	if got := m.job(t, j.ID); got.Status != domain.JobQueued {
 		t.Fatalf("job = %+v", got)
+	}
+}
+
+// TestAnOlderWorkerGetsNoOrganizationJob: a worker that does not say it keeps
+// its own keys away gets no job on an organization's connection, which waits
+// for one that does; a job of the server file still goes to it.
+func TestAnOlderWorkerGetsNoOrganizationJob(t *testing.T) {
+	m := newModelsEnv(t, false)
+	_, token := m.addWorker(t, "old")
+	m.connect(t, m.account, "main", "key-org")
+	j := m.developerJob(t, m.account, m.project)
+	old := func(labels ...string) int {
+		status, _ := m.call(t, token, "/worker/v1/poll", map[string]any{"labels": append(labels, "runtime:claude-code"), "free_slots": 1, "version": "v0.1.0"})
+		return status
+	}
+	if status := old(); status != http.StatusNoContent {
+		t.Fatalf("old worker: status %d", status)
+	}
+	// It cannot claim the label either.
+	if status := old(domain.OrganizationModelLabel); status != http.StatusNoContent {
+		t.Fatalf("old worker with the label: status %d", status)
+	}
+	got := m.job(t, j.ID)
+	if got.Status != domain.JobQueued || !got.Spec.OrganizationModel || got.Attempts != 0 {
+		t.Fatalf("job = %+v", got)
+	}
+	// A server-file job still runs there.
+	other := domain.Job{AccountID: m.account, ProjectID: m.project.ID, Pool: domain.PoolBuild, Role: "reviewer", Runtime: config.AdapterClaudeCode,
+		Spec: domain.JobSpec{Repo: repo, Prompt: "do it"}}
+	if err := m.st.Jobs().Create(t.Context(), &other); err != nil {
+		t.Fatal(err)
+	}
+	if status := old(); status != http.StatusOK {
+		t.Fatalf("old worker, file job: status %d", status)
+	}
+	_, current := m.addWorker(t, "new")
+	if lease := m.lease(t, current); lease.Job.JobID != j.ID || !lease.Job.OrganizationModel {
+		t.Fatalf("lease = %+v", lease.Job)
+	}
+}
+
+// TestALeaseRaceDoesNotReachAnOlderWorker: a job leased before it was
+// settled is given back when the worker lacks the capability.
+func TestALeaseRaceDoesNotReachAnOlderWorker(t *testing.T) {
+	m := newModelsEnv(t, false)
+	w, _ := m.addWorker(t, "old")
+	m.connect(t, m.account, "main", "key-org")
+	j := m.developerJob(t, m.account, m.project)
+	if _, err := m.server.withSecrets(t.Context(), w, j); !errors.Is(err, errNoConnection) {
+		t.Fatalf("err = %v", err)
 	}
 }

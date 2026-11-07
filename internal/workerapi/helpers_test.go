@@ -159,7 +159,7 @@ func (e *env) call(t *testing.T, token, path string, body any) (int, []byte) {
 func (e *env) poll(t *testing.T, token string, labels ...string) (int, pollResponse) {
 	t.Helper()
 	status, body := e.call(t, token, "/worker/v1/poll", map[string]any{
-		"labels": append(labels, "runtime:claude-code"), "free_slots": 1, "version": "v0.1.0",
+		"labels": append(labels, "runtime:claude-code"), "free_slots": 1, "version": "v0.1.0", "capabilities": []string{domain.OrganizationModelCapability},
 	})
 	var out pollResponse
 	if status == http.StatusOK {
