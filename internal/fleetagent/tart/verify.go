@@ -25,7 +25,8 @@ const (
 
 	annLayerSize   = "org.cirruslabs.tart.uncompressed-size"
 	annLayerDigest = "org.cirruslabs.tart.uncompressed-content-digest"
-	// Annotations of stacked (ASIF overlay) disks, which are no flat file.
+	// Annotations of stacked (ASIF overlay) disks, which are no flat file: the
+	// block size is on the manifest, the chunk count on a layer.
 	annBlockSize  = "org.cirruslabs.tart.disk.block-size"
 	annChunkCount = "org.cirruslabs.tart.disk-file-chunk-count"
 
@@ -45,6 +46,8 @@ type ociLayer struct {
 
 type ociManifest struct {
 	Layers []ociLayer `json:"layers"`
+	// Annotations of the manifest as a whole.
+	Annotations map[string]string `json:"annotations"`
 }
 
 // cacheDir is where Tart keeps an image it pulled by digest:
@@ -61,32 +64,35 @@ func (p *Provider) cacheDir(repo, digest string) string {
 // digests. A layer that cannot be checked (another media type, a disk that is
 // not a flat file, a missing annotation) refuses the image. The result is kept
 // until the files change, since the disk is large. The caller holds fetching.
-func (p *Provider) verifyPulled(ctx context.Context, repo, digest string) error {
+func (p *Provider) verifyPulled(ctx context.Context, repo, digest string) (string, error) {
 	dir := p.cacheDir(repo, digest)
 	fp, err := fingerprint(dir)
 	if err != nil {
-		return fmt.Errorf("the cache of Tart has no %s of this image: %w", fileManifest, err)
+		return "", fmt.Errorf("the cache of Tart has no %s of this image: %w", fileManifest, err)
 	}
 	if p.verified[digest] == fp {
-		return nil
+		return fp, nil
 	}
 	raw, err := readLimited(filepath.Join(dir, fileManifest), maxManifest)
 	if err != nil {
-		return err
+		return "", err
 	}
 	sum := sha256.Sum256(raw)
 	if got := "sha256:" + hex.EncodeToString(sum[:]); got != digest {
-		return fmt.Errorf("the manifest Tart pulled is %s, not the signed %s: %w", got, digest, images.ErrDigest)
+		return "", fmt.Errorf("the manifest Tart pulled is %s, not the signed %s: %w", got, digest, images.ErrDigest)
 	}
 	var m ociManifest
 	if err := json.Unmarshal(raw, &m); err != nil {
-		return fmt.Errorf("the manifest: %w", err)
+		return "", fmt.Errorf("the manifest: %w", err)
+	}
+	if _, stacked := m.Annotations[annBlockSize]; stacked {
+		return "", errors.New("the disk is a stacked one, not one flat file, so it cannot be checked")
 	}
 	if err := checkLayers(ctx, dir, m.Layers); err != nil {
-		return err
+		return "", err
 	}
 	p.verified[digest] = fp
-	return nil
+	return fp, nil
 }
 
 // fingerprint says when the files of an image last changed, so that a checked
@@ -173,7 +179,7 @@ func checkDisk(ctx context.Context, path string, layers []ociLayer) error {
 		if err != nil || size <= 0 || !sha256Digest.MatchString(want) {
 			return fmt.Errorf("disk layer %d has no usable uncompressed size and digest, so the disk cannot be checked", i)
 		}
-		for _, k := range []string{annBlockSize, annChunkCount} {
+		for _, k := range []string{annChunkCount} {
 			if _, stacked := l.Annotations[k]; stacked {
 				return fmt.Errorf("disk layer %d is part of a stacked disk, which is not one flat file, so the disk cannot be checked", i)
 			}

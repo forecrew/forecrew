@@ -63,6 +63,16 @@ get)
 	printf '{"OS":"darwin","CPU":4,"Memory":8192,"Disk":%s,"DiskFormat":"raw","Size":20,"Display":"1024x768px","MACAddress":"aa:bb","Running":%s,"State":"%s"}\n' "$disk" "$r" "$s"
 	;;
 ip)
+	# Softnet serves DHCP itself: only the guest agent knows the address.
+	resolver=dhcp
+	while [ $# -gt 1 ]; do
+		case $1 in
+		--resolver) resolver=$2; shift 2 ;;
+		--wait) shift 2 ;;
+		*) break ;;
+		esac
+	done
+	[ "$resolver" = agent ] || die "no DHCP lease found for the VM"
 	exists "$1" || die "the VM \"$1\" does not exist"
 	alive "$1" || die "the VM \"$1\" is not running"
 	if [ -f "$home/guest-ip" ]; then cat "$home/guest-ip"; else echo 192.168.64.5; fi
@@ -103,8 +113,8 @@ run)
 	n=$last
 	exists "$n" || die "the VM \"$n\" does not exist"
 	alive "$n" && die "VM \"$n\" is already running!"
-	[ -f "$home/limit-run" ] && die "virtualMachineLimitExceeded: the number of VMs exceeds the system limit (other running VMs: some-other)"
-	[ "$(running_count)" -lt 2 ] || die "virtualMachineLimitExceeded: the number of VMs exceeds the system limit"
+	[ -f "$home/limit-run" ] && die "The number of VMs exceeds the system limit. Other running VMs: some-other"
+	[ "$(running_count)" -lt 2 ] || die "The number of VMs exceeds the system limit. Other running VMs: some-other"
 	echo "$*" >"$home/vms/$n/run-args"
 	echo $$ >"$home/vms/$n/pid"
 	trap 'rm -f "$home/vms/$n/pid"; exit 0' INT TERM

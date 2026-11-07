@@ -94,6 +94,7 @@ func newEnv(t *testing.T, edit func(*Config)) *testEnv {
 	e.p.hostNets = func() []netip.Prefix {
 		return []netip.Prefix{netip.MustParsePrefix("192.168.64.1/24"), netip.MustParsePrefix("10.0.0.7/24")}
 	}
+	e.p.softnetVersion = func(context.Context) (string, error) { return "softnet 0.25.0\n", nil }
 	e.p.pmset = func(context.Context) (string, error) {
 		return "System-wide power settings:\n sleep                0\n displaysleep         10\n", nil
 	}
@@ -227,7 +228,7 @@ func TestCreateListDestroy(t *testing.T) {
 		t.Errorf("set = %q", set)
 	}
 	args := e.file(t, "vms", name, "run-args")
-	for _, want := range []string{"--no-graphics", "--no-audio", "--no-clipboard", "--net-softnet", "--net-softnet-block=192.168.64.1/32", "--net-softnet-allow=10.1.0.0/16,192.0.2.10/32", name} {
+	for _, want := range []string{"--no-graphics", "--no-audio", "--no-clipboard", "--net-softnet", "--net-softnet-block=@host,192.168.64.1/32,10.0.0.7/32", "--net-softnet-allow=10.1.0.0/16,192.0.2.10/32", name} {
 		if !strings.Contains(args, want) {
 			t.Errorf("run args %q lack %q", args, want)
 		}
@@ -581,16 +582,15 @@ func TestLocalBaseVM(t *testing.T) {
 	}
 }
 
-func TestGatewayIsBlockedAndChecked(t *testing.T) {
+func TestHostIsBlockedAndChecked(t *testing.T) {
 	for _, c := range []struct {
 		name  string
 		hosts []netip.Prefix
 		ip    string
 		want  string
 	}{
-		{"another gateway", []netip.Prefix{netip.MustParsePrefix("192.168.64.254/24")}, "", "set softnet_gateway: 192.168.64.254"},
-		{"no address on the network", []netip.Prefix{netip.MustParsePrefix("10.0.0.7/24")}, "", "cannot be checked"},
-		{"no host address at all", nil, "", "cannot be checked"},
+		{"no address on the network", []netip.Prefix{netip.MustParsePrefix("10.0.0.7/24")}, "", "has no address on the machine's network"},
+		{"no host address at all", nil, "", "has no address on the machine's network"},
 		{"junk from tart", nil, "not an address", "tart ip said"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -603,7 +603,7 @@ func TestGatewayIsBlockedAndChecked(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("error = %v, want %q", err, c.want)
 			}
-			// The settings never reached a machine whose host is open.
+			// The settings never reached a machine whose host is not shown to be out of reach.
 			if got := e.file(t, "guest-"+vmName(e.lastID(t))+".stdin"); got != "" {
 				t.Errorf("settings were delivered: %q", got)
 			}
@@ -612,6 +612,9 @@ func TestGatewayIsBlockedAndChecked(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMacIsOutOfReach(t *testing.T) {
 	t.Run("no address from tart", func(t *testing.T) {
 		e := newEnv(t, nil)
 		e.p.cfg.BootWaitSeconds = 1
@@ -620,12 +623,34 @@ func TestGatewayIsBlockedAndChecked(t *testing.T) {
 			t.Errorf("error = %v", err)
 		}
 	})
-	t.Run("the server is the gateway", func(t *testing.T) {
+	t.Run("the server is the Mac", func(t *testing.T) {
 		e := newEnv(t, nil)
-		req := e.request()
-		req.Bootstrap.ServerURL = "http://192.168.64.1:8080"
-		if _, err := e.p.Create(t.Context(), req); err == nil || !strings.Contains(err.Error(), "blocked") {
+		for _, own := range []string{"10.0.0.7", "192.168.64.1"} {
+			req := e.request()
+			req.Bootstrap.ServerURL = "http://" + own + ":8080"
+			if _, err := e.p.Create(t.Context(), req); err == nil || !strings.Contains(err.Error(), "one of this Mac's own") {
+				t.Errorf("server %s: %v", own, err)
+			}
+		}
+	})
+	t.Run("the resolver is the Mac", func(t *testing.T) {
+		e := newEnv(t, func(c *Config) { c.DNS = []string{"1.1.1.1", "10.0.0.7"} })
+		if _, err := e.p.Create(t.Context(), e.request()); err == nil || !strings.Contains(err.Error(), "dns 10.0.0.7") {
 			t.Errorf("error = %v", err)
+		}
+	})
+	t.Run("the Macs public address is blocked", func(t *testing.T) {
+		e := newEnv(t, nil)
+		e.p.hostNets = func() []netip.Prefix {
+			return []netip.Prefix{netip.MustParsePrefix("192.168.64.1/24"), netip.MustParsePrefix("203.0.113.9/24"), netip.MustParsePrefix("127.0.0.1/8")}
+		}
+		req := e.request()
+		if _, err := e.p.Create(t.Context(), req); err != nil {
+			t.Fatal(err)
+		}
+		args := e.file(t, "vms", vmName(req.MachineID.String()), "run-args")
+		if !strings.Contains(args, "--net-softnet-block=@host,192.168.64.1/32,203.0.113.9/32 ") {
+			t.Errorf("run args = %q", args)
 		}
 	})
 }
@@ -732,7 +757,8 @@ func TestImageIntegrity(t *testing.T) {
 		{"an unknown layer", "cannot be checked", func(m map[string]any) {
 			m["layers"] = append(m["layers"].([]any), map[string]any{"mediaType": "application/vnd.example.other", "digest": "sha256:" + strings.Repeat("1", 64)})
 		}},
-		{"a stacked disk", "stacked", func(m map[string]any) { layer(m, 2)["annotations"].(map[string]any)[annBlockSize] = "4096" }},
+		{"a stacked disk, by the manifest", "stacked", func(m map[string]any) { m["annotations"] = map[string]any{annBlockSize: "4096"} }},
+		{"a stacked disk, by a layer", "stacked", func(m map[string]any) { layer(m, 2)["annotations"].(map[string]any)[annChunkCount] = "3" }},
 		{"a disk layer with no digest", "no usable", func(m map[string]any) { delete(layer(m, 2)["annotations"].(map[string]any), annLayerDigest) }},
 		{"a disk layer with no size", "no usable", func(m map[string]any) { delete(layer(m, 3)["annotations"].(map[string]any), annLayerSize) }},
 		{"a disk layer with a bad size", "no usable", func(m map[string]any) { layer(m, 3)["annotations"].(map[string]any)[annLayerSize] = "-4" }},
@@ -755,6 +781,37 @@ func TestImageIntegrity(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestImageChangedAfterTheCheck changes the cached disk between the check and
+// the clone: the clone must not be made.
+func TestImageChangedAfterTheCheck(t *testing.T) {
+	e := newEnv(t, nil)
+	e.p.beforeClone = func() {
+		path := filepath.Join(e.cache, fileDisk)
+		raw, _ := os.ReadFile(path) // #nosec G304 -- a test
+		raw[0] ^= 0xff
+		_ = os.WriteFile(path, raw, 0o600)
+	}
+	_, err := e.p.Create(t.Context(), e.request())
+	if err == nil || !strings.Contains(err.Error(), "changed in Tart's cache") {
+		t.Fatalf("error = %v", err)
+	}
+	if len(e.vms(t)) != 0 {
+		t.Errorf("a VM was cloned from a changed image: %v", e.vms(t))
+	}
+	// The cache is held until the clone is made: a prune cannot run in between.
+	e = newEnv(t, nil)
+	e.p.lastGC = time.Time{}
+	e.p.beforeClone = func() {
+		if _, err := e.p.List(t.Context()); err != nil { // would prune, and does not wait
+			t.Error(err)
+		}
+		if e.file(t, "prune") != "" {
+			t.Error("the cache was pruned between the check and the clone")
+		}
+	}
+	e.create(t)
 }
 
 func TestVerifiedImageIsCheckedAgainWhenItChanges(t *testing.T) {
@@ -1093,6 +1150,18 @@ func TestChecks(t *testing.T) {
 			e.p.pmset = func(context.Context) (string, error) { return "", errors.New("x") }
 		}},
 		{"no softnet", "softnet", statusFail, func(e *testEnv) { e.p.lookPath = func(string) bool { return false } }},
+		{"old softnet", "softnet", statusFail, func(e *testEnv) {
+			e.p.softnetVersion = func(context.Context) (string, error) { return "softnet 0.24.1", nil }
+		}},
+		{"newer softnet", "softnet", statusOK, func(e *testEnv) {
+			e.p.softnetVersion = func(context.Context) (string, error) { return "0.31.2\n", nil }
+		}},
+		{"softnet says no version", "softnet", statusFail, func(e *testEnv) {
+			e.p.softnetVersion = func(context.Context) (string, error) { return "hello", nil }
+		}},
+		{"softnet without --version", "softnet", statusFail, func(e *testEnv) {
+			e.p.softnetVersion = func(context.Context) (string, error) { return "", errors.New("unknown option") }
+		}},
 		{"softnet off", "softnet", statusFail, func(e *testEnv) { e.p.cfg.Softnet = false }},
 		{"softnet off, allowed", "softnet", statusWarn, func(e *testEnv) { e.p.cfg.Softnet, e.p.cfg.AllowNoSoftnet = false, true }},
 		{"credentials unset", "registry credentials", statusFail, func(e *testEnv) {

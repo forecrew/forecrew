@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -36,7 +37,7 @@ func (p *Provider) checks(ctx context.Context) []domain.ProviderCheck {
 		check("registry credentials", p.credentials(), statusFail, "found, or none needed"),
 	}
 	if p.cfg.Softnet {
-		out = append(out, check("softnet", p.softnet(), statusFail, "softnet found: machines stay off the LAN and this host"))
+		out = append(out, check("softnet", p.softnet(ctx), statusFail, "softnet "+p.cfg.MinSoftnetVersion+" or newer: machines stay off the LAN and this host"))
 	} else if p.cfg.AllowNoSoftnet {
 		out = append(out, domain.ProviderCheck{Name: "softnet", Status: statusWarn, Detail: "softnet is off, as allow_no_softnet says: machines reach the LAN and this host"})
 	} else {
@@ -120,11 +121,26 @@ func pmset(ctx context.Context) (string, error) {
 	return string(out), err
 }
 
-func (p *Provider) softnet() error {
+// softnet checks that Softnet is there and new enough for the rules the provider
+// gives it (@host among them).
+func (p *Provider) softnet(ctx context.Context) error {
 	if !p.lookPath("softnet") {
 		return fmt.Errorf("needs softnet on PATH, with the setuid bit or passwordless sudo, or set softnet: false")
 	}
+	out, err := p.softnetVersion(ctx)
+	if err != nil {
+		return fmt.Errorf("softnet --version failed: %v: upgrade softnet to %s or newer", oneLine(err.Error()), p.cfg.MinSoftnetVersion)
+	}
+	got := versionOf(out)
+	if got == "" || compareVersions(got, p.cfg.MinSoftnetVersion) < 0 {
+		return fmt.Errorf("softnet %q is older than %s, or says no version: upgrade it", oneLine(out), p.cfg.MinSoftnetVersion)
+	}
 	return nil
+}
+
+func softnetVersion(ctx context.Context) (string, error) {
+	out, err := exec.CommandContext(ctx, "softnet", "--version").Output()
+	return string(out), err
 }
 
 // credentials checks that what the references name is in the agent's
@@ -160,3 +176,7 @@ func countVMProcesses(ctx context.Context) (int, error) {
 	}
 	return parseVMProcesses(string(out)), nil
 }
+
+var versionIn = regexp.MustCompile(`\d+\.\d+\.\d+`)
+
+func versionOf(s string) string { return versionIn.FindString(s) }

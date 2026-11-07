@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -81,7 +82,7 @@ func (p *Provider) waitGuest(ctx context.Context, id string, exited <-chan error
 		select {
 		case err := <-exited:
 			wait.Stop()
-			if strings.Contains(strings.ToLower(tailRaw(p.logPath(id))), "limitexceeded") {
+			if strings.Contains(strings.ToLower(tailRaw(p.logPath(id))), "exceeds the system limit") {
 				// Apple's limit, reached by VMs this agent cannot see: no room, not a failure.
 				return fmt.Errorf("%w: tart run says the Mac's limit of VMs is reached", fleet.ErrCapacity)
 			}
@@ -100,17 +101,17 @@ func (p *Provider) waitGuest(ctx context.Context, id string, exited <-chan error
 // hostList joins values for a flag.
 func hostList(items []string) string { return strings.Join(items, ",") }
 
-// checkGateway makes sure the address the machine cannot reach is the Mac's
-// address on the machine's network: the address the host answers on. Softnet lets
-// a machine reach the gateway unless it is blocked, and the block is by the
-// configured address, so a Mac whose VMs use another subnet would leave itself
-// open. It runs before the settings go in.
-func (p *Provider) checkGateway(ctx context.Context, name string) error {
+// checkHostNetwork makes sure the machine's network is one of the Mac's own:
+// the machine has an address, asked of its guest agent (Softnet serves DHCP
+// itself, so Tart's DHCP resolver cannot see it), and the Mac has an address on
+// that network, which is what blocking @host stands for. Without it the block
+// could not be confirmed, and the settings are not delivered.
+func (p *Provider) checkHostNetwork(ctx context.Context, name string) error {
 	limit := time.NewTimer(time.Duration(p.cfg.BootWaitSeconds) * time.Second)
 	defer limit.Stop()
 	var ip string
 	for {
-		out, err := p.cli.output(ctx, "ip", name)
+		out, err := p.cli.output(ctx, "ip", "--resolver", "agent", name)
 		if ip = strings.TrimSpace(out); err == nil && ip != "" {
 			break
 		}
@@ -126,15 +127,10 @@ func (p *Provider) checkGateway(ctx context.Context, name string) error {
 	if err != nil {
 		return fmt.Errorf("tart ip said %s", snippet([]byte(ip), ""))
 	}
-	for _, n := range p.hostNets() {
-		if n.Contains(guest) {
-			if got := n.Addr().String(); got != p.cfg.SoftnetGateway {
-				return fmt.Errorf("the Mac's address on the machines' network is %s, not %s: set softnet_gateway: %s in tart.yaml", got, p.cfg.SoftnetGateway, got)
-			}
-			return nil
-		}
+	if !slices.ContainsFunc(p.hostNets(), func(n netip.Prefix) bool { return n.Contains(guest) }) {
+		return fmt.Errorf("the Mac has no address on the machine's network %s, so that the Mac is out of reach cannot be checked", guest)
 	}
-	return fmt.Errorf("the Mac has no address on the machine's network %s, so its gateway cannot be checked", guest)
+	return nil
 }
 
 // localNets are the IPv4 addresses of this host's interfaces, with their

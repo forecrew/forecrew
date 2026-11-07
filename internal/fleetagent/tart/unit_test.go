@@ -177,7 +177,7 @@ func TestSnippetIsInertAndBounded(t *testing.T) {
 
 func TestConfig(t *testing.T) {
 	dir := t.TempDir()
-	if c, err := LoadConfig(filepath.Join(dir, "none.yaml")); err != nil || c.MaxMachines != 0 || c.limit() != 2 || !c.Softnet || c.SoftnetGateway != "192.168.64.1" || len(c.DNS) != 2 || c.AllowNoSoftnet {
+	if c, err := LoadConfig(filepath.Join(dir, "none.yaml")); err != nil || c.MaxMachines != 0 || c.limit() != 2 || !c.Softnet || c.MinSoftnetVersion != "0.25.0" || len(c.DNS) != 2 || c.AllowNoSoftnet {
 		t.Errorf("defaults = %+v, %v", c, err)
 	}
 	write := func(s string) string {
@@ -192,7 +192,7 @@ func TestConfig(t *testing.T) {
 	for _, bad := range []string{
 		"max_machines: 3\n", "max_machines: -1\n", "state_dir: rel\n", "min_tart_version: latest\n", "boot_wait_seconds: 1\n",
 		"registry_username: ci\nregistry_password: env:P\n", "registry_username: env:U\nregistry_password: hunter2\n",
-		"registry_username: env:U\n", "registry_username: env:U\nregistry_password: env:P\n", "registry_hosts: ['bad host']\n", "registry_hosts: [GHCR.io]\n", "softnet_gateway: nope\n", "softnet_gateway: '::1'\n", "dns: []\n", "dns: [example.com]\n", "dns: [1.1.1.1, 1.1.1.2, 1.1.1.3, 1.1.1.4]\n", "mystery: 1\n", ":\n",
+		"registry_username: env:U\n", "registry_username: env:U\nregistry_password: env:P\n", "registry_hosts: ['bad host']\n", "registry_hosts: [GHCR.io]\n", "min_softnet_version: new\n", "dns: [127.0.0.1]\n", "dns: [100.64.1.2]\n", "dns: [169.254.1.1]\n", "dns: [0.0.0.0]\n", "dns: []\n", "dns: [example.com]\n", "dns: [1.1.1.1, 1.1.1.2, 1.1.1.3, 1.1.1.4]\n", "mystery: 1\n", ":\n",
 	} {
 		if _, err := LoadConfig(write(bad)); err == nil {
 			t.Errorf("accepted %q", bad)
