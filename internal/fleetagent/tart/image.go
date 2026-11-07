@@ -49,7 +49,7 @@ func ociRef(img domain.Image) (string, error) {
 	return repo + "@" + img.Digest, nil
 }
 
-// source returns what a machine is cloned from, and makes it available.
+// cloneVM makes the VM name from the shape's image, or base_vm.
 //
 // For an image: the signature (which covers the digest but not the URI) is checked
 // against the keys of this host every time; the URI's host must be one of
@@ -57,42 +57,55 @@ func ociRef(img domain.Image) (string, error) {
 // operator says; and Tart pulls registry/name@digest. Tart itself does not check
 // that what it pulled is what the digest names, so the agent does: the manifest
 // Tart cached must hash to the signed digest, and the files it cached must match
-// the manifest's digests (verifyPulled). A pulled image that cannot be checked
-// is refused.
+// the manifest's digests (verifyPulled). A pulled image that cannot be checked is
+// refused. The lock on the cache is kept until the clone is made, so that nothing
+// prunes or pulls over a checked image, and the files are looked at once more
+// right before the clone, so that what is cloned is what was checked.
 //
 // A shape's base_vm names a VM of the agent's own Tart home instead, when this
 // host's operator allows it.
-func (p *Provider) source(ctx context.Context, cfg providerConfig, img domain.Image) (string, error) {
+func (p *Provider) cloneVM(ctx context.Context, cfg providerConfig, img domain.Image, name string) error {
 	if cfg.BaseVM != "" {
-		return p.localSource(ctx, cfg.BaseVM)
+		src, err := p.localSource(ctx, cfg.BaseVM)
+		if err != nil {
+			return err
+		}
+		return p.cli.clone(ctx, src, name)
 	}
 	if img.Format != domain.ImageTart || img.OS != domain.OSMacOS || img.Arch != domain.ArchARM64 {
-		return "", fmt.Errorf("image %s@%s: a Tart location runs macOS arm64 images in the tart format, not %s %s %s", img.Name, img.Version, img.OS, img.Arch, img.Format)
+		return fmt.Errorf("image %s@%s: a Tart location runs macOS arm64 images in the tart format, not %s %s %s", img.Name, img.Version, img.OS, img.Arch, img.Format)
 	}
 	keys, err := fleetagent.LoadTrustedKeys(p.cfg.TrustedKeysFile)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if err := images.Verify(img, keys); err != nil {
-		return "", err
+		return err
 	}
 	ref, err := ociRef(img)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if len(p.cfg.RegistryHosts) > 0 && !slices.Contains(p.cfg.RegistryHosts, strings.ToLower(registryOf(ref))) {
-		return "", fmt.Errorf("image %s@%s: its registry %s is not in registry_hosts of tart.yaml", img.Name, img.Version, registryOf(ref))
+		return fmt.Errorf("image %s@%s: its registry %s is not in registry_hosts of tart.yaml", img.Name, img.Version, registryOf(ref))
 	}
 	repo, _, _ := strings.Cut(ref, "@")
 	p.fetching.Lock()
 	defer p.fetching.Unlock()
 	if err := p.cli.pull(ctx, ref); err != nil {
-		return "", fmt.Errorf("image %s@%s: %w", img.Name, img.Version, err)
+		return fmt.Errorf("image %s@%s: %w", img.Name, img.Version, err)
 	}
-	if err := p.verifyPulled(ctx, repo, img.Digest); err != nil {
-		return "", fmt.Errorf("image %s@%s: %w", img.Name, img.Version, err)
+	fp, err := p.verifyPulled(ctx, repo, img.Digest)
+	if err != nil {
+		return fmt.Errorf("image %s@%s: %w", img.Name, img.Version, err)
 	}
-	return ref, nil
+	if p.beforeClone != nil {
+		p.beforeClone()
+	}
+	if now, err := fingerprint(p.cacheDir(repo, img.Digest)); err != nil || now != fp {
+		return fmt.Errorf("image %s@%s changed in Tart's cache after it was checked", img.Name, img.Version)
+	}
+	return p.cli.clone(ctx, ref, name)
 }
 
 // localSource finds the VM base_vm names, in the agent's own Tart home.

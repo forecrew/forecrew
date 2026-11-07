@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -119,7 +118,7 @@ func (c cli) version(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if v := regexp.MustCompile(`\d+\.\d+\.\d+`).FindString(out); v != "" {
+	if v := versionOf(out); v != "" {
 		return v, nil
 	}
 	return "", fmt.Errorf("tart --version said %s", snippet([]byte(out), ""))

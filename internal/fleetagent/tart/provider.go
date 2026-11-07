@@ -64,6 +64,11 @@ type Provider struct {
 	lookPath     func(name string) bool
 	getenv       func(string) string
 	pmset        func(ctx context.Context) (string, error)
+	// softnetVersion is what `softnet --version` prints.
+	softnetVersion func(ctx context.Context) (string, error)
+	// beforeClone runs after an image is checked and before it is cloned; tests
+	// use it to change the image there.
+	beforeClone func()
 	// vmProcesses counts the virtual machines running on the whole Mac, whoever
 	// started them.
 	vmProcesses func(ctx context.Context) (int, error)
@@ -89,7 +94,7 @@ func New(cfg Config, log *slog.Logger) (*Provider, error) {
 	}
 	p := &Provider{
 		cfg: cfg, log: log, resolver: net.DefaultResolver, poll: pollEvery, goos: runtime.GOOS, goarch: runtime.GOARCH,
-		memoryMB: fleetagent.MemoryMB, freeGB: fleetagent.DiskFreeGB, getenv: os.Getenv, pmset: pmset, vmProcesses: countVMProcesses, hostNets: localNets,
+		memoryMB: fleetagent.MemoryMB, freeGB: fleetagent.DiskFreeGB, getenv: os.Getenv, pmset: pmset, softnetVersion: softnetVersion, vmProcesses: countVMProcesses, hostNets: localNets,
 		lookPath: func(name string) bool { _, err := exec.LookPath(name); return err == nil },
 		timers:   map[string]*time.Timer{}, verified: map[string]string{},
 	}
@@ -248,17 +253,11 @@ func (p *Provider) allowList(ctx context.Context, req fleet.CreateRequest) ([]st
 		nets = append(nets, netip.PrefixFrom(a, 32))
 	}
 	if p.cfg.Softnet {
-		gw := netip.MustParseAddr(p.cfg.SoftnetGateway)
-		if slices.Contains(found, gw) {
-			return nil, fmt.Errorf("the server's address %s is the Mac's own address on the machines' network, which is blocked: set public_base_url to an address machines can reach", gw)
+		extra, err := p.softnetAllow(found)
+		if err != nil {
+			return nil, err
 		}
-		// A resolver on the LAN is not a public address, and Softnet refuses it
-		// unless it is allowed.
-		for _, d := range p.cfg.DNS {
-			if a := netip.MustParseAddr(d); !a.IsGlobalUnicast() || a.IsPrivate() {
-				nets = append(nets, netip.PrefixFrom(a, 32))
-			}
-		}
+		nets = append(nets, extra...)
 	}
 	var out []string
 	for _, n := range nets {
@@ -267,6 +266,40 @@ func (p *Provider) allowList(ctx context.Context, req fleet.CreateRequest) ([]st
 		}
 	}
 	return out, nil
+}
+
+// softnetAllow refuses a server or a resolver that is the Mac itself, which
+// Softnet blocks, and lists the resolvers that need an allowance: one on the LAN
+// is not a public address, and Softnet refuses it unless it is allowed.
+func (p *Provider) softnetAllow(server []netip.Addr) ([]netip.Prefix, error) {
+	own := p.hostAddrs()
+	for _, a := range server {
+		if slices.Contains(own, a) {
+			return nil, fmt.Errorf("the server's address %s is one of this Mac's own, which machines cannot reach: set public_base_url to an address machines can reach", a)
+		}
+	}
+	var nets []netip.Prefix
+	for _, d := range p.cfg.DNS {
+		a := netip.MustParseAddr(d)
+		if slices.Contains(own, a) {
+			return nil, fmt.Errorf("dns %s is one of this Mac's own addresses, which machines cannot reach: set another resolver", a)
+		}
+		if !a.IsGlobalUnicast() || a.IsPrivate() {
+			nets = append(nets, netip.PrefixFrom(a, 32))
+		}
+	}
+	return nets, nil
+}
+
+// hostAddrs are the IPv4 addresses of this Mac's interfaces, loopback apart.
+func (p *Provider) hostAddrs() []netip.Addr {
+	var out []netip.Addr
+	for _, n := range p.hostNets() {
+		if a := n.Addr(); !a.IsLoopback() && !slices.Contains(out, a) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // foreignVMs counts the VMs running on this Mac that are not Forecrew's: the
@@ -354,11 +387,7 @@ func (p *Provider) reserve(ctx context.Context, id string, req fleet.CreateReque
 // settings.
 func (p *Provider) start(ctx context.Context, r *record, req fleet.CreateRequest, cfg providerConfig, allow []string, settings string) error {
 	name := vmName(r.ID)
-	src, err := p.source(ctx, cfg, req.Image)
-	if err != nil {
-		return err
-	}
-	if err := p.cli.clone(ctx, src, name); err != nil {
+	if err := p.cloneVM(ctx, cfg, req.Image, name); err != nil {
 		return err
 	}
 	set := []string{"--cpu", strconv.Itoa(req.Shape.CPU), "--memory", strconv.Itoa(req.Shape.MemoryMB)}
@@ -380,7 +409,7 @@ func (p *Provider) start(ctx context.Context, r *record, req fleet.CreateRequest
 		return err
 	}
 	if p.cfg.Softnet {
-		if err := p.checkGateway(ctx, name); err != nil {
+		if err := p.checkHostNetwork(ctx, name); err != nil {
 			return err
 		}
 	}
@@ -392,9 +421,16 @@ func (p *Provider) start(ctx context.Context, r *record, req fleet.CreateRequest
 func (p *Provider) runFlags(allow []string) []string {
 	flags := []string{"--no-graphics", "--no-audio", "--no-clipboard"}
 	if p.cfg.Softnet {
-		// Softnet lets a machine reach the Mac on the VM network's gateway unless it
-		// is blocked, and what is blocked beats what is allowed.
-		flags = append(flags, "--net-softnet", "--net-softnet-block="+p.cfg.SoftnetGateway+"/32")
+		// Softnet lets a machine reach the Mac on the VM network's gateway, and the
+		// Mac's other addresses, the public one among them, are reachable like any
+		// public address. What is blocked beats what is allowed. The gateway is
+		// different for each VM, so @host names it; the Mac's own addresses are
+		// listed one by one.
+		block := []string{"@host"}
+		for _, a := range p.hostAddrs() {
+			block = append(block, netip.PrefixFrom(a, 32).String())
+		}
+		flags = append(flags, "--net-softnet", "--net-softnet-block="+hostList(block))
 		if len(allow) > 0 {
 			flags = append(flags, "--net-softnet-allow="+hostList(allow))
 		}

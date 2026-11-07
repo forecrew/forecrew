@@ -43,11 +43,13 @@ type Config struct {
 	// BootWaitSeconds is how long Create waits for a machine's guest agent.
 	BootWaitSeconds int `yaml:"boot_wait_seconds"`
 	// Softnet runs machines behind Softnet, which keeps them off the LAN. The
-	// host is kept off by blocking SoftnetGateway, its address on the VMs'
-	// network, and machines resolve names through DNS, not through the host.
-	Softnet        bool     `yaml:"softnet"`
-	SoftnetGateway string   `yaml:"softnet_gateway"`
-	DNS            []string `yaml:"dns"`
+	// host is kept off by blocking @host and each of its addresses, and
+	// machines resolve names through DNS, not through the host. Softnet gives
+	// each VM a network of its own, so no fixed gateway can be named.
+	Softnet bool `yaml:"softnet"`
+	// MinSoftnetVersion is the oldest Softnet accepted.
+	MinSoftnetVersion string   `yaml:"min_softnet_version"`
+	DNS               []string `yaml:"dns"`
 	// AllowNoSoftnet says that a Mac may run without Softnet: machines then
 	// reach the LAN and the host, and doctor warns instead of failing.
 	AllowNoSoftnet bool `yaml:"allow_no_softnet"`
@@ -71,9 +73,11 @@ type Config struct {
 func defaults() Config {
 	return Config{
 		StateDir: "/var/lib/forecrew-fleet-agent/tart", TrustedKeysFile: "/etc/forecrew-fleet-agent/image-keys.pub",
-		Tart: "tart", MinTartVersion: "2.27.3", MinFreeGB: 100, BootWaitSeconds: 300, Softnet: true, SoftnetGateway: "192.168.64.1", DNS: []string{"1.1.1.1", "9.9.9.9"}, ImageCacheDays: 14,
+		Tart: "tart", MinTartVersion: "2.27.3", MinFreeGB: 100, BootWaitSeconds: 300, Softnet: true, MinSoftnetVersion: "0.25.0", DNS: []string{"1.1.1.1", "9.9.9.9"}, ImageCacheDays: 14,
 	}
 }
+
+var sharedSpace = netip.MustParsePrefix("100.64.0.0/10")
 
 var (
 	envRef       = regexp.MustCompile(`^env:([A-Z_][A-Z0-9_]*)$`)
@@ -113,15 +117,20 @@ func (c Config) validate() error {
 	if c.MinFreeGB < 0 || c.BootWaitSeconds < 10 || c.ImageCacheDays < 1 {
 		bad = append(bad, errors.New("min_free_gb must not be negative, boot_wait_seconds must be at least 10 and image_cache_days at least 1"))
 	}
-	if a, err := netip.ParseAddr(c.SoftnetGateway); err != nil || !a.Is4() {
-		bad = append(bad, fmt.Errorf("softnet_gateway must be an IPv4 address, got %q", c.SoftnetGateway))
+	if !versionRe.MatchString(c.MinSoftnetVersion) {
+		bad = append(bad, fmt.Errorf("min_softnet_version must look like 0.25.0, got %q", c.MinSoftnetVersion))
 	}
 	if len(c.DNS) == 0 || len(c.DNS) > 3 {
 		bad = append(bad, errors.New("dns lists one to three IPv4 addresses"))
 	}
 	for _, d := range c.DNS {
-		if a, err := netip.ParseAddr(d); err != nil || !a.Is4() {
+		a, err := netip.ParseAddr(d)
+		switch {
+		case err != nil || !a.Is4():
 			bad = append(bad, fmt.Errorf("dns must list IPv4 addresses, got %q", d))
+		case a.IsLoopback() || a.IsUnspecified() || a.IsLinkLocalUnicast() || a.IsMulticast() || sharedSpace.Contains(a):
+			// The Mac's own, or reached through it (Tailscale's range among them).
+			bad = append(bad, fmt.Errorf("dns %s is the Mac itself or an address of the Mac's: machines cannot be given a resolver there", d))
 		}
 	}
 	bad = append(bad, c.validateRegistry()...)
