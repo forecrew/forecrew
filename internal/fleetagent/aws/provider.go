@@ -282,7 +282,7 @@ func (p *Provider) room(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if len(live) >= p.cfg.MaxMachines {
+	if len(live)+p.pending(live, p.now()) >= p.cfg.MaxMachines {
 		return fmt.Errorf("this agent's limit of %d machines is reached: %w", p.cfg.MaxMachines, fleet.ErrCapacity)
 	}
 	if p.ledger != nil && p.ledger.spent() >= p.cfg.MonthlyBudget {

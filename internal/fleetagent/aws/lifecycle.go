@@ -346,12 +346,35 @@ func (p *Provider) recent(live map[string]bool, now time.Time) []fleet.Instance 
 	defer p.mu.Unlock()
 	var out []fleet.Instance
 	for id, s := range p.known {
-		if !live[id] && now.Sub(s.at) < consistencyWindow {
+		if !live[id] && s.recent(now) {
 			live[id] = true
 			out = append(out, s.inst)
 		}
 	}
 	return out
+}
+
+// recent reports an instance this process started within consistencyWindow.
+func (s seen) recent(now time.Time) bool {
+	return !s.at.IsZero() && now.Sub(s.at) < consistencyWindow
+}
+
+// pending counts the instances this process started a moment ago that live does
+// not show: EC2 lags, and two Creates must not both take the last place.
+func (p *Provider) pending(live []types.Instance, now time.Time) int {
+	shown := map[string]bool{}
+	for _, i := range live {
+		shown[awssdk.ToString(i.InstanceId)] = true
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for id, s := range p.known {
+		if !shown[id] && s.recent(now) {
+			n++
+		}
+	}
+	return n
 }
 
 // lost says in the log why instances this process knew are gone: a spot machine
