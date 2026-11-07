@@ -79,6 +79,8 @@ type ToolService struct {
 	ListJoinCodesFunc          func(context.Context, domain.Actor, mcp.ListJoinCodesInput) ([]mcp.JoinCodeInfo, error)
 	ConfirmJoinFunc            func(context.Context, domain.Actor, mcp.ConfirmJoinInput) (mcp.ProviderInfo, error)
 
+	ListProposalsFunc           func(context.Context, domain.Actor, mcp.ListProposalsInput) ([]mcp.ProposalInfo, error)
+	DecideProposalFunc          func(context.Context, domain.Actor, mcp.DecideProposalInput) (mcp.ProposalInfo, error)
 	ListTrackerConnectionsFunc  func(context.Context, domain.Actor, any) ([]domain.TrackerConnection, error)
 	CreateTrackerConnectionFunc func(context.Context, domain.Actor, mcp.CreateTrackerConnectionInput) (domain.TrackerConnection, error)
 	DiscardTrackerWritesFunc    func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (mcp.DiscardedWrites, error)
@@ -388,6 +390,16 @@ func (s *ToolService) ProjectQuality(ctx context.Context, by domain.Actor, in mc
 // ListTestRuns implements mcp.ToolService.
 func (s *ToolService) ListTestRuns(ctx context.Context, by domain.Actor, in mcp.ListTestRunsInput) ([]mcp.TestRunInfo, error) {
 	return invoke(ctx, s, mcp.ToolListTestRuns, by, in, s.ListTestRunsFunc)
+}
+
+// ListProposals implements mcp.ToolService.
+func (s *ToolService) ListProposals(ctx context.Context, by domain.Actor, in mcp.ListProposalsInput) ([]mcp.ProposalInfo, error) {
+	return invoke(ctx, s, mcp.ToolListProposals, by, in, s.ListProposalsFunc)
+}
+
+// DecideProposal implements mcp.ToolService.
+func (s *ToolService) DecideProposal(ctx context.Context, by domain.Actor, in mcp.DecideProposalInput) (mcp.ProposalInfo, error) {
+	return invoke(ctx, s, mcp.ToolDecideProposal, by, in, s.DecideProposalFunc)
 }
 
 // ListAssumptions implements mcp.ToolService.

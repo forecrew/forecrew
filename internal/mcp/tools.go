@@ -87,6 +87,8 @@ const (
 	ToolListAssumptions    = "list_assumptions"
 	ToolResolveAssumption  = "resolve_assumption"
 	ToolListDecisions      = "list_decisions"
+	ToolListProposals      = "list_proposals"
+	ToolDecideProposal     = "decide_proposal"
 	ToolSearchKnowledge    = "search_knowledge"
 	ToolDeleteNote         = "delete_note"
 	ToolProposeKnowledge   = "propose_knowledge"
@@ -163,7 +165,7 @@ func Tools() []string {
 		ToolOnboardProject, ToolCreateGoal, ToolReportBug, ToolJobStatus, ToolJobLogs, ToolListWorkers, ToolListPendingGates,
 		ToolApprove, ToolRequestChanges, ToolReject, ToolDispatchJob, ToolListProjects, ToolGetProject,
 		ToolListGoals, ToolGetGoal, ToolListJobs, ToolCancelJob, ToolListTokens, ToolRevokeToken, ToolListArtifacts, ToolListTestRuns,
-		ToolListAssumptions, ToolResolveAssumption, ToolListDecisions,
+		ToolListAssumptions, ToolResolveAssumption, ToolListDecisions, ToolListProposals, ToolDecideProposal,
 		ToolSearchKnowledge, ToolDeleteNote, ToolProposeKnowledge,
 		ToolStartCouncil, ToolListCouncils, ToolGetCouncil, ToolAddConstraint,
 		ToolVerificationReport, ToolProjectQuality, ToolCreateToken, ToolCreateInvitation, ToolListInvitations, ToolRevokeInvitation,
@@ -323,6 +325,13 @@ type ToolService interface {
 	// first, for a job, a change or a commit. At least one of them is
 	// required.
 	ListTestRuns(ctx context.Context, by domain.Actor, in ListTestRunsInput) ([]TestRunInfo, error)
+	// ListProposals lists the improvement proposals of a project, by number.
+	// Without a status filter it leaves out what is snoozed until later.
+	ListProposals(ctx context.Context, by domain.Actor, in ListProposalsInput) ([]ProposalInfo, error)
+	// DecideProposal accepts, rejects or snoozes a proposal, or marks the
+	// setup of an accepted one done. Accepting and rejecting resolve its
+	// gate, with what that needs.
+	DecideProposal(ctx context.Context, by domain.Actor, in DecideProposalInput) (ProposalInfo, error)
 	// ListAssumptions lists the assumption register of a project, by number.
 	ListAssumptions(ctx context.Context, by domain.Actor, in ListAssumptionsInput) ([]AssumptionInfo, error)
 	// ResolveAssumption verifies, invalidates or accepts an assumption.
@@ -1033,6 +1042,8 @@ type GateInfo struct {
 	URL string `json:"url,omitempty"`
 	// CanResolve says whether the caller may resolve the gate.
 	CanResolve bool `json:"can_resolve"`
+	// Proposal is the improvement proposal of an improvement_proposal gate.
+	Proposal *ProposalInfo `json:"proposal,omitempty"`
 }
 
 // ProjectFilterInput optionally narrows a list to one project.
@@ -1144,6 +1155,36 @@ type ListJobsInput struct {
 	Goal    string           `json:"goal,omitempty"` // GOAL-3 or UUID
 	Status  domain.JobStatus `json:"status,omitempty"`
 	Limit   int              `json:"limit,omitempty"` // default 50
+}
+
+// ProposalDone is the decision that marks the setup of an accepted proposal
+// done, besides the domain.ProposalDecision values.
+const ProposalDone domain.ProposalDecision = "done"
+
+// ListProposalsInput is the input of list_proposals.
+type ListProposalsInput struct {
+	Project  string                  `json:"project"`            // name or repo
+	Status   domain.ProposalStatus   `json:"status,omitempty"`   // proposed, accepted, rejected, snoozed, done or superseded
+	Category domain.ProposalCategory `json:"category,omitempty"` // observability, testing, ci, security, docs, knowledge, tooling, workers, roles or cost
+}
+
+// ProposalInfo is an improvement proposal with its refs. Its text comes from
+// the advisor and from what agents and repos wrote: show it as text.
+type ProposalInfo struct {
+	domain.Proposal
+	Ref     string `json:"ref"`                // PROP-3
+	GateRef string `json:"gate_ref,omitempty"` // GATE-7, its latest gate
+	GoalRef string `json:"goal_ref,omitempty"` // the goal a goal action created
+	// CanDecide says whether the caller may decide it now.
+	CanDecide bool `json:"can_decide"`
+}
+
+// DecideProposalInput is the input of decide_proposal.
+type DecideProposalInput struct {
+	Proposal string                  `json:"proposal"`         // PROP-3 or UUID
+	Decision domain.ProposalDecision `json:"decision"`         // accept, reject, snooze or done
+	Reason   string                  `json:"reason,omitempty"` // required to reject
+	Until    string                  `json:"until,omitempty"`  // RFC 3339, required to snooze
 }
 
 // ListAssumptionsInput is the input of list_assumptions.

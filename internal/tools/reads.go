@@ -93,7 +93,12 @@ func (s *Service) ListPendingGates(ctx context.Context, by domain.Actor, in mcp.
 		return nil, err
 	}
 	pending = slices.DeleteFunc(pending, func(g domain.Gate) bool { return !visible.Has(g.ProjectID) })
-	return s.gateInfos(ctx, by, pending)
+	infos, err := s.gateInfos(ctx, by, pending)
+	if err != nil {
+		return nil, err
+	}
+	// A snoozed proposal keeps its gate pending, out of sight until the date.
+	return slices.DeleteFunc(infos, func(g mcp.GateInfo) bool { return g.Proposal != nil && s.snoozed(g.Proposal.Proposal) }), nil
 }
 
 // gateInfos adds project, goal and task refs, the GitHub link and whether by
@@ -128,6 +133,11 @@ func (s *Service) gateInfos(ctx context.Context, by domain.Actor, gs []domain.Ga
 				task, err := s.cfg.Store.Tasks().Get(ctx, accountID, g.TaskID)
 				return task.Ref(), err
 			}); err != nil {
+				return nil, err
+			}
+		}
+		if g.Kind == domain.GateImprovementProposal {
+			if info.Proposal, err = s.gateProposal(ctx, by, g); err != nil {
 				return nil, err
 			}
 		}

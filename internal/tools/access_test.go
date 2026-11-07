@@ -65,6 +65,7 @@ func TestEveryToolChecksTheProject(t *testing.T) {
 	council, err := f.svc.StartCouncil(ctx, f.by, mcp.StartCouncilInput{Project: "app", Question: "q", Roles: []string{"architect", "ux"}})
 	must(t, err)
 	gate := f.gateOn(t, domain.GateSpecApproval, f.project.ID)
+	improvement := f.newImprovement(t, domain.ProposalAction{Setup: &domain.SetupAction{Instructions: "Add a worker"}})
 	job, goal := w.job.Ref(), w.goal.Ref()
 	calls := map[string]func() error{
 		"create_goal": func() error {
@@ -118,6 +119,14 @@ func TestEveryToolChecksTheProject(t *testing.T) {
 		},
 		"list_decisions": func() error {
 			_, err := f.svc.ListDecisions(ctx, by, mcp.ListDecisionsInput{Project: "app"})
+			return err
+		},
+		"list_proposals": func() error {
+			_, err := f.svc.ListProposals(ctx, by, mcp.ListProposalsInput{Project: "app"})
+			return err
+		},
+		"decide_proposal": func() error {
+			_, err := f.svc.DecideProposal(ctx, by, mcp.DecideProposalInput{Proposal: improvement.Ref(), Decision: domain.ProposalSnooze, Until: "2099-01-01T00:00:00Z"})
 			return err
 		},
 		"search_knowledge": func() error {

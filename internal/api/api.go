@@ -124,6 +124,8 @@ func (s *Server) Handler() http.Handler {
 		route("GET /api/v1/artifacts/{id}", http.HandlerFunc(s.artifact))
 	}
 
+	route("GET /api/v1/proposals", serve(s, http.StatusOK, listProposalsInput, list(t.ListProposals)))
+	route("POST /api/v1/proposals/{proposal}/decide", serve(s, http.StatusOK, decideProposalInput, t.DecideProposal))
 	route("GET /api/v1/assumptions", serve(s, http.StatusOK, listAssumptionsInput, list(t.ListAssumptions)))
 	route("POST /api/v1/assumptions/{assumption}/resolve", serve(s, http.StatusOK, resolveAssumptionInput, t.ResolveAssumption))
 	route("GET /api/v1/decisions", serve(s, http.StatusOK, listDecisionsInput, list(t.ListDecisions)))
@@ -268,6 +270,8 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/artifacts/{id}":       {Permission: domain.PermJobRead},
 		"GET /api/v1/test-runs":            tool[mcp.ToolListTestRuns],
 
+		"GET /api/v1/proposals":                         tool[mcp.ToolListProposals],
+		"POST /api/v1/proposals/{proposal}/decide":      tool[mcp.ToolDecideProposal],
 		"GET /api/v1/assumptions":                       tool[mcp.ToolListAssumptions],
 		"POST /api/v1/assumptions/{assumption}/resolve": tool[mcp.ToolResolveAssumption],
 		"GET /api/v1/decisions":                         tool[mcp.ToolListDecisions],
@@ -730,6 +734,23 @@ func gateDecisionInput(r *http.Request) (mcp.GateDecisionInput, error) {
 		}
 	}
 	return mcp.GateDecisionInput{Gate: r.PathValue("gate"), Feedback: body.Feedback, SaveAsLesson: body.SaveAsLesson}, nil
+}
+
+func listProposalsInput(r *http.Request) (mcp.ListProposalsInput, error) {
+	q := r.URL.Query()
+	return mcp.ListProposalsInput{Project: q.Get("project"), Status: domain.ProposalStatus(q.Get("status")), Category: domain.ProposalCategory(q.Get("category"))}, nil
+}
+
+func decideProposalInput(r *http.Request) (mcp.DecideProposalInput, error) {
+	var body struct {
+		Decision domain.ProposalDecision `json:"decision"`
+		Reason   string                  `json:"reason"`
+		Until    string                  `json:"until"`
+	}
+	if err := decode(r, &body); err != nil {
+		return mcp.DecideProposalInput{}, err
+	}
+	return mcp.DecideProposalInput{Proposal: r.PathValue("proposal"), Decision: body.Decision, Reason: body.Reason, Until: body.Until}, nil
 }
 
 func listAssumptionsInput(r *http.Request) (mcp.ListAssumptionsInput, error) {
