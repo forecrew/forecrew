@@ -501,6 +501,11 @@ func TestImageChecks(t *testing.T) {
 			a.State = types.ImageStatePending
 			e.ec2.images[testAMI] = a
 		}, "available"},
+		"two volumes": {func(e *env) {
+			a := e.ec2.images[testAMI]
+			a.BlockDeviceMappings = []types.BlockDeviceMapping{{DeviceName: awssdk.String("/dev/xvda"), Ebs: &types.EbsBlockDevice{}}, {DeviceName: awssdk.String("/dev/sdb"), Ebs: &types.EbsBlockDevice{}}}
+			e.ec2.images[testAMI] = a
+		}, "2 EBS volumes"},
 		"ami arch differs": {func(e *env) {
 			a := e.ec2.images[testAMI]
 			a.Architecture = types.ArchitectureValuesArm64
@@ -586,6 +591,9 @@ func checkLaunchSafety(t *testing.T, e *env, in *ec2.RunInstancesInput, req flee
 	}
 	if m := in.MetadataOptions; m == nil || m.HttpTokens != types.HttpTokensStateRequired || awssdk.ToInt32(m.HttpPutResponseHopLimit) != 1 {
 		t.Errorf("metadata options = %+v", m)
+	}
+	if in.Placement == nil || in.Placement.Tenancy != types.TenancyDefault {
+		t.Errorf("placement = %+v: tenancy must be said, as default", in.Placement)
 	}
 	if in.IamInstanceProfile != nil {
 		t.Error("a machine must not hold an instance profile")

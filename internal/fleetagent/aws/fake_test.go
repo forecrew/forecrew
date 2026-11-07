@@ -449,11 +449,10 @@ func (f *fakeEC2) launchRequests(in *ec2.RunInstancesInput, id string, img types
 	eni := fmt.Sprintf("eni-%017x", f.seq+1)
 	subnetARN := f.arn("subnet", awssdk.ToString(nic.SubnetId))
 
-	tenancy := "default"
-	if in.Placement != nil && in.Placement.Tenancy != "" {
-		tenancy = string(in.Placement.Tenancy)
+	instCtx := map[string][]string{"ec2:InstanceType": {string(in.InstanceType)}}
+	if in.Placement != nil && in.Placement.Tenancy != "" { // only what the request says
+		instCtx["ec2:Tenancy"] = []string{string(in.Placement.Tenancy)}
 	}
-	instCtx := map[string][]string{"ec2:InstanceType": {string(in.InstanceType)}, "ec2:Tenancy": {tenancy}}
 	tagContext("aws:RequestTag/", f.tagsOf(in, types.ResourceTypeInstance), instCtx)
 	if m := in.MetadataOptions; m != nil {
 		instCtx["ec2:MetadataHttpTokens"] = []string{string(m.HttpTokens)}

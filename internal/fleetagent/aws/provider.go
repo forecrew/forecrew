@@ -317,6 +317,9 @@ func (p *Provider) runInput(req fleet.CreateRequest, s ShapeConfig, ami amiInfo,
 		},
 		// A machine that shuts itself down ends, with its disks.
 		InstanceInitiatedShutdownBehavior: types.ShutdownBehaviorTerminate,
+		// Said outright: the role requires default tenancy, and IAM may not read a
+		// key the request leaves out.
+		Placement: &types.Placement{Tenancy: types.TenancyDefault},
 		TagSpecifications: []types.TagSpecification{
 			{ResourceType: types.ResourceTypeInstance, Tags: tags},
 			{ResourceType: types.ResourceTypeVolume, Tags: tags},
@@ -421,6 +424,15 @@ func (p *Provider) checkImage(ctx context.Context, img domain.Image, shape domai
 	ami := out.Images[0]
 	if ami.State != types.ImageStateAvailable || ami.RootDeviceType != types.DeviceTypeEbs || ami.VirtualizationType != types.VirtualizationTypeHvm || ami.RootDeviceName == nil {
 		return amiInfo{}, fmt.Errorf("image %s: %s is not an available EBS-backed HVM image", name, m[2])
+	}
+	ebs := 0
+	for _, b := range ami.BlockDeviceMappings {
+		if b.Ebs != nil {
+			ebs++
+		}
+	}
+	if ebs > 1 {
+		return amiInfo{}, fmt.Errorf("image %s: %s has %d EBS volumes and a machine is started with the root volume only: build an image with one", name, m[2], ebs)
 	}
 	if want := amiArch(img.Arch); ami.Architecture != want {
 		return amiInfo{}, fmt.Errorf("image %s: %s is %s, the manifest says %s", name, m[2], ami.Architecture, want)
