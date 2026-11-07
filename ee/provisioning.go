@@ -47,7 +47,8 @@ func provision(ctx context.Context, tx store.Store, conn domain.Connection, u do
 }
 
 // syncGroups makes the user's idp membership of each team mapped through conn
-// match groups, in every organization where the user is an active member.
+// match groups, in every organization where the user is an active member and
+// conn is not ruled out by SSO enforcement.
 // Manual and scim members are left alone, and so are teams mapped through
 // other connections only.
 func syncGroups(ctx context.Context, tx store.Store, conn domain.Connection, groups []string, u domain.User) error {
@@ -62,6 +63,13 @@ func syncGroups(ctx context.Context, tx store.Store, conn domain.Connection, gro
 		want[k] = want[k] || slices.Contains(groups, m.ExternalGroup)
 	}
 	for k, in := range want {
+		enforced, err := store.EnforcedConnections(ctx, tx, k.account, u.ID)
+		if err != nil {
+			return err
+		}
+		if len(enforced) > 0 && !slices.Contains(enforced, conn.ID) {
+			continue // this identity no longer speaks for the user there
+		}
 		if err := syncTeam(ctx, tx, k.account, k.team, u.ID, in); err != nil {
 			return err
 		}

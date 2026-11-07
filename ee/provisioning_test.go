@@ -174,6 +174,42 @@ func TestGroupMappingFollowsTheProvider(t *testing.T) {
 	}
 }
 
+// A user SCIM created signs in through the organization's connection, and an
+// instance connection does not touch teams of an organization that enforces
+// another one.
+func TestSCIMUserSignsIn(t *testing.T) {
+	ctx := t.Context()
+	s := newSignIn(t)
+	s.verified("acme.example")
+	status, body := s.scim().do(http.MethodPost, "/Users", userBody("ann@acme.example"))
+	if status != http.StatusCreated {
+		t.Fatalf("create = %d %v", status, body)
+	}
+	if status := s.signIn("sub-1", "ann@acme.example"); status != http.StatusOK {
+		t.Fatalf("sign-in = %d", status)
+	}
+	user := s.userOf("sub-1")
+	if user.String() != body["id"] {
+		t.Fatalf("user = %s, want %v", user, body["id"])
+	}
+
+	if _, err := s.svc.SetSSOEnforcement(ctx, s.owner, mcp.SetSSOEnforcementInput{Domain: "acme.example", Enforce: true, Connection: s.conn.Name}); err != nil {
+		t.Fatal(err)
+	}
+	inst := domain.Connection{Kind: domain.ConnectionGitHub, Name: "hub", ClientID: "c", ClientSecretRef: "env:X", GroupClaim: "groups", Enabled: true}
+	must(t, s.st.Connections().UpsertInstance(ctx, &inst))
+	x := s.team("Devs", domain.SourceIDP)
+	if _, err := s.svc.AddGroupMapping(ctx, s.owner, mcp.AddGroupMappingInput{Connection: "hub", Group: "devs", Team: x.Slug}); err != nil {
+		t.Fatal(err)
+	}
+	u, err := s.st.Users().Get(ctx, user)
+	must(t, err)
+	must(t, s.svc.Admit(ctx, s.st, inst, auth.Claims{Groups: []string{"devs"}}, u))
+	if got := s.teamsOf(user); len(got) != 0 {
+		t.Fatalf("teams = %v", got)
+	}
+}
+
 func TestSyncSkipsWhoIsNotActiveAndUnknownGroups(t *testing.T) {
 	ctx := t.Context()
 	s := newSignIn(t)
