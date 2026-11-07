@@ -19,7 +19,7 @@ func TestMembersCommands(t *testing.T) {
 	e.svc.ListMembersFunc = func(context.Context, domain.Actor, any) ([]mcp.MemberInfo, error) {
 		return []mcp.MemberInfo{marta, luca, twin}, nil
 	}
-	e.svc.SetMemberSuspendedFunc = func(_ context.Context, _ domain.Actor, in mcp.SetMemberInput) (mcp.MemberInfo, error) {
+	e.svc.SetMemberSuspendedFunc = func(_ context.Context, _ domain.Actor, _ mcp.SetMemberInput) (mcp.MemberInfo, error) {
 		return marta, nil
 	}
 	e.svc.RemoveMemberFunc = func(context.Context, domain.Actor, mcp.MemberRefInput) (mcp.MemberInfo, error) { return marta, nil }

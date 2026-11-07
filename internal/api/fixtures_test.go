@@ -467,25 +467,21 @@ func registerTrace(s *testkit.ToolService) {
 // registerKnowledge answers the knowledge endpoints.
 func registerKnowledge(s *testkit.ToolService) {
 	entries := []knowledge.Listing{
-		{Result: knowledge.Result{
+		{
 			ID: fid(110), Kind: domain.KnowledgeEntryKind, Provider: "repo", Section: "architecture", Path: "docs/adr/0001-queue.md", Title: "Jobs wait in Postgres",
 			SourceURL: "https://github.com/acme/app/blob/main/docs/adr/0001-queue.md", Snippet: "Jobs wait in a <b>Postgres</b> table, <i>not</i> a broker.", Untrusted: true,
-			Provenance: domain.Provenance{AuthorRole: "architect", Source: "JOB-12", Created: at(-5000), LastVerified: at(-4000)},
-		}, Body: "# Jobs wait in Postgres\n\nJobs wait in a Postgres table, leased by workers.\n"},
-		{Result: knowledge.Result{
+			Provenance: domain.Provenance{AuthorRole: "architect", Source: "JOB-12", Created: at(-5000), LastVerified: at(-4000)}, Body: "# Jobs wait in Postgres\n\nJobs wait in a Postgres table, leased by workers.\n"},
+		{
 			ID: fid(111), Kind: domain.KnowledgeEntryKind, Provider: "repo", Section: "vision", Path: "knowledge/vision/why.md", Title: "Why Forecrew",
 			SourceURL: "https://github.com/acme/app/blob/main/knowledge/vision/why.md", Snippet: "Agents build what humans decide.",
-			Provenance: domain.Provenance{AuthorRole: "human", Source: "human", Created: at(-6000), LastVerified: at(-100)}, NeedsReverify: true, ReverifyReason: "abc123 changed internal/queue",
-		}, Body: "Agents build what humans decide.\n"},
-		{Result: knowledge.Result{
+			Provenance: domain.Provenance{AuthorRole: "human", Source: "human", Created: at(-6000), LastVerified: at(-100)}, NeedsReverify: true, ReverifyReason: "abc123 changed internal/queue", Body: "Agents build what humans decide.\n"},
+		{
 			ID: fid(112), Kind: domain.KnowledgeNoteKind, Provider: domain.ProviderInternal, Section: domain.SectionNotes, Path: "note-1", Title: "The spool is <i>flaky</i>",
 			Snippet: "Retry the spool test once.", Untrusted: true, Provenance: domain.Provenance{AuthorRole: "developer", Source: "JOB-41", Created: at(-60)},
-			Scope: domain.NoteScopeGoal, GoalID: fid(20), Tags: []string{"tests"}, ExpiresAt: at(2000),
-		}, Body: "Retry the spool test once; <script>alert(1)</script> it fails on a cold cache.\n"},
-		{Result: knowledge.Result{
+			Scope: domain.NoteScopeGoal, GoalID: fid(20), Tags: []string{"tests"}, ExpiresAt: at(2000), Body: "Retry the spool test once; <script>alert(1)</script> it fails on a cold cache.\n"},
+		{
 			ID: fid(113), Kind: domain.KnowledgeNoteKind, Provider: domain.ProviderInternal, Section: domain.SectionNotes, Path: "note-2", Title: "Use make test",
-			Snippet: "Run make test, not go test.", Untrusted: true, Provenance: domain.Provenance{AuthorRole: "developer", Source: "JOB-40", Created: at(-90)}, Scope: domain.NoteScopeProject,
-		}, Body: "Run make test, not go test.\n"},
+			Snippet: "Run make test, not go test.", Untrusted: true, Provenance: domain.Provenance{AuthorRole: "developer", Source: "JOB-40", Created: at(-90)}, Scope: domain.NoteScopeProject, Body: "Run make test, not go test.\n"},
 	}
 	sections := []mcp.KnowledgeSectionInfo{
 		{Name: "architecture", Provider: "repo", ProviderKind: domain.ProviderKindRepo, Paths: []string{"docs/adr/**"}, Owner: "architect"},
@@ -520,20 +516,17 @@ func registerKnowledge(s *testkit.ToolService) {
 func registerKnowledgeProposals(s *testkit.ToolService, acc uuid.UUID) {
 	s.ListKnowledgeProposalsFunc = func(_ context.Context, _ domain.Actor, in mcp.ListKnowledgeProposalsInput) ([]mcp.KnowledgeProposalInfo, error) {
 		all := []mcp.KnowledgeProposalInfo{
-			{KnowledgeProposal: domain.KnowledgeProposal{
+			{
 				ID: fid(120), AccountID: acc, ProjectID: fid(10), Number: 5, Provider: "repo", Section: "architecture", Path: "docs/adr/0002-retries.md", Action: domain.KnowledgeAdd,
 				Body: "Jobs retry three times.", Reason: "The retry rule is not written down. <b>Please</b> review.", ProposedBy: "architect", JobID: fid(70), GoalID: fid(20), Batch: domain.BatchStandalone,
-				ExternalRef: "12", ChangeID: fid(80), Status: domain.KnowledgeOpen, CreatedAt: at(-30), UpdatedAt: at(-30),
-			}, Ref: "KB-5", GoalRef: "GOAL-3", URL: "https://github.com/acme/app/pull/12"},
-			{KnowledgeProposal: domain.KnowledgeProposal{
+				ExternalRef: "12", ChangeID: fid(80), Status: domain.KnowledgeOpen, CreatedAt: at(-30), UpdatedAt: at(-30), Ref: "KB-5", GoalRef: "GOAL-3", URL: "https://github.com/acme/app/pull/12"},
+			{
 				ID: fid(121), AccountID: acc, ProjectID: fid(10), Number: 4, Provider: "repo", Section: "vision", Path: "knowledge/vision/why.md", Action: domain.KnowledgeEdit,
 				Body: "Agents build what humans decide, and ask when unsure.", Reason: "Say that agents ask.", ProposedBy: "product-owner", Batch: domain.BatchStandalone,
-				GateID: fid(130), Status: domain.KnowledgeOpen, CreatedAt: at(-120), UpdatedAt: at(-120),
-			}, Ref: "KB-4", Gate: &mcp.GateInfo{Gate: domain.Gate{ID: fid(130), AccountID: acc, ProjectID: fid(10), Number: 12, Kind: domain.GateKnowledgeProposal, Status: domain.GatePending, Title: "Change vision/why.md", CreatedAt: at(-120)}, Ref: "GATE-12", Project: "app", CanResolve: true}},
-			{KnowledgeProposal: domain.KnowledgeProposal{
+				GateID: fid(130), Status: domain.KnowledgeOpen, CreatedAt: at(-120), UpdatedAt: at(-120), Ref: "KB-4", Gate: &mcp.GateInfo{ID: fid(130), AccountID: acc, ProjectID: fid(10), Number: 12, Kind: domain.GateKnowledgeProposal, Status: domain.GatePending, Title: "Change vision/why.md", CreatedAt: at(-120), Ref: "GATE-12", Project: "app", CanResolve: true}},
+			{
 				ID: fid(122), AccountID: acc, ProjectID: fid(10), Number: 3, Provider: "repo", Section: "architecture", Path: "docs/adr/0001-queue.md", Action: domain.KnowledgeEdit,
-				Body: "Jobs wait in Postgres.", Reason: "Shorter.", ProposedBy: "user:ana", Batch: domain.BatchStandalone, Status: domain.KnowledgeAccepted, CreatedAt: at(-900), UpdatedAt: at(-800),
-			}, Ref: "KB-3"},
+				Body: "Jobs wait in Postgres.", Reason: "Shorter.", ProposedBy: "user:ana", Batch: domain.BatchStandalone, Status: domain.KnowledgeAccepted, CreatedAt: at(-900), UpdatedAt: at(-800), Ref: "KB-3"},
 		}
 		var out []mcp.KnowledgeProposalInfo
 		for _, k := range all {
@@ -559,24 +552,21 @@ func assumptionRegister(e *env) {
 	acc := fid(1)
 	s := e.svc
 	assumptions := []mcp.AssumptionInfo{
-		{Assumption: domain.Assumption{
+		{
 			ID: fid(90), AccountID: acc, ProjectID: fid(10), Number: 4, GoalID: fid(20), MadeBy: "architect", JobID: fid(70),
-			StatedAssumption: domain.StatedAssumption{Statement: "Links are sent by the existing mailer.", Confidence: domain.LevelMedium, Impact: domain.LevelHigh, VerifyBy: domain.VerifyByTest},
-			Status:           domain.AssumptionUnverified, Dependents: []domain.Dependent{{Kind: domain.DependentGoal, ID: "GOAL-3"}, {Kind: domain.DependentTask, ID: "TASK-12"}},
-			CreatedAt: at(-240), UpdatedAt: at(-240),
-		}, Ref: "A-4", Source: "JOB-41"},
-		{Assumption: domain.Assumption{
+			Statement: "Links are sent by the existing mailer.", Confidence: domain.LevelMedium, Impact: domain.LevelHigh, VerifyBy: domain.VerifyByTest,
+			Status: domain.AssumptionUnverified, Dependents: []domain.Dependent{{Kind: domain.DependentGoal, ID: "GOAL-3"}, {Kind: domain.DependentTask, ID: "TASK-12"}},
+			CreatedAt: at(-240), UpdatedAt: at(-240), Ref: "A-4", Source: "JOB-41"},
+		{
 			ID: fid(91), AccountID: acc, ProjectID: fid(10), Number: 5, GoalID: fid(20), MadeBy: "product-owner",
-			StatedAssumption: domain.StatedAssumption{Statement: "Admins <b>never</b> sign in with a password.", Confidence: domain.LevelLow, Impact: domain.LevelMedium, VerifyBy: domain.VerifyByAskHuman},
-			Status:           domain.AssumptionAccepted, Evidence: "Ana accepts the risk.", Dependents: []domain.Dependent{{Kind: domain.DependentSpec, ID: "SPEC-2"}},
-			ResolvedBy: "mcp:laptop", ResolvedAt: at(-100), CreatedAt: at(-230), UpdatedAt: at(-100),
-		}, Ref: "A-5", Source: "SPEC-2"},
-		{Assumption: domain.Assumption{
+			Statement: "Admins <b>never</b> sign in with a password.", Confidence: domain.LevelLow, Impact: domain.LevelMedium, VerifyBy: domain.VerifyByAskHuman,
+			Status: domain.AssumptionAccepted, Evidence: "Ana accepts the risk.", Dependents: []domain.Dependent{{Kind: domain.DependentSpec, ID: "SPEC-2"}},
+			ResolvedBy: "mcp:laptop", ResolvedAt: at(-100), CreatedAt: at(-230), UpdatedAt: at(-100), Ref: "A-5", Source: "SPEC-2"},
+		{
 			ID: fid(92), AccountID: acc, ProjectID: fid(10), Number: 6, MadeBy: "developer", JobID: fid(71),
-			StatedAssumption: domain.StatedAssumption{Statement: "The mailer retries on failure.", Confidence: domain.LevelHigh, Impact: domain.LevelLow, VerifyBy: domain.VerifyByResearch},
-			Status:           domain.AssumptionInvalidated, Evidence: "It does not retry: see mailer.go.", Dependents: []domain.Dependent{},
-			ResolvedBy: "mcp:laptop", ResolvedAt: at(-50), CreatedAt: at(-120), UpdatedAt: at(-50),
-		}, Ref: "A-6", Source: "JOB-42"},
+			Statement: "The mailer retries on failure.", Confidence: domain.LevelHigh, Impact: domain.LevelLow, VerifyBy: domain.VerifyByResearch,
+			Status: domain.AssumptionInvalidated, Evidence: "It does not retry: see mailer.go.", Dependents: []domain.Dependent{},
+			ResolvedBy: "mcp:laptop", ResolvedAt: at(-50), CreatedAt: at(-120), UpdatedAt: at(-50), Ref: "A-6", Source: "JOB-42"},
 	}
 	s.ListAssumptionsFunc = func(_ context.Context, _ domain.Actor, in mcp.ListAssumptionsInput) ([]mcp.AssumptionInfo, error) {
 		var out []mcp.AssumptionInfo

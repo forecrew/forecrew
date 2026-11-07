@@ -27,46 +27,15 @@ func (s *Service) ListMembers(ctx context.Context, by domain.Actor) ([]mcp.Membe
 // by only. Emails need member.manage; a project the caller cannot read is not
 // named, as in list_role_bindings.
 func (s *Service) members(ctx context.Context, by domain.Actor, only uuid.UUID) ([]mcp.MemberInfo, error) {
-	st := s.cfg.Store
 	seeEmail, err := s.authz.Can(ctx, by, domain.PermMemberManage, authz.Organization(by.AccountID))
 	if err != nil {
 		return nil, err
 	}
-	memberships, err := st.Memberships().List(ctx, by.AccountID, store.MembershipFilter{})
+	d, err := s.memberData(ctx, by, only)
 	if err != nil {
 		return nil, err
 	}
-	if only != uuid.Nil() {
-		memberships = slices.DeleteFunc(memberships, func(m domain.Membership) bool { return m.UserID != only })
-	}
-	ids := make([]uuid.UUID, len(memberships))
-	for i, m := range memberships {
-		ids[i] = m.UserID
-	}
-	users, err := st.Users().ListByIDs(ctx, ids)
-	if err != nil {
-		return nil, err
-	}
-	bindings, err := st.RoleBindings().List(ctx, by.AccountID, store.RoleBindingFilter{SubjectKind: domain.SubjectUser})
-	if err != nil {
-		return nil, err
-	}
-	roles, err := st.Roles().List(ctx, by.AccountID)
-	if err != nil {
-		return nil, err
-	}
-	projects, err := st.Projects().List(ctx, by.AccountID)
-	if err != nil {
-		return nil, err
-	}
-	visible, err := s.authz.Projects(ctx, by, domain.PermProjectRead)
-	if err != nil {
-		return nil, err
-	}
-	teams, err := s.teamsOfUsers(ctx, by.AccountID)
-	if err != nil {
-		return nil, err
-	}
+	memberships, users, bindings, roles, projects, visible, teams := d.memberships, d.users, d.bindings, d.roles, d.projects, d.visible, d.teams
 	out := make([]mcp.MemberInfo, 0, len(memberships))
 	for _, m := range memberships {
 		i := slices.IndexFunc(users, func(u domain.User) bool { return u.ID == m.UserID })
@@ -83,17 +52,9 @@ func (s *Service) members(ctx context.Context, by domain.Actor, only uuid.UUID) 
 			info.Email = u.Email
 		}
 		for _, b := range bindings {
-			if b.SubjectID != u.ID || (b.ProjectID != uuid.Nil() && !visible.Has(b.ProjectID)) {
-				continue
+			if b.SubjectID == u.ID && (b.ProjectID == uuid.Nil() || visible.Has(b.ProjectID)) {
+				info.Roles = append(info.Roles, memberRole(b, roles, projects))
 			}
-			r := mcp.MemberRole{}
-			if j := slices.IndexFunc(roles, func(x domain.Role) bool { return x.ID == b.RoleID }); j >= 0 {
-				r.Role, r.Scope = roles[j].Name, roles[j].Scope
-			}
-			if j := slices.IndexFunc(projects, func(p domain.Project) bool { return p.ID == b.ProjectID }); j >= 0 {
-				r.Project = projects[j].Name
-			}
-			info.Roles = append(info.Roles, r)
 		}
 		out = append(out, info)
 	}
@@ -101,6 +62,62 @@ func (s *Service) members(ctx context.Context, by domain.Actor, only uuid.UUID) 
 		return cmp.Or(strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)), strings.Compare(a.UserID.String(), b.UserID.String()))
 	})
 	return out, nil
+}
+
+// memberData is what describes the members of an organization.
+type memberData struct {
+	memberships []domain.Membership
+	users       []domain.User
+	bindings    []domain.RoleBinding
+	roles       []domain.Role
+	projects    []domain.Project
+	visible     authz.Visible
+	teams       map[uuid.UUID][]string
+}
+
+// memberData reads the memberships, or only the one of only, with their users,
+// bindings, roles, projects and teams.
+func (s *Service) memberData(ctx context.Context, by domain.Actor, only uuid.UUID) (d memberData, err error) {
+	st := s.cfg.Store
+	if d.memberships, err = st.Memberships().List(ctx, by.AccountID, store.MembershipFilter{}); err != nil {
+		return d, err
+	}
+	if only != uuid.Nil() {
+		d.memberships = slices.DeleteFunc(d.memberships, func(m domain.Membership) bool { return m.UserID != only })
+	}
+	ids := make([]uuid.UUID, len(d.memberships))
+	for i, m := range d.memberships {
+		ids[i] = m.UserID
+	}
+	if d.users, err = st.Users().ListByIDs(ctx, ids); err != nil {
+		return d, err
+	}
+	if d.bindings, err = st.RoleBindings().List(ctx, by.AccountID, store.RoleBindingFilter{SubjectKind: domain.SubjectUser}); err != nil {
+		return d, err
+	}
+	if d.roles, err = st.Roles().List(ctx, by.AccountID); err != nil {
+		return d, err
+	}
+	if d.projects, err = st.Projects().List(ctx, by.AccountID); err != nil {
+		return d, err
+	}
+	if d.visible, err = s.authz.Projects(ctx, by, domain.PermProjectRead); err != nil {
+		return d, err
+	}
+	d.teams, err = s.teamsOfUsers(ctx, by.AccountID)
+	return d, err
+}
+
+// memberRole names the role and project of a binding.
+func memberRole(b domain.RoleBinding, roles []domain.Role, projects []domain.Project) mcp.MemberRole {
+	r := mcp.MemberRole{}
+	if j := slices.IndexFunc(roles, func(x domain.Role) bool { return x.ID == b.RoleID }); j >= 0 {
+		r.Role, r.Scope = roles[j].Name, roles[j].Scope
+	}
+	if j := slices.IndexFunc(projects, func(p domain.Project) bool { return p.ID == b.ProjectID }); j >= 0 {
+		r.Project = projects[j].Name
+	}
+	return r
 }
 
 // teamsOfUsers returns the slugs of the teams each user is in.

@@ -85,27 +85,7 @@ func (s *Service) CLIAuthorize(ctx context.Context, c mcp.Caller, in CLIAuthoriz
 	if !ok || len(in.State) > 256 || !challengeRE.MatchString(in.CodeChallenge) {
 		return out, ErrCLIRequest
 	}
-	accountID := c.Actor.AccountID
-	if in.Organization != "" {
-		a, err := s.cfg.Store.Accounts().GetBySlug(ctx, in.Organization)
-		if errors.Is(err, store.ErrNotFound) {
-			return out, ErrNotMember
-		}
-		if err != nil {
-			return out, err
-		}
-		if err := checkOrigin(ctx, s.cfg.Store, userID, c.Actor.Credential.ID, a.ID); err != nil {
-			return out, err
-		}
-		accountID = a.ID
-	}
-	if accountID == uuid.Nil() {
-		return out, ErrNotMember
-	}
-	m, err := s.cfg.Store.Memberships().Get(ctx, accountID, userID)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && m.Status != domain.MembershipActive) {
-		return out, ErrNotMember
-	}
+	accountID, err := s.cliOrganization(ctx, c, userID, in.Organization)
 	if err != nil {
 		return out, err
 	}
@@ -151,4 +131,31 @@ func (s *Service) CLIExchange(code, verifier string) (userID, accountID uuid.UUI
 		return uuid.Nil(), uuid.Nil(), ErrCLICode
 	}
 	return c.userID, c.accountID, nil
+}
+
+// cliOrganization returns the organization a CLI token is for: the named one,
+// else the session's own, of which the user must be an active member.
+func (s *Service) cliOrganization(ctx context.Context, c mcp.Caller, userID uuid.UUID, slug string) (uuid.UUID, error) {
+	accountID := c.Actor.AccountID
+	if slug != "" {
+		a, err := s.cfg.Store.Accounts().GetBySlug(ctx, slug)
+		if errors.Is(err, store.ErrNotFound) {
+			return uuid.Nil(), ErrNotMember
+		}
+		if err != nil {
+			return uuid.Nil(), err
+		}
+		if err := checkOrigin(ctx, s.cfg.Store, userID, c.Actor.Credential.ID, a.ID); err != nil {
+			return uuid.Nil(), err
+		}
+		accountID = a.ID
+	}
+	if accountID == uuid.Nil() {
+		return uuid.Nil(), ErrNotMember
+	}
+	m, err := s.cfg.Store.Memberships().Get(ctx, accountID, userID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && m.Status != domain.MembershipActive) {
+		return uuid.Nil(), ErrNotMember
+	}
+	return accountID, err
 }

@@ -53,7 +53,7 @@ func (s *Service) connection(ctx context.Context, id string, test bool) (domain.
 		return domain.Connection{}, store.ErrNotFound
 	}
 	c, err := s.cfg.Store.Connections().Get(ctx, cid)
-	if err == nil && !c.Enabled && !(test && c.AccountID != uuid.Nil()) {
+	if err == nil && !c.Enabled && (!test || c.AccountID == uuid.Nil()) {
 		return c, store.ErrNotFound
 	}
 	return c, err

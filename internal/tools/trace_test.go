@@ -264,7 +264,7 @@ func TestGetTraceStaysInTheProjectOfTheGoal(t *testing.T) {
 	d := domain.Decision{AccountID: f.account.ID, ProjectID: other.ID, GoalID: g.ID, Question: "Elsewhere", Choice: "x", DecidedBy: "user:ana"}
 	must(t, f.st.Decisions().Create(ctx, &d))
 	a := domain.Assumption{AccountID: f.account.ID, ProjectID: other.ID, GoalID: g.ID, MadeBy: "pm", Status: domain.AssumptionUnverified, Dependents: []domain.Dependent{},
-		StatedAssumption: domain.StatedAssumption{Statement: "Elsewhere", Confidence: domain.LevelLow, Impact: domain.LevelLow, VerifyBy: domain.VerifyByTest}}
+		Statement: "Elsewhere", Confidence: domain.LevelLow, Impact: domain.LevelLow, VerifyBy: domain.VerifyByTest}
 	must(t, f.st.Assumptions().Create(ctx, &a))
 	sp := domain.Spec{AccountID: f.account.ID, ProjectID: other.ID, GoalID: g.ID, Revision: 3, Body: "elsewhere"}
 	must(t, f.st.Specs().Create(ctx, &sp))
