@@ -85,6 +85,20 @@ and install that worker with its token ([add-worker.md](add-worker.md)), or
 and product-owner jobs queued in the meantime stay queued and run once it is up;
 nothing is lost.
 
+## Improvement advisor
+
+This release adds the `advise` playbook, which proposes improvements weekly
+and after each goal's retro ([playbooks.md](../playbooks.md#the-advise-playbook)).
+
+- A `forecrew.yaml` with **no** `schedules` key gets it by default, next to the
+  curator. A `forecrew.yaml` with an explicit `schedules` list does **not**: add
+  `- {playbook: advise, project: "*", cron: '0 4 * * 1'}` to it, or a
+  `schedule` setting, to have the weekly run.
+- Add `advisor: {runtime: claude, tier: best}` (or another runtime) under
+  `roles`. Without it `advise` still tends the proposals there are but starts
+  no advisor job, so no new proposals are made.
+- `advisor.max_per_week` (default 3) caps new proposals per project.
+
 ## forecrewd (systemd)
 
 Replace `/usr/local/bin/forecrewd` and `/usr/local/bin/forecrew` with the new
