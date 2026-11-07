@@ -159,12 +159,6 @@ case (Okta lowercase, Entra ID capitalised), `active` as the string `"False"`,
 `PATCH` without a path and with an object as value, `members[value eq "..."]`
 paths and `"$ref": null`. `PATCH` on a group answers `204`.
 
-## Not built yet
-
-- **OAuth grants:** SCIM revokes a member's grants through a narrow
-  `store.OAuthGrants()` until T55's `OAuthRepo` joins `Store`; it then
-  replaces it, in the same transaction as the suspension.
-
 ## Custom roles
 
 `forecrew roles create auditor --scope organization --permission audit.read`
