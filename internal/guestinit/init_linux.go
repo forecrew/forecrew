@@ -31,12 +31,14 @@ import (
 
 // Where things are in the guest. A test puts them under a directory.
 const (
-	workDir       = "/var/lib/forecrew-worker/work"
-	runDir        = "/run/forecrew"
-	labelsFile    = "/etc/forecrew/labels"
-	imageEnvFile  = "/etc/forecrew/env"
-	workerBin     = "/opt/forecrew/forecrew-worker"
-	cacheDir      = "/var/cache/forecrew"
+	workDir      = "/var/lib/forecrew-worker/work"
+	runDir       = "/run/forecrew"
+	labelsFile   = "/etc/forecrew/labels"
+	imageEnvFile = "/etc/forecrew/env"
+	workerBin    = "/opt/forecrew/forecrew-worker"
+	cacheDir     = "/var/cache/forecrew"
+	// orgCacheDir is the organization's own cache, which its jobs write.
+	orgCacheDir   = "/var/cache/forecrew-org"
 	dockerSocket  = "/var/run/docker.sock"
 	defaultConfig = "/dev/vdb"
 	defaultRoot   = "/dev/vda"
@@ -60,7 +62,7 @@ type system interface {
 	loadModules(paths []string) error
 	network(ip, gateway string) error
 	growRoot(device string) error
-	mountCache(device, target string) error
+	mountCache(device, target string, writable bool) error
 	// wait returns the exit status of pid, reaping what else ends meanwhile.
 	wait(pid int) int
 	halt(how string) error
@@ -187,8 +189,13 @@ func (g *guest) prepare(args map[string]string) error {
 		g.say("grow the root disk: %v", err)
 	}
 	if c := args["cache"]; c != "" {
-		if err := g.sys.mountCache(c, g.path(cacheDir)); err != nil {
+		if err := g.sys.mountCache(c, g.path(cacheDir), false); err != nil {
 			g.say("mount the cache disk: %v", err)
+		}
+	}
+	if c := args["orgcache"]; c != "" {
+		if err := g.sys.mountCache(c, g.path(orgCacheDir), true); err != nil {
+			g.say("mount the organization's cache disk: %v", err)
 		}
 	}
 	return nil

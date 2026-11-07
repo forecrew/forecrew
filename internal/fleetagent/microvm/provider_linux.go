@@ -88,12 +88,17 @@ type Provider struct {
 	// freeBytes is the room left on a file system.
 	freeBytes func(path string) (int64, error)
 	hasDevice func(name string) bool
+	// mknod makes node the block device device is; hasMapping says whether a
+	// dm-crypt mapping is open.
+	mknod      func(device, node string) error
+	hasMapping func(name string) bool
 
 	// mu guards slots and the records of machines being changed.
 	mu       sync.Mutex
 	timers   map[string]*time.Timer
 	lastGC   time.Time
 	fetching sync.Mutex // also guards verified
+	caching  sync.Mutex // guards the organizations' caches
 	// verified holds, by image signature, the files as they were when their
 	// digests were last checked.
 	verified map[string][2]stamp
@@ -120,8 +125,10 @@ func New(cfg Config, log *slog.Logger) (*Provider, error) {
 		},
 		http: &http.Client{Timeout: fetchTimeout}, resolver: net.DefaultResolver,
 		run: runCommand, chown: os.Chown, memoryMB: fleetagent.MemoryMB, availableMB: fleetagent.AvailableMemoryMB, localNets: localNets, freeBytes: freeBytes,
-		hasDevice: func(name string) bool { _, err := net.InterfaceByName(name); return err == nil },
-		timers:    map[string]*time.Timer{}, verified: map[string][2]stamp{},
+		hasDevice:  func(name string) bool { _, err := net.InterfaceByName(name); return err == nil },
+		mknod:      mknodOf,
+		hasMapping: func(name string) bool { _, err := os.Stat(filepath.Join("/dev/mapper", name)); return err == nil },
+		timers:     map[string]*time.Timer{}, verified: map[string][2]stamp{},
 	}
 	if err := p.armTimers(); err != nil {
 		return nil, err
@@ -138,6 +145,18 @@ func lookPath(name string) string {
 		}
 	}
 	return name
+}
+
+// mknodOf makes node a block device node of what device is.
+func mknodOf(device, node string) error {
+	var st syscall.Stat_t
+	if err := syscall.Stat(device, &st); err != nil {
+		return err
+	}
+	if st.Mode&syscall.S_IFMT != syscall.S_IFBLK {
+		return fmt.Errorf("%s is not a block device", device)
+	}
+	return syscall.Mknod(node, syscall.S_IFBLK|0o600, int(st.Rdev)) // #nosec G115 -- a device number
 }
 
 func runCommand(ctx context.Context, stdin, name string, args ...string) error {
@@ -304,7 +323,7 @@ func (p *Provider) prepareDirs() error {
 			return err
 		}
 	}
-	return nil
+	return os.MkdirAll(p.cachesDir(), 0o700)
 }
 
 // settings makes what goes on the config disk: the host resolves the server, and
@@ -395,7 +414,11 @@ func (p *Provider) reserve(id, vmmName string, req fleet.CreateRequest, server [
 	if req.Shape.GPU > len(free) {
 		return nil, fleet.ErrCapacity
 	}
-	if !p.diskRoom(all, req.Shape.DiskGB) {
+	need := req.Shape.DiskGB
+	if p.orgCacheOf(req) != "" {
+		need += p.cfg.OrgCacheGB
+	}
+	if !p.diskRoom(all, need) {
 		return nil, fleet.ErrCapacity
 	}
 	slot := 0
@@ -403,7 +426,7 @@ func (p *Provider) reserve(id, vmmName string, req fleet.CreateRequest, server [
 		slot++
 	}
 	r := &record{
-		ID: id, VMM: vmmName, Slot: slot, MemoryMB: req.Shape.MemoryMB, DiskGB: req.Shape.DiskGB, GPUs: free[:req.Shape.GPU],
+		ID: id, VMM: vmmName, Slot: slot, MemoryMB: req.Shape.MemoryMB, DiskGB: req.Shape.DiskGB, GPUs: free[:req.Shape.GPU], OrgCache: p.orgCacheOf(req),
 		Tags: req.Tags, Allow: req.NetworkAllow, Server: server, Port: port, Deadline: req.Deadline, CreatedAt: time.Now().UTC(),
 	}
 	if err := p.save(r); err != nil {
@@ -429,6 +452,9 @@ func (p *Provider) diskRoom(all []*record, diskGB int) bool {
 			allocated = st.Blocks * 512
 		}
 		need += max(int64(r.DiskGB)<<30-allocated, 0)
+		if r.OrgCache != "" {
+			need += int64(p.cfg.OrgCacheGB) << 30 // at worst a full copy
+		}
 	}
 	return need <= free
 }
@@ -478,6 +504,11 @@ func (p *Provider) start(ctx context.Context, r *record, shape domain.Shape, roo
 			return fmt.Errorf("cache disk: %w", err)
 		}
 	}
+	if r.OrgCache != "" {
+		if err := p.openCache(ctx, r, dir, uid); err != nil {
+			return fmt.Errorf("organization cache: %w", err)
+		}
+	}
 	n := networkOf(p.subnet, r.Slot)
 	if err := p.addNetwork(ctx, r, n); err != nil {
 		return fmt.Errorf("network: %w", err)
@@ -487,7 +518,7 @@ func (p *Provider) start(ctx context.Context, r *record, shape domain.Shape, roo
 	}
 	cmd, err := v.command(spec{
 		ID: r.ID, Dir: dir, CPU: shape.CPU, MemoryMB: shape.MemoryMB, Tap: n.Tap, MAC: n.MAC,
-		BootArgs: bootArgs(v, n, p.cfg.DNS, hasCache), Cache: hasCache, GPUs: r.GPUs, UID: uid, GID: uid,
+		BootArgs: bootArgs(v, n, p.cfg.DNS, hasCache, r.OrgCache != ""), Cache: hasCache, OrgCache: r.OrgCache != "", GPUs: r.GPUs, UID: uid, GID: uid,
 	})
 	if err != nil {
 		return err
@@ -607,6 +638,11 @@ func (p *Provider) Destroy(ctx context.Context, externalID string) error {
 	if err := p.releaseGPUs(r); err != nil {
 		return fmt.Errorf("release gpu: %w", err)
 	}
+	if r.OrgCache != "" {
+		if err := p.closeCache(ctx, r, p.vmms[r.VMM].jailDir(r.ID)); err != nil {
+			return fmt.Errorf("organization cache: %w", err)
+		}
+	}
 	// The jail's parent is the machine's too.
 	if err := os.RemoveAll(filepath.Dir(p.vmms[r.VMM].jailDir(r.ID))); err != nil {
 		return fmt.Errorf("remove disks: %w", err)
@@ -647,6 +683,7 @@ func (p *Provider) pruneCache() {
 		return
 	}
 	defer p.fetching.Unlock()
+	p.pruneCaches(time.Duration(p.cfg.ImageCacheDays) * 24 * time.Hour)
 	removed, err := images.PruneCache(p.imageDir(), time.Duration(p.cfg.ImageCacheDays)*24*time.Hour, false)
 	if err != nil {
 		p.log.Warn("clean the image cache", "error", err)

@@ -165,6 +165,25 @@ finish what a crash interrupted:
   read. `<state_dir>/cache.ext4`, when it exists, is attached to every machine
   read-only at `/var/cache/forecrew` (make one with `mke2fs -d <dir>`); the agent
   makes the file read-only for everyone, as all machines share it.
+- **The organization's cache.** With `org_cache_gb` set, a machine created
+  for an organization (tag `forecrew:org`) gets that organization's cache of
+  its pool as a disk of its own, mounted read-write at `/var/cache/forecrew-org`;
+  an image points its tools there in `/etc/forecrew/env` (`GOMODCACHE`,
+  `npm_config_cache`, a git reference directory). The host keeps one file per
+  organization and pool, `<state_dir>/caches/<org>/<pool>.img`, encrypted with
+  dm-crypt (`aes-xts-plain64`) under a key of that cache alone, derived from
+  `<state_dir>/cache.key` (made at first use, root only), which reaches
+  `cryptsetup` on its standard input. Each machine gets its own copy (a reflink),
+  opened on the host and passed to the VMM as a block device, so the guest sees a
+  plain disk and the host's disk holds ciphertext; when a machine whose VMM ran
+  is destroyed its copy becomes the cache, the last one to end winning, unless
+  the abuse checks stopped it. A cache another key would open reads as noise,
+  and nothing of one organization is ever given to another's machine: a warm
+  machine, which has no organization yet, gets no cache. The cache is checked at
+  use: a file changed since it was written back (inode, size, modification or
+  change time, kept next to it) is removed and the machine starts empty. A cache
+  no machine took for `image_cache_days` is removed. A cache is shared by the
+  jobs of one organization and pool, a trust zone, and by nobody else.
 - **CPU and memory** are the shape's, as vCPUs and guest memory. A host takes
   machines while their memory fits its own less 1 GB, up to `max_machines`, and
   while the kernel says it has the new machine's memory left (`MemAvailable`, less
@@ -195,8 +214,8 @@ finish what a crash interrupted:
   kernel before the worker, so environments with Docker work without touching
   the host. The guest kernel needs overlayfs, bridges, veth and netfilter.
 
-Destroy kills the VMM and removes the table, the tap, the jail with every disk,
-and the record. The agent lists machines from the records, so after a restart
+Destroy kills the VMM and removes the table, the tap, the cache's dm-crypt
+mapping (writing the copy back), the jail with every disk, and the record. The agent lists machines from the records, so after a restart
 it finds them all and forecrewd says which to destroy.
 
 **Images.** A machine boots a `rootfs` image and its kernel, fetched over http(s)
@@ -237,6 +256,7 @@ secrets.
 | `gpus` | none | PCI addresses bound to `vfio-pci`, one per machine that asks for a GPU |
 | `ca_file` | the host's bundle | What an https forecrewd's certificate chains to |
 | `image_cache_days` | `14` | How long an unused image stays |
+| `org_cache_gb` | `0` | Size of each organization's cache disk, per pool; 0 gives machines none. Needs `cryptsetup` and `mkfs.ext4` |
 | `egress` | `open` | `open`: machines reach the internet and `network_allow`. `allowlist`: only `network_allow`, never a private network; for a location of the instance that runs hosted machines |
 
 ### Home server setup

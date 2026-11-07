@@ -17,19 +17,23 @@ import (
 // record is what the provider knows of a machine. It is written before anything
 // is made and removed after everything is gone, and it holds no secret.
 type record struct {
-	ID        string            `json:"id"`
-	VMM       string            `json:"vmm"`
-	Slot      int               `json:"slot"`
-	PID       int               `json:"pid,omitempty"`
-	MemoryMB  int               `json:"memory_mb"`
-	DiskGB    int               `json:"disk_gb"`
-	GPUs      []string          `json:"gpus,omitempty"`
-	Tags      map[string]string `json:"tags,omitempty"`
-	Allow     []string          `json:"allow,omitempty"`
-	Server    []string          `json:"server,omitempty"` // addresses of forecrewd
-	Port      int               `json:"port,omitempty"`
-	Deadline  time.Time         `json:"deadline,omitzero"`
-	CreatedAt time.Time         `json:"created_at"`
+	ID       string            `json:"id"`
+	VMM      string            `json:"vmm"`
+	Slot     int               `json:"slot"`
+	PID      int               `json:"pid,omitempty"`
+	MemoryMB int               `json:"memory_mb"`
+	DiskGB   int               `json:"disk_gb"`
+	GPUs     []string          `json:"gpus,omitempty"`
+	Tags     map[string]string `json:"tags,omitempty"`
+	Allow    []string          `json:"allow,omitempty"`
+	Server   []string          `json:"server,omitempty"` // addresses of forecrewd
+	Port     int               `json:"port,omitempty"`
+	Deadline time.Time         `json:"deadline,omitzero"`
+	// OrgCache is the organization's cache it has, <org>/<pool>.
+	OrgCache string `json:"org_cache,omitempty"`
+	// Abuse says why the abuse checks stopped it; its cache is not kept.
+	Abuse     string    `json:"abuse,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 var validID = regexp.MustCompile(`^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$`)

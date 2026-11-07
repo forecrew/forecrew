@@ -47,6 +47,9 @@ func (p *Provider) checks() []domain.ProviderCheck {
 	if len(p.cfg.GPUs) > 0 {
 		out = append(out, check("cloud-hypervisor", found(p.cfg.CloudHypervisor), statusFail, "found, for GPUs"))
 	}
+	if p.cfg.OrgCacheGB > 0 {
+		out = append(out, check("cache tools", found("cryptsetup", "mkfs.ext4"), statusFail, "cryptsetup and mkfs.ext4 found, for organization caches"))
+	}
 	return out
 }
 

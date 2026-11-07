@@ -56,7 +56,11 @@ func (f *fakeSystem) network(ip, gw string) error {
 	return f.networkErr
 }
 func (f *fakeSystem) growRoot(d string) error { f.call("grow %s", d); return f.growErr }
-func (f *fakeSystem) mountCache(d, _ string) error {
+func (f *fakeSystem) mountCache(d, _ string, writable bool) error {
+	if writable {
+		f.call("orgcache %s", d)
+		return f.cacheErr
+	}
 	f.call("cache %s", d)
 	return f.cacheErr
 }
@@ -157,7 +161,7 @@ func bootContext(t *testing.T) context.Context {
 }
 
 func TestBoot(t *testing.T) {
-	g := newGuest(t, "forecrew.ip=10.1.0.2/30 forecrew.gw=10.1.0.1 forecrew.dns=1.1.1.1 forecrew.halt=reboot forecrew.modules=/a.ko,/b.ko forecrew.cache=/dev/vdc")
+	g := newGuest(t, "forecrew.ip=10.1.0.2/30 forecrew.gw=10.1.0.1 forecrew.dns=1.1.1.1 forecrew.halt=reboot forecrew.modules=/a.ko,/b.ko forecrew.cache=/dev/vdc forecrew.orgcache=/dev/vdd")
 	write(t, filepath.Join(g.dir, "etc/forecrew/labels"), "docker\n# a comment\n\n", 0o644)
 	write(t, filepath.Join(g.dir, "etc/forecrew/env"), "PATH=/image/bin\nGOFLAGS=-mod=mod\nFORECREW_WORKER_TOKEN=stolen\nbad name=1\nnot a variable\n"+
 		"HTTPS_PROXY=http://evil\nhttp_proxy=http://evil\nALL_PROXY=evil\nSSL_CERT_FILE=/evil.pem\nSSL_CERT_DIR=/evil\nGODEBUG=x509ignoreCN=1\n", 0o644)
@@ -170,7 +174,7 @@ func TestBoot(t *testing.T) {
 	if g.sys.halted != "reboot!" {
 		t.Errorf("halted = %q", g.sys.halted)
 	}
-	want := "proc|mount|modules /a.ko /b.ko|network 10.1.0.2/30 10.1.0.1|grow /dev/vda|cache /dev/vdc|clock 4102444800"
+	want := "proc|mount|modules /a.ko /b.ko|network 10.1.0.2/30 10.1.0.1|grow /dev/vda|cache /dev/vdc|orgcache /dev/vdd|clock 4102444800"
 	if got := strings.Join(g.sys.calls, "|"); got != want {
 		t.Errorf("calls = %s", got)
 	}
@@ -514,7 +518,7 @@ func TestMachineUnprivileged(t *testing.T) {
 	if err := m.growRoot(notModule); err == nil {
 		t.Error("growRoot of a file on another file system than the root: no error")
 	}
-	if err := m.mountCache("/nonexistent", t.TempDir()); err == nil {
+	if err := m.mountCache("/nonexistent", t.TempDir(), true); err == nil {
 		t.Error("mountCache: no error")
 	}
 	if err := m.halt("reboot"); err == nil {

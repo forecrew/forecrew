@@ -34,6 +34,8 @@ const (
 	deviceRoot   = "/dev/vda"
 	deviceConfig = "/dev/vdb"
 	deviceCache  = "/dev/vdc"
+	// deviceOrgCache is the organization's cache after the shared one.
+	deviceOrgCache = "/dev/vdd"
 )
 
 // spec is a machine as a VMM starts it.
@@ -45,6 +47,7 @@ type spec struct {
 	Tap, MAC string
 	BootArgs string
 	Cache    bool
+	OrgCache bool
 	GPUs     []string
 	UID, GID int
 }
@@ -109,6 +112,9 @@ func (f firecracker) command(s spec) (*exec.Cmd, error) {
 	if s.Cache {
 		drives = append(drives, drive("cache", fileCache, false, true))
 	}
+	if s.OrgCache {
+		drives = append(drives, drive("orgcache", fileOrgCache, false, false))
+	}
 	raw, err := json.Marshal(map[string]any{
 		"boot-source":        map[string]any{"kernel_image_path": fileKernel, "boot_args": s.BootArgs},
 		"drives":             drives,
@@ -155,6 +161,9 @@ func (c cloudHypervisor) command(s spec) (*exec.Cmd, error) {
 	if s.Cache {
 		args = append(args, disk(fileCache, ",readonly=on"))
 	}
+	if s.OrgCache {
+		args = append(args, disk(fileOrgCache, ""))
+	}
 	if len(s.GPUs) > 0 {
 		args = append(args, "--device")
 		for _, g := range s.GPUs {
@@ -179,8 +188,9 @@ func kvmGroup() []uint32 {
 	return []uint32{st.Gid}
 }
 
-// bootArgs is the whole kernel command line of r.
-func bootArgs(v vmm, n network, dns string, cache bool) string {
+// bootArgs is the whole kernel command line of r. The disks come in order, so
+// the organization's cache is the one after the shared cache, when there is one.
+func bootArgs(v vmm, n network, dns string, cache, orgCache bool) string {
 	parts := []string{
 		v.bootArgs(), "root=" + deviceRoot, "rw",
 		"forecrew.ip=" + n.Guest.String() + "/30", "forecrew.gw=" + n.Host.String(), "forecrew.dns=" + dns,
@@ -188,6 +198,13 @@ func bootArgs(v vmm, n network, dns string, cache bool) string {
 	}
 	if cache {
 		parts = append(parts, "forecrew.cache="+deviceCache)
+	}
+	if orgCache {
+		device := deviceCache
+		if cache {
+			device = deviceOrgCache
+		}
+		parts = append(parts, "forecrew.orgcache="+device)
 	}
 	return strings.Join(append(parts, images.GuestInitArgs), " ")
 }
