@@ -203,7 +203,8 @@ func (s *Service) ReportBug(ctx context.Context, by domain.Actor, in mcp.ReportB
 // command. The caller has checked that by may create goals: a GitHub login
 // on the allowlist holds no role to check. An issue that is a goal's issue
 // already is not reported again; the goal is returned with
-// mcp.ErrInvalidInput.
+// mcp.ErrInvalidInput. Nor is an issue that is a ticket waiting, queued or at
+// work: one issue has one goal.
 func (s *Service) ReportIssueAsBug(ctx context.Context, by domain.Actor, p domain.Project, issue github.Issue) (domain.Goal, error) {
 	goals, err := s.cfg.Store.Goals().List(ctx, p.AccountID, store.GoalFilter{ProjectID: p.ID})
 	if err != nil {
@@ -211,6 +212,12 @@ func (s *Service) ReportIssueAsBug(ctx context.Context, by domain.Actor, p domai
 	}
 	if i := slices.IndexFunc(goals, func(g domain.Goal) bool { return g.IssueNumber == issue.Number }); i >= 0 {
 		return goals[i], fmt.Errorf("issue #%d is %s already: %w", issue.Number, goals[i].Ref(), mcp.ErrInvalidInput)
+	}
+	switch l, err := s.cfg.Store.TicketLinks().GetByIssue(ctx, p.AccountID, p.ID, issue.Number); {
+	case err == nil:
+		return domain.Goal{}, fmt.Errorf("issue #%d is a ticket Forecrew has, %s: %w", issue.Number, l.Status, mcp.ErrInvalidInput)
+	case !errors.Is(err, store.ErrNotFound):
+		return domain.Goal{}, fmt.Errorf("find the ticket of issue #%d: %w", issue.Number, err)
 	}
 	return s.startBug(ctx, by, p, strings.TrimSpace(issue.Title), issue.Body, nil, issue.Number)
 }

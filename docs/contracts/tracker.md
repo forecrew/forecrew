@@ -231,8 +231,10 @@ App, so make a machine user. Who assigned or labeled comes from the issue's
 timeline. Issues with `forecrew:goal`, `forecrew:task` or `forecrew:bug` are
 Forecrew's and are never tickets.
 
-A linked issue in the project's repo is the goal's issue, with no duplicate; the
-spec then goes in a comment, so the person's text stays. For an issue of any
+A linked issue in the project's repo is the goal's issue, with no duplicate: a
+ticket holds its issue from the moment it has a project, so `@forecrew bug`
+refuses it, and a ticket whose issue a goal already works on ends with a comment
+saying which. The spec then goes in a comment, so the person's text stays. For an issue of any
 other repo, and any other tracker, `goal.intake` opens its issue as usual and
 its body links the ticket. `@forecrew approve` and `changes` do nothing on an
 issue that is a ticket, and keep working everywhere else, `github.allowlist`

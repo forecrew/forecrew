@@ -284,6 +284,7 @@ func scenarios() map[string]func(*testing.T, *world) {
 		"gate quotes the ticket marked": gateQuotesMarked,
 		"accept and dismiss rules":      acceptRules,
 		"project not onboarded":         projectNotOnboarded,
+		"an issue has one goal":         anIssueHasOneGoal,
 	}
 }
 
@@ -1155,6 +1156,35 @@ func projectNotOnboarded(t *testing.T, w *world) {
 		t.Fatalf("hint: %v", err)
 	}
 	if l := w.link(t, "AG-1"); l.Status != domain.LinkQueued || w.goals(t) != 0 {
+		t.Errorf("link = %+v", l)
+	}
+}
+
+func anIssueHasOneGoal(t *testing.T, w *world) {
+	ctx := t.Context()
+	w.route(t, w.app.ID, domain.TrackerMatch{}, nil)
+	finished := domain.Goal{AccountID: w.account, ProjectID: w.app.ID, Title: "old", Status: domain.GoalDraft, CreatedBy: "user:x", IssueNumber: 8}
+	must(t, w.st.Goals().Create(ctx, &finished))
+	must(t, w.st.Goals().UpdateStatus(ctx, w.account, finished.ID, domain.GoalDraft, domain.GoalCanceled))
+	open := domain.Goal{AccountID: w.account, ProjectID: w.app.ID, Title: "bug", Status: domain.GoalDraft, CreatedBy: "user:x", IssueNumber: 9}
+	must(t, w.st.Goals().Create(ctx, &open))
+
+	k := labeled("acme/app#9", w.ann)
+	k.Issue = &tracker.RepoIssue{Repo: "acme/app", Number: 9}
+	w.put(t, k)
+	w.noLink(t, "acme/app#9")
+	if w.runs.count() != 0 {
+		t.Error("a second goal started on the issue")
+	}
+	w.sync(t)
+	if text := comments(w.fake.Ticket("acme/app#9")); !strings.Contains(text, open.Ref()) {
+		t.Errorf("comments = %q", text)
+	}
+
+	k = labeled("acme/app#8", w.ann) // a goal that is over holds nothing
+	k.Issue = &tracker.RepoIssue{Repo: "acme/app", Number: 8}
+	w.put(t, k)
+	if l := w.link(t, "acme/app#8"); l.Status != domain.LinkActive {
 		t.Errorf("link = %+v", l)
 	}
 }
