@@ -11,6 +11,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/analyzer"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
@@ -151,11 +152,15 @@ func TestJobCreatorWritePaths(t *testing.T) {
 	if !slices.Contains(j.Spec.WritePaths, "docs/adr/**") {
 		t.Errorf("write_paths = %v", j.Spec.WritePaths)
 	}
+	// The job can edit files, which the role cannot do otherwise.
+	if !slices.Contains(j.Spec.AllowedTools, "Edit") || !slices.Contains(j.Spec.AllowedTools, "Write") {
+		t.Errorf("allowed tools = %v", j.Spec.AllowedTools)
+	}
 	// Without them the role stays read-only.
 	req.WritePaths = nil
 	id, err = f.creator.Create(t.Context(), req)
 	must(t, err)
-	if j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id); err != nil || len(j.Spec.WritePaths) != 0 {
+	if j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id); err != nil || len(j.Spec.WritePaths) != 0 || slices.Contains(j.Spec.AllowedTools, "Write") {
 		t.Errorf("job = %+v, %v", j.Spec.WritePaths, err)
 	}
 	for _, bad := range []string{"!docs/**", "/etc/**", "a\n# injected", "a`b"} {
@@ -163,6 +168,51 @@ func TestJobCreatorWritePaths(t *testing.T) {
 		if _, err := f.creator.Create(t.Context(), req); !errors.Is(err, jobs.ErrInvalid) {
 			t.Errorf("%q: err = %v, want ErrInvalid", bad, err)
 		}
+	}
+}
+
+// policyPaths serves the path rules of a knowledge policy.
+type policyPaths struct{ p knowledge.Policy }
+
+func (v policyPaths) MappedPaths(_ context.Context, _ domain.Project, role string, curator bool) (knowledge.PathRules, error) {
+	return v.p.PathRules(role, curator), nil
+}
+
+// In a repo that keeps its ADRs as curated knowledge the ADR job may still
+// write them, and nothing else of the section; a protected section stays
+// unwritable.
+func TestJobCreatorWritePathsOfKnowledgeSections(t *testing.T) {
+	for _, tt := range []struct {
+		name, policy string
+		adr, readme  bool
+	}{
+		{"defaults", "", true, false},
+		{"a section of the architect", "version: 1\nsections:\n  architecture: {paths: [\"docs/adr/**\"], owner: architect}\n", true, false},
+		{"a protected section", "version: 1\nsections:\n  architecture: {paths: [\"docs/adr/**\"], protected: true}\n", false, false},
+		{"a broader section", "version: 1\nsections:\n  architecture: {paths: [\"docs/**\"], owner: architect}\n", false, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			pol := knowledge.DefaultPolicy([]analyzer.KnowledgeSource{{Kind: "adr", Path: "docs/adr", Section: "architecture"}}, nil)
+			if tt.policy != "" {
+				var err error
+				pol, err = knowledge.ParsePolicy([]byte(tt.policy))
+				must(t, err)
+			}
+			f.creator.knowledge = policyPaths{pol}
+			req := f.request("architect")
+			req.Branch, req.Pool, req.WritePaths = "agent/adr-GOAL-1", domain.PoolBuild, []string{"docs/adr/**"}
+			id, err := f.creator.Create(t.Context(), req)
+			must(t, err)
+			j, err := f.st.Jobs().Get(t.Context(), f.account.ID, id)
+			must(t, err)
+			if got := roles.PathAllowed(j.Spec.WritePaths, "docs/adr/0002-x.md"); got != tt.adr {
+				t.Errorf("the ADR is writable = %v, want %v: %v", got, tt.adr, j.Spec.WritePaths)
+			}
+			if roles.PathAllowed(j.Spec.WritePaths, "README.md") {
+				t.Errorf("the job may write beyond the ADR: %v", j.Spec.WritePaths)
+			}
+		})
 	}
 }
 

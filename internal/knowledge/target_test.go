@@ -221,6 +221,37 @@ func TestPathRules(t *testing.T) {
 	}
 }
 
+// A job given an extra write path that a section which is not protected holds
+// may write it; a protected section's path and a path no section holds stay as
+// they were.
+func TestPathRulesDeniedFor(t *testing.T) {
+	p, err := knowledge.ParsePolicy([]byte(rulesPolicy))
+	must(t, err)
+	r := p.PathRules("architect", false)
+	if !slices.Equal(r.Open, []string{"docs/adr/**", "knowledge/lessons/**", "ops/**"}) {
+		t.Errorf("Open = %v", r.Open)
+	}
+	for _, tt := range []struct {
+		name  string
+		extra []string
+		gone  []string
+	}{
+		{"no extra path", nil, nil},
+		{"an open section", []string{"docs/adr/**"}, []string{"docs/adr/**"}},
+		{"a protected section", []string{"knowledge/vision/**"}, nil},
+		{"a path no section holds", []string{"docs/other/**"}, nil},
+		{"a path inside a section's glob", []string{"docs/adr/0001/**"}, nil},
+	} {
+		want := slices.DeleteFunc(slices.Clone(r.Denied), func(g string) bool { return slices.Contains(tt.gone, g) })
+		if got := r.DeniedFor(tt.extra); !slices.Equal(got, want) {
+			t.Errorf("%s: DeniedFor = %v, want %v", tt.name, got, want)
+		}
+	}
+	if !slices.Contains(r.Denied, "docs/adr/**") {
+		t.Error("DeniedFor changed Denied")
+	}
+}
+
 func TestEntryPath(t *testing.T) {
 	p, err := knowledge.ParsePolicy([]byte(`version: 1
 providers:
