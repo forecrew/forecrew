@@ -52,10 +52,10 @@ The account needs, in each project of the connection:
 - **Cloud, the narrowest:** an API token **with scopes** of the dedicated
   account (Atlassian account, Security, API tokens, "Create API token with
   scopes", app Jira). Give it `read:jira-work`, `write:jira-work` and
-  `read:jira-user`, or the granular scopes `read:issue:jira`,
-  `read:comment:jira`, `write:comment:jira`, `read:issue.transition:jira`,
-  `write:issue:jira`, `read:project:jira`, `read:status:jira`,
-  `read:user:jira`, `read:jql:jira`. `auth: scoped_token`, with `email`. Atlassian
+  `read:jira-user`, the classic scopes Atlassian recommends; granular
+  scopes work too, with those each operation of the REST reference lists for
+  reading issues, comments, statuses, projects and users, and writing comments
+  and transitions. `auth: scoped_token`, with `email`. Atlassian
   serves scoped tokens only through `api.atlassian.com`; the adapter reads
   the site's cloud ID when it is set up and goes there.
 - **Cloud, classic:** an API token without scopes, with the full access of
@@ -207,8 +207,10 @@ again anyway, so a webhook is only a hint. Store a random secret
   filter of the connection's projects, and the events issue created, issue
   updated and comment created. Jira signs each delivery (`X-Hub-Signature`,
   HMAC-SHA256).
-- **Data Center 10.3+:** Administration, System, WebHooks, with the same
-  secret and events; Jira signs it the same way.
+- **Data Center:** Administration, System, WebHooks, with the same events.
+  Where the version's webhook form has a secret field (it does in 11.x; check
+  "Managing webhooks" in the documentation of yours), set it: Jira signs the
+  same way. Where it has none, use the secret URL below.
 - **A sender that cannot sign**, such as an automation rule's "Send web
   request": set `webhook_signing: url` and send to
   `https://<forecrew>/webhooks/tracker/<connection ID>?secret=<the secret>`.
