@@ -8,6 +8,7 @@ import (
 	"time"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
@@ -153,9 +154,13 @@ func (s *Service) DecideProposal(ctx context.Context, by domain.Actor, in mcp.De
 	case domain.ProposalReject:
 		err = s.resolveProposal(ctx, by, p, mcp.ToolReject, in.Reason)
 	case domain.ProposalSnooze:
-		err = s.snoozeProposal(ctx, by, p, in)
+		if err = onlyPeople(by, "snoozes"); err == nil {
+			err = s.snoozeProposal(ctx, by, p, in)
+		}
 	case mcp.ProposalDone:
-		err = s.finishSetup(ctx, by, p)
+		if err = onlyPeople(by, "marks done"); err == nil {
+			err = s.finishSetup(ctx, by, p)
+		}
 	default:
 		err = fmt.Errorf("decision %q must be accept, reject, snooze or done: %w", in.Decision, mcp.ErrInvalidInput)
 	}
@@ -170,6 +175,15 @@ func (s *Service) DecideProposal(ctx context.Context, by domain.Actor, in mcp.De
 		info = markUntrusted(info)
 	}
 	return info, err
+}
+
+// onlyPeople refuses what no service account, agent or worker may do to a
+// proposal: hide it, or close it as carried out, like resolving its gate.
+func onlyPeople(by domain.Actor, what string) error {
+	if !authz.IsPerson(by) {
+		return fmt.Errorf("only a person %s a proposal: %w", what, authz.ErrDenied)
+	}
+	return nil
 }
 
 func (s *Service) resolveProposal(ctx context.Context, by domain.Actor, p domain.Proposal, tool, reason string) error {

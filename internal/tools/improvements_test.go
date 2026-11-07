@@ -13,6 +13,7 @@ import (
 	"github.com/forecrew/forecrew/internal/gates"
 	"github.com/forecrew/forecrew/internal/mcp"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/tools"
 )
 
@@ -236,5 +237,38 @@ func TestProposalTextIsMarkedForMCP(t *testing.T) {
 	must(t, err)
 	if !strings.Contains(info.Reason, mark) {
 		t.Fatalf("decided: %+v", info)
+	}
+}
+
+// Hiding a proposal or closing it as done is a decision a person makes, as
+// resolving its gate is: a service account with proposal.decide may not.
+func TestOnlyPeopleSnoozeOrFinish(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	p := f.newImprovement(t, setup)
+	_, err := f.svc.DecideProposal(ctx, f.by, mcp.DecideProposalInput{Proposal: p.Ref(), Decision: domain.ProposalAccept})
+	must(t, err)
+	q := f.newImprovement(t, setup)
+	sa, err := f.svc.CreateServiceAccount(ctx, f.by, mcp.CreateServiceAccountInput{Name: "ci"})
+	must(t, err)
+	testkit.Bind(t, f.st, f.account.ID, domain.SubjectServiceAccount, sa.ID, projectScope, domain.RoleMaintainer, f.project.ID)
+	robot := domain.Actor{AccountID: f.account.ID, Kind: domain.ActorServiceAccount, Name: sa.ID.String()}
+	for name, in := range map[string]mcp.DecideProposalInput{
+		"done":   {Proposal: p.Ref(), Decision: mcp.ProposalDone},
+		"snooze": {Proposal: q.Ref(), Decision: domain.ProposalSnooze, Until: "2099-01-01T00:00:00Z"},
+	} {
+		_, err := f.svc.DecideProposal(ctx, robot, in)
+		if !errors.Is(err, authz.ErrDenied) || !strings.Contains(err.Error(), "only a person") {
+			t.Errorf("%s by a service account: %v", name, err)
+		}
+	}
+	for ref, want := range map[string]domain.ProposalStatus{p.Ref(): domain.ProposalAccepted, q.Ref(): domain.ProposalProposed} {
+		n, _, err := domain.ParseRefOrID(domain.RefProposal, ref)
+		must(t, err)
+		got, err := f.st.Proposals().GetByNumber(ctx, f.account.ID, n)
+		must(t, err)
+		if got.Status != want {
+			t.Errorf("%s is %s, want %s", ref, got.Status, want)
+		}
 	}
 }
