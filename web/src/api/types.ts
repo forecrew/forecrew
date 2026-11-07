@@ -449,6 +449,8 @@ export interface JobInfo extends Job {
   /** The test runs of a command job's latest attempt added up. */
   tests?: TestSummary
   reason?: string
+  /** Why a queued job waits, as a code to act on (the sentence is reason). */
+  reason_code?: WaitReasonCode
   worker_name?: string
 }
 

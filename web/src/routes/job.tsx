@@ -13,6 +13,7 @@ import { WhyLink } from "@/components/WhyLink"
 import { Button } from "@/components/ui/button"
 import { CancelJob, cancelable } from "@/components/CancelJob"
 import { count, cost, countsText, fileSize, jobTone, resultTone } from "@/lib/format"
+import { WaitFix } from "@/routes/machines/fix"
 
 const USAGE_PARTS: [string, string][] = [
   ["input_tokens", "input"],
@@ -209,6 +210,14 @@ export function JobPage() {
             <JobWhy job={j} />
             {cancelable(j.status) ? <CancelJob jobRef={j.ref} projectId={j.project_id} /> : null}
           </PageHeader>
+          {j.status === "queued" && j.reason_code ? (
+            <div role="status" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card p-3 text-sm">
+              <p>
+                <span className="font-medium">Waiting.</span> {j.reason}.
+              </p>
+              <WaitFix code={j.reason_code} />
+            </div>
+          ) : null}
           <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1fr_22rem]">
             <div className="min-w-0 space-y-6">
               {j.output === undefined || j.output === null ? null : <Output output={j.output} />}
