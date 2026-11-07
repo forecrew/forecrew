@@ -143,6 +143,7 @@ func (s *Server) Handler() http.Handler {
 	route("GET /api/v1/tracker-connections", serve(s, http.StatusOK, noInput, list(noArg(t.ListTrackerConnections))))
 	route("POST /api/v1/tracker-connections", serve(s, http.StatusCreated, bodyOf[mcp.CreateTrackerConnectionInput], t.CreateTrackerConnection))
 	route("DELETE /api/v1/tracker-connections/{connection}", serve(s, http.StatusOK, trackerConnectionInput, t.DeleteTrackerConnection))
+	route("POST /api/v1/tracker-connections/{connection}/test", serve(s, http.StatusOK, trackerConnectionInput, t.TestTrackerConnection))
 	route("GET /api/v1/tracker-routes", serve(s, http.StatusOK, trackerFilterInput, list(t.ListTrackerRoutes)))
 	route("POST /api/v1/tracker-routes", serve(s, http.StatusCreated, bodyOf[mcp.CreateTrackerRouteInput], t.CreateTrackerRoute))
 	route("DELETE /api/v1/tracker-routes/{route}", serve(s, http.StatusOK, trackerRouteInput, t.DeleteTrackerRoute))
@@ -285,18 +286,19 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/quality":                       tool[mcp.ToolProjectQuality],
 		"GET /api/v1/trace":                         tool[mcp.ToolGetTrace],
 
-		"GET /api/v1/tracker-connections":                 tool[mcp.ToolListTrackerConnections],
-		"POST /api/v1/tracker-connections":                tool[mcp.ToolCreateTrackerConnection],
-		"DELETE /api/v1/tracker-connections/{connection}": tool[mcp.ToolDeleteTrackerConnection],
-		"GET /api/v1/tracker-routes":                      tool[mcp.ToolListTrackerRoutes],
-		"POST /api/v1/tracker-routes":                     tool[mcp.ToolCreateTrackerRoute],
-		"DELETE /api/v1/tracker-routes/{route}":           tool[mcp.ToolDeleteTrackerRoute],
-		"GET /api/v1/tracker-identities":                  tool[mcp.ToolListTrackerIdentities],
-		"POST /api/v1/tracker-identities":                 tool[mcp.ToolMapTrackerIdentity],
-		"DELETE /api/v1/tracker-identities/{identity}":    tool[mcp.ToolUnmapTrackerIdentity],
-		"GET /api/v1/tickets/waiting":                     tool[mcp.ToolListTicketsWaiting],
-		"POST /api/v1/tickets/{ticket}/accept":            tool[mcp.ToolAcceptTicket],
-		"POST /api/v1/tickets/{ticket}/dismiss":           tool[mcp.ToolDismissTicket],
+		"GET /api/v1/tracker-connections":                    tool[mcp.ToolListTrackerConnections],
+		"POST /api/v1/tracker-connections":                   tool[mcp.ToolCreateTrackerConnection],
+		"DELETE /api/v1/tracker-connections/{connection}":    tool[mcp.ToolDeleteTrackerConnection],
+		"POST /api/v1/tracker-connections/{connection}/test": tool[mcp.ToolTestTrackerConnection],
+		"GET /api/v1/tracker-routes":                         tool[mcp.ToolListTrackerRoutes],
+		"POST /api/v1/tracker-routes":                        tool[mcp.ToolCreateTrackerRoute],
+		"DELETE /api/v1/tracker-routes/{route}":              tool[mcp.ToolDeleteTrackerRoute],
+		"GET /api/v1/tracker-identities":                     tool[mcp.ToolListTrackerIdentities],
+		"POST /api/v1/tracker-identities":                    tool[mcp.ToolMapTrackerIdentity],
+		"DELETE /api/v1/tracker-identities/{identity}":       tool[mcp.ToolUnmapTrackerIdentity],
+		"GET /api/v1/tickets/waiting":                        tool[mcp.ToolListTicketsWaiting],
+		"POST /api/v1/tickets/{ticket}/accept":               tool[mcp.ToolAcceptTicket],
+		"POST /api/v1/tickets/{ticket}/dismiss":              tool[mcp.ToolDismissTicket],
 
 		"GET /api/v1/workers":   tool[mcp.ToolListWorkers],
 		"GET /api/v1/machines":  tool[mcp.ToolListMachines],

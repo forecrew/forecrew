@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"uuid"
@@ -94,6 +95,9 @@ func (s *Service) CreateTrackerConnection(ctx context.Context, by domain.Actor, 
 	if err := tracker.CheckTriggers(c, ad.Capabilities()); err != nil {
 		return domain.TrackerConnection{}, trackerError(err)
 	}
+	if ad, err = prepare(ctx, core, &c, ad); err != nil {
+		return domain.TrackerConnection{}, trackerError(err)
+	}
 	if err := ad.Verify(ctx); err != nil {
 		return domain.TrackerConnection{}, trackerError(err)
 	}
@@ -104,6 +108,57 @@ func (s *Service) CreateTrackerConnection(ctx context.Context, by domain.Actor, 
 		return s.audit(ctx, tx, by, uuid.Nil(), "tracker.connected", "tracker_connection", c.ID, map[string]any{"name": c.Name, "kind": c.Kind})
 	})
 	return c, conflict(err, "a tracker connection called "+c.Name+" exists")
+}
+
+// prepare stores what a tracker says of itself in the connection's config,
+// and returns the adapter of the prepared connection.
+func prepare(ctx context.Context, core *tracker.Service, c *domain.TrackerConnection, ad tracker.Adapter) (tracker.Adapter, error) {
+	p, ok := ad.(tracker.Preparer)
+	if !ok {
+		return ad, nil
+	}
+	cfg, err := p.Prepare(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c.Config = cfg
+	return core.Registry().Build(*c)
+}
+
+// TestTrackerConnection implements mcp.ToolService. A connection stored
+// before the tracker could be read, as a plan stores one, is prepared here.
+func (s *Service) TestTrackerConnection(ctx context.Context, by domain.Actor, in mcp.TrackerConnectionRefInput) (mcp.TrackerConnectionTest, error) {
+	if err := s.allowOrg(ctx, by, domain.PermTrackersManage); err != nil {
+		return mcp.TrackerConnectionTest{}, err
+	}
+	core, err := s.trackers()
+	if err != nil {
+		return mcp.TrackerConnectionTest{}, err
+	}
+	c, err := s.connection(ctx, by.AccountID, in.Connection)
+	if err != nil {
+		return mcp.TrackerConnectionTest{}, err
+	}
+	ad, err := core.Registry().Build(c)
+	if err != nil {
+		return mcp.TrackerConnectionTest{}, trackerError(err)
+	}
+	out := mcp.TrackerConnectionTest{Connection: c.Name, OK: true, Checks: []mcp.TrackerCheck{}}
+	for _, check := range tracker.Test(ctx, ad) {
+		out.Checks = append(out.Checks, mcp.TrackerCheck(check))
+		out.OK = out.OK && check.OK
+	}
+	if !out.OK {
+		return out, nil
+	}
+	before := c.Config
+	if _, err := prepare(ctx, core, &c, ad); err != nil {
+		return out, trackerError(err)
+	}
+	if reflect.DeepEqual(before, c.Config) {
+		return out, nil
+	}
+	return out, s.cfg.Store.TrackerConnections().Update(ctx, &c)
 }
 
 // DeleteTrackerConnection implements mcp.ToolService.

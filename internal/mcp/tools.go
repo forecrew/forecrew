@@ -124,6 +124,7 @@ const (
 	ToolListTrackerConnections  = "list_tracker_connections"
 	ToolCreateTrackerConnection = "create_tracker_connection"
 	ToolDeleteTrackerConnection = "delete_tracker_connection"
+	ToolTestTrackerConnection   = "test_tracker_connection"
 	ToolListTrackerRoutes       = "list_tracker_routes"
 	ToolCreateTrackerRoute      = "create_tracker_route"
 	ToolDeleteTrackerRoute      = "delete_tracker_route"
@@ -171,7 +172,7 @@ func Tools() []string {
 		ToolListRoleBindings, ToolCreateRoleBinding, ToolDeleteRoleBinding,
 		ToolListServiceAccounts, ToolCreateServiceAccount, ToolUpdateServiceAccount, ToolSetServiceAccount,
 		ToolListMachines, ToolListShapes, ToolListProviders, ToolFleetOverview,
-		ToolListTrackerConnections, ToolCreateTrackerConnection, ToolDeleteTrackerConnection, ToolListTrackerRoutes, ToolCreateTrackerRoute, ToolDeleteTrackerRoute,
+		ToolListTrackerConnections, ToolCreateTrackerConnection, ToolDeleteTrackerConnection, ToolTestTrackerConnection, ToolListTrackerRoutes, ToolCreateTrackerRoute, ToolDeleteTrackerRoute,
 		ToolListTrackerIdentities, ToolMapTrackerIdentity, ToolUnmapTrackerIdentity, ToolListTicketsWaiting, ToolAcceptTicket, ToolDismissTicket,
 		ToolGetTrace, ToolListKnowledgeProposals, ToolListKnowledge,
 		ToolListImages,
@@ -231,6 +232,10 @@ type ToolService interface {
 	// DeleteTrackerConnection removes a connection without live tickets, with
 	// its routes and identities.
 	DeleteTrackerConnection(ctx context.Context, by domain.Actor, in TrackerConnectionRefInput) (domain.TrackerConnection, error)
+	// TestTrackerConnection runs the connection test of a connection: each
+	// thing that can fail, such as its address, certificate and login, on
+	// its own.
+	TestTrackerConnection(ctx context.Context, by domain.Actor, in TrackerConnectionRefInput) (TrackerConnectionTest, error)
 	// ListTrackerRoutes lists routes in the order they are tried.
 	ListTrackerRoutes(ctx context.Context, by domain.Actor, in TrackerConnectionFilterInput) ([]TrackerRouteInfo, error)
 	CreateTrackerRoute(ctx context.Context, by domain.Actor, in CreateTrackerRouteInput) (TrackerRouteInfo, error)
@@ -1195,6 +1200,21 @@ type CreateTrackerConnectionInput struct {
 // TrackerConnectionRefInput names a connection.
 type TrackerConnectionRefInput struct {
 	Connection string `json:"connection"` // name or UUID
+}
+
+// TrackerCheck is one result of a connection test. Detail can hold the
+// tracker's own words.
+type TrackerCheck struct {
+	Name   string `json:"name"` // address, certificate, login, projects, transitions
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// TrackerConnectionTest is the answer of test_tracker_connection.
+type TrackerConnectionTest struct {
+	Connection string         `json:"connection"`
+	OK         bool           `json:"ok"`
+	Checks     []TrackerCheck `json:"checks"`
 }
 
 // TrackerConnectionFilterInput narrows a list to one connection.

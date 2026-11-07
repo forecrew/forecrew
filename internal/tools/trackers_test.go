@@ -3,6 +3,7 @@ package tools_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 	"uuid"
@@ -504,4 +505,79 @@ func TestDismissTicket(t *testing.T) {
 	must(t, err)
 	_, err = w.svc.DismissTicket(ctx, w.owner, mcp.DismissTicketInput{Ticket: "x"})
 	wantErr(t, err, mcp.ErrInvalidInput)
+}
+
+// preparing is an adapter that reads its deployment when set up, and tests
+// its connection check by check.
+type preparing struct {
+	*trackertest.Fake
+	cfg    map[string]any
+	checks []tracker.Check
+	fail   error
+}
+
+func (p *preparing) Prepare(context.Context) (map[string]any, error) {
+	if p.fail != nil {
+		return nil, p.fail
+	}
+	out := maps.Clone(p.cfg)
+	out["deployment"] = "cloud"
+	return out, nil
+}
+
+func (p *preparing) Derived() []string { return []string{"deployment"} }
+
+func (p *preparing) Check(context.Context) []tracker.Check { return p.checks }
+
+func TestPreparedConnections(t *testing.T) {
+	w := newTicketWorld(t)
+	ctx := t.Context()
+	p := &preparing{Fake: w.fake, checks: []tracker.Check{{Name: "address", OK: true}, {Name: "login", OK: true}}}
+	w.core.Registry().Register("prep", func(c domain.TrackerConnection) (tracker.Adapter, error) {
+		p.cfg = c.Config
+		return p, nil
+	})
+	c, err := w.svc.CreateTrackerConnection(ctx, w.owner, mcp.CreateTrackerConnectionInput{Name: "jira", Kind: "prep", Config: map[string]any{"x": "y"}, Triggers: domain.TrackerTriggers{Label: "x"}})
+	must(t, err)
+	if c.Config["deployment"] != "cloud" || c.Config["x"] != "y" {
+		t.Errorf("config = %+v", c.Config)
+	}
+	// A connection a plan stored is prepared by its first test that passes.
+	c.Config = map[string]any{"x": "z"}
+	must(t, w.st.TrackerConnections().Update(ctx, &c))
+	p.checks[1] = tracker.Check{Name: "login", Detail: "401"}
+	got, err := w.svc.TestTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "jira"})
+	must(t, err)
+	if got.OK || len(got.Checks) != 2 || got.Checks[1].Detail != "401" || got.Connection != "jira" {
+		t.Errorf("test = %+v", got)
+	}
+	if stored, _ := w.st.TrackerConnections().Get(ctx, w.account.ID, c.ID); stored.Config["deployment"] != nil {
+		t.Errorf("a failed test changed the config: %+v", stored.Config)
+	}
+	p.checks[1].OK = true
+	got, err = w.svc.TestTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: c.ID.String()})
+	must(t, err)
+	if stored, _ := w.st.TrackerConnections().Get(ctx, w.account.ID, c.ID); !got.OK || stored.Config["deployment"] != "cloud" || stored.Config["x"] != "z" {
+		t.Errorf("test = %+v, config %+v", got, stored.Config)
+	}
+	p.fail = errors.New("serverInfo: 502")
+	_, err = w.svc.TestTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "jira"})
+	if err == nil {
+		t.Error("a failed Prepare passed")
+	}
+	_, err = w.svc.CreateTrackerConnection(ctx, w.owner, mcp.CreateTrackerConnectionInput{Name: "jira2", Kind: "prep", Triggers: domain.TrackerTriggers{Label: "x"}})
+	if err == nil {
+		t.Error("a connection whose tracker could not be read was created")
+	}
+	// The fake has no checks of its own: Verify is its one check.
+	got, err = w.svc.TestTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "board"})
+	must(t, err)
+	if !got.OK || len(got.Checks) != 1 || got.Checks[0].Name != "connection" {
+		t.Errorf("test of the fake = %+v", got)
+	}
+	_, err = w.svc.TestTrackerConnection(ctx, w.owner, mcp.TrackerConnectionRefInput{Connection: "nope"})
+	wantErr(t, err, mcp.ErrNotFound)
+	member, _ := w.member(t, orgScope, domain.RoleMember, uuid.Nil())
+	_, err = w.svc.TestTrackerConnection(ctx, member, mcp.TrackerConnectionRefInput{Connection: "jira"})
+	wantErr(t, err, authz.ErrDenied)
 }

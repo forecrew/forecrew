@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -38,6 +40,29 @@ func TestTrackerCommands(t *testing.T) {
 	e.check(t, []string{"tracker", "connections"}, "forecrew", mcp.ToolListTrackerConnections, nil)
 	e.check(t, []string{"tracker", "connect", "gh", "--repo", "acme/app", "--bot-login", "app[bot]", "--label", "forecrew"}, "github", mcp.ToolCreateTrackerConnection,
 		mcp.CreateTrackerConnectionInput{Name: "gh", Kind: "github", Config: map[string]any{"bot_login": "app[bot]", "repos": []any{"acme/app"}}, Triggers: domain.TrackerTriggers{Label: "forecrew"}})
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(ca, []byte("PEM"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.check(t, []string{"tracker", "connect", "jira", "--kind", "jira", "--base-url", "https://jira.acme.local/jira", "--project", "OPS", "--auth", "pat",
+		"--token-ref", "store:jira", "--ca-file", ca, "--webhook-secret-ref", "store:hook", "--webhook-signing", "url", "--state", "Ready"}, "gh", mcp.ToolCreateTrackerConnection,
+		mcp.CreateTrackerConnectionInput{Name: "jira", Kind: "jira", Config: map[string]any{
+			"base_url": "https://jira.acme.local/jira", "projects": []any{"OPS"}, "auth": "pat", "token_ref": "store:jira", "ca_bundle": "PEM",
+			"webhook_secret_ref": "store:hook", "webhook_signing": "url",
+		}, Triggers: domain.TrackerTriggers{State: "Ready"}})
+	if _, errOut, code := e.run(t, "tracker", "connect", "jira", "--kind", "jira", "--ca-file", "/nonexistent/ca.pem"); code == 0 || !strings.Contains(errOut, "CA file") {
+		t.Errorf("a missing CA file: %d %s", code, errOut)
+	}
+	e.svc.TestTrackerConnectionFunc = func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (mcp.TrackerConnectionTest, error) {
+		return mcp.TrackerConnectionTest{Connection: "gh", OK: true, Checks: []mcp.TrackerCheck{{Name: "certificate", OK: true, Detail: "trusted"}}}, nil
+	}
+	e.check(t, []string{"tracker", "test", "gh"}, "trusted", mcp.ToolTestTrackerConnection, mcp.TrackerConnectionRefInput{Connection: "gh"})
+	e.svc.TestTrackerConnectionFunc = func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (mcp.TrackerConnectionTest, error) {
+		return mcp.TrackerConnectionTest{Connection: "gh", Checks: []mcp.TrackerCheck{{Name: "login", Detail: "401"}}}, nil
+	}
+	if out, errOut, code := e.run(t, "tracker", "test", "gh"); code == 0 || !strings.Contains(out, "FAILED") || !strings.Contains(errOut, "failed its test") {
+		t.Errorf("a failed test: %d %s %s", code, out, errOut)
+	}
 	e.check(t, []string{"tracker", "disconnect", "gh"}, "connection deleted", mcp.ToolDeleteTrackerConnection, mcp.TrackerConnectionRefInput{Connection: "gh"})
 	e.check(t, []string{"tracker", "routes", "--connection", "gh"}, "app", mcp.ToolListTrackerRoutes, mcp.TrackerConnectionFilterInput{Connection: "gh"})
 	e.check(t, []string{"tracker", "route-add", "gh", "app", "--match-label", "x", "--state-map", "done=closed", "--goal-kind", "bug"}, "app", mcp.ToolCreateTrackerRoute,

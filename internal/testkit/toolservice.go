@@ -82,6 +82,7 @@ type ToolService struct {
 	ListTrackerConnectionsFunc  func(context.Context, domain.Actor, any) ([]domain.TrackerConnection, error)
 	CreateTrackerConnectionFunc func(context.Context, domain.Actor, mcp.CreateTrackerConnectionInput) (domain.TrackerConnection, error)
 	DeleteTrackerConnectionFunc func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (domain.TrackerConnection, error)
+	TestTrackerConnectionFunc   func(context.Context, domain.Actor, mcp.TrackerConnectionRefInput) (mcp.TrackerConnectionTest, error)
 	ListTrackerRoutesFunc       func(context.Context, domain.Actor, mcp.TrackerConnectionFilterInput) ([]mcp.TrackerRouteInfo, error)
 	CreateTrackerRouteFunc      func(context.Context, domain.Actor, mcp.CreateTrackerRouteInput) (mcp.TrackerRouteInfo, error)
 	DeleteTrackerRouteFunc      func(context.Context, domain.Actor, mcp.TrackerRouteRefInput) (domain.TrackerRoute, error)
@@ -521,6 +522,11 @@ func (s *ToolService) ListTrackerConnections(ctx context.Context, by domain.Acto
 // DeleteTrackerConnection implements mcp.ToolService.
 func (s *ToolService) DeleteTrackerConnection(ctx context.Context, by domain.Actor, in mcp.TrackerConnectionRefInput) (domain.TrackerConnection, error) {
 	return invoke(ctx, s, mcp.ToolDeleteTrackerConnection, by, in, s.DeleteTrackerConnectionFunc)
+}
+
+// TestTrackerConnection implements mcp.ToolService.
+func (s *ToolService) TestTrackerConnection(ctx context.Context, by domain.Actor, in mcp.TrackerConnectionRefInput) (mcp.TrackerConnectionTest, error) {
+	return invoke(ctx, s, mcp.ToolTestTrackerConnection, by, in, s.TestTrackerConnectionFunc)
 }
 
 // ListTrackerRoutes implements mcp.ToolService.

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
@@ -26,11 +27,51 @@ func trackerCommand(r *remote) *cobra.Command {
 	cmd := &cobra.Command{Use: "tracker", Short: "Manage tracker connections, routes and people"}
 	cmd.AddCommand(
 		listCommand(r, "connections", "List the tracker connections", "/tracker-connections", printTrackerConnections),
-		connectTrackerCommand(r), disconnectTrackerCommand(r),
+		connectTrackerCommand(r), disconnectTrackerCommand(r), testTrackerCommand(r),
 		trackerRoutesCommand(r), addRouteCommand(r), deleteRouteCommand(r),
 		trackerPeopleCommand(r), mapPersonCommand(r), unmapPersonCommand(r),
 	)
 	return cmd
+}
+
+// jiraFlags are the settings of a Jira connection (docs/trackers/jira.md).
+type jiraFlags struct {
+	baseURL, auth, email, tokenRef, caFile, hookRef, signing string
+	projects                                                 []string
+}
+
+func (j jiraFlags) add(cmd *cobra.Command) *jiraFlags {
+	f := cmd.Flags()
+	f.StringVar(&j.baseURL, "base-url", "", "jira: the site, with its context path")
+	f.StringSliceVar(&j.projects, "project", nil, "jira: a project key (repeatable)")
+	f.StringVar(&j.auth, "auth", "", "jira: pat (Data Center), api_token or scoped_token (Cloud)")
+	f.StringVar(&j.email, "email", "", "jira: the Atlassian account of a Cloud token")
+	f.StringVar(&j.tokenRef, "token-ref", "", "jira: store:<name> of the token")
+	f.StringVar(&j.caFile, "ca-file", "", "jira: PEM certificates of a private CA to trust")
+	f.StringVar(&j.hookRef, "webhook-secret-ref", "", "jira: store:<name> of the webhook secret; without it, polling only")
+	f.StringVar(&j.signing, "webhook-signing", "", "jira: hmac (default) or url")
+	return &j
+}
+
+// config sets the Jira settings that were given.
+func (j *jiraFlags) config(cfg map[string]any) error {
+	for k, v := range map[string]string{"base_url": j.baseURL, "auth": j.auth, "email": j.email, "token_ref": j.tokenRef,
+		"webhook_secret_ref": j.hookRef, "webhook_signing": j.signing} {
+		if v != "" {
+			cfg[k] = v
+		}
+	}
+	if len(j.projects) > 0 {
+		cfg["projects"] = j.projects
+	}
+	if j.caFile != "" {
+		pem, err := os.ReadFile(j.caFile)
+		if err != nil {
+			return fmt.Errorf("read the CA file: %w", err)
+		}
+		cfg["ca_bundle"] = string(pem)
+	}
+	return nil
 }
 
 func connectTrackerCommand(r *remote) *cobra.Command {
@@ -38,6 +79,7 @@ func connectTrackerCommand(r *remote) *cobra.Command {
 	var in mcp.CreateTrackerConnectionInput
 	var repos []string
 	var bot string
+	var jira *jiraFlags
 	cmd := &cobra.Command{
 		Use:   "connect <name>",
 		Short: "Connect a tracker",
@@ -49,6 +91,9 @@ func connectTrackerCommand(r *remote) *cobra.Command {
 			}
 			if bot != "" {
 				in.Config["bot_login"] = bot
+			}
+			if err := jira.config(in.Config); err != nil {
+				return err
 			}
 			var c domain.TrackerConnection
 			if err := r.call(cmd.Context(), http.MethodPost, "/tracker-connections", in, &c); err != nil {
@@ -65,7 +110,35 @@ func connectTrackerCommand(r *remote) *cobra.Command {
 	f.StringVar(&in.Triggers.Assignee, "assignee", "", "hand over by assigning to this tracker user")
 	f.StringVar(&in.Triggers.Label, "label", "", "hand over by adding this label")
 	f.StringVar(&in.Triggers.State, "state", "", "hand over by moving to this state or column")
+	jira = jiraFlags{}.add(cmd)
 	return cmd
+}
+
+func testTrackerCommand(r *remote) *cobra.Command {
+	return &cobra.Command{
+		Use:   "test <connection>",
+		Short: "Test a tracker connection: address, certificate, login, projects and transitions",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var out mcp.TrackerConnectionTest
+			if err := r.call(cmd.Context(), http.MethodPost, "/tracker-connections/"+url.PathEscape(args[0])+"/test", nil, &out); err != nil {
+				return err
+			}
+			rows := [][]string{{"CHECK", "RESULT", "DETAIL"}}
+			for _, c := range out.Checks {
+				result := "ok"
+				if !c.OK {
+					result = "FAILED"
+				}
+				rows = append(rows, []string{c.Name, result, dash(c.Detail)})
+			}
+			table(cmd.OutOrStdout(), rows)
+			if !out.OK {
+				return fmt.Errorf("connection %s failed its test", out.Connection)
+			}
+			return nil
+		},
+	}
 }
 
 func disconnectTrackerCommand(r *remote) *cobra.Command {
@@ -292,10 +365,10 @@ func printTrackerConnections(w io.Writer, items []domain.TrackerConnection) {
 }
 
 func printTrackerRoutes(w io.Writer, items []mcp.TrackerRouteInfo) {
-	rows := [][]string{{"ID", "CONNECTION", "#", "PROJECT", "MATCH PROJECT", "TYPES", "LABELS", "KIND"}}
+	rows := [][]string{{"ID", "CONNECTION", "#", "PROJECT", "MATCH PROJECT", "TYPES", "LABELS", "KIND", "WARNING"}}
 	for _, r := range items {
 		rows = append(rows, []string{r.ID.String(), r.Connection, strconv.Itoa(r.Position), r.Project, dash(r.Match.Project),
-			dash(strings.Join(r.Match.Types, ",")), dash(strings.Join(r.Match.Labels, ",")), dash(string(r.GoalKind))})
+			dash(strings.Join(r.Match.Types, ",")), dash(strings.Join(r.Match.Labels, ",")), dash(string(r.GoalKind)), dash(r.Warning)})
 	}
 	table(w, rows)
 }
