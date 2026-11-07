@@ -10,6 +10,7 @@ import (
 	"github.com/forecrew/forecrew/internal/github"
 	"github.com/forecrew/forecrew/internal/tracker"
 	"github.com/forecrew/forecrew/internal/tracker/githubissues"
+	"github.com/forecrew/forecrew/internal/tracker/githubproject"
 )
 
 // maxBody is GitHub's limit for webhook payloads.
@@ -111,9 +112,21 @@ func (h *Handler) process(ctx context.Context, d delivery) {
 	if err := h.e.handle(ctx, ev); err != nil {
 		h.e.Log.Error("process webhook event", "delivery", d.id, "event", ev.Kind, "action", ev.Action, "repo", ev.Repo, "number", ev.Number, "error", err)
 	}
-	if h.e.Tickets != nil && (ev.Kind == "issues" || ev.Kind == "issue_comment") {
-		if err := h.e.Tickets.Deliver(ctx, githubissues.Kind, d.raw); err != nil {
+	if kind := ticketKind(ev.Kind); h.e.Tickets != nil && kind != "" {
+		if err := h.e.Tickets.Deliver(ctx, kind, d.raw); err != nil {
 			h.e.Log.Error("process ticket event", "delivery", d.id, "event", ev.Kind, "repo", ev.Repo, "number", ev.Number, "error", err)
 		}
 	}
+}
+
+// ticketKind is the kind of tracker connection an event of this kind is for,
+// or empty when none is.
+func ticketKind(event string) string {
+	switch event {
+	case "issues", "issue_comment":
+		return githubissues.Kind
+	case "projects_v2_item":
+		return githubproject.Kind
+	}
+	return ""
 }

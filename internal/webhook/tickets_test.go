@@ -92,3 +92,24 @@ func TestApprovalsOfATicketStayInForecrew(t *testing.T) {
 		t.Errorf("the allowlist stopped working: %+v", got)
 	}
 }
+
+// A card event of a project board reaches the trackers of boards, and only
+// those; it needs no repo.
+func TestProjectItemEventsReachTheBoardTrackers(t *testing.T) {
+	e := newEnv(t)
+	sink := &ticketSink{}
+	e.h.e.Tickets = sink
+	card := []byte(`{"action":"edited","projects_v2_item":{"node_id":"PVTI_1","content_type":"Issue"},"organization":{"login":"acme"},"sender":{"login":"ann"}}`)
+	for _, id := range []string{"c1", "c1"} { // redelivered
+		if code := e.deliver(id, "projects_v2_item", card); code != 202 {
+			t.Fatalf("status = %d", code)
+		}
+	}
+	e.process()
+	if len(sink.kinds) != 1 || sink.kinds[0] != "github_project:projects_v2_item" {
+		t.Errorf("deliveries = %v", sink.kinds)
+	}
+	if code := e.deliver("c2", "projects_v2_item", []byte("nope")); code != 400 {
+		t.Errorf("an unreadable payload: status %d", code)
+	}
+}

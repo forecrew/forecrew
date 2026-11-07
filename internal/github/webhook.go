@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -81,6 +82,9 @@ type Event struct {
 
 // ParseEvent parses a webhook payload. kind is the X-GitHub-Event header.
 func ParseEvent(kind string, payload []byte) (Event, error) {
+	if kind == "projects_v2_item" {
+		return parseProjectItem(payload)
+	}
 	switch kind {
 	case "issues", "issue_comment", "pull_request", "pull_request_review", "check_suite", "check_run", "status", "workflow_run", "push":
 	default:
@@ -137,4 +141,20 @@ func ParseEvent(kind string, payload []byte) (Event, error) {
 		e.SHA, e.Conclusion = p.GetSHA(), p.GetState()
 	}
 	return e, nil
+}
+
+// parseProjectItem reads a projects_v2_item delivery, an event of a project
+// board of an organization. Only the tracker of boards uses it, which reads
+// the card itself: the event carries the action and who sent it.
+func parseProjectItem(payload []byte) (Event, error) {
+	var p struct {
+		Action string `json:"action"`
+		Sender struct {
+			Login string `json:"login"`
+		} `json:"sender"`
+	}
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return Event{}, fmt.Errorf("parse projects_v2_item event: %w: %w", ErrBadPayload, err)
+	}
+	return Event{Kind: "projects_v2_item", Action: p.Action, Actor: p.Sender.Login}, nil
 }

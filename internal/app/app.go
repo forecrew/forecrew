@@ -54,6 +54,7 @@ import (
 	"github.com/forecrew/forecrew/internal/tools"
 	"github.com/forecrew/forecrew/internal/tracker"
 	"github.com/forecrew/forecrew/internal/tracker/githubissues"
+	"github.com/forecrew/forecrew/internal/tracker/githubproject"
 	"github.com/forecrew/forecrew/internal/webhook"
 	"github.com/forecrew/forecrew/internal/webui"
 	"github.com/forecrew/forecrew/internal/workerapi"
@@ -84,7 +85,10 @@ type Deps struct {
 	// the jobs of pool actions and installs the workflow. Nil: pool actions
 	// has no provider and its jobs wait.
 	Actions github.Actions
-	Logger  *slog.Logger
+	// Projects is GitHub's Projects surface; with it connections of kind
+	// github_project work. Nil: that kind is unknown.
+	Projects github.Projects
+	Logger   *slog.Logger
 	// Version is reported to MCP clients.
 	Version string
 	// Files holds packs/ (role and playbook files); it defaults to the
@@ -178,7 +182,7 @@ func Open(ctx context.Context, cfg *config.Config, logger *slog.Logger, version 
 		pool.Close()
 		return nil, err
 	}
-	a, err := New(Deps{Config: effective, File: cfg, Store: st, Ping: pool.Ping, GitHub: gh, Actions: gh, Logger: logger, Version: version})
+	a, err := New(Deps{Config: effective, File: cfg, Store: st, Ping: pool.Ping, GitHub: gh, Actions: gh, Projects: gh, Logger: logger, Version: version})
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -328,6 +332,9 @@ func New(d Deps) (*App, error) {
 	access := authz.New(st, log).WithProtection(kbProposals)
 	trackers := tracker.NewRegistry()
 	trackers.Register(githubissues.Kind, githubissues.Factory(githubissues.Deps{GitHub: d.GitHub, Store: st, Secret: []byte(cfg.GitHub.WebhookSecret), Now: d.Now}))
+	if d.Projects != nil {
+		trackers.Register(githubproject.Kind, githubproject.Factory(githubproject.Deps{Projects: d.Projects, Issues: d.GitHub, Store: st, Secret: []byte(cfg.GitHub.WebhookSecret), Now: d.Now}))
+	}
 	tickets := tracker.New(tracker.Config{
 		Store: st, Registry: trackers, Gates: gateSvc, Authz: access, Runs: engine, MaxActiveGoals: cfg.Trackers.MaxActiveGoals,
 		Playbook: func(p domain.Project, k domain.GoalKind) string {

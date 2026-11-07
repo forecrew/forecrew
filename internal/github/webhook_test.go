@@ -166,9 +166,19 @@ func TestParseEventErrors(t *testing.T) {
 	wantErr(t, err, github.ErrUnsupportedEvent)
 	_, err = github.ParseEvent("fork", []byte(`{}`))
 	wantErr(t, err, github.ErrUnsupportedEvent)
+	_, err = github.ParseEvent("projects_v2_item", []byte(`{not json`))
+	wantErr(t, err, github.ErrBadPayload)
 	for _, kind := range []string{"issues", "issue_comment", "pull_request", "pull_request_review", "check_suite", "check_run", "status", "workflow_run", "push"} {
 		_, err = github.ParseEvent(kind, []byte(`{not json`))
 		wantErr(t, err, github.ErrBadPayload)
+	}
+}
+
+func TestParseProjectItem(t *testing.T) {
+	got, err := github.ParseEvent("projects_v2_item", []byte(`{"action":"edited","projects_v2_item":{"node_id":"PVTI_1"},"sender":{"login":"ann"}}`))
+	noErr(t, err)
+	if got.Kind != "projects_v2_item" || got.Action != "edited" || got.Actor != "ann" || got.Repo != "" {
+		t.Errorf("event = %+v", got)
 	}
 }
 
