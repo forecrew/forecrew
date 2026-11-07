@@ -909,3 +909,25 @@ export interface CliAuthorization {
   redirect: string
   code: string
 }
+
+/** A step of a change plan. Only the server writes steps; a secret_required one is a secure field. */
+export interface ConfigStep {
+  kind: "secret_required" | "connect"
+  resource: string
+  title: string
+  /** The name in the secret store of a secret_required step. */
+  secret?: string
+  filled: boolean
+}
+
+/** A change plan (docs/api.md, config). */
+export interface ConfigPlan {
+  id: string
+  status: string
+  title: string
+  steps: ConfigStep[]
+  lowers_protection: string[]
+  /** Typed to confirm a plan that lowers protection. */
+  confirm_word?: string
+  can_confirm: boolean
+}

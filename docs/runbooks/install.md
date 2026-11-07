@@ -179,8 +179,16 @@ stores the connections at startup, and the IDs are in the `login_url` of
   optional claim `xms_edov`; add `email` and `xms_edov` to the app's ID token.
 - **Any OpenID Connect provider** (`kind: oidc`): its `issuer`, with discovery.
 
-An organization's own connections use the secret names `env:FORECREW_CONN_*` or
-`secret:conn-*`, and link existing users only for domains it verified.
+An organization's own connections link existing users only for domains it
+verified. The web form and the plans behind it keep the client secret in the
+secret store (`store:conn-<name>`), written from a secure field and never shown
+again. `forecrew connections add` and `create_connection` still take a name
+(`env:FORECREW_CONN_*` or `secret:conn-*`) instead, and until every organization
+uses the store those names are shared: **any organization with
+`connection.manage` can name any `env:FORECREW_CONN_*` variable and send that
+secret to the issuer it chooses**. Put only connection secrets in that
+namespace, and do not run organizations that distrust each other on one server
+until they all use the store.
 
 ### First owner and sign-in
 

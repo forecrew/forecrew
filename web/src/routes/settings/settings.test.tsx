@@ -105,14 +105,76 @@ describe("members", () => {
     expect(within(table).getByText("you")).toBeInTheDocument()
   })
 
-  test("the last Owner cannot be suspended or removed, and the page says why", async () => {
-    asAdmin()
+  test("the last Owner cannot be demoted, suspended or removed, and the page says why", async () => {
+    asMe(fx.me)
     await renderApp("/settings/people")
     const table = await membersTable()
     const owner = within(table).getByText("Gianmaria").closest("tr")!
     expect(within(owner).getByRole("button", { name: "Remove Gianmaria" })).toBeDisabled()
     expect(within(owner).getByRole("button", { name: "Suspend Gianmaria" })).toBeDisabled()
+    expect(within(owner).getByRole("button", { name: "Change role of Gianmaria" })).toBeDisabled()
     expect(within(owner).getByText("The last Owner cannot be removed.")).toBeInTheDocument()
+    expect(within(owner).getByText("The last Owner cannot be demoted.")).toBeInTheDocument()
+  })
+
+  test("an Admin cannot act on an Owner and the buttons say why", async () => {
+    asAdmin()
+    const olga = { ...fx.members[0]!, user_id: "018f0000-0000-7000-8000-000000000399", name: "Olga" }
+    server.use(http.get("/api/v1/members", () => HttpResponse.json([...fx.members, olga])))
+    await renderApp("/settings/people")
+    const table = await membersTable()
+    const row = (await within(table).findByText("Olga")).closest("tr")!
+    for (const name of ["Change role of Olga", "Suspend Olga", "Remove Olga"]) expect(within(row).getByRole("button", { name })).toBeDisabled()
+    expect(within(row).getByText(/Only someone who holds everything owner does can change Olga \(you lack /)).toBeInTheDocument()
+    // Members the Admin may act on keep their buttons.
+    expect(within(within(table).getByText("Marta Rossi").closest("tr")!).getByRole("button", { name: "Remove Marta Rossi" })).toBeEnabled()
+  })
+
+  test("changes a role: the new one is given first, then the old one is taken", async () => {
+    asMe(fx.me)
+    const calls: string[] = []
+    server.use(
+      http.post("/api/v1/role-bindings", async ({ request }) => {
+        calls.push(`give ${JSON.stringify(await request.json())}`)
+        return HttpResponse.json(fx.roleBindingCreate, { status: 201 })
+      }),
+      http.delete("/api/v1/role-bindings/:id", ({ params }) => {
+        calls.push(`take ${String(params.id)}`)
+        return HttpResponse.json(fx.roleBindingDelete)
+      }),
+    )
+    const { user } = await renderApp("/settings/people")
+    await user.click(await screen.findByRole("button", { name: "Change role of Marta Rossi" }))
+    const dialog = await screen.findByRole("dialog")
+    await within(dialog).findByRole("option", { name: "admin" })
+    expect(within(dialog).getByLabelText("Role")).toHaveValue("member")
+    await user.selectOptions(within(dialog).getByLabelText("Role"), "admin")
+    await user.click(within(dialog).getByRole("button", { name: "Change role" }))
+    await waitFor(() => expect(calls).toHaveLength(2))
+    expect(calls).toEqual([`give {"subject_kind":"user","subject":"${fx.members[1]!.user_id}","role":"admin"}`, `take ${fx.roleBindings[3]!.id}`])
+  })
+
+  test("when the old role cannot be taken the new one is taken back and the reason shown", async () => {
+    asMe(fx.me)
+    const calls: string[] = []
+    server.use(
+      http.post("/api/v1/role-bindings", () => {
+        calls.push("give")
+        return HttpResponse.json(fx.roleBindingCreate, { status: 201 })
+      }),
+      http.delete("/api/v1/role-bindings/:id", ({ params }) => {
+        calls.push(`take ${String(params.id)}`)
+        return String(params.id) === fx.roleBindingCreate.id ? HttpResponse.json(fx.roleBindingDelete) : errors.lastOwner()
+      }),
+    )
+    const { user } = await renderApp("/settings/people")
+    await user.click(await screen.findByRole("button", { name: "Change role of Marta Rossi" }))
+    const dialog = await screen.findByRole("dialog")
+    await within(dialog).findByRole("option", { name: "admin" })
+    await user.selectOptions(within(dialog).getByLabelText("Role"), "viewer")
+    await user.click(within(dialog).getByRole("button", { name: "Change role" }))
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("must keep an active owner")
+    expect(calls).toEqual(["give", `take ${fx.roleBindings[3]!.id}`, `take ${fx.roleBindingCreate.id}`])
   })
 
   test("suspends after confirming, resumes at once and removes after confirming", async () => {
@@ -378,6 +440,7 @@ describe("service accounts", () => {
     expect(await within(ci).findByText("ci-box")).toBeInTheDocument()
     expect(within(ci).getByText("admin")).toBeInTheDocument()
     expect(within(ci).getByText("revoked")).toBeInTheDocument()
+    expect(within(ci).queryByRole("button", { name: "Revoke ci-box" })).not.toBeInTheDocument()
     const old = screen.getByRole("region", { name: "Service account old-bot" })
     expect(within(old).getByText("Disabled")).toBeInTheDocument()
     expect(within(old).queryByRole("form")).not.toBeInTheDocument() // no token for a disabled account
@@ -478,35 +541,60 @@ describe("sign-in", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("no test sign-in that worked")
   })
 
-  test("adds a connection with the secret as a reference, and says where to allow the redirect", async () => {
+  test("adds a connection through a plan with a secure field, and says where to allow the redirect", async () => {
     asAdmin()
-    let body: unknown
+    const calls: { path: string; body: unknown }[] = []
     server.use(
-      http.post("/api/v1/connections", async ({ request }) => {
-        body = await request.json()
-        return HttpResponse.json(fx.connectionCreate, { status: 201 })
+      http.post("/api/v1/config/plans", async ({ request }) => {
+        calls.push({ path: "plan", body: await request.json() })
+        return HttpResponse.json(fx.configPlanConnection, { status: 201 })
+      }),
+      http.put("/api/v1/config/plans/:plan/secrets/:secret", async ({ request, params }) => {
+        calls.push({ path: `secret ${String(params.secret)}`, body: await request.json() })
+        return HttpResponse.json(fx.configPlanSecret)
+      }),
+      http.post("/api/v1/config/plans/:plan/apply", () => {
+        calls.push({ path: "apply", body: undefined })
+        return HttpResponse.json(fx.configPlanApply)
       }),
     )
     const { user } = await renderApp("/settings/sign-in")
     await user.click(await screen.findByRole("button", { name: "Add company sign-in" }))
     const dialog = await screen.findByRole("dialog")
     await user.click(within(dialog).getByRole("button", { name: "Add sign-in" }))
-    for (const text of [/Use lowercase letters/, /https address of the issuer/, /client ID from your provider/, /Use env:FORECREW_CONN_NAME/]) {
+    for (const text of [/Use lowercase letters/, /https address of the issuer/, /client ID from your provider/, /Paste the client secret/]) {
       expect(within(dialog).getByText(text)).toBeInTheDocument()
     }
     await user.type(within(dialog).getByLabelText("Name"), "okta")
     await user.type(within(dialog).getByLabelText("Issuer"), "https://acme.okta.com")
     await user.type(within(dialog).getByLabelText("Client ID"), "0oa1")
-    await user.type(within(dialog).getByLabelText("Client secret reference"), "env:FORECREW_CONN_OKTA")
+    const secret = within(dialog).getByLabelText("Client secret")
+    expect(secret).toHaveAttribute("type", "password") // a secure field
+    await user.type(secret, "the-client-secret")
     await user.click(within(dialog).getByRole("button", { name: "Add sign-in" }))
     const status = await screen.findByRole("status")
     expect(status).toHaveTextContent("Allow this redirect address")
-    expect(body).toEqual({ kind: "oidc", name: "okta", issuer: "https://acme.okta.com", client_id: "0oa1", client_secret_ref: "env:FORECREW_CONN_OKTA" })
+    // The plan asks for a connection that starts off, with a stored secret; the secret goes only to its own call.
+    expect(calls.map((c) => c.path)).toEqual(["plan", "secret conn-okta", "apply"])
+    expect(calls[0]!.body).toEqual({
+      title: "Add sign-in okta", source: "form",
+      changes: [{ kind: "connection", name: "okta", spec: { kind: "oidc", client_id: "0oa1", client_secret_ref: "store:conn-okta", jit: { enabled: false }, enabled: false, issuer: "https://acme.okta.com" } }],
+    })
+    expect(calls[1]!.body).toEqual({ value: "the-client-secret" })
+    expect(JSON.stringify(calls[0]!.body)).not.toContain("the-client-secret")
+    expect(document.body.textContent).not.toContain("the-client-secret")
   })
 
-  test("GitHub and Google need no issuer, and a refused connection shows why", async () => {
+  test("GitHub and Google need no issuer, and a refused plan is canceled and shown", async () => {
     asAdmin()
-    server.use(http.post("/api/v1/connections", errors.invalidInput))
+    let canceled = false
+    server.use(
+      http.put("/api/v1/config/plans/:plan/secrets/:secret", errors.conflict),
+      http.post("/api/v1/config/plans/:plan/cancel", () => {
+        canceled = true
+        return HttpResponse.json(fx.configPlanCancel)
+      }),
+    )
     const { user } = await renderApp("/settings/sign-in")
     await user.click(await screen.findByRole("button", { name: "Add company sign-in" }))
     const dialog = await screen.findByRole("dialog")
@@ -514,7 +602,22 @@ describe("sign-in", () => {
     expect(within(dialog).queryByLabelText("Issuer")).not.toBeInTheDocument()
     await user.type(within(dialog).getByLabelText("Name"), "google")
     await user.type(within(dialog).getByLabelText("Client ID"), "123.apps")
-    await user.type(within(dialog).getByLabelText("Client secret reference"), "secret:conn-google")
+    await user.type(within(dialog).getByLabelText("Client secret"), "s3cret")
+    await user.click(within(dialog).getByRole("button", { name: "Add sign-in" }))
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("already approved")
+    expect(canceled).toBe(true)
+  })
+
+  test("a plan the server refuses outright shows its message", async () => {
+    asAdmin()
+    server.use(http.post("/api/v1/config/plans", errors.invalidInput))
+    const { user } = await renderApp("/settings/sign-in")
+    await user.click(await screen.findByRole("button", { name: "Add company sign-in" }))
+    const dialog = await screen.findByRole("dialog")
+    await user.selectOptions(within(dialog).getByLabelText("Provider"), "github")
+    await user.type(within(dialog).getByLabelText("Name"), "gh")
+    await user.type(within(dialog).getByLabelText("Client ID"), "Iv1")
+    await user.type(within(dialog).getByLabelText("Client secret"), "s")
     await user.click(within(dialog).getByRole("button", { name: "Add sign-in" }))
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("feedback is required")
   })
@@ -569,5 +672,24 @@ describe("change history", () => {
     server.use(http.get("/api/v1/audit", () => HttpResponse.json(fx.auditEmpty)))
     await renderApp("/settings/history")
     expect(await screen.findByText(/No changes yet/)).toBeInTheDocument()
+  })
+})
+
+describe("tokens of a service account", () => {
+  test("revokes one after confirming", async () => {
+    asAdmin()
+    const revoked: string[] = []
+    server.use(
+      http.get("/api/v1/tokens", () => HttpResponse.json(fx.tokensScopes)),
+      http.post("/api/v1/tokens/:id/revoke", ({ params }) => {
+        revoked.push(String(params.id))
+        return HttpResponse.json(fx.tokenRevoke)
+      }),
+    )
+    const { user } = await renderApp("/settings/people?tab=service-accounts")
+    const ci = await screen.findByRole("region", { name: "Service account ci" })
+    await user.click(await within(ci).findByRole("button", { name: "Revoke deploy" }))
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Revoke deploy" }))
+    await waitFor(() => expect(revoked).toEqual([fx.tokensScopes.find((t) => t.name === "deploy")!.id]))
   })
 })

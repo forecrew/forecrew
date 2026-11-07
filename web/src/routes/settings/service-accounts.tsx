@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { PermButton, useCan } from "@/lib/permissions"
-import { Expiry, Scopes } from "../account"
+import { Expiry, RevokeToken, Scopes } from "../account"
 
 function CreateAccount() {
   const can = useCan()
@@ -103,7 +103,7 @@ function AccountCard({ account }: { account: ServiceAccount }) {
                 {own.map((t) => (
                   <li key={t.id} className="flex flex-wrap items-center gap-2">
                     <span className="font-mono">{t.name}</span> <Scopes token={t} /> <Expiry token={t} />
-                    {t.revoked_at ? <StatusBadge tone="bad">revoked</StatusBadge> : null}
+                    {t.revoked_at ? <StatusBadge tone="bad">revoked</StatusBadge> : <RevokeToken token={t} />}
                     <span className="text-muted-foreground">
                       used <Age iso={t.last_used_at} ago />
                     </span>

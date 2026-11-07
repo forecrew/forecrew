@@ -21,7 +21,7 @@ export function capText(ttl: string): string {
 }
 
 /** A "Revoke" button that asks for confirmation; revoking the token in use logs you out. */
-function RevokeToken({ token }: { token: Token }) {
+export function RevokeToken({ token }: { token: Token }) {
   const qc = useQueryClient()
   const navigate = useNavigate()
   return (
