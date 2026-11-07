@@ -26,6 +26,7 @@ commands:
   run      poll forecrewd for jobs and run them (--config worker.yaml)
   check    print the detected labels and verify git, the runtime CLIs and the server (--config worker.yaml)
   version  print the version
+  guest-init  be PID 1 of a microVM (the kernel starts it; docs/images.md)
 `
 
 func main() {
@@ -49,6 +50,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, environ [
 	case "version", "--version", "-version":
 		fmt.Fprintf(stdout, "forecrew-worker %s\n", version)
 		return 0
+	case "guest-init":
+		return guestInit(stderr, version)
 	case "run", "check":
 		return runWithConfig(ctx, cmd, rest, stdout, stderr, environ, version)
 	case "help", "-h", "--help", "-help":

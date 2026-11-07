@@ -63,7 +63,7 @@ done
 # The worker and the files that start it.
 install -d -m 0755 /opt/forecrew /etc/forecrew /var/lib/forecrew-worker
 install -m 0755 /tmp/forecrew-worker /opt/forecrew/forecrew-worker
-install -m 0755 /tmp/forecrew-guest/forecrew-init /tmp/forecrew-guest/forecrew-start /opt/forecrew/
+install -m 0755 /tmp/forecrew-guest/forecrew-start /opt/forecrew/
 for l in $labels; do echo "$l"; done >/etc/forecrew/labels
 /opt/forecrew/forecrew-worker version
 

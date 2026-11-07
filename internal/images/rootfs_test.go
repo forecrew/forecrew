@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeDocker serves a tar made by the test.
@@ -174,11 +175,10 @@ func TestConvert(t *testing.T) {
 		t.Errorf("labels = %q", got)
 	}
 	for request, want := range map[string]string{
-		"stat /opt/forecrew/forecrew-init": "Mode:  0755",
-		"stat /etc/release":                "os-release",
-		"stat /etc/alias":                  "Links: 2",
-		"stat /secret/key":                 "Mode:  0400",
-		"stat /etc/os-release":             "User:  1234",
+		"stat /etc/release":    "os-release",
+		"stat /etc/alias":      "Links: 2",
+		"stat /secret/key":     "Mode:  0400",
+		"stat /etc/os-release": "User:  1234",
 	} {
 		if got := debugfs(t, res.Path, request); !strings.Contains(got, want) {
 			t.Errorf("%s: no %q in\n%s", request, want, got)
@@ -456,8 +456,118 @@ func TestGuestErrors(t *testing.T) {
 	worker := filepath.Join(dir, "w")
 	_ = os.WriteFile(worker, []byte("w"), 0o600)
 	files, err := Guest(worker, nil)
-	if err != nil || len(files) != 4 {
+	if err != nil || len(files) != 3 {
 		t.Fatalf("no labels: %d files, %v", len(files), err)
+	}
+	// A dynamic binary would start through the image's own linker.
+	if dynamic, err := exec.LookPath("ls"); err == nil {
+		if raw, _ := os.ReadFile(dynamic); dynamicELF(raw) {
+			if _, err := Guest(dynamic, nil); err == nil || !strings.Contains(err.Error(), "CGO_ENABLED=0") {
+				t.Errorf("a dynamic worker: %v", err)
+			}
+		}
+	}
+}
+
+// The image cannot put its own files where the kernel starts PID 1.
+func TestPrepareTarKeepsOptForecrew(t *testing.T) {
+	files := []File{{Path: GuestWorker, Mode: 0o755, Data: []byte("ours")}}
+	dst := filepath.Join(t.TempDir(), "out.tar")
+	src := makeTar(t,
+		entry{name: "opt/", typ: tar.TypeDir, mode: 0o755},
+		entry{name: "opt/forecrew/", typ: tar.TypeDir, mode: 0o755},
+		entry{name: "opt/forecrew/forecrew-worker2", typ: tar.TypeReg, mode: 0o755, content: "theirs"},
+		entry{name: "opt/forecrew/evil", typ: tar.TypeSymlink, link: "/bin/sh"},
+	)
+	if _, err := prepareTar(bytes.NewReader(src), files, dst); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte("theirs")) || bytes.Contains(raw, []byte("forecrew/evil")) {
+		t.Error("the image's /opt/forecrew was kept")
+	}
+	for _, typ := range []byte{tar.TypeSymlink, tar.TypeReg} {
+		bad := makeTar(t, entry{name: "opt", typ: typ, link: "/tmp", mode: 0o644})
+		if _, err := prepareTar(bytes.NewReader(bad), files, dst); err == nil || !strings.Contains(err.Error(), "must be a directory") {
+			t.Errorf("an /opt of type %c: %v", typ, err)
+		}
+	}
+}
+
+func TestPruneCache(t *testing.T) {
+	dir := t.TempDir()
+	old, recent, stale := filepath.Join(dir, "old.ext4"), filepath.Join(dir, "recent.ext4"), filepath.Join(dir, ".convert-1")
+	for _, f := range []string{old, recent} {
+		if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(stale, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	week := time.Now().Add(-7 * 24 * time.Hour)
+	for _, f := range []string{old, stale} {
+		if err := os.Chtimes(f, week, week); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := PruneCache(dir, 24*time.Hour, true)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("dry run = %v, %v", got, err)
+	}
+	if _, err := os.Stat(old); err != nil {
+		t.Error("a dry run removed a file")
+	}
+	got, err = PruneCache(dir, 24*time.Hour, false)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("prune = %v, %v", got, err)
+	}
+	if _, err := os.Stat(recent); err != nil {
+		t.Error("a recent file was removed")
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("an old file was kept")
+	}
+	if got, err := PruneCache(filepath.Join(dir, "missing"), time.Hour, false); err != nil || got != nil {
+		t.Errorf("missing cache = %v, %v", got, err)
+	}
+	if _, err := PruneCache(recent, time.Hour, false); err == nil {
+		t.Error("a file as the cache: no error")
+	}
+}
+
+// A cache hit counts as a use, for PruneCache.
+func TestCacheHitIsAUse(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.ext4")
+	if hit(path) {
+		t.Error("a missing file is a hit")
+	}
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	week := time.Now().Add(-7 * 24 * time.Hour)
+	_ = os.Chtimes(path, week, week)
+	if !hit(path) {
+		t.Fatal("no hit")
+	}
+	if st, _ := os.Stat(path); st.ModTime().Before(time.Now().Add(-time.Hour)) {
+		t.Error("the hit did not mark the use")
+	}
+}
+
+func TestCheckMke2fs(t *testing.T) {
+	if err := CheckMke2fs(t.Context(), stubMke2fs(t, "1.47.4", false)); err != nil {
+		t.Error(err)
+	}
+	if err := CheckMke2fs(t.Context(), stubMke2fs(t, "1.47.0", false)); err == nil {
+		t.Error("an old mke2fs passed")
+	}
+	t.Setenv("PATH", t.TempDir())
+	if err := CheckMke2fs(t.Context(), ""); err == nil {
+		t.Error("no mke2fs passed")
 	}
 }
 
@@ -480,13 +590,8 @@ func toolboxBaseTar(t *testing.T) []byte {
 func TestConvertAcceptsForecrewsToolboxBase(t *testing.T) {
 	c := &Converter{CacheDir: t.TempDir(), Mke2fs: stubMke2fs(t, "1.47.4", false)}
 	env := []string{"PATH=/opt/forecrew-cli/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
-	res, err := c.ConvertTar(t.Context(), bytes.NewReader(toolboxBaseTar(t)), "toolbox", "id", Request{Env: env})
-	if err != nil {
+	if _, err := c.ConvertTar(t.Context(), bytes.NewReader(toolboxBaseTar(t)), "toolbox", "id", Request{Env: env}); err != nil {
 		t.Fatalf("the toolbox base was refused: %v", err)
-	}
-	// ip is missing, which only warns: the kernel's ip= can configure the network.
-	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "ip (") {
-		t.Errorf("warnings = %v", res.Warnings)
 	}
 	// Without the image's PATH the CLIs are not found: the layout is the reason, not the image.
 	if _, err := c.ConvertTar(t.Context(), bytes.NewReader(toolboxBaseTar(t)), "no-path", "id2", Request{}); err == nil || !strings.Contains(err.Error(), "claude") {

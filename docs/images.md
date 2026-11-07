@@ -72,14 +72,11 @@ passes.
 
 | Needs | Why |
 |-------|-----|
-| `sh` | the init and `forecrew-start` are POSIX shell scripts |
+| `sh` | the worker and jobs run commands with it; `forecrew-start` of VM images is a POSIX shell script |
 | `git` | the worker clones and commits with it |
 | CA certificates | the worker and git speak HTTPS |
 | `claude`, `codex`, `opencode` | the agent CLIs of agent jobs; `--no-agent-clis` for an image of command jobs only |
-| `ip` (iproute2), optional | the init configures the network from `forecrew.ip=`; without it the conversion only warns and the kernel's own `ip=` must configure the network (the init says so at boot) |
 
-`forecrew-start` checks `git` and the worker again when the machine boots, with
-the image's own `PATH`, and fails with the reason instead of on the first job.
 The image's **environment** (a Docker image's `Config.Env`: `PATH` to its
 toolchains, `GOFLAGS`, ...) is saved to `/etc/forecrew/env` and applied to the
 worker as data (names are checked, `FORECREW_*` is reserved, nothing is run as
@@ -96,7 +93,8 @@ forecrew image rootfs --from forecrew-env:3f9a... --worker ./forecrew-worker --l
 
 The command exports the image's file system by its content ID (so a tag that
 moves meanwhile cannot change what is converted), adds the worker and the guest
-files (`/opt/forecrew/`) and the image's environment, and makes an ext4 file with
+files (`/opt/forecrew/`, which is Forecrew's: whatever the image has there is
+dropped, and an `/opt` that is not a directory is refused) and the image's environment, and makes an ext4 file with
 `mke2fs`. The result is cached under the image's content ID, the added files and
 the size, so the same environment hash is converted once and every later machine
 reuses the file. Device nodes are dropped (the guest mounts `devtmpfs`), paths
@@ -110,12 +108,29 @@ shape's `disk_gb`.
 `internal/images/guest` is the one copy of what runs in a machine, used by the
 converter and the templates alike.
 
-- `forecrew-init` is PID 1 of a microVM (`init=/opt/forecrew/forecrew-init`). It
-  mounts the pseudo file systems, brings up the network from the kernel command
-  line (`forecrew.ip=`, `forecrew.gw=`, `forecrew.dns=`), copies `bootstrap.env`
-  from the **config disk** (`forecrew.config=`, default `/dev/vdb`, ext4 or
-  vfat, read-only) into `/run`, which is RAM, runs the worker and powers the
-  machine off when it ends.
+- **PID 1 of a microVM is `forecrew-worker guest-init`**, started by the kernel
+  (`init=/opt/forecrew/forecrew-worker -- guest-init`). It is a static program
+  on purpose: a root disk converted from a repo's Dockerfile holds the repo's
+  `/bin/sh`, `git`, CA bundle, `/etc/hosts` and proxy settings, so **nothing of
+  the image runs, and nothing the image says is used, until the machine's
+  bootstrap token is spent**. The init mounts the pseudo file systems and
+  `cgroup2`, loads the kernel modules the command line names
+  (`forecrew.modules=`, never a list of the image's), brings up the network over
+  netlink (`forecrew.ip=`, `forecrew.gw=`, `forecrew.dns=`), grows the root file
+  system to its disk (`forecrew.root=`), mounts the read-only cache disk
+  (`forecrew.cache=`, at `/var/cache/forecrew`), and reads the **config disk**
+  (`forecrew.config=`, default `/dev/vdb`). That disk holds the settings and the
+  token, the server's addresses as the host resolved them and, for https, the CA
+  bundle of the host; the init **wipes it** once read. It then trades the token
+  for a worker token itself, dialling only those addresses, with no proxy and
+  only that CA. Only then does it start the image's `dockerd`, if there is one,
+  and the worker, with the worker token, the image's environment and labels
+  read as data, and `worker.yaml` in `/run`. When the worker ends the machine
+  ends (`forecrew.halt=reboot` for Firecracker, `poweroff` for Cloud
+  Hypervisor). A refused token ends it before anything of the image runs.
+  What runs after the exchange runs as root in the guest with the worker, as
+  every job does: it can reach the worker token (workers are not a boundary
+  from their own user), but the bootstrap token is spent.
 - `forecrew-start` (Linux, macOS) and `forecrew-start.ps1` (Windows) read the
   settings the provider delivered, write `worker.yaml` and run the worker with
   only its token and the image's environment. The settings file is read as data,
@@ -132,7 +147,7 @@ Where the file goes, and what that means for the token:
 
 | OS | Path | Storage | Delivery the provider must use |
 |----|------|---------|--------------------------------|
-| Linux microVM | `/run/forecrew/bootstrap.env` | RAM (`/run` is tmpfs), copied by the init from the config disk | a read-only config disk made for this machine |
+| Linux microVM | none: the init reads the config disk into memory | the config disk, wiped by the guest once read, and removed with the machine | a config disk made for this machine (`guestinit.Encode`) |
 | Linux VM (systemd) | `/run/forecrew/bootstrap.env` | RAM, but see below | a config drive the guest copies into `/run`; cloud-init `write_files` works but **cloud-init keeps its user-data, token included, on the machine's disk** (`/var/lib/cloud`) until the machine is destroyed |
 | macOS (Tart) | `/var/run/forecrew/bootstrap.env` | **the machine's own disk**, mode 0700 root | `tart exec` into the running machine after it is assigned |
 | Windows | `C:\ProgramData\Forecrew\run\bootstrap.env` | **the machine's own disk**, ACL for SYSTEM and administrators only | into the running machine after it is assigned: Hyper-V PowerShell Direct. WinRM is turned off in the image, so it is not a route. A Proxmox clone needs the QEMU guest agent or a config disk the guest copies the file from, which T62 must provide |
@@ -188,6 +203,12 @@ starts, is in use. So a running fleet is never pulled from under. A scheduled
 prune means a person's token on a cron job (`forecrew image prune` calls the
 API, and deleting an image is for a person, not a service account); forecrewd
 does not prune by itself.
+
+Files on a machine are not images of the server. `forecrew image prune-cache
+[--cache DIR] [--days 30] [--dry-run]` removes the root filesystems `forecrew
+image rootfs` converted and has not used (converted or found in the cache) for
+that many days, and what an interrupted conversion left. A fleet agent cleans
+its own cache of fetched images by the same rule (docs/fleet.md).
 
 ## Windows and macOS builds
 

@@ -264,11 +264,10 @@ func TestImageRootfsCommand(t *testing.T) {
 	if st, err := os.Stat(strings.TrimSpace(out)); err != nil || st.Size() != 600<<20 {
 		t.Errorf("file: %v, %v", st, err)
 	}
-	// A missing ip only warns.
-	if !strings.Contains(errOut, "warning: the image lacks ip") {
-		t.Errorf("no warning about ip: %q", errOut)
+	if errOut != "" {
+		t.Errorf("stderr = %q", errOut)
 	}
-	// The agent CLIs are required unless the image is for command jobs.
+	checkPruneCache(t, e, cache, strings.TrimSpace(out))
 	if _, errOut, code := e.run(t, "image", "rootfs", "--tar", tarball, "--name", "agents", "--worker", worker, "--cache", cache, "--mke2fs", stub); code == 0 || !strings.Contains(errOut, "claude") {
 		t.Errorf("agent image without CLIs: %d %s", code, errOut)
 	}
@@ -305,4 +304,27 @@ func tinyTar(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return b.Bytes()
+}
+
+// checkPruneCache runs prune-cache on a cache holding file.
+func checkPruneCache(t *testing.T, e *remoteEnv, cache, file string) {
+	t.Helper()
+	// prune-cache leaves what was just used.
+	if out, _, code := e.run(t, "image", "prune-cache", "--cache", cache, "--dry-run"); code != 0 || out != "Nothing to remove.\n" {
+		t.Errorf("prune-cache: %d %q", code, out)
+	}
+	if out, _, code := e.run(t, "image", "prune-cache", "--cache", cache, "--days", "0"); code == 0 {
+		t.Errorf("--days 0: %q", out)
+	}
+	week := time.Now().Add(-40 * 24 * time.Hour)
+	if err := os.Chtimes(file, week, week); err != nil {
+		t.Fatal(err)
+	}
+	if got, _, code := e.run(t, "image", "prune-cache", "--cache", cache, "--dry-run"); code != 0 || !strings.HasPrefix(got, "Would remove "+file) {
+		t.Errorf("prune-cache --dry-run: %d %q", code, got)
+	}
+	if got, _, code := e.run(t, "image", "prune-cache", "--cache", cache); code != 0 || !strings.HasPrefix(got, "Removed ") {
+		t.Errorf("prune-cache: %d %q", code, got)
+	}
+	// The agent CLIs are required unless the image is for command jobs.
 }

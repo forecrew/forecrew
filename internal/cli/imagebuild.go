@@ -18,7 +18,58 @@ import (
 // local files and need no server: the key, the manifest, the signature and
 // the root filesystem.
 func imageBuildCommands() []*cobra.Command {
-	return []*cobra.Command{imageKeygenCommand(), imageManifestCommand(), imageSignCommand(), imageVerifyCommand(), imageRootfsCommand()}
+	return []*cobra.Command{imageKeygenCommand(), imageManifestCommand(), imageSignCommand(), imageVerifyCommand(), imageRootfsCommand(), imagePruneCacheCommand()}
+}
+
+// cacheDir is dir, or the user's cache of converted files.
+func cacheDir(dir string) (string, error) {
+	if dir != "" {
+		return dir, nil
+	}
+	base, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("no cache directory: pass --cache: %w", err)
+	}
+	return filepath.Join(base, "forecrew-images"), nil
+}
+
+// imagePruneCacheCommand cleans the root filesystems `image rootfs` left on this
+// machine. `image prune` is about the images of the server, and knows nothing of
+// a machine's files.
+func imagePruneCacheCommand() *cobra.Command {
+	var cache string
+	var days int
+	var dry bool
+	cmd := &cobra.Command{
+		Use:   "prune-cache",
+		Short: "Remove converted root filesystems of this machine not used for a while (--days, default 30)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if days < 1 {
+				return errors.New("--days must be at least 1")
+			}
+			dir, err := cacheDir(cache)
+			if err != nil {
+				return err
+			}
+			removed, err := images.PruneCache(dir, time.Duration(days)*24*time.Hour, dry)
+			verb := "Removed"
+			if dry {
+				verb = "Would remove"
+			}
+			for _, f := range removed {
+				cmd.Printf("%s %s\n", verb, f)
+			}
+			if err == nil && len(removed) == 0 {
+				cmd.Println("Nothing to remove.")
+			}
+			return err
+		},
+	}
+	cmd.Flags().StringVar(&cache, "cache", "", "the directory of `image rootfs --cache`; default the user cache directory")
+	cmd.Flags().IntVar(&days, "days", 30, "remove what was not used for this many days")
+	cmd.Flags().BoolVar(&dry, "dry-run", false, "only say what would be removed")
+	return cmd
 }
 
 func imageKeygenCommand() *cobra.Command {
@@ -212,19 +263,16 @@ func imageRootfsCommand() *cobra.Command {
 		Short: "Make the ext4 root filesystem a microVM boots from a Docker image",
 		Long: "Convert a Docker image, such as an environment's forecrew-env:<hash> or a toolbox image, into an ext4 file system " +
 			"with the worker and its start-up files added. The result is cached by the image's content, the added files and the size, " +
-			"so the same environment is converted once. It needs mke2fs 1.47.1 or newer with libarchive (libarchive13t64 on Debian and Ubuntu), and the image must have sh, ip, git, CA certificates and the agent CLIs: the command says what is missing. " +
+			"so the same environment is converted once. It needs mke2fs 1.47.1 or newer with libarchive (libarchive13t64 on Debian and Ubuntu), and the image must have sh, git, CA certificates and the agent CLIs: the command says what is missing. " +
 			"--worker is a static forecrew-worker binary for the image's architecture. Prints the file's path.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if (from == "") == (tarFile == "") {
 				return errors.New("give exactly one of --from and --tar")
 			}
-			if cache == "" {
-				dir, err := os.UserCacheDir()
-				if err != nil {
-					return fmt.Errorf("no cache directory: pass --cache: %w", err)
-				}
-				cache = filepath.Join(dir, "forecrew-images")
+			cache, err := cacheDir(cache)
+			if err != nil {
+				return err
 			}
 			files, err := images.Guest(worker, labels)
 			if err != nil {
@@ -240,9 +288,6 @@ func imageRootfsCommand() *cobra.Command {
 			}
 			if err != nil {
 				return err
-			}
-			for _, w := range res.Warnings {
-				cmd.PrintErrln("warning:", w)
 			}
 			cmd.Println(res.Path)
 			return nil
