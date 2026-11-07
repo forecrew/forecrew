@@ -1,5 +1,5 @@
 import type {
-  Account, ConfigPlan, AuditEntry, AuditFilter, BrowserSession, CliAuthorization, Connection, CreateConnectionInput, CreatedInvitation, CreatedToken, Identity,
+  Account, AssistantConversation, AssistantView, ConfigApplied, ConfigConfirmation, ConfigPlan, ConfigResource, ConfigWanted, CreatedJoinCode, FleetOverview, ImageManifest, JoinCode, Machine, Provider, Shape, AuditEntry, AuditFilter, BrowserSession, CliAuthorization, Connection, CreateConnectionInput, CreatedInvitation, CreatedToken, Identity,
   Invitation, Member, Role, RoleBinding, Scope, ServiceAccount, Team, TeamMember,
   Artifact, Assumption, AssumptionStatus, Council, CouncilDetail, CouncilStatus, Decision, StartCouncilInput,
   CreateGoalInput, Discovery, DispatchJobInput, ErrorBody, Gate, GateInfo, Goal, GoalDetail, GoalStatus, Job, JobInfo,
@@ -148,13 +148,37 @@ export const api = {
     request<ServiceAccount>("POST", `/api/v1/service-accounts/${seg(name)}/${disabled ? "disable" : "enable"}`),
 
   /** A plan of changes made from a form; it is applied with applyPlan once its secure fields are filled. */
-  planConfig: (title: string, changes: { kind: string; name: string; spec: unknown }[]) =>
-    request<ConfigPlan>("POST", "/api/v1/config/plans", { title, changes, source: "form" }),
+  planConfig: (title: string, changes: ConfigWanted[], asked?: string) =>
+    request<ConfigPlan>("POST", "/api/v1/config/plans", { title, changes, source: "form", ...(asked ? { request: asked } : {}) }),
   /** Saves a secure field of a plan; the value goes to the secret store and is never read back. */
   putPlanSecret: (plan: string, secret: string, value: string) =>
     request<ConfigPlan>("PUT", `/api/v1/config/plans/${seg(plan)}/secrets/${seg(secret)}`, { value }),
-  applyPlan: (plan: string, word?: string) => request<{ plan: ConfigPlan }>("POST", `/api/v1/config/plans/${seg(plan)}/apply`, word ? { word } : {}),
+  /** Confirms a plan; word is what a person types to confirm one that lowers protection. */
+  applyPlan: (plan: string, word?: string) => request<ConfigApplied>("POST", `/api/v1/config/plans/${seg(plan)}/apply`, word ? { word } : {}),
+  getPlan: (plan: string) => request<ConfigPlan>("GET", `/api/v1/config/plans/${seg(plan)}`),
   cancelPlan: (plan: string) => request<ConfigPlan>("POST", `/api/v1/config/plans/${seg(plan)}/cancel`),
+  /** Sends a plan to the Inbox of the people who can confirm it. */
+  requestApproval: (plan: string) => request<ConfigConfirmation>("POST", `/api/v1/config/plans/${seg(plan)}/request-approval`),
+  revertPlan: (plan: string) => request<ConfigPlan>("POST", `/api/v1/config/plans/${seg(plan)}/revert`),
+  listPlans: (f: { inbox?: boolean; limit?: number } = {}) =>
+    request<ConfigPlan[]>("GET", `/api/v1/config/plans${query({ inbox: f.inbox ? "true" : undefined, limit: f.limit })}`),
+  getResources: (kind: string, name?: string) => request<ConfigResource[]>("GET", `/api/v1/config/resources${query({ kind, name })}`),
+  exportConfig: () => request<{ yaml: string }>("GET", "/api/v1/config/export"),
+  importConfig: (yaml: string) => request<ConfigPlan>("POST", "/api/v1/config/import", { yaml }),
+
+  sendAssistant: (input: { message: string; conversation?: string; page?: string }) => request<AssistantView>("POST", "/api/v1/assistant/messages", input),
+  getConversation: (id: string) => request<AssistantView>("GET", `/api/v1/assistant/conversations/${seg(id)}`),
+  listConversations: () => request<AssistantConversation[]>("GET", "/api/v1/assistant/conversations"),
+
+  getFleet: () => request<FleetOverview>("GET", "/api/v1/fleet"),
+  listProviders: () => request<Provider[]>("GET", "/api/v1/providers"),
+  listShapes: () => request<Shape[]>("GET", "/api/v1/shapes"),
+  listMachines: () => request<Machine[]>("GET", "/api/v1/machines"),
+  createJoinCode: (cloud = false) => request<CreatedJoinCode>("POST", "/api/v1/join-codes", cloud ? { cloud } : {}),
+  listJoinCodes: () => request<JoinCode[]>("GET", "/api/v1/join-codes"),
+  confirmJoin: (join: string, name: string, factsHash: string) =>
+    request<Provider>("POST", `/api/v1/join-codes/${seg(join)}/confirm`, { name, facts_hash: factsHash }),
+  registerImage: (manifest: ImageManifest) => request<{ name: string; version: string }>("POST", "/api/v1/images", manifest),
 
   listConnections: () => request<Connection[]>("GET", "/api/v1/connections"),
   createConnection: (input: CreateConnectionInput) => request<Connection>("POST", "/api/v1/connections", input),

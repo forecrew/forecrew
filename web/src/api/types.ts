@@ -967,19 +967,279 @@ export interface ConfigStep {
   kind: "secret_required" | "connect"
   resource: string
   title: string
+  detail?: string
   /** The name in the secret store of a secret_required step. */
   secret?: string
+  /** The secret was saved before this plan: confirming uses it and takes no input. */
+  reuses?: boolean
   filled: boolean
 }
 
-/** A change plan (docs/api.md, config). */
+export type ConfigPlanStatus = "pending" | "awaiting_approval" | "applied" | "canceled" | "reverted" | "expired"
+export type ConfigPlanSource = "form" | "assistant" | "yaml" | "cli" | "mcp"
+
+/** One field of a change, as text for people. */
+export interface ConfigFieldChange {
+  path: string
+  old?: string
+  new?: string
+}
+
+/** One resource change of a plan; line is the change in one readable line, with its sign. */
+export interface ConfigChange {
+  op: "create" | "update" | "delete"
+  kind: string
+  name: string
+  old?: unknown
+  new?: unknown
+  fields: ConfigFieldChange[]
+  line: string
+}
+
+/** A change plan (docs/api.md, config), as the server shows it. */
 export interface ConfigPlan {
   id: string
-  status: string
+  status: ConfigPlanStatus
+  source: ConfigPlanSource
+  /** The MCP client that sent it. */
+  client?: string
   title: string
+  /** The sentence that asked for it. */
+  request?: string
+  /** "now", or "pr:owner/name" for repo files. */
+  applies: string
+  changes: ConfigChange[]
   steps: ConfigStep[]
+  needs: Permission[]
+  affects: string
+  cost: string
+  undo: string
+  reversible: boolean
   lowers_protection: string[]
   /** Typed to confirm a plan that lowers protection. */
   confirm_word?: string
+  /** Text the plan draws on that nobody verified. */
+  untrusted?: string
+  created_by: string
+  conversation_id?: string
+  reverts?: string
+  expires_at: string
+  applied_by?: string
+  applied_at?: string
+  pr_url?: string
+  created_at: string
   can_confirm: boolean
+  /** The configuration moved since the plan was made: it has to be rebuilt. */
+  stale: boolean
+}
+
+/** A value Forecrew generated, shown once and stored nowhere. */
+export interface ShowOnceValue {
+  label: string
+  value: string
+}
+
+/** The answer of applying a plan. */
+export interface ConfigApplied {
+  plan: ConfigPlan
+  show_once: ShowOnceValue[]
+}
+
+/** The answer of asking for approval of a plan. */
+export interface ConfigConfirmation {
+  status: string
+  plan: ConfigPlan
+  confirm_url?: string
+  message: string
+}
+
+/** A setting: its kind, name and spec (docs/contracts/config-resources.md). */
+export interface ConfigResource {
+  kind: string
+  name: string
+  spec: Record<string, unknown>
+  scope?: string
+  origin?: "file" | "database"
+}
+
+/** A change someone asks for: a spec, or delete. */
+export interface ConfigWanted {
+  kind: string
+  name: string
+  spec?: unknown
+  delete?: boolean
+}
+
+export interface AssistantMessage {
+  id: string
+  conversation_id: string
+  author: "user" | "assistant"
+  body: string
+  created_at: string
+}
+
+export interface AssistantConversation {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+/** A conversation with its messages and the plans its turns made. */
+export interface AssistantView extends AssistantConversation {
+  messages: AssistantMessage[]
+  plans: ConfigPlan[]
+  /** A turn's job is still running. */
+  thinking: boolean
+}
+
+export type LocationStatus = "online" | "offline" | "paused" | "pending" | "revoked"
+
+/** A row of the Machines overview: a location, or a computer that runs jobs directly. */
+export interface FleetLocation {
+  id: string
+  kind: "location" | "computer"
+  name: string
+  runs: string
+  status: LocationStatus
+  in_use: number
+  /** How many it can run at once; 0 is no limit. */
+  capacity: number
+  cost: string
+}
+
+export type WaitReasonCode = "booting" | "queue" | "location_offline" | "no_machine_type" | "machine_limit" | "budget" | "policy" | "trust_zone"
+
+export interface FleetWaitingJob {
+  ref: string
+  role?: string
+  code: WaitReasonCode
+  sentence: string
+}
+
+export interface FleetRunningJob {
+  ref: string
+  role?: string
+  machine: string
+  location: string
+  minutes: number
+}
+
+export type FleetRouting = "own_only" | "own_first" | "hosted"
+
+/** The Machines page (GET /fleet): sentences are written by the server. */
+export interface FleetOverview {
+  headline: string
+  working: number
+  waiting: number
+  spend?: { amount: number; limit?: number; currency: string }
+  routing: FleetRouting
+  locations: FleetLocation[]
+  queue: FleetWaitingJob[]
+  running: FleetRunningJob[]
+}
+
+export interface ProviderCheck {
+  name: string
+  status: "ok" | "warn" | "fail"
+  detail?: string
+}
+
+/** What a fleet agent said about its host: unchecked, so shown as plain text. */
+export interface ProviderCapabilities {
+  os?: string[]
+  arch?: string[]
+  max_cpu?: number
+  max_memory_mb?: number
+  max_disk_gb?: number
+  max_machines?: number
+  checks?: ProviderCheck[]
+  host?: string
+  cloud_account?: string
+  region?: string
+  agent_version?: string
+}
+
+export interface Provider {
+  id: string
+  name: string
+  kind: string
+  mode: string
+  status: "pending" | "active" | "paused" | "revoked"
+  last_seen_at?: string
+  capabilities: ProviderCapabilities
+  limits: { max_machines?: number; monthly_budget?: number }
+  network_allow: string[]
+  tags: Record<string, string>
+  created_at: string
+  online: boolean
+  ownership: "own" | "hosted"
+}
+
+export interface Shape {
+  id: string
+  provider_id: string
+  name: string
+  os: string
+  arch: string
+  cpu: number
+  memory_mb: number
+  disk_gb: number
+  gpu: number
+  /** The pool of its machines: its trust zone. */
+  pool: string
+  labels: string[]
+  image: string
+  price_per_minute: number
+  monthly_budget?: number
+  warm_min: number
+  max: number
+  idle_seconds: number
+  note: string
+  enabled: boolean
+  provider: string
+  ownership: "own" | "hosted"
+}
+
+export interface Machine {
+  id: string
+  name: string
+  shape: string
+  provider: string
+  state: "requested" | "booting" | "ready" | "busy" | "draining" | "destroyed" | "failed"
+  job_ref?: string
+  error?: string
+  created_at: string
+}
+
+export type JoinStatus = "waiting" | "claimed" | "confirmed" | "used" | "expired"
+
+/** A join code without its secrets; facts are what the machine said, unchecked. */
+export interface JoinCode {
+  id: string
+  status: JoinStatus
+  kind?: string
+  facts: ProviderCapabilities
+  facts_hash?: string
+  expires_at: string
+  created_at: string
+}
+
+export interface CreatedJoinCode {
+  join_code: JoinCode
+  code: string
+}
+
+/** A signed image manifest (docs/images.md), registered by a person. */
+export interface ImageManifest {
+  name: string
+  version: string
+  os: string
+  arch: string
+  format: string
+  uri: string
+  digest: string
+  signature: string
+  built_at: string
+  contents: Record<string, unknown>
 }
