@@ -54,6 +54,9 @@ type Config struct {
 	// OrgCacheGB sizes each organization's cache disk, per pool; 0 gives
 	// machines none.
 	OrgCacheGB int `yaml:"org_cache_gb"`
+	// CacheKeyFile is where the key the caches are encrypted with is, for
+	// example on a mount of its own; empty is <state_dir>/cache.key.
+	CacheKeyFile string `yaml:"cache_key_file"`
 	// Abuse are the abuse checks, off by default.
 	Abuse AbuseConfig `yaml:"abuse"`
 }
@@ -103,6 +106,9 @@ func (c Config) validate() error {
 	}
 	if c.Abuse.CPUMinutes < 0 || c.Abuse.MiningMinutes < 0 {
 		bad = append(bad, fmt.Errorf("abuse limits must not be negative"))
+	}
+	if c.CacheKeyFile != "" && !filepath.IsAbs(c.CacheKeyFile) {
+		bad = append(bad, fmt.Errorf("cache_key_file must be absolute, got %q", c.CacheKeyFile))
 	}
 	if c.OrgCacheGB < 0 {
 		bad = append(bad, fmt.Errorf("org_cache_gb must not be negative, got %d", c.OrgCacheGB))

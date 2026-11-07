@@ -55,33 +55,67 @@ func (p *Provider) orgCachePath(cache string) string {
 
 func mapperName(slot int) string { return mapperPrefix + strconv.Itoa(slot) }
 
+// cacheKeyPath is where the host's cache key is: cache_key_file, or
+// <state_dir>/cache.key.
+func (p *Provider) cacheKeyPath() string {
+	if p.cfg.CacheKeyFile != "" {
+		return p.cfg.CacheKeyFile
+	}
+	return filepath.Join(p.cfg.StateDir, cacheKeyFile)
+}
+
 // cacheKey is the key of one organization's cache of one pool: an HMAC of its
 // name under the host's cache key, so no two caches share a key and the
-// file of one opened as another's reads as noise. The host's key is made at
-// first use and only root reads it.
+// file of one opened as another's reads as noise.
 func (p *Provider) cacheKey(cache string) ([]byte, error) {
-	path := filepath.Join(p.cfg.StateDir, cacheKeyFile)
-	master, err := os.ReadFile(path) // #nosec G304 -- a path of this package
-	if errors.Is(err, fs.ErrNotExist) {
-		master = make([]byte, 32)
-		_, _ = rand.Read(master)
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- a path of this package
-		if err != nil {
-			return nil, fmt.Errorf("cache key: %w", err)
-		}
-		_, err = f.Write(master)
-		if err := errors.Join(err, f.Close()); err != nil {
-			return nil, fmt.Errorf("cache key: %w", err)
-		}
-	} else if err != nil {
-		return nil, fmt.Errorf("cache key: %w", err)
-	}
-	if len(master) != 32 {
-		return nil, fmt.Errorf("cache key: %s is not 32 bytes", path)
+	p.caching.Lock()
+	defer p.caching.Unlock()
+	master, err := p.masterKey()
+	if err != nil {
+		return nil, err
 	}
 	m := hmac.New(sha512.New, master)
 	m.Write([]byte("forecrew organization cache\x00" + cache))
 	return m.Sum(nil), nil
+}
+
+// masterKey reads the host's cache key, or makes it at first use: written
+// whole to a file only root reads, then linked into place, so a crash or a
+// second agent never leaves half a key or replaces one. A key that is there
+// but not 32 bytes is an error, never made again: every cache it encrypted
+// would be lost. So is a missing key while caches exist. The caller holds
+// caching.
+func (p *Provider) masterKey() ([]byte, error) {
+	path := p.cacheKeyPath()
+	raw, err := os.ReadFile(path) // #nosec G304 -- the operator's path, or one of this package
+	switch {
+	case err == nil && len(raw) == 32:
+		return raw, nil
+	case err == nil:
+		return nil, fmt.Errorf("cache key %s holds %d bytes, not 32: it is damaged or not this agent's, and the caches it encrypted cannot be read without it; restore it, or remove it with %s to start every cache empty", path, len(raw), p.cachesDir())
+	case !errors.Is(err, fs.ErrNotExist):
+		return nil, fmt.Errorf("cache key: %w", err)
+	}
+	if old, _ := filepath.Glob(filepath.Join(p.cachesDir(), "*", "*.img")); len(old) > 0 {
+		return nil, fmt.Errorf("cache key %s is missing but %d caches it encrypted are in %s: restore the key, or remove the caches to start them empty", path, len(old), p.cachesDir())
+	}
+	master := make([]byte, 32)
+	_, _ = rand.Read(master)
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".cache-key-*") // 0600
+	if err != nil {
+		return nil, fmt.Errorf("cache key: %w", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	_, err = tmp.Write(master)
+	if err := errors.Join(err, tmp.Sync(), tmp.Close()); err != nil {
+		return nil, fmt.Errorf("cache key: %w", err)
+	}
+	if err := os.Link(tmp.Name(), path); errors.Is(err, fs.ErrExist) {
+		return p.masterKey() // another agent made it first: that one is the key
+	} else if err != nil {
+		return nil, fmt.Errorf("cache key: %w", err)
+	}
+	return master, nil
 }
 
 // stampFile is a stamp on disk, next to the cache it is of.

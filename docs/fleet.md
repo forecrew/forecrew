@@ -170,20 +170,33 @@ finish what a crash interrupted:
   its pool as a disk of its own, mounted read-write at `/var/cache/forecrew-org`;
   an image points its tools there in `/etc/forecrew/env` (`GOMODCACHE`,
   `npm_config_cache`, a git reference directory). The host keeps one file per
-  organization and pool, `<state_dir>/caches/<org>/<pool>.img`, encrypted with
-  dm-crypt (`aes-xts-plain64`) under a key of that cache alone, derived from
-  `<state_dir>/cache.key` (made at first use, root only), which reaches
-  `cryptsetup` on its standard input. Each machine gets its own copy (a reflink),
-  opened on the host and passed to the VMM as a block device, so the guest sees a
-  plain disk and the host's disk holds ciphertext; when a machine whose VMM ran
-  is destroyed its copy becomes the cache, the last one to end winning, unless
-  the abuse checks stopped it. A cache another key would open reads as noise,
-  and nothing of one organization is ever given to another's machine: a warm
-  machine, which has no organization yet, gets no cache. The cache is checked at
-  use: a file changed since it was written back (inode, size, modification or
-  change time, kept next to it) is removed and the machine starts empty. A cache
+  organization and pool, `<state_dir>/caches/<org>/<pool>.img`. Each machine
+  gets its own copy (a reflink), opened on the host through dm-crypt
+  (`aes-xts-plain64`) and passed to the VMM as a block device; when a machine
+  whose VMM ran is destroyed its copy becomes the cache, the last one to end
+  winning, unless the abuse checks stopped it. Nothing of one organization is
+  given to another's machine: the cache a machine gets is chosen by the
+  organization forecrewd assigned it, and opened under that cache's own key, so
+  another organization's file would read as noise. A warm machine, which has no
+  organization when it starts, gets no cache, also once it is assigned. A cache
   no machine took for `image_cache_days` is removed. A cache is shared by the
   jobs of one organization and pool, a trust zone, and by nobody else.
+
+  **What the encryption protects against:** someone who copies the cache files
+  (a backup, a disk taken out or sold, a snapshot of `state_dir`) without the key
+  learns nothing from them. Each cache's key is derived from one host key,
+  `cache_key_file` (by default `<state_dir>/cache.key`, made at first use, 32
+  bytes, root only), which reaches `cryptsetup` on its standard input. Keep it
+  on another mount than `state_dir`, or out of its backups, for that protection
+  to hold: anyone who has both, or root on the running host, reads every cache.
+  The encryption does not protect a cache from root on the host, from the
+  organization's own jobs, which see it in plain, or against being changed: the
+  agent only notices a file changed since it wrote it back (inode, size,
+  modification or change time, kept next to it) and then starts that machine with
+  an empty cache. A key that is damaged, or missing while caches exist, stops
+  machines that need a cache with an error and is never made again, as that would
+  lose every cache; restore it, or remove it together with `<state_dir>/caches`
+  to start every cache empty.
 - **CPU and memory** are the shape's, as vCPUs and guest memory. A host takes
   machines while their memory fits its own less 1 GB, up to `max_machines`, and
   while the kernel says it has the new machine's memory left (`MemAvailable`, less
@@ -266,6 +279,7 @@ secrets.
 | `gpus` | none | PCI addresses bound to `vfio-pci`, one per machine that asks for a GPU |
 | `ca_file` | the host's bundle | What an https forecrewd's certificate chains to |
 | `image_cache_days` | `14` | How long an unused image stays |
+| `cache_key_file` | `<state_dir>/cache.key` | The key the organizations' caches are encrypted with, absolute; put it on a mount of its own, out of the backups of `state_dir` |
 | `org_cache_gb` | `0` | Size of each organization's cache disk, per pool; 0 gives machines none. Needs `cryptsetup` and `mkfs.ext4` |
 | `abuse.cpu_minutes` | `0` | Stops a machine whose vCPUs stay over 90% busy this long; 0 is off |
 | `abuse.mining_minutes` | `0` | Stops a machine whose vCPUs stay over 90% busy this long while it connects to the usual ports of mining pools; 0 is off |
