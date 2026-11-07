@@ -408,6 +408,27 @@ func assertConfirmRefused(t *testing.T, f *fixture, id, hash string) {
 	}
 }
 
+// assertChangedReportRefused sends another report and back, and shows that
+// confirming the one read in between fails.
+func assertChangedReportRefused(t *testing.T, f *fixture, id, seen string, req fleet.JoinRequest) {
+	t.Helper()
+	ctx := t.Context()
+	// The person read one report and the agent sends another: no confirmation,
+	// and the provider does not exist.
+	changed := req
+	changed.Facts.Host = "another machine"
+	_, err := fleet.Join(ctx, f.st, f.clock.Now(), changed)
+	must(t, err)
+	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "home", FactsHash: seen}); !errors.Is(err, mcp.ErrConflict) {
+		t.Errorf("a changed report: %v", err)
+	}
+	if _, err := f.st.CapacityProviders().GetByName(ctx, f.account.ID, "home"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a provider from a refused confirmation: %v", err)
+	}
+	_, err = fleet.Join(ctx, f.st, f.clock.Now(), req)
+	must(t, err)
+}
+
 func TestJoinCodeFlow(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
@@ -453,20 +474,7 @@ func TestJoinCodeFlow(t *testing.T) {
 	seen := codes[1].FactsHash
 	assertConfirmRefused(t, f, id, seen)
 
-	// The person read one report and the agent sends another: no confirmation,
-	// and the provider does not exist.
-	changed := req
-	changed.Facts.Host = "another machine"
-	_, err = fleet.Join(ctx, f.st, f.clock.Now(), changed)
-	must(t, err)
-	if _, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "home", FactsHash: seen}); !errors.Is(err, mcp.ErrConflict) {
-		t.Errorf("a changed report: %v", err)
-	}
-	if _, err := f.st.CapacityProviders().GetByName(ctx, f.account.ID, "home"); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("a provider from a refused confirmation: %v", err)
-	}
-	_, err = fleet.Join(ctx, f.st, f.clock.Now(), req)
-	must(t, err)
+	assertChangedReportRefused(t, f, id, seen, req)
 
 	p, err := f.svc.ConfirmJoin(ctx, f.by, mcp.ConfirmJoinInput{Join: id, Name: "home", FactsHash: seen, WrapUntrusted: true})
 	must(t, err)

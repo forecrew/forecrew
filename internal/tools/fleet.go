@@ -57,10 +57,7 @@ func (s *Service) ListMachines(ctx context.Context, by domain.Actor, in mcp.List
 			m.ExternalID = "" // the instance's own business
 		}
 		out[i] = mcp.MachineInfo{Machine: m, Name: fleet.MachineName(shape, m), Shape: shape.Name, Provider: providers[m.ProviderID].Name}
-		if in.WrapUntrusted && m.Error != "" {
-			out[i].Error = ""
-			out[i].Untrusted = contextpack.WrapUntrusted("error of machine "+out[i].Name, m.Error)
-		}
+		wrapMachine(&out[i], in.WrapUntrusted)
 		if m.JobID == uuid.Nil() {
 			continue
 		}
@@ -172,6 +169,14 @@ func (s *Service) ListProviders(ctx context.Context, by domain.Actor, in mcp.Lis
 		out = append(out, wrapProvider(mcp.ProviderInfo{CapacityProvider: p, Online: online, Ownership: p.Ownership()}, in.WrapUntrusted))
 	}
 	return out, nil
+}
+
+// wrapMachine marks m's error as data: a fleet agent may have written it.
+func wrapMachine(m *mcp.MachineInfo, wrap bool) {
+	if wrap && m.Error != "" {
+		m.Untrusted = contextpack.WrapUntrusted("error of machine "+m.Name, m.Error)
+		m.Error = ""
+	}
 }
 
 // reportedWords is what an agent says about itself in words. Nobody checked
