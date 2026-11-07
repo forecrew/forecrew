@@ -1,12 +1,15 @@
 package playbooks_test
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
 	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/knowledge"
+	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 )
 
 // decidedCouncil stores a council of the goal that ended with a brief.
@@ -52,6 +55,40 @@ func TestGoalADR(t *testing.T) {
 		if got["pool"] != "build" || got["branch"] != "agent/adr-GOAL-1" || !slices.Equal(toStrings(got["write_paths"]), []string{"docs/adr/**"}) {
 			t.Errorf("output = %v", got)
 		}
+	})
+	// Under a knowledge policy the ADR folder must be writable for the job.
+	withPolicy := func(t *testing.T, text string, perr error) (*env, domain.Goal) {
+		v := newEnv(t, domain.ProjectOnboarded)
+		policy, err := knowledge.ParsePolicy([]byte(text))
+		must(t, err)
+		v.proposals = &proposals.Service{Store: v.st, GitHub: v.tracker, Gates: v.gates, Roles: testRoles(),
+			Policy: func(context.Context, domain.Project) (knowledge.Policy, error) { return policy, perr }}
+		v.register()
+		g := v.newGoal(t)
+		v.decidedCouncil(t, g, domain.CouncilTechnical, domain.CouncilDecided)
+		return v, g
+	}
+	for _, tt := range []struct {
+		name, policy string
+		writable     bool
+	}{
+		{"a section of the architect", learnPolicy, true},
+		{"a protected section", "version: 1\nsections:\n  architecture: {paths: [\"docs/adr/**\"], protected: true}\n", false},
+		{"a broader section", "version: 1\nsections:\n  architecture: {paths: [\"docs/**\"], owner: architect}\n", false},
+		{"no section there", "version: 1\nsections:\n  lessons: {paths: [\"knowledge/lessons/**\"]}\n", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			v, g := withPolicy(t, tt.policy, nil)
+			got := adr(v, g)
+			if writes := len(got["write_paths"].([]any)) > 0; writes != tt.writable || (writes && got["branch"] != "agent/adr-GOAL-1") {
+				t.Errorf("output = %v", got)
+			}
+		})
+	}
+	t.Run("the policy cannot be read", func(t *testing.T) {
+		v, g := withPolicy(t, learnPolicy, knowledge.ErrPolicyUnknown)
+		_, err := v.call(t, "goal.adr", map[string]any{"goal_id": g.ID.String()})
+		wantErr(t, err, "knowledge policy")
 	})
 	t.Run("errors", func(t *testing.T) {
 		v := newEnv(t)
