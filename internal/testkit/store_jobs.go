@@ -89,6 +89,37 @@ func (r jobRepo) LeaseNext(_ context.Context, accountID, workerID uuid.UUID, lab
 	return out, err
 }
 
+func classOf(j domain.Job) store.JobClass {
+	return store.JobClass{ProjectID: j.ProjectID, Pool: j.Pool, Role: j.Role, Runtime: j.Runtime, Pinned: j.Spec.PinnedRuntime, Model: j.Spec.Model}
+}
+
+func queuedAgent(accountID uuid.UUID, j domain.Job) bool {
+	return j.AccountID == accountID && j.Status == domain.JobQueued && j.Kind.OrDefault() == domain.JobKindAgent
+}
+
+func (r jobRepo) QueuedClasses(_ context.Context, accountID uuid.UUID) ([]store.JobClass, error) {
+	return read(r.s, func(d *storeData) ([]store.JobClass, error) {
+		out := []store.JobClass{}
+		for _, j := range d.jobs.rows {
+			if c := classOf(j); queuedAgent(accountID, j) && !slices.Contains(out, c) {
+				out = append(out, c)
+			}
+		}
+		return out, nil
+	})
+}
+
+func (r jobRepo) Retarget(_ context.Context, accountID uuid.UUID, c store.JobClass, runtime, model string) error {
+	return r.s.do(func(d *storeData, now time.Time) error {
+		for i := range d.jobs.rows {
+			if j := &d.jobs.rows[i]; queuedAgent(accountID, *j) && classOf(*j) == c {
+				j.Runtime, j.Spec.Runtime, j.Spec.Model, j.UpdatedAt = runtime, runtime, model, now
+			}
+		}
+		return nil
+	})
+}
+
 // checkLease returns ErrLeaseLost unless j is running under workerID.
 func checkLease(j *domain.Job, workerID uuid.UUID) error {
 	if j.Status != domain.JobRunning || j.WorkerID != workerID {

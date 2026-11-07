@@ -161,8 +161,11 @@ feature: see identity.md, Tokens.
 | `config.apply` | write | organization | make change plans and ask for their approval; applying one also needs what each of its resources needs ([config-resources.md](config-resources.md#permissions)) |
 | `project.create` | write | organization | onboard a repo as a project |
 | `trackers.manage` | admin | organization | tracker connections, routes and identities, within [No escalation](#no-escalation) |
+| `models.read` | read | organization | read model connections and assignments, never a key |
+| `models.manage` | admin | organization | model connections, and the organization's assignment and policy |
 | `project.read` | read | project | a project, its profile, councils, assumptions, decisions, knowledge and improvement proposals |
 | `project.manage` | admin | project | project settings and project role bindings |
+| `models.assign` | admin | project | the model overrides of a project |
 | `goal.create` | write | project | create goals and report bugs |
 | `goal.read` | read | project | goals, specs, tasks and changes |
 | `job.read` | read | project | jobs, their logs, test runs and artifacts |
@@ -246,6 +249,9 @@ protected knowledge, access requests or improvement proposals) and
 | `member.manage` | x | x |  |  |  |  |  |  |  |
 | `org.manage` | x |  |  |  |  |  |  |  |  |
 | `org.read` | x | x | x | x | x |  |  |  |  |
+| `models.assign` | x | x |  |  |  | x |  |  |  |
+| `models.manage` | x | x |  |  |  |  |  |  |  |
+| `models.read` | x | x |  | x | x |  |  |  |  |
 | `pool.manage` | x | x |  |  |  |  |  |  |  |
 | `project.create` | x | x |  |  |  |  |  |  |  |
 | `project.manage` | x | x |  |  |  | x |  |  |  |

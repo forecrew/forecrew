@@ -223,3 +223,81 @@ func (r conversationRepo) Messages(ctx context.Context, accountID, conversationI
 		return m, err
 	}, `SELECT `+messageCols+` FROM assistant_messages WHERE account_id = $1 AND conversation_id = $2 ORDER BY created_at, id`, accountID, conversationID)
 }
+
+// ---- model connections and assignments
+
+type modelConnectionRepo struct{ db dbtx }
+
+const modelConnectionCols = `id, account_id, name, vendor, adapter, base_url, key_env, secret_ref, enabled, updated_by, created_at, updated_at`
+
+func scanModelConnection(row pgx.Row) (c domain.ModelConnection, err error) {
+	err = row.Scan(&c.ID, &c.AccountID, &c.Name, &c.Vendor, &c.Adapter, &c.BaseURL, &c.KeyEnv, &c.SecretRef, &c.Enabled, &c.UpdatedBy, &c.CreatedAt, &c.UpdatedAt)
+	utc(&c.CreatedAt, &c.UpdatedAt)
+	return c, err
+}
+
+func (r modelConnectionRepo) List(ctx context.Context, accountID uuid.UUID) ([]domain.ModelConnection, error) {
+	return many(ctx, r.db, scanModelConnection, `SELECT `+modelConnectionCols+` FROM model_connections WHERE account_id = $1 ORDER BY name`, accountID)
+}
+
+func (r modelConnectionRepo) Put(ctx context.Context, c *domain.ModelConnection) error {
+	c.ID = newID(c.ID)
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO model_connections (id, account_id, name, vendor, adapter, base_url, key_env, secret_ref, enabled, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (account_id, name) DO UPDATE SET vendor = EXCLUDED.vendor, adapter = EXCLUDED.adapter, base_url = EXCLUDED.base_url, key_env = EXCLUDED.key_env,
+			secret_ref = EXCLUDED.secret_ref, enabled = EXCLUDED.enabled, updated_by = EXCLUDED.updated_by, updated_at = now()
+		RETURNING id, created_at, updated_at`,
+		c.ID, c.AccountID, c.Name, c.Vendor, c.Adapter, c.BaseURL, c.KeyEnv, c.SecretRef, c.Enabled, c.UpdatedBy).Scan(&c.ID, &c.CreatedAt, &c.UpdatedAt))
+}
+
+func (r modelConnectionRepo) Delete(ctx context.Context, accountID uuid.UUID, name string) error {
+	return mustUpdate(ctx, r.db, `DELETE FROM model_connections WHERE account_id = $1 AND name = $2`, accountID, name)
+}
+
+type modelAssignmentRepo struct{ db dbtx }
+
+const modelAssignmentCols = `id, account_id, COALESCE(project_id, ` + zeroUUID + `), tiers, roles, project_overrides, updated_by, created_at, updated_at`
+
+func scanModelAssignment(row pgx.Row) (a domain.ModelAssignment, err error) {
+	var tiers, roles []byte
+	if err = row.Scan(&a.ID, &a.AccountID, &a.ProjectID, &tiers, &roles, &a.ProjectOverrides, &a.UpdatedBy, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		return a, err
+	}
+	utc(&a.CreatedAt, &a.UpdatedAt)
+	if err = json.Unmarshal(tiers, &a.Tiers); err != nil {
+		return a, fmt.Errorf("decode model tiers: %w", err)
+	}
+	if err = json.Unmarshal(roles, &a.Roles); err != nil {
+		return a, fmt.Errorf("decode model roles: %w", err)
+	}
+	return a, nil
+}
+
+func (r modelAssignmentRepo) List(ctx context.Context, accountID uuid.UUID) ([]domain.ModelAssignment, error) {
+	return many(ctx, r.db, scanModelAssignment, `SELECT `+modelAssignmentCols+` FROM model_assignments WHERE account_id = $1 ORDER BY project_id NULLS FIRST`, accountID)
+}
+
+func (r modelAssignmentRepo) Put(ctx context.Context, a *domain.ModelAssignment) error {
+	a.ID = newID(a.ID)
+	if err := owned(ctx, r.db, a.AccountID, ref{"projects", a.ProjectID}); err != nil {
+		return err
+	}
+	tiers, err := json.Marshal(a.Tiers)
+	if err != nil {
+		return err
+	}
+	roles, err := json.Marshal(a.Roles)
+	if err != nil {
+		return err
+	}
+	return mapErr(r.db.QueryRow(ctx, `INSERT INTO model_assignments (id, account_id, project_id, tiers, roles, project_overrides, updated_by)
+		VALUES ($1, $2, $3, COALESCE(NULLIF($4::jsonb, 'null'), '{}'), COALESCE(NULLIF($5::jsonb, 'null'), '{}'), $6, $7)
+		ON CONFLICT (account_id, project_id) DO UPDATE SET tiers = EXCLUDED.tiers, roles = EXCLUDED.roles, project_overrides = EXCLUDED.project_overrides,
+			updated_by = EXCLUDED.updated_by, updated_at = now()
+		RETURNING id, created_at, updated_at`,
+		a.ID, a.AccountID, opt(a.ProjectID), tiers, roles, a.ProjectOverrides, a.UpdatedBy).Scan(&a.ID, &a.CreatedAt, &a.UpdatedAt))
+}
+
+func (r modelAssignmentRepo) Delete(ctx context.Context, accountID, projectID uuid.UUID) error {
+	return mustUpdate(ctx, r.db, `DELETE FROM model_assignments WHERE account_id = $1 AND project_id IS NOT DISTINCT FROM $2`, accountID, opt(projectID))
+}

@@ -264,6 +264,9 @@ type JobSpec struct {
 	// starting with "!" excludes. Empty means read-only.
 	WritePaths       []string        `json:"write_paths"`
 	Runtime          string          `json:"runtime"` // runtime adapter: claude-code, codex or opencode
+	// PinnedRuntime is the adapter of a council seat, which stays on it when
+	// the role moves to a connection of another adapter.
+	PinnedRuntime string `json:"pinned_runtime,omitempty"`
 	Model            string          `json:"model"`
 	Prompt           string          `json:"prompt"`
 	OutputSchema     json.RawMessage `json:"output_schema,omitempty"` // inline JSON Schema, no $ref
@@ -308,6 +311,9 @@ type Endpoint struct {
 	// KeyEnv names the variable holding the endpoint's API key; empty means
 	// the endpoint takes none.
 	KeyEnv string `json:"key_env,omitempty"`
+	// Organization marks the endpoint of an organization's connection:
+	// nothing the worker holds may go there, only the key in the job's env.
+	Organization bool `json:"organization,omitempty"`
 }
 
 // JobMCP is how an agent job reaches the job MCP gateway. Token is a secret,

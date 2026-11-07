@@ -143,6 +143,22 @@ func (r jobRepo) LeaseNext(ctx context.Context, accountID, workerID uuid.UUID, l
 	return j, mapErr(err)
 }
 
+func (r jobRepo) QueuedClasses(ctx context.Context, accountID uuid.UUID) ([]store.JobClass, error) {
+	return many(ctx, r.db, func(row pgx.Row) (c store.JobClass, err error) {
+		err = row.Scan(&c.ProjectID, &c.Pool, &c.Role, &c.Runtime, &c.Pinned, &c.Model)
+		return c, err
+	}, `SELECT DISTINCT project_id, pool, role, runtime, COALESCE(spec->>'pinned_runtime', ''), COALESCE(spec->>'model', '')
+		FROM jobs WHERE account_id = $1 AND status = 'queued' AND kind = 'agent'`, accountID)
+}
+
+func (r jobRepo) Retarget(ctx context.Context, accountID uuid.UUID, c store.JobClass, runtime, model string) error {
+	_, err := r.db.Exec(ctx, `UPDATE jobs SET runtime = $7, spec = spec || jsonb_build_object('runtime', $7::text, 'model', $8::text), updated_at = now()
+		WHERE account_id = $1 AND status = 'queued' AND kind = 'agent' AND project_id = $2 AND pool = $3 AND role = $4 AND runtime = $5
+		  AND COALESCE(spec->>'pinned_runtime', '') = $6 AND COALESCE(spec->>'model', '') = $9`,
+		accountID, c.ProjectID, c.Pool, c.Role, c.Runtime, c.Pinned, runtime, model, c.Model)
+	return mapErr(err)
+}
+
 func (r jobRepo) ExtendLease(ctx context.Context, accountID, jobID, workerID uuid.UUID, leaseFor time.Duration) (domain.Job, error) {
 	j, err := one(ctx, r.db, scanJob, `UPDATE jobs SET lease_expires_at = now() + $4::interval, updated_at = now()
 		WHERE account_id = $1 AND id = $2 AND worker_id = $3 AND status = 'running'

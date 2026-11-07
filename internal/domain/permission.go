@@ -32,9 +32,12 @@ const (
 	PermConfigApply          Permission = "config.apply"    // change plans; applying also needs what each resource needs
 	PermProjectCreate        Permission = "project.create"  // onboard a repo
 	PermTrackersManage       Permission = "trackers.manage" // tracker connections, routes and identities
+	PermModelsRead           Permission = "models.read"     // model connections and assignments; never a key
+	PermModelsManage         Permission = "models.manage"   // model connections, and the organization's assignment and policy
 
 	PermProjectRead       Permission = "project.read"   // the project, its profile, councils, registers, knowledge and proposals
 	PermProjectManage     Permission = "project.manage" // project settings and project role bindings
+	PermModelsAssign      Permission = "models.assign"  // the model overrides of a project
 	PermGoalCreate        Permission = "goal.create"    // goals and bug reports
 	PermGoalRead          Permission = "goal.read"      // goals, specs, tasks and changes
 	PermJobRead           Permission = "job.read"       // jobs, logs and artifacts
@@ -113,9 +116,12 @@ var permissionTable = map[Permission]permissionInfo{
 	PermConfigApply:          {ScopeWrite, false},
 	PermProjectCreate:        {ScopeWrite, false},
 	PermTrackersManage:       {ScopeAdmin, false},
+	PermModelsRead:           {ScopeRead, false},
+	PermModelsManage:         {ScopeAdmin, false},
 
 	PermProjectRead:       {ScopeRead, true},
 	PermProjectManage:     {ScopeAdmin, true},
+	PermModelsAssign:      {ScopeAdmin, true},
 	PermGoalCreate:        {ScopeWrite, true},
 	PermGoalRead:          {ScopeRead, true},
 	PermJobRead:           {ScopeRead, true},
@@ -309,9 +315,9 @@ func BuiltInRoles() []Role {
 		role(RoleAdmin, RoleScopeOrganization, "Everything but ownership and billing", without(all, PermOrgManage, PermBillingManage)...),
 		role(RoleBilling, RoleScopeOrganization, "Billing only", PermOrgRead, PermBillingManage, PermConfigRead, PermConfigApply),
 		role(RoleMember, RoleScopeOrganization, "Reads every project, creates goals and proposes knowledge",
-			append([]Permission{PermOrgRead, PermWorkerRead, PermGoalCreate, PermKnowledgePropose, PermConfigRead, PermConfigApply}, projectReads...)...),
+			append([]Permission{PermOrgRead, PermWorkerRead, PermGoalCreate, PermKnowledgePropose, PermConfigRead, PermConfigApply, PermModelsRead}, projectReads...)...),
 		role(RoleViewer, RoleScopeOrganization, "Reads every project",
-			append([]Permission{PermOrgRead, PermWorkerRead, PermConfigRead}, projectReads...)...),
+			append([]Permission{PermOrgRead, PermWorkerRead, PermConfigRead, PermModelsRead}, projectReads...)...),
 		role(RoleProjectAdmin, RoleScopeProject, "Everything on the project, its access included", projectAll...),
 		role(RoleMaintainer, RoleScopeProject, "Runs the project and resolves every gate", maintainer...),
 		role(RoleContributor, RoleScopeProject, "Creates goals and jobs, approves specs, councils and questions, not merges", contributor...),
