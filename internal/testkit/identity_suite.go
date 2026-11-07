@@ -28,6 +28,7 @@ func IdentityStoreSuite(t *testing.T, st store.Store, account uuid.UUID) {
 	s.connections()
 	s.domains()
 	s.scimTokens()
+	s.scimSuspension()
 	s.sessions()
 	s.tokens()
 	s.oauth()
@@ -598,6 +599,24 @@ func (s *identitySuite) domains() {
 	}
 	s.must(r.Delete(ctx, s.account, d.ID))
 	s.wantErr(r.Delete(ctx, s.account, d.ID), store.ErrNotFound)
+}
+
+func (s *identitySuite) scimSuspension() {
+	ctx := s.t.Context()
+	u := s.user("scim@example.com", true)
+	s.member(u)
+	r := s.st.Memberships()
+	s.must(r.SuspendBySCIM(ctx, s.account, u.ID))
+	m, err := r.Get(ctx, s.account, u.ID)
+	s.must(err)
+	if m.Status != domain.MembershipSuspended || !m.SCIMSuspended {
+		s.t.Fatalf("by SCIM = %+v", m)
+	}
+	s.must(r.SetStatus(ctx, s.account, u.ID, domain.MembershipSuspended))
+	if m, _ = r.Get(ctx, s.account, u.ID); m.SCIMSuspended {
+		s.t.Fatalf("by hand = %+v", m)
+	}
+	s.wantErr(r.SuspendBySCIM(ctx, s.account, domain.NewID()), store.ErrNotFound)
 }
 
 func (s *identitySuite) scimTokens() {
