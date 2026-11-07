@@ -333,7 +333,7 @@ export const useServiceAccounts = (enabled = true) => useQuery({ queryKey: keys.
 export const useConnections = (enabled = true) => useQuery({ queryKey: keys.connections, queryFn: api.listConnections, enabled, ...poll })
 export const useAudit = (f: AuditFilter) =>
   useQuery({ queryKey: keys.audit(f), queryFn: () => api.listAudit({ ...f, limit: 200 }), placeholderData: keepPreviousData })
-export const useSessions = () => useQuery({ queryKey: keys.sessions, queryFn: api.listSessions, ...poll })
+export const useSessions = (enabled = true) => useQuery({ queryKey: keys.sessions, queryFn: api.listSessions, enabled, ...poll })
 export const useIdentities = () => useQuery({ queryKey: keys.identities, queryFn: api.listIdentities })
 
 /** A mutation that refreshes the lists named by keys when it settles. */

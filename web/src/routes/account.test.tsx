@@ -131,16 +131,31 @@ describe("your account", () => {
   })
 
   test("a failing end of a session is shown", async () => {
-    server.use(http.delete("/api/v1/sessions/:id", errors.notFound))
+    server.use(http.get("/api/v1/me", () => HttpResponse.json(fx.meAdmin)), http.delete("/api/v1/sessions/:id", errors.notFound))
     const { user } = await renderApp("/account")
     await user.click((await screen.findAllByRole("button", { name: /End session,/ }))[0]!)
     expect(await screen.findByRole("alert")).toHaveTextContent("not found")
   })
 
-  test("a token session says it has no linked sign-in, and empty lists say so", async () => {
-    server.use(http.get("/api/v1/sessions", () => HttpResponse.json([])))
+  test("a token login has no linked sign-in and no sessions to manage", async () => {
+    let asked = false
+    server.use(
+      http.get("/api/v1/sessions", () => {
+        asked = true
+        return HttpResponse.json([])
+      }),
+    )
     await renderApp("/account")
     expect(await screen.findByText(/You use a token, which is not linked to a sign-in/)).toBeInTheDocument()
+    await screen.findByRole("heading", { name: "Personal tokens" })
+    expect(screen.queryByRole("heading", { name: "Sessions" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Sign out everywhere" })).not.toBeInTheDocument()
+    expect(asked).toBe(false)
+  })
+
+  test("a person with no browser session left is told so", async () => {
+    server.use(http.get("/api/v1/me", () => HttpResponse.json(fx.meAdmin)), http.get("/api/v1/sessions", () => HttpResponse.json([])))
+    await renderApp("/account")
     expect(await screen.findByText("No browser sessions.")).toBeInTheDocument()
   })
 
@@ -153,6 +168,7 @@ describe("your account", () => {
   test("Sign out everywhere ends every session", async () => {
     let everywhere = false
     server.use(
+      http.get("/api/v1/me", () => HttpResponse.json(fx.meAdmin)),
       http.delete("/api/v1/sessions", () => {
         everywhere = true
         return new HttpResponse(null, { status: 204 })
