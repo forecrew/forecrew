@@ -1,4 +1,4 @@
-import type { CouncilStatus, GateKind, GateOrigin, GoalStatus, JobStatus, Level, ProjectStatus, TaskStatus, VerificationStatus } from "@/api/types"
+import type { CouncilStatus, GateKind, GateOrigin, GoalStatus, JobStatus, Level, ProjectStatus, TaskStatus, VerificationStatus , ProposalStatus } from "@/api/types"
 
 /** "5 min", "2 h", "3 d": how long ago an RFC 3339 time was. */
 export function age(iso: string | undefined, now = Date.now()): string {
@@ -100,6 +100,10 @@ export function jobTone(s: JobStatus): Tone {
 }
 export function projectTone(s: ProjectStatus): Tone {
   return s === "onboarded" ? "good" : s === "onboarding" ? "attention" : "neutral"
+}
+
+export function proposalTone(s: ProposalStatus): Tone {
+  return s === "done" ? "good" : s === "rejected" ? "bad" : s === "proposed" ? "attention" : "neutral"
 }
 
 /** Splits text into its non-empty lines, trimmed. */

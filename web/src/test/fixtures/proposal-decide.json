@@ -1,0 +1,35 @@
+{
+  "id": "018f0000-0000-7000-8000-000000000302",
+  "account_id": "018f0000-0000-7000-8000-000000000001",
+  "project_id": "018f0000-0000-7000-8000-000000000010",
+  "number": 4,
+  "scope": "platform",
+  "category": "tooling",
+  "title": "Connect Sentry",
+  "rationale": "Nothing scans the dependencies.",
+  "evidence": [
+    {
+      "kind": "security",
+      "ref": "ci",
+      "detail": "2 CI files read"
+    }
+  ],
+  "benefit": "Vulnerable packages show up before release.",
+  "effort": "s",
+  "risk": "low",
+  "action": {
+    "setup": {
+      "instructions": "Connect it",
+      "issue": "Add a Sentry adapter"
+    }
+  },
+  "status": "done",
+  "dedupe_key": "signal:4",
+  "evidence_weight": 1,
+  "created_at": "2026-03-01T10:00:00Z",
+  "updated_at": "2026-03-01T11:00:00Z",
+  "ref": "PROP-4",
+  "gate_ref": "GATE-31",
+  "can_decide": false
+}
+

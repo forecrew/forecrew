@@ -4,6 +4,9 @@ import assumptionRegister from "./fixtures/assumption-register.json"
 import assumptionRegisterEmpty from "./fixtures/assumption-register-empty.json"
 import assumptionRegisterResolve from "./fixtures/assumption-register-resolve.json"
 import assumptions from "./fixtures/assumptions.json"
+import gatesProposal from "./fixtures/gates-proposal.json"
+import proposalDecide from "./fixtures/proposal-decide.json"
+import proposals from "./fixtures/proposals.json"
 import assumptionResolve from "./fixtures/assumption-resolve.json"
 import councilConstraint from "./fixtures/council-constraint.json"
 import councilConstraintConflict from "./fixtures/council-constraint-conflict.json"
@@ -190,6 +193,8 @@ export const handlers = [
   http.post("/api/v1/councils/:ref/constraints", () => HttpResponse.json(councilConstraint)),
   http.get("/api/v1/assumptions", () => HttpResponse.json(assumptions)),
   http.post("/api/v1/assumptions/:ref/resolve", () => HttpResponse.json(assumptionResolve)),
+  http.get("/api/v1/proposals", ({ request }) => HttpResponse.json(new URL(request.url).searchParams.get("project") === "app" ? proposals : [])),
+  http.post("/api/v1/proposals/:ref/decide", () => HttpResponse.json(proposalDecide)),
   http.get("/api/v1/trace", () => HttpResponse.json(trace)),
   http.get("/api/v1/knowledge/entries", ({ request }) => {
     const q = new URL(request.url).searchParams
@@ -218,7 +223,7 @@ export const fx = {
   jobQueued, jobFailed, jobDispatch, jobCancel, jobLogs, jobLogsCaughtUp, jobLogsEmpty, jobLogsAllKinds, projectMinimalProfile, projectUnknownCommands, workers, workersEmpty, gates, gatesEmpty, gateApprove,
   connectedApps, gateRequestChanges, gateReject, jobArtifacts, jobArtifactsEmpty, jobCommand, quality, qualityBaselineOnly, qualityEmpty, verification, tokens, tokensEmpty, tokenRevoke, tokenRevokeSelf,
   councils, councilsEmpty, councilRunning, councilDecided, councilFailed, councilPending, councilStart, councilConstraint,
-  assumptions, assumptionResolve, decisions, decisionsEmpty, gatesCouncil,
+  assumptions, assumptionResolve, decisions, decisionsEmpty, gatesCouncil, gatesProposal, proposals, proposalDecide,
   trace, assumptionRegister, assumptionRegisterEmpty, assumptionRegisterResolve, knowledgeEntries, knowledgeEntriesEmpty, knowledgeNotes,
   knowledgeNoteDelete, knowledgeProposals, knowledgeProposalsEmpty, knowledgePropose, knowledgeSearch, knowledgeSearchEmpty,
   audit, auditEmpty, configPlanApply, configPlanCancel, configPlanConnection, configPlanSecret, connectionCreate, connectionEnable, connectionEnableUntested, connections, identities, invitationCreate, invitationRevoke, invitations,

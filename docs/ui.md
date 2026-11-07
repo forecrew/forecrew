@@ -88,7 +88,8 @@ left out, not faked:
   it. It is the only project filter (the lists have no project select of their
   own). On a phone the sidebar becomes a bottom bar (Home, Inbox, Jobs, Menu).
 - **Home.** Command bar (opens the command menu) with a New goal button, the
-  date and how many decisions wait, three tiles (decisions waiting, agents
+  date and how many decisions wait, four tiles (decisions waiting, suggestions,
+  which is the improvement proposals waiting and links to Proposals, agents
   working, workers online), Needs you with Review or Decide (they open the
   Inbox on that decision), Active goals with a stage bar, and Live activity
   and Fleet in a right column.
@@ -152,6 +153,13 @@ left out, not faked:
   assumption is verified, accepted or invalidated in place, with its evidence.
   Goal, task, gate and job pages link it ("Why?"); a gate or job links the
   trace of its task, else of its goal.
+- **Improvement proposals.** An `improvement_proposal` card shows why, the
+  benefit, effort, risk, the action and the evidence, as text. Accept approves
+  the gate; Request changes has the advisor revise it; Reject needs a reason,
+  recorded as a decision; Snooze asks for a date and hides the card until the
+  end of that day (UTC). The Proposals page lists a project's proposals with
+  filters for status and category, the before and after values of the ones that
+  were measured, and Mark as done on the setup step of an accepted one.
 - **Assumptions.** The register with filters for status and impact (and the
   sidebar's project; without one every project's register is listed), each item
   with what rests on it, its evidence and the same inline resolution.
