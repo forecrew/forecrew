@@ -94,6 +94,23 @@ type ToolService struct {
 	ResolveAssumptionFunc func(context.Context, domain.Actor, mcp.ResolveAssumptionInput) (mcp.AssumptionInfo, error)
 	ListDecisionsFunc     func(context.Context, domain.Actor, mcp.ListDecisionsInput) ([]mcp.DecisionInfo, error)
 
+	ListDomainsFunc               func(context.Context, domain.Actor, any) ([]mcp.DomainInfo, error)
+	AddDomainFunc                 func(context.Context, domain.Actor, mcp.DomainInput) (mcp.DomainInfo, error)
+	VerifyDomainFunc              func(context.Context, domain.Actor, mcp.DomainInput) (mcp.DomainInfo, error)
+	DeleteDomainFunc              func(context.Context, domain.Actor, mcp.DomainInput) (mcp.DomainInfo, error)
+	SetSSOEnforcementFunc         func(context.Context, domain.Actor, mcp.SetSSOEnforcementInput) (mcp.DomainInfo, error)
+	SetMaxTokenTTLFunc            func(context.Context, domain.Actor, mcp.SetMaxTokenTTLInput) (domain.Account, error)
+	SetConnectionProvisioningFunc func(context.Context, domain.Actor, mcp.SetProvisioningInput) (mcp.ProvisioningInfo, error)
+	ListGroupMappingsFunc         func(context.Context, domain.Actor, any) ([]domain.GroupMapping, error)
+	AddGroupMappingFunc           func(context.Context, domain.Actor, mcp.AddGroupMappingInput) (domain.GroupMapping, error)
+	RemoveGroupMappingFunc        func(context.Context, domain.Actor, mcp.GroupMappingRefInput) (domain.GroupMapping, error)
+	ListSCIMTokensFunc            func(context.Context, domain.Actor, any) ([]domain.SCIMToken, error)
+	CreateSCIMTokenFunc           func(context.Context, domain.Actor, mcp.CreateSCIMTokenInput) (mcp.CreateSCIMTokenOutput, error)
+	RevokeSCIMTokenFunc           func(context.Context, domain.Actor, mcp.SCIMTokenRefInput) (domain.SCIMToken, error)
+	CreateRoleFunc                func(context.Context, domain.Actor, mcp.CreateRoleInput) (domain.Role, error)
+	UpdateRoleFunc                func(context.Context, domain.Actor, mcp.UpdateRoleInput) (domain.Role, error)
+	DeleteRoleFunc                func(context.Context, domain.Actor, mcp.RoleRefInput) (domain.Role, error)
+
 	ListRolesFunc                 func(context.Context, domain.Actor, any) ([]domain.Role, error)
 	ListTeamsFunc                 func(context.Context, domain.Actor, any) ([]domain.Team, error)
 	CreateTeamFunc                func(context.Context, domain.Actor, mcp.CreateTeamInput) (domain.Team, error)
@@ -681,4 +698,84 @@ func (s *ToolService) CreateConnection(ctx context.Context, by domain.Actor, in 
 // SetConnectionEnabled implements mcp.ToolService.
 func (s *ToolService) SetConnectionEnabled(ctx context.Context, by domain.Actor, in mcp.SetConnectionInput) (mcp.ConnectionInfo, error) {
 	return invoke(ctx, s, mcp.ToolSetConnection, by, in, s.SetConnectionFunc)
+}
+
+// ListDomains implements mcp.ToolService.
+func (s *ToolService) ListDomains(ctx context.Context, by domain.Actor) ([]mcp.DomainInfo, error) {
+	return invoke[any](ctx, s, mcp.ToolListDomains, by, nil, s.ListDomainsFunc)
+}
+
+// AddDomain implements mcp.ToolService.
+func (s *ToolService) AddDomain(ctx context.Context, by domain.Actor, in mcp.DomainInput) (mcp.DomainInfo, error) {
+	return invoke(ctx, s, mcp.ToolAddDomain, by, in, s.AddDomainFunc)
+}
+
+// VerifyDomain implements mcp.ToolService.
+func (s *ToolService) VerifyDomain(ctx context.Context, by domain.Actor, in mcp.DomainInput) (mcp.DomainInfo, error) {
+	return invoke(ctx, s, mcp.ToolVerifyDomain, by, in, s.VerifyDomainFunc)
+}
+
+// DeleteDomain implements mcp.ToolService.
+func (s *ToolService) DeleteDomain(ctx context.Context, by domain.Actor, in mcp.DomainInput) (mcp.DomainInfo, error) {
+	return invoke(ctx, s, mcp.ToolDeleteDomain, by, in, s.DeleteDomainFunc)
+}
+
+// SetSSOEnforcement implements mcp.ToolService.
+func (s *ToolService) SetSSOEnforcement(ctx context.Context, by domain.Actor, in mcp.SetSSOEnforcementInput) (mcp.DomainInfo, error) {
+	return invoke(ctx, s, mcp.ToolSetSSOEnforcement, by, in, s.SetSSOEnforcementFunc)
+}
+
+// SetMaxTokenTTL implements mcp.ToolService.
+func (s *ToolService) SetMaxTokenTTL(ctx context.Context, by domain.Actor, in mcp.SetMaxTokenTTLInput) (domain.Account, error) {
+	return invoke(ctx, s, mcp.ToolSetMaxTokenTTL, by, in, s.SetMaxTokenTTLFunc)
+}
+
+// SetConnectionProvisioning implements mcp.ToolService.
+func (s *ToolService) SetConnectionProvisioning(ctx context.Context, by domain.Actor, in mcp.SetProvisioningInput) (mcp.ProvisioningInfo, error) {
+	return invoke(ctx, s, mcp.ToolSetProvisioning, by, in, s.SetConnectionProvisioningFunc)
+}
+
+// ListGroupMappings implements mcp.ToolService.
+func (s *ToolService) ListGroupMappings(ctx context.Context, by domain.Actor) ([]domain.GroupMapping, error) {
+	return invoke[any](ctx, s, mcp.ToolListGroupMappings, by, nil, s.ListGroupMappingsFunc)
+}
+
+// AddGroupMapping implements mcp.ToolService.
+func (s *ToolService) AddGroupMapping(ctx context.Context, by domain.Actor, in mcp.AddGroupMappingInput) (domain.GroupMapping, error) {
+	return invoke(ctx, s, mcp.ToolAddGroupMapping, by, in, s.AddGroupMappingFunc)
+}
+
+// RemoveGroupMapping implements mcp.ToolService.
+func (s *ToolService) RemoveGroupMapping(ctx context.Context, by domain.Actor, in mcp.GroupMappingRefInput) (domain.GroupMapping, error) {
+	return invoke(ctx, s, mcp.ToolRemoveGroupMapping, by, in, s.RemoveGroupMappingFunc)
+}
+
+// ListSCIMTokens implements mcp.ToolService.
+func (s *ToolService) ListSCIMTokens(ctx context.Context, by domain.Actor) ([]domain.SCIMToken, error) {
+	return invoke[any](ctx, s, mcp.ToolListSCIMTokens, by, nil, s.ListSCIMTokensFunc)
+}
+
+// CreateSCIMToken implements mcp.ToolService.
+func (s *ToolService) CreateSCIMToken(ctx context.Context, by domain.Actor, in mcp.CreateSCIMTokenInput) (mcp.CreateSCIMTokenOutput, error) {
+	return invoke(ctx, s, mcp.ToolCreateSCIMToken, by, in, s.CreateSCIMTokenFunc)
+}
+
+// RevokeSCIMToken implements mcp.ToolService.
+func (s *ToolService) RevokeSCIMToken(ctx context.Context, by domain.Actor, in mcp.SCIMTokenRefInput) (domain.SCIMToken, error) {
+	return invoke(ctx, s, mcp.ToolRevokeSCIMToken, by, in, s.RevokeSCIMTokenFunc)
+}
+
+// CreateRole implements mcp.ToolService.
+func (s *ToolService) CreateRole(ctx context.Context, by domain.Actor, in mcp.CreateRoleInput) (domain.Role, error) {
+	return invoke(ctx, s, mcp.ToolCreateRole, by, in, s.CreateRoleFunc)
+}
+
+// UpdateRole implements mcp.ToolService.
+func (s *ToolService) UpdateRole(ctx context.Context, by domain.Actor, in mcp.UpdateRoleInput) (domain.Role, error) {
+	return invoke(ctx, s, mcp.ToolUpdateRole, by, in, s.UpdateRoleFunc)
+}
+
+// DeleteRole implements mcp.ToolService.
+func (s *ToolService) DeleteRole(ctx context.Context, by domain.Actor, in mcp.RoleRefInput) (domain.Role, error) {
+	return invoke(ctx, s, mcp.ToolDeleteRole, by, in, s.DeleteRoleFunc)
 }

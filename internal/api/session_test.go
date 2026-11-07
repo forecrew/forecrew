@@ -278,3 +278,34 @@ func TestApplyFromASessionIsFromTheBrowser(t *testing.T) {
 		t.Fatalf("%d %s: %+v", resp.StatusCode, body, got)
 	}
 }
+
+// TestDiscoverIsRateLimited lets one address only so far, per window, without
+// touching another address.
+func TestDiscoverIsRateLimited(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := api.New(api.Config{Tools: &testkit.ToolService{}, Store: testkit.NewStore(func() time.Time { return now }), Logger: slog.New(slog.DiscardHandler), Now: func() time.Time { return now }})
+	h := s.Handler()
+	call := func(addr string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/auth/discover", strings.NewReader(`{}`))
+		r.RemoteAddr = addr
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	for i := range 120 {
+		if w := call("192.0.2.1:1000"); w.Code != http.StatusOK {
+			t.Fatalf("call %d = %d", i, w.Code)
+		}
+	}
+	w := call("192.0.2.1:1001")
+	if w.Code != http.StatusTooManyRequests || w.Header().Get("Retry-After") != "60" || !strings.Contains(w.Body.String(), "rate_limited") {
+		t.Fatalf("over the limit = %d %s", w.Code, w.Body)
+	}
+	if w := call("192.0.2.2:1000"); w.Code != http.StatusOK {
+		t.Fatalf("another address = %d", w.Code)
+	}
+	now = now.Add(time.Minute)
+	if w := call("192.0.2.1:1000"); w.Code != http.StatusOK {
+		t.Fatalf("after the window = %d", w.Code)
+	}
+}

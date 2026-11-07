@@ -129,6 +129,8 @@ type Config struct {
 	// auth.ErrNoGitHubUser for an unknown login; invitations by login answer
 	// unavailable without it.
 	GitHubUserID func(ctx context.Context, login string) (int64, error)
+	// Enterprise serves the enterprise tools; nil answers unavailable.
+	Enterprise mcp.EnterpriseTools
 	// PublicURL starts the links of invitations.
 	PublicURL string
 	// TokenTTL is auth.token_default_ttl; it defaults to
@@ -149,6 +151,7 @@ type Config struct {
 
 // Service is the mcp.ToolService.
 type Service struct {
+	mcp.EnterpriseTools
 	cfg    Config
 	authz  *authz.Engine
 	config *cfgres.Engine
@@ -171,7 +174,10 @@ func New(cfg Config) *Service {
 	if cfg.Proposals != nil {
 		engine.WithProtection(cfg.Proposals)
 	}
-	s := &Service{cfg: cfg, authz: engine}
+	if cfg.Enterprise == nil {
+		cfg.Enterprise = mcp.NoEnterprise{}
+	}
+	s := &Service{EnterpriseTools: cfg.Enterprise, cfg: cfg, authz: engine}
 	s.config = cfgres.NewEngine(cfgres.Config{
 		Store: cfg.Store, Access: func(st store.Store) cfgres.Access { return s.in(st) }, Server: cfg.Server, Getenv: cfg.Getenv, CheckSchedule: cfg.CheckSchedule,
 		Repo: cfg.Repo, Secrets: cfg.Secrets, Logger: cfg.Logger, Now: cfg.Now,

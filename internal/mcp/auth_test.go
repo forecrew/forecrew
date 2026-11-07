@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/mcp"
@@ -195,3 +196,51 @@ func TestAuthenticateChecksTheOwner(t *testing.T) {
 }
 
 var t0 = time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+
+// Under SSO enforcement a personal token ends max_token_ttl after its
+// creation, whatever its own expiry says; a service account's does not.
+func TestPersonalTokenCapApplies(t *testing.T) {
+	e := newEnv(t)
+	ctx := t.Context()
+	account := e.actor.AccountID
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	u := domain.User{Name: "Ana", Email: "ana@acme.example", EmailVerified: true}
+	must(e.store.Users().Create(ctx, &u))
+	must(e.store.Memberships().Create(ctx, &domain.Membership{AccountID: account, UserID: u.ID, Status: domain.MembershipActive, Source: domain.SourceManual}))
+	must(e.store.MCPTokens().Create(ctx, &domain.MCPToken{AccountID: account, Name: "p", TokenHash: mcp.HashToken("fcm_p"), OwnerKind: domain.SubjectUser, OwnerID: u.ID, Scopes: []domain.Scope{domain.ScopeRead}}))
+	d := domain.VerifiedDomain{AccountID: account, Domain: "acme.example", VerificationToken: "t"}
+	must(e.store.VerifiedDomains().Create(ctx, &d))
+	must(e.store.VerifiedDomains().SetVerified(ctx, account, d.ID, true))
+	conn := domain.Connection{AccountID: account, Kind: domain.ConnectionOIDC, Name: "okta", Issuer: "https://idp.example", ClientID: "c", ClientSecretRef: "env:FORECREW_CONN_X", Enabled: true}
+	must(e.store.Connections().Create(ctx, &conn))
+	must(e.store.VerifiedDomains().SetEnforcement(ctx, account, d.ID, true, conn.ID))
+	must(e.store.Accounts().SetMaxTokenTTL(ctx, account, time.Hour))
+
+	stored, err := e.store.MCPTokens().GetByTokenHash(ctx, mcp.HashToken("fcm_p"))
+	must(err)
+	now := stored.CreatedAt.Add(59 * time.Minute)
+	h := mcp.Authenticate(e.store, func() time.Time { return now }, slog.New(slog.DiscardHandler))(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	call := func() int {
+		req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", "Bearer fcm_p")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	if code := call(); code != 200 {
+		t.Fatalf("within the cap = %d", code)
+	}
+	now = stored.CreatedAt.Add(time.Hour)
+	if code := call(); code != 401 {
+		t.Fatalf("past the cap = %d", code)
+	}
+	must(e.store.VerifiedDomains().SetEnforcement(ctx, account, d.ID, false, uuid.Nil()))
+	if code := call(); code != 200 {
+		t.Fatalf("without enforcement = %d", code)
+	}
+}

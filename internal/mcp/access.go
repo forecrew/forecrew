@@ -149,6 +149,22 @@ func ToolAccess() map[string]Access {
 		ToolListConnections:    {Permission: domain.PermConnectionManage},
 		ToolCreateConnection:   {Permission: domain.PermConnectionManage},
 		ToolSetConnection:      {Permission: domain.PermConnectionManage},
+		ToolListDomains:        {Permission: domain.PermConnectionManage},
+		ToolAddDomain:          {Permission: domain.PermConnectionManage},
+		ToolVerifyDomain:       {Permission: domain.PermConnectionManage},
+		ToolDeleteDomain:       {Permission: domain.PermConnectionManage},
+		ToolSetSSOEnforcement:  {Permission: domain.PermConnectionManage},
+		ToolSetMaxTokenTTL:     {Permission: domain.PermOrgManage},
+		ToolSetProvisioning:    {Permission: domain.PermConnectionManage},
+		ToolListGroupMappings:  {Permission: domain.PermConnectionManage},
+		ToolAddGroupMapping:    {Permission: domain.PermConnectionManage},
+		ToolRemoveGroupMapping: {Permission: domain.PermConnectionManage},
+		ToolListSCIMTokens:     {Permission: domain.PermConnectionManage},
+		ToolCreateSCIMToken:    {Permission: domain.PermConnectionManage},
+		ToolRevokeSCIMToken:    {Permission: domain.PermConnectionManage},
+		ToolCreateRole:         {Permission: domain.PermRoleManage},
+		ToolUpdateRole:         {Permission: domain.PermRoleManage},
+		ToolDeleteRole:         {Permission: domain.PermRoleManage},
 	}
 }
 

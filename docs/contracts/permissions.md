@@ -274,6 +274,8 @@ object up and checks the permission on the object's project.
 | | `GET /api/v1/me`, `PUT /api/v1/session/organization`, `DELETE /api/v1/sessions`, `GET /api/v1/sessions`, `DELETE /api/v1/sessions/{session}`, `GET /api/v1/identities`, `POST /api/v1/cli/authorize` | signed in; `DELETE /sessions` and the last four work on the calling person's own records and need a browser session (`403` for a token of any scope), and `cli/authorize` needs one too |
 | | `POST /api/v1/cli/token` | public: a code from `cli/authorize` and its PKCE verifier |
 | | `POST /api/v1/auth/discover` | public |
+| | `GET /api/v1/me`, `PUT /api/v1/session/organization`, `DELETE /api/v1/sessions` | signed in |
+| | `POST /api/v1/auth/discover` | public, limited per address |
 | `onboard_project` | `POST /api/v1/projects` | `project.create` |
 | `list_projects` | `GET /api/v1/projects` | `project.read` |
 | `get_project` | `GET /api/v1/projects/{project...}` | `project.read` |
@@ -377,6 +379,22 @@ object up and checks the permission on the object's project.
 | `assistant_send` | `POST /api/v1/assistant/messages` | `config.read`; with a project, `project.read` on it |
 | `assistant_get` | `GET /api/v1/assistant/conversations/{conversation}` | `config.read`; own conversations only, `404` for another's |
 | `assistant_list` | `GET /api/v1/assistant/conversations` | `config.read`; own conversations only |
+| `list_domains` | `GET /api/v1/domains` | `connection.manage` |
+| `add_domain` | `POST /api/v1/domains` | `connection.manage` |
+| `verify_domain` | `POST /api/v1/domains/{domain}/verify` | `connection.manage` |
+| `delete_domain` | `DELETE /api/v1/domains/{domain}` | `connection.manage` |
+| `set_sso_enforcement` | `PUT /api/v1/domains/{domain}/enforcement` | `connection.manage`; turning it on sets `max_token_ttl` to 7 days when it is NULL, and nothing else about the cap |
+| `set_max_token_ttl` | `PUT /api/v1/organization/max-token-ttl` | `org.manage` |
+| `set_connection_provisioning` | `PUT /api/v1/connections/{connection}/provisioning` | `connection.manage`, No escalation: the JIT default roles it had and gets, and those of the teams mapped to it |
+| `list_group_mappings` | `GET /api/v1/group-mappings` | `connection.manage` |
+| `add_group_mapping` | `POST /api/v1/group-mappings` | `connection.manage`, No escalation |
+| `remove_group_mapping` | `DELETE /api/v1/group-mappings/{mapping}` | `connection.manage` |
+| `list_scim_tokens` | `GET /api/v1/scim-tokens` | `connection.manage` |
+| `create_scim_token` | `POST /api/v1/scim-tokens` | `connection.manage`, No escalation |
+| `revoke_scim_token` | `POST /api/v1/scim-tokens/{token}/revoke` | `connection.manage` |
+| `create_role` | `POST /api/v1/roles` | `role.manage` and every permission of the role, on the organization |
+| `update_role` | `PATCH /api/v1/roles/{role}` | `role.manage` and every permission the role has and gets, on the organization, because the change reaches everyone bound to it |
+| `delete_role` | `DELETE /api/v1/roles/{role}` | `role.manage` and every permission of the role |
 
 For a binding on the organization, No escalation also concerns everything
 the member or service account already holds; for a binding on a project, only

@@ -129,6 +129,22 @@ func TestToolServiceDefaults(t *testing.T) {
 		func() error { _, err := s.ListConnections(ctx, by); return err },
 		func() error { _, err := s.CreateConnection(ctx, by, mcp.CreateConnectionInput{}); return err },
 		func() error { _, err := s.SetConnectionEnabled(ctx, by, mcp.SetConnectionInput{}); return err },
+		func() error { _, err := s.ListDomains(ctx, by); return err },
+		func() error { _, err := s.AddDomain(ctx, by, mcp.DomainInput{}); return err },
+		func() error { _, err := s.VerifyDomain(ctx, by, mcp.DomainInput{}); return err },
+		func() error { _, err := s.DeleteDomain(ctx, by, mcp.DomainInput{}); return err },
+		func() error { _, err := s.SetSSOEnforcement(ctx, by, mcp.SetSSOEnforcementInput{}); return err },
+		func() error { _, err := s.SetMaxTokenTTL(ctx, by, mcp.SetMaxTokenTTLInput{}); return err },
+		func() error { _, err := s.SetConnectionProvisioning(ctx, by, mcp.SetProvisioningInput{}); return err },
+		func() error { _, err := s.ListGroupMappings(ctx, by); return err },
+		func() error { _, err := s.AddGroupMapping(ctx, by, mcp.AddGroupMappingInput{}); return err },
+		func() error { _, err := s.RemoveGroupMapping(ctx, by, mcp.GroupMappingRefInput{}); return err },
+		func() error { _, err := s.ListSCIMTokens(ctx, by); return err },
+		func() error { _, err := s.CreateSCIMToken(ctx, by, mcp.CreateSCIMTokenInput{}); return err },
+		func() error { _, err := s.RevokeSCIMToken(ctx, by, mcp.SCIMTokenRefInput{}); return err },
+		func() error { _, err := s.CreateRole(ctx, by, mcp.CreateRoleInput{}); return err },
+		func() error { _, err := s.UpdateRole(ctx, by, mcp.UpdateRoleInput{}); return err },
+		func() error { _, err := s.DeleteRole(ctx, by, mcp.RoleRefInput{}); return err },
 	}
 	for _, call := range calls {
 		must(t, call())

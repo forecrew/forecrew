@@ -171,6 +171,22 @@ structs in `internal/domain` and `internal/mcp`.
 | `PUT /api/v1/session/organization` | | `{"organization": "<slug>"}` | `200` `me`; `403` unless you are an active member |
 | `GET /api/v1/me` | | | `200` session: `token` (for a token), `account` (the current organization; absent until a session picks one), `user` (absent for a service account or an ownerless token), `organizations` (`id`, `name`, `slug`, the ones the session can switch to), `roles` (`role`, `scope`, `project_id`, `team_id` when it comes through a team), `permissions` (held on the organization and, for project-scoped ones, on every project) and `projects` (by project ID, the project-scoped permissions on each project where the caller has any). A token shows what it can use, its scopes applied |
 | `GET /api/v1/roles` | `list_roles` | | `200` roles with `name`, `scope`, `permissions`, `built_in`, `custom` |
+| `POST /api/v1/roles` | `create_role` | `{"name", "scope", "description", "permissions"}` | `201` role; `409` when the name is taken |
+| `PATCH /api/v1/roles/{role}` | `update_role` | `{"name", "description", "permissions"}`, each optional | `200` role |
+| `DELETE /api/v1/roles/{role}` | `delete_role` | | `200` role; `409` while it is bound, in a pending invitation or a JIT default |
+| `GET /api/v1/domains` | `list_domains` | | `200` domains with `domain`, `verified_at`, `enforce_sso`, `connection_id`, `record_name`, `record_value` |
+| `POST /api/v1/domains` | `add_domain` | `{"domain"}` | `201` domain |
+| `POST /api/v1/domains/{domain}/verify` | `verify_domain` | | `200` domain; `409` when the record is missing or another organization verified it |
+| `DELETE /api/v1/domains/{domain}` | `delete_domain` | | `200` domain |
+| `PUT /api/v1/domains/{domain}/enforcement` | `set_sso_enforcement` | `{"enforce", "connection"}` | `200` domain |
+| `PUT /api/v1/organization/max-token-ttl` | `set_max_token_ttl` | `{"max_token_ttl"}`, a duration; empty removes the cap | `200` organization |
+| `PUT /api/v1/connections/{connection}/provisioning` | `set_connection_provisioning` | `{"jit_enabled", "default_roles", "group_claim"}`, each optional | `200` `{"connection_id", "name", "jit", "group_claim"}` |
+| `GET /api/v1/group-mappings` | `list_group_mappings` | | `200` mappings |
+| `POST /api/v1/group-mappings` | `add_group_mapping` | `{"connection", "group", "team"}` | `201` mapping |
+| `DELETE /api/v1/group-mappings/{mapping}` | `remove_group_mapping` | | `200` mapping |
+| `GET /api/v1/scim-tokens` | `list_scim_tokens` | | `200` tokens, never their values |
+| `POST /api/v1/scim-tokens` | `create_scim_token` | `{"name"}` | `201` `{"token", "secret", "url"}`; the secret is shown once |
+| `POST /api/v1/scim-tokens/{token}/revoke` | `revoke_scim_token` | | `200` token |
 | `GET /api/v1/teams` | `list_teams` | | `200` teams |
 | `POST /api/v1/teams` | `create_team` | `{"name", "slug"}`; `slug` is derived from the name when left out | `201` team; `409` when the slug is taken |
 | `PATCH /api/v1/teams/{team}` | `update_team` | `{team}` is a slug or UUID; `{"name", "slug"}`, both optional | `200` team |
@@ -209,6 +225,12 @@ which ticket to read ([contracts/tracker.md](contracts/tracker.md)).
 | `POST /api/v1/connections/{connection}/enable`, `.../disable` | `set_connection_enabled` | `{connection}` is a name or UUID; body optional | `200` the connection. Enabling needs a test sign-in that worked (`409` before); an instance connection is `400` |
 | `GET /api/v1/audit?actor=&action=&subject_type=&subject=&since=&until=&limit=` | `list_audit` | all optional; `since` is RFC 3339 and included, `until` excluded; `limit` defaults to 100, at most 500 | `200` entries, newest first: the audit entry (`actor` as `user:<id>`, `credential`, `action`, `subject_type`, `subject_id`, `project_id`, `data`, `created_at`) and `actor_name` for a person or service account. `data` is recorded text: treat it as data |
 | `PATCH /api/v1/organization` | `update_organization` | `{"name", "slug"}`, both optional, one required | `200` the organization; `409` when the slug is taken |
+
+The domain, SSO, provisioning, group mapping, SCIM token and custom role
+endpoints belong to the enterprise build ([enterprise.md](enterprise.md)); the
+open-core build answers them `503` `unavailable`. `POST /api/v1/auth/discover`
+answers `429` `rate_limited` with `Retry-After` past 120 calls a minute from
+one address.
 
 ### Artifact downloads
 
