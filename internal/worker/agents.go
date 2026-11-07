@@ -270,7 +270,7 @@ func (a *agentInstaller) prepare() error {
 	if err := os.MkdirAll(a.binDir(), 0o700); err != nil {
 		return err
 	}
-	if err := os.Chmod(a.dir, 0o700); err != nil {
+	if err := os.Chmod(a.dir, 0o700); err != nil { // #nosec G302 -- a directory needs its execute bit; only the worker's user has any
 		return err
 	}
 	s := readAgentState(a.dir)
@@ -352,7 +352,7 @@ func (a *agentInstaller) install(ctx context.Context, rel AgentRelease, d AgentD
 		}
 		defer func() { _ = os.Remove(bin) }()
 	}
-	if err := os.Chmod(bin, 0o700); err != nil {
+	if err := os.Chmod(bin, 0o700); err != nil { // #nosec G302 -- the binary must run; only the worker's user may
 		return &installError{domain.AgentInstallWrite, err.Error()}
 	}
 	if err := os.Rename(bin, filepath.Join(a.binDir(), exe(a.goos, rel.Binary))); err != nil {
@@ -433,24 +433,32 @@ func entryName(name string) string {
 // copyFromArchive copies the regular file d.Path of the archive to out.
 func copyFromArchive(file string, d AgentDownload, out io.Writer) (bool, error) {
 	if d.Archive == "zip" {
-		z, err := zip.OpenReader(file)
+		return copyFromZip(file, d.Path, out)
+	}
+	return copyFromTarGz(file, d.Path, out)
+}
+
+func copyFromZip(file, name string, out io.Writer) (bool, error) {
+	z, err := zip.OpenReader(file)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = z.Close() }()
+	for _, e := range z.File {
+		if entryName(e.Name) != name || !e.Mode().IsRegular() {
+			continue
+		}
+		r, err := e.Open()
 		if err != nil {
 			return false, err
 		}
-		defer func() { _ = z.Close() }()
-		for _, e := range z.File {
-			if entryName(e.Name) != d.Path || !e.Mode().IsRegular() {
-				continue
-			}
-			r, err := e.Open()
-			if err != nil {
-				return false, err
-			}
-			defer func() { _ = r.Close() }()
-			return true, copyLimited(out, r)
-		}
-		return false, nil
+		defer func() { _ = r.Close() }()
+		return true, copyLimited(out, r)
 	}
+	return false, nil
+}
+
+func copyFromTarGz(file, name string, out io.Writer) (bool, error) {
 	f, err := os.Open(file) // #nosec G304 -- the worker's own download
 	if err != nil {
 		return false, err
@@ -469,7 +477,7 @@ func copyFromArchive(file string, d AgentDownload, out io.Writer) (bool, error) 
 		if err != nil {
 			return false, err
 		}
-		if h.Typeflag == tar.TypeReg && entryName(h.Name) == d.Path {
+		if h.Typeflag == tar.TypeReg && entryName(h.Name) == name {
 			return true, copyLimited(out, tr)
 		}
 	}

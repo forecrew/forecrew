@@ -192,15 +192,20 @@ func (s *snapshot) locations(o *organization) []Location {
 		if w.Online(s.now) {
 			status = StatusOnline
 		}
-		var problems []string
-		for _, a := range w.Agents {
-			if p := agentProblem(displayName(w.Name), a); p != "" {
-				problems = append(problems, p)
-			}
-		}
-		out = append(out, Location{ID: w.ID, Kind: LocationComputer, Name: w.Name, Runs: workerRuns(w), Status: status, InUse: running[w.ID], Capacity: w.MaxJobs, Cost: "Free", Problems: problems})
+		out = append(out, Location{ID: w.ID, Kind: LocationComputer, Name: w.Name, Runs: workerRuns(w), Status: status, InUse: running[w.ID], Capacity: w.MaxJobs, Cost: "Free", Problems: computerProblems(w)})
 	}
 	slices.SortFunc(out, func(a, b Location) int { return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) })
+	return out
+}
+
+// computerProblems are the agents a computer could not install, in words.
+func computerProblems(w domain.Worker) []string {
+	var out []string
+	for _, a := range w.Agents {
+		if p := agentProblem(displayName(w.Name), a); p != "" {
+			out = append(out, p)
+		}
+	}
 	return out
 }
 

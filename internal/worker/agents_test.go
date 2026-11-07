@@ -175,6 +175,35 @@ agents:
 	}
 }
 
+// checkInstalled checks that a holds codex 1.2.3 as body, private, recorded
+// and reported, with nothing else left.
+func checkInstalled(t *testing.T, a *agentInstaller, body []byte, sha string) {
+	t.Helper()
+	bin := filepath.Join(a.binDir(), "codex")
+	got, err := os.ReadFile(bin) //nolint:gosec // test path
+	if err != nil || !bytes.Equal(got, body) {
+		t.Fatalf("installed %q, %v", got, err)
+	}
+	if fi, _ := os.Stat(bin); fi.Mode().Perm() != 0o700 {
+		t.Errorf("mode = %v", fi.Mode())
+	}
+	if fi, _ := os.Stat(a.dir); fi.Mode().Perm() != 0o700 {
+		t.Errorf("agents directory mode = %v, want private", fi.Mode())
+	}
+	if in := readAgentState(a.dir).Installed["codex"]; in.Version != "1.2.3" || in.SHA256 != sha || !strings.HasPrefix(in.URL, "https://") || in.InstalledAt.IsZero() {
+		t.Errorf("recorded %+v", in)
+	}
+	if p, err := a.lookPath("codex"); err != nil || p != bin {
+		t.Errorf("lookPath = %q, %v", p, err)
+	}
+	if r := a.report(a.lookPath, false); !slices.Contains(r, domain.WorkerAgent{Adapter: "codex", Source: domain.AgentSourceInstalled, Version: "1.2.3"}) {
+		t.Errorf("report = %+v", r)
+	}
+	if left := leftovers(t, a); len(left) != 1 {
+		t.Errorf("files = %v, want only the binary", left)
+	}
+}
+
 func TestInstallBinaryAndArchives(t *testing.T) {
 	body := []byte(fakeCLI)
 	for name, dl := range map[string]struct {
@@ -189,33 +218,8 @@ func TestInstallBinaryAndArchives(t *testing.T) {
 			d := newDownloads(t, map[string][]byte{dl.dl.URL: dl.file})
 			dl.dl.SHA256 = sum(dl.file)
 			a := d.installer(t, d.manifest(dl.dl), nil)
-			if err := a.Install(t.Context(), "codex"); err != nil {
-				t.Fatal(err)
-			}
-			bin := filepath.Join(a.binDir(), "codex")
-			got, err := os.ReadFile(bin) //nolint:gosec // test path
-			if err != nil || !bytes.Equal(got, body) {
-				t.Fatalf("installed %q, %v", got, err)
-			}
-			if fi, _ := os.Stat(bin); fi.Mode().Perm() != 0o700 {
-				t.Errorf("mode = %v", fi.Mode())
-			}
-			if fi, _ := os.Stat(a.dir); fi.Mode().Perm() != 0o700 {
-				t.Errorf("agents directory mode = %v, want private", fi.Mode())
-			}
-			s := readAgentState(a.dir)
-			if in := s.Installed["codex"]; in.Version != "1.2.3" || in.SHA256 != dl.dl.SHA256 || !strings.HasPrefix(in.URL, "https://") || in.InstalledAt.IsZero() {
-				t.Errorf("recorded %+v", in)
-			}
-			if p, err := a.lookPath("codex"); err != nil || p != bin {
-				t.Errorf("lookPath = %q, %v", p, err)
-			}
-			if r := a.report(a.lookPath, false); !slices.Contains(r, domain.WorkerAgent{Adapter: "codex", Source: domain.AgentSourceInstalled, Version: "1.2.3"}) {
-				t.Errorf("report = %+v", r)
-			}
-			if left := leftovers(t, a); len(left) != 1 {
-				t.Errorf("files = %v, want only the binary", left)
-			}
+			must(t, a.Install(t.Context(), "codex"))
+			checkInstalled(t, a, body, dl.dl.SHA256)
 		})
 	}
 }
