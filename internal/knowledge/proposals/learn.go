@@ -384,7 +384,8 @@ func (s *Service) LearnDecide(ctx context.Context, b LearnBatch, gate string) (L
 }
 
 // LearnSettle records how the learn step ended. failed is set when the run did
-// not get to the end: the PR is closed and what is still in review rejected.
+// not get to the end: the PR is closed and what is still in review, and what
+// still waits for the learn step, rejected.
 // Otherwise a merged PR accepts the proposals and a closed one rejects them.
 func (s *Service) LearnSettle(ctx context.Context, b LearnBatch, failed bool) error {
 	p, goal, ks, number, err := s.learnProposals(ctx, b)
@@ -392,7 +393,12 @@ func (s *Service) LearnSettle(ctx context.Context, b LearnBatch, failed bool) er
 		return err
 	}
 	if failed {
-		return s.reject(ctx, p, ks, number, "the learn step of "+goal.Ref(), "the learn step did not finish")
+		// What still waits for the learn step goes too: it will never run.
+		queued, err := s.Store.KnowledgeProposals().List(ctx, b.AccountID, store.KnowledgeProposalFilter{GoalID: goal.ID, Batch: domain.BatchPerGoal, Status: domain.KnowledgeQueued})
+		if err != nil {
+			return err
+		}
+		return s.reject(ctx, p, slices.Concat(ks, queued), number, "the learn step of "+goal.Ref(), "the learn step did not finish")
 	}
 	return s.settleAt(ctx, p, ks, number, goal.Ref())
 }

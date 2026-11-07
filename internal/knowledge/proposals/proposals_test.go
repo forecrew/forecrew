@@ -1004,6 +1004,25 @@ func TestLearnSettle(t *testing.T) {
 	})
 }
 
+// A learn step that never ran, because the goal failed or was canceled,
+// rejects what its jobs proposed.
+func TestLearnSettleFailedRejectsQueued(t *testing.T) {
+	e := newEnv(t)
+	goal := testkit.Goal(t, e.st, e.account, e.project.ID, "g")
+	j := e.job(t, "architect", goal.ID)
+	k, err := e.svc.Submit(t.Context(), j, add("architecture", "docs/adr/3.md"))
+	must(t, err)
+	b := proposals.LearnBatch{AccountID: e.account, ProjectID: e.project.ID, GoalID: goal.ID}
+	if got := e.get(t, k); got.Status != domain.KnowledgeQueued {
+		t.Fatalf("proposal = %s", got.Status)
+	}
+	must(t, e.svc.LearnSettle(t.Context(), b, true))
+	if got := e.get(t, k); got.Status != domain.KnowledgeRejected {
+		t.Errorf("proposal = %s", got.Status)
+	}
+	must(t, e.svc.LearnSettle(t.Context(), b, true)) // again
+}
+
 // Learn is called again after a crash: the same files and proposals, the same
 // PR and gate; and a goal or a project that does not exist is an error.
 func TestLearnRepeatsAndErrors(t *testing.T) {

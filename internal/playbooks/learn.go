@@ -296,10 +296,13 @@ func (a *actions) learnDecide(ctx context.Context, call workflow.ActionCall) (an
 
 // learnSettle is the action goal.learn_settle, the last step of the learn
 // run and its finally step: a run that fails or is canceled closes the learn
-// PR and rejects what is still in review.
+// PR and rejects what is still in review or queued. with.skipped (the goal
+// playbook after a human skipped a failed learn step) does the same in a run
+// that goes on.
 func (a *actions) learnSettle(ctx context.Context, call workflow.ActionCall) (any, error) {
 	var with struct {
-		GoalID uuid.UUID `json:"goal_id"`
+		GoalID  uuid.UUID `json:"goal_id"`
+		Skipped bool      `json:"skipped"`
 	}
 	if err := workflow.DecodeWith(call.With, &with); err != nil {
 		return nil, err
@@ -308,6 +311,6 @@ func (a *actions) learnSettle(ctx context.Context, call workflow.ActionCall) (an
 	if err != nil {
 		return nil, err
 	}
-	failed := call.Run.Status == domain.RunFailed || call.Run.Status == domain.RunCanceled
+	failed := with.Skipped || call.Run.Status == domain.RunFailed || call.Run.Status == domain.RunCanceled
 	return map[string]bool{"failed": failed}, a.Proposals.LearnSettle(ctx, b, failed)
 }

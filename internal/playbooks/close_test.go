@@ -11,7 +11,10 @@ import (
 
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/github"
+	"github.com/forecrew/forecrew/internal/knowledge"
+	"github.com/forecrew/forecrew/internal/knowledge/proposals"
 	"github.com/forecrew/forecrew/internal/store"
+	"github.com/forecrew/forecrew/internal/testkit"
 	"github.com/forecrew/forecrew/internal/workflow"
 )
 
@@ -184,6 +187,29 @@ func TestGoalSettle(t *testing.T) {
 	comments = p.goalComments(t)
 	if len(comments) != 1 {
 		t.Errorf("%d comments after the second call", len(comments))
+	}
+}
+
+// A canceled goal rejects the knowledge proposals that waited for its learn
+// step.
+func TestGoalSettleRejectsQueuedProposals(t *testing.T) {
+	p := newPlanned(t)
+	policy, err := knowledge.ParsePolicy([]byte(learnPolicy))
+	must(t, err)
+	p.proposals = &proposals.Service{Store: p.st, GitHub: p.tracker, Gates: p.gates, Roles: testRoles(),
+		Policy: func(context.Context, domain.Project) (knowledge.Policy, error) { return policy, nil }}
+	p.register()
+	j := domain.Job{AccountID: p.account, ProjectID: p.project.ID, Role: "knowledge-curator", Runtime: "claude-code", GoalID: p.goal.ID, Spec: domain.JobSpec{Repo: "acme/app"}}
+	must(t, p.st.Jobs().Create(t.Context(), &j))
+	j = testkit.Lease(t, p.st, j)
+	k, err := p.proposals.Submit(t.Context(), j, proposals.Input{Section: "lessons", Path: "knowledge/lessons/a.md", Action: domain.KnowledgeAdd, Body: "# A\n", Reason: "JOB-1"})
+	must(t, err)
+	_, err = p.callKey(t, "goal.settle", "k", map[string]any{"goal_id": p.goal.ID.String()})
+	must(t, err)
+	got, err := p.st.KnowledgeProposals().Get(t.Context(), p.account, k.ID)
+	must(t, err)
+	if got.Status != domain.KnowledgeRejected {
+		t.Errorf("proposal = %s", got.Status)
 	}
 }
 
