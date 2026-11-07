@@ -218,7 +218,9 @@ finish what a crash interrupted:
   list, the organization's model endpoints and its `egress`
   ([contracts/fleet.md](contracts/fleet.md), Network); no entry of it opens a
   private network, a network of the host, the host, metadata or another
-  machine, whatever it says. New connections to the usual mining-pool ports are
+  machine, whatever it says. A machine of an instance-wide shape is refused,
+  and fails with why, on a location whose `egress` is not `allowlist`: a hosted
+  machine never reaches the whole internet. New connections to the usual mining-pool ports are
   counted, for the abuse checks.
   **Known limit: DNS.** A machine always reaches its resolver (`dns`) on port 53,
   in either mode, and a resolver answers names anyone can register, so a machine
@@ -288,6 +290,7 @@ secrets.
 | `org_cache_gb` | `0` | Size of each organization's cache disk, per pool; 0 gives machines none. Needs `cryptsetup` and `mkfs.ext4` |
 | `abuse.cpu_minutes` | `0` | Stops a machine whose vCPUs stay over 90% busy this long; 0 is off |
 | `abuse.mining_minutes` | `0` | Stops a machine whose vCPUs stay over 90% busy this long while it connects to the usual ports of mining pools; 0 is off |
+| `hosted` | `false` | This location runs the instance's hosted machines. `doctor` then fails without `egress: allowlist` and warns while an `abuse` limit is off |
 | `egress` | `open` | `open`: machines reach the internet and `network_allow`. `allowlist`: only `network_allow`, never a private network; for a location of the instance that runs hosted machines |
 
 ### Home server setup

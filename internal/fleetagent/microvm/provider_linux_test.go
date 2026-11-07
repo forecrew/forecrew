@@ -126,10 +126,13 @@ func newEnv(t *testing.T, edit func(*Config)) *testEnv {
 	return e
 }
 
+// ownOrg owns the shape of test requests: an organization's own location.
+var ownOrg = uuid.New()
+
 func (e *testEnv) request() fleet.CreateRequest {
 	return fleet.CreateRequest{
 		MachineID: uuid.New(),
-		Shape:     domain.Shape{Name: "small", OS: domain.OSLinux, Arch: domain.ArchAMD64, CPU: 2, MemoryMB: 1024, DiskGB: 1},
+		Shape:     domain.Shape{AccountID: ownOrg, Name: "small", OS: domain.OSLinux, Arch: domain.ArchAMD64, CPU: 2, MemoryMB: 1024, DiskGB: 1},
 		Image:     e.img,
 		Bootstrap: &fleet.Bootstrap{ServerURL: "http://192.0.2.10:8080", Token: "fcb_secret"},
 		Tags:      map[string]string{fleet.TagMachine: "x"},

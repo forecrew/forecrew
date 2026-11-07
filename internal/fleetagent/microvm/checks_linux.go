@@ -47,6 +47,10 @@ func (p *Provider) checks() []domain.ProviderCheck {
 	if len(p.cfg.GPUs) > 0 {
 		out = append(out, check("cloud-hypervisor", found(p.cfg.CloudHypervisor), statusFail, "found, for GPUs"))
 	}
+	if p.cfg.Hosted {
+		out = append(out, check("hosted egress", p.hostedEgress(), statusFail, "egress is allowlist, as hosted machines need"))
+		out = append(out, check("abuse checks", p.abuseOn(), statusWarn, "abuse checks are on"))
+	}
 	if p.cfg.OrgCacheGB > 0 {
 		out = append(out, check("cache tools", found("cryptsetup", "mkfs.ext4"), statusFail, "cryptsetup and mkfs.ext4 found, for organization caches"))
 	}
@@ -100,6 +104,23 @@ func (p *Provider) reflinks() error {
 	}
 	if !reflink(src, filepath.Join(dir, "b")) {
 		return fmt.Errorf("%s has no reflinks: each machine's disk is a full copy; use btrfs or XFS for fast starts", p.cfg.StateDir)
+	}
+	return nil
+}
+
+// hostedEgress refuses a location of hosted machines that lets them reach the
+// internet: an organization's list would not hold them.
+func (p *Provider) hostedEgress() error {
+	if p.cfg.Egress != egressAllowlist {
+		return fmt.Errorf("egress is %s: a location of hosted machines needs egress: allowlist, or each reaches the whole internet", p.cfg.Egress)
+	}
+	return nil
+}
+
+// abuseOn says when a location of hosted machines runs no abuse check.
+func (p *Provider) abuseOn() error {
+	if a := p.cfg.Abuse; a.CPUMinutes <= 0 || a.MiningMinutes <= 0 {
+		return fmt.Errorf("abuse.cpu_minutes and abuse.mining_minutes should both be set on a location of hosted machines; off, nothing stops a machine that mines")
 	}
 	return nil
 }

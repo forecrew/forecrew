@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/forecrew/forecrew/internal/domain"
 )
@@ -179,5 +180,41 @@ func TestParseCPUTime(t *testing.T) {
 	}
 	if _, err := outputOf(t.Context(), "false", "x"); err == nil {
 		t.Error("a failed command")
+	}
+}
+
+// A location of hosted machines refuses them unless it keeps them to an
+// allowlist, and doctor says what is missing.
+func TestHostedLocation(t *testing.T) {
+	e := newEnv(t, func(c *Config) { c.Hosted = true })
+	req := e.request()
+	req.Shape.AccountID = uuid.Nil() // instance-wide
+	if _, err := e.p.Create(t.Context(), req); err == nil || !strings.Contains(err.Error(), "egress: allowlist") {
+		t.Fatalf("a hosted machine on open egress: %v", err)
+	}
+	status := func(p *Provider, name string) string {
+		for _, c := range p.checks() {
+			if c.Name == name {
+				return c.Status
+			}
+		}
+		return ""
+	}
+	if status(e.p, "hosted egress") != statusFail || status(e.p, "abuse checks") != statusWarn {
+		t.Fatalf("checks = %+v", e.p.checks())
+	}
+	ok := newEnv(t, func(c *Config) {
+		c.Hosted, c.Egress, c.Abuse = true, egressAllowlist, AbuseConfig{CPUMinutes: 120, MiningMinutes: 5}
+	})
+	if status(ok.p, "hosted egress") != statusOK || status(ok.p, "abuse checks") != statusOK {
+		t.Fatalf("checks = %+v", ok.p.checks())
+	}
+	req = ok.request()
+	req.Shape.AccountID = uuid.Nil() // instance-wide
+	if _, err := ok.p.Create(t.Context(), req); err != nil {
+		t.Fatalf("a hosted machine on an allowlist: %v", err)
+	}
+	if status(newEnv(t, nil).p, "hosted egress") != "" {
+		t.Fatal("an own location checks hosted egress")
 	}
 }
