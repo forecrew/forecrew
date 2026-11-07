@@ -99,6 +99,24 @@ func (r Role) WithoutWrites() Role {
 	return r
 }
 
+// WithWritePaths returns r with paths added to its write paths and the
+// runtime tools of repo.write to its allowed tools, so that a role that
+// usually reads writes the files paths name in one job. It adds nothing for
+// no paths.
+func (r Role) WithWritePaths(paths []string) Role {
+	if len(paths) == 0 {
+		return r
+	}
+	r.WritePaths = slices.Concat(r.WritePaths, paths)
+	r.AllowedTools = slices.Clone(r.AllowedTools)
+	for _, t := range tools["repo.write"] {
+		if !slices.Contains(r.AllowedTools, t) {
+			r.AllowedTools = append(r.AllowedTools, t)
+		}
+	}
+	return r
+}
+
 // proposalReview is the prompt of a review of a knowledge proposal. The job
 // reads; what it was told about the proposal is data.
 const proposalReview = `You own this section of the knowledge base as the %s. Another agent proposes a change to it, on the branch checked out for you.

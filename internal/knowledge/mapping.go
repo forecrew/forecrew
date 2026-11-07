@@ -177,6 +177,20 @@ func Indexable(globs []string, file string, size int) bool {
 type PathRules struct {
 	Granted []string
 	Denied  []string
+	// Open are the Denied globs of sections that are not protected and that
+	// the role has no write grant on. A job that was given exactly such a glob
+	// as an extra write path (DeniedFor) may write it; a protected section's
+	// globs are never open.
+	Open []string
+}
+
+// DeniedFor returns Denied without the Open globs that extra, the write paths
+// a playbook gave one job, names exactly: the playbook chose to let this job
+// write what proposals normally carry (the architect's ADR).
+func (r PathRules) DeniedFor(extra []string) []string {
+	return slices.DeleteFunc(slices.Clone(r.Denied), func(g string) bool {
+		return slices.Contains(r.Open, g) && slices.Contains(extra, g)
+	})
 }
 
 // PathRules says what role may do to curated knowledge in the repo.
@@ -212,6 +226,7 @@ func (p Policy) PathRules(role string, curator bool) PathRules {
 				r.Granted = append(r.Granted, g)
 			case !curator:
 				r.Denied = append(r.Denied, g)
+				r.Open = append(r.Open, g)
 			}
 		}
 	}
@@ -220,6 +235,7 @@ func (p Policy) PathRules(role string, curator bool) PathRules {
 	}
 	slices.Sort(r.Granted)
 	slices.Sort(r.Denied)
-	r.Granted, r.Denied = slices.Compact(r.Granted), slices.Compact(r.Denied)
+	slices.Sort(r.Open)
+	r.Granted, r.Denied, r.Open = slices.Compact(r.Granted), slices.Compact(r.Denied), slices.Compact(r.Open)
 	return r
 }

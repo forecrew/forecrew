@@ -29,6 +29,26 @@ func TestWithoutWrites(t *testing.T) {
 	}
 }
 
+func TestWithWritePaths(t *testing.T) {
+	allowed := Definition{Tools: []string{"repo.read", "git.read"}}.AllowedTools()
+	r := Role{Name: "architect", AllowedTools: allowed}
+	got := r.WithWritePaths([]string{"docs/adr/**"})
+	if got.ReadOnly() || !slices.Equal(got.WritePaths, []string{"docs/adr/**"}) || !slices.Contains(got.AllowedTools, "Edit") || !slices.Contains(got.AllowedTools, "Write") {
+		t.Errorf("WithWritePaths = %+v", got)
+	}
+	if !r.ReadOnly() || !slices.Equal(r.AllowedTools, allowed) {
+		t.Errorf("WithWritePaths changed the original: %+v", r)
+	}
+	// A role that can edit already keeps its tools once.
+	dev := Role{AllowedTools: Definition{Tools: []string{"repo.write"}}.AllowedTools()}
+	if got := dev.WithWritePaths([]string{"a/**"}); len(got.AllowedTools) != 2 {
+		t.Errorf("tools = %v", got.AllowedTools)
+	}
+	if got := r.WithWritePaths(nil); !got.ReadOnly() || !slices.Equal(got.AllowedTools, allowed) {
+		t.Errorf("no paths: %+v", got)
+	}
+}
+
 func TestPathAllowed(t *testing.T) {
 	dev := []string{"**", "!.github/**"}
 	for _, tt := range []struct {

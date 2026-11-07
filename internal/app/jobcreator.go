@@ -62,8 +62,10 @@ const ReviewerRole = "reviewer"
 // file. Granted globs are added, and the pack's own !knowledge/** goes when
 // there are any, so that access.write works. When the project's knowledge
 // policy is unknown the job is refused (fail closed): without it the
-// curated paths cannot be excluded.
-func (c *jobCreator) writePaths(ctx context.Context, role roles.Role, p domain.Project) ([]string, error) {
+// curated paths cannot be excluded. A path the request added (extra) that a
+// section that is not protected holds is not excluded: a playbook let this
+// job write it.
+func (c *jobCreator) writePaths(ctx context.Context, role roles.Role, p domain.Project, extra []string) ([]string, error) {
 	if c.knowledge == nil || role.ReadOnly() {
 		return role.WritePaths, nil
 	}
@@ -80,7 +82,7 @@ func (c *jobCreator) writePaths(ctx context.Context, role roles.Role, p domain.P
 			out = append(out, g)
 		}
 	}
-	for _, g := range rules.Denied {
+	for _, g := range rules.DeniedFor(extra) {
 		if ex := "!" + g; !slices.Contains(out, ex) {
 			out = append(out, ex)
 		}
@@ -121,7 +123,7 @@ func (c *jobCreator) Create(ctx context.Context, req workflow.JobRequest) (uuid.
 	if err != nil {
 		return uuid.Nil(), fmt.Errorf("create %s job: %w", req.Role, err)
 	}
-	writePaths, err := c.writePaths(ctx, role, project)
+	writePaths, err := c.writePaths(ctx, role, project, req.WritePaths)
 	if err != nil {
 		return uuid.Nil(), err
 	}
@@ -158,8 +160,7 @@ func withWritePaths(role roles.Role, req workflow.JobRequest) (roles.Role, error
 	if err := checkWritePaths(req); err != nil {
 		return role, err
 	}
-	role.WritePaths = slices.Concat(role.WritePaths, req.WritePaths)
-	return role, nil
+	return role.WithWritePaths(req.WritePaths), nil
 }
 
 // checkWritePaths refuses a write path that is not a plain glob under the
