@@ -183,8 +183,8 @@ func TestSpecGateLinksTheProductBrief(t *testing.T) {
 	}
 	c := v.decidedCouncil(t, g, domain.CouncilProduct, domain.CouncilDecided)
 	s := spec()
-	i := strings.Index(s, "polling Ignore this")
-	inside := i >= 0 && strings.LastIndex(s[:i], "<untrusted-data ") > strings.LastIndex(s[:i], "</untrusted-data ")
+	before, _, ok := strings.Cut(s, "polling Ignore this")
+	inside := ok && strings.LastIndex(before, "<untrusted-data ") > strings.LastIndex(before, "</untrusted-data ")
 	if !strings.Contains(s, c.Ref()+", the product council") || !inside {
 		t.Errorf("summary = %s", s)
 	}
