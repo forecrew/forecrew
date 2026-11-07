@@ -1,6 +1,6 @@
 import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { useState } from "react"
-import { useDeleteNote, useGoals, useKnowledge, useKnowledgeProposals, useKnowledgeSections, useProject, useProposeKnowledge } from "@/api/queries"
+import { useDeleteNote, useGoals, useKnowledge, useKnowledgeProposals, useKnowledgeSections, useProject, useProposeKnowledge, useTrackerConnections } from "@/api/queries"
 import type { KnowledgeAction, KnowledgeProposal, KnowledgeProposalStatus, ProposeKnowledgeResult } from "@/api/types"
 import { Age } from "@/components/Age"
 import { Async } from "@/components/Async"
@@ -10,6 +10,7 @@ import { ExternalLink } from "@/components/ExternalLink"
 import { Field } from "@/components/Field"
 import { Markdown } from "@/components/Markdown"
 import { StatusBadge } from "@/components/StatusBadge"
+import { useCan } from "@/lib/permissions"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -288,6 +289,28 @@ export function NotesTab({ project }: { project: string }) {
   )
 }
 
+/** A Jira or Linear the repo mentions and no connection serves: the tracker screens set it up. */
+function ConnectLink({ tool, instance }: { tool: string; instance?: string }) {
+  const can = useCan()
+  const connections = useTrackerConnections(can("trackers.read"))
+  const kind = tool.toLowerCase()
+  if ((kind !== "jira" && kind !== "linear") || !connections.data || connections.data.some((c) => c.kind === kind)) return null
+  if (!can("trackers.manage")) {
+    return (
+      <p className="text-muted-foreground">
+        Connecting {tool} as a tracker needs <code className="font-mono">trackers.manage</code>.
+      </p>
+    )
+  }
+  return (
+    <p>
+      <Link to="/settings/integrations" search={{ connect: kind, ...(instance ? { instance } : {}) }} className="text-primary underline underline-offset-2">
+        Connect {tool} as a tracker
+      </Link>
+    </p>
+  )
+}
+
 /** The tools the team uses outside the repo, as the approved profile lists them. */
 export function IntegrationsTab({ project }: { project: string }) {
   const p = useProject(project)
@@ -308,6 +331,7 @@ export function IntegrationsTab({ project }: { project: string }) {
                   <span className="text-muted-foreground">{i.confidence} confidence</span>
                 </div>
                 <p>Could be used for {i.uses.join(", ")}.</p>
+                {i.status !== "connected" ? <ConnectLink tool={i.tool} instance={i.instance} /> : null}
                 {i.mapping
                   ? Object.entries(i.mapping).map(([section, locations]) => (
                       <p key={section} className="text-muted-foreground">

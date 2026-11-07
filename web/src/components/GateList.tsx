@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
-import { useAssumptions, useCouncil, useDecide, useVerifyAssumption } from "@/api/queries"
+import { useAssumptions, useCouncil, useDecide, useVerifyAssumption, useWaitingTickets } from "@/api/queries"
 import type { GateInfo } from "@/api/types"
 import { Age } from "@/components/Age"
 import { AssumptionDetails } from "@/components/AssumptionReview"
@@ -12,6 +12,8 @@ import { ProposalDetails, SnoozeProposal } from "@/components/ProposalDetails"
 import { StatusBadge } from "@/components/StatusBadge"
 import { VerificationSection } from "@/components/Verification"
 import { WhyLink } from "@/components/WhyLink"
+import { TicketKey } from "@/routes/settings/trackers/tickets"
+import { reasonWords } from "@/lib/trackers"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { Textarea } from "@/components/ui/textarea"
@@ -58,11 +60,12 @@ function wordsFor(g: GateInfo, humanRoundUsed: boolean) {
   const council = g.kind === "council_decision"
   const assumption = g.kind === "assumption_review"
   const proposal = g.kind === "improvement_proposal"
+  const ticket = g.kind === "ticket_intake"
   return {
-    approve: question ? "Send answer" : g.kind === "needs_you" ? "Approve and retry" : council ? "Approve recommendation" : assumption || proposal ? "Accept" : "Approve",
-    reject: question ? "Decline" : assumption ? "Invalidate" : "Reject",
-    confirmReject: question ? "Confirm decline" : assumption ? "Confirm invalidate" : "Confirm reject",
-    rejectField: proposal ? "Why not? It comes back only if the evidence doubles or after 90 days." : assumption ? "Why is it wrong? (optional)" : question ? "Why decline? (optional)" : "Why stop? (optional)",
+    approve: question ? "Send answer" : ticket ? "Accept ticket" : g.kind === "needs_you" ? "Approve and retry" : council ? "Approve recommendation" : assumption || proposal ? "Accept" : "Approve",
+    reject: question ? "Decline" : ticket ? "Dismiss ticket" : assumption ? "Invalidate" : "Reject",
+    confirmReject: question ? "Confirm decline" : ticket ? "Confirm dismiss" : assumption ? "Confirm invalidate" : "Confirm reject",
+    rejectField: ticket ? "Why dismiss it? (optional)" : proposal ? "Why not? It comes back only if the evidence doubles or after 90 days." : assumption ? "Why is it wrong? (optional)" : question ? "Why decline? (optional)" : "Why stop? (optional)",
     rejectNeedsReason: proposal,
     changesField: council ? "Constraint for one more round" : assumption ? "What should be checked?" : "What should change?",
     sendChanges: council ? "Send constraint" : "Send changes request",
@@ -87,6 +90,21 @@ interface CardProps {
 }
 
 /** What a card shows of a gate: a council's brief, an assumption, or the gate's own summary. */
+/** The ticket behind a ticket_intake gate, in words: where it is, who handed it over, why it waits. Ticket text is plain text. */
+function TicketIntake({ gate }: { gate: GateInfo }) {
+  const t = useWaitingTickets().data?.find((x) => x.gate_ref === gate.ref)
+  if (!t) return null
+  return (
+    <div className="space-y-1 rounded-lg border bg-muted/40 p-3 text-sm">
+      <p className="flex flex-wrap items-center gap-2">
+        <span className="text-muted-foreground">Ticket on {t.connection}:</span> <TicketKey t={t} /> <span>{t.title}</span>
+      </p>
+      <p>{reasonWords(t)}</p>
+      <p className="text-muted-foreground">Accept starts a goal from it as you. Dismiss writes nothing to the ticket.</p>
+    </div>
+  )
+}
+
 function GateBody({ gate, assumption, council }: { gate: GateInfo; assumption?: React.ComponentProps<typeof AssumptionDetails>["assumption"]; council?: ReturnType<typeof useCouncil>["data"] }) {
   if (gate.kind === "council_decision" && council?.brief) {
     return (
@@ -115,6 +133,14 @@ function GateBody({ gate, assumption, council }: { gate: GateInfo; assumption?: 
     )
   }
   if (gate.proposal) return <ProposalDetails proposal={gate.proposal} />
+  if (gate.kind === "ticket_intake") {
+    return (
+      <div className="space-y-3">
+        <TicketIntake gate={gate} />
+        <Markdown>{gate.summary}</Markdown>
+      </div>
+    )
+  }
   return <Markdown>{gate.summary}</Markdown>
 }
 
