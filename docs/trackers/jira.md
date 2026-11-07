@@ -189,9 +189,11 @@ in the workflow, or give its fields defaults, and the warning goes away.
 
 A person is their account ID on Cloud and their user key on Data Center, so a
 renamed username or a changed email stays the same person. Map people with
-`forecrew tracker map <connection> <account ID or user key> <user>`; a
-person confirms each mapping. Matching people by email to suggest mappings is
-not built yet: Cloud hides most emails.
+`forecrew tracker map <connection> <account ID or user key> <user>`, or in
+Settings, Integrations, where **People** lists who handed tickets over and is
+mapped to nobody (`forecrew tracker unmapped`), with the members of the same
+name as suggestions; a person confirms each mapping. Matching by email is not
+built: Cloud hides most emails.
 
 ## Events: polling and webhooks
 
