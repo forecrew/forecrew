@@ -9,11 +9,15 @@ import (
 	"errors"
 	"html/template"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"uuid"
+
+	"golang.org/x/net/idna"
 
 	"github.com/forecrew/forecrew/internal/auth"
 	"github.com/forecrew/forecrew/internal/domain"
@@ -170,7 +174,7 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, http.StatusOK, consentPage, consentView{
-		Client: c.Name, ClientHost: hostOf(c.ClientID), RedirectHost: hostOf(q.RedirectURI), Loopback: isLoopback(q.RedirectURI), New: !known,
+		Client: c.Name, ClientHost: shownHost(c.ClientID), RedirectHost: shownHost(q.RedirectURI), Loopback: isLoopback(q.RedirectURI), New: !known,
 		Organizations: orgs, Scopes: describe(scopes), Request: q, CSRF: csrfToken(cookie),
 	})
 }
@@ -269,6 +273,21 @@ func hostOf(raw string) string {
 		return ""
 	}
 	return u.Hostname()
+}
+
+// shownHost is the host of raw as the consent screen shows it: in its ASCII
+// (punycode) form, so a look-alike in another script does not read as the
+// host it imitates. A host that has no such form is shown quoted.
+func shownHost(raw string) string {
+	h := hostOf(raw)
+	if h == "" || net.ParseIP(h) != nil {
+		return h
+	}
+	ascii, err := idna.Lookup.ToASCII(h)
+	if err != nil {
+		return strconv.QuoteToASCII(h)
+	}
+	return ascii
 }
 
 func isLoopback(raw string) bool { return loopback(hostOf(raw)) }

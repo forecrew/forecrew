@@ -589,6 +589,35 @@ func TestErrorsOfANewApp(t *testing.T) {
 	}
 }
 
+// TestConsentNamesHostsPlainly is an app that would pass for another: its
+// name loses what reorders or hides letters, and hosts show in ASCII.
+func TestConsentNamesHostsPlainly(t *testing.T) {
+	e := newEnv(t)
+	status, out := e.postJSON(t, "/oauth/register", map[string]any{"client_name": "Cl\u202eaude\u200b\u2066 App", "redirect_uris": []string{"https://xn--pple-43d.example/cb"}})
+	if status != http.StatusCreated || out["client_name"] != "Claude App" {
+		t.Fatalf("register = %d %v", status, out)
+	}
+	q := e.params(out["client_id"].(string))
+	q.Set("redirect_uri", "https://\u0430pple.example/cb") // a Cyrillic а
+	if res, _ := e.get(t, q, cookie); res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("the look-alike matched the registered host: %d", res.StatusCode)
+	}
+	q.Set("redirect_uri", "https://xn--pple-43d.example/cb")
+	_, page := e.get(t, q, cookie)
+	if !strings.Contains(page, "xn--pple-43d.example") || strings.Contains(page, "\u0430pple") {
+		t.Errorf("the host is not shown in ASCII")
+	}
+
+	id := "https://\u0430pple.example/client.json"
+	at, err := url.Parse(id)
+	must(t, err)
+	e.docs.set(at.String(), `{"client_id":"`+id+`","client_name":"Apple","redirect_uris":["`+callback+`"]}`)
+	_, page = e.get(t, e.params(id), cookie)
+	if !strings.Contains(page, "xn--pple-43d.example") {
+		t.Errorf("the client's host is not shown in ASCII: %s", page)
+	}
+}
+
 func TestScopes(t *testing.T) {
 	e := newEnv(t)
 	client := e.register(t, callback)
