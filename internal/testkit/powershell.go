@@ -177,6 +177,14 @@ func (f *FakePowerShell) LastInput(script string) string {
 	return ""
 }
 
+// SetFailOn sets FailOn under the fake's lock, so a test may change it while
+// the provider runs scripts from its own goroutines.
+func (f *FakePowerShell) SetFailOn(fn func(script string) string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.FailOn = fn
+}
+
 // Run implements the hyperv provider's Runner.
 func (f *FakePowerShell) Run(_ context.Context, script string, in, out any) error {
 	f.mu.Lock()
