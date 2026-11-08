@@ -27,6 +27,7 @@ forecrew-fleet-agent version
 | `server_url` | yes | forecrewd's `public_base_url` |
 | `kind` | yes | `microvm`, `proxmox`, `hyperv`, `tart` or `aws` |
 | `token_file` | yes | Where a token got with a join code is kept, readable by the agent's user alone, and read at the next start |
+| `image_build` | no | Lets a person start a Windows image build from forecrewd ([below](#from-the-web-mcp-rest-or-the-cli)) |
 
 | Variable | Meaning |
 |----------|---------|
@@ -713,13 +714,66 @@ It checks the licence statement, the ISO against the checksum you gave (read
 again here), that the worker is a Windows amd64 program and that the disk has 100
 GB, then runs Packer with `deploy/images/windows` (QEMU on Linux, Hyper-V on
 Windows): about an hour. Its variables go in a file only the agent's user reads,
-and it writes `progress.json` (step, state, error) and `build.log` in `--out`. The
+and it writes `progress.json` (`step`, `state`, `percent`, `error`, `updated`) and `build.log` in `--out`. The
 result is an **unsigned manifest**: a person checks it, signs it with a key that
 stays off the host, registers it, and puts the public key in the host's
 `image-keys.pub` (docs/images.md). A host agent never registers an image.
 
-A button for this on the web UI's Add machines page is planned and **not available
-yet**: run the command on the host.
+`percent` says where the build stands, not how long is left: 2 while it checks the
+host, 5 the ISO, 10 Packer's plugins, 15 the hour of building, 95 the manifest and
+100 when it is done. A failure keeps the percent it had reached.
+
+### From the web, MCP, REST or the CLI
+
+The same build can be started from forecrewd, so nobody has to open a shell on the
+host: on the location's page (and at the end of Add machines, once the location is
+added) fill in the ISO's path on that host, its checksum, the hash of the
+Chocolatey `install.ps1` you read, the version, and tick that your licence covers
+building and running the image. MCP has `start_image_build` and `list_image_builds`,
+REST `POST` and `GET /api/v1/providers/{provider}/image-builds`, and the CLI
+`forecrew provider build-image` and `forecrew provider image-builds`.
+
+- **What is sent** is references: the ISO's path on the host, its checksum, the
+  licence statement, the Chocolatey hash and the version, over the agent's own
+  poll (no inbound port). The ISO, the host's credentials and the image never pass
+  through forecrewd. forecrewd stores the request and the progress the agent
+  reports (`image_builds`, with the person who made the licence statement).
+- **Who may** start one: a person (not a service account, an ownerless token or an
+  app acting through an OAuth grant) who holds `worker.manage` on the location's
+  organization, for an active Hyper-V or Proxmox location served by an agent. The
+  licence statement is theirs and is never assumed. One build runs at a time per
+  location. Anyone with `worker.read` can follow it.
+- **What the agent does** is what the command does: it refuses without the licence
+  statement, reads the ISO again against the checksum, checks the worker and the
+  disk, and runs Packer. It reads from the agent's own settings everything that
+  is not in the request, and only an ISO inside `iso_dir` (links resolved) is read:
+  an agent without `image_build` refuses every request and says why.
+- **Progress** comes from `progress.json` and reaches forecrewd at each change and
+  at least every two minutes. A build the agent does not take in 30 minutes (it is
+  offline, or too old to know builds), and one it stops reporting for 15, ends as
+  failed with a plain reason. An agent that restarts during a build fails it: the
+  build is not resumed.
+- **The result** is the same unsigned manifest on the host, and the screen says so
+  and links to the next step. Nothing registers or signs it, whatever the request,
+  and no check can be left out: the licence statement, the checksum and the worker
+  are checked on the host.
+
+The words the agent reports (the step, the reason of a failure, the manifest's
+path) are shown as plain text, and on MCP they come as `untrusted` data.
+
+`image_build` in `agent.yaml` (a Hyper-V or Proxmox location; nothing in it is a
+secret):
+
+| Key | Required | Meaning |
+|-----|----------|---------|
+| `templates_dir` | yes | `deploy/images` of the release this agent is from |
+| `worker` | yes | `forecrew-worker.exe` for windows/amd64 |
+| `out_dir` | yes | One directory per build, named by its ID, with `build.log`, `progress.json` and the manifest |
+| `uri_base` | yes | Where other hosts fetch the image from, without credentials |
+| `iso_dir` | yes | The only directory an ISO may be read from |
+| `packer` | no | The command; default `packer` |
+| `guest_tools`, `guest_tools_sha256` | Proxmox | The virtio-win installer and its hash, together |
+| `cache_dir`, `switch` | Hyper-V | The location's `image_dir`, and the switch of the build VM |
 
 ## AWS locations
 

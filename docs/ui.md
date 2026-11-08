@@ -264,7 +264,12 @@ left out, not faked:
     page (checks, limits, Pause, Remove, YAML) and Add machines (a join code,
     the line to run, live checks, then a Confirm and a plan of machine types and
     a test job; a Windows host gets the image step and registration of the signed
-    image). Agent-reported text is shown as plain text. Budgets need Manage
+    image). A Hyper-V or Proxmox location builds its Windows image from its page
+    (and at the end of Add machines): the ISO's path on the machine, its checksum,
+    the Chocolatey hash, a version and the person's own licence tick; then the
+    steps and percent the connector reports, a plain reason when it fails, and for
+    a finished build the way on (it is unsigned: sign it, register it). Without
+    Manage machines the form is disabled and says so. Agent-reported text is shown as plain text. Budgets need Manage
     budgets: an Admin sees them read-only.
   - **Settings, Policies** (where jobs run, limits, network, trust zones) and
     **Change history** (settings changes with Revert, which makes a new plan, and

@@ -251,9 +251,11 @@ written**: they are tested against a fake Proxmox API and a fake PowerShell host
 1. On the Windows host run `install.ps1` from an elevated PowerShell, create
    `C:\ProgramData\forecrew-fleet-agent\hyperv.yaml` with at least `switch`, and
    put the public key you sign images with in `image-keys.pub` there.
-2. Build the image on the host: `forecrew-fleet-agent build-image ... --cache-dir
-   <image_dir>` (about an hour; follow `progress.json`), check and sign the
-   manifest on another computer, and register it with `forecrew image add`.
+2. Build the image on the host: from the location's page (add `image_build` to
+   `agent.yaml` first, docs/fleet.md) or with `forecrew-fleet-agent build-image ...
+   --cache-dir <image_dir>` (about an hour; follow the page, or `progress.json`),
+   check and sign the manifest on another computer, and register it with
+   `forecrew image add`.
 3. `forecrew-fleet-agent doctor --kind hyperv`, add a Windows shape, run a job.
    Check in Hyper-V Manager and PowerShell: the VM `forecrew-...` has a
    differencing disk of the base `vhdx`, no checkpoint, a config disk that is empty
@@ -280,3 +282,4 @@ written**: they are tested against a fake Proxmox API and a fake PowerShell host
 | **The `vEthernet (<switch>)` adapter name** of the host on the machines' switch, which is how the switch's network is found | A switch with no adapter on the host has no network to close; check the name in `Get-NetAdapter` |
 | **Stateful UDP ACLs**: that `-Stateful` on a UDP rule lets a resolver's answer in, and that `Add-VMNetworkAdapterExtendedAcl` takes it for UDP | Documented for TCP; if DNS fails from a machine, say so. The DHCP reply is allowed by its ports (`-LocalPort 68 -RemotePort 67`) because a broadcast request has no tracked answer; if a machine gets no address, say so
 | `build-image` end to end | Tested with a fake Packer |
+| Starting a build from the web, MCP, REST or the CLI | Tested with a fake agent channel and a fake Packer, and in the browser against recorded answers; never against a real Hyper-V or Proxmox host. Try it once on yours: start a build, watch the percent move, kill the agent and see the build end as failed, and check that nothing is registered when it is done |
