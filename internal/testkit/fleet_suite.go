@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 	"uuid"
@@ -26,6 +27,7 @@ func FleetStoreSuite(t *testing.T, st store.Store, account, project uuid.UUID) {
 	s.joinCodes(prov)
 	s.usage(prov, shape)
 	s.notices(prov, shape)
+	s.imageBuilds(prov)
 }
 
 type fleetSuite struct {
@@ -583,5 +585,62 @@ func (s *fleetSuite) failedAtStays(id uuid.UUID) {
 	s.must(s.st.Machines().UpdateState(ctx, id, domain.MachineFailed, domain.MachineDestroyed, ""))
 	if again, _ := s.st.Machines().Get(ctx, id); !again.FailedAt.Equal(got.FailedAt) || again.DestroyedAt.IsZero() {
 		s.t.Fatalf("failed_at moved: %+v", again)
+	}
+}
+
+func (s *fleetSuite) imageBuilds(prov domain.CapacityProvider) {
+	ctx := s.t.Context()
+	r := s.st.ImageBuilds()
+	b := domain.ImageBuild{AccountID: s.account, ProviderID: prov.ID, Version: "2026.11.1", ISO: "/isos/server.iso", ISOChecksum: "sha256:" + strings.Repeat("a", 64),
+		ChocolateySHA256: strings.Repeat("b", 64), LicenseConfirmedBy: "user:ana"}
+	s.must(r.Create(ctx, &b))
+	if b.ID == uuid.Nil() || b.State != domain.ImageBuildRequested || b.CreatedAt.IsZero() {
+		s.t.Fatalf("created %+v", b)
+	}
+	// One build at a time per location, and a build needs its checks.
+	again := b
+	again.ID = uuid.Nil()
+	s.want(r.Create(ctx, &again), store.ErrConflict)
+	bad := b
+	bad.ID, bad.ISOChecksum = uuid.Nil(), "md5:1"
+	s.want(r.Create(ctx, &bad), domain.ErrInvalidRecord)
+	_, err := r.Get(ctx, uuid.New())
+	s.want(err, store.ErrNotFound)
+
+	open, err := r.Open(ctx, prov.ID)
+	s.must(err)
+	if len(open) != 1 || open[0].ID != b.ID {
+		s.t.Fatalf("open %+v", open)
+	}
+	started := time.Now().UTC()
+	b.State, b.Step, b.Percent, b.StartedAt = domain.ImageBuildRunning, "building", 15, started
+	s.must(r.Save(ctx, &b))
+	got, err := r.Get(ctx, b.ID)
+	s.must(err)
+	if got.State != domain.ImageBuildRunning || got.Step != "building" || got.Percent != 15 || got.StartedAt.IsZero() || !got.FinishedAt.IsZero() {
+		s.t.Fatalf("running %+v", got)
+	}
+	b.State, b.Percent, b.Manifest, b.Digest, b.FinishedAt = domain.ImageBuildDone, 100, `C:\builds\m.json`, "sha256:"+strings.Repeat("c", 64), time.Now().UTC()
+	s.must(r.Save(ctx, &b))
+	s.want(r.Save(ctx, &b), store.ErrConflict) // it has ended
+	open, err = r.Open(ctx, prov.ID)
+	s.must(err)
+	if len(open) != 0 {
+		s.t.Fatalf("open after the end %+v", open)
+	}
+
+	// The next build may start, and the list is newest first.
+	next := again
+	next.ID = uuid.Nil()
+	s.must(r.Create(ctx, &next))
+	all, err := r.List(ctx, prov.ID, 0)
+	s.must(err)
+	if len(all) != 2 || all[0].ID != next.ID || all[1].State != domain.ImageBuildDone || all[1].Manifest == "" {
+		s.t.Fatalf("listed %+v", all)
+	}
+	one, err := r.List(ctx, prov.ID, 1)
+	s.must(err)
+	if len(one) != 1 {
+		s.t.Fatalf("limited %+v", one)
 	}
 }

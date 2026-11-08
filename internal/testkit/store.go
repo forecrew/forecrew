@@ -71,6 +71,7 @@ type storeData struct {
 	machines      table[domain.Machine]
 	bootstrap     table[domain.BootstrapToken]
 	joinCodes     table[domain.ProviderJoinCode]
+	imageBuilds   table[domain.ImageBuild]
 	policies      table[domain.FleetPolicy]
 	trackers      trackerData
 	images        table[domain.Image]
@@ -137,6 +138,7 @@ func NewStore(now func() time.Time) *Store {
 		machines:      table[domain.Machine]{key: func(r domain.Machine) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		bootstrap:     table[domain.BootstrapToken]{key: func(r domain.BootstrapToken) (uuid.UUID, uuid.UUID) { return r.AccountID, r.MachineID }},
 		joinCodes:     table[domain.ProviderJoinCode]{key: func(r domain.ProviderJoinCode) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
+		imageBuilds:   table[domain.ImageBuild]{key: func(r domain.ImageBuild) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
 		policies:      table[domain.FleetPolicy]{key: func(r domain.FleetPolicy) (uuid.UUID, uuid.UUID) { return r.AccountID, r.AccountID }},
 		trackers:      newTrackerData(),
 		images:        table[domain.Image]{key: func(r domain.Image) (uuid.UUID, uuid.UUID) { return r.AccountID, r.ID }},
@@ -189,6 +191,7 @@ func (d *storeData) clone() *storeData {
 	c.machines = d.machines.clone()
 	c.bootstrap = d.bootstrap.clone()
 	c.joinCodes = d.joinCodes.clone()
+	c.imageBuilds = d.imageBuilds.clone()
 	c.policies = d.policies.clone()
 	c.deliveries = maps.Clone(d.deliveries)
 	c.counters = maps.Clone(d.counters)

@@ -32,6 +32,9 @@ func (s *Store) FleetPolicies() store.FleetPolicyRepo { return fleetPolicyRepo{s
 // ProviderJoinCodes implements store.Store.
 func (s *Store) ProviderJoinCodes() store.ProviderJoinCodeRepo { return joinCodeRepo{s.db} }
 
+// ImageBuilds implements store.Store.
+func (s *Store) ImageBuilds() store.ImageBuildRepo { return imageBuildRepo{s.db} }
+
 // sameOrg is the condition that finds the rows of an organization, or the
 // instance-wide ones for the zero ID; $1 is the ID, or NULL through opt.
 const sameOrg = `account_id IS NOT DISTINCT FROM $1`
@@ -563,4 +566,66 @@ func (r joinCodeRepo) Confirm(ctx context.Context, id, providerID uuid.UUID) err
 
 func (r joinCodeRepo) MarkUsed(ctx context.Context, id uuid.UUID) error {
 	return r.changed(ctx, id, `UPDATE provider_join_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL AND provider_id IS NOT NULL`, id)
+}
+
+// ---- image builds
+
+type imageBuildRepo struct{ db dbtx }
+
+var imageBuildCols = `id, ` + cuuid("account_id") + `, provider_id, state, version, iso, iso_checksum, chocolatey_sha256, windows_image_name,
+	license_confirmed_by, step, percent, error, manifest, digest, created_at, updated_at, ` + ctime("started_at") + `, ` + ctime("finished_at")
+
+func scanImageBuild(row pgx.Row) (b domain.ImageBuild, err error) {
+	err = row.Scan(&b.ID, &b.AccountID, &b.ProviderID, &b.State, &b.Version, &b.ISO, &b.ISOChecksum, &b.ChocolateySHA256, &b.WindowsImageName,
+		&b.LicenseConfirmedBy, &b.Step, &b.Percent, &b.Error, &b.Manifest, &b.Digest, &b.CreatedAt, &b.UpdatedAt, &b.StartedAt, &b.FinishedAt)
+	utc(&b.CreatedAt, &b.UpdatedAt, &b.StartedAt, &b.FinishedAt)
+	return b, err
+}
+
+func (r imageBuildRepo) Create(ctx context.Context, b *domain.ImageBuild) error {
+	b.ID = newID(b.ID)
+	b.State = domain.ImageBuildRequested
+	if err := b.Validate(); err != nil {
+		return err
+	}
+	err := r.db.QueryRow(ctx, `INSERT INTO image_builds (id, account_id, provider_id, state, version, iso, iso_checksum, chocolatey_sha256, windows_image_name, license_confirmed_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING created_at, updated_at`,
+		b.ID, opt(b.AccountID), b.ProviderID, b.State, b.Version, b.ISO, b.ISOChecksum, b.ChocolateySHA256, b.WindowsImageName, b.LicenseConfirmedBy).Scan(&b.CreatedAt, &b.UpdatedAt)
+	utc(&b.CreatedAt, &b.UpdatedAt)
+	return mapErr(err)
+}
+
+func (r imageBuildRepo) Get(ctx context.Context, id uuid.UUID) (domain.ImageBuild, error) {
+	return one(ctx, r.db, scanImageBuild, `SELECT `+imageBuildCols+` FROM image_builds WHERE id = $1`, id)
+}
+
+func (r imageBuildRepo) List(ctx context.Context, providerID uuid.UUID, limit int) ([]domain.ImageBuild, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	return many(ctx, r.db, scanImageBuild, `SELECT `+imageBuildCols+` FROM image_builds WHERE provider_id = $1 ORDER BY created_at DESC, id DESC LIMIT $2`, providerID, limit)
+}
+
+func (r imageBuildRepo) Open(ctx context.Context, providerID uuid.UUID) ([]domain.ImageBuild, error) {
+	return many(ctx, r.db, scanImageBuild, `SELECT `+imageBuildCols+` FROM image_builds WHERE provider_id = $1 AND state IN ('requested','running') ORDER BY created_at, id`, providerID)
+}
+
+func (r imageBuildRepo) Save(ctx context.Context, b *domain.ImageBuild) error {
+	if err := b.Validate(); err != nil {
+		return err
+	}
+	tag, err := r.db.Exec(ctx, `UPDATE image_builds SET state = $2, step = $3, percent = $4, error = $5, manifest = $6, digest = $7,
+		started_at = $8, finished_at = $9, updated_at = now()
+		WHERE id = $1 AND state IN ('requested','running')`,
+		b.ID, b.State, b.Step, b.Percent, b.Error, b.Manifest, b.Digest, optTime(b.StartedAt), optTime(b.FinishedAt))
+	if err != nil {
+		return mapErr(err)
+	}
+	if tag.RowsAffected() == 1 {
+		return nil
+	}
+	if _, err := r.Get(ctx, b.ID); err != nil {
+		return err
+	}
+	return fmt.Errorf("image build %s has ended: %w", b.ID, store.ErrConflict)
 }
