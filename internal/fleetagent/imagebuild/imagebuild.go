@@ -45,6 +45,22 @@ var (
 	nameRE     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,63}$`)
 )
 
+// Steps of a build and the percent each is worth when it starts, which
+// progress.json and the screens that show a build say. The build itself runs
+// for about an hour inside the fourth step, which cannot be measured: the
+// percent is where the build stands, not an estimate of the time left.
+const (
+	stepChecking = "checking"
+	stepISO      = "checking the ISO"
+	stepPlugins  = "fetching Packer's plugins"
+	stepBuilding = "building the image: about an hour"
+	stepManifest = "writing the manifest"
+	stepDone     = "done"
+	stepFailed   = "failed"
+)
+
+var stepPercent = map[string]int{stepChecking: 2, stepISO: 5, stepPlugins: 10, stepBuilding: 15, stepManifest: 95, stepDone: 100}
+
 // Options is one build.
 type Options struct {
 	// TemplatesDir is deploy/images of the release the agent is from; Packer is
@@ -108,13 +124,13 @@ func (b Builder) Run(ctx context.Context, o Options) (Result, error) {
 	if err := os.MkdirAll(o.OutDir, 0o750); err != nil {
 		return Result{}, err
 	}
-	prog := &progress{path: filepath.Join(o.OutDir, "progress.json"), now: b.Now}
+	prog := &progress{path: filepath.Join(o.OutDir, ProgressFile), now: b.Now}
 	res, err := b.run(ctx, o, prog)
 	if err != nil {
-		prog.set("failed", "failed", err.Error())
+		prog.set(stepFailed, "failed", err.Error())
 		return Result{}, err
 	}
-	prog.set("done", "done", "")
+	prog.set(stepDone, "done", "")
 	return res, nil
 }
 
@@ -128,7 +144,7 @@ func (b *Builder) fill() {
 }
 
 func (b Builder) run(ctx context.Context, o Options, prog *progress) (Result, error) {
-	prog.set("checking", "running", "")
+	prog.set(stepChecking, "running", "")
 	if b.DiskFreeGB != nil {
 		free, err := b.DiskFreeGB(o.OutDir)
 		if err != nil {
@@ -138,7 +154,7 @@ func (b Builder) run(ctx context.Context, o Options, prog *progress) (Result, er
 			return Result{}, fmt.Errorf("%s has %d GB free and a build needs %d GB", o.OutDir, free, MinFreeGB)
 		}
 	}
-	prog.set("checking the ISO", "running", "")
+	prog.set(stepISO, "running", "")
 	got, err := fileSHA256(o.ISO)
 	if err != nil {
 		return Result{}, fmt.Errorf("iso: %w", err)
@@ -165,15 +181,15 @@ func (b Builder) run(ctx context.Context, o Options, prog *progress) (Result, er
 	}
 	defer func() { _ = log.Close() }()
 	env := append(os.Environ(), "CHECKPOINT_DISABLE=1", "PACKER_NO_COLOR=1")
-	prog.set("fetching Packer's plugins", "running", "")
+	prog.set(stepPlugins, "running", "")
 	if err := b.Exec(ctx, dir, log, env, o.packer(), "init", "."); err != nil {
 		return Result{}, fmt.Errorf("packer init: %w (see %s)", err, log.Name())
 	}
-	prog.set("building the image: about an hour", "running", "")
+	prog.set(stepBuilding, "running", "")
 	if err := b.Exec(ctx, dir, log, env, o.packer(), "build", "-only=windows."+source, "-var-file="+vars, "-timestamp-ui", "."); err != nil {
 		return Result{}, fmt.Errorf("packer build: %w (see %s)", err, log.Name())
 	}
-	prog.set("writing the manifest", "running", "")
+	prog.set(stepManifest, "running", "")
 	return b.finish(o, format)
 }
 
@@ -407,13 +423,45 @@ func execCommand(ctx context.Context, dir string, w io.Writer, env []string, nam
 	return cmd.Run()
 }
 
-// progress is the file a person or a screen follows a long build by.
-type progress struct {
-	path string
-	now  func() time.Time
+// Progress is what progress.json says: where a build stands, for a person or a
+// screen that follows a long build. Error holds the reason of a failure, with
+// no secret in it.
+type Progress struct {
+	Step    string `json:"step"`
+	State   string `json:"state"` // running, done or failed
+	Percent int    `json:"percent"`
+	Error   string `json:"error"`
+	Updated string `json:"updated"`
 }
 
+// ProgressFile is the name of the progress file in a build's output directory.
+const ProgressFile = "progress.json"
+
+// ReadProgress reads the progress of the build in dir.
+func ReadProgress(dir string) (Progress, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, ProgressFile)) // #nosec G304 -- the build's own directory
+	if err != nil {
+		return Progress{}, err
+	}
+	var p Progress
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return Progress{}, fmt.Errorf("progress of the build: %w", err)
+	}
+	return p, nil
+}
+
+// progress writes progress.json.
+type progress struct {
+	path    string
+	now     func() time.Time
+	percent int
+}
+
+// set records a step. A failure keeps the percent the build had reached.
 func (p *progress) set(step, state, why string) {
-	raw, _ := json.Marshal(map[string]string{"step": step, "state": state, "error": fleet.CleanError(why), "updated": p.now().UTC().Format(time.RFC3339)})
+	if pct, ok := stepPercent[step]; ok {
+		p.percent = pct
+	}
+	raw, _ := json.Marshal(Progress{Step: step, State: state, Percent: p.percent, Error: fleet.CleanError(why), Updated: p.now().UTC().Format(time.RFC3339)})
 	_ = os.WriteFile(p.path, raw, 0o644) // #nosec G306 -- progress holds no secret
 }
