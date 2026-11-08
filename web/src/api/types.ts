@@ -46,7 +46,7 @@ export interface HeldRole {
 export interface Session {
   /** Name of the token, when the caller uses one. */
   token?: string
-  user?: { id: string; name: string; email?: string }
+  user?: { id: string; name: string; email?: string; instance_admin?: boolean }
   /** The current organization; a session may not have picked one yet. */
   account?: Account
   /**

@@ -176,3 +176,27 @@ test("someone who cannot manage machines reads that registering the image needs 
   expect(built).toHaveTextContent("which needs worker.manage")
   expect(within(built).queryByRole("button", { name: "go to Register the image" })).toBeNull()
 })
+
+test("an instance-wide location is offered to an instance admin only, and others do not even ask for its builds", async () => {
+  const hosted = fx.providers.map((p) => (p.name === "win-host" ? { ...p, ownership: "hosted" } : p))
+  let asked = 0
+  server.use(
+    http.get("/api/v1/providers", () => HttpResponse.json(hosted)),
+    http.get("/api/v1/providers/:provider/image-builds", () => ((asked += 1), HttpResponse.json({ error: { code: "not_found", message: "nope" } }, { status: 404 }))),
+  )
+  const first = await renderApp(WIN)
+  expect(await screen.findByText(/belongs to the whole instance/)).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Build the image" })).toBeDisabled()
+  expect(screen.getByText("Needs an instance admin")).toBeInTheDocument()
+  expect(screen.queryByLabelText("Windows ISO on this machine")).toBeNull()
+  expect(asked).toBe(0)
+  first.unmount()
+
+  server.use(
+    http.get("/api/v1/me", () => HttpResponse.json({ ...fx.me, user: { id: "018f0000-0000-7000-8000-000000000300", name: "ana", instance_admin: true } })),
+    http.get("/api/v1/providers/:provider/image-builds", () => HttpResponse.json([])),
+  )
+  await renderApp(WIN)
+  expect(await screen.findByLabelText("Windows ISO on this machine")).toBeEnabled()
+  expect(screen.queryByText("Needs an instance admin")).toBeNull()
+})
