@@ -160,6 +160,8 @@ const (
 	ToolCreateJoinCode     = "create_join_code"
 	ToolListJoinCodes      = "list_join_codes"
 	ToolConfirmJoin        = "confirm_join"
+	ToolStartImageBuild    = "start_image_build"
+	ToolListImageBuilds    = "list_image_builds"
 	ToolListConnectedApps  = "list_connected_apps"
 	ToolRevokeConnectedApp = "revoke_connected_app"
 
@@ -192,6 +194,7 @@ func Tools() []string {
 		ToolConfigSchema, ToolConfigGet, ToolConfigPlan, ToolConfigApply, ToolConfigRevert, ToolConfigExport, ToolConfigImport,
 		ToolConfigPlans, ToolConfigGetPlan, ToolConfigCancel, ToolAssistantSend, ToolAssistantGet, ToolAssistantList,
 		ToolCreateProvider, ToolRevokeProvider, ToolCreateJoinCode, ToolListJoinCodes, ToolConfirmJoin,
+		ToolStartImageBuild, ToolListImageBuilds,
 		ToolListMembers, ToolSetMemberSuspended, ToolRemoveMember, ToolUpdateOrganization,
 		ToolListAudit,
 		ToolListConnections, ToolCreateConnection, ToolSetConnection,
@@ -317,6 +320,13 @@ type ToolService interface {
 	// ConfirmJoin creates the provider of a join code an agent claimed, whose
 	// agent then gets its token.
 	ConfirmJoin(ctx context.Context, by domain.Actor, in ConfirmJoinInput) (ProviderInfo, error)
+	// StartImageBuild asks a Hyper-V or Proxmox location's fleet agent to build
+	// the Windows image of its host from the owner's ISO. The result is an
+	// unsigned manifest that a person registers and signs.
+	StartImageBuild(ctx context.Context, by domain.Actor, in StartImageBuildInput) (ImageBuildInfo, error)
+	// ListImageBuilds lists the image builds of a location, newest first, with
+	// the progress its agent reported.
+	ListImageBuilds(ctx context.Context, by domain.Actor, in ListImageBuildsInput) ([]ImageBuildInfo, error)
 	ListPendingGates(ctx context.Context, by domain.Actor, in ProjectFilterInput) ([]GateInfo, error)
 	// Approve resolves a gate of any kind as approved (retry for needs_you).
 	Approve(ctx context.Context, by domain.Actor, in GateDecisionInput) (domain.Gate, error)
@@ -1093,6 +1103,42 @@ type ConfirmJoinInput struct {
 	FactsHash string `json:"facts_hash"`
 	// WrapUntrusted is as in ListProvidersInput.
 	WrapUntrusted bool `json:"-"`
+}
+
+// StartImageBuildInput is the input of start_image_build. It holds references
+// only: the ISO is a path on the location's host, and the host's credentials
+// and the ISO never reach forecrewd. LicenseConfirmed is a person's statement
+// that their licence covers building and running the image; it is never set
+// for someone else.
+type StartImageBuildInput struct {
+	Provider         string `json:"provider"`
+	Version          string `json:"version"`
+	ISO              string `json:"iso"`
+	ISOChecksum      string `json:"iso_checksum"`
+	ChocolateySHA256 string `json:"chocolatey_sha256"`
+	WindowsImageName string `json:"windows_image_name,omitempty"`
+	LicenseConfirmed bool   `json:"license_confirmed"`
+	// WrapUntrusted is as in ListProvidersInput.
+	WrapUntrusted bool `json:"-"`
+}
+
+// ListImageBuildsInput is the input of list_image_builds.
+type ListImageBuildsInput struct {
+	Provider string `json:"provider"`
+	Limit    int    `json:"limit,omitempty"` // default 20, at most 100
+	// WrapUntrusted is as in ListProvidersInput.
+	WrapUntrusted bool `json:"-"`
+}
+
+// ImageBuildInfo is an image build with the words its agent reported: Step,
+// Error and Manifest. Nobody checked them. With WrapUntrusted they come as
+// Untrusted, marked as data, and only the numbers and states stay.
+type ImageBuildInfo struct {
+	domain.ImageBuild
+	Provider string `json:"provider"`
+	// Next says what a person does with a finished build.
+	Next      string `json:"next,omitempty"`
+	Untrusted string `json:"untrusted,omitempty"`
 }
 
 // WorkerInfo is a worker with its online state and running jobs.

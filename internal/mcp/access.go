@@ -154,6 +154,8 @@ func ToolAccess() map[string]Access {
 		ToolCreateJoinCode:     {Permission: domain.PermWorkerManage},
 		ToolListJoinCodes:      {Permission: domain.PermWorkerManage},
 		ToolConfirmJoin:        {Permission: domain.PermWorkerManage},
+		ToolStartImageBuild:    {Permission: domain.PermWorkerManage},
+		ToolListImageBuilds:    {Permission: domain.PermWorkerRead},
 		ToolListMembers:        {Permission: domain.PermOrgRead},
 		ToolSetMemberSuspended: {Permission: domain.PermMemberManage},
 		ToolRemoveMember:       {Permission: domain.PermMemberManage},

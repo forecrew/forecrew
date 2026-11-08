@@ -195,3 +195,45 @@ func TestNoticesCommand(t *testing.T) {
 		t.Fatalf("resolve: %d %q", code, out)
 	}
 }
+
+func TestProviderImageBuildCommands(t *testing.T) {
+	e := newRemoteEnv(t)
+	id := uuid.New()
+	e.svc.StartImageBuildFunc = func(_ context.Context, _ domain.Actor, in mcp.StartImageBuildInput) (mcp.ImageBuildInfo, error) {
+		return mcp.ImageBuildInfo{ID: id, Version: in.Version, Provider: in.Provider}, nil
+	}
+	out, _, code := e.run(t, "provider", "build-image", "win-host", "--version", "2026.11.1", "--iso", `D:\isos\s.iso`, "--iso-checksum", "sha256:abc",
+		"--chocolatey-sha256", "def", "--windows-image-name", "Std", "--license-confirmed")
+	if code != 0 || !strings.Contains(out, "image build 2026.11.1 requested on win-host") || !strings.Contains(out, "image-builds win-host") {
+		t.Fatalf("build-image: code %d, %q", code, out)
+	}
+	want := mcp.StartImageBuildInput{Provider: "win-host", Version: "2026.11.1", ISO: `D:\isos\s.iso`, ISOChecksum: "sha256:abc", ChocolateySHA256: "def", WindowsImageName: "Std", LicenseConfirmed: true}
+	if got := e.svc.Calls()[0].Input.(mcp.StartImageBuildInput); got != want {
+		t.Errorf("input = %+v", got)
+	}
+	// The licence statement is not assumed: left out, the server hears false.
+	if _, _, code := e.run(t, "provider", "build-image", "win-host", "--version", "1", "--iso", "/i", "--iso-checksum", "sha256:abc", "--chocolatey-sha256", "def"); code != 0 {
+		t.Fatalf("without the flag: code %d", code)
+	}
+	if got := e.svc.Calls()[1].Input.(mcp.StartImageBuildInput); got.LicenseConfirmed {
+		t.Errorf("the statement was made for the person: %+v", got)
+	}
+	if _, _, code := e.run(t, "provider", "build-image", "win-host", "--license-confirmed"); code == 0 {
+		t.Error("build-image without its required flags passed")
+	}
+
+	e.svc.ListImageBuildsFunc = func(_ context.Context, _ domain.Actor, in mcp.ListImageBuildsInput) ([]mcp.ImageBuildInfo, error) {
+		if in.Provider != "win-host" || in.Limit != 5 {
+			t.Errorf("list input = %+v", in)
+		}
+		return []mcp.ImageBuildInfo{
+			{ID: id, Version: "2026.11.1", State: domain.ImageBuildDone, Percent: 100, Step: "done", Manifest: "D:\\b\\m.json\x1b[2J", Next: "sign it"},
+			{ID: uuid.New(), Version: "2026.10.1", State: domain.ImageBuildFailed, Percent: 15, Error: "the ISO is not the one you gave"},
+		}, nil
+	}
+	out, _, code = e.run(t, "provider", "image-builds", "win-host", "--limit", "5")
+	if code != 0 || !strings.Contains(out, "done") || !strings.Contains(out, "100") || !strings.Contains(out, "the ISO is not the one you gave") || strings.Contains(out, "\x1b") ||
+		!strings.Contains(out, "unsigned") || !strings.Contains(out, "forecrew image sign") {
+		t.Errorf("image-builds: code %d, %q", code, out)
+	}
+}
