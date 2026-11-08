@@ -9,6 +9,7 @@ import (
 	"strings"
 	"uuid"
 
+	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/config"
 	cfgres "github.com/forecrew/forecrew/internal/config/resource"
 	"github.com/forecrew/forecrew/internal/contextpack"
@@ -326,8 +327,16 @@ func (s *Service) ConfigRead(ctx context.Context, j domain.Job, in jobmcp.Config
 		}
 	}
 	if in.Models {
-		if out.Models, err = s.modelsRead(ctx, by); err != nil {
+		// Without models.read the person cannot read them, and nor can the
+		// assistant for them: that part is left out, the rest is answered.
+		switch err := s.allowOrg(ctx, by, domain.PermModelsRead); {
+		case errors.Is(err, authz.ErrDenied):
+		case err != nil:
 			return out, toolError(err)
+		default:
+			if out.Models, err = s.modelsRead(ctx, by); err != nil {
+				return out, toolError(err)
+			}
 		}
 	}
 	return out, nil

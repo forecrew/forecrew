@@ -225,3 +225,23 @@ func TestModelsCatalog(t *testing.T) {
 		t.Fatalf("without role needs: %+v, %v", out, err)
 	}
 }
+
+// TestConfigReadLeavesOutModelsWithoutModelsRead: someone who reads the
+// configuration but not the models gets the rest of the answer.
+func TestConfigReadLeavesOutModelsWithoutModelsRead(t *testing.T) {
+	f, _, _ := modelsFixture(t)
+	ctx := t.Context()
+	billing, id := f.member(t, orgScope, domain.RoleBilling, uuid.Nil())
+	// The assistant runs as a job of a project the person reads.
+	viewer, err := f.st.Roles().GetByName(ctx, f.account.ID, projectScope, domain.RoleViewer)
+	must(t, err)
+	must(t, f.st.RoleBindings().Create(ctx, &domain.RoleBinding{AccountID: f.account.ID, SubjectKind: domain.SubjectUser, SubjectID: id, RoleID: viewer.ID, ProjectID: f.project.ID, CreatedBy: "user:op"}))
+	v, err := f.svc.AssistantSend(ctx, billing, mcp.AssistantSendInput{Message: "What do we spend?"})
+	must(t, err)
+	job, err := f.st.Jobs().Get(ctx, f.account.ID, v.Messages[0].JobID)
+	must(t, err)
+	out, err := f.svc.ConfigRead(ctx, job, jobmcp.ConfigReadInput{Kind: "fleet_policy", Models: true})
+	if err != nil || out.Models != nil {
+		t.Fatalf("read = %+v, %v", out, err)
+	}
+}
