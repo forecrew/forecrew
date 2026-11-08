@@ -39,7 +39,9 @@ scripts and air-gapped sites, or from `join`, which shows it to nobody.
 There is no route here to register an image, by design. The provider token gives
 no way to add to `images`, so a compromised host cannot publish something others
 trust. An image built on a host, such as a Windows image from a user's ISO, is
-registered by a person (fleet.md, Images).
+registered by a person (fleet.md, Images). A build of such an image can be
+asked for from the web, REST, MCP or CLI and is done by the agent, but it only
+ever ends as an unsigned manifest on the host (Image builds below).
 
 ## Errors
 
@@ -154,6 +156,7 @@ Response `200`:
 ```json
 {
   "generation": "42",
+  "image_builds": [],
   "machines": [
     {
       "machine_id": "018f...",
@@ -167,6 +170,8 @@ Response `200`:
   ]
 }
 ```
+
+`image_builds` is left out when there is none (Image builds below).
 
 `machines` is the whole desired set: every machine of this provider in
 `requested`, `booting`, `ready` or `busy`. The agent:
@@ -214,6 +219,51 @@ next poll. A spot machine taken back is `failed`, and its job is requeued
 through its lease.
 
 Response `200`: `{}`.
+
+## Image builds
+
+A person with `worker.manage` on a Hyper-V or Proxmox location asks for a build
+of its Windows image from the web, REST, MCP or CLI. The request carries
+references only: the path of the ISO on the agent's host, its checksum, the
+person's statement that their licence covers building and running the image
+(only a person may make it), the hash of the Chocolatey `install.ps1` they
+reviewed, and the version. The ISO, the credentials of the host and the image
+never pass through forecrewd, and nothing is sent to the agent through any port
+but its own poll. A location builds one image at a time.
+
+`poll` lists the builds the agent should do in `image_builds`, each a
+`image_build_request`: `requested` until the agent reports that it runs it,
+then `running`. A paused location is not sent a `requested` one. The agent:
+
+- starts a `requested` build it does not hold, with `build-image` and its own
+  settings (the templates, the worker, the output directory and the directory
+  the ISO must be in), after the same checks that command makes: the licence
+  statement, the checksum read again, the worker, the disk;
+- reports a `running` build it does not hold (it restarted) as `failed`;
+- never registers or signs an image, and never skips a check.
+
+A build the agent does not take within 30 minutes, and a running one it stops
+reporting for 15, ends as `failed` with a plain explanation.
+
+### POST /fleet/v1/image-builds/{build_id}/progress
+
+Reports what `progress.json` of the build says, at each change and at least every
+two minutes while it runs (the second is what shows the agent is alive).
+A report that repeats the end is accepted, so the agent can retry.
+
+```json
+{"state": "running", "step": "building the image: about an hour", "percent": 15}
+{"state": "done", "step": "done", "percent": 100, "manifest": "D:\\builds\\forecrew-windows-2026.11.1.manifest.json", "digest": "sha256:..."}
+{"state": "failed", "step": "failed", "percent": 15, "error": "the ISO is sha256:..., not the ... you gave"}
+```
+
+`state` is `running`, `done` or `failed`. `done` names the path of the **unsigned**
+manifest on the host and the digest of the image; a person checks it, signs it
+off the host and registers it (fleet.md, Windows images on a host). `failed`
+says why, at most 2000 characters with no secrets. The words of `step`, `error`
+and `manifest` are stored and shown as plain text, never acted on, and marked as
+untrusted data on MCP. `404` when the build is not this provider's, `409` when
+it has ended differently.
 
 ## POST /fleet/v1/reconcile
 
