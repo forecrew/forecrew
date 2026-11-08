@@ -116,10 +116,22 @@ func TestDefaultAgentManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The official release addresses, pinned here on their own: a change of
+	// the code's allowlist alone does not move them.
+	official := map[string]string{
+		"claude-code": "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/",
+		"codex":       "https://github.com/openai/codex/releases/download/",
+		"opencode":    "https://github.com/anomalyco/opencode/releases/download/",
+	}
 	for _, cli := range runtimeCLIs {
 		a, ok := m.Agents[cli.adapter]
 		if !ok || len(a.Platforms) < 4 {
 			t.Errorf("%s: %+v, want every desktop platform", cli.adapter, a)
+		}
+		for p, d := range a.Platforms {
+			if !strings.HasPrefix(d.URL, official[cli.adapter]+map[string]string{"claude-code": "", "codex": "rust-v", "opencode": "v"}[cli.adapter]+a.Version+"/") {
+				t.Errorf("%s %s: %s is not an official release of %s", cli.adapter, p, d.URL, a.Version)
+			}
 		}
 	}
 }
@@ -149,7 +161,7 @@ agents:
     version: 1.2.3
     binary: codex
     platforms:
-      linux/amd64: {url: "https://example.com/1.2.3/codex", sha256: ` + strings.Repeat("a", 64) + `}
+      linux/amd64: {url: "https://github.com/openai/codex/releases/download/rust-v1.2.3/codex", sha256: ` + strings.Repeat("a", 64) + `}
 `
 	if _, err := ParseAgentManifest([]byte(ok)); err != nil {
 		t.Fatalf("valid manifest: %v", err)
@@ -158,7 +170,11 @@ agents:
 		"version":         strings.Replace(ok, "version: 1\n", "version: 2\n", 1),
 		"moving version":  strings.Replace(ok, "version: 1.2.3", "version: latest", 1),
 		"http":            strings.Replace(ok, "https://", "http://", 1),
-		"no version":      strings.Replace(ok, "/1.2.3/", "/latest/", 1),
+		"no version":      strings.Replace(ok, "rust-v1.2.3", "latest", 1),
+		"other host":      strings.Replace(ok, "github.com/openai/codex", "evil.example.com/openai/codex", 1),
+		"other repo":      strings.Replace(ok, "openai/codex", "openai-fork/codex", 1),
+		"another agent's": strings.Replace(ok, "github.com/openai/codex/releases/download/rust-v1.2.3", "github.com/anomalyco/opencode/releases/download/v1.2.3", 1),
+		"climbing out":    strings.Replace(ok, "download/rust-v1.2.3", "download/../../x/rust-v1.2.3", 1),
 		"short sha":       strings.Replace(ok, strings.Repeat("a", 64), "abc", 1),
 		"other binary":    strings.Replace(ok, "binary: codex", "binary: git", 1),
 		"unknown adapter": strings.Replace(ok, "  codex:", "  evil:", 1),
