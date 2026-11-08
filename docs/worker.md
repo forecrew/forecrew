@@ -29,8 +29,12 @@ name crosses the wire.
 - **The manifest.** `packs/agents/manifest.yaml` ships inside each release
   and is never fetched. Per agent it pins an exact version and, per OS and
   architecture, the official download address and its SHA-256: Claude Code's
-  native build, and the release binaries of Codex and opencode on GitHub, at
-  the versions of the toolbox base image. Only agents that ship a standalone
+  native build, and the release binaries of Codex (`openai/codex`) and
+  opencode (`anomalyco/opencode`, where its installer at opencode.ai points)
+  on GitHub. A manifest naming any other address is refused. Claude Code and
+  Codex are at the versions of the toolbox base image, so a job runs the same
+  CLI with or without a toolbox; the base image has no opencode, so opencode
+  is pinned on its own and a toolbox role never runs on it. Only agents that ship a standalone
   binary are listed; an agent with none is reported missing, and Forecrew
   does not install runtimes such as Node for it. A worker ignores a request
   for anything that is not an adapter of its own manifest, one that names a

@@ -73,6 +73,15 @@ type AgentDownload struct {
 	Path string `yaml:"path"`
 }
 
+// officialReleases is where each agent's makers publish its builds; a
+// manifest may name no other address. opencode's repository moved from
+// sst/opencode to anomalyco/opencode, which its installer at opencode.ai uses.
+var officialReleases = map[string]string{
+	"claude-code": "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases/",
+	"codex":       "https://github.com/openai/codex/releases/download/",
+	"opencode":    "https://github.com/anomalyco/opencode/releases/download/",
+}
+
 var (
 	exactVersion = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 	sha256Hex    = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -121,6 +130,8 @@ func (a AgentRelease) check(adapter string) error {
 		switch {
 		case err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil:
 			return fmt.Errorf("%s: %q is not an https address", p, d.URL)
+		case !strings.HasPrefix(d.URL, officialReleases[adapter]) || officialReleases[adapter] == "" || strings.Contains(u.Path, ".."):
+			return fmt.Errorf("%s: %q is not an official release address of %s", p, d.URL, adapter)
 		case !strings.Contains(u.Path, a.Version):
 			return fmt.Errorf("%s: %q does not name version %s", p, d.URL, a.Version)
 		case !sha256Hex.MatchString(d.SHA256):
