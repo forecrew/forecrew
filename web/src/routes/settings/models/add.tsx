@@ -5,7 +5,7 @@ import { Field } from "@/components/Field"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { CONNECTION_NAME, KEY_ENV, countryName, localAddress } from "@/lib/models"
+import { CONNECTION_NAME, KEY_ENV, countryName, localEndpoint } from "@/lib/models"
 
 const OTHER = "other"
 
@@ -30,7 +30,7 @@ export function AddProvider({ open, onOpenChange, providers, taken }: { open: bo
   const free = [base, ...Array.from({ length: 20 }, (_, i) => `${base}-${i + 2}`)].find((n) => !taken.includes(n)) ?? base
   const chosenName = name ?? free
   const url = address ?? provider?.base_url ?? ""
-  const local = localAddress(url) || provider?.country === "local"
+  const local = localEndpoint(url)
   const variable = keyEnv ?? provider?.key_env ?? ""
 
   const close = (next: boolean) => {
@@ -51,7 +51,7 @@ export function AddProvider({ open, onOpenChange, providers, taken }: { open: bo
     if (!CONNECTION_NAME.test(chosenName)) next.name = "Use lowercase letters, digits and -."
     else if (taken.includes(chosenName)) next.name = "A connection has this name already."
     if ((other || address !== undefined) && !/^https?:\/\/[^\s/]+(\/\S*)?$/.test(url.trim())) next.address = "Enter the address of the API, such as https://models.acme.com/v1."
-    else if (url.startsWith("http://") && !localAddress(url)) next.address = "Plain http only reaches your own network: use https."
+    else if (url.startsWith("http://") && !localEndpoint(url)) next.address = "Plain http only reaches your own network: use https."
     const adapter = provider?.adapter ?? "opencode"
     if (adapter === "opencode" && !KEY_ENV.test(variable)) next.keyEnv = "The variable the agent reads the key from: uppercase, ending in _KEY."
     setErrors(next)

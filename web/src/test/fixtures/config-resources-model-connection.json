@@ -36,6 +36,21 @@
       "vendor": "ollama"
     },
     "scope": "organization",
+    "origin": "database",
+    "local": true
+  },
+  {
+    "kind": "model_connection",
+    "name": "lab-ollama",
+    "spec": {
+      "adapter": "opencode",
+      "base_url": "https://ollama.lab.example.com/v1",
+      "enabled": true,
+      "key_env": "OLLAMA_API_KEY",
+      "secret_ref": "store:models/lab-ollama",
+      "vendor": "ollama"
+    },
+    "scope": "organization",
     "origin": "database"
   }
 ]

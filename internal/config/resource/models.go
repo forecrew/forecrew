@@ -78,7 +78,8 @@ func modelConnectionRead(ctx context.Context, e *Env) ([]Resource, error) {
 	}
 	out := make([]Resource, 0, len(rows))
 	for _, c := range rows {
-		out = append(out, Resource{Kind: KindModelConnection, Name: c.Name, Spec: encode(specOfConnection(c)), Scope: ScopeOrganization, Origin: OriginDatabase})
+		out = append(out, Resource{Kind: KindModelConnection, Name: c.Name, Spec: encode(specOfConnection(c)), Scope: ScopeOrganization, Origin: OriginDatabase,
+			Local: models.LocalEndpoint(c.BaseURL)})
 	}
 	if e.Server == nil || !e.Server.ServerKeys() {
 		return out, nil
@@ -99,7 +100,7 @@ func modelConnectionRead(ctx context.Context, e *Env) ([]Resource, error) {
 		if len(s.CredentialEnv) > 0 {
 			spec.KeyEnv = s.CredentialEnv[0]
 		}
-		out = append(out, Resource{Kind: KindModelConnection, Name: r.Name, Spec: encode(spec), Scope: ScopeServer, Origin: OriginFile})
+		out = append(out, Resource{Kind: KindModelConnection, Name: r.Name, Spec: encode(spec), Scope: ScopeServer, Origin: OriginFile, Local: models.LocalEndpoint(s.BaseURL)})
 	}
 	return out, nil
 }

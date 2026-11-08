@@ -91,7 +91,8 @@ code is `internal/models`; nothing else decides a job's connection.
   adapter (`ANTHROPIC_API_KEY`, `CODEX_API_KEY`); `opencode` names its own in
   `key_env`, uppercase and ending in `_KEY`, not `FORECREW_*`. `secret_ref` is
   `store:models/<name>`, or nothing for a `base_url` on `localhost` or a
-  loopback or private address, whose agent then gets an empty key: the
+  loopback or private address (`models.LocalEndpoint`; `config_get` marks such a
+  connection `local: true`, the one rule the UI shows), whose agent then gets an empty key: the
   namespace `models/` of the secret store is for model keys only, and no other resource may name it, so whoever manages a
   connection cannot send a sign-in secret to their endpoint, nor the other
   way round. `enabled` defaults to true. Deleting a connection deletes the

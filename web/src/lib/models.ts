@@ -8,10 +8,12 @@ export interface Connection {
   spec: ModelConnectionSpec
   /** Set in the server file: read-only here. */
   fromFile: boolean
+  /** On your own network, as the server decides (the private code policy uses the same rule). */
+  local: boolean
 }
 
 export const connectionsOf = (resources: ConfigResource[] | undefined): Connection[] =>
-  (resources ?? []).map((r) => ({ name: r.name, spec: r.spec as unknown as ModelConnectionSpec, fromFile: r.origin === "file" }))
+  (resources ?? []).map((r) => ({ name: r.name, spec: r.spec as unknown as ModelConnectionSpec, fromFile: r.origin === "file", local: r.local === true }))
 
 /** The organization's assignment: its own row, else the server file's. */
 export const organizationAssignment = (resources: ConfigResource[] | undefined): { spec: ModelAssignmentSpec; fromFile: boolean } => {
@@ -23,22 +25,27 @@ export const organizationAssignment = (resources: ConfigResource[] | undefined):
 export const projectAssignment = (resources: ConfigResource[] | undefined, project: string): ModelAssignmentSpec | undefined =>
   (resources ?? []).find((x) => x.name === `project:${project}`)?.spec as ModelAssignmentSpec | undefined
 
-/** Whether a base URL is on your own machine or network: the code stays there. */
-export function localAddress(url: string | undefined): boolean {
+/**
+ * Whether an address the person typed looks like one on their own network, as the server's
+ * models.LocalEndpoint reads it: localhost, or a loopback or private IP address. Only the add form
+ * uses it, to leave out a key the server would not ask for; the server checks it again, and a
+ * saved connection's `local` comes from the server.
+ */
+export function localEndpoint(url: string | undefined): boolean {
   if (!url) return false
   let host: string
   try {
-    host = new URL(url).hostname.replace(/^\[|\]$/g, "")
+    host = new URL(url).hostname.replace(/^\[|\]$/g, "").toLowerCase()
   } catch {
     return false
   }
-  if (host === "localhost" || host.endsWith(".localhost") || host === "::1") return true
+  if (host === "localhost" || host === "::1") return true
   const v4 = host.split(".").map(Number)
   if (v4.length === 4 && v4.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
     const [a, b] = v4 as [number, number, number, number]
     return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
   }
-  return /^f[cd][0-9a-f]{2}:/i.test(host)
+  return /^f[cd][0-9a-f]{0,2}:/i.test(host)
 }
 
 /** The provider of a connection in the catalog, by its vendor. */
@@ -64,8 +71,9 @@ export function countryName(code: string): string {
 
 /** Where the provider of a connection runs, in words. */
 export function whereText(c: Connection, provider?: ModelProvider): string {
-  if (localAddress(c.spec.base_url) || provider?.country === "local") return "Local, code stays here"
-  if (!provider) return "Another endpoint"
+  if (c.local) return "Local, code stays here"
+  // A provider of local models at a public address: its code leaves the network.
+  if (!provider || provider.country === "local") return "Another endpoint"
   if (provider.country === "region") return "In the region of its endpoint"
   return countryName(provider.country)
 }
