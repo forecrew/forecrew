@@ -62,17 +62,19 @@ func (s *safeBuffer) String() string {
 // world is forecrewd's fleet agent API on a fake store, with an agent and a
 // fake provider talking to it over HTTP.
 type world struct {
-	t        *testing.T
-	st       *testkit.Store
-	url      string
-	down     atomic.Bool // forecrewd cannot be reached
-	polls    atomic.Int64
-	fake     *testkit.FakeProvider
-	provider domain.CapacityProvider
-	shape    domain.Shape
-	token    string
-	logs     *safeBuffer
-	log      *slog.Logger
+	t    *testing.T
+	st   *testkit.Store
+	url  string
+	down atomic.Bool // forecrewd cannot be reached
+	// conflictProgress makes forecrewd answer every image build report with 409, the build still listed.
+	conflictProgress atomic.Bool
+	polls            atomic.Int64
+	fake             *testkit.FakeProvider
+	provider         domain.CapacityProvider
+	shape            domain.Shape
+	token            string
+	logs             *safeBuffer
+	log              *slog.Logger
 }
 
 func newWorld(t *testing.T) *world {
@@ -93,6 +95,10 @@ func newWorld(t *testing.T) *world {
 	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		if w.down.Load() {
 			http.Error(rw, "unavailable", http.StatusBadGateway)
+			return
+		}
+		if w.conflictProgress.Load() && strings.HasSuffix(r.URL.Path, "/progress") {
+			http.Error(rw, `{"error":{"code":"conflict","message":"the image build has ended"}}`, http.StatusConflict)
 			return
 		}
 		if strings.HasSuffix(r.URL.Path, "/poll") {

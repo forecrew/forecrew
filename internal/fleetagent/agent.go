@@ -82,7 +82,7 @@ type Agent struct {
 	noRoom  bool
 	// builds are the image builds the agent took or answered, until forecrewd
 	// stops listing them.
-	builds map[uuid.UUID]struct{}
+	builds map[uuid.UUID]*heldBuild
 
 	generation string
 	registered domain.ProviderCapabilities
@@ -115,7 +115,7 @@ func New(cfg Config) *Agent {
 	if cfg.AbuseEvery == 0 {
 		cfg.AbuseEvery = AbuseEvery
 	}
-	return &Agent{cfg: cfg, machines: map[uuid.UUID]*machine{}, pending: map[uuid.UUID]StateReport{}, builds: map[uuid.UUID]struct{}{}}
+	return &Agent{cfg: cfg, machines: map[uuid.UUID]*machine{}, pending: map[uuid.UUID]StateReport{}, builds: map[uuid.UUID]*heldBuild{}}
 }
 
 // Run works until ctx ends, and returns nil then. While forecrewd cannot be

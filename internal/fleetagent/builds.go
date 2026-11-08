@@ -3,6 +3,7 @@ package fleetagent
 import (
 	"context"
 	"errors"
+	"net/http"
 	"time"
 	"uuid"
 
@@ -28,7 +29,8 @@ func (a *Agent) applyBuilds(ctx context.Context, desired []fleet.ImageBuildReque
 		if _, held := a.builds[b.ID]; held {
 			continue
 		}
-		a.builds[b.ID] = struct{}{}
+		hold := &heldBuild{}
+		a.builds[b.ID] = hold
 		switch {
 		case b.State != domain.ImageBuildRequested:
 			a.wg.Go(func() {
@@ -41,20 +43,41 @@ func (a *Agent) applyBuilds(ctx context.Context, desired []fleet.ImageBuildReque
 					Error: "this fleet agent is not set up to build images: add image_build to its agent.yaml (docs/fleet.md, Windows images on a host)"})
 			})
 		default:
-			a.wg.Go(func() { a.runBuild(ctx, b) })
+			var bctx context.Context
+			bctx, hold.cancel = context.WithCancel(ctx)
+			a.wg.Go(func() { a.runBuild(ctx, bctx, hold, b) })
 		}
 	}
-	for id := range a.builds {
+	for id, hold := range a.builds {
 		if !listed[id] {
+			// forecrewd ended it (it failed it for silence, say):
+			// nothing it builds from now on can be used, so the build stops.
+			hold.stop()
 			delete(a.builds, id)
 		}
 	}
 }
 
-// runBuild does one build and reports how it went.
-func (a *Agent) runBuild(ctx context.Context, b fleet.ImageBuildRequest) {
+// heldBuild is a build the agent took. cancel is nil for one it only answered.
+type heldBuild struct{ cancel context.CancelFunc }
+
+// stop ends the build: Packer and its children are killed through its context.
+func (h *heldBuild) stop() {
+	if h.cancel != nil {
+		h.cancel()
+	}
+}
+
+// runBuild does one build and reports how it went. bctx ends when the agent stops
+// or when forecrewd has ended the build.
+func (a *Agent) runBuild(ctx, bctx context.Context, hold *heldBuild, b fleet.ImageBuildRequest) {
+	defer hold.stop()
 	a.cfg.Logger.InfoContext(ctx, "image build started", "build", b.ID, "version", b.Version)
-	final := a.cfg.Images.Build(ctx, b, func(r fleet.ImageBuildReport) { a.progressBuild(ctx, b.ID, r) })
+	final := a.cfg.Images.Build(bctx, b, func(r fleet.ImageBuildReport) { a.progressBuild(bctx, hold, b.ID, r) })
+	if ctx.Err() == nil && bctx.Err() != nil {
+		a.cfg.Logger.InfoContext(ctx, "image build stopped: forecrewd had ended it", "build", b.ID)
+		return // there is no one to tell
+	}
 	if ctx.Err() != nil {
 		final = fleet.ImageBuildReport{State: domain.ImageBuildFailed, Step: "failed", Percent: final.Percent, Error: "the fleet agent stopped while it built the image: start the build again"}
 		var stop context.CancelFunc
@@ -67,8 +90,14 @@ func (a *Agent) runBuild(ctx context.Context, b fleet.ImageBuildRequest) {
 
 // progressBuild sends a report of a running build once: the next one replaces
 // it, so a lost one is not worth waiting for.
-func (a *Agent) progressBuild(ctx context.Context, id uuid.UUID, r fleet.ImageBuildReport) {
-	if err := a.cfg.Client.BuildProgress(ctx, id, r); err != nil {
+func (a *Agent) progressBuild(ctx context.Context, hold *heldBuild, id uuid.UUID, r fleet.ImageBuildReport) {
+	err := a.cfg.Client.BuildProgress(ctx, id, r)
+	if api, ok := errors.AsType[*APIError](err); ok && api.Status == http.StatusConflict {
+		a.cfg.Logger.InfoContext(ctx, "forecrewd has ended the image build: stopping it", "build", id)
+		hold.stop()
+		return
+	}
+	if err != nil {
 		a.cfg.Logger.DebugContext(ctx, "progress of an image build not delivered", "build", id, "error", clean(err))
 	}
 }

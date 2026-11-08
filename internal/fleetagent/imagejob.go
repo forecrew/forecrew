@@ -2,7 +2,9 @@ package fleetagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -81,11 +83,29 @@ func insideDir(dir, path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("the ISO is not at the path you gave on this host: %w", err)
 	}
+	if st, err := os.Stat(real); err != nil || !st.Mode().IsRegular() {
+		return "", errors.New("the ISO must be a regular file: not a directory, a pipe or a device") // checked before it is opened, so a pipe cannot block the agent
+	}
 	rel, err := filepath.Rel(root, real)
 	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("the ISO must be in %s, the directory this agent allows (image_build.iso_dir in agent.yaml)", dir)
 	}
 	return real, nil
+}
+
+// finishBuild turns what the build returned into its end. A build stopped, by the
+// agent or because forecrewd ended it, has had Packer and its children killed
+// already, and what it left is of no use to anyone: its folder goes.
+func finishBuild(ctx context.Context, outDir string, res imagebuild.Result, err error) fleet.ImageBuildReport {
+	p, _ := imagebuild.ReadProgress(outDir)
+	switch {
+	case ctx.Err() != nil:
+		_ = os.RemoveAll(outDir)
+		return failedBuild("failed", p.Percent, errors.New("the build was stopped"))
+	case err != nil:
+		return failedBuild("failed", p.Percent, err)
+	}
+	return fleet.ImageBuildReport{State: domain.ImageBuildDone, Step: "done", Percent: 100, Manifest: res.Manifest, Digest: res.Digest}
 }
 
 // Build implements ImageBuilder.
@@ -121,11 +141,7 @@ func (r ImageRunner) Build(ctx context.Context, req fleet.ImageBuildRequest, pro
 	for {
 		select {
 		case out := <-ended:
-			p, _ := imagebuild.ReadProgress(o.OutDir)
-			if out.err != nil {
-				return failedBuild("failed", p.Percent, out.err)
-			}
-			return fleet.ImageBuildReport{State: domain.ImageBuildDone, Step: "done", Percent: 100, Manifest: out.res.Manifest, Digest: out.res.Digest}
+			return finishBuild(ctx, o.OutDir, out.res, out.err)
 		case <-tick.C:
 			p, err := imagebuild.ReadProgress(o.OutDir)
 			if err != nil || p.State != "running" {
