@@ -178,7 +178,7 @@ func TestCreateCapacity(t *testing.T) {
 func TestCreateCleansUpWhatFails(t *testing.T) {
 	r := newRig(t)
 	req := r.request()
-	r.ps.FailOn = failScript("create", "Add-VMHardDiskDrive failed with "+req.Bootstrap.Token)
+	r.ps.SetFailOn(failScript("create", "Add-VMHardDiskDrive failed with "+req.Bootstrap.Token))
 	_, err := r.p.Create(context.Background(), req)
 	if err == nil || !strings.Contains(err.Error(), "Add-VMHardDiskDrive") || strings.Contains(err.Error(), req.Bootstrap.Token) {
 		t.Fatalf("err = %v", err)
@@ -194,13 +194,13 @@ func TestCreateCleansUpWhatFails(t *testing.T) {
 	// Even when the caller has gone.
 	r2 := newRig(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	r2.ps.FailOn = func(script string) string {
+	r2.ps.SetFailOn(func(script string) string {
 		if script == "create" {
 			cancel() // the caller goes while the machine is being made
 			return "boom"
 		}
 		return ""
-	}
+	})
 	if _, err := r2.p.Create(ctx, r2.request()); err == nil {
 		t.Error("no error")
 	}
@@ -211,11 +211,11 @@ func TestCreateCleansUpWhatFails(t *testing.T) {
 
 func TestCreateFailuresBeforeAnythingIsMade(t *testing.T) {
 	r := newRig(t)
-	r.ps.FailOn = failScript("list", "access denied")
+	r.ps.SetFailOn(failScript("list", "access denied"))
 	if _, err := r.p.Create(context.Background(), r.request()); err == nil || !strings.Contains(err.Error(), "access denied") {
 		t.Errorf("list: %v", err)
 	}
-	r.ps.FailOn = failScript("host", "no module")
+	r.ps.SetFailOn(failScript("host", "no module"))
 	if _, err := r.p.Create(context.Background(), r.request()); err == nil || !strings.Contains(err.Error(), "no module") {
 		t.Errorf("host: %v", err)
 	}
@@ -257,17 +257,17 @@ func TestDestroy(t *testing.T) {
 	if r.ps.Count() != 3 {
 		t.Errorf("a VM that is not ours was destroyed: %d left", r.ps.Count())
 	}
-	r.ps.FailOn = failScript("list", "denied")
+	r.ps.SetFailOn(failScript("list", "denied"))
 	if err := r.p.Destroy(context.Background(), "x"); err == nil {
 		t.Error("list failure swallowed")
 	}
-	r.ps.FailOn = nil
+	r.ps.SetFailOn(nil)
 	inst = r.create(r.request())
-	r.ps.FailOn = failScript("destroy", "the disk is in use")
+	r.ps.SetFailOn(failScript("destroy", "the disk is in use"))
 	if err := r.p.Destroy(context.Background(), inst.ExternalID); err == nil || !strings.Contains(err.Error(), "in use") {
 		t.Errorf("destroy failure: %v", err)
 	}
-	r.ps.FailOn = nil
+	r.ps.SetFailOn(nil)
 	if err := r.p.Destroy(context.Background(), inst.ExternalID); err != nil { // a failure leaves it to try again
 		t.Errorf("retry: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestList(t *testing.T) {
 			t.Errorf("instance %+v", i)
 		}
 	}
-	r.ps.FailOn = failScript("list", "cluster is down")
+	r.ps.SetFailOn(failScript("list", "cluster is down"))
 	if _, err := r.p.List(context.Background()); err == nil {
 		t.Error("no error")
 	}
@@ -360,11 +360,11 @@ func TestUpdateFailures(t *testing.T) {
 	if err := r.p.Update(context.Background(), inst.ExternalID, fleet.UpdateRequest{Tags: huge}); err == nil {
 		t.Error("tags too long for the notes accepted")
 	}
-	r.ps.FailOn = failScript("update", "denied")
+	r.ps.SetFailOn(failScript("update", "denied"))
 	if err := r.p.Update(context.Background(), inst.ExternalID, fleet.UpdateRequest{}); err == nil {
 		t.Error("script failure swallowed")
 	}
-	r.ps.FailOn = failScript("list", "denied")
+	r.ps.SetFailOn(failScript("list", "denied"))
 	if err := r.p.Update(context.Background(), inst.ExternalID, fleet.UpdateRequest{}); err == nil {
 		t.Error("list failure swallowed")
 	}
@@ -421,7 +421,7 @@ func TestStopFailureIsLogged(t *testing.T) {
 	r := newRig(t)
 	req := r.request()
 	req.Deadline = time.Now().Add(200 * time.Millisecond)
-	r.ps.FailOn = failScript("stop", "denied")
+	r.ps.SetFailOn(failScript("stop", "denied"))
 	r.create(req)
 	waitFor(t, func() bool { return r.ps.Ran("stop") == 1 })
 }
@@ -578,7 +578,7 @@ func TestAnOperatorsVMWithTheSameNameIsLeftAlone(t *testing.T) {
 		t.Errorf("%d VMs left, theirs there: %v", r.ps.Count(), r.ps.VMByID(theirs.ID) != nil)
 	}
 	// And a create that fails does not remove it either.
-	r.ps.FailOn = failScript("create", "boom")
+	r.ps.SetFailOn(failScript("create", "boom"))
 	if _, err := r.p.Create(context.Background(), req); err == nil || r.ps.VMByID(theirs.ID) == nil {
 		t.Errorf("err %v, theirs there: %v", err, r.ps.VMByID(theirs.ID) != nil)
 	}
@@ -587,7 +587,7 @@ func TestAnOperatorsVMWithTheSameNameIsLeftAlone(t *testing.T) {
 // The directories are closed first, once, and nothing is done while they are open.
 func TestNothingRunsBeforeTheDirectoriesAreClosed(t *testing.T) {
 	r := newRig(t)
-	r.ps.FailOn = failScript("secure", "C:\\FC is open to BUILTIN\\Users")
+	r.ps.SetFailOn(failScript("secure", "C:\\FC is open to BUILTIN\\Users"))
 	req := r.request()
 	if _, err := r.p.Create(context.Background(), req); err == nil || !strings.Contains(err.Error(), "open to BUILTIN") {
 		t.Fatalf("err = %v", err)
@@ -605,7 +605,7 @@ func TestNothingRunsBeforeTheDirectoriesAreClosed(t *testing.T) {
 		t.Errorf("something ran: %v, %d fetches", r.ps.Calls, *r.fetch)
 	}
 	// Closed now: it goes on, and asks only once more.
-	r.ps.FailOn = nil
+	r.ps.SetFailOn(nil)
 	r.create(req)
 	r.create(r.request())
 	if _, err := r.p.List(context.Background()); err != nil {
