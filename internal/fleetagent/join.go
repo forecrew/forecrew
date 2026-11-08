@@ -14,6 +14,7 @@ import (
 
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/fleetagent/imagebuild"
 	"github.com/forecrew/forecrew/internal/retry"
 )
 
@@ -132,5 +133,9 @@ func Serve(ctx context.Context, cfg *config.FleetAgent, version string, log *slo
 	if err != nil {
 		return err
 	}
-	return New(Config{Client: NewClient(cfg.ServerURL, token, nil), Provider: p, Version: version, Logger: log, Detect: detect}).Run(ctx)
+	ac := Config{Client: NewClient(cfg.ServerURL, token, nil), Provider: p, Version: version, Logger: log, Detect: detect}
+	if cfg.ImageBuild != nil { // an interface holding a nil pointer would not be nil
+		ac.Images = ImageRunner{Settings: *cfg.ImageBuild, Builder: imagebuild.Builder{DiskFreeGB: DiskFreeGB}}
+	}
+	return New(ac).Run(ctx)
 }

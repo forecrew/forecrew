@@ -155,6 +155,9 @@ func (c *Client) Register(ctx context.Context, capabilities domain.ProviderCapab
 type PollAnswer struct {
 	Generation string                `json:"generation"`
 	Machines   []fleet.CreateRequest `json:"machines"`
+	// ImageBuilds are the Windows image builds to do; absent from a forecrewd
+	// that has none.
+	ImageBuilds []fleet.ImageBuildRequest `json:"image_builds"`
 }
 
 // Poll long-polls the desired machines. have must never be nil, so that it
@@ -194,4 +197,9 @@ func (c *Client) Reconcile(ctx context.Context, instances []fleet.Instance) ([]s
 	}
 	err := c.post(ctx, "/fleet/v1/reconcile", map[string]any{"instances": instances}, &out)
 	return out.Destroy, err
+}
+
+// BuildProgress reports what progress.json of an image build says.
+func (c *Client) BuildProgress(ctx context.Context, id uuid.UUID, r fleet.ImageBuildReport) error {
+	return c.post(ctx, "/fleet/v1/image-builds/"+id.String()+"/progress", r, nil)
 }
