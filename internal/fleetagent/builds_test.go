@@ -17,14 +17,17 @@ import (
 // fakeBuilder is an ImageBuilder the test steers: it reports a step, waits for
 // release, then ends as the test says.
 type fakeBuilder struct {
-	mu      sync.Mutex
-	seen    []fleet.ImageBuildRequest
-	release chan struct{}
-	end     fleet.ImageBuildReport
+	// cancelled is closed when a build's context ends.
+	cancelled chan struct{}
+	once      sync.Once
+	mu        sync.Mutex
+	seen      []fleet.ImageBuildRequest
+	release   chan struct{}
+	end       fleet.ImageBuildReport
 }
 
 func newFakeBuilder(end fleet.ImageBuildReport) *fakeBuilder {
-	return &fakeBuilder{release: make(chan struct{}), end: end}
+	return &fakeBuilder{release: make(chan struct{}), cancelled: make(chan struct{}), end: end}
 }
 
 func (f *fakeBuilder) Build(ctx context.Context, req fleet.ImageBuildRequest, progress func(fleet.ImageBuildReport)) fleet.ImageBuildReport {
@@ -35,6 +38,7 @@ func (f *fakeBuilder) Build(ctx context.Context, req fleet.ImageBuildRequest, pr
 	select {
 	case <-f.release:
 	case <-ctx.Done():
+		f.once.Do(func() { close(f.cancelled) })
 		return fleet.ImageBuildReport{State: domain.ImageBuildFailed, Percent: 15, Error: "stopped"}
 	}
 	return f.end
@@ -165,5 +169,45 @@ func TestAgentStoppingFailsItsBuild(t *testing.T) {
 	got := w.buildState(b.ID)
 	if got.State != domain.ImageBuildFailed || !strings.Contains(got.Error, "agent stopped") {
 		t.Fatalf("after stop %+v", got)
+	}
+}
+
+// A build forecrewd ended (it failed it for silence, say) is stopped by the agent,
+// which then reports nothing: there is no one to tell, and the end stands.
+func TestAgentStopsABuildForecrewdEnded(t *testing.T) {
+	w := newWorld(t)
+	fb := newFakeBuilder(fleet.ImageBuildReport{})
+	w.start(w.config(w.fake, func(c *fleetagent.Config) { c.Images = fb }))
+	b := w.build()
+	eventually(t, "the build to run", func() bool { return w.buildState(b.ID).State == domain.ImageBuildRunning })
+	ended := w.buildState(b.ID)
+	ended.State, ended.Error, ended.FinishedAt = domain.ImageBuildFailed, "the agent stopped reporting this build 15 minutes ago", time.Now().UTC()
+	must(t, w.st.ImageBuilds().Save(t.Context(), &ended))
+	select {
+	case <-fb.cancelled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the builder's context was not cancelled")
+	}
+	time.Sleep(50 * time.Millisecond)
+	if got := w.buildState(b.ID); got.State != domain.ImageBuildFailed || !strings.Contains(got.Error, "stopped reporting") {
+		t.Fatalf("the end was overwritten: %+v", got)
+	}
+}
+
+// A 409 to a progress report says forecrewd has ended the build, even while the
+// build is still in its list: the agent stops it at once and does not report again.
+func TestAgentStopsABuildWhoseProgressGetsA409(t *testing.T) {
+	w := newWorld(t)
+	w.conflictProgress.Store(true)
+	fb := newFakeBuilder(fleet.ImageBuildReport{})
+	w.start(w.config(w.fake, func(c *fleetagent.Config) { c.Images = fb }))
+	b := w.build()
+	select {
+	case <-fb.cancelled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the builder's context was not cancelled by the 409")
+	}
+	if got := w.buildState(b.ID); got.State.Open() != true {
+		t.Fatalf("the test needs the build still open and listed: %+v", got)
 	}
 }

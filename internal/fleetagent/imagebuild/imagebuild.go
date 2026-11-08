@@ -420,6 +420,7 @@ func cacheFile(dir, file, digest string, format domain.ImageFormat) (string, err
 func execCommand(ctx context.Context, dir string, w io.Writer, env []string, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- the owner's packer, fixed arguments
 	cmd.Dir, cmd.Stdout, cmd.Stderr, cmd.Env = dir, w, w, env
+	killTreeOnCancel(cmd)
 	return cmd.Run()
 }
 

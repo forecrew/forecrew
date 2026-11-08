@@ -162,7 +162,7 @@ func TestRunnerKeepsTheChecksOfTheBuild(t *testing.T) {
 		"a missing ISO":     {func(r *jobRig) { r.req.ISO = filepath.Join(r.root, "isos", "none.iso") }, "ISO is not at the path"},
 		"outside iso_dir":   {func(r *jobRig) { r.req.ISO = filepath.Join(r.root, "forecrew-worker.exe") }, "image_build.iso_dir"},
 		"through ..":        {func(r *jobRig) { r.req.ISO = filepath.Join(r.root, "isos", "..", "forecrew-worker.exe") }, "image_build.iso_dir"},
-		"the directory":     {func(r *jobRig) { r.req.ISO = filepath.Join(r.root, "isos") }, "image_build.iso_dir"},
+		"the directory":     {func(r *jobRig) { r.req.ISO = filepath.Join(r.root, "isos") }, "regular file"},
 		"no iso_dir at all": {func(r *jobRig) { r.runner.Settings.ISODir = filepath.Join(r.root, "nowhere") }, "iso_dir"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -189,5 +189,50 @@ func TestRunnerRefusesALinkOutOfTheISODirectory(t *testing.T) {
 	_, end := r.build()
 	if end.State != domain.ImageBuildFailed || !strings.Contains(end.Error, "image_build.iso_dir") {
 		t.Fatalf("end %+v", end)
+	}
+}
+
+func TestRunnerRefusesAnISOThatIsNotARegularFile(t *testing.T) {
+	r := newJobRig(t)
+	dir := filepath.Join(r.root, "isos", "dir.iso")
+	must(t, os.Mkdir(dir, 0o755))
+	r.req.ISO = dir
+	_, end := r.build()
+	if end.State != domain.ImageBuildFailed || !strings.Contains(end.Error, "regular file") {
+		t.Fatalf("end %+v", end)
+	}
+	if fifo := filepath.Join(r.root, "isos", "pipe.iso"); mkfifo(fifo) == nil {
+		r.req.ISO = fifo // opening it would block until someone writes
+		done := make(chan fleet.ImageBuildReport, 1)
+		go func() { _, e := r.build(); done <- e }()
+		select {
+		case e := <-done:
+			if e.State != domain.ImageBuildFailed || !strings.Contains(e.Error, "regular file") {
+				t.Fatalf("pipe: %+v", e)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("a pipe in iso_dir blocked the agent")
+		}
+	}
+}
+
+func TestRunnerCleansUpAStoppedBuild(t *testing.T) {
+	r := newJobRig(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	r.runner.Builder.Exec = func(ctx context.Context, _ string, w io.Writer, _ []string, _ string, args ...string) error {
+		if args[0] != "build" {
+			return nil
+		}
+		_, _ = io.WriteString(w, "building\n")
+		cancel() // forecrewd ended the build
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	end := r.runner.Build(ctx, r.req, func(fleet.ImageBuildReport) {})
+	if end.State != domain.ImageBuildFailed {
+		t.Fatalf("end %+v", end)
+	}
+	if _, err := os.Stat(filepath.Join(r.root, "out", r.req.ID.String())); !os.IsNotExist(err) {
+		t.Fatalf("the output folder of a stopped build is still there: %v", err)
 	}
 }
