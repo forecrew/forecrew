@@ -465,10 +465,18 @@ func TestNewFromConfigTurnsInstallOffByConfigAndOnFleetMachines(t *testing.T) {
 			if !tc.on {
 				return
 			}
-			if !slices.ContainsFunc(w.cfg.Environ, func(kv string) bool {
+			// agents/bin is first on the agents' PATH and nowhere in the worker's.
+			if slices.ContainsFunc(w.cfg.Environ, func(kv string) bool { return strings.Contains(kv, w.cfg.agents.binDir()) }) {
+				t.Errorf("the worker's own environment has the agents directory: %v", w.cfg.Environ)
+			}
+			reg, ok := w.cfg.Runtimes.(agentRuntimes)
+			if !ok || !slices.ContainsFunc(reg.env, func(kv string) bool {
 				return strings.HasPrefix(kv, "PATH="+w.cfg.agents.binDir()+string(os.PathListSeparator))
 			}) {
-				t.Errorf("the agents directory is not first on PATH: %v", w.cfg.Environ)
+				t.Errorf("the agents directory is not first on the agents' PATH: %+v", w.cfg.Runtimes)
+			}
+			if !filepath.IsAbs(w.git.bin) {
+				t.Errorf("git = %q, want an absolute path", w.git.bin)
 			}
 		})
 	}

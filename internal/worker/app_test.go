@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -206,5 +207,46 @@ func TestRunFunction(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if err := Run(t.Context(), cfg, hermeticEnv(), "v1", logger); err == nil || !strings.Contains(err.Error(), "git is required") {
 		t.Errorf("Run without git = %v", err)
+	}
+}
+
+// TestAPlantedGitIsNotTheWorkers: an agent can write agents/bin, so a git
+// planted there must never be the worker's git; the agent's own CLI is found
+// there first, and only the agent's PATH has it.
+func TestAPlantedGitIsNotTheWorkers(t *testing.T) {
+	dump := fakeTools(t)
+	e := newEnv(t, scriptAdapter(t, runtime.Script{}))
+	cfg := &config.Worker{ServerURL: e.api.srv.URL, Name: "w", WorkDir: e.workDir, MaxJobs: 1, Token: testWorkerTok}
+	bin := filepath.Join(agentsDir(e.workDir), "bin")
+	must(t, os.MkdirAll(bin, 0o700))
+	planted := filepath.Join(dump, "planted-git-ran")
+	// The fake agent itself runs git config and git remote, which may find it.
+	must(t, os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\necho \"$1\" >> '"+planted+"'\nexit 1\n"), 0o700)) //nolint:gosec // test executable
+	claude, err := exec.LookPath("claude")
+	must(t, err)
+	script, err := os.ReadFile(claude) //nolint:gosec // the fake of fakeTools
+	must(t, err)
+	must(t, os.WriteFile(filepath.Join(bin, "claude"), script, 0o700)) //nolint:gosec // test executable
+
+	w := newFromConfig(t.Context(), cfg, hermeticEnv(), "v-test", e.cfg.Logger, false)
+	w.cfg.CloneURL, w.cfg.HeartbeatInterval, w.cfg.FlushInterval = e.cfg.CloneURL, e.cfg.HeartbeatInterval, e.cfg.FlushInterval
+	e.w = w
+	c := e.doComplete(e.spec(func(s *domain.JobSpec) { s.Runtime = "claude-code" }))
+	if c.Status != StatusSucceeded || c.HeadSHA == "" {
+		t.Fatalf("completion = %+v (logs: %s)", c, e.logs.String())
+	}
+	ran, _ := os.ReadFile(planted) //nolint:gosec // test path
+	for sub := range strings.FieldsSeq(string(ran)) {
+		if sub != "config" && sub != "remote" {
+			t.Errorf("the worker ran the git planted in agents/bin: git %s", sub)
+		}
+	}
+	env, err := os.ReadFile(filepath.Join(dump, "env.txt")) //nolint:gosec // test path
+	must(t, err)
+	if !strings.Contains(string(env), "PATH="+bin+string(os.PathListSeparator)) {
+		t.Errorf("the agent's PATH does not start with agents/bin:\n%s", env)
+	}
+	if strings.Contains(os.Getenv("PATH"), bin) {
+		t.Error("the worker's own PATH has agents/bin")
 	}
 }

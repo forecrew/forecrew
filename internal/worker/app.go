@@ -7,9 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
-	"os"
 	"os/exec"
-	"path/filepath"
 	goruntime "runtime"
 	"slices"
 	"strings"
@@ -54,10 +52,17 @@ func newFromConfig(ctx context.Context, cfg *config.Worker, environ []string, ve
 	if cfg.InstallsAgents() && !fleet {
 		agents = setUpAgents(cfg.WorkDir, logger)
 	}
-	look := exec.LookPath
+	// The worker's own tools are found now, on the operator's PATH, and run
+	// by absolute path: agents/bin is only ever on the agents' PATH, so a
+	// file planted there is never the worker's git or docker.
+	gitBin, err := exec.LookPath("git")
+	if err != nil {
+		gitBin = "git" // Run checked git first; a test may not have it
+	}
+	look, reg := exec.LookPath, Runtimes(runtime.DefaultRegistry(AgentEnv(environ), nil))
 	if agents != nil {
 		look = agents.lookPath
-		environ = prependPath(environ, agents.binDir())
+		reg = agentRuntimes{env: prependPath(AgentEnv(environ), agents.binDir()), look: agents.lookPath}
 	}
 	labels, dockerBin, _ := detectLabels(ctx, cfg, environ, look)
 	dockerHost := ""
@@ -69,8 +74,8 @@ func newFromConfig(ctx context.Context, cfg *config.Worker, environ []string, ve
 		Toolboxes: toolboxes, RegistryAuth: cfg.RegistryAuth, DockerHost: dockerHost, LocalModelEndpoints: cfg.LocalModelEndpoints,
 		DockerBin: dockerBin, ImageMaxAge: time.Duration(cfg.ImagePruneDays) * 24 * time.Hour,
 		Client: NewClient(cfg.ServerURL, cfg.Token, nil), Labels: labels, Version: version,
-		WorkDir: cfg.WorkDir, MaxJobs: cfg.MaxJobs,
-		Runtimes: runtime.DefaultRegistry(AgentEnv(environ), nil), Analyzer: analyzer.Local{},
+		WorkDir: cfg.WorkDir, MaxJobs: cfg.MaxJobs, GitBin: gitBin,
+		Runtimes: reg, Analyzer: analyzer.Local{},
 		Logger: logger, Environ: environ, agents: agents, fleet: fleet,
 	})
 }
@@ -109,12 +114,6 @@ func Run(ctx context.Context, cfg *config.Worker, environ []string, version stri
 		}
 	}
 	w := newFromConfig(ctx, cfg, environ, version, logger, fleet)
-	if w.cfg.agents != nil {
-		// The runtime adapters look their CLI up on the process's PATH.
-		if err := os.Setenv("PATH", w.cfg.agents.binDir()+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
-			return err
-		}
-	}
 	logger.Info("forecrew-worker started", "version", version, "name", cfg.Name, "server_url", cfg.ServerURL,
 		"labels", w.cfg.Labels, "auto_install_agents", w.cfg.agents != nil, "max_jobs", cfg.MaxJobs, "work_dir", cfg.WorkDir)
 	if cfg.MaxJobs > 1 {
@@ -151,11 +150,11 @@ var ErrCheckFailed = errors.New("check failed")
 // CLI is reported but is not a failure; a missing git or an unreachable
 // server is.
 func Check(ctx context.Context, cfg *config.Worker, environ []string, version string, out io.Writer) error {
-	look := exec.LookPath
+	look, reg := exec.LookPath, Runtimes(runtime.DefaultRegistry(AgentEnv(environ), nil))
 	if cfg.InstallsAgents() {
-		dir := agentsDir(cfg.WorkDir)
-		look = (&agentInstaller{dir: dir, goos: goruntime.GOOS}).lookPath
-		environ = prependPath(environ, filepath.Join(dir, "bin"))
+		a := &agentInstaller{dir: agentsDir(cfg.WorkDir), goos: goruntime.GOOS}
+		look = a.lookPath
+		reg = agentRuntimes{env: prependPath(AgentEnv(environ), a.binDir()), look: a.lookPath}
 	}
 	labels, dockerBin, dockerInfo := detectLabels(ctx, cfg, environ, look)
 	fmt.Fprintf(out, "forecrew-worker %s\nlabels: %s\n", version, strings.Join(labels, ", "))
@@ -176,7 +175,6 @@ func Check(ctx context.Context, cfg *config.Worker, environ []string, version st
 		fmt.Fprintf(out, "git: %s\n", strings.TrimSpace(gitVersion))
 	}
 
-	reg := runtime.DefaultRegistry(AgentEnv(environ), nil)
 	for _, cli := range runtimeCLIs {
 		adapter, _ := reg.Get(cli.adapter)
 		stepCtx, cancel := context.WithTimeout(ctx, checkTimeout)
@@ -227,11 +225,15 @@ func detectDocker(ctx context.Context, workDir string, environ []string) (bin, i
 	if uid, _ := hostIDs(); uid == 0 {
 		return "", "the worker runs as root, which Docker environments refuse"
 	}
-	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
-	defer cancel()
-	v, err := newDockerCLI("docker", workDir, environ).version(ctx)
+	bin, err := exec.LookPath("docker")
 	if err != nil {
 		return "", err.Error()
 	}
-	return "docker", v
+	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
+	defer cancel()
+	v, err := newDockerCLI(bin, workDir, environ).version(ctx)
+	if err != nil {
+		return "", err.Error()
+	}
+	return bin, v
 }

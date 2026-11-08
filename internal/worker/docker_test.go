@@ -45,7 +45,7 @@ func TestDetectLabelsAddsDocker(t *testing.T) {
 	t.Setenv("PATH", filepath.Dir(bin)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	cfg := &config.Worker{Labels: []string{"go"}, WorkDir: t.TempDir()}
 	labels, dockerBin, info := detectLabels(t.Context(), cfg, os.Environ(), exec.LookPath)
-	if !slices.Contains(labels, "docker") || !slices.Contains(labels, "go") || dockerBin != "docker" || info != "29.1.0" {
+	if !slices.Contains(labels, "docker") || !slices.Contains(labels, "go") || dockerBin != bin || info != "29.1.0" {
 		t.Errorf("labels = %v, bin = %q, info = %q", labels, dockerBin, info)
 	}
 

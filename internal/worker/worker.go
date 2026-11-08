@@ -72,6 +72,9 @@ type Config struct {
 	// LocalModelEndpoints lets a key check reach a model on localhost or a
 	// private address (local_model_endpoints in worker.yaml).
 	LocalModelEndpoints bool
+	// GitBin is the worker's git, by absolute path; empty means "git" on
+	// the process's PATH.
+	GitBin string
 	// agents installs the agent CLIs forecrewd asks for; nil means
 	// auto_install_agents is off, or the worker is on a fleet machine.
 	agents *agentInstaller
@@ -116,7 +119,7 @@ func New(cfg Config) *Worker {
 		cfg.WorkDir = abs
 	}
 	// Git never searches for a repo above the work dir's parent.
-	g := newGitClient("git", nil, cfg.Environ, filepath.Dir(cfg.WorkDir))
+	g := newGitClient(cfg.GitBin, nil, cfg.Environ, filepath.Dir(cfg.WorkDir))
 	w := &Worker{cfg: cfg, git: g, reaper: newReaper(g.runningPIDs, &g.gate), labels: cfg.Labels}
 	if cfg.DockerBin != "" {
 		w.docker = newDockerCLI(cfg.DockerBin, cfg.WorkDir, cfg.Environ)

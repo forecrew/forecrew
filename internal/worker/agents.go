@@ -30,6 +30,7 @@ import (
 	"github.com/forecrew/forecrew"
 	"github.com/forecrew/forecrew/internal/config"
 	"github.com/forecrew/forecrew/internal/domain"
+	"github.com/forecrew/forecrew/internal/runtime"
 )
 
 // AgentManifestFile is the manifest of the agent CLIs a worker may install,
@@ -507,6 +508,28 @@ func copyLimited(out io.Writer, r io.Reader) error {
 		err = fmt.Errorf("larger than %d bytes", maxAgentDownload)
 	}
 	return err
+}
+
+// agentRuntimes are the adapters of the agent CLIs, made at each Get so an
+// agent installed since start is found: each runs its CLI by the absolute
+// path lookPath finds (agents/bin first), with agents/bin first on the
+// agent's own PATH. The worker's process PATH never has agents/bin.
+type agentRuntimes struct {
+	env  []string
+	look func(string) (string, error)
+}
+
+// Get implements Runtimes.
+func (r agentRuntimes) Get(name string) (runtime.Adapter, error) {
+	cfg := runtime.Config{Env: r.env}
+	for _, cli := range runtimeCLIs {
+		if cli.adapter == name {
+			if p, err := r.look(cli.binary); err == nil {
+				cfg.Binary = p
+			}
+		}
+	}
+	return runtime.NewRegistry(runtime.NewClaudeCode(cfg), runtime.NewCodex(cfg), runtime.NewOpencode(cfg)).Get(name)
 }
 
 // lookPath finds a CLI in the private bin directory first, then on PATH.
