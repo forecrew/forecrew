@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright"
 import { expect, test, type Page } from "@playwright/test"
 import { fixture, mockApi } from "./api"
 
-const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: boolean; gates?: string; me?: string; roles?: string }[] = [
+const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: boolean; gates?: string; me?: string; roles?: string; build?: string }[] = [
   { name: "login", path: "/login", ready: "Log in to Forecrew", loggedIn: false },
   { name: "home", path: "/", ready: "Home" },
   { name: "inbox", path: "/inbox", ready: "Inbox" },
@@ -32,6 +32,12 @@ const pages: { name: string; path: string; ready: RegExp | string; loggedIn?: bo
   { name: "add an AWS account", path: "/machines/add?kind=aws", ready: "Add machines" },
   { name: "location", path: "/machines/018f0000-0000-7000-8000-000000000700", ready: "Home Server" },
   { name: "offline location", path: "/machines/018f0000-0000-7000-8000-000000000701", ready: "Mac Mini" },
+  { name: "Windows location with no image build", path: "/machines/018f0000-0000-7000-8000-000000000703", ready: "Win Host" },
+  { name: "Windows location waiting for its connector to take a build", path: "/machines/018f0000-0000-7000-8000-000000000703", ready: "Win Host", build: "requested" },
+  { name: "Windows location building its image", path: "/machines/018f0000-0000-7000-8000-000000000703", ready: "Win Host", build: "running" },
+  { name: "Windows location with a built, unsigned image", path: "/machines/018f0000-0000-7000-8000-000000000703", ready: "Win Host", build: "done" },
+  { name: "Windows location whose image build failed", path: "/machines/018f0000-0000-7000-8000-000000000703", ready: "Win Host", build: "failed" },
+  { name: "Windows location for a viewer", path: "/machines/018f0000-0000-7000-8000-000000000703", ready: "Win Host", me: "me-viewer" },
   { name: "set up", path: "/setup", ready: "Set up Forecrew" },
   { name: "assumptions", path: "/assumptions", ready: "Assumptions" },
   { name: "knowledge", path: "/knowledge?project=app", ready: "Knowledge" },
@@ -80,7 +86,7 @@ for (const size of sizes) {
   for (const p of pages) {
     test(`${p.name} has no serious accessibility violations on ${size.name}`, async ({ page }) => {
       await page.setViewportSize({ width: size.width, height: size.height })
-      await mockApi(page, { loggedIn: p.loggedIn ?? true, gates: p.gates, me: p.me, roles: p.roles })
+      await mockApi(page, { loggedIn: p.loggedIn ?? true, gates: p.gates, me: p.me, roles: p.roles, build: p.build })
       await page.goto(p.path)
       await expect(page.getByRole("heading", { level: 1, name: p.ready })).toBeVisible()
       // wait for the data of the page
@@ -255,6 +261,17 @@ for (const size of sizes) {
     await page.getByRole("button", { name: "Get the command" }).click()
     await expect(page.getByRole("heading", { name: "Checks" })).toBeVisible()
     await expect(page.getByRole("heading", { name: "Confirm this location" })).toBeVisible()
+    await expectNoSeriousViolations(page)
+  })
+
+  test(`the Windows image form with its fields filled in has no serious violations on ${size.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: size.width, height: size.height })
+    await mockApi(page)
+    await page.goto("/machines/018f0000-0000-7000-8000-000000000703")
+    await page.getByLabel("Windows ISO on this machine").fill("D:\\isos\\server-2022.iso")
+    await page.getByRole("form", { name: "Build the Windows image" }).getByRole("button", { name: "More options" }).click()
+    await expect(page.getByLabel("Windows edition")).toBeVisible()
+    await page.getByRole("checkbox", { name: "I hold a Windows Server licence" }).click()
     await expectNoSeriousViolations(page)
   })
 

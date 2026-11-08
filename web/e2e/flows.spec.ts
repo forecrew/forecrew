@@ -309,3 +309,62 @@ test("add a key, its check passes, pick a preset, confirm, and a job runs on the
   expect(JSON.stringify(calls.log.filter((c) => !c.call.startsWith("PUT")))).not.toContain("sk-example")
   expect(calls.log.find((c) => c.call.startsWith("PUT /config/plans/"))?.body).toEqual({ value: "sk-exampleexampleexample" })
 })
+
+test("build the Windows image from the location page: references go out, progress comes back, and the result stays unsigned", async ({ page }) => {
+  const calls = await mockApi(page)
+  await page.goto("/machines/018f0000-0000-7000-8000-000000000703")
+  const form = page.getByRole("form", { name: "Build the Windows image" })
+  await expect(form.getByRole("button", { name: "Build the image" })).toBeDisabled()
+  await form.getByLabel("Windows ISO on this machine").fill("D:\\isos\\server-2022.iso")
+  await form.getByLabel("ISO checksum (SHA-256)").fill("sha256:" + "a1".repeat(32))
+  await form.getByLabel("Chocolatey installer hash (SHA-256)").fill("b2".repeat(32))
+  await form.getByLabel("Image version").fill("2026.11.1")
+  // the licence statement is the person's own: the button waits for it
+  await expect(form.getByRole("button", { name: "Build the image" })).toBeDisabled()
+  await form.getByRole("checkbox", { name: "I hold a Windows Server licence" }).click()
+  await form.getByRole("button", { name: "Build the image" }).click()
+
+  const start = calls.log.find((c) => c.call === "POST /providers/win-host/image-builds")
+  expect(start?.body).toEqual({
+    version: "2026.11.1", iso: "D:\\isos\\server-2022.iso", iso_checksum: "sha256:" + "a1".repeat(32), chocolatey_sha256: "b2".repeat(32), license_confirmed: true,
+  })
+  const status = page.getByRole("status", { name: "Image build" })
+  await expect(status).toContainText("Waiting for the connector")
+
+  // the connector takes it and builds: the page follows without being reloaded
+  calls.build.stage = "running"
+  await expect(status.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "15", { timeout: 15_000 })
+  await expect(status).toContainText("Building the image (about an hour) (now)")
+
+  // it ends as a manifest nobody has signed: the page says so and registers nothing
+  calls.build.stage = "done"
+  const built = page.getByRole("region", { name: /Windows image 2026.11.1 is built/ })
+  await expect(built).toBeVisible({ timeout: 15_000 })
+  await expect(built).toContainText("Not signed, not registered")
+  await expect(built).toContainText("forecrew image sign")
+  await built.getByRole("button", { name: "go to Register the image" }).click()
+  await expect(page.getByRole("textbox", { name: "Windows image" })).toBeFocused()
+  expect(calls.log.some((c) => c.call === "POST /images")).toBe(false)
+})
+
+test("a failed Windows image build says why in plain words", async ({ page }) => {
+  await mockApi(page, { build: "failed" })
+  await page.goto("/machines/018f0000-0000-7000-8000-000000000703")
+  const alert = page.getByRole("alert").filter({ hasText: "The last build failed" })
+  await expect(alert).toContainText("get it again from your licence portal <b>now</b>")
+  await expect(alert.locator("b")).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Build the image" })).toBeVisible()
+})
+
+test("a viewer follows the Windows image build but cannot start one, and the page names the permission", async ({ page }) => {
+  await mockApi(page, { me: "me-viewer", build: "running" })
+  await page.goto("/machines/018f0000-0000-7000-8000-000000000703")
+  await expect(page.getByRole("status", { name: "Image build" })).toContainText("Building")
+  await expect(page.getByRole("progressbar")).toBeVisible()
+
+  await mockApi(page, { me: "me-viewer" })
+  await page.goto("/machines/018f0000-0000-7000-8000-000000000703")
+  await expect(page.getByRole("button", { name: "Build the image" })).toBeDisabled()
+  await expect(page.getByText("worker.manage")).toBeVisible()
+  await expect(page.getByLabel("Windows ISO on this machine")).toBeDisabled()
+})

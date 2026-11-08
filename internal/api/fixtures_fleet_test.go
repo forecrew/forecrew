@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/forecrew/forecrew/internal/domain"
@@ -51,6 +52,31 @@ func fixtureProviders() []mcp.ProviderInfo {
 		{ID: fid(702), AccountID: fid(1), Name: "aws-frankfurt", Kind: domain.ProviderAWS, Mode: domain.ProviderModeAgent, Status: domain.ProviderActive, LastSeenAt: at(-1),
 			Capabilities: domain.ProviderCapabilities{OS: []domain.MachineOS{domain.OSLinux}, Arch: []domain.MachineArch{domain.ArchAMD64}, CloudAccount: "123456789012", Region: "eu-central-1"},
 			Limits:       domain.ProviderLimits{MaxMachines: 20, MonthlyBudget: new(200.0)}, NetworkAllow: []string{"registry.acme.test"}, Tags: map[string]string{"team": "platform"}, CreatedAt: at(-10000), UpdatedAt: at(-10000), Online: true, Ownership: domain.OwnershipOwn},
+		{ID: fid(703), AccountID: fid(1), Name: "win-host", Kind: domain.ProviderHyperV, Mode: domain.ProviderModeAgent, Status: domain.ProviderActive, LastSeenAt: at(-1),
+			Capabilities: domain.ProviderCapabilities{OS: []domain.MachineOS{domain.OSWindows}, Arch: []domain.MachineArch{domain.ArchAMD64}, MaxCPU: 24, MaxMemoryMB: 131072, MaxMachines: 2, Host: "hyperv-1", AgentVersion: "0.9.2"},
+			Limits:       domain.ProviderLimits{MaxMachines: 2}, NetworkAllow: []string{}, Tags: map[string]string{}, CreatedAt: at(-5000), UpdatedAt: at(-5000), Online: true, Ownership: domain.OwnershipOwn},
+	}
+}
+
+// fixtureBuild is a build of the Windows image on win-host.
+func fixtureBuild(n int, state domain.ImageBuildState, edit func(b *mcp.ImageBuildInfo)) mcp.ImageBuildInfo {
+	b := mcp.ImageBuildInfo{Provider: "win-host", ImageBuild: domain.ImageBuild{
+		ID: fid(800 + n), AccountID: fid(1), ProviderID: fid(703), State: state, Version: "2026.11.1", ISO: `D:\isos\server-2022.iso`,
+		ISOChecksum: "sha256:" + strings.Repeat("a1", 32), ChocolateySHA256: strings.Repeat("b2", 32), LicenseConfirmedBy: "user:" + fid(300).String(),
+		CreatedAt: at(-70), UpdatedAt: at(-1),
+	}}
+	if edit != nil {
+		edit(&b)
+	}
+	return b
+}
+
+// buildList answers list_image_builds with builds.
+func buildList(builds ...mcp.ImageBuildInfo) func(e *env) {
+	return func(e *env) {
+		e.svc.ListImageBuildsFunc = func(context.Context, domain.Actor, mcp.ListImageBuildsInput) ([]mcp.ImageBuildInfo, error) {
+			return builds, nil
+		}
 	}
 }
 
@@ -184,6 +210,27 @@ func fleetFixtureCases() []fixtureCase {
 			}
 		}},
 		{"image-register", "POST", "/api/v1/images", `{"name":"windows-11","version":"1","os":"windows","arch":"amd64","format":"vhdx","uri":"https://images.acme.test/windows-11.vhdx","digest":"sha256:` + fmt.Sprintf("%064d", 1) + `","signature":"ed25519:c2ln","built_at":"2026-03-01T10:00:00Z","contents":{}}`, 201, "bearer", nil},
+		{"image-builds-empty", "GET", "/api/v1/providers/win-host/image-builds", "", 200, "bearer", buildList()},
+		{"image-builds-running", "GET", "/api/v1/providers/win-host/image-builds", "", 200, "bearer", buildList(fixtureBuild(1, domain.ImageBuildRunning, func(b *mcp.ImageBuildInfo) {
+			b.Step, b.Percent, b.StartedAt = "building the image: about an hour", 15, at(-60)
+		}))},
+		{"image-builds-requested", "GET", "/api/v1/providers/win-host/image-builds", "", 200, "bearer", buildList(fixtureBuild(2, domain.ImageBuildRequested, func(b *mcp.ImageBuildInfo) {
+			b.CreatedAt = at(-2)
+		}))},
+		{"image-builds-done", "GET", "/api/v1/providers/win-host/image-builds", "", 200, "bearer", buildList(fixtureBuild(3, domain.ImageBuildDone, func(b *mcp.ImageBuildInfo) {
+			b.Step, b.Percent, b.StartedAt, b.FinishedAt = "done", 100, at(-65), at(-2)
+			b.Manifest, b.Digest = `D:\builds\018f\forecrew-windows-2026.11.1.manifest.json`, "sha256:"+strings.Repeat("c3", 32)
+			b.Next = "The manifest on the host is unsigned and nothing is registered. Check it, sign it with your image key on a computer that is not that host (forecrew image sign), then register it (forecrew image add, or Register the image on the location's page) and put the public key in the host's image-keys.pub. See docs/images.md."
+		}))},
+		{"image-builds-failed", "GET", "/api/v1/providers/win-host/image-builds", "", 200, "bearer", buildList(fixtureBuild(4, domain.ImageBuildFailed, func(b *mcp.ImageBuildInfo) {
+			b.Step, b.Percent, b.StartedAt, b.FinishedAt = "failed", 5, at(-5), at(-4)
+			b.Error = "the ISO is sha256:0f0f, not the sha256:a1a1 you gave: get it again from your licence portal <b>now</b>"
+		}))},
+		{"image-build-start", "POST", "/api/v1/providers/win-host/image-builds", `{"version":"2026.11.1","iso":"D:\\isos\\server-2022.iso","iso_checksum":"sha256:` + strings.Repeat("a1", 32) + `","chocolatey_sha256":"` + strings.Repeat("b2", 32) + `","license_confirmed":true}`, 202, "bearer", func(e *env) {
+			e.svc.StartImageBuildFunc = func(context.Context, domain.Actor, mcp.StartImageBuildInput) (mcp.ImageBuildInfo, error) {
+				return fixtureBuild(2, domain.ImageBuildRequested, func(b *mcp.ImageBuildInfo) { b.CreatedAt = at(0) }), nil
+			}
+		}},
 		{"config-resources-provider", "GET", "/api/v1/config/resources?kind=provider", "", 200, "bearer", func(e *env) {
 			e.svc.ConfigGetFunc = func(context.Context, domain.Actor, mcp.ConfigGetInput) ([]mcp.ConfigResource, error) {
 				return []mcp.ConfigResource{

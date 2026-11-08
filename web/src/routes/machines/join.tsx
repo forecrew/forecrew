@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { CheckIcon, CircleAlertIcon, CopyIcon, LoaderCircleIcon } from "lucide-react"
 import { useState } from "react"
 import { api } from "@/api/client"
-import { useJoinCodes, useProjects } from "@/api/queries"
+import { useJoinCodes, useProjects, useProviders } from "@/api/queries"
 import type { JoinCode, Provider } from "@/api/types"
 import { DraftPlan, useDraft } from "@/components/config/draft"
 import { Field } from "@/components/Field"
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { gigabytes, humanName } from "@/lib/format"
+import { BuildImage, buildsImages } from "./build-image"
 import { RegisterImage } from "./register-image"
 
 type Os = "linux" | "macos" | "windows"
@@ -117,6 +118,7 @@ export function JoinFlow({ cloud, limitText, budget }: { cloud?: boolean; limitT
   const codes = useJoinCodes(Boolean(created))
   const code = codes.data?.find((c) => c.id === created?.id)
   const projects = useProjects()
+  const live = useProviders().data?.find((p) => p.id === provider?.id)
   const [test, setTest] = useState("")
 
   const claimed = code?.status === "claimed"
@@ -255,8 +257,9 @@ export function JoinFlow({ cloud, limitText, budget }: { cloud?: boolean; limitT
                 Windows image
               </h2>
               <p className="text-sm">
-                Forecrew cannot hand out Windows. When the installer asks, point it to a Windows ISO you are licensed for and it builds the image on the machine (about an hour; you can close this tab). Without one you get Run directly on this computer.
+                Forecrew cannot hand out Windows. {live && buildsImages(live) ? "Once this location is added, you can build the image on the machine from a Windows ISO you are licensed for (about an hour; you can close this tab)." : "When the installer asks, point it to a Windows ISO you are licensed for and it builds the image on the machine (about an hour; you can close this tab)."} Without one you get Run directly on this computer.
               </p>
+              {live && buildsImages(live) && draft.plan?.status === "applied" ? <BuildImage provider={live} /> : null}
               <RegisterImage />
             </section>
           ) : null}

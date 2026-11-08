@@ -13,6 +13,11 @@ const json = (route: Route, body: unknown, status = 200) =>
 export interface Calls {
   /** "METHOD /path" of every API call, in order, with the JSON body of writes. */
   log: { call: string; body?: unknown }[]
+  /**
+   * The image build of the Windows location (win-host) as the page reads it: empty, requested, running, done or failed,
+   * the name of a recorded answer. Starting a build sets requested; a test moves it on, as the connector would.
+   */
+  build: { stage: string }
 }
 
 /**
@@ -26,10 +31,11 @@ export interface Calls {
  * protection (the second confirmation); `inboxPlans` puts plans in the Inbox. `trackerFails` makes the test of a tracker connection
  * fail on its certificate. A plan for a tracker connection or rule is the recorded one with its secure field.
  * A join code reports as soon as it is made. JOB-42 is a waiting job, JOB-43 one waiting for a model connection.
+ * `build` is where the image build of the Windows location starts (see Calls.build).
  * `noModels` starts with no AI provider: confirming the DeepSeek plan connects it and its key check passes;
  * confirming the suggested preset moves the developer to it, and JOB-41 then runs on deepseek-chat.
  */
-export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: string; me?: string; lowering?: boolean; inboxPlans?: boolean; roles?: string; trackerFails?: boolean; noModels?: boolean } = {}): Promise<Calls> {
+export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: string; me?: string; lowering?: boolean; inboxPlans?: boolean; roles?: string; trackerFails?: boolean; noModels?: boolean; build?: string } = {}): Promise<Calls> {
   let loggedIn = opts.loggedIn ?? true
   let gates = fixture(opts.gates ?? "gates") as { ref: string }[]
   let canceled = false
@@ -42,7 +48,7 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
   let modelsConnected = !opts.noModels
   let presetApplied = false
   const modelPlans = () => [fixture("config-plan-model-connection"), fixture("config-plan-model-authorization"), (fixture("models-suggest") as { plan: object }).plan] as { id: string; steps: { filled?: boolean }[] }[]
-  const calls: Calls = { log: [] }
+  const calls: Calls = { log: [], build: { stage: opts.build ?? "empty" } }
   const newPlan = () => fixture(opts.lowering ? "config-plan-lowers" : "config-plan") as { id: string }
   // Every recorded plan, found by its ID.
   const planById = (id: string) => {
@@ -194,6 +200,13 @@ export async function mockApi(page: Page, opts: { loggedIn?: boolean; gates?: st
     if (req.method() === "POST" && /^\/config\/plans\/[^/]+\/apply$/.test(path)) {
       applied = true
       return json(route, fixture("config-plan-applied"))
+    }
+    if (/^\/providers\/[^/]+\/image-builds$/.test(path)) {
+      if (req.method() === "POST") {
+        calls.build.stage = "requested"
+        return json(route, fixture("image-build-start"), 202)
+      }
+      return json(route, fixture(`image-builds-${calls.build.stage}`))
     }
     if (req.method() === "GET" && path === "/images") return json(route, [])
     if (req.method() === "GET" && path === "/fleet") return json(route, fixture(applied ? "fleet" : "fleet-empty"))

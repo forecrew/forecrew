@@ -18,6 +18,7 @@ import { gigabytes, humanName } from "@/lib/format"
 import { toYaml } from "@/lib/yaml"
 import { useCan } from "@/lib/permissions"
 import { YamlDialog } from "@/components/YamlDialog"
+import { BuildImage, buildsImages } from "./build-image"
 import { RegisterImage } from "./register-image"
 
 const CHECK_NAMES: Record<string, string> = { kvm: "KVM", disk: "Disk", software: "Software", sleep: "Sleep", hyperv: "Hyper-V" }
@@ -157,6 +158,12 @@ export function LocationPage() {
                 ))}
               </ul>
             </section>
+            {buildsImages(p) ? (
+              <div className="mt-6 space-y-4">
+                <BuildImage provider={p} />
+                {manage ? <RegisterImage /> : null}
+              </div>
+            ) : null}
             <Collapsible className="mt-6">
               <CollapsibleTrigger render={<Button variant="link" className="h-auto p-0" />}>More options</CollapsibleTrigger>
               <CollapsibleContent className="mt-2 space-y-2 text-sm">
@@ -166,7 +173,7 @@ export function LocationPage() {
                 <p>
                   Tags: {Object.keys(p.tags).length ? <span className="font-mono">{Object.entries(p.tags).map(([k, v]) => `${k}=${v}`).join(", ")}</span> : "none"}
                 </p>
-                {manage && (p.capabilities.os ?? []).includes("windows") ? <RegisterImage /> : null}
+                {manage && !buildsImages(p) && (p.capabilities.os ?? []).includes("windows") ? <RegisterImage /> : null}
               </CollapsibleContent>
             </Collapsible>
             {mine && manage ? (
