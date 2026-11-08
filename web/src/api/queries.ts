@@ -38,6 +38,7 @@ export const keys = {
   shapes: ["shapes"] as const,
   machines: ["machines"] as const,
   joinCodes: ["join-codes"] as const,
+  imageBuilds: (provider: string) => ["image-builds", provider] as const,
   plans: (inbox: boolean) => ["plans", inbox] as const,
   plan: (id: string) => ["plan", id] as const,
   resources: (kind: string) => ["resources", kind] as const,
@@ -405,6 +406,15 @@ export const useShapes = (enabled = true) => useQuery({ queryKey: keys.shapes, q
 export const useMachines = () => useQuery({ queryKey: keys.machines, queryFn: api.listMachines, ...poll })
 /** Join codes, faster than the lists: a person waits for the machine to report. */
 export const useJoinCodes = (enabled = true) => useQuery({ queryKey: keys.joinCodes, queryFn: api.listJoinCodes, enabled, refetchInterval: 2000, refetchIntervalInBackground: false })
+/** The image builds of a location. A build that is not over is followed every 3 s: a person watches it. */
+export const useImageBuilds = (provider: string, enabled = true) =>
+  useQuery({
+    queryKey: keys.imageBuilds(provider),
+    queryFn: () => api.listImageBuilds(provider),
+    enabled,
+    refetchInterval: (q) => (q.state.data?.some((b) => b.state === "requested" || b.state === "running") ? 3000 : false),
+    refetchIntervalInBackground: false,
+  })
 /** Plans waiting for the caller (the Inbox), or the whole history. */
 export const usePlans = (inbox = false, enabled = true) => useQuery({ queryKey: keys.plans(inbox), queryFn: () => api.listPlans({ inbox }), enabled, ...poll })
 export const useResources = (kind: string, enabled = true) => useQuery({ queryKey: keys.resources(kind), queryFn: () => api.getResources(kind), enabled })

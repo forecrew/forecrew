@@ -1,5 +1,5 @@
 import type {
-  Account, AssistantConversation, AssistantView, ConfigApplied, ConfigConfirmation, ConfigPlan, ConfigResource, ConfigWanted, CreatedJoinCode, FleetOverview, ImageManifest, JoinCode, Machine, Provider, Shape, AuditEntry, AuditFilter, BrowserSession, CliAuthorization, Connection, CreateConnectionInput, CreatedInvitation, CreatedToken, Identity,
+  Account, AssistantConversation, AssistantView, ConfigApplied, ConfigConfirmation, ConfigPlan, ConfigResource, ConfigWanted, CreatedJoinCode, FleetOverview, ImageBuild, ImageManifest, JoinCode, Machine, Provider, Shape, StartImageBuild, AuditEntry, AuditFilter, BrowserSession, CliAuthorization, Connection, CreateConnectionInput, CreatedInvitation, CreatedToken, Identity,
   Invitation, Member, Role, RoleBinding, Scope, ServiceAccount, Team, TeamMember,
   Artifact, Assumption, AssumptionStatus, Council, CouncilDetail, CouncilStatus, Decision, StartCouncilInput,
   CreateGoalInput, Discovery, DispatchJobInput, ErrorBody, Gate, GateInfo, Goal, GoalDetail, GoalStatus, Job, JobInfo,
@@ -224,6 +224,8 @@ export const api = {
   confirmJoin: (join: string, name: string, factsHash: string) =>
     request<Provider>("POST", `/api/v1/join-codes/${seg(join)}/confirm`, { name, facts_hash: factsHash }),
   listImages: (f: { os?: string } = {}) => request<(ImageManifest & { id: string; scope: string })[]>("GET", `/api/v1/images${query(f)}`),
+  listImageBuilds: (provider: string) => request<ImageBuild[]>("GET", `/api/v1/providers/${seg(provider)}/image-builds`),
+  startImageBuild: (provider: string, body: StartImageBuild) => request<ImageBuild>("POST", `/api/v1/providers/${seg(provider)}/image-builds`, body),
   registerImage: (manifest: ImageManifest) => request<{ name: string; version: string }>("POST", "/api/v1/images", manifest),
 
   listConnections: () => request<Connection[]>("GET", "/api/v1/connections"),

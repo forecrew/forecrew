@@ -89,6 +89,28 @@ test("a Windows host with Hyper-V gets the image step and can register the signe
   expect(body).toEqual({ name: "windows-11", version: "1" })
 })
 
+test("a Hyper-V host can build its Windows image once the location is added, and not before", async () => {
+  const win = fx.providers.find((p) => p.name === "win-host")!
+  const hyperv = { ...CLAIMED, kind: "hyperv", facts: { ...CLAIMED.facts, os: ["windows"] } }
+  server.use(
+    created(),
+    http.get("/api/v1/join-codes", () => HttpResponse.json([hyperv])),
+    http.post("/api/v1/join-codes/:join/confirm", () => HttpResponse.json({ ...win, status: "pending" })),
+    http.post("/api/v1/config/plans", () => HttpResponse.json(fx.configPlan, { status: 201 })),
+  )
+  const { user } = await renderApp("/machines/add?kind=computer")
+  await user.click(await screen.findByRole("button", { name: "Get the command" }))
+  await user.click(await screen.findByRole("button", { name: "Confirm" }))
+  await user.click(await screen.findByRole("button", { name: "Suggest machine types" }))
+  await screen.findByRole("region", { name: /Change plan/ })
+  expect(screen.queryByRole("form", { name: "Build the Windows image" })).toBeNull() // not before the plan is applied
+  await user.click(screen.getByRole("button", { name: "Confirm" }))
+  await screen.findByText("Applied")
+  const form = await screen.findByRole("form", { name: "Build the Windows image" })
+  expect(within(form).getByRole("button", { name: "Build the image" })).toBeDisabled()
+  expect(screen.getByText(/Once this location is added, you can build the image/)).toBeInTheDocument()
+})
+
 test("a failed confirmation says why", async () => {
   server.use(created(), http.post("/api/v1/join-codes/:join/confirm", () => HttpResponse.json({ error: { code: "conflict", message: "the report changed" } }, { status: 409 })))
   const { user } = await renderApp("/machines/add?kind=computer")

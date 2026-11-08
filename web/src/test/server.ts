@@ -91,6 +91,12 @@ import configResourcesProvider from "./fixtures/config-resources-provider.json"
 import errorAssistantSecret from "./fixtures/error-assistant-secret.json"
 import fleetEmpty from "./fixtures/fleet-empty.json"
 import fleet from "./fixtures/fleet.json"
+import imageBuildStart from "./fixtures/image-build-start.json"
+import imageBuildsDone from "./fixtures/image-builds-done.json"
+import imageBuildsEmpty from "./fixtures/image-builds-empty.json"
+import imageBuildsFailed from "./fixtures/image-builds-failed.json"
+import imageBuildsRequested from "./fixtures/image-builds-requested.json"
+import imageBuildsRunning from "./fixtures/image-builds-running.json"
 import imageRegister from "./fixtures/image-register.json"
 import jobWaiting from "./fixtures/job-waiting.json"
 import joinCodeCreate from "./fixtures/join-code-create.json"
@@ -238,6 +244,8 @@ export const handlers = [
   http.get("/api/v1/join-codes", () => HttpResponse.json(joinCodes)),
   http.post("/api/v1/join-codes", () => HttpResponse.json(joinCodeCreate, { status: 201 })),
   http.post("/api/v1/join-codes/:join/confirm", () => HttpResponse.json(joinConfirm)),
+  http.get("/api/v1/providers/:provider/image-builds", () => HttpResponse.json(imageBuildsEmpty)),
+  http.post("/api/v1/providers/:provider/image-builds", () => HttpResponse.json(imageBuildStart, { status: 202 })),
   http.get("/api/v1/images", () => HttpResponse.json([])),
   http.post("/api/v1/images", () => HttpResponse.json(imageRegister, { status: 201 })),
   http.get("/api/v1/config/resources", ({ request }) => {
@@ -334,7 +342,7 @@ export const fx = {
   assumptions, assumptionResolve, decisions, decisionsEmpty, gatesCouncil, gatesProposal, proposals, proposalDecide,
   trace, assumptionRegister, assumptionRegisterEmpty, assumptionRegisterResolve, knowledgeEntries, knowledgeEntriesEmpty, knowledgeNotes,
   knowledgeNoteDelete, knowledgeProposals, knowledgeProposalsEmpty, knowledgePropose, knowledgeSearch, knowledgeSearchEmpty,
-  assistantConversation, assistantConversations, assistantSend, assistantThinking, assistantUnavailable, configExport, configPlanApplied, configPlanApproval, configPlanCannotConfirm, configPlanLowers, configPlanNeedsSecret, configPlanRevert, configPlanStale, configPlan, configPlansEmpty, configPlansInbox, configPlans, configResourcesFleetPolicy, configResourcesProvider, errorAssistantSecret, fleetEmpty, fleet, imageRegister, jobWaiting, joinCodeCreate, joinCodes, joinConfirm, machines, providers, shapes,
+  assistantConversation, assistantConversations, assistantSend, assistantThinking, assistantUnavailable, configExport, configPlanApplied, configPlanApproval, configPlanCannotConfirm, configPlanLowers, configPlanNeedsSecret, configPlanRevert, configPlanStale, configPlan, configPlansEmpty, configPlansInbox, configPlans, configResourcesFleetPolicy, configResourcesProvider, errorAssistantSecret, fleetEmpty, fleet, imageBuildStart, imageBuildsDone, imageBuildsEmpty, imageBuildsFailed, imageBuildsRequested, imageBuildsRunning, imageRegister, jobWaiting, joinCodeCreate, joinCodes, joinConfirm, machines, providers, shapes,
   audit, auditEmpty, configPlanApply, configPlanCancel, configPlanConnection, configPlanSecret, connectionCreate, connectionEnable, connectionEnableUntested, connections, identities, invitationCreate, invitationRevoke, invitations,
   meAdmin, meContributor, meOwnerEnterprise, meViewer, roleCreate, roleDeleteInUse, roleUpdate, rolesCustom, memberLastOwner, memberSuspend, members, organization, roleBindingCreate, roleBindingDelete, roleBindings, roles,
   serviceAccountCreate, serviceAccounts, sessions, teamCreate, teamMembers, teamsEmpty, teams, tokenCreate, tokensScopes,

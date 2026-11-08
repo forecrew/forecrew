@@ -1201,6 +1201,45 @@ export interface Provider {
   ownership: "own" | "hosted"
 }
 
+/** Where the build of a Windows image on a location's host stands. */
+export type ImageBuildState = "requested" | "running" | "done" | "failed"
+
+/**
+ * A build of the Windows image on a location's host, asked for from here and done by its connector.
+ * The step, the reason and the manifest path are what the machine reported: plain text, never markup.
+ * A finished build left an unsigned manifest; nothing is registered.
+ */
+export interface ImageBuild {
+  id: string
+  provider_id: string
+  provider: string
+  state: ImageBuildState
+  version: string
+  iso: string
+  iso_checksum: string
+  license_confirmed_by: string
+  step?: string
+  percent: number
+  error?: string
+  manifest?: string
+  digest?: string
+  next?: string
+  created_at: string
+  updated_at: string
+  started_at?: string
+  finished_at?: string
+}
+
+/** What starts a build: references only, the ISO stays on the machine. */
+export interface StartImageBuild {
+  version: string
+  iso: string
+  iso_checksum: string
+  chocolatey_sha256: string
+  windows_image_name?: string
+  license_confirmed: boolean
+}
+
 export interface Shape {
   id: string
   provider_id: string
