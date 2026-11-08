@@ -17,6 +17,7 @@ func shapesT(d *storeData) *table[domain.Shape]               { return &d.shapes
 func machinesT(d *storeData) *table[domain.Machine]           { return &d.machines }
 func bootstrapT(d *storeData) *table[domain.BootstrapToken]   { return &d.bootstrap }
 func joinCodesT(d *storeData) *table[domain.ProviderJoinCode] { return &d.joinCodes }
+func imageBuildsT(d *storeData) *table[domain.ImageBuild]     { return &d.imageBuilds }
 
 // CapacityProviders implements store.Store.
 func (s *Store) CapacityProviders() store.CapacityProviderRepo { return providerRepo{s} }
@@ -35,6 +36,9 @@ func (s *Store) FleetPolicies() store.FleetPolicyRepo { return policyRepo{s} }
 
 // ProviderJoinCodes implements store.Store.
 func (s *Store) ProviderJoinCodes() store.ProviderJoinCodeRepo { return joinCodeRepo{s} }
+
+// ImageBuilds implements store.Store.
+func (s *Store) ImageBuilds() store.ImageBuildRepo { return imageBuildRepo{s} }
 
 // byID edits the row with id, whatever its organization; ErrNotFound when
 // there is none.
@@ -535,6 +539,65 @@ func (r joinCodeRepo) MarkUsed(_ context.Context, id uuid.UUID) error {
 			return fmt.Errorf("join code %s: %w", id, store.ErrConflict)
 		}
 		c.UsedAt = now
+		return nil
+	})
+}
+
+type imageBuildRepo struct{ s *Store }
+
+func imageBuildID(id uuid.UUID) func(domain.ImageBuild) bool {
+	return func(b domain.ImageBuild) bool { return b.ID == id }
+}
+
+func (r imageBuildRepo) Create(_ context.Context, b *domain.ImageBuild) error {
+	b.State = domain.ImageBuildRequested
+	if err := b.Validate(); err != nil {
+		return err
+	}
+	return r.s.do(func(d *storeData, now time.Time) error {
+		p, err := providersT(d).find(providerID(b.ProviderID))
+		if err != nil || p.AccountID != b.AccountID {
+			return fmt.Errorf("image build and its provider have the same organization: %w", store.ErrConflict)
+		}
+		if d.imageBuilds.exists(func(x domain.ImageBuild) bool { return x.ProviderID == b.ProviderID && x.State.Open() }) {
+			return fmt.Errorf("provider %s has a build already: %w", b.ProviderID, store.ErrConflict)
+		}
+		if b.ID == uuid.Nil() {
+			b.ID = uuid.New()
+		}
+		b.CreatedAt, b.UpdatedAt = now, now
+		d.imageBuilds.insert(*b)
+		return nil
+	})
+}
+
+func (r imageBuildRepo) Get(_ context.Context, id uuid.UUID) (domain.ImageBuild, error) {
+	return findRow(r.s, imageBuildsT, imageBuildID(id))
+}
+
+func (r imageBuildRepo) List(_ context.Context, providerID uuid.UUID, limit int) ([]domain.ImageBuild, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	return read(r.s, func(d *storeData) ([]domain.ImageBuild, error) {
+		return d.imageBuilds.newest(limit, func(b domain.ImageBuild) bool { return b.ProviderID == providerID }), nil
+	})
+}
+
+func (r imageBuildRepo) Open(_ context.Context, providerID uuid.UUID) ([]domain.ImageBuild, error) {
+	return listRows(r.s, imageBuildsT, 0, func(b domain.ImageBuild) bool { return b.ProviderID == providerID && b.State.Open() })
+}
+
+func (r imageBuildRepo) Save(_ context.Context, b *domain.ImageBuild) error {
+	if err := b.Validate(); err != nil {
+		return err
+	}
+	return byID(r.s, imageBuildsT, imageBuildID(b.ID), func(cur *domain.ImageBuild, now time.Time) error {
+		if !cur.State.Open() {
+			return fmt.Errorf("image build %s has ended: %w", b.ID, store.ErrConflict)
+		}
+		cur.State, cur.Step, cur.Percent, cur.Error, cur.Manifest, cur.Digest = b.State, b.Step, b.Percent, b.Error, b.Manifest, b.Digest
+		cur.StartedAt, cur.FinishedAt, cur.UpdatedAt = b.StartedAt, b.FinishedAt, now
 		return nil
 	})
 }

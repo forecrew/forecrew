@@ -112,6 +112,7 @@ type Store interface {
 	Secrets() SecretRepo
 	Conversations() ConversationRepo
 	ProviderJoinCodes() ProviderJoinCodeRepo
+	ImageBuilds() ImageBuildRepo
 	// WithTx runs fn in a transaction: tx sees fn's writes, which are
 	// committed when fn returns nil and rolled back otherwise. Calls on tx
 	// must use the ctx passed to fn.
@@ -1219,6 +1220,23 @@ type ProviderJoinCodeRepo interface {
 	// MarkUsed records that the token was handed over; ErrConflict when it
 	// already was, so it is handed over once.
 	MarkUsed(ctx context.Context, id uuid.UUID) error
+}
+
+// ImageBuildRepo stores the builds of Windows images on locations' hosts
+// (fleet-agent-api.md, Image builds).
+type ImageBuildRepo interface {
+	// Create stores a requested build; ErrConflict when the provider has one
+	// that is requested or running.
+	Create(ctx context.Context, b *domain.ImageBuild) error
+	// Get is unscoped; callers check the organization.
+	Get(ctx context.Context, id uuid.UUID) (domain.ImageBuild, error)
+	// List returns the provider's builds, newest first; limit 0 is 20.
+	List(ctx context.Context, providerID uuid.UUID, limit int) ([]domain.ImageBuild, error)
+	// Open returns the provider's builds that are requested or running.
+	Open(ctx context.Context, providerID uuid.UUID) ([]domain.ImageBuild, error)
+	// Save writes the state, progress, result and times of b, which was read
+	// open; ErrConflict when the stored build has ended meanwhile.
+	Save(ctx context.Context, b *domain.ImageBuild) error
 }
 
 // ShapeRepo stores shapes. Name is unique per organization, and among
