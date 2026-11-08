@@ -1068,6 +1068,8 @@ export interface ConfigResource {
   spec: Record<string, unknown>
   scope?: string
   origin?: "file" | "database"
+  /** A model_connection on your own network, as the server decides: its code stays there and needs no authorization. */
+  local?: boolean
 }
 
 /** A change someone asks for: a spec, or delete. */

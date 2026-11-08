@@ -101,8 +101,17 @@ func TestALocalModelNeedsNoKey(t *testing.T) {
 		t.Fatalf("steps = %+v", p.Steps)
 	}
 	w.apply(w.owner, p)
+	w.connect("far")
+	rs, err := w.engine.Get(t.Context(), w.owner, "model_connection", "")
+	check(t, err)
+	for _, r := range rs {
+		// The server decides what is local, as the private code policy does.
+		if want := r.Name == "home"; r.Local != want {
+			t.Errorf("%s: local %v, want %v", r.Name, r.Local, want)
+		}
+	}
 	local["base_url"] = "https://models.example.com/v1"
-	w.refused(w.owner, "only a local base_url", wanted(t, "model_connection", "far", local))
+	w.refused(w.owner, "only a local base_url", wanted(t, "model_connection", "farther", local))
 }
 
 func TestAConnectionStagesItsKeyAndLowersProtection(t *testing.T) {

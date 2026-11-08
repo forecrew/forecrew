@@ -36,6 +36,9 @@ describe("the project's AI models in Setup", () => {
     expect(items[0]).toHaveTextContent("Server file: allowed")
     expect(items[1]).toHaveTextContent("Allowed: the code of acme/app goes to DeepSeek API (China)")
     expect(items[2]).toHaveTextContent("Local: the code stays on your network")
+    // Local only by the server's flag: an Ollama at a public address needs authorizing.
+    expect(items[3]).toHaveTextContent("Not allowed: jobs with private code on it wait")
+    expect(within(items[3]!).getByRole("button", { name: "Authorize" })).toBeInTheDocument()
     await user.click(within(items[1]!).getByRole("button", { name: "Revoke" }))
     await waitFor(() => expect(bodies[0]?.changes).toEqual([{ kind: "model_authorization", name: "deepseek@app", delete: true }]))
     const card = await screen.findByRole("region", { name: "Change plan: Let deepseek receive the code of app" })
@@ -91,6 +94,19 @@ describe("the project's AI models in Setup", () => {
     await renderApp("/projects/app")
     await screen.findByRole("heading", { name: "Profile" })
     expect(screen.queryByRole("region", { name: "Setup · AI models" })).toBeNull()
+  })
+
+  test("someone who may assign the project's models but not read the organization's is told why", async () => {
+    const appID = fx.project.id
+    server.use(
+      http.get("/api/v1/me", () =>
+        HttpResponse.json({ ...fx.me, permissions: fx.me.permissions.filter((p) => !p.startsWith("models.")), projects: { [appID]: ["models.assign"] } }),
+      ),
+    )
+    await renderApp("/projects/app")
+    const s = await section()
+    expect(within(s).getByText(/you cannot see them: that needs/)).toBeInTheDocument()
+    expect(within(s).queryByRole("list", { name: "Who may receive the code" })).toBeNull()
   })
 
   test("says when the organization keeps projects on its models", async () => {

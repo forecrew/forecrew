@@ -16,6 +16,11 @@ type ConfigResource struct {
 	// the file alone sets it. Neither is part of the spec.
 	Scope  string `json:"scope,omitempty"`
 	Origin string `json:"origin,omitempty"`
+	// Local marks a model_connection whose base_url is on your own network
+	// (models.LocalEndpoint): its code stays there, and it needs no
+	// authorization for private code. The server decides it; it is not part
+	// of the spec.
+	Local bool `json:"local,omitempty"`
 }
 
 // Ref is how a plan and its steps name the resource.

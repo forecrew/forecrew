@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { humanName } from "@/lib/format"
-import { connectionTitle, connectionsOf, localAddress, modelOf, organizationAssignment, projectAssignment, providerOf, whereText } from "@/lib/models"
+import { connectionTitle, connectionsOf, modelOf, organizationAssignment, projectAssignment, providerOf, whereText } from "@/lib/models"
 import { PermButton, useCan } from "@/lib/permissions"
 
 /**
@@ -20,7 +20,8 @@ import { PermButton, useCan } from "@/lib/permissions"
  */
 export function ProjectModels({ project }: { project: Project }) {
   const can = useCan()
-  const read = can("models.read") || can("models.assign", project.id)
+  // The connections and assignments are the organization's: reading them takes models.read there.
+  const read = can("models.read")
   const assign = can("models.assign", project.id)
   const catalog = useModelsCatalog(read)
   const connections = useResources("model_connection", read)
@@ -29,7 +30,19 @@ export function ProjectModels({ project }: { project: Project }) {
   const draft = useDraft()
   const [role, setRole] = useState("")
   const [connection, setConnection] = useState("")
-  if (!read) return null
+  if (!read) {
+    if (!assign) return null
+    return (
+      <section aria-labelledby="project-models" className="mt-8 space-y-2">
+        <h2 id="project-models" className="text-lg font-semibold">
+          Setup · AI models
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          You may choose this project's models, but the AI providers are the organization's and you cannot see them: that needs <code className="font-mono">models.read</code>. Ask an organization admin, or the assistant.
+        </p>
+      </section>
+    )
+  }
 
   const list = connectionsOf(connections.data)
   const org = organizationAssignment(assignments.data)
@@ -149,7 +162,7 @@ export function ProjectModels({ project }: { project: Project }) {
       <ul aria-label="Who may receive the code" className="space-y-2 text-sm">
         {list.map((c) => {
           const provider = providerOf(providers, c.spec.vendor)
-          const local = localAddress(c.spec.base_url) || provider?.country === "local"
+          const local = c.local
           const title = connectionTitle(c, providers)
           const exempt = local || c.fromFile
           const ok = exempt || authorized(c.name)

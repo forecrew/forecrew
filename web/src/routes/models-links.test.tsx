@@ -3,7 +3,7 @@ import { http, HttpResponse } from "msw"
 import type { ModelCheck, ModelConnectionSpec } from "@/api/types"
 import { fx, server } from "@/test/server"
 import { renderApp } from "@/test/render"
-import { connectionTitle, keyAdvice, keyStatus, levelText, localAddress, whereText } from "@/lib/models"
+import { connectionTitle, keyAdvice, keyStatus, levelText, localEndpoint, whereText } from "@/lib/models"
 
 /** No model connection yet: the first run links to AI models. */
 const noKey = () =>
@@ -55,12 +55,13 @@ test("setup says nothing of keys once one is set", async () => {
 })
 
 describe("model words", () => {
-  const conn = (spec: Partial<ModelConnectionSpec>, name = "x") => ({ name, spec: { vendor: "x", adapter: "opencode", enabled: true, ...spec }, fromFile: false })
+  const conn = (spec: Partial<ModelConnectionSpec>, name = "x", local = false) => ({ name, spec: { vendor: "x", adapter: "opencode", enabled: true, ...spec }, fromFile: false, local })
   const check = (status: string): ModelCheck => ({ id: "1", connection: "x", job_id: "j", status, created_at: "", updated_at: "" })
 
-  test("local addresses", () => {
-    for (const url of ["http://localhost:1234", "http://127.0.0.1", "http://10.0.0.2", "http://172.20.0.1", "http://192.168.1.1", "http://[::1]:8080", "http://[fd00::1]/", "http://a.localhost"]) expect(localAddress(url)).toBe(true)
-    for (const url of [undefined, "", "not a url", "https://api.deepseek.com", "http://172.32.0.1", "http://8.8.8.8"]) expect(localAddress(url)).toBe(false)
+  test("local addresses, as the server reads them", () => {
+    for (const url of ["http://localhost:1234", "http://LOCALHOST", "http://127.0.0.1", "http://10.0.0.2", "http://172.20.0.1", "http://192.168.1.1", "http://[::1]:8080", "http://[fd00::1]/"]) expect(localEndpoint(url)).toBe(true)
+    // The server takes only localhost itself, not a name under it.
+    for (const url of [undefined, "", "not a url", "https://api.deepseek.com", "http://172.32.0.1", "http://8.8.8.8", "http://x.localhost", "http://a.localhost:11434"]) expect(localEndpoint(url)).toBe(false)
   })
 
   test("every key check status has words", () => {
@@ -82,5 +83,10 @@ describe("model words", () => {
     expect(whereText(conn({}), region)).toBe("In the region of its endpoint")
     expect(whereText(conn({}))).toBe("Another endpoint")
     expect(connectionTitle(conn({}, "my-models"))).toBe("My Models")
+    // Only the server's flag makes a connection local: not the provider's country, not the address.
+    const ollama = { name: "ollama", title: "Ollama", adapter: "opencode", key_env: "K", homepage: "", country: "local" }
+    expect(whereText(conn({ vendor: "ollama", base_url: "https://ollama.example.com/v1" }), ollama)).toBe("Another endpoint")
+    expect(whereText(conn({ vendor: "ollama", base_url: "http://x.localhost:11434/v1" }), ollama)).toBe("Another endpoint")
+    expect(whereText(conn({ vendor: "ollama" }, "home", true), ollama)).toBe("Local, code stays here")
   })
 })

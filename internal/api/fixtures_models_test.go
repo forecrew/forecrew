@@ -83,6 +83,10 @@ func modelsFixtureCases() []fixtureCase {
 	res := func(kind, name, scope, origin, spec string) mcp.ConfigResource {
 		return mcp.ConfigResource{Kind: kind, Name: name, Scope: scope, Origin: origin, Spec: json.RawMessage(spec)}
 	}
+	local := func(r mcp.ConfigResource) mcp.ConfigResource {
+		r.Local = true
+		return r
+	}
 	assignment := `{"project_overrides":true,"roles":{"architect":{"connection":"claude","tier":"best"},"developer":{"connection":"claude","tier":"strong"},` +
 		`"facilitator":{"connection":"deepseek","tier":"fast"},"product-owner":{"connection":"claude","tier":"best"},"reviewer":{"connection":"deepseek","tier":"strong"},` +
 		`"security-reviewer":{"connection":"deepseek","tier":"strong"},"test-engineer":{"connection":"claude","tier":"strong"},"triage":{"connection":"deepseek","tier":"fast"}},` +
@@ -158,7 +162,9 @@ func modelsFixtureCases() []fixtureCase {
 		{"config-resources-model-connection", "GET", "/api/v1/config/resources?kind=model_connection", "", 200, "bearer", resources(
 			res("model_connection", "claude", "server", "file", `{"adapter":"claude-code","enabled":true,"key_env":"ANTHROPIC_API_KEY","vendor":"anthropic"}`),
 			res("model_connection", "deepseek", "organization", "database", `{"adapter":"opencode","base_url":"https://api.deepseek.com/v1","enabled":true,"key_env":"DEEPSEEK_API_KEY","secret_ref":"store:models/deepseek","vendor":"deepseek"}`),
-			res("model_connection", "home-ollama", "organization", "database", `{"adapter":"opencode","base_url":"http://localhost:11434/v1","enabled":true,"key_env":"OLLAMA_API_KEY","vendor":"ollama"}`),
+			local(res("model_connection", "home-ollama", "organization", "database", `{"adapter":"opencode","base_url":"http://localhost:11434/v1","enabled":true,"key_env":"OLLAMA_API_KEY","vendor":"ollama"}`)),
+			// The address of a local model, but public: its code leaves the network.
+			res("model_connection", "lab-ollama", "organization", "database", `{"adapter":"opencode","base_url":"https://ollama.lab.example.com/v1","enabled":true,"key_env":"OLLAMA_API_KEY","secret_ref":"store:models/lab-ollama","vendor":"ollama"}`),
 		)},
 		{"config-resources-model-assignment", "GET", "/api/v1/config/resources?kind=model_assignment", "", 200, "bearer", resources(
 			res("model_assignment", "organization", "organization", "database", assignment),
