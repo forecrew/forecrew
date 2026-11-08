@@ -743,16 +743,24 @@ REST `POST` and `GET /api/v1/providers/{provider}/image-builds`, and the CLI
   organization, for an active Hyper-V or Proxmox location served by an agent. The
   licence statement is theirs and is never assumed. One build runs at a time per
   location. Anyone with `worker.read` can follow it.
+- **The Chocolatey hash** (the SHA-256 of the `install.ps1` the person reviewed) now
+  travels through forecrewd, where `build-image` took it from the command line of a
+  person at the host. That is acceptable: forecrewd only passes it on, anyone who can
+  change it already holds `worker.manage`, and a build made with a wrong script
+  cannot be used until a person checks the manifest, signs it with a key that is not
+  on the host and registers it.
 - **What the agent does** is what the command does: it refuses without the licence
   statement, reads the ISO again against the checksum, checks the worker and the
   disk, and runs Packer. It reads from the agent's own settings everything that
-  is not in the request, and only an ISO inside `iso_dir` (links resolved) is read:
+  is not in the request, and only a regular file inside `iso_dir` (links resolved; never a pipe or a device) is read:
   an agent without `image_build` refuses every request and says why.
 - **Progress** comes from `progress.json` and reaches forecrewd at each change and
   at least every two minutes. A build the agent does not take in 30 minutes (it is
   offline, or too old to know builds), and one it stops reporting for 15, ends as
   failed with a plain reason. An agent that restarts during a build fails it: the
-  build is not resumed.
+  build is not resumed. When forecrewd has ended a build the agent still runs (it
+  failed it for silence, or answered a report with 409), the agent stops it, kills
+  Packer and its children, and removes the build's output folder.
 - **The result** is the same unsigned manifest on the host, and the screen says so
   and links to the next step. Nothing registers or signs it, whatever the request,
   and no check can be left out: the licence statement, the checksum and the worker

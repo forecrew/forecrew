@@ -338,6 +338,42 @@ func TestRefuseDelegated(t *testing.T) {
 	}
 }
 
+func TestRequirePerson(t *testing.T) {
+	f := newFixture(t)
+	ctx := t.Context()
+	_, id := f.user(t)
+	person := domain.UserActor(f.account, id, domain.Credential{Kind: domain.CredentialSession, ID: domain.NewID()})
+	must(t, f.engine.RequirePerson(ctx, person, "does it"))
+	for name, by := range map[string]domain.Actor{
+		"ownerless token": {AccountID: f.account, Kind: domain.ActorMCP, Name: "laptop"},
+		"service account": {AccountID: f.account, Kind: domain.ActorServiceAccount, Name: domain.NewID().String()},
+		"worker":          {AccountID: f.account, Kind: domain.ActorWorker, Name: "w"},
+		"connected app":   domain.UserActor(f.account, id, domain.Credential{Kind: domain.CredentialOAuthGrant, ID: domain.NewID()}),
+	} {
+		if err := f.engine.RequirePerson(ctx, by, "does it"); !errors.Is(err, authz.ErrDenied) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	entries, err := f.st.Audit().List(ctx, f.account, store.AuditFilter{})
+	must(t, err)
+	if len(entries) != 4 {
+		t.Fatalf("audit = %+v", entries)
+	}
+	var rules []string
+	for _, e := range entries {
+		if e.Action != "access.denied" {
+			t.Errorf("entry %+v", e)
+		}
+		var d map[string]string
+		must(t, json.Unmarshal(e.Data, &d))
+		rules = append(rules, d["rule"])
+	}
+	slices.Sort(rules)
+	if want := []string{"not_for_connected_apps", "person_only", "person_only", "person_only"}; !slices.Equal(rules, want) {
+		t.Errorf("rules = %v", rules)
+	}
+}
+
 func TestAuthorizeScope(t *testing.T) {
 	f := newFixture(t)
 	ctx := t.Context()
