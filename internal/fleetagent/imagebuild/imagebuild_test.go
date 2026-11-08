@@ -124,14 +124,12 @@ func (r *rig) readVars(path string) {
 
 func (r *rig) run() (Result, error) { return r.b.Run(context.Background(), r.opts) }
 
-func (r *rig) progress() map[string]string {
-	raw, err := os.ReadFile(filepath.Join(r.opts.OutDir, "progress.json"))
+func (r *rig) progress() Progress {
+	p, err := ReadProgress(r.opts.OutDir)
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	var m map[string]string
-	_ = json.Unmarshal(raw, &m)
-	return m
+	return p
 }
 
 func TestBuildOnLinuxMakesAQcow2ForProxmox(t *testing.T) {
@@ -173,7 +171,7 @@ func TestBuildOnLinuxMakesAQcow2ForProxmox(t *testing.T) {
 		len(m.Contents.Packages) != 2 || m.Contents.Packages[1].Name != "golang" {
 		t.Errorf("manifest = %+v", m)
 	}
-	if p := r.progress(); p["state"] != "done" || p["error"] != "" {
+	if p := r.progress(); p.State != "done" || p.Error != "" || p.Percent != 100 || p.Step != "done" {
 		t.Errorf("progress = %v", p)
 	}
 	if log, _ := os.ReadFile(filepath.Join(r.opts.OutDir, "build.log")); !strings.Contains(string(log), "packer says hello") {
@@ -254,7 +252,7 @@ func TestBuildRefuses(t *testing.T) {
 				t.Fatalf("err = %v, want %q", err, tt.want)
 			}
 			if _, statErr := os.Stat(filepath.Join(r.opts.OutDir, "progress.json")); statErr == nil {
-				if p := r.progress(); p["state"] != "failed" || p["error"] == "" {
+				if p := r.progress(); p.State != "failed" || p.Error == "" {
 					t.Errorf("progress = %v", p)
 				}
 			}
@@ -330,5 +328,52 @@ func TestLabelsMatchTheTemplate(t *testing.T) {
 	}
 	if !slices.Equal(got, Labels) {
 		t.Errorf("template labels %v, manifest labels %v", got, Labels)
+	}
+}
+
+func TestProgressSaysWhereTheBuildStands(t *testing.T) {
+	r := newRig(t, "linux")
+	var seen []Progress
+	inner := r.b.Exec
+	r.b.Exec = func(ctx context.Context, dir string, w io.Writer, env []string, name string, args ...string) error {
+		p, err := ReadProgress(r.opts.OutDir)
+		if err != nil {
+			t.Error(err)
+		}
+		seen = append(seen, p)
+		return inner(ctx, dir, w, env, name, args...)
+	}
+	if _, err := r.run(); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 2 || seen[0].Step != "fetching Packer's plugins" || seen[0].Percent != 10 || seen[1].Step != "building the image: about an hour" || seen[1].Percent != 15 || seen[1].State != "running" {
+		t.Fatalf("seen %+v", seen)
+	}
+	if p := r.progress(); p.Percent != 100 {
+		t.Errorf("done %+v", p)
+	}
+}
+
+func TestAFailureKeepsThePercentItReached(t *testing.T) {
+	r := newRig(t, "linux")
+	r.failOn = "build"
+	if _, err := r.run(); err == nil {
+		t.Fatal("no error")
+	}
+	if p := r.progress(); p.State != "failed" || p.Percent != 15 || p.Step != "failed" || !strings.Contains(p.Error, "packer build") {
+		t.Fatalf("progress %+v", p)
+	}
+}
+
+func TestReadProgressProblems(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := ReadProgress(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("none: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ProgressFile), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadProgress(dir); err == nil || !strings.Contains(err.Error(), "progress of the build") {
+		t.Errorf("garbage: %v", err)
 	}
 }
