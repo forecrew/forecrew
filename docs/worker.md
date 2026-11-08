@@ -43,8 +43,12 @@ name crosses the wire.
   leave it), checks the SHA-256 as it reads, extracts the binary from a
   `tar.gz` or `zip`, and puts it in `<work_dir>/agents/bin` (mode `0700`). It
   installs nothing system-wide and asks for no rights: a worker running as
-  root never installs. That directory comes first on `PATH` for the runtimes,
-  and the worker advertises the new `runtime:<adapter>` label at its next
+  root never installs. The adapters look their CLI up there first and run it
+  by absolute path, and the directory comes first on the agent's own `PATH`
+  only: the worker finds its own `git` and `docker` at start and runs them by
+  absolute path, and neither its process nor a command job has the directory
+  on `PATH`, so nothing planted there is ever the worker's. The worker
+  advertises the new `runtime:<adapter>` label at its next
   poll. A wrong checksum deletes the file. What was installed (version,
   address, SHA-256, time) and the last failure are kept in
   `<work_dir>/agents/state.json`; a failed install of a version is reported
