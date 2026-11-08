@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query"
 import { CheckIcon, CircleAlertIcon, CircleDashedIcon, LoaderCircleIcon } from "lucide-react"
 import { useState } from "react"
 import { api } from "@/api/client"
-import { keys, useImageBuilds } from "@/api/queries"
+import { keys, useImageBuilds, useMe } from "@/api/queries"
 import type { ImageBuild, Provider } from "@/api/types"
 import { Field } from "@/components/Field"
 import { StatusBadge } from "@/components/StatusBadge"
@@ -171,7 +171,11 @@ export function BuildImage({ provider }: { provider: Provider }) {
   const can = useCan()
   const manage = can("worker.manage")
   const client = useQueryClient()
-  const builds = useImageBuilds(provider.name)
+  // A location of the whole instance is an instance admin's: the server answers anyone else 404, so the
+  // builds are not asked for and the form is not offered.
+  const admin = useMe().data?.user?.instance_admin === true
+  const outOfReach = provider.ownership === "hosted" && !admin
+  const builds = useImageBuilds(provider.name, !outOfReach)
   const [draft, setDraft] = useState<Draft>(EMPTY)
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
@@ -241,6 +245,24 @@ export function BuildImage({ provider }: { provider: Provider }) {
     </form>
   )
 
+  if (outOfReach) {
+    return (
+      <section aria-labelledby="build-image" className="max-w-xl space-y-3">
+        <h2 id="build-image" className="text-lg font-semibold">
+          Windows image
+        </h2>
+        <p className="text-sm">This location belongs to the whole instance, not to your organization. Only an instance admin builds its Windows image.</p>
+        <span className="inline-flex flex-col items-start gap-0.5" title="Needs an instance admin">
+          <Button disabled aria-describedby="build-needs-admin">
+            Build the image
+          </Button>
+          <span id="build-needs-admin" className="text-xs text-muted-foreground">
+            Needs an instance admin
+          </span>
+        </span>
+      </section>
+    )
+  }
   return (
     <section aria-labelledby="build-image" className="max-w-xl space-y-3">
       <h2 id="build-image" className="text-lg font-semibold">
