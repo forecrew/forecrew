@@ -176,6 +176,8 @@ func (s *Server) Handler() http.Handler {
 	route("POST /api/v1/fleet/notices/{notice}/resolve", serve(s, http.StatusOK, fleetNoticeInput, t.ResolveFleetNotice))
 	route("POST /api/v1/providers", serve(s, http.StatusCreated, bodyOf[mcp.CreateProviderInput], t.CreateProvider))
 	route("POST /api/v1/providers/{provider}/revoke", serve(s, http.StatusOK, providerInput, t.RevokeProvider))
+	route("POST /api/v1/providers/{provider}/image-builds", serve(s, http.StatusAccepted, startImageBuildInput, t.StartImageBuild))
+	route("GET /api/v1/providers/{provider}/image-builds", serve(s, http.StatusOK, listImageBuildsInput, list(t.ListImageBuilds)))
 	route("POST /api/v1/join-codes", serve(s, http.StatusCreated, bodyOf[mcp.CreateJoinCodeInput], t.CreateJoinCode))
 	route("GET /api/v1/join-codes", serve(s, http.StatusOK, listJoinCodesInput, list(t.ListJoinCodes)))
 	route("POST /api/v1/join-codes/{join}/confirm", serve(s, http.StatusOK, confirmJoinInput, t.ConfirmJoin))
@@ -353,14 +355,16 @@ func RouteAccess() map[string]mcp.Access {
 		"GET /api/v1/fleet/notices":                   tool[mcp.ToolListFleetNotices],
 		"POST /api/v1/fleet/notices/{notice}/resolve": tool[mcp.ToolResolveFleetNotice],
 
-		"GET /api/v1/images":                       tool[mcp.ToolListImages],
-		"POST /api/v1/images":                      {Permission: domain.PermWorkerManage},
-		"DELETE /api/v1/images/{image}":            {Permission: domain.PermWorkerManage},
-		"POST /api/v1/providers":                   tool[mcp.ToolCreateProvider],
-		"POST /api/v1/providers/{provider}/revoke": tool[mcp.ToolRevokeProvider],
-		"POST /api/v1/join-codes":                  tool[mcp.ToolCreateJoinCode],
-		"GET /api/v1/join-codes":                   tool[mcp.ToolListJoinCodes],
-		"POST /api/v1/join-codes/{join}/confirm":   tool[mcp.ToolConfirmJoin],
+		"GET /api/v1/images":                             tool[mcp.ToolListImages],
+		"POST /api/v1/images":                            {Permission: domain.PermWorkerManage},
+		"DELETE /api/v1/images/{image}":                  {Permission: domain.PermWorkerManage},
+		"POST /api/v1/providers":                         tool[mcp.ToolCreateProvider],
+		"POST /api/v1/providers/{provider}/revoke":       tool[mcp.ToolRevokeProvider],
+		"POST /api/v1/providers/{provider}/image-builds": tool[mcp.ToolStartImageBuild],
+		"GET /api/v1/providers/{provider}/image-builds":  tool[mcp.ToolListImageBuilds],
+		"POST /api/v1/join-codes":                        tool[mcp.ToolCreateJoinCode],
+		"GET /api/v1/join-codes":                         tool[mcp.ToolListJoinCodes],
+		"POST /api/v1/join-codes/{join}/confirm":         tool[mcp.ToolConfirmJoin],
 
 		"GET /api/v1/gates":                         tool[mcp.ToolListPendingGates],
 		"POST /api/v1/gates/{gate}/approve":         tool[mcp.ToolApprove],
@@ -519,6 +523,17 @@ func bodyOf[In any](r *http.Request) (In, error) {
 
 func providerInput(r *http.Request) (mcp.ProviderRefInput, error) {
 	return mcp.ProviderRefInput{Provider: r.PathValue("provider")}, nil
+}
+
+func startImageBuildInput(r *http.Request) (mcp.StartImageBuildInput, error) {
+	in, err := bodyOf[mcp.StartImageBuildInput](r)
+	in.Provider = r.PathValue("provider")
+	return in, err
+}
+
+func listImageBuildsInput(r *http.Request) (mcp.ListImageBuildsInput, error) {
+	limit, err := intParam(r.URL.Query().Get("limit"), "limit")
+	return mcp.ListImageBuildsInput{Provider: r.PathValue("provider"), Limit: int(limit)}, err
 }
 
 func listProvidersInput(*http.Request) (mcp.ListProvidersInput, error) {

@@ -78,6 +78,8 @@ type ToolService struct {
 	ListImagesFunc             func(context.Context, domain.Actor, mcp.ListImagesInput) ([]mcp.ImageInfo, error)
 	CreateProviderFunc         func(context.Context, domain.Actor, mcp.CreateProviderInput) (mcp.CreateProviderOutput, error)
 	RevokeProviderFunc         func(context.Context, domain.Actor, mcp.ProviderRefInput) (mcp.ProviderInfo, error)
+	StartImageBuildFunc        func(context.Context, domain.Actor, mcp.StartImageBuildInput) (mcp.ImageBuildInfo, error)
+	ListImageBuildsFunc        func(context.Context, domain.Actor, mcp.ListImageBuildsInput) ([]mcp.ImageBuildInfo, error)
 	CreateJoinCodeFunc         func(context.Context, domain.Actor, mcp.CreateJoinCodeInput) (mcp.CreateJoinCodeOutput, error)
 	ListJoinCodesFunc          func(context.Context, domain.Actor, mcp.ListJoinCodesInput) ([]mcp.JoinCodeInfo, error)
 	ConfirmJoinFunc            func(context.Context, domain.Actor, mcp.ConfirmJoinInput) (mcp.ProviderInfo, error)
@@ -227,6 +229,16 @@ func (s *ToolService) ListShapes(ctx context.Context, by domain.Actor) ([]mcp.Sh
 // CreateProvider implements mcp.ToolService.
 func (s *ToolService) CreateProvider(ctx context.Context, by domain.Actor, in mcp.CreateProviderInput) (mcp.CreateProviderOutput, error) {
 	return invoke(ctx, s, mcp.ToolCreateProvider, by, in, s.CreateProviderFunc)
+}
+
+// StartImageBuild implements mcp.ToolService.
+func (s *ToolService) StartImageBuild(ctx context.Context, by domain.Actor, in mcp.StartImageBuildInput) (mcp.ImageBuildInfo, error) {
+	return invoke(ctx, s, mcp.ToolStartImageBuild, by, in, s.StartImageBuildFunc)
+}
+
+// ListImageBuilds implements mcp.ToolService.
+func (s *ToolService) ListImageBuilds(ctx context.Context, by domain.Actor, in mcp.ListImageBuildsInput) ([]mcp.ImageBuildInfo, error) {
+	return invoke(ctx, s, mcp.ToolListImageBuilds, by, in, s.ListImageBuildsFunc)
 }
 
 // RevokeProvider implements mcp.ToolService.

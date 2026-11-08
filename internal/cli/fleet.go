@@ -162,7 +162,7 @@ func noticesCommand(r *remote) *cobra.Command {
 // providers`.
 func providerCommand(r *remote) *cobra.Command {
 	cmd := &cobra.Command{Use: "provider", Short: "Connect and revoke the locations machines come from"}
-	cmd.AddCommand(providerAddCommand(r), providerRevokeCommand(r), providerJoinCommand(r),
+	cmd.AddCommand(providerAddCommand(r), providerRevokeCommand(r), providerJoinCommand(r), providerBuildImageCommand(r), providerImageBuildsCommand(r),
 		listCommand(r, "joins", "List join codes and what their agents reported", "/join-codes", printJoinCodes),
 		providerConfirmCommand(r))
 	return cmd
@@ -207,6 +207,77 @@ func providerRevokeCommand(r *remote) *cobra.Command {
 			cmd.Printf("provider %s revoked\n", p.Name)
 			return nil
 		},
+	}
+}
+
+// providerBuildImageCommand asks a location's fleet agent for the Windows image
+// of its host. The ISO is a path on that host: only references are sent.
+func providerBuildImageCommand(r *remote) *cobra.Command {
+	var in mcp.StartImageBuildInput
+	cmd := &cobra.Command{
+		Use:   "build-image <name|id>",
+		Short: "Ask a Hyper-V or Proxmox location to build its Windows image from your ISO, which stays on its host",
+		Long: "Asks the fleet agent of a location to build the Windows image of its host with forecrew-fleet-agent build-image, about an hour. " +
+			"--iso is a path on that host, in the directory its agent allows. The agent checks the checksum, the licence statement and the worker again. " +
+			"The result is an unsigned manifest on the host: nothing is registered or signed. Follow it with `forecrew provider image-builds`.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var b mcp.ImageBuildInfo
+			if err := r.call(cmd.Context(), http.MethodPost, "/providers/"+url.PathEscape(args[0])+"/image-builds", in, &b); err != nil {
+				return err
+			}
+			cmd.Printf("image build %s requested on %s (%s); follow it with `forecrew provider image-builds %s`\n", b.Version, b.Provider, b.ID, b.Provider)
+			return nil
+		},
+	}
+	f := cmd.Flags()
+	f.StringVar(&in.Version, "version", "", "version of the image, for example 2026.11.1 (required)")
+	f.StringVar(&in.ISO, "iso", "", "absolute path of the Windows Server ISO on the location's host (required)")
+	f.StringVar(&in.ISOChecksum, "iso-checksum", "", "sha256:<hex> of the ISO, from your licence portal (required)")
+	f.StringVar(&in.ChocolateySHA256, "chocolatey-sha256", "", "SHA-256 of the Chocolatey install.ps1 you reviewed (required)")
+	f.StringVar(&in.WindowsImageName, "windows-image-name", "", "the edition inside the ISO; default the template's")
+	f.BoolVar(&in.LicenseConfirmed, "license-confirmed", false, "you hold a Windows Server licence that covers building and running this image (required)")
+	for _, name := range []string{"version", "iso", "iso-checksum", "chocolatey-sha256"} {
+		_ = cmd.MarkFlagRequired(name)
+	}
+	return cmd
+}
+
+func providerImageBuildsCommand(r *remote) *cobra.Command {
+	var limit int
+	cmd := &cobra.Command{
+		Use:   "image-builds <name|id>",
+		Short: "Show the Windows image builds of a location, newest first, with their progress",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := "/providers/" + url.PathEscape(args[0]) + "/image-builds"
+			if limit > 0 {
+				path += "?" + url.Values{"limit": {strconv.Itoa(limit)}}.Encode()
+			}
+			var items []mcp.ImageBuildInfo
+			if err := r.call(cmd.Context(), http.MethodGet, path, nil, &items); err != nil {
+				return err
+			}
+			printImageBuilds(cmd.OutOrStdout(), items)
+			return nil
+		},
+	}
+	cmd.Flags().IntVar(&limit, "limit", 0, "how many builds to show (default 20)")
+	return cmd
+}
+
+// printImageBuilds shows builds with the words their agents reported, which
+// nobody checked.
+func printImageBuilds(w io.Writer, items []mcp.ImageBuildInfo) {
+	rows := [][]string{{"ID", "VERSION", "STATE", "PERCENT", "STEP", "WHY", "UNSIGNED MANIFEST"}}
+	next := false
+	for _, b := range items {
+		rows = append(rows, []string{b.ID.String(), b.Version, string(b.State), strconv.Itoa(b.Percent), dash(safeText(b.Step)), dash(safeText(b.Error)), dash(safeText(b.Manifest))})
+		next = next || b.Next != ""
+	}
+	table(w, rows)
+	if next {
+		fmt.Fprintln(w, "\nA manifest is unsigned and nothing is registered. Check it, sign it off the host with `forecrew image sign`, then `forecrew image add` it (docs/images.md).")
 	}
 }
 

@@ -193,7 +193,9 @@ func saveBuild(ctx context.Context, st store.Store, b *domain.ImageBuild) error 
 }
 
 func checkBuildReport(r ImageBuildReport) error {
-	bad := func(format string, args ...any) error { return fmt.Errorf("%w: "+format, append([]any{ErrBadReport}, args...)...) }
+	bad := func(format string, args ...any) error {
+		return fmt.Errorf("%w: "+format, append([]any{ErrBadReport}, args...)...)
+	}
 	switch {
 	case r.State != domain.ImageBuildRunning && r.State != domain.ImageBuildDone && r.State != domain.ImageBuildFailed:
 		return bad("state %q: an agent reports running, done or failed", r.State)

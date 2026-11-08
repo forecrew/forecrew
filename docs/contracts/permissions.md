@@ -348,6 +348,8 @@ object up and checks the permission on the object's project.
 | `create_join_code` | `POST /api/v1/join-codes` | `worker.manage`; as `create_provider`, so never through an OAuth grant |
 | `list_join_codes` | `GET /api/v1/join-codes` | `worker.manage`; instance-wide codes show to an instance admin |
 | `confirm_join` | `POST /api/v1/join-codes/{join}/confirm` | `worker.manage`; as `revoke_provider` |
+| `start_image_build` | `POST /api/v1/providers/{provider}/image-builds` | `worker.manage` on the location's own organization, from a person only (a user at their own session or token: never a service account, an ownerless token or an app acting through an OAuth grant), because the licence statement is theirs; another organization's location is `404`, an instance-wide one is for an instance admin. The location must be an active Hyper-V or Proxmox location served by an agent. It asks for a build and registers or signs nothing: an image is registered only by a person (`POST /api/v1/images`), and signed off the host |
+| `list_image_builds` | `GET /api/v1/providers/{provider}/image-builds` | `worker.read`; as `start_image_build` for which locations are found. The words an agent reported are marked as data on MCP |
 | `list_pending_gates` | `GET /api/v1/gates` | `gate.read`; each gate says whether the caller may resolve it |
 | `approve` | `POST /api/v1/gates/{gate}/approve` | the gate's |
 | `request_changes` | `POST /api/v1/gates/{gate}/request-changes` | the gate's |
