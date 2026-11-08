@@ -41,6 +41,9 @@ type Config struct {
 	// Detect reports the capabilities; it defaults to Detect.
 	Detect func(ctx context.Context) domain.ProviderCapabilities
 	Now    func() time.Time
+	// Images does the Windows image builds forecrewd asks for. Nil refuses them:
+	// the agent is not set up to build (agent.yaml, image_build).
+	Images ImageBuilder
 	// The timings default to the constants above.
 	ReconcileEvery         time.Duration
 	BackoffMin, BackoffMax time.Duration
@@ -77,6 +80,9 @@ type Agent struct {
 	// pending are reports forecrewd did not get yet, sent again until it does.
 	pending map[uuid.UUID]StateReport
 	noRoom  bool
+	// builds are the image builds the agent took or answered, until forecrewd
+	// stops listing them.
+	builds map[uuid.UUID]struct{}
 
 	generation string
 	registered domain.ProviderCapabilities
@@ -109,7 +115,7 @@ func New(cfg Config) *Agent {
 	if cfg.AbuseEvery == 0 {
 		cfg.AbuseEvery = AbuseEvery
 	}
-	return &Agent{cfg: cfg, machines: map[uuid.UUID]*machine{}, pending: map[uuid.UUID]StateReport{}}
+	return &Agent{cfg: cfg, machines: map[uuid.UUID]*machine{}, pending: map[uuid.UUID]StateReport{}, builds: map[uuid.UUID]struct{}{}}
 }
 
 // Run works until ctx ends, and returns nil then. While forecrewd cannot be
@@ -185,6 +191,7 @@ func (a *Agent) session(ctx context.Context, connected func()) error {
 		connected()
 		a.generation = answer.Generation
 		a.apply(ctx, answer.Machines)
+		a.applyBuilds(ctx, answer.ImageBuilds)
 	}
 }
 
