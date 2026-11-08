@@ -473,3 +473,93 @@ func TestListsAreBounded(t *testing.T) {
 		t.Errorf("poll at the bound: %d", code)
 	}
 }
+
+func (e *env) windows(name string) (domain.CapacityProvider, string) {
+	e.t.Helper()
+	token, hash := fleet.NewProviderToken()
+	p := domain.CapacityProvider{AccountID: e.account.ID, Name: name, Kind: domain.ProviderHyperV, Mode: domain.ProviderModeAgent, Status: domain.ProviderActive, TokenHash: hash}
+	must(e.t, e.st.CapacityProviders().Create(e.t.Context(), &p))
+	return p, token
+}
+
+func (e *env) imageBuild(p domain.CapacityProvider) domain.ImageBuild {
+	e.t.Helper()
+	b := domain.ImageBuild{AccountID: p.AccountID, ProviderID: p.ID, Version: "2026.11.1", ISO: `D:\isos\server.iso`, ISOChecksum: "sha256:" + strings.Repeat("a", 64),
+		ChocolateySHA256: strings.Repeat("b", 64), LicenseConfirmedBy: "user:ana"}
+	must(e.t, e.st.ImageBuilds().Create(e.t.Context(), &b))
+	return b
+}
+
+func TestPollDeliversImageBuilds(t *testing.T) {
+	e := newEnv(t)
+	p, token := e.windows("win")
+	_, out := e.call("/fleet/v1/poll", token, map[string]any{"have": []string{}})
+	if _, there := out["image_builds"]; there {
+		t.Fatalf("no build: the answer is the one an old agent knows: %v", out)
+	}
+	b := e.imageBuild(p)
+	// A new build ends the wait of a poll that has the old generation.
+	started := time.Now()
+	_, again := e.call("/fleet/v1/poll", token, map[string]any{"generation": out["generation"], "have": []string{}})
+	if time.Since(started) > 30*time.Millisecond && again["generation"] == out["generation"] {
+		t.Fatalf("it waited: %v", again)
+	}
+	builds, _ := again["image_builds"].([]any)
+	if len(builds) != 1 {
+		t.Fatalf("builds %v", again)
+	}
+	got := builds[0].(map[string]any)
+	if got["id"] != b.ID.String() || got["state"] != "requested" || got["license_confirmed"] != true || got["iso"] != b.ISO || got["iso_checksum"] != b.ISOChecksum {
+		t.Fatalf("build %v", got)
+	}
+	// Only references: nothing of who asked, or of any credential.
+	for k := range got {
+		if k == "license_confirmed_by" || k == "account_id" {
+			t.Errorf("%s leaks into the agent's view", k)
+		}
+	}
+	// A build nobody takes ends by itself, and the agent stops being asked.
+	e.clock.Advance(fleet.BuildPickupWithin + time.Minute)
+	_, last := e.call("/fleet/v1/poll", token, map[string]any{"have": []string{}})
+	if _, there := last["image_builds"]; there {
+		t.Fatalf("expired build still offered: %v", last)
+	}
+	if got, _ := e.st.ImageBuilds().Get(t.Context(), b.ID); got.State != domain.ImageBuildFailed {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestImageBuildProgress(t *testing.T) {
+	e := newEnv(t)
+	p, token := e.windows("win")
+	_, otherToken := e.windows("other")
+	b := e.imageBuild(p)
+	path := "/fleet/v1/image-builds/" + b.ID.String() + "/progress"
+	if code, out := e.call(path, otherToken, map[string]any{"state": "running", "step": "x"}); code != 404 || errCode(out) != "not_found" {
+		t.Errorf("another provider: %d %v", code, out)
+	}
+	if code, _ := e.call("/fleet/v1/image-builds/nope/progress", token, map[string]any{"state": "running"}); code != 400 {
+		t.Errorf("not a UUID: %d", code)
+	}
+	if code, _ := e.call(path, token, map[string]any{"state": "done"}); code != 400 {
+		t.Errorf("done with nothing: %d", code)
+	}
+	if code, out := e.call(path, token, map[string]any{"state": "running", "step": "checking the ISO", "percent": 10}); code != 200 || len(out) != 0 {
+		t.Fatalf("running: %d %v", code, out)
+	}
+	if got, _ := e.st.ImageBuilds().Get(t.Context(), b.ID); got.State != domain.ImageBuildRunning || got.Step != "checking the ISO" || got.Percent != 10 {
+		t.Fatalf("%+v", got)
+	}
+	if code, _ := e.call(path, token, map[string]any{"state": "failed", "step": "failed", "error": "the ISO is not the one you named"}); code != 200 {
+		t.Fatalf("failed: %d", code)
+	}
+	if code, out := e.call(path, token, map[string]any{"state": "running", "step": "again"}); code != 409 || errCode(out) != "conflict" {
+		t.Errorf("after the end: %d %v", code, out)
+	}
+	if !strings.Contains(e.logs.String(), "image build ended") {
+		t.Errorf("log %s", e.logs)
+	}
+	if strings.Contains(e.logs.String(), "the ISO is not the one") {
+		t.Errorf("the agent's words are not logged: %s", e.logs)
+	}
+}

@@ -26,6 +26,9 @@ type Desired struct {
 	// it needs no state and a restart of forecrewd costs nothing.
 	Generation string
 	Machines   []CreateRequest
+	// ImageBuilds are the Windows image builds the agent should be doing or
+	// start (fleet-agent-api.md, Image builds).
+	ImageBuilds []ImageBuildRequest
 	// missing holds the requested machines the agent does not have.
 	missing map[uuid.UUID]bool
 	rows    map[uuid.UUID]domain.Machine
@@ -61,6 +64,12 @@ func (c *Controller) Desired(ctx context.Context, p domain.CapacityProvider, hav
 		if m.State == domain.MachineRequested && !slices.Contains(have, m.ID) {
 			d.missing[m.ID] = true
 		}
+	}
+	if d.ImageBuilds, err = DesiredImageBuilds(ctx, c.cfg.Store, p); err != nil {
+		return Desired{}, err
+	}
+	for _, b := range d.ImageBuilds {
+		fmt.Fprintf(sum, "build\x00%s\x00%s\x01", b.ID, b.State)
 	}
 	d.Generation = hex.EncodeToString(sum.Sum(nil)[:8])
 	return d, nil

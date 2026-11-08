@@ -114,6 +114,8 @@ func TestFleetFixtures(t *testing.T) {
 func TestFleetAgentSchemas(t *testing.T) {
 	id := `"018f4e2a-7b1c-7000-8000-000000000001"`
 	desired := `{"machine_id": ` + id + `, "shape": {}, "image": {}, "tags": {"forecrew:machine": "x"}, "network_allow": []`
+	build := `{"id": ` + id + `, "state": "requested", "version": "2026.11.1", "iso": "D:\\isos\\server.iso", "iso_checksum": "sha256:` + strings.Repeat("a", 64) +
+		`", "license_confirmed": true, "chocolatey_sha256": "` + strings.Repeat("b", 64) + `"`
 	tests := []struct {
 		def, instance string
 		ok            bool
@@ -141,6 +143,16 @@ func TestFleetAgentSchemas(t *testing.T) {
 		{"state_report", `{"state": "failed", "error": "stratum", "abuse": "mining"}`, true},
 		{"state_report", `{"state": "destroyed", "abuse": "mining"}`, false},
 		{"state_report", `{"state": "failed", "abuse": "spam"}`, false},
+		{"poll_response", `{"generation": "8", "machines": [], "image_builds": [` + build + `}]}`, true},
+		{"poll_response", `{"generation": "8", "machines": [], "image_builds": [` + build + `, "x": 1}]}`, false},
+		{"poll_response", `{"generation": "8", "machines": [], "image_builds": [{"id": ` + id + `, "state": "failed"}]}`, false},
+		{"image_build_report", `{"state": "running", "step": "checking the ISO", "percent": 10}`, true},
+		{"image_build_report", `{"state": "done", "step": "done", "percent": 100, "manifest": "D:\\b\\m.json", "digest": "sha256:` + strings.Repeat("c", 64) + `"}`, true},
+		{"image_build_report", `{"state": "done", "step": "done", "percent": 100}`, false},
+		{"image_build_report", `{"state": "failed", "step": "failed", "percent": 15, "error": "the ISO is not the one you named"}`, true},
+		{"image_build_report", `{"state": "failed", "step": "failed", "percent": 15}`, false},
+		{"image_build_report", `{"state": "requested", "step": "x", "percent": 0}`, false},
+		{"image_build_report", `{"state": "running", "step": "x", "percent": 101}`, false},
 		{"reconcile_request", `{"instances": [{"external_id": "vm-1", "machine_id": ` + id + `, "running": true}]}`, true},
 		{"reconcile_request", `{"instances": [{"machine_id": ` + id + `, "running": true}]}`, false},
 		{"reconcile_response", `{"destroy": ["vm-1"]}`, true},

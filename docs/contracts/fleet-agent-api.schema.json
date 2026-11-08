@@ -239,6 +239,13 @@
           "items": {
             "$ref": "#/$defs/desired_machine"
           }
+        },
+        "image_builds": {
+          "type": "array",
+          "description": "Windows image builds the agent should do or start; absent when there is none.",
+          "items": {
+            "$ref": "#/$defs/image_build_request"
+          }
         }
       }
     },
@@ -298,6 +305,126 @@
                 "const": "failed"
               }
             }
+          }
+        }
+      ]
+    },
+    "image_build_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "state",
+        "version",
+        "iso",
+        "iso_checksum",
+        "license_confirmed",
+        "chocolatey_sha256"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state": {
+          "enum": [
+            "requested",
+            "running"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+        },
+        "iso": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Absolute path of the ISO on the agent's host."
+        },
+        "iso_checksum": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-fA-F]{64}$"
+        },
+        "license_confirmed": {
+          "const": true,
+          "description": "A person stated that their licence covers building and running the image."
+        },
+        "chocolatey_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$"
+        },
+        "windows_image_name": {
+          "type": "string"
+        }
+      }
+    },
+    "image_build_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "step",
+        "percent"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "running",
+            "done",
+            "failed"
+          ]
+        },
+        "step": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "percent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "error": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "manifest": {
+          "type": "string",
+          "maxLength": 1024,
+          "description": "Path of the unsigned manifest on the agent's host."
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "done"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "manifest",
+              "digest"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "failed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "error"
+            ]
           }
         }
       ]

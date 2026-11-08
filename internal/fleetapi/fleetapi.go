@@ -92,6 +92,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /fleet/v1/poll", s.poll)
 	mux.HandleFunc("POST /fleet/v1/machines/{machine_id}/state", s.state)
 	mux.HandleFunc("POST /fleet/v1/reconcile", s.reconcile)
+	mux.HandleFunc("POST /fleet/v1/image-builds/{build_id}/progress", s.buildProgress)
 	outer.Handle("/", s.authenticate(mux))
 	return outer
 }
@@ -281,6 +282,9 @@ func (s *Server) register(rw http.ResponseWriter, r *http.Request) {
 type pollResponse struct {
 	Generation string                `json:"generation"`
 	Machines   []fleet.CreateRequest `json:"machines"`
+	// ImageBuilds is left out when there is none, so an agent that knows
+	// nothing of them sees the answer it always did.
+	ImageBuilds []fleet.ImageBuildRequest `json:"image_builds,omitempty"`
 }
 
 // poll answers at once when the list changed or a machine is to be delivered,
@@ -302,6 +306,10 @@ func (s *Server) poll(rw http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.cfg.Store.CapacityProviders().Seen(ctx, id, nil); err != nil {
 		s.fail(ctx, rw, "record contact", err)
+		return
+	}
+	if err := fleet.ExpireImageBuilds(ctx, s.cfg.Store, s.cfg.Now(), id); err != nil {
+		s.fail(ctx, rw, "expire image builds", err)
 		return
 	}
 	wait := time.NewTimer(s.cfg.PollWait)
@@ -348,7 +356,7 @@ func (s *Server) answerPoll(rw http.ResponseWriter, r *http.Request, p domain.Ca
 		s.fail(ctx, rw, "deliver machines", err)
 		return
 	}
-	workerapi.WriteJSON(rw, http.StatusOK, pollResponse{Generation: d.Generation, Machines: d.Machines})
+	workerapi.WriteJSON(rw, http.StatusOK, pollResponse{Generation: d.Generation, Machines: d.Machines, ImageBuilds: d.ImageBuilds})
 }
 
 func (s *Server) state(rw http.ResponseWriter, r *http.Request) {
@@ -425,4 +433,36 @@ func (s *Server) reconcile(rw http.ResponseWriter, r *http.Request) {
 		s.cfg.Logger.WarnContext(ctx, "reconcile provider", "provider", p.Name, "error", err)
 	}
 	workerapi.WriteJSON(rw, http.StatusOK, map[string][]string{"destroy": destroy})
+}
+
+// buildProgress takes the agent's report on an image build. The build must be
+// this provider's. What the agent says is stored as text and shown to people
+// as that: nothing in it is acted on.
+func (s *Server) buildProgress(rw http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, err := uuid.Parse(r.PathValue("build_id"))
+	if err != nil {
+		badRequest(rw, "build_id is not a UUID")
+		return
+	}
+	var req fleet.ImageBuildReport
+	if !workerapi.Decode(rw, r, &req) {
+		return
+	}
+	b, err := fleet.ReportImageBuild(ctx, s.cfg.Store, s.cfg.Now(), providerOf(ctx), id, req)
+	switch {
+	case err == nil:
+		if b.State == domain.ImageBuildDone || b.State == domain.ImageBuildFailed {
+			s.cfg.Logger.InfoContext(ctx, "image build ended", "build", b.ID, "provider", providerOf(ctx).Name, "state", b.State)
+		}
+		workerapi.WriteJSON(rw, http.StatusOK, struct{}{})
+	case errors.Is(err, fleet.ErrBadReport):
+		badRequest(rw, err.Error())
+	case errors.Is(err, store.ErrNotFound):
+		workerapi.WriteError(rw, http.StatusNotFound, "not_found", "image build not found")
+	case errors.Is(err, store.ErrConflict):
+		workerapi.WriteError(rw, http.StatusConflict, "conflict", "the image build has ended")
+	default:
+		s.fail(ctx, rw, "report image build", err)
+	}
 }
