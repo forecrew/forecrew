@@ -237,7 +237,12 @@ its own cache of fetched images by the same rule (docs/fleet.md).
   `ide0`) and an `e1000` device. Forecrew downloads neither.
 - **The fleet agent builds it for you** with `forecrew-fleet-agent build-image`
   (docs/fleet.md): it checks the licence statement, the ISO's checksum and the
-  worker, runs the template, and leaves the unsigned manifest.
+  worker, runs the template, and leaves the unsigned manifest. The same build starts
+  from the location's page in the web UI, MCP, REST or the CLI
+  (`forecrew provider build-image`), with its progress shown there: the request
+  names the ISO's path on the host, never the file, and the result is still the
+  unsigned manifest. Registering and signing it stay yours: `forecrew image sign`
+  off the host, then `forecrew image add` or Register the image on the page.
 - **macOS** needs an Apple silicon Mac. The base VM is pinned by digest
   (`base_vm=registry/name@sha256:...`, which you resolve and review). The base
   VM's login (`admin`/`admin` in the public Cirrus images) is replaced by a random
