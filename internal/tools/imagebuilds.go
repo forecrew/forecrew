@@ -8,7 +8,6 @@ import (
 	"slices"
 	"uuid"
 
-	"github.com/forecrew/forecrew/internal/authz"
 	"github.com/forecrew/forecrew/internal/contextpack"
 	"github.com/forecrew/forecrew/internal/domain"
 	"github.com/forecrew/forecrew/internal/fleet"
@@ -56,8 +55,8 @@ func (s *Service) StartImageBuild(ctx context.Context, by domain.Actor, in mcp.S
 	if err := s.allowOrg(ctx, by, domain.PermWorkerManage); err != nil {
 		return mcp.ImageBuildInfo{}, err
 	}
-	if by.Kind != domain.ActorUser || authz.Delegated(by) {
-		return mcp.ImageBuildInfo{}, fmt.Errorf("only a person at their own session or token starts a Windows image build: the licence statement is theirs: %w", authz.ErrDenied)
+	if err := s.authz.RequirePerson(ctx, by, "at their own session or token starts a Windows image build: the licence statement is theirs"); err != nil {
+		return mcp.ImageBuildInfo{}, err
 	}
 	if !in.LicenseConfirmed {
 		return mcp.ImageBuildInfo{}, fmt.Errorf("license_confirmed must be true: confirm that you hold a Windows Server licence that covers building and running this image; Forecrew does not provide Windows: %w", mcp.ErrInvalidInput)

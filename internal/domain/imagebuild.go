@@ -83,9 +83,6 @@ var checksumRE = regexp.MustCompile(`^sha256:[0-9a-fA-F]{64}$`)
 var sha256HexRE = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 var windowsEditionRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,63}$`)
 
-// MaxImageBuildText bounds the lines of an image build that an agent or a person wrote.
-const MaxImageBuildText = 2000
-
 // absolutePath reports a path an agent on Windows or on Linux takes as absolute,
 // with no control character: forecrewd runs on neither and only checks the form.
 func absolutePath(p string) bool {

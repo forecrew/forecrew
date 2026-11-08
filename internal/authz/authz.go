@@ -472,6 +472,20 @@ func (e *Engine) RefuseDelegated(ctx context.Context, by domain.Actor) error {
 	return fmt.Errorf("a connected app cannot do this: %w", ErrDenied)
 }
 
+// RequirePerson returns nil for a person acting in their own session or with
+// their own token. A service account, an ownerless token, an agent or a
+// worker is refused, and so is an app acting through an OAuth grant
+// (RefuseDelegated). what completes "only a person ...". A refusal wraps
+// ErrDenied and is audited.
+func (e *Engine) RequirePerson(ctx context.Context, by domain.Actor, what string) error {
+	if by.Kind == domain.ActorUser {
+		return e.RefuseDelegated(ctx, by)
+	}
+	res := Organization(by.AccountID)
+	e.record(ctx, by, res, map[string]string{"rule": "person_only", "resource": res.UID().String(), "what": what})
+	return fmt.Errorf("only a person %s: %w", what, ErrDenied)
+}
+
 // CanResolve reports whether by may resolve g, for the gate list.
 func (e *Engine) CanResolve(ctx context.Context, by domain.Actor, g domain.Gate) (bool, error) {
 	if !mayResolve(by) {

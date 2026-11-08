@@ -119,6 +119,13 @@ func TestReportImageBuild(t *testing.T) {
 		}
 	}
 
+	// A build that was never reported running does not finish.
+	if _, err := report(fleet.ImageBuildReport{State: domain.ImageBuildDone, Step: "done", Manifest: "m.json", Digest: digest}); !errors.Is(err, fleet.ErrBadReport) {
+		t.Errorf("requested to done: %v", err)
+	}
+	if got, _ := e.st.ImageBuilds().Get(e.ctx, b.ID); got.State != domain.ImageBuildRequested {
+		t.Errorf("the refused report changed the build: %+v", got)
+	}
 	got, err := report(fleet.ImageBuildReport{State: domain.ImageBuildRunning, Step: "building the image: about an hour", Percent: 15})
 	must(t, err)
 	if got.State != domain.ImageBuildRunning || got.Percent != 15 || got.StartedAt.IsZero() || !got.FinishedAt.IsZero() {

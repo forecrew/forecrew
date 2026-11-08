@@ -159,6 +159,9 @@ func ReportImageBuild(ctx context.Context, st store.Store, now time.Time, p doma
 		}
 		return b, fmt.Errorf("image build %s is %s: %w", id, b.State, store.ErrConflict)
 	}
+	if b.State != r.State && !b.State.CanTransition(r.State) {
+		return b, fmt.Errorf("%w: a build that is %s is not %s at once", ErrBadReport, b.State, r.State)
+	}
 	if b.StartedAt.IsZero() {
 		b.StartedAt = now
 	}

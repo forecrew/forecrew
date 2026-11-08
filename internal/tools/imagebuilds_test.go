@@ -117,6 +117,9 @@ func TestStartImageBuildNeedsAPersonWhoManagesMachines(t *testing.T) {
 	if _, err := f.svc.StartImageBuild(ctx, f.by, buildInput("win-host")); !errors.Is(err, authz.ErrDenied) {
 		t.Errorf("ownerless token: %v", err)
 	}
+	if !audited(t, f, "access.denied") {
+		t.Error("the refusal of a caller who is not a person was not audited")
+	}
 	person := manager(t, f, false)
 	app := person
 	app.Credential = domain.Credential{Kind: domain.CredentialOAuthGrant, ID: uuid.New()}
@@ -200,6 +203,8 @@ func TestFinishedBuildSaysItIsUnsigned(t *testing.T) {
 	b, err := f.svc.StartImageBuild(ctx, person, buildInput("win-host"))
 	must(t, err)
 	digest := "sha256:" + strings.Repeat("c", 64)
+	_, err = fleet.ReportImageBuild(ctx, f.st, f.clock.Now(), p, b.ID, fleet.ImageBuildReport{State: domain.ImageBuildRunning, Step: "building", Percent: 15})
+	must(t, err)
 	_, err = fleet.ReportImageBuild(ctx, f.st, f.clock.Now(), p, b.ID, fleet.ImageBuildReport{State: domain.ImageBuildDone, Step: "done", Percent: 100, Manifest: "/out/m.json", Digest: digest})
 	must(t, err)
 	bs, err := f.svc.ListImageBuilds(ctx, person, mcp.ListImageBuildsInput{Provider: "win-host"})
